@@ -1,0 +1,7 @@
+metric_name: gmv
+display_name: GMV
+definition: Gross merchandise value over paid orders in the selected time window.
+owner: revenue_ops
+unit: CNY
+allowed_schemas:
+  - sales

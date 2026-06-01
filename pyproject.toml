@@ -1,0 +1,19 @@
+[project]
+name = "ai-native-business-data-agent-os"
+version = "0.1.0"
+description = "Independent AI Native Business Data Agent OS implementation"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = [
+  "packages/os_core/src",
+  "packages/contracts/src",
+  "packages/sdk/src",
+  "tests"
+]
