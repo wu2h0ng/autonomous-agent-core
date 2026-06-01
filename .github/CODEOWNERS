@@ -1,0 +1,23 @@
+# Default owner
+* @wu2h0ng
+
+# Product and architecture boundaries
+AGENTS.md @wu2h0ng
+README.md @wu2h0ng
+docs/ @wu2h0ng
+
+# Core runtime and contracts
+packages/contracts/ @wu2h0ng
+packages/os_core/ @wu2h0ng
+packages/sdk/ @wu2h0ng
+
+# Domain-specific and integration surfaces
+domain_packs/ @wu2h0ng
+providers/ @wu2h0ng
+action_connectors/ @wu2h0ng
+examples/ @wu2h0ng
+
+# CI and governance
+.github/ @wu2h0ng
+tests/ @wu2h0ng
+scripts/ @wu2h0ng
