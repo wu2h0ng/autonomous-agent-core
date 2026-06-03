@@ -1,0 +1,57 @@
+[
+  {
+    "id": "gmv_daily",
+    "question": "GMV",
+    "expected_metric": "gmv",
+    "domain": "content_commerce",
+    "parameters": {
+      "start_date": "2026-05-25",
+      "end_date": "2026-06-01",
+      "limit": 100
+    }
+  },
+  {
+    "id": "gmv_daily_en",
+    "question": "What was the GMV in the last 7 days?",
+    "expected_metric": "gmv",
+    "domain": "content_commerce",
+    "parameters": {
+      "start_date": "2026-05-25",
+      "end_date": "2026-06-01",
+      "limit": 100
+    }
+  },
+  {
+    "id": "roi_trend",
+    "question": "ROI",
+    "expected_metric": "roi",
+    "domain": "content_commerce",
+    "parameters": {
+      "start_date": "2026-05-31",
+      "end_date": "2026-06-01",
+      "limit": 100
+    }
+  },
+  {
+    "id": "conversion_rate",
+    "question": "conversion rate",
+    "expected_metric": "conversion_rate",
+    "domain": "content_commerce",
+    "parameters": {
+      "start_date": "2026-05-25",
+      "end_date": "2026-06-01",
+      "limit": 50
+    }
+  },
+  {
+    "id": "spend_top5",
+    "question": "ad spend top 5",
+    "expected_metric": "spend",
+    "domain": "content_commerce",
+    "parameters": {
+      "start_date": "2026-05-01",
+      "end_date": "2026-06-01",
+      "limit": 5
+    }
+  }
+]

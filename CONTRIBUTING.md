@@ -11,8 +11,20 @@ FaSoLa and other customer systems are Customer-0 or reference sources only. Do n
 Run before every PR:
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+make ci
 ```
+
+Or run individual checks:
+
+```bash
+make lint            # ruff check .
+make format-check    # ruff format --check .
+make unit            # unit tests
+make eval            # eval tests
+make test            # unit + eval
+```
+
+CI uses the same commands. If CI fails, the failure must not be overridden by local results.
 
 ## Workflow
 

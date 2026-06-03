@@ -4,6 +4,16 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from .architecture import (
+    DataProductCandidate,
+    DataRequirement,
+    LineageSnapshot,
+    OperationContract,
+    ProviderContract,
+    StateSnapshot,
+)
+from .observability import TelemetryEvent
+
 
 class RiskLevel(StrEnum):
     R0 = "R0"
@@ -121,6 +131,9 @@ class ActionProposal:
     expected_impact: str
     approval_required: bool
     approver_role: str | None
+    connector_name: str = "manual_review"
+    action_type: str = "propose"
+    action_parameters: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -137,3 +150,12 @@ class TrustedLoopResult:
     evidence_chain: EvidenceChain
     action_proposal: ActionProposal
     trace_events: tuple[TraceEvent, ...]
+    telemetry_events: tuple[TelemetryEvent, ...] = field(default_factory=tuple)
+    provider_contract: ProviderContract | None = None
+    data_requirement: DataRequirement | None = None
+    lineage_snapshot: LineageSnapshot | None = None
+    data_product_candidate: DataProductCandidate | None = None
+    operation_contract: OperationContract | None = None
+    state_snapshot: StateSnapshot | None = None
+    action_result: dict[str, Any] | None = None
+    approval_record: Any | None = None

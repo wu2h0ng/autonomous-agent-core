@@ -12,6 +12,10 @@ These rules apply to code under `data-agent-os/`.
 4. All formal answers must pass through SQL Safety and EvidenceChain.
 5. R4/R5 business actions are proposal-only in MVP.
 6. Every behavioral change must include or update tests.
+7. Do not submit pseudo implementation: empty shells, hard-coded success, unused adapters,
+   documentation-only behavior, or tests that merely assert fixture values are not complete.
+8. A new runtime capability must be reachable from a real entry point and must expose at
+   least one failure path.
 
 ## Required Flow
 
@@ -23,6 +27,16 @@ Contract
   -> Review
   -> Traceable result
 ```
+
+## Completion Gate
+
+Before marking a task complete, state:
+
+- The real entry point that invokes the new code.
+- The contract/schema consumed or produced.
+- The negative path covered by tests or explicitly documented as pending.
+- The regression test or eval that would fail if the code were bypassed.
+- The reason OS Core boundaries remain intact.
 
 ## First Milestone
 

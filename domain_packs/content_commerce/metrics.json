@@ -1,0 +1,38 @@
+[
+  {
+    "metric_name": "gmv",
+    "display_name": "GMV",
+    "definition": "Gross merchandise value from paid orders within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "CNY",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"]
+  },
+  {
+    "metric_name": "roi",
+    "display_name": "ROI",
+    "definition": "Return on advertising investment within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "ratio",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"]
+  },
+  {
+    "metric_name": "conversion_rate",
+    "display_name": "Conversion Rate",
+    "definition": "Paid order conversion rate within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "ratio",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"]
+  },
+  {
+    "metric_name": "spend",
+    "display_name": "Ad Spend",
+    "definition": "Advertising spend within the selected time window.",
+    "owner": "content_commerce_ops",
+    "unit": "CNY",
+    "allowed_schemas": ["sales"],
+    "dimensions": ["order_date"]
+  }
+]

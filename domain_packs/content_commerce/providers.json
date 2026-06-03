@@ -1,0 +1,13 @@
+[
+  {
+    "provider_id": "provider-content-commerce-sales",
+    "kind": "warehouse",
+    "name": "content commerce sales warehouse",
+    "owner": "data_platform",
+    "allowed_schemas": ["sales"],
+    "data_classification": "internal",
+    "supports_query": true,
+    "supports_write": false,
+    "lineage_hint": "sales.orders"
+  }
+]

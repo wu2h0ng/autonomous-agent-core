@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "packages" / "contracts" / "src"))
 
-from agent_os_contracts import (
+from agent_os_contracts import (  # noqa: E402
     DataClassification,
     MetricContract,
     SQLSafetyIssue,
@@ -49,7 +49,9 @@ class ContractDefaultsTest(unittest.TestCase):
             allowed=False,
             reasons=("SQL must include an explicit LIMIT.",),
             checked_schemas=("sales",),
-            issues=(SQLSafetyIssue(code="MISSING_LIMIT", message="SQL must include an explicit LIMIT."),),
+            issues=(
+                SQLSafetyIssue(code="MISSING_LIMIT", message="SQL must include an explicit LIMIT."),
+            ),
         )
 
         self.assertFalse(result.allowed)

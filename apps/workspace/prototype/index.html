@@ -1,0 +1,1183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Data Agent OS · Intent Workspace Prototype</title>
+    <style>
+      :root {
+        --bg: #f5f7fa;
+        --surface: #ffffff;
+        --surface-2: #f8fafc;
+        --ink: #152033;
+        --muted: #667085;
+        --line: #d9e0e8;
+        --line-strong: #c4ceda;
+        --green: #0f7a5a;
+        --green-bg: #e7f6ef;
+        --blue: #2563a9;
+        --blue-bg: #e8f1fb;
+        --amber: #9a650d;
+        --amber-bg: #fff3d8;
+        --red: #b42318;
+        --red-bg: #fde8e7;
+        --nav: #111827;
+        --shadow: 0 12px 36px rgba(18, 32, 51, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--ink);
+        background: var(--bg);
+        font-family:
+          Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, -apple-system,
+          BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      button,
+      textarea,
+      input {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .app {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 248px minmax(0, 1fr);
+      }
+
+      .side {
+        background: var(--nav);
+        color: #d5dbea;
+        padding: 20px 14px;
+      }
+
+      .brand {
+        display: grid;
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+        padding: 0 8px 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .mark {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, #1f7a5c, #2563a9);
+        color: #fff;
+        font-weight: 760;
+      }
+
+      .brand strong {
+        display: block;
+        color: #fff;
+        font-size: 14px;
+        line-height: 1.2;
+      }
+
+      .brand span {
+        display: block;
+        margin-top: 3px;
+        color: #aab3c5;
+        font-size: 12px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 5px;
+        margin-top: 18px;
+      }
+
+      .nav button {
+        width: 100%;
+        min-height: 40px;
+        border: 0;
+        border-radius: 6px;
+        display: grid;
+        grid-template-columns: 26px minmax(0, 1fr) auto;
+        gap: 9px;
+        align-items: center;
+        padding: 8px 10px;
+        color: #cbd3e1;
+        background: transparent;
+        text-align: left;
+      }
+
+      .nav button.active {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .nav svg,
+      .toolbar svg,
+      .icon-button svg,
+      .small-action svg {
+        width: 17px;
+        height: 17px;
+        stroke: currentColor;
+        stroke-width: 2;
+        fill: none;
+      }
+
+      .nav .count {
+        color: #aab3c5;
+        font-size: 12px;
+      }
+
+      .side-section {
+        margin: 22px 8px 0;
+        padding-top: 18px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .side-section h2 {
+        margin: 0 0 10px;
+        color: #fff;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .scope-list {
+        display: grid;
+        gap: 9px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .scope-list li {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: #aab3c5;
+        font-size: 12px;
+      }
+
+      .scope-list b {
+        color: #e8edf7;
+        font-weight: 650;
+      }
+
+      main {
+        min-width: 0;
+        padding: 22px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 18px;
+      }
+
+      .eyebrow {
+        margin: 0 0 5px;
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin: 7px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .icon-button,
+      .run-button,
+      .small-action {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .icon-button {
+        width: 38px;
+        height: 38px;
+        display: grid;
+        place-items: center;
+      }
+
+      .run-button {
+        min-height: 38px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        color: #fff;
+        border-color: #12664c;
+        background: #12664c;
+        font-weight: 700;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(250px, 310px) minmax(440px, 1fr) minmax(300px, 360px);
+        gap: 14px;
+        align-items: start;
+      }
+
+      .panel,
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .panel {
+        overflow: hidden;
+      }
+
+      .panel-head {
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-head h2,
+      .card h3 {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.3;
+      }
+
+      .panel-body {
+        padding: 16px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .question {
+        width: 100%;
+        min-height: 118px;
+        resize: vertical;
+        border: 1px solid var(--line-strong);
+        border-radius: 7px;
+        background: #fff;
+        color: var(--ink);
+        padding: 12px;
+        line-height: 1.55;
+        outline: none;
+      }
+
+      .question:focus,
+      input:focus {
+        border-color: #6aa2d8;
+        box-shadow: 0 0 0 3px rgba(37, 99, 169, 0.15);
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .chip {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: #344054;
+        padding: 7px 10px;
+        font-size: 12px;
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .field {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface-2);
+        padding: 10px;
+      }
+
+      .field span,
+      .metric span,
+      .status-row span,
+      .trace-step span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .field b,
+      .metric b,
+      .status-row b,
+      .trace-step b {
+        display: block;
+        margin-top: 5px;
+        font-size: 13px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 26px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 4px 9px;
+        font-size: 12px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .badge::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: currentColor;
+      }
+
+      .ok {
+        color: var(--green);
+        background: var(--green-bg);
+        border-color: #b9e3d1;
+      }
+
+      .info {
+        color: var(--blue);
+        background: var(--blue-bg);
+        border-color: #bfd7ef;
+      }
+
+      .warn {
+        color: var(--amber);
+        background: var(--amber-bg);
+        border-color: #f0d49a;
+      }
+
+      .danger {
+        color: var(--red);
+        background: var(--red-bg);
+        border-color: #f4b9b5;
+      }
+
+      .answer {
+        border: 1px solid #c9d9e8;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #ffffff, #f6faff);
+        padding: 18px;
+      }
+
+      .answer .kicker {
+        margin: 0 0 7px;
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      .answer strong {
+        display: block;
+        font-size: 28px;
+        line-height: 1.2;
+      }
+
+      .answer p {
+        margin: 12px 0 0;
+        color: #475467;
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface-2);
+        padding: 11px;
+      }
+
+      .metric b {
+        font-size: 17px;
+      }
+
+      .evidence-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .card {
+        padding: 13px;
+        box-shadow: none;
+      }
+
+      .card p,
+      .card code,
+      .action-copy,
+      .feedback-note {
+        margin: 8px 0 0;
+        color: #475467;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .card code {
+        display: block;
+        padding: 9px;
+        border-radius: 6px;
+        background: #eef3f8;
+        color: #25415f;
+        font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+        word-break: break-word;
+      }
+
+      .status-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .status-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        padding: 11px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .status-row:first-child {
+        padding-top: 0;
+      }
+
+      .status-row:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .action-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .risk-level {
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        display: grid;
+        place-items: center;
+        color: var(--amber);
+        background: var(--amber-bg);
+        font-size: 20px;
+        font-weight: 800;
+      }
+
+      .action-copy strong {
+        color: var(--ink);
+      }
+
+      .approval-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 13px;
+      }
+
+      .small-action {
+        min-height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 0 11px;
+        font-weight: 700;
+      }
+
+      .small-action.primary {
+        color: #fff;
+        border-color: #12664c;
+        background: #12664c;
+      }
+
+      .feedback-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .feedback-row button {
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface-2);
+        color: #344054;
+        font-size: 12px;
+      }
+
+      .trace {
+        display: grid;
+        gap: 8px;
+      }
+
+      .trace-step {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+        gap: 9px;
+        align-items: center;
+        min-height: 46px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--surface-2);
+        padding: 8px;
+      }
+
+      .trace-step i {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        color: #fff;
+        background: #4b5d75;
+        font-style: normal;
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .state-tabs {
+        display: flex;
+        gap: 6px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-2);
+      }
+
+      .state-tabs button {
+        flex: 1;
+        min-height: 34px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .state-tabs button.active {
+        color: var(--ink);
+        background: var(--surface);
+        box-shadow: 0 1px 2px rgba(18, 32, 51, 0.08);
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 1220px) {
+        .app {
+          grid-template-columns: 1fr;
+        }
+
+        .side {
+          display: none;
+        }
+
+        .layout {
+          grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+        }
+
+        .rail {
+          grid-column: 1 / -1;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+        }
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 14px;
+        }
+
+        .topbar {
+          display: grid;
+        }
+
+        .toolbar {
+          justify-content: flex-start;
+        }
+
+        .layout,
+        .rail,
+        .metrics,
+        .evidence-grid,
+        .field-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .answer strong {
+          font-size: 22px;
+        }
+
+        .feedback-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="side" aria-label="Workspace navigation">
+        <div class="brand">
+          <div class="mark">D</div>
+          <div>
+            <strong>Data Agent OS</strong>
+            <span>Trusted business operations</span>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="active">
+            <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" /></svg>
+            <span>Intent Workspace</span>
+            <span class="count">F0</span>
+          </button>
+          <button>
+            <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg>
+            <span>Metric Contracts</span>
+            <span class="count">12</span>
+          </button>
+          <button>
+            <svg viewBox="0 0 24 24"><path d="M6 4h12v16H6zM9 8h6M9 12h6M9 16h4" /></svg>
+            <span>Evidence Chains</span>
+            <span class="count">31</span>
+          </button>
+          <button>
+            <svg viewBox="0 0 24 24"><path d="M12 3l8 7-8 11-8-11z" /></svg>
+            <span>Action Proposals</span>
+            <span class="count">4</span>
+          </button>
+          <button>
+            <svg viewBox="0 0 24 24"><path d="M20 7l-9 9-5-5" /></svg>
+            <span>Eval & Safety</span>
+            <span class="count">96%</span>
+          </button>
+        </nav>
+
+        <section class="side-section">
+          <h2>F0 boundary</h2>
+          <ul class="scope-list">
+            <li><span>Runtime</span><b>mock only</b></li>
+            <li><span>Contract</span><b>no new fields</b></li>
+            <li><span>R4/R5</span><b>proposal only</b></li>
+            <li><span>Core import</span><b>blocked</b></li>
+          </ul>
+        </section>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Intent Workspace</p>
+            <h1>可信问数与行动审批工作台</h1>
+            <p class="subtitle">GMV / ROI / 日报场景的 F0 静态原型，展示意图、证据、行动、审批和追踪。</p>
+          </div>
+          <div class="toolbar">
+            <button class="icon-button" title="刷新状态" aria-label="刷新状态">
+              <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v6h-6" /></svg>
+            </button>
+            <button class="icon-button" title="导出证据链" aria-label="导出证据链">
+              <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+            </button>
+            <button class="run-button" id="runButton">
+              <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+              运行可信闭环
+            </button>
+          </div>
+        </header>
+
+        <section class="layout">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>业务上下文</h2>
+              <span class="badge info" id="intentBadge">parsed</span>
+            </div>
+            <div class="panel-body stack">
+              <div>
+                <label class="label" for="question">业务问题</label>
+                <textarea class="question" id="question">最近 7 天 GMV 是否异常？如果异常，给出原因和建议动作。</textarea>
+              </div>
+
+              <div class="chips">
+                <button class="chip" data-scenario="gmv">GMV 异常</button>
+                <button class="chip" data-scenario="roi">ROI 诊断</button>
+                <button class="chip" data-scenario="daily">日报扫描</button>
+              </div>
+
+              <div class="field-grid">
+                <div class="field">
+                  <span>Role</span>
+                  <b id="role">运营经理</b>
+                </div>
+                <div class="field">
+                  <span>Metric</span>
+                  <b id="metric">GMV</b>
+                </div>
+                <div class="field">
+                  <span>Window</span>
+                  <b id="window">最近 7 天</b>
+                </div>
+                <div class="field">
+                  <span>Trace</span>
+                  <b id="traceId">trace-a91c42ff09</b>
+                </div>
+              </div>
+
+              <div class="state-tabs" aria-label="Mock states">
+                <button class="active" data-state="loaded">Loaded</button>
+                <button data-state="blocked">Blocked</button>
+                <button data-state="insufficient">Need evidence</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="stack">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>可信答案</h2>
+                <span class="badge ok" id="safetyBadge">SQL Safety passed</span>
+              </div>
+              <div class="panel-body stack">
+                <article class="answer">
+                  <p class="kicker" id="answerKicker">结论</p>
+                  <strong id="answerTitle">GMV 近 7 天下滑 8.7%</strong>
+                  <p id="answerBody">主要来自抖音短视频渠道转化下降，客单价稳定，支付订单数下降。建议先暂停低 ROI 素材组，并观察 48 小时。</p>
+                </article>
+
+                <div class="metrics">
+                  <div class="metric">
+                    <span>Confidence</span>
+                    <b id="confidence">0.86</b>
+                  </div>
+                  <div class="metric">
+                    <span>Eval coverage</span>
+                    <b id="evalCoverage">golden GMV</b>
+                  </div>
+                  <div class="metric">
+                    <span>Blocking issues</span>
+                    <b id="blockingIssues">0</b>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>EvidenceChain</h2>
+                <span class="badge ok" id="evidenceBadge">complete</span>
+              </div>
+              <div class="panel-body">
+                <div class="evidence-grid">
+                  <article class="card">
+                    <h3>指标口径</h3>
+                    <p id="metricContract">GMV v2 · revenue_ops · CNY · internal</p>
+                  </article>
+                  <article class="card">
+                    <h3>数据来源</h3>
+                    <p id="providerContract">sales warehouse · allowlist: sales, ads</p>
+                  </article>
+                  <article class="card">
+                    <h3>查询证据</h3>
+                    <code id="sqlEvidence">select order_date, sum(paid_amount) as gmv from sales.orders where order_date &gt;= :start_date group by order_date limit :limit</code>
+                  </article>
+                  <article class="card">
+                    <h3>限制说明</h3>
+                    <p id="limitations">素材组 owner 缺失，行动提案需要投放负责人确认。</p>
+                  </article>
+                </div>
+              </div>
+            </section>
+          </section>
+
+          <aside class="rail">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>行动治理</h2>
+                <span class="badge warn" id="approvalBadge">approval lite</span>
+              </div>
+              <div class="panel-body">
+                <div class="action-title">
+                  <div>
+                    <h3 id="actionTitle">暂停低 ROI 素材组 48 小时</h3>
+                    <p class="action-copy" id="actionReason">依据 GMV 下滑、订单量下降和渠道转化异常生成建议；当前只创建审批草稿，不直接写入业务系统。</p>
+                  </div>
+                  <div class="risk-level" id="riskLevel">R2</div>
+                </div>
+
+                <p class="action-copy">
+                  <strong>观察窗口：</strong><span id="observeWindow">48 小时</span><br />
+                  <strong>反馈指标：</strong><span id="feedbackMetric">GMV、转化率、订单数</span>
+                </p>
+
+                <div class="approval-grid">
+                  <button class="small-action primary">
+                    <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" /></svg>
+                    审批草稿
+                  </button>
+                  <button class="small-action">
+                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+                    补充证据
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>治理状态</h2>
+                <span class="badge ok" id="auditBadge">auditable</span>
+              </div>
+              <div class="panel-body">
+                <div class="status-list">
+                  <div class="status-row">
+                    <span>Evidence id</span>
+                    <b id="evidenceId">evidence-6bb83a</b>
+                  </div>
+                  <div class="status-row">
+                    <span>SQL safety</span>
+                    <b id="sqlSafety">read-only / allowlisted</b>
+                  </div>
+                  <div class="status-row">
+                    <span>Approval</span>
+                    <b id="approvalState">draft required</b>
+                  </div>
+                  <div class="status-row">
+                    <span>Feedback</span>
+                    <b id="feedbackState">pending</b>
+                  </div>
+                </div>
+                <div class="feedback-row">
+                  <button>有用</button>
+                  <button>不准确</button>
+                  <button>需复核</button>
+                </div>
+                <p class="feedback-note" id="gapNote">缺口：素材组维度 owner 未绑定；建议补充渠道 ROI golden query。</p>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Trace</h2>
+                <span class="badge info">8 steps</span>
+              </div>
+              <div class="panel-body">
+                <div class="trace" id="traceSteps"></div>
+              </div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const scenarios = {
+        gmv: {
+          question: "最近 7 天 GMV 是否异常？如果异常，给出原因和建议动作。",
+          role: "运营经理",
+          metric: "GMV",
+          window: "最近 7 天",
+          traceId: "trace-a91c42ff09",
+          answerTitle: "GMV 近 7 天下滑 8.7%",
+          answerBody:
+            "主要来自抖音短视频渠道转化下降，客单价稳定，支付订单数下降。建议先暂停低 ROI 素材组，并观察 48 小时。",
+          confidence: "0.86",
+          evalCoverage: "golden GMV",
+          metricContract: "GMV v2 · revenue_ops · CNY · internal",
+          providerContract: "sales warehouse · allowlist: sales, ads",
+          sqlEvidence:
+            "select order_date, sum(paid_amount) as gmv from sales.orders where order_date >= :start_date group by order_date limit :limit",
+          limitations: "素材组 owner 缺失，行动提案需要投放负责人确认。",
+          actionTitle: "暂停低 ROI 素材组 48 小时",
+          actionReason:
+            "依据 GMV 下滑、订单量下降和渠道转化异常生成建议；当前只创建审批草稿，不直接写入业务系统。",
+          riskLevel: "R2",
+          observeWindow: "48 小时",
+          feedbackMetric: "GMV、转化率、订单数",
+          evidenceId: "evidence-6bb83a",
+          gapNote: "缺口：素材组维度 owner 未绑定；建议补充渠道 ROI golden query。",
+          steps: [
+            ["1", "Intent", "metric=GMV"],
+            ["2", "Semantic", "contract v2"],
+            ["3", "Provider", "sales"],
+            ["4", "Safety", "passed"],
+            ["5", "Query", "7 rows"],
+            ["6", "Evidence", "complete"],
+            ["7", "Proposal", "R2"],
+            ["8", "Feedback", "pending"],
+          ],
+        },
+        roi: {
+          question: "上周投放 ROI 下降了吗？按渠道拆解原因。",
+          role: "投放优化师",
+          metric: "ROI",
+          window: "上周",
+          traceId: "trace-1f8d23b6c2",
+          answerTitle: "投放 ROI 下降 12.4%",
+          answerBody:
+            "下降集中在信息流素材组 A17 和 A21，点击率未明显下降，但支付转化率低于基线。建议进入素材复盘并限制预算上限。",
+          confidence: "0.82",
+          evalCoverage: "golden ROI",
+          metricContract: "ROI v1 · ads_ops · GMV / AdSpend · internal",
+          providerContract: "ads warehouse · allowlist: ads, sales",
+          sqlEvidence:
+            "select channel, sum(gmv) / nullif(sum(ad_spend), 0) as roi from ads.daily_performance where week = :week group by channel",
+          limitations: "素材质量标签仍为人工维护，归因解释需要复核最新投放策略。",
+          actionTitle: "限制低 ROI 素材组预算上限",
+          actionReason:
+            "依据 ROI 下降、转化异常和素材组聚合结果生成建议；预算调整需进入审批草稿。",
+          riskLevel: "R3",
+          observeWindow: "24 小时",
+          feedbackMetric: "ROI、消耗、转化率",
+          evidenceId: "evidence-9a20fc",
+          gapNote: "缺口：素材质量标签更新滞后；建议补充素材维度质量校验。",
+          steps: [
+            ["1", "Intent", "metric=ROI"],
+            ["2", "Metric", "ROI v1"],
+            ["3", "Provider", "ads"],
+            ["4", "Safety", "passed"],
+            ["5", "Query", "channels"],
+            ["6", "Evidence", "partial owner"],
+            ["7", "Proposal", "R3"],
+            ["8", "Approval", "required"],
+          ],
+        },
+        daily: {
+          question: "给我今天的数据日报，并标出需要优先处理的异常。",
+          role: "运营总监",
+          metric: "日报组合指标",
+          window: "今天",
+          traceId: "trace-74de2980ab",
+          answerTitle: "日报发现 1 个优先异常",
+          answerBody:
+            "GMV 和订单量处于正常区间，ROI 环比下降需要优先关注。系统建议进入投放效率诊断，不生成自动执行动作。",
+          confidence: "0.79",
+          evalCoverage: "golden daily",
+          metricContract: "Daily Report v0 · ops_lead · GMV / ROI / orders",
+          providerContract: "sales + ads warehouse · allowlist: sales, ads",
+          sqlEvidence:
+            "select sum(gmv), count(distinct order_id), sum(gmv)/nullif(sum(ad_spend),0) as roi from daily_ops where date = :date",
+          limitations: "库存和内容指标仍未接入本次日报视图，日报完整度为 MVP 子集。",
+          actionTitle: "转入 ROI 诊断流程",
+          actionReason:
+            "日报只生成异常定位和后续诊断建议，不直接触发业务系统写操作。",
+          riskLevel: "R1",
+          observeWindow: "当日",
+          feedbackMetric: "ROI、GMV、订单数",
+          evidenceId: "evidence-daily-18c0",
+          gapNote: "缺口：库存和内容数据未进入日报 MVP；建议作为 P1 扩展。",
+          steps: [
+            ["1", "Intent", "daily scan"],
+            ["2", "Metrics", "GMV/ROI/orders"],
+            ["3", "Provider", "sales + ads"],
+            ["4", "Safety", "passed"],
+            ["5", "Query", "summary"],
+            ["6", "Evidence", "MVP subset"],
+            ["7", "Proposal", "diagnose"],
+            ["8", "Feedback", "pending"],
+          ],
+        },
+      };
+
+      const states = {
+        loaded: {
+          safetyBadge: ["SQL Safety passed", "badge ok"],
+          evidenceBadge: ["complete", "badge ok"],
+          approvalBadge: ["approval lite", "badge warn"],
+          auditBadge: ["auditable", "badge ok"],
+          answerKicker: "结论",
+          blockingIssues: "0",
+          sqlSafety: "read-only / allowlisted",
+          approvalState: "draft required",
+          feedbackState: "pending",
+        },
+        blocked: {
+          safetyBadge: ["SQL blocked", "badge danger"],
+          evidenceBadge: ["blocked", "badge danger"],
+          approvalBadge: ["not allowed", "badge danger"],
+          auditBadge: ["blocked trace", "badge danger"],
+          answerKicker: "阻断",
+          answerTitle: "查询未通过 SQL Safety",
+          answerBody:
+            "检测到非 allowlist schema 或潜在写操作，系统不会生成正式业务结论，也不会创建行动提案。",
+          confidence: "N/A",
+          blockingIssues: "1",
+          sqlSafety: "blocked",
+          approvalState: "disabled",
+          feedbackState: "security review",
+        },
+        insufficient: {
+          safetyBadge: ["SQL Safety passed", "badge ok"],
+          evidenceBadge: ["insufficient", "badge warn"],
+          approvalBadge: ["need evidence", "badge warn"],
+          auditBadge: ["reviewable", "badge info"],
+          answerKicker: "证据不足",
+          answerTitle: "答案需要补充证据后确认",
+          answerBody:
+            "当前指标、查询和来源可追踪，但缺少 owner 或关键维度，系统只允许标记补证据，不生成审批草稿。",
+          confidence: "0.54",
+          blockingIssues: "0",
+          sqlSafety: "read-only / allowlisted",
+          approvalState: "need evidence",
+          feedbackState: "PM / Data",
+        },
+      };
+
+      const refs = {
+        question: document.getElementById("question"),
+        role: document.getElementById("role"),
+        metric: document.getElementById("metric"),
+        window: document.getElementById("window"),
+        traceId: document.getElementById("traceId"),
+        answerKicker: document.getElementById("answerKicker"),
+        answerTitle: document.getElementById("answerTitle"),
+        answerBody: document.getElementById("answerBody"),
+        confidence: document.getElementById("confidence"),
+        evalCoverage: document.getElementById("evalCoverage"),
+        blockingIssues: document.getElementById("blockingIssues"),
+        metricContract: document.getElementById("metricContract"),
+        providerContract: document.getElementById("providerContract"),
+        sqlEvidence: document.getElementById("sqlEvidence"),
+        limitations: document.getElementById("limitations"),
+        actionTitle: document.getElementById("actionTitle"),
+        actionReason: document.getElementById("actionReason"),
+        riskLevel: document.getElementById("riskLevel"),
+        observeWindow: document.getElementById("observeWindow"),
+        feedbackMetric: document.getElementById("feedbackMetric"),
+        evidenceId: document.getElementById("evidenceId"),
+        gapNote: document.getElementById("gapNote"),
+        sqlSafety: document.getElementById("sqlSafety"),
+        approvalState: document.getElementById("approvalState"),
+        feedbackState: document.getElementById("feedbackState"),
+        safetyBadge: document.getElementById("safetyBadge"),
+        evidenceBadge: document.getElementById("evidenceBadge"),
+        approvalBadge: document.getElementById("approvalBadge"),
+        auditBadge: document.getElementById("auditBadge"),
+        traceSteps: document.getElementById("traceSteps"),
+      };
+
+      let activeScenario = "gmv";
+      let activeState = "loaded";
+
+      function setBadge(el, data) {
+        el.textContent = data[0];
+        el.className = data[1];
+      }
+
+      function renderTrace(steps) {
+        refs.traceSteps.innerHTML = steps
+          .map(
+            ([number, label, value]) =>
+              `<div class="trace-step"><i>${number}</i><div><span>${label}</span><b>${value}</b></div><span>ok</span></div>`,
+          )
+          .join("");
+      }
+
+      function render() {
+        const scenario = scenarios[activeScenario];
+        const state = states[activeState];
+        Object.entries(scenario).forEach(([key, value]) => {
+          if (refs[key] && key !== "steps") refs[key].textContent = value;
+        });
+        setBadge(refs.safetyBadge, state.safetyBadge);
+        setBadge(refs.evidenceBadge, state.evidenceBadge);
+        setBadge(refs.approvalBadge, state.approvalBadge);
+        setBadge(refs.auditBadge, state.auditBadge);
+        refs.answerKicker.textContent = state.answerKicker;
+        refs.blockingIssues.textContent = state.blockingIssues;
+        refs.sqlSafety.textContent = state.sqlSafety;
+        refs.approvalState.textContent = state.approvalState;
+        refs.feedbackState.textContent = state.feedbackState;
+        if (activeState !== "loaded") {
+          refs.answerTitle.textContent = state.answerTitle;
+          refs.answerBody.textContent = state.answerBody;
+          refs.confidence.textContent = state.confidence;
+        }
+        renderTrace(scenario.steps);
+      }
+
+      document.querySelectorAll(".chip").forEach((button) => {
+        button.addEventListener("click", () => {
+          activeScenario = button.dataset.scenario;
+          activeState = "loaded";
+          document.querySelectorAll(".state-tabs button").forEach((tab) => {
+            tab.classList.toggle("active", tab.dataset.state === "loaded");
+          });
+          render();
+        });
+      });
+
+      document.querySelectorAll(".state-tabs button").forEach((button) => {
+        button.addEventListener("click", () => {
+          activeState = button.dataset.state;
+          document.querySelectorAll(".state-tabs button").forEach((tab) => {
+            tab.classList.toggle("active", tab === button);
+          });
+          render();
+        });
+      });
+
+      document.getElementById("runButton").addEventListener("click", render);
+      render();
+    </script>
+  </body>
+</html>

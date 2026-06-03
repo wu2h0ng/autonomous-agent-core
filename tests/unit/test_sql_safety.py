@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "packages" / "contracts" / "src"))
 sys.path.insert(0, str(ROOT / "packages" / "os_core" / "src"))
 
-from agent_os_core.sql_safety import SQLSafetyChecker
+from agent_os_core.sql_safety import SQLSafetyChecker  # noqa: E402
 
 
 class SQLSafetyCheckerTest(unittest.TestCase):

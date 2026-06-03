@@ -26,6 +26,16 @@ BusinessIntent
 
 Current code provides a pure-Python reference loop with no external runtime dependency.
 
+The application boundary now provides a local runtime factory and CLI smoke entry point:
+
+```bash
+set PYTHONPATH=apps/api_server/src;packages/contracts/src;packages/os_core/src
+python -m agent_os_api.cli --question "GMV" --start-date 2026-05-25 --end-date 2026-06-01 --limit 100
+```
+
+The CLI loads `domain_packs/content_commerce/` and invokes the same Trusted Loop tested by
+the unit/eval suite.
+
 ## Layout
 
 ```text

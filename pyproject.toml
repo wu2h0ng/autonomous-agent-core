@@ -5,6 +5,17 @@ description = "Independent AI Native Business Data Agent OS implementation"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5.0",
+]
+openai = [
+    "openai>=1.0.0",
+]
+observability = [
+    "opentelemetry-api>=1.24.0",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -12,6 +23,7 @@ target-version = "py311"
 [tool.pyright]
 pythonVersion = "3.11"
 include = [
+  "apps/api_server/src",
   "packages/os_core/src",
   "packages/contracts/src",
   "packages/sdk/src",

@@ -66,14 +66,18 @@ class SQLSafetyChecker:
             issues.append(_issue("NO_WRITE_OR_DDL", "Write or DDL statements are forbidden."))
 
         if not effective_allow_select_star and SELECT_STAR.search(masked):
-            issues.append(_issue("NO_SELECT_STAR", "SELECT * is forbidden in production templates."))
+            issues.append(
+                _issue("NO_SELECT_STAR", "SELECT * is forbidden in production templates.")
+            )
 
         table_tokens = tuple(TABLE_TOKEN.findall(masked))
         checked_tables: list[str] = []
         checked_schemas: list[str] = []
 
         if not table_tokens:
-            issues.append(_issue("SCHEMA_QUALIFIED_TABLE", "SQL must reference schema-qualified tables."))
+            issues.append(
+                _issue("SCHEMA_QUALIFIED_TABLE", "SQL must reference schema-qualified tables.")
+            )
 
         for table_token in table_tokens:
             if "." not in table_token:
@@ -94,12 +98,16 @@ class SQLSafetyChecker:
         params = set(PARAM_REF.findall(masked))
         for parameter in required_parameters:
             if parameter not in params:
-                issues.append(_issue("MISSING_SQL_PARAMETER", f"Missing bound parameter: {parameter}"))
+                issues.append(
+                    _issue("MISSING_SQL_PARAMETER", f"Missing bound parameter: {parameter}")
+                )
 
         for parameter in required_time_parameters:
             if parameter not in params:
                 issues.append(
-                    _issue("MISSING_TIME_PARAMETER", f"Missing required time parameter: {parameter}")
+                    _issue(
+                        "MISSING_TIME_PARAMETER", f"Missing required time parameter: {parameter}"
+                    )
                 )
 
         if parameters is not None:
@@ -115,7 +123,9 @@ class SQLSafetyChecker:
             for parameter in parameters:
                 if parameter not in params:
                     issues.append(
-                        _issue("UNUSED_RUNTIME_PARAMETER", f"Runtime parameter is unused: {parameter}")
+                        _issue(
+                            "UNUSED_RUNTIME_PARAMETER", f"Runtime parameter is unused: {parameter}"
+                        )
                     )
 
         limit_value = _extract_limit(masked, parameters)
