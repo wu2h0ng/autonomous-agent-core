@@ -1,7 +1,7 @@
 # AI Native Business Data Agent OS
 
 > Independent implementation project for AI Native Business Data Agent OS.  
-> Project directory: `data-agent-os/`.
+> Project directory: `ai-native-business-data-agent-os/`.
 
 ## Boundary
 

@@ -1,4 +1,4 @@
-# Makefile — data-agent-os CI Local Parity
+# Makefile — AI Native Business Data Agent OS CI Local Parity
 # All CI checks can be reproduced locally by running: make ci
 
 PYTHON      ?= python

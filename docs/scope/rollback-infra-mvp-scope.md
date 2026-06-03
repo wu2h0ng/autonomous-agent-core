@@ -9,7 +9,7 @@
 
 ## 1. 工程目标
 
-交付从 `ActionProposal` 到受治理动作执行（含回滚准备）的完整可运行链路，使 data-agent-os 从"只 propose 的分析工具"升级为"可信执行的业务操作系统"。
+交付从 `ActionProposal` 到受治理动作执行（含回滚准备）的完整可运行链路，使 ai-native-business-data-agent-os 从"只 propose 的分析工具"升级为"可信执行的业务操作系统"。
 
 ---
 

@@ -2,7 +2,7 @@
 
 ## Development Boundary
 
-`data-agent-os/` is the independent product implementation root.
+`ai-native-business-data-agent-os/` is the independent product implementation root.
 
 FaSoLa and other customer systems are Customer-0 or reference sources only. Do not import customer-specific code into `packages/os_core/`.
 

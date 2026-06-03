@@ -2,7 +2,7 @@
 
 ## Scope
 
-These rules apply to code under `data-agent-os/`.
+These rules apply to code under `ai-native-business-data-agent-os/`.
 
 ## Hard Boundaries
 
