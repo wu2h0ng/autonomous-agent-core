@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / "packages" / "os_core" / "src"))
 sys.path.insert(0, str(ROOT / "action_connectors"))
 
 from agent_os_contracts import (  # noqa: E402
+    ActionConnectorContract,
     MetricContract,
     OperationContract,
     ProviderContract,
@@ -21,6 +22,28 @@ from agent_os_contracts import (  # noqa: E402
 from agent_os_core import ProviderRegistry, SemanticRegistry, TrustedLoopRuntime  # noqa: E402
 from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
+from manual_review import ManualReviewConnector  # noqa: E402
+
+
+def _build_default_connector_registry() -> ActionConnectorRegistry:
+    """Build a connector registry with ManualReviewConnector.
+
+    Caller-side construction: OS Core never imports action connectors.
+    """
+    registry = ActionConnectorRegistry()
+    connector = ManualReviewConnector()
+    contract = ActionConnectorContract(
+        connector_name="manual_review",
+        display_name="Manual Review",
+        supported_action_types=("propose", "execute"),
+        supports_snapshot=False,
+        supports_rollback=False,
+        compensating_action_description=None,
+        risk_ceiling="R5",
+        owner="system",
+    )
+    registry.register(connector, contract)
+    return registry
 
 
 class TrustedLoopRuntimeTest(unittest.TestCase):
@@ -65,6 +88,7 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
                     ),
                 )
             ),
+            connector_registry=_build_default_connector_registry(),
         )
 
         result = runtime.run(
@@ -158,6 +182,8 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         }
         if connector_registry is not None:
             kwargs["connector_registry"] = connector_registry
+        else:
+            kwargs["connector_registry"] = _build_default_connector_registry()
         return TrustedLoopRuntime(**kwargs)
 
     def test_trusted_loop_with_governance(self) -> None:
@@ -289,8 +315,12 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
                 {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
             )
 
-    def test_backward_compatible_without_new_deps(self) -> None:
-        """The runtime should work with default (None) new dependencies."""
+    def test_connector_registry_required(self) -> None:
+        """The runtime must raise ValueError if connector_registry is not provided.
+
+        OS Core must not import action connectors, so the caller is responsible
+        for constructing and injecting the registry.
+        """
         metric = MetricContract(
             metric_name="gmv",
             display_name="GMV",
@@ -311,18 +341,14 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
             ),
             required_parameters=("start_date", "end_date", "limit"),
         )
-        # Pass no new deps — all default to None
-        runtime = TrustedLoopRuntime(
-            metric_contract=metric,
-            sql_template=template,
-            query_executor=StaticQueryExecutor([{"gmv": 100}]),
-        )
-        result = runtime.run(
-            "最近7天GMV是多少？",
-            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
-        )
-        self.assertIsNotNone(result.operation_contract)
-        self.assertIsNotNone(result.action_result)
+        with self.assertRaises(ValueError) as ctx:
+            TrustedLoopRuntime(
+                metric_contract=metric,
+                sql_template=template,
+                query_executor=StaticQueryExecutor([{"gmv": 100}]),
+                connector_registry=None,
+            )
+        self.assertIn("connector_registry is required", str(ctx.exception))
 
 
 if __name__ == "__main__":

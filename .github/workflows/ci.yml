@@ -19,15 +19,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Lint
-        run: python -m ruff check .
-      - name: Format check
-        run: python -m ruff format --check .
-      - name: Run unit tests
-        run: >
-          PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/sdk/src:action_connectors
-          python -m unittest discover -s tests -p "test_*.py" -v
-      - name: Run eval tests
-        run: >
-          PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/sdk/src:action_connectors
-          python -m unittest discover -s tests/eval -p "test_*.py" -v
+      - name: Run CI (make ci)
+        run: make ci PYTHON=python

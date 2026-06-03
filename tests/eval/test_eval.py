@@ -10,14 +10,22 @@ sys.path.insert(0, str(ROOT / "packages" / "contracts" / "src"))
 sys.path.insert(0, str(ROOT / "packages" / "os_core" / "src"))
 sys.path.insert(0, str(ROOT / "action_connectors"))
 
-from agent_os_contracts import MetricContract, ProviderContract, ProviderKind, SQLTemplate  # noqa: E402
+from agent_os_contracts import (  # noqa: E402
+    ActionConnectorContract,
+    MetricContract,
+    ProviderContract,
+    ProviderKind,
+    SQLTemplate,
+)
 from agent_os_core import (  # noqa: E402
     IntentParser,
     ProviderRegistry,
     SemanticRegistry,
     TrustedLoopRuntime,
 )
+from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
+from manual_review import ManualReviewConnector  # noqa: E402
 
 EVAL_DIR = Path(__file__).resolve().parent
 
@@ -30,6 +38,27 @@ SAFE_SQL = (
 )
 
 METRIC_NAMES = ("gmv", "roi", "conversion_rate", "revenue", "orders", "spend", "cac")
+
+
+def _build_default_connector_registry() -> ActionConnectorRegistry:
+    """Build a connector registry with ManualReviewConnector.
+
+    Caller-side construction: OS Core never imports action connectors.
+    """
+    registry = ActionConnectorRegistry()
+    connector = ManualReviewConnector()
+    contract = ActionConnectorContract(
+        connector_name="manual_review",
+        display_name="Manual Review",
+        supported_action_types=("propose", "execute"),
+        supports_snapshot=False,
+        supports_rollback=False,
+        compensating_action_description=None,
+        risk_ceiling="R5",
+        owner="system",
+    )
+    registry.register(connector, contract)
+    return registry
 
 
 class GoldenQueryEvalTest(unittest.TestCase):
@@ -90,6 +119,7 @@ class GoldenQueryEvalTest(unittest.TestCase):
                     ),
                     semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
                     provider_registry=ProviderRegistry((provider,)),
+                    connector_registry=_build_default_connector_registry(),
                 ).run(c["question"], dict(c["parameters"]))
                 self.assertEqual(r.intent.metric_name, c["expected_metric"])
                 self.assertEqual(r.evidence_chain.metric_contract.metric_name, c["expected_metric"])

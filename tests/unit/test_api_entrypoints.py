@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "apps" / "api_server" / "src"))
 sys.path.insert(0, str(ROOT / "packages" / "contracts" / "src"))
 sys.path.insert(0, str(ROOT / "packages" / "os_core" / "src"))
+sys.path.insert(0, str(ROOT / "action_connectors"))
 
 from agent_os_api import ContentCommerceRuntimeFactory, RuntimeFactoryConfig  # noqa: E402
 from agent_os_api.cli import run_cli  # noqa: E402

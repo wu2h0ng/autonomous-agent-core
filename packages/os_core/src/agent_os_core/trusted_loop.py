@@ -4,7 +4,6 @@ from time import perf_counter
 from uuid import uuid4
 
 from agent_os_contracts import (
-    ActionConnectorContract,
     BusinessIntent,
     MetricContract,
     OperationState,
@@ -82,39 +81,20 @@ class TrustedLoopRuntime:
         self.evidence_builder = EvidenceChainBuilder()
         self.action_builder = ActionProposalBuilder()
 
-        # --- New dependencies (with defaults for backward compatibility) ---
-        self.connector_registry = connector_registry or self._build_default_registry()
+        # --- New dependencies (caller MUST provide connector_registry) ---
+        if connector_registry is None:
+            raise ValueError(
+                "connector_registry is required. "
+                "OS Core must not import action connectors — the caller is responsible "
+                "for constructing and injecting the registry."
+            )
+        self.connector_registry = connector_registry
         self.action_governance = action_governance or ActionGovernance(
             connector_registry=self.connector_registry
         )
         self.approval_runtime = approval_runtime or ApprovalLiteRuntime()
         self.operation_trace_builder = operation_trace_builder or OperationTraceBuilder()
         self.state_machine = state_machine or OperationStateMachine()
-
-    @staticmethod
-    def _build_default_registry() -> ActionConnectorRegistry:
-        """Build a default connector registry with ManualReviewConnector registered.
-
-        The import is deferred to avoid os_core importing from action_connectors/
-        at module level (boundary rule).  Instead, ManualReviewConnector is
-        imported only when a default registry is needed.
-        """
-        from manual_review import ManualReviewConnector
-
-        registry = ActionConnectorRegistry()
-        connector = ManualReviewConnector()
-        contract = ActionConnectorContract(
-            connector_name="manual_review",
-            display_name="Manual Review",
-            supported_action_types=("propose", "execute"),
-            supports_snapshot=False,
-            supports_rollback=False,
-            compensating_action_description=None,
-            risk_ceiling="R5",
-            owner="system",
-        )
-        registry.register(connector, contract)
-        return registry
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         started_at = perf_counter()

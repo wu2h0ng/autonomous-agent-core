@@ -5,8 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agent_os_contracts import MetricContract, ProviderContract, ProviderKind, SQLTemplate
+from agent_os_contracts import (
+    ActionConnectorContract,
+    MetricContract,
+    ProviderContract,
+    ProviderKind,
+    SQLTemplate,
+)
 from agent_os_core import ProviderRegistry, SemanticRegistry, TrustedLoopRuntime
+from agent_os_core.action_connectors import ActionConnectorRegistry
 from agent_os_core.query_runtime import StaticQueryExecutor
 
 
@@ -28,13 +35,41 @@ class ContentCommerceRuntimeFactory:
         template = self._load_sql_templates()[0]
         default_metric = metrics[template.metric_name]
 
+        # API layer owns connector construction (OS Core must not import connectors)
+        connector_registry = self._build_default_connector_registry()
+
         return TrustedLoopRuntime(
             metric_contract=default_metric,
             sql_template=template,
             query_executor=StaticQueryExecutor(list(self.config.sample_rows)),
             semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
             provider_registry=ProviderRegistry(tuple(providers.values())),
+            connector_registry=connector_registry,
         )
+
+    @staticmethod
+    def _build_default_connector_registry() -> ActionConnectorRegistry:
+        """Build a default connector registry with ManualReviewConnector.
+
+        This lives in the API layer, not in OS Core, to enforce the boundary
+        rule: OS Core never imports concrete action connectors.
+        """
+        from manual_review import ManualReviewConnector
+
+        registry = ActionConnectorRegistry()
+        connector = ManualReviewConnector()
+        contract = ActionConnectorContract(
+            connector_name="manual_review",
+            display_name="Manual Review",
+            supported_action_types=("propose", "execute"),
+            supports_snapshot=False,
+            supports_rollback=False,
+            compensating_action_description=None,
+            risk_ceiling="R5",
+            owner="system",
+        )
+        registry.register(connector, contract)
+        return registry
 
     def _load_metrics(self) -> dict[str, MetricContract]:
         rows = self._read_json("metrics.json")
