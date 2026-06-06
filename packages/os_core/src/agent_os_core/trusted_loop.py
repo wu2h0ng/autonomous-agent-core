@@ -28,9 +28,9 @@ from .approval_lite import ApprovalLiteRuntime
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .evidence_chain import EvidenceChainBuilder
-from .feedback import FeedbackEventBuilder, FeedbackStore
+from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
 from .intent_parser import IntentParser
-from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
+from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore, KnowledgeStorePort
 from .operation_state_machine import OperationStateMachine
 from .operation_trace import OperationTraceBuilder
 from .query_runtime import StaticQueryExecutor, TemplateRegistry
@@ -84,9 +84,9 @@ class TrustedLoopRuntime:
         operation_trace_builder: OperationTraceBuilder | None = None,
         state_machine: OperationStateMachine | None = None,
         knowledge_builder: KnowledgeAssetBuilder | None = None,
-        knowledge_store: KnowledgeStore | None = None,
+        knowledge_store: KnowledgeStorePort | None = None,
         feedback_builder: FeedbackEventBuilder | None = None,
-        feedback_store: FeedbackStore | None = None,
+        feedback_store: FeedbackStorePort | None = None,
         snapshot_store: SnapshotStore | None = None,
     ) -> None:
         self.metric_contract = metric_contract
