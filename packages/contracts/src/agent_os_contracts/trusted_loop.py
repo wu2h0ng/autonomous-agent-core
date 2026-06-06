@@ -7,8 +7,11 @@ from typing import Any
 from .architecture import (
     DataProductCandidate,
     DataRequirement,
+    FeedbackEvent,
+    KnowledgeAsset,
     LineageSnapshot,
     OperationContract,
+    OperationTrace,
     ProviderContract,
     StateSnapshot,
 )
@@ -156,6 +159,50 @@ class TrustedLoopResult:
     lineage_snapshot: LineageSnapshot | None = None
     data_product_candidate: DataProductCandidate | None = None
     operation_contract: OperationContract | None = None
+    operation_trace: OperationTrace | None = None
     state_snapshot: StateSnapshot | None = None
     action_result: dict[str, Any] | None = None
     approval_record: Any | None = None
+    feedback_event: FeedbackEvent | None = None
+    knowledge_asset_candidate: KnowledgeAsset | None = None
+
+
+class BlockCode(StrEnum):
+    """Machine-readable code for an expected business block in the Trusted Loop."""
+
+    UNKNOWN_METRIC = "unknown_metric"
+    NO_PROVIDER = "no_provider"
+    NO_TEMPLATE = "no_template"
+    SQL_SAFETY = "sql_safety"
+
+
+@dataclass(frozen=True)
+class TrustedLoopBlock:
+    """A structured, expected block: the loop refused to produce an answer.
+
+    Distinct from a programming/wiring error. ``code`` is machine-readable,
+    ``stage`` names where in the loop it occurred, and ``details`` carries the
+    human-facing reasons (e.g. SQL-safety violation messages).
+    """
+
+    code: BlockCode
+    message: str
+    stage: str
+    details: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class TrustedLoopOutcome:
+    """Unified result of a Trusted Loop evaluation: either ok or blocked."""
+
+    status: str  # "ok" | "blocked"
+    result: TrustedLoopResult | None = None
+    block: TrustedLoopBlock | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.status == "ok"
+
+    @property
+    def blocked(self) -> bool:
+        return self.status == "blocked"

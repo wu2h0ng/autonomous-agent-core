@@ -148,6 +148,38 @@ class SQLSafetyCheckerTest(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertIn("NO_SELECT_STAR", {issue.code for issue in result.issues})
 
+    def test_blocks_select_star_with_distinct_or_qualifier(self) -> None:
+        """SELECT * must not be bypassable via DISTINCT/ALL or a qualified star."""
+        checker = SQLSafetyChecker(("sales",))
+
+        for select_list in ("distinct *", "all *", "o.*", "distinct o.*"):
+            with self.subTest(select_list=select_list):
+                result = checker.check(
+                    f"select {select_list} from sales.orders o "
+                    "where order_date >= :start_date limit :limit",
+                    ("start_date", "limit"),
+                    {"start_date": "2026-05-25", "limit": 100},
+                    required_time_parameters=("start_date",),
+                )
+                self.assertFalse(result.allowed)
+                self.assertIn("NO_SELECT_STAR", {issue.code for issue in result.issues})
+
+    def test_allows_count_star_and_arithmetic_star(self) -> None:
+        """The star guard must not misfire on count(*) or arithmetic multiplication."""
+        checker = SQLSafetyChecker(("sales",))
+
+        result = checker.check(
+            "select count(*) as n, sum(price * qty) as total "
+            "from sales.orders "
+            "where order_date >= :start_date and order_date < :end_date "
+            "limit :limit",
+            ("start_date", "end_date", "limit"),
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertTrue(result.allowed, result.reasons)
+        self.assertNotIn("NO_SELECT_STAR", {issue.code for issue in result.issues})
+
 
 if __name__ == "__main__":
     unittest.main()
