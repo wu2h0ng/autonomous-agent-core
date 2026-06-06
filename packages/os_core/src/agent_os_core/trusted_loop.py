@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     BusinessIntent,
+    FeedbackEvent,
     MetricContract,
     OperationState,
     ProviderContract,
@@ -23,6 +24,7 @@ from .approval_lite import ApprovalLiteRuntime
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .evidence_chain import EvidenceChainBuilder
+from .feedback import FeedbackEventBuilder, FeedbackStore
 from .intent_parser import IntentParser
 from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
 from .operation_state_machine import OperationStateMachine
@@ -64,6 +66,8 @@ class TrustedLoopRuntime:
         state_machine: OperationStateMachine | None = None,
         knowledge_builder: KnowledgeAssetBuilder | None = None,
         knowledge_store: KnowledgeStore | None = None,
+        feedback_builder: FeedbackEventBuilder | None = None,
+        feedback_store: FeedbackStore | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         self.sql_template = sql_template
@@ -100,6 +104,8 @@ class TrustedLoopRuntime:
         self.state_machine = state_machine or OperationStateMachine()
         self.knowledge_builder = knowledge_builder or KnowledgeAssetBuilder()
         self.knowledge_store = knowledge_store or KnowledgeStore()
+        self.feedback_builder = feedback_builder or FeedbackEventBuilder()
+        self.feedback_store = feedback_store or FeedbackStore()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         started_at = perf_counter()
@@ -386,11 +392,57 @@ class TrustedLoopRuntime:
             lineage_snapshot=lineage_snapshot,
             data_product_candidate=data_product_candidate,
             operation_contract=operation,
+            operation_trace=operation_trace,
             state_snapshot=state_snapshot,
             action_result=action_result,
             approval_record=approval_record,
             knowledge_asset_candidate=knowledge_candidate,
         )
+
+    def record_outcome(
+        self,
+        *,
+        trace_id: str,
+        outcome: str,
+        reviewer: str | None = None,
+        metric_deltas: dict[str, object] | None = None,
+    ) -> FeedbackEvent:
+        """Record an observed outcome for a completed run and fold it back in.
+
+        This is the post-outcome half of the loop, invoked separately from
+        ``run()`` once a business result is observed. It:
+
+        1. Builds and stores a typed ``FeedbackEvent`` bound to ``trace_id``.
+        2. If a KnowledgeAsset candidate exists for that trace, supersedes it
+           with a revision that reflects the feedback (version bumped), closing
+           the Feedback -> KnowledgeAsset learning loop.
+
+        Feedback for an unknown trace is still recorded, but no knowledge asset
+        is fabricated where none existed.
+
+        Args:
+            trace_id: The trace of the originating run (``evidence_chain.trace_id``).
+            outcome: The observed outcome signal (e.g. ``"adopted"``).
+            reviewer: Optional human/agent attribution.
+            metric_deltas: Optional observed metric changes.
+
+        Returns:
+            The recorded ``FeedbackEvent``.
+        """
+        feedback = self.feedback_builder.build(
+            trace_id=trace_id,
+            outcome=outcome,
+            reviewer=reviewer,
+            metric_deltas=metric_deltas,
+        )
+        self.feedback_store.record(feedback)
+
+        base_asset = self.knowledge_store.get_by_trace(trace_id)
+        if base_asset is not None:
+            revised = self.knowledge_builder.with_feedback(base_asset, feedback)
+            self.knowledge_store.register_version(revised)
+
+        return feedback
 
     def _parse_intent(self, question: str) -> BusinessIntent:
         parsed = self.intent_parser.parse(question)

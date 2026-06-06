@@ -14,6 +14,7 @@ from agent_os_contracts import (  # noqa: E402
     LifecycleState,
     MetricContract,
     OperationContract,
+    OperationState,
     ProviderContract,
     ProviderKind,
     RiskLevel,
@@ -329,6 +330,76 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         self.assertEqual(candidate.state, LifecycleState.DRAFT)
         # Title reflects the metric under analysis.
         self.assertIn("gmv", candidate.title.lower())
+
+    def test_result_includes_operation_trace(self) -> None:
+        """The end-to-end OperationTrace must be returned in the result, not
+        built and discarded. It is the audit/replay record of the operation."""
+        runtime = self._build_runtime()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        op_trace = result.operation_trace
+        self.assertIsNotNone(op_trace, "result did not include operation_trace")
+        self.assertEqual(op_trace.evidence_chain_id, result.evidence_chain.evidence_chain_id)
+        self.assertEqual(op_trace.proposal_id, result.action_proposal.proposal_id)
+        # Non-approval (R2) path executes -> trace lands in EXECUTED.
+        self.assertEqual(op_trace.state, OperationState.EXECUTED)
+
+    def test_operation_trace_reflects_awaiting_approval(self) -> None:
+        """For approval-required operations the returned trace must reflect the
+        halted AWAITING_APPROVAL state (not EXECUTED)."""
+        runtime = self._build_runtime(rows=[])  # high risk => approval_required
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        self.assertIsNotNone(result.operation_trace)
+        self.assertEqual(result.operation_trace.state, OperationState.AWAITING_APPROVAL)
+
+    def test_record_outcome_creates_feedback_and_supersedes_knowledge(self) -> None:
+        """Post-outcome feedback path: observing an outcome must (1) create and
+        store a real FeedbackEvent bound to the trace, and (2) fold it into the
+        trace's KnowledgeAsset as a superseding version. This closes the
+        Feedback -> KnowledgeAsset loop (the moat's learning step)."""
+        runtime = self._build_runtime()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        trace_id = result.evidence_chain.trace_id
+        base_asset_id = result.knowledge_asset_candidate.asset_id
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+
+        feedback = runtime.record_outcome(
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops_lead",
+            metric_deltas={"gmv": 1200.0},
+        )
+
+        # (1) real feedback, stored and bound to the trace
+        self.assertEqual(feedback.outcome, "adopted")
+        self.assertEqual(feedback.trace_id, trace_id)
+        self.assertEqual(feedback.reviewer, "ops_lead")
+        self.assertIn(feedback, runtime.feedback_store.get_by_trace(trace_id))
+
+        # (2) knowledge superseded: version bumped, new id, same trace binding
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)
+        revised = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(revised)
+        self.assertNotEqual(revised.asset_id, base_asset_id)
+        self.assertEqual(revised.source_trace_id, trace_id)
+
+    def test_record_outcome_requires_known_trace_for_knowledge_update(self) -> None:
+        """Recording an outcome for an unknown trace still produces feedback but
+        does not fabricate a knowledge asset out of nothing."""
+        runtime = self._build_runtime()
+        feedback = runtime.record_outcome(trace_id="trace-unknown", outcome="rejected")
+        self.assertEqual(feedback.trace_id, "trace-unknown")
+        self.assertIsNone(runtime.knowledge_store.get_by_trace("trace-unknown"))
+        self.assertEqual(runtime.knowledge_store.version_of("trace-unknown"), 0)
 
     def test_non_approval_operation_executes(self) -> None:
         """Counterpart to the gate test: low/medium-risk, no-approval operations

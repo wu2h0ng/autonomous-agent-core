@@ -11,6 +11,7 @@ from .architecture import (
     KnowledgeAsset,
     LineageSnapshot,
     OperationContract,
+    OperationTrace,
     ProviderContract,
     StateSnapshot,
 )
@@ -158,6 +159,7 @@ class TrustedLoopResult:
     lineage_snapshot: LineageSnapshot | None = None
     data_product_candidate: DataProductCandidate | None = None
     operation_contract: OperationContract | None = None
+    operation_trace: OperationTrace | None = None
     state_snapshot: StateSnapshot | None = None
     action_result: dict[str, Any] | None = None
     approval_record: Any | None = None

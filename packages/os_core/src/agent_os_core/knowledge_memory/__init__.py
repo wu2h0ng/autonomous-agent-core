@@ -80,6 +80,39 @@ class KnowledgeAssetBuilder:
             state=LifecycleState.DRAFT,
         )
 
+    def with_feedback(
+        self, base_asset: KnowledgeAsset, feedback: FeedbackEvent
+    ) -> KnowledgeAsset:
+        """Revise an existing candidate by folding in observed feedback.
+
+        Used by the post-outcome path: once an outcome is known, the stored
+        DRAFT candidate is superseded by a new revision whose identity reflects
+        the feedback (so a reviewed lesson is distinct from the unreviewed one),
+        while title, type, owner, and trace binding are preserved.
+
+        Args:
+            base_asset: The candidate currently stored for the trace.
+            feedback: The observed feedback to fold in.
+
+        Returns:
+            A new DRAFT ``KnowledgeAsset`` for the same ``source_trace_id``.
+        """
+        revised_id = self._derive_id(
+            trace_id=base_asset.source_trace_id or "",
+            metric_name=base_asset.title,
+            proposal_id=base_asset.asset_id,
+            recommended_action=feedback.outcome,
+            feedback_id=feedback.feedback_id,
+        )
+        return KnowledgeAsset(
+            asset_id=revised_id,
+            title=base_asset.title,
+            asset_type=base_asset.asset_type,
+            source_trace_id=base_asset.source_trace_id,
+            owner=base_asset.owner,
+            state=LifecycleState.DRAFT,
+        )
+
     @staticmethod
     def _derive_title(*, metric_name: str, question: str) -> str:
         return f"[{metric_name}] {question}"
