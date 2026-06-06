@@ -125,9 +125,20 @@ class OperationStateMachineTest(unittest.TestCase):
 
     def test_allowed_transitions_from_proposed(self) -> None:
         allowed = self.sm.allowed_transitions(OperationState.PROPOSED)
+        self.assertIn(OperationState.AWAITING_APPROVAL, allowed)
+        self.assertIn(OperationState.APPROVED, allowed)
+        self.assertIn(OperationState.REJECTED, allowed)
+        self.assertEqual(len(allowed), 3)
+
+    def test_allowed_transitions_from_awaiting_approval(self) -> None:
+        allowed = self.sm.allowed_transitions(OperationState.AWAITING_APPROVAL)
         self.assertIn(OperationState.APPROVED, allowed)
         self.assertIn(OperationState.REJECTED, allowed)
         self.assertEqual(len(allowed), 2)
+
+    def test_proposed_to_awaiting_approval_is_valid(self) -> None:
+        result = self.sm.transition(OperationState.PROPOSED, OperationState.AWAITING_APPROVAL)
+        self.assertEqual(result, OperationState.AWAITING_APPROVAL)
 
     def test_allowed_transitions_from_approved(self) -> None:
         allowed = self.sm.allowed_transitions(OperationState.APPROVED)

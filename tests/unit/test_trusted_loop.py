@@ -11,8 +11,10 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
+    LifecycleState,
     MetricContract,
     OperationContract,
+    OperationState,
     ProviderContract,
     ProviderKind,
     RiskLevel,
@@ -43,6 +45,44 @@ def _build_default_connector_registry() -> ActionConnectorRegistry:
         owner="system",
     )
     registry.register(connector, contract)
+    return registry
+
+
+class _ExecutionSpyConnector(ManualReviewConnector):
+    """A connector that records whether execute() was invoked.
+
+    Registered under the ``manual_review`` name so it routes normally. When
+    ``raise_on_execute`` is True (default) it raises if execute() is called,
+    making it a hard regression guard for the approval gate.
+    """
+
+    def __init__(self, raise_on_execute: bool = True) -> None:
+        self.execute_called = False
+        self._raise_on_execute = raise_on_execute
+
+    def execute(self, operation, parameters):  # type: ignore[override]
+        self.execute_called = True
+        if self._raise_on_execute:
+            raise AssertionError(
+                "connector.execute() must not be called for approval_required operations"
+            )
+        return super().execute(operation, parameters)
+
+
+def _build_spy_connector_registry(spy: _ExecutionSpyConnector) -> ActionConnectorRegistry:
+    """Register the spy under the ``manual_review`` routing name."""
+    registry = ActionConnectorRegistry()
+    contract = ActionConnectorContract(
+        connector_name="manual_review",
+        display_name="Manual Review",
+        supported_action_types=("propose", "execute"),
+        supports_snapshot=False,
+        supports_rollback=False,
+        compensating_action_description=None,
+        risk_ceiling="R5",
+        owner="system",
+    )
+    registry.register(spy, contract)
     return registry
 
 
@@ -120,6 +160,7 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
                 "action_proposal",
                 "operation_contract",
                 "connector_execute",
+                "knowledge_asset_candidate",
             ],
         )
         telemetry_dimensions = {event.dimension for event in result.telemetry_events}
@@ -230,6 +271,154 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         self.assertTrue(result.action_proposal.approval_required)
         self.assertIsNotNone(result.approval_record)
         self.assertEqual(result.approval_record.status, "pending")
+
+    def test_approval_required_halts_before_execution(self) -> None:
+        """Governance gate: approval_required operations MUST NOT call the
+        side-effecting connector.execute() before human approval.
+
+        This is hard boundary #4 (R4/R5 proposal-only) and the core of
+        Governed Operation. The loop must halt at AWAITING_APPROVAL.
+
+        Regression guard: the spy connector raises if execute() is invoked,
+        so this test fails if the loop bypasses the approval gate.
+        """
+        spy = _ExecutionSpyConnector()
+        runtime = self._build_runtime(
+            rows=[],  # row_count=0 => high risk => approval_required
+            connector_registry=_build_spy_connector_registry(spy),
+        )
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        # The proposal is approval-required...
+        self.assertTrue(result.action_proposal.approval_required)
+        # ...so the connector's side-effecting execute() must NOT have been called.
+        self.assertFalse(
+            spy.execute_called,
+            "connector.execute() was called for an approval_required operation",
+        )
+        # A pending approval must be recorded (human responsibility entry point).
+        self.assertIsNotNone(result.approval_record)
+        self.assertEqual(result.approval_record.status, "pending")
+        # The loop halts at awaiting_approval, not connector_execute.
+        trace_steps = [event.step for event in result.trace_events]
+        self.assertIn("awaiting_approval", trace_steps)
+        self.assertNotIn("connector_execute", trace_steps)
+        # The result reports the halted status rather than an execution result.
+        self.assertIsNotNone(result.action_result)
+        self.assertEqual(result.action_result.get("status"), "awaiting_approval")
+
+    def test_loop_emits_knowledge_asset_candidate(self) -> None:
+        """The Trusted Loop must close the back half: every run emits a
+        KnowledgeAsset candidate (DRAFT) derived from the evidence chain,
+        bound to the run's trace. This is the moat — proof the loop does not
+        stop at proposal/execution but sediments a reusable knowledge asset.
+        """
+        runtime = self._build_runtime()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        candidate = result.knowledge_asset_candidate
+        self.assertIsNotNone(candidate, "loop did not emit a knowledge_asset_candidate")
+        # Bound to this run's trace (evidence shares the same trace_id).
+        self.assertEqual(candidate.source_trace_id, result.evidence_chain.trace_id)
+        # Candidate, not published.
+        self.assertEqual(candidate.state, LifecycleState.DRAFT)
+        # Title reflects the metric under analysis.
+        self.assertIn("gmv", candidate.title.lower())
+
+    def test_result_includes_operation_trace(self) -> None:
+        """The end-to-end OperationTrace must be returned in the result, not
+        built and discarded. It is the audit/replay record of the operation."""
+        runtime = self._build_runtime()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        op_trace = result.operation_trace
+        self.assertIsNotNone(op_trace, "result did not include operation_trace")
+        self.assertEqual(op_trace.evidence_chain_id, result.evidence_chain.evidence_chain_id)
+        self.assertEqual(op_trace.proposal_id, result.action_proposal.proposal_id)
+        # Non-approval (R2) path executes -> trace lands in EXECUTED.
+        self.assertEqual(op_trace.state, OperationState.EXECUTED)
+
+    def test_operation_trace_reflects_awaiting_approval(self) -> None:
+        """For approval-required operations the returned trace must reflect the
+        halted AWAITING_APPROVAL state (not EXECUTED)."""
+        runtime = self._build_runtime(rows=[])  # high risk => approval_required
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        self.assertIsNotNone(result.operation_trace)
+        self.assertEqual(result.operation_trace.state, OperationState.AWAITING_APPROVAL)
+
+    def test_record_outcome_creates_feedback_and_supersedes_knowledge(self) -> None:
+        """Post-outcome feedback path: observing an outcome must (1) create and
+        store a real FeedbackEvent bound to the trace, and (2) fold it into the
+        trace's KnowledgeAsset as a superseding version. This closes the
+        Feedback -> KnowledgeAsset loop (the moat's learning step)."""
+        runtime = self._build_runtime()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        trace_id = result.evidence_chain.trace_id
+        base_asset_id = result.knowledge_asset_candidate.asset_id
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+
+        feedback = runtime.record_outcome(
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops_lead",
+            metric_deltas={"gmv": 1200.0},
+        )
+
+        # (1) real feedback, stored and bound to the trace
+        self.assertEqual(feedback.outcome, "adopted")
+        self.assertEqual(feedback.trace_id, trace_id)
+        self.assertEqual(feedback.reviewer, "ops_lead")
+        self.assertIn(feedback, runtime.feedback_store.get_by_trace(trace_id))
+
+        # (2) knowledge superseded: version bumped, new id, same trace binding
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)
+        revised = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(revised)
+        self.assertNotEqual(revised.asset_id, base_asset_id)
+        self.assertEqual(revised.source_trace_id, trace_id)
+
+    def test_record_outcome_requires_known_trace_for_knowledge_update(self) -> None:
+        """Recording an outcome for an unknown trace still produces feedback but
+        does not fabricate a knowledge asset out of nothing."""
+        runtime = self._build_runtime()
+        feedback = runtime.record_outcome(trace_id="trace-unknown", outcome="rejected")
+        self.assertEqual(feedback.trace_id, "trace-unknown")
+        self.assertIsNone(runtime.knowledge_store.get_by_trace("trace-unknown"))
+        self.assertEqual(runtime.knowledge_store.version_of("trace-unknown"), 0)
+
+    def test_non_approval_operation_executes(self) -> None:
+        """Counterpart to the gate test: low/medium-risk, no-approval operations
+        DO proceed through governed execution and call the connector."""
+        spy = _ExecutionSpyConnector(raise_on_execute=False)
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],  # non-empty => R2, no approval
+            connector_registry=_build_spy_connector_registry(spy),
+        )
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertFalse(result.action_proposal.approval_required)
+        self.assertTrue(spy.execute_called)
+        trace_steps = [event.step for event in result.trace_events]
+        self.assertIn("connector_execute", trace_steps)
+        self.assertNotIn("awaiting_approval", trace_steps)
 
     def test_nonexistent_connector_raises_keyerror(self) -> None:
         """Requesting a nonexistent connector should raise KeyError."""

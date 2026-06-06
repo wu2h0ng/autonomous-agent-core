@@ -29,6 +29,13 @@ class OperationStateMachine:
         self._transitions: dict[OperationState, frozenset[OperationState]] = {
             OperationState.PROPOSED: frozenset(
                 {
+                    OperationState.AWAITING_APPROVAL,
+                    OperationState.APPROVED,
+                    OperationState.REJECTED,
+                }
+            ),
+            OperationState.AWAITING_APPROVAL: frozenset(
+                {
                     OperationState.APPROVED,
                     OperationState.REJECTED,
                 }
