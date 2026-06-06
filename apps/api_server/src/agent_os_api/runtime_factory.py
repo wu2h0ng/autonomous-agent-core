@@ -13,7 +13,12 @@ from agent_os_contracts import (
     ProviderKind,
     SQLTemplate,
 )
-from agent_os_core import ProviderRegistry, SemanticRegistry, TrustedLoopRuntime
+from agent_os_core import (
+    ProviderRegistry,
+    SemanticRegistry,
+    TemplateRegistry,
+    TrustedLoopRuntime,
+)
 from agent_os_core.action_connectors import ActionConnectorRegistry
 from agent_os_core.query_runtime import SQLiteQueryExecutor, StaticQueryExecutor
 
@@ -41,15 +46,18 @@ class ContentCommerceRuntimeFactory:
     def build(self) -> TrustedLoopRuntime:
         metrics = self._load_metrics()
         providers = self._load_providers()
-        template = self._load_sql_templates()[0]
-        default_metric = metrics[template.metric_name]
+        templates = self._load_sql_templates()
+        default_metric = metrics[templates[0].metric_name]
+        # Strict registry: every metric the runtime serves must have its own template;
+        # a metric without one fails loudly instead of running the wrong SQL.
+        template_registry = TemplateRegistry(templates)
 
         # API layer owns connector construction (OS Core must not import connectors)
         connector_registry = self._build_default_connector_registry()
 
         return TrustedLoopRuntime(
             metric_contract=default_metric,
-            sql_template=template,
+            template_registry=template_registry,
             query_executor=self._build_query_executor(providers),
             semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
             provider_registry=ProviderRegistry(tuple(providers.values())),
@@ -88,11 +96,7 @@ class ContentCommerceRuntimeFactory:
         """
         connection = sqlite3.connect(":memory:")
         seed_dir = self.config.domain_pack_path / "seed"
-        schemas = {
-            schema
-            for provider in providers.values()
-            for schema in provider.allowed_schemas
-        }
+        schemas = {schema for provider in providers.values() for schema in provider.allowed_schemas}
         if not schemas:
             raise ValueError("sqlite executor requires at least one provider schema to seed.")
         for schema in sorted(schemas):

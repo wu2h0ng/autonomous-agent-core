@@ -30,7 +30,7 @@ from .intent_parser import IntentParser
 from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
 from .operation_state_machine import OperationStateMachine
 from .operation_trace import OperationTraceBuilder
-from .query_runtime import StaticQueryExecutor
+from .query_runtime import StaticQueryExecutor, TemplateRegistry
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .sql_safety import SQLSafetyChecker
@@ -55,7 +55,8 @@ class TrustedLoopRuntime:
         self,
         *,
         metric_contract: MetricContract,
-        sql_template: SQLTemplate,
+        sql_template: SQLTemplate | None = None,
+        template_registry: TemplateRegistry | None = None,
         query_executor: StaticQueryExecutor,
         intent_parser: IntentParser | None = None,
         semantic_registry: SemanticRegistry | None = None,
@@ -73,6 +74,17 @@ class TrustedLoopRuntime:
         snapshot_store: SnapshotStore | None = None,
     ) -> None:
         self.metric_contract = metric_contract
+        if template_registry is not None and sql_template is not None:
+            raise ValueError(
+                "Provide exactly one of 'sql_template' or 'template_registry', not both."
+            )
+        if template_registry is not None:
+            self.template_registry = template_registry
+        elif sql_template is not None:
+            # Back-compat: a single template also serves as the default fallback.
+            self.template_registry = TemplateRegistry.from_single(sql_template)
+        else:
+            raise ValueError("Provide either 'sql_template' or 'template_registry'.")
         self.sql_template = sql_template
         self.query_executor = query_executor
         self.intent_parser = intent_parser or IntentParser()
@@ -137,21 +149,29 @@ class TrustedLoopRuntime:
             },
         )
 
+        # Select the SQL template that computes THIS metric (not a fixed template),
+        # so the EvidenceChain reproduces the requested metric. Unsupported metrics
+        # raise here rather than silently running the wrong SQL.
+        sql_template = self.template_registry.resolve(metric_contract.metric_name)
+
         query_plan = QueryPlan(
             metric_name=metric_contract.metric_name,
-            sql=self.sql_template.sql,
+            sql=sql_template.sql,
             parameters=parameters,
         )
-        trace.record("query_plan", {"metric": query_plan.metric_name})
+        trace.record(
+            "query_plan",
+            {"metric": query_plan.metric_name, "template_id": sql_template.template_id},
+        )
 
         sql_safety = SQLSafetyChecker(metric_contract.allowed_schemas)
         safety = sql_safety.check(
-            self.sql_template.sql,
-            self.sql_template.required_parameters,
+            sql_template.sql,
+            sql_template.required_parameters,
             parameters,
-            required_time_parameters=self.sql_template.required_time_parameters,
-            max_limit=self.sql_template.max_limit,
-            allow_select_star=self.sql_template.allow_select_star,
+            required_time_parameters=sql_template.required_time_parameters,
+            max_limit=sql_template.max_limit,
+            allow_select_star=sql_template.allow_select_star,
         )
         trace.record("sql_safety", {"allowed": safety.allowed, "reasons": list(safety.reasons)})
         trace.metric(
@@ -269,9 +289,7 @@ class TrustedLoopRuntime:
 
         if operation.approval_required:
             # Halt before execution: record pending approval, do NOT execute.
-            self.state_machine.transition(
-                OperationState.PROPOSED, OperationState.AWAITING_APPROVAL
-            )
+            self.state_machine.transition(OperationState.PROPOSED, OperationState.AWAITING_APPROVAL)
             approval_id = f"approval-{uuid4().hex[:12]}"
             approval_record = self.approval_runtime.create_pending(
                 approval_id=approval_id,
@@ -301,9 +319,7 @@ class TrustedLoopRuntime:
             # Governed execution path for non-approval operations.
             self.state_machine.transition(OperationState.PROPOSED, OperationState.APPROVED)
             if self.action_governance.should_snapshot(operation):
-                self.state_machine.transition(
-                    OperationState.APPROVED, OperationState.SNAPSHOTTING
-                )
+                self.state_machine.transition(OperationState.APPROVED, OperationState.SNAPSHOTTING)
                 connector = self.connector_registry.get(proposal.connector_name)
                 state_snapshot = connector.take_snapshot(operation)
                 if state_snapshot is not None:
@@ -318,9 +334,7 @@ class TrustedLoopRuntime:
                         else None,
                     },
                 )
-                self.state_machine.transition(
-                    OperationState.SNAPSHOTTING, OperationState.EXECUTED
-                )
+                self.state_machine.transition(OperationState.SNAPSHOTTING, OperationState.EXECUTED)
             else:
                 self.state_machine.transition(OperationState.APPROVED, OperationState.EXECUTED)
 

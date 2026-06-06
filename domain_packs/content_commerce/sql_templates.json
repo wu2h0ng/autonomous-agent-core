@@ -8,5 +8,15 @@
     "default_limit": 100,
     "max_limit": 1000,
     "allow_select_star": false
+  },
+  {
+    "template_id": "content_commerce_spend_daily",
+    "metric_name": "spend",
+    "sql": "select order_date, sum(spend) as value from sales.orders where order_date >= :start_date and order_date < :end_date group by order_date limit :limit",
+    "required_parameters": ["start_date", "end_date", "limit"],
+    "required_time_parameters": ["start_date", "end_date"],
+    "default_limit": 100,
+    "max_limit": 1000,
+    "allow_select_star": false
   }
 ]

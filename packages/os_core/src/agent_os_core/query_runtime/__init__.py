@@ -4,7 +4,57 @@ import sqlite3
 from collections.abc import Iterable
 from typing import Any
 
-from agent_os_contracts import QueryPlan, QueryResult
+from agent_os_contracts import QueryPlan, QueryResult, SQLTemplate
+
+
+class TemplateRegistry:
+    """Resolve the ``SQLTemplate`` to use for a given metric.
+
+    The Trusted Loop resolves a metric from the business intent and must run the
+    SQL template that actually computes THAT metric — otherwise the EvidenceChain
+    would not reproduce the stated metric. This registry is the metric-keyed
+    lookup that makes template selection explicit.
+
+    Two modes:
+    - Strict (default): built from one or more templates keyed by ``metric_name``.
+      Resolving a metric with no registered template raises ``ValueError`` — an
+      unsupported metric fails loudly instead of silently running the wrong SQL.
+    - Single-default (``from_single``): one template that is also returned as a
+      fallback for any metric, preserving the prior single-template behavior for
+      existing callers.
+    """
+
+    def __init__(
+        self,
+        templates: Iterable[SQLTemplate],
+        *,
+        default: SQLTemplate | None = None,
+    ) -> None:
+        by_metric: dict[str, SQLTemplate] = {}
+        for template in templates:
+            if template.metric_name in by_metric:
+                raise ValueError(f"Duplicate SQL template for metric '{template.metric_name}'.")
+            by_metric[template.metric_name] = template
+        if not by_metric and default is None:
+            raise ValueError("TemplateRegistry requires at least one template.")
+        self._by_metric = by_metric
+        self._default = default
+
+    @classmethod
+    def from_single(cls, template: SQLTemplate) -> TemplateRegistry:
+        """Build a registry from one template that also acts as the fallback default."""
+        return cls((template,), default=template)
+
+    def resolve(self, metric_name: str) -> SQLTemplate:
+        template = self._by_metric.get(metric_name)
+        if template is not None:
+            return template
+        if self._default is not None:
+            return self._default
+        raise ValueError(f"No SQL template registered for metric '{metric_name}'.")
+
+    def metrics(self) -> tuple[str, ...]:
+        return tuple(self._by_metric.keys())
 
 
 class StaticQueryExecutor:
@@ -47,9 +97,7 @@ class SQLiteQueryExecutor:
                 "SQLiteQueryExecutor requires either a sqlite3 connection or a database path."
             )
         if connection is not None and database is not None:
-            raise ValueError(
-                "Provide exactly one of 'connection' or 'database', not both."
-            )
+            raise ValueError("Provide exactly one of 'connection' or 'database', not both.")
         if connection is None:
             connection = sqlite3.connect(database)  # type: ignore[arg-type]
         # row_factory=sqlite3.Row preserves real column names for QueryResult mapping.

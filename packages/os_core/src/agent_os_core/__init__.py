@@ -10,6 +10,7 @@ from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
 from .model_gateway import ModelProviderAdapter
 from .operation_state_machine import InvalidStateTransition, OperationStateMachine
 from .operation_trace import OperationTraceBuilder
+from .query_runtime import SQLiteQueryExecutor, StaticQueryExecutor, TemplateRegistry
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .trusted_loop import TrustedLoopRuntime
@@ -35,7 +36,10 @@ __all__ = [
     "OperationStateMachine",
     "OperationTraceBuilder",
     "ProviderRegistry",
+    "SQLiteQueryExecutor",
     "SemanticRegistry",
     "SnapshotStore",
+    "StaticQueryExecutor",
+    "TemplateRegistry",
     "TrustedLoopRuntime",
 ]
