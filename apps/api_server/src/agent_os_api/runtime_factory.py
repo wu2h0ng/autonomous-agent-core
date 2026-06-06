@@ -111,26 +111,50 @@ class ContentCommerceRuntimeFactory:
 
     @staticmethod
     def _build_default_connector_registry() -> ActionConnectorRegistry:
-        """Build a default connector registry with ManualReviewConnector.
+        """Build a default connector registry.
 
         This lives in the API layer, not in OS Core, to enforce the boundary
-        rule: OS Core never imports concrete action connectors.
+        rule: OS Core never imports concrete action connectors. Two connectors
+        are registered:
+
+        - ``manual_review`` (no side effects): the safe default for proposals.
+        - ``action_record`` (real, reversible write): the first connector that
+          actually exercises the governance gate, pre-execution snapshot, and
+          rollback. Proposals only route to it when they name it, so existing
+          flows are unchanged.
         """
+        from action_record import ActionRecordConnector, ActionRecordStore
         from manual_review import ManualReviewConnector
 
         registry = ActionConnectorRegistry()
-        connector = ManualReviewConnector()
-        contract = ActionConnectorContract(
-            connector_name="manual_review",
-            display_name="Manual Review",
-            supported_action_types=("propose", "execute"),
-            supports_snapshot=False,
-            supports_rollback=False,
-            compensating_action_description=None,
-            risk_ceiling="R5",
-            owner="system",
+        registry.register(
+            ManualReviewConnector(),
+            ActionConnectorContract(
+                connector_name="manual_review",
+                display_name="Manual Review",
+                supported_action_types=("propose", "execute"),
+                supports_snapshot=False,
+                supports_rollback=False,
+                compensating_action_description=None,
+                risk_ceiling="R5",
+                owner="system",
+            ),
         )
-        registry.register(connector, contract)
+        registry.register(
+            ActionRecordConnector(store=ActionRecordStore()),
+            ActionConnectorContract(
+                connector_name="action_record",
+                display_name="Action Record",
+                supported_action_types=("execute",),
+                supports_snapshot=True,
+                supports_rollback=True,
+                compensating_action_description=(
+                    "Restore the action record store to the pre-execution snapshot state"
+                ),
+                risk_ceiling="R3",
+                owner="system",
+            ),
+        )
         return registry
 
     def _load_metrics(self) -> dict[str, MetricContract]:

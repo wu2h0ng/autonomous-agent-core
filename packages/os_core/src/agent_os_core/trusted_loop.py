@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from time import perf_counter
+from typing import Any
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -31,6 +32,7 @@ from .operation_state_machine import OperationStateMachine
 from .operation_trace import OperationTraceBuilder
 from .query_runtime import StaticQueryExecutor
 from .semantic_runtime import SemanticRegistry
+from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .sql_safety import SQLSafetyChecker
 from .trace import TraceRecorder
 
@@ -68,6 +70,7 @@ class TrustedLoopRuntime:
         knowledge_store: KnowledgeStore | None = None,
         feedback_builder: FeedbackEventBuilder | None = None,
         feedback_store: FeedbackStore | None = None,
+        snapshot_store: SnapshotStore | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         self.sql_template = sql_template
@@ -106,6 +109,7 @@ class TrustedLoopRuntime:
         self.knowledge_store = knowledge_store or KnowledgeStore()
         self.feedback_builder = feedback_builder or FeedbackEventBuilder()
         self.feedback_store = feedback_store or FeedbackStore()
+        self.snapshot_store = snapshot_store or InMemorySnapshotStore()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         started_at = perf_counter()
@@ -302,11 +306,16 @@ class TrustedLoopRuntime:
                 )
                 connector = self.connector_registry.get(proposal.connector_name)
                 state_snapshot = connector.take_snapshot(operation)
+                if state_snapshot is not None:
+                    self.snapshot_store.save(state_snapshot)
                 trace.record(
                     "state_snapshot",
                     {
                         "connector_name": proposal.connector_name,
                         "has_snapshot": state_snapshot is not None,
+                        "snapshot_id": state_snapshot.snapshot_id
+                        if state_snapshot is not None
+                        else None,
                     },
                 )
                 self.state_machine.transition(
@@ -443,6 +452,28 @@ class TrustedLoopRuntime:
             self.knowledge_store.register_version(revised)
 
         return feedback
+
+    def rollback(self, snapshot_id: str) -> dict[str, Any]:
+        """Roll back a previously persisted snapshot via its connector.
+
+        Loads the snapshot from ``snapshot_store``, resolves the connector that
+        produced it (by ``snapshot.connector_name``), and delegates to the
+        connector's ``rollback`` to restore the captured pre-execution state.
+
+        Args:
+            snapshot_id: The id of the snapshot to roll back.
+
+        Returns:
+            The connector's rollback result (contains a ``status`` key).
+
+        Raises:
+            KeyError: If no snapshot with ``snapshot_id`` is registered.
+        """
+        snapshot = self.snapshot_store.get(snapshot_id)
+        if snapshot is None:
+            raise KeyError(f"No snapshot registered with id '{snapshot_id}'.")
+        connector = self.connector_registry.get(snapshot.connector_name)
+        return connector.rollback(snapshot)
 
     def _parse_intent(self, question: str) -> BusinessIntent:
         parsed = self.intent_parser.parse(question)

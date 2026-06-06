@@ -10,6 +10,7 @@ from .model_gateway import ModelProviderAdapter
 from .operation_state_machine import InvalidStateTransition, OperationStateMachine
 from .operation_trace import OperationTraceBuilder
 from .semantic_runtime import SemanticRegistry
+from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .trusted_loop import TrustedLoopRuntime
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "DataProductCompiler",
     "FeedbackEventBuilder",
     "FeedbackStore",
+    "InMemorySnapshotStore",
     "IntentParser",
     "InvalidStateTransition",
     "KnowledgeAssetBuilder",
@@ -30,5 +32,6 @@ __all__ = [
     "OperationTraceBuilder",
     "ProviderRegistry",
     "SemanticRegistry",
+    "SnapshotStore",
     "TrustedLoopRuntime",
 ]
