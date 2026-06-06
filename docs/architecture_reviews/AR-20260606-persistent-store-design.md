@@ -102,15 +102,19 @@ no-op. The runtime calls `record_outcome` within the unit of work.
 5. **Integration tests:** against a real Postgres (testcontainers or a CI service), guarded by
    `skipUnless` so the canonical bare-env `make ci` stays green (same pattern as the FastAPI tests).
 
-## 5. Open decisions to ratify (before/at implementation)
+## 5. Ratified decisions (2026-06-06)
 
-- **DB access**: raw SQL via `psycopg` vs SQLAlchemy Core. (Lean: psycopg + hand-written SQL — fewer
-  deps, matches the "self-developed core, thin infra" posture; revisit if query complexity grows.)
-- **Migrations**: hand-rolled SQL migration files + a tiny runner vs Alembic.
-- **Adapter location**: `packages/persistence/` vs under `apps/`. (Lean: `packages/persistence/` so
-  the SDK/other apps can reuse it.)
-- **Sync vs async**: the runtime is synchronous; start with sync psycopg. Async only if/when the
-  FastAPI surface needs it.
+- **DB access**: **SQLAlchemy Core** (expression builder over hand SQL; dialect-portable).
+- **Migrations**: **Alembic**.
+- **Adapter location**: **`packages/persistence/`** (`agent_os_persistence`), outside OS Core.
+- **I/O**: **SYNC** (psycopg driver). An async variant was considered and **reversed** on review: it
+  would force the entire runtime + test suite async (viral) while the dominant I/O (model calls,
+  warehouse query execution) is still synchronous — paying the async tax with no real benefit yet.
+  Revisit async only when the whole I/O path migrates together under real concurrency pressure.
+
+Implementation note: repositories are written in dialect-portable SQLAlchemy Core (generic `JSON`
+column), so they are unit-tested on in-memory **SQLite** with no DB infrastructure; production wires
+a PostgreSQL engine. JSONB is a PG-only column refinement via Alembic, not required for correctness.
 
 ## 6. Boundary & verification (for the implementation PR)
 
