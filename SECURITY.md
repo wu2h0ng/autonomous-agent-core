@@ -9,7 +9,7 @@ This project is pre-MVP. Security fixes apply to the `main` branch until the fir
 Use GitHub private vulnerability reporting when available:
 
 ```text
-https://github.com/wu2h0ng/ai-native-business-data-agent-os/security/advisories/new
+https://github.com/wu2h0ng/data-agent-os/security/advisories/new
 ```
 
 If private advisories are unavailable, contact the repository owner directly. Do not open a public issue for exploitable vulnerabilities, leaked secrets, credential exposure, customer data exposure, or bypasses of SQL Safety, permissions, EvidenceChain, or approval controls.
