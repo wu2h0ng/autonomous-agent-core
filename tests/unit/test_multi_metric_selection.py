@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api_server" / "src"))
 
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
+    BlockCode,
     MetricContract,
     ProviderContract,
     ProviderKind,
@@ -21,6 +22,7 @@ from agent_os_core import (  # noqa: E402
     ProviderRegistry,
     SemanticRegistry,
     TemplateRegistry,
+    TrustedLoopBlocked,
     TrustedLoopRuntime,
 )
 from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
@@ -114,12 +116,17 @@ class MultiMetricTemplateSelectionTest(unittest.TestCase):
         self.assertEqual(spend_result.query_plan.sql, SPEND_SQL)
         self.assertEqual(spend_result.evidence_chain.query_plan.sql, SPEND_SQL)
 
-    def test_missing_template_for_resolved_metric_raises(self) -> None:
+    def test_missing_template_for_resolved_metric_blocks(self) -> None:
         # Strict registry knows gmv only; spend metric resolves but has no template.
         registry = TemplateRegistry((_tpl("gmv", GMV_SQL),))
         runtime = self._runtime(registry)
-        with self.assertRaisesRegex(ValueError, "No SQL template registered for metric 'spend'"):
+        with self.assertRaises(TrustedLoopBlocked) as ctx:
             runtime.run("ad spend last 7 days", dict(PARAMS))
+        self.assertEqual(ctx.exception.block.code, BlockCode.NO_TEMPLATE)
+        # The unified evaluate() surface reports it as a structured block.
+        outcome = runtime.evaluate("ad spend last 7 days", dict(PARAMS))
+        self.assertTrue(outcome.blocked)
+        self.assertEqual(outcome.block.code, BlockCode.NO_TEMPLATE)
 
     def test_requires_a_template_source(self) -> None:
         with self.assertRaises(ValueError):

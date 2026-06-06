@@ -25,17 +25,33 @@ def run_service(
 
     The ``trace_id`` is taken from ``result.evidence_chain.trace_id`` so callers
     can later attach an outcome to the same trace via :func:`record_outcome_service`.
+
+    Returns ``{"status": "ok", ...}`` on success, or ``{"status": "blocked",
+    "block": {...}}`` for an expected business block (unsafe SQL, unknown metric,
+    no template, no provider) — a unified, JSON-able failure contract.
     """
-    result = runtime.run(question, parameters)
+    outcome = runtime.evaluate(question, parameters)
+    if outcome.blocked:
+        block = outcome.block
+        return {
+            "status": "blocked",
+            "block": {
+                "code": block.code.value,
+                "message": block.message,
+                "stage": block.stage,
+                "details": list(block.details),
+            },
+        }
+
+    result = outcome.result
     trace_id = result.evidence_chain.trace_id
     asset = runtime.knowledge_store.get_by_trace(trace_id)
 
     return {
+        "status": "ok",
         "trace_id": trace_id,
         "intent": result.intent.metric_name,
-        "provider_id": (
-            result.provider_contract.provider_id if result.provider_contract else None
-        ),
+        "provider_id": (result.provider_contract.provider_id if result.provider_contract else None),
         "evidence_chain_id": result.evidence_chain.evidence_chain_id,
         "action_proposal_id": result.action_proposal.proposal_id,
         "row_count": result.evidence_chain.query_result.row_count,

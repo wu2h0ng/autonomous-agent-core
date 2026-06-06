@@ -18,6 +18,7 @@ from .architecture import (
 from .observability import TelemetryDimension, TelemetryEvent
 from .trusted_loop import (
     ActionProposal,
+    BlockCode,
     BusinessIntent,
     DataClassification,
     EvidenceChain,
@@ -29,12 +30,15 @@ from .trusted_loop import (
     SQLSafetyResult,
     SQLTemplate,
     TraceEvent,
+    TrustedLoopBlock,
+    TrustedLoopOutcome,
     TrustedLoopResult,
 )
 
 __all__ = [
     "ActionConnectorContract",
     "ActionProposal",
+    "BlockCode",
     "BusinessIntent",
     "DataClassification",
     "DataProductCandidate",
@@ -62,5 +66,7 @@ __all__ = [
     "TelemetryDimension",
     "TelemetryEvent",
     "TraceEvent",
+    "TrustedLoopBlock",
+    "TrustedLoopOutcome",
     "TrustedLoopResult",
 ]

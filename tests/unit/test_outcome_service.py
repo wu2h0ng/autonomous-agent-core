@@ -11,9 +11,7 @@ RUN_PARAMS = {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100
 
 
 def _build_runtime():
-    return ContentCommerceRuntimeFactory(
-        RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK)
-    ).build()
+    return ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK)).build()
 
 
 class RunServiceTest(unittest.TestCase):
@@ -21,12 +19,23 @@ class RunServiceTest(unittest.TestCase):
         runtime = _build_runtime()
         summary = run_service(runtime, question="GMV", parameters=RUN_PARAMS)
 
+        self.assertEqual(summary["status"], "ok")
         self.assertTrue(summary["trace_id"].startswith("trace-"))
         self.assertIsInstance(summary["intent"], str)
         self.assertEqual(summary["row_count"], 1)
         # A run sediments a DRAFT knowledge asset for the trace.
         self.assertIsNotNone(summary["knowledge_asset_id"])
         self.assertEqual(runtime.knowledge_store.version_of(summary["trace_id"]), 1)
+
+    def test_run_service_blocked_returns_structured_block(self) -> None:
+        # 'roi' is a defined metric in the pack but has no SQL template -> NO_TEMPLATE.
+        runtime = _build_runtime()
+        summary = run_service(runtime, question="ROI", parameters=RUN_PARAMS)
+
+        self.assertEqual(summary["status"], "blocked")
+        self.assertNotIn("trace_id", summary)
+        self.assertEqual(summary["block"]["code"], "no_template")
+        self.assertEqual(summary["block"]["stage"], "template_selection")
 
 
 class RecordOutcomeServiceTest(unittest.TestCase):

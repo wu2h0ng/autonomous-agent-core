@@ -62,6 +62,22 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
 
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class HttpAppBlockTest(unittest.TestCase):
+    def test_run_blocked_returns_422_with_block_detail(self) -> None:
+        client = _make_client(API_KEY)
+        # 'ROI' resolves to a metric with no SQL template -> expected business block.
+        resp = client.post(
+            "/runs",
+            json={"question": "ROI", "parameters": RUN_BODY["parameters"]},
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        detail = resp.json()["detail"]
+        self.assertEqual(detail["code"], "no_template")
+        self.assertEqual(detail["stage"], "template_selection")
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpAppAuthBoundaryTest(unittest.TestCase):
     def test_missing_api_key_is_rejected(self) -> None:
         client = _make_client(API_KEY)

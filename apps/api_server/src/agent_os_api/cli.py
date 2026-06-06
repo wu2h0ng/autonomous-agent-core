@@ -144,7 +144,8 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
         )
         # Preserve the historical query payload shape (trace_steps for smoke debugging).
         _emit(payload, stdout)
-        return 0
+        # Expected business block (unsafe SQL, unknown metric, ...) -> non-zero exit.
+        return 1 if payload.get("status") == "blocked" else 0
 
     if args.command == "record-outcome":
         metric_deltas = _parse_metric_deltas(args.metric)

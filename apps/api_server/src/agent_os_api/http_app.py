@@ -101,11 +101,16 @@ def create_app(runtime: Any | None = None, *, api_key: str | None = None) -> Fas
 
     @app.post("/runs", response_model=RunResponse)
     def post_run(body: RunRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
-        return run_service(
+        result = run_service(
             app.state.runtime,
             question=body.question,
             parameters=body.parameters,
         )
+        if result.get("status") == "blocked":
+            # Expected business block (unsafe SQL, unknown metric, ...) -> 422,
+            # not a 500: the request was understood but the loop refused to answer.
+            raise HTTPException(status_code=422, detail=result["block"])
+        return result
 
     @app.post("/outcomes", response_model=OutcomeResponse)
     def post_outcome(body: OutcomeRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:

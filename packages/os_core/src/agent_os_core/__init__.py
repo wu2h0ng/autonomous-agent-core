@@ -13,7 +13,7 @@ from .operation_trace import OperationTraceBuilder
 from .query_runtime import SQLiteQueryExecutor, StaticQueryExecutor, TemplateRegistry
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
-from .trusted_loop import TrustedLoopRuntime
+from .trusted_loop import TrustedLoopBlocked, TrustedLoopRuntime
 
 __all__ = [
     "ActionConnector",
@@ -41,5 +41,6 @@ __all__ = [
     "SnapshotStore",
     "StaticQueryExecutor",
     "TemplateRegistry",
+    "TrustedLoopBlocked",
     "TrustedLoopRuntime",
 ]

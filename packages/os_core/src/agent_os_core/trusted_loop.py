@@ -5,6 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent_os_contracts import (
+    BlockCode,
     BusinessIntent,
     FeedbackEvent,
     MetricContract,
@@ -15,6 +16,8 @@ from agent_os_contracts import (
     SQLTemplate,
     StateSnapshot,
     TelemetryDimension,
+    TrustedLoopBlock,
+    TrustedLoopOutcome,
     TrustedLoopResult,
 )
 
@@ -35,6 +38,19 @@ from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .sql_safety import SQLSafetyChecker
 from .trace import TraceRecorder
+
+
+class TrustedLoopBlocked(Exception):
+    """Raised when the Trusted Loop refuses to produce an answer (an expected block).
+
+    Carries a structured :class:`TrustedLoopBlock`. This is distinct from a
+    programming/wiring error (e.g. a missing connector raises ``KeyError``): a
+    block is a first-class, user-facing outcome with a machine-readable code.
+    """
+
+    def __init__(self, block: TrustedLoopBlock) -> None:
+        self.block = block
+        super().__init__(f"[{block.code.value}] {block.message}")
 
 
 class TrustedLoopRuntime:
@@ -137,10 +153,33 @@ class TrustedLoopRuntime:
         intent = self._parse_intent(question)
         trace.record("intent", {"intent_id": intent.intent_id, "metric": intent.metric_name})
 
-        metric_contract = self.semantic_registry.resolve_metric(intent.metric_name)
-        provider_contract = self.provider_registry.choose_for_schemas(
-            metric_contract.allowed_schemas
-        )
+        try:
+            metric_contract = self.semantic_registry.resolve_metric(intent.metric_name)
+        except KeyError as exc:
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.UNKNOWN_METRIC,
+                    message=f"No metric contract for '{intent.metric_name}'.",
+                    stage="metric_resolution",
+                    details=(str(exc).strip("'"),),
+                )
+            ) from exc
+        try:
+            provider_contract = self.provider_registry.choose_for_schemas(
+                metric_contract.allowed_schemas
+            )
+        except KeyError as exc:
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.NO_PROVIDER,
+                    message=(
+                        "No provider can satisfy schemas "
+                        f"{', '.join(metric_contract.allowed_schemas)}."
+                    ),
+                    stage="provider_selection",
+                    details=(str(exc).strip("'"),),
+                )
+            ) from exc
         trace.record(
             "semantic_resolution",
             {
@@ -151,8 +190,18 @@ class TrustedLoopRuntime:
 
         # Select the SQL template that computes THIS metric (not a fixed template),
         # so the EvidenceChain reproduces the requested metric. Unsupported metrics
-        # raise here rather than silently running the wrong SQL.
-        sql_template = self.template_registry.resolve(metric_contract.metric_name)
+        # block here rather than silently running the wrong SQL.
+        try:
+            sql_template = self.template_registry.resolve(metric_contract.metric_name)
+        except ValueError as exc:
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.NO_TEMPLATE,
+                    message=f"No SQL template registered for metric '{metric_contract.metric_name}'.",
+                    stage="template_selection",
+                    details=(str(exc),),
+                )
+            ) from exc
 
         query_plan = QueryPlan(
             metric_name=metric_contract.metric_name,
@@ -182,7 +231,14 @@ class TrustedLoopRuntime:
             attributes={"metric": metric_contract.metric_name},
         )
         if not safety.allowed:
-            raise ValueError(f"SQL safety check failed: {'; '.join(safety.reasons)}")
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.SQL_SAFETY,
+                    message="SQL safety check rejected the query.",
+                    stage="sql_safety",
+                    details=tuple(safety.reasons),
+                )
+            )
 
         query_result = self.query_executor.execute(query_plan)
         trace.record("query_result", {"row_count": query_result.row_count})
@@ -421,6 +477,20 @@ class TrustedLoopRuntime:
             approval_record=approval_record,
             knowledge_asset_candidate=knowledge_candidate,
         )
+
+    def evaluate(self, question: str, parameters: dict[str, object]) -> TrustedLoopOutcome:
+        """Run the loop and return a unified outcome instead of raising on blocks.
+
+        Returns an ``ok`` outcome carrying the ``TrustedLoopResult`` on success, or a
+        ``blocked`` outcome carrying the ``TrustedLoopBlock`` for an expected business
+        block (unsafe SQL, unknown metric, no template, no provider). Programming/wiring
+        errors (e.g. a missing connector) still propagate as exceptions.
+        """
+        try:
+            result = self.run(question, parameters)
+        except TrustedLoopBlocked as blocked:
+            return TrustedLoopOutcome(status="blocked", block=blocked.block)
+        return TrustedLoopOutcome(status="ok", result=result)
 
     def record_outcome(
         self,
