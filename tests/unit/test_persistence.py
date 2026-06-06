@@ -143,6 +143,32 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         store.save(snap2)
         self.assertEqual(store.list_for_operation("op-1"), (snap2,))
 
+    def test_unit_of_work_commits_both_stores(self) -> None:
+        from agent_os_persistence import SqlFeedbackStore, SqlKnowledgeStore, SqlUnitOfWork
+
+        uow = SqlUnitOfWork(self.engine)
+        with uow() as (fb, kn):
+            fb.record(self._feedback("feedback-uow", "trace-uow", "adopted"))
+            kn.register(self._asset("knowledge-uow", "trace-uow"))
+
+        # A fresh engine-bound store sees both committed writes.
+        self.assertEqual(len(SqlFeedbackStore(self.engine).get_by_trace("trace-uow")), 1)
+        self.assertEqual(SqlKnowledgeStore(self.engine).version_of("trace-uow"), 1)
+
+    def test_unit_of_work_rolls_back_both_on_failure(self) -> None:
+        from agent_os_persistence import SqlFeedbackStore, SqlKnowledgeStore, SqlUnitOfWork
+
+        uow = SqlUnitOfWork(self.engine)
+        with self.assertRaises(RuntimeError):
+            with uow() as (fb, kn):
+                fb.record(self._feedback("feedback-rb", "trace-rb", "adopted"))
+                kn.register(self._asset("knowledge-rb", "trace-rb"))
+                raise RuntimeError("boom after both writes")
+
+        # Neither write survived: the transaction rolled back atomically.
+        self.assertEqual(SqlFeedbackStore(self.engine).get_by_trace("trace-rb"), ())
+        self.assertEqual(SqlKnowledgeStore(self.engine).version_of("trace-rb"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

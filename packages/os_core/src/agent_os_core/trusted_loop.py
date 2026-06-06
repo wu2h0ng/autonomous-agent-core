@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -88,6 +89,7 @@ class TrustedLoopRuntime:
         feedback_builder: FeedbackEventBuilder | None = None,
         feedback_store: FeedbackStorePort | None = None,
         snapshot_store: SnapshotStore | None = None,
+        feedback_knowledge_uow: Any | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -138,6 +140,11 @@ class TrustedLoopRuntime:
         self.feedback_builder = feedback_builder or FeedbackEventBuilder()
         self.feedback_store = feedback_store or FeedbackStore()
         self.snapshot_store = snapshot_store or InMemorySnapshotStore()
+        # Optional unit-of-work factory: a zero-arg callable returning a context
+        # manager that yields (feedback_store, knowledge_store) bound to one
+        # transaction, making record_outcome's two writes atomic. When None,
+        # record_outcome uses the runtime's own stores (in-memory needs no txn).
+        self.feedback_knowledge_uow = feedback_knowledge_uow
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         started_at = perf_counter()
@@ -528,12 +535,20 @@ class TrustedLoopRuntime:
             reviewer=reviewer,
             metric_deltas=metric_deltas,
         )
-        self.feedback_store.record(feedback)
 
-        base_asset = self.knowledge_store.get_by_trace(trace_id)
-        if base_asset is not None:
-            revised = self.knowledge_builder.with_feedback(base_asset, feedback)
-            self.knowledge_store.register_version(revised)
+        # Feedback write + knowledge version bump are one atomic unit: under a
+        # configured unit of work they share a transaction (rolled back together
+        # on failure); otherwise they run on the runtime's own (in-memory) stores.
+        if self.feedback_knowledge_uow is not None:
+            context = self.feedback_knowledge_uow()
+        else:
+            context = nullcontext((self.feedback_store, self.knowledge_store))
+        with context as (feedback_store, knowledge_store):
+            feedback_store.record(feedback)
+            base_asset = knowledge_store.get_by_trace(trace_id)
+            if base_asset is not None:
+                revised = self.knowledge_builder.with_feedback(base_asset, feedback)
+                knowledge_store.register_version(revised)
 
         return feedback
 

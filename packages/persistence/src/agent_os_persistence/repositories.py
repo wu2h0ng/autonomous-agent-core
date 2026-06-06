@@ -1,15 +1,18 @@
 """PostgreSQL/SQLAlchemy-Core implementations of the OS Core store Ports.
 
 These adapters live OUTSIDE OS Core (which only owns the Port ABCs). They take an
-injected SQLAlchemy ``Engine`` and persist the contracts via the schema/mappers,
-preserving the same semantics as the in-memory stores (dedup on source_trace_id,
-version bump on supersede, append-only feedback). The code is dialect-portable:
-tests run it on SQLite; production wires a PostgreSQL engine.
+injected SQLAlchemy *bind* — an ``Engine`` (each call its own transaction) or a
+``Connection`` (transaction owned by a caller, e.g. a unit of work). This lets the
+same store classes run standalone or inside :class:`SqlUnitOfWork` for atomic
+multi-store writes. The code is dialect-portable: tests run it on SQLite;
+production wires a PostgreSQL engine.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from agent_os_contracts import FeedbackEvent, KnowledgeAsset, StateSnapshot
 from agent_os_core import (
@@ -19,19 +22,39 @@ from agent_os_core import (
     KnowledgeStorePort,
     SnapshotStore,
 )
-from sqlalchemy import Engine, select
+from sqlalchemy import Connection, Engine, select
 
 from . import mappers, schema
 
 
-class SqlFeedbackStore(FeedbackStorePort):
+class _SqlStoreBase:
+    """Bind-aware base: works against an Engine or an externally-managed Connection."""
+
+    def __init__(self, bind: Engine | Connection) -> None:
+        self._bind = bind
+
+    @contextmanager
+    def _write(self) -> Iterator[Connection]:
+        if isinstance(self._bind, Connection):
+            yield self._bind  # caller (unit of work) owns the transaction
+        else:
+            with self._bind.begin() as conn:
+                yield conn
+
+    @contextmanager
+    def _read(self) -> Iterator[Connection]:
+        if isinstance(self._bind, Connection):
+            yield self._bind
+        else:
+            with self._bind.connect() as conn:
+                yield conn
+
+
+class SqlFeedbackStore(_SqlStoreBase, FeedbackStorePort):
     """Append-only feedback store backed by SQLAlchemy Core."""
 
-    def __init__(self, engine: Engine) -> None:
-        self._engine = engine
-
     def record(self, event: FeedbackEvent) -> FeedbackEvent:
-        with self._engine.begin() as conn:
+        with self._write() as conn:
             conn.execute(
                 schema.feedback_events.insert().values(
                     feedback_id=event.feedback_id,
@@ -47,13 +70,13 @@ class SqlFeedbackStore(FeedbackStorePort):
             .where(schema.feedback_events.c.trace_id == trace_id)
             .order_by(schema.feedback_events.c.id)
         )
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.feedback_from_payload(row[0]) for row in rows)
 
     def all_events(self) -> tuple[FeedbackEvent, ...]:
         stmt = select(schema.feedback_events.c.payload).order_by(schema.feedback_events.c.id)
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.feedback_from_payload(row[0]) for row in rows)
 
@@ -61,18 +84,15 @@ class SqlFeedbackStore(FeedbackStorePort):
         return dict(Counter(event.outcome for event in self.all_events()))
 
 
-class SqlKnowledgeStore(KnowledgeStorePort):
+class SqlKnowledgeStore(_SqlStoreBase, KnowledgeStorePort):
     """Knowledge-asset store with dedup/versioning backed by SQLAlchemy Core."""
-
-    def __init__(self, engine: Engine) -> None:
-        self._engine = engine
 
     def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
         key = asset.source_trace_id
         if key is None:
             raise ValueError("KnowledgeAsset.source_trace_id is required for dedup")
         table = schema.knowledge_assets
-        with self._engine.begin() as conn:
+        with self._write() as conn:
             existing = conn.execute(
                 select(table.c.payload).where(table.c.source_trace_id == key)
             ).fetchone()
@@ -93,7 +113,7 @@ class SqlKnowledgeStore(KnowledgeStorePort):
             raise ValueError("KnowledgeAsset.source_trace_id is required for dedup")
         table = schema.knowledge_assets
         payload = mappers.knowledge_to_payload(asset)
-        with self._engine.begin() as conn:
+        with self._write() as conn:
             row = conn.execute(
                 select(table.c.version).where(table.c.source_trace_id == key)
             ).fetchone()
@@ -109,7 +129,7 @@ class SqlKnowledgeStore(KnowledgeStorePort):
 
     def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
         table = schema.knowledge_assets
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             row = conn.execute(
                 select(table.c.payload).where(table.c.source_trace_id == trace_id)
             ).fetchone()
@@ -117,7 +137,7 @@ class SqlKnowledgeStore(KnowledgeStorePort):
 
     def version_of(self, trace_id: str) -> int:
         table = schema.knowledge_assets
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             row = conn.execute(
                 select(table.c.version).where(table.c.source_trace_id == trace_id)
             ).fetchone()
@@ -125,21 +145,18 @@ class SqlKnowledgeStore(KnowledgeStorePort):
 
     def all_assets(self) -> tuple[KnowledgeAsset, ...]:
         table = schema.knowledge_assets
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             rows = conn.execute(select(table.c.payload)).fetchall()
         return tuple(mappers.knowledge_from_payload(row[0]) for row in rows)
 
 
-class SqlSnapshotStore(SnapshotStore):
+class SqlSnapshotStore(_SqlStoreBase, SnapshotStore):
     """State-snapshot store backed by SQLAlchemy Core."""
-
-    def __init__(self, engine: Engine) -> None:
-        self._engine = engine
 
     def save(self, snapshot: StateSnapshot) -> StateSnapshot:
         table = schema.state_snapshots
         payload = mappers.snapshot_to_payload(snapshot)
-        with self._engine.begin() as conn:
+        with self._write() as conn:
             exists = conn.execute(
                 select(table.c.snapshot_id).where(table.c.snapshot_id == snapshot.snapshot_id)
             ).fetchone()
@@ -161,7 +178,7 @@ class SqlSnapshotStore(SnapshotStore):
 
     def get(self, snapshot_id: str) -> StateSnapshot | None:
         table = schema.state_snapshots
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             row = conn.execute(
                 select(table.c.payload).where(table.c.snapshot_id == snapshot_id)
             ).fetchone()
@@ -174,21 +191,18 @@ class SqlSnapshotStore(SnapshotStore):
             .where(table.c.operation_id == operation_id)
             .order_by(table.c.snapshot_id)
         )
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.snapshot_from_payload(row[0]) for row in rows)
 
 
-class SqlApprovalStore(ApprovalStorePort):
+class SqlApprovalStore(_SqlStoreBase, ApprovalStorePort):
     """Approval-record store (upsert by approval_id) backed by SQLAlchemy Core."""
-
-    def __init__(self, engine: Engine) -> None:
-        self._engine = engine
 
     def save(self, record: ApprovalRecord) -> ApprovalRecord:
         table = schema.approval_records
         payload = mappers.approval_to_payload(record)
-        with self._engine.begin() as conn:
+        with self._write() as conn:
             exists = conn.execute(
                 select(table.c.approval_id).where(table.c.approval_id == record.approval_id)
             ).fetchone()
@@ -210,8 +224,35 @@ class SqlApprovalStore(ApprovalStorePort):
 
     def get(self, approval_id: str) -> ApprovalRecord | None:
         table = schema.approval_records
-        with self._engine.connect() as conn:
+        with self._read() as conn:
             row = conn.execute(
                 select(table.c.payload).where(table.c.approval_id == approval_id)
             ).fetchone()
         return mappers.approval_from_payload(row[0]) if row is not None else None
+
+
+class SqlUnitOfWork:
+    """One-transaction unit of work over a feedback + knowledge store pair.
+
+    Calling the instance opens a single connection+transaction and yields
+    connection-bound stores; the transaction commits on clean exit and rolls back
+    on exception — so ``record_outcome``'s feedback write and knowledge version
+    bump are atomic. Injected into the runtime as ``feedback_knowledge_uow``.
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    @contextmanager
+    def __call__(self) -> Iterator[tuple[SqlFeedbackStore, SqlKnowledgeStore]]:
+        conn = self._engine.connect()
+        tx = conn.begin()
+        try:
+            yield SqlFeedbackStore(conn), SqlKnowledgeStore(conn)
+        except Exception:
+            tx.rollback()
+            raise
+        else:
+            tx.commit()
+        finally:
+            conn.close()

@@ -68,7 +68,9 @@ class ContentCommerceRuntimeFactory:
         connector_registry = self._build_default_connector_registry()
 
         # API layer owns store backend selection (OS Core must not import persistence).
-        knowledge_store, feedback_store, snapshot_store, approval_runtime = self._build_stores()
+        knowledge_store, feedback_store, snapshot_store, approval_runtime, uow = (
+            self._build_stores()
+        )
 
         return TrustedLoopRuntime(
             metric_contract=default_metric,
@@ -81,9 +83,10 @@ class ContentCommerceRuntimeFactory:
             feedback_store=feedback_store,
             snapshot_store=snapshot_store,
             approval_runtime=approval_runtime,
+            feedback_knowledge_uow=uow,
         )
 
-    def _build_stores(self) -> tuple[Any, Any, Any, Any]:
+    def _build_stores(self) -> tuple[Any, Any, Any, Any, Any]:
         """Select the store backend for feedback/knowledge/snapshot/approval.
 
         Returns ``(knowledge_store, feedback_store, snapshot_store, approval_runtime)``.
@@ -95,13 +98,14 @@ class ContentCommerceRuntimeFactory:
         """
         backend = self.config.store_backend
         if backend == STORE_MEMORY:
-            return None, None, None, None
+            return None, None, None, None, None
         if backend == STORE_POSTGRES:
             from agent_os_persistence import (
                 SqlApprovalStore,
                 SqlFeedbackStore,
                 SqlKnowledgeStore,
                 SqlSnapshotStore,
+                SqlUnitOfWork,
                 create_all,
             )
 
@@ -122,6 +126,7 @@ class ContentCommerceRuntimeFactory:
                 SqlFeedbackStore(engine),
                 SqlSnapshotStore(engine),
                 ApprovalLiteRuntime(store=SqlApprovalStore(engine)),
+                SqlUnitOfWork(engine),
             )
         raise ValueError(
             f"Unknown store_backend {backend!r}; expected {STORE_MEMORY!r} or {STORE_POSTGRES!r}."

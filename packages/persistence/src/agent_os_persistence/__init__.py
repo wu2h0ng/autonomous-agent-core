@@ -16,6 +16,7 @@ from .repositories import (
     SqlFeedbackStore,
     SqlKnowledgeStore,
     SqlSnapshotStore,
+    SqlUnitOfWork,
 )
 from .schema import (
     approval_records,
@@ -30,6 +31,7 @@ __all__ = [
     "SqlFeedbackStore",
     "SqlKnowledgeStore",
     "SqlSnapshotStore",
+    "SqlUnitOfWork",
     "approval_records",
     "create_all",
     "feedback_events",
