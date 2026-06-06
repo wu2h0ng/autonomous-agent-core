@@ -4,9 +4,9 @@ from .approval_lite import ApprovalLiteRuntime, ApprovalRecord
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporter
-from .feedback import FeedbackEventBuilder, FeedbackStore
+from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
 from .intent_parser import IntentParser
-from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
+from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore, KnowledgeStorePort
 from .model_gateway import ModelProviderAdapter
 from .operation_state_machine import InvalidStateTransition, OperationStateMachine
 from .operation_trace import OperationTraceBuilder
@@ -27,11 +27,13 @@ __all__ = [
     "EvalThresholdReporter",
     "FeedbackEventBuilder",
     "FeedbackStore",
+    "FeedbackStorePort",
     "InMemorySnapshotStore",
     "IntentParser",
     "InvalidStateTransition",
     "KnowledgeAssetBuilder",
     "KnowledgeStore",
+    "KnowledgeStorePort",
     "ModelProviderAdapter",
     "OperationStateMachine",
     "OperationTraceBuilder",

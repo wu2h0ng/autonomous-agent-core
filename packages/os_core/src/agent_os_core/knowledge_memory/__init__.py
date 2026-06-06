@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from abc import ABC, abstractmethod
 
 from agent_os_contracts import (
     ActionProposal,
@@ -23,7 +24,33 @@ from agent_os_contracts import (
     LifecycleState,
 )
 
-__all__ = ["KnowledgeAssetBuilder", "KnowledgeStore"]
+__all__ = ["KnowledgeAssetBuilder", "KnowledgeStore", "KnowledgeStorePort"]
+
+
+class KnowledgeStorePort(ABC):
+    """Persistence port for knowledge-asset candidates.
+
+    OS Core depends on this abstraction; concrete backends (in-memory below, or a
+    future PostgreSQL adapter outside OS Core) implement it. Dedup is on
+    ``source_trace_id``; ``register_version`` supersedes with a bumped version. See
+    docs/architecture_reviews/AR-20260606-persistent-store-design.md.
+    """
+
+    @abstractmethod
+    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset: ...
+
+    @abstractmethod
+    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset: ...
+
+    @abstractmethod
+    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None: ...
+
+    @abstractmethod
+    def version_of(self, trace_id: str) -> int: ...
+
+    @abstractmethod
+    def all_assets(self) -> tuple[KnowledgeAsset, ...]: ...
+
 
 DEFAULT_ASSET_TYPE = "decision_loop"
 
@@ -139,7 +166,7 @@ class KnowledgeAssetBuilder:
         return f"knowledge-{digest}"
 
 
-class KnowledgeStore:
+class KnowledgeStore(KnowledgeStorePort):
     """In-memory store of ``KnowledgeAsset`` candidates with dedup by trace.
 
     Dedup key is ``source_trace_id``: registering a candidate for a trace that is

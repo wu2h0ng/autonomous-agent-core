@@ -12,11 +12,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+from abc import ABC, abstractmethod
 from collections import Counter
 
 from agent_os_contracts import FeedbackEvent
 
-__all__ = ["FeedbackEventBuilder", "FeedbackStore"]
+__all__ = ["FeedbackEventBuilder", "FeedbackStore", "FeedbackStorePort"]
+
+
+class FeedbackStorePort(ABC):
+    """Persistence port for feedback events.
+
+    OS Core depends on this abstraction; concrete backends (in-memory below, or a
+    future PostgreSQL adapter outside OS Core) implement it. See
+    docs/architecture_reviews/AR-20260606-persistent-store-design.md.
+    """
+
+    @abstractmethod
+    def record(self, event: FeedbackEvent) -> FeedbackEvent: ...
+
+    @abstractmethod
+    def get_by_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]: ...
+
+    @abstractmethod
+    def all_events(self) -> tuple[FeedbackEvent, ...]: ...
+
+    @abstractmethod
+    def outcome_counts(self) -> dict[str, int]: ...
 
 
 class FeedbackEventBuilder:
@@ -85,7 +107,7 @@ class FeedbackEventBuilder:
         return f"feedback-{digest}"
 
 
-class FeedbackStore:
+class FeedbackStore(FeedbackStorePort):
     """In-memory store of ``FeedbackEvent`` records, indexed by ``trace_id``."""
 
     def __init__(self) -> None:
