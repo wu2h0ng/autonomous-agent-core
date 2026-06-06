@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
+    LifecycleState,
     MetricContract,
     OperationContract,
     ProviderContract,
@@ -158,6 +159,7 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
                 "action_proposal",
                 "operation_contract",
                 "connector_execute",
+                "knowledge_asset_candidate",
             ],
         )
         telemetry_dimensions = {event.dimension for event in result.telemetry_events}
@@ -306,6 +308,27 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         # The result reports the halted status rather than an execution result.
         self.assertIsNotNone(result.action_result)
         self.assertEqual(result.action_result.get("status"), "awaiting_approval")
+
+    def test_loop_emits_knowledge_asset_candidate(self) -> None:
+        """The Trusted Loop must close the back half: every run emits a
+        KnowledgeAsset candidate (DRAFT) derived from the evidence chain,
+        bound to the run's trace. This is the moat — proof the loop does not
+        stop at proposal/execution but sediments a reusable knowledge asset.
+        """
+        runtime = self._build_runtime()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        candidate = result.knowledge_asset_candidate
+        self.assertIsNotNone(candidate, "loop did not emit a knowledge_asset_candidate")
+        # Bound to this run's trace (evidence shares the same trace_id).
+        self.assertEqual(candidate.source_trace_id, result.evidence_chain.trace_id)
+        # Candidate, not published.
+        self.assertEqual(candidate.state, LifecycleState.DRAFT)
+        # Title reflects the metric under analysis.
+        self.assertIn("gmv", candidate.title.lower())
 
     def test_non_approval_operation_executes(self) -> None:
         """Counterpart to the gate test: low/medium-risk, no-approval operations

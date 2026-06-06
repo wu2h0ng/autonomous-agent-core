@@ -24,6 +24,7 @@ from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .evidence_chain import EvidenceChainBuilder
 from .intent_parser import IntentParser
+from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
 from .operation_state_machine import OperationStateMachine
 from .operation_trace import OperationTraceBuilder
 from .query_runtime import StaticQueryExecutor
@@ -61,6 +62,8 @@ class TrustedLoopRuntime:
         approval_runtime: ApprovalLiteRuntime | None = None,
         operation_trace_builder: OperationTraceBuilder | None = None,
         state_machine: OperationStateMachine | None = None,
+        knowledge_builder: KnowledgeAssetBuilder | None = None,
+        knowledge_store: KnowledgeStore | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         self.sql_template = sql_template
@@ -95,6 +98,8 @@ class TrustedLoopRuntime:
         self.approval_runtime = approval_runtime or ApprovalLiteRuntime()
         self.operation_trace_builder = operation_trace_builder or OperationTraceBuilder()
         self.state_machine = state_machine or OperationStateMachine()
+        self.knowledge_builder = knowledge_builder or KnowledgeAssetBuilder()
+        self.knowledge_store = knowledge_store or KnowledgeStore()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         started_at = perf_counter()
@@ -320,6 +325,33 @@ class TrustedLoopRuntime:
                 {"step": "connector_executed", "connector_name": proposal.connector_name},
             )
 
+        # ====== Back half: sediment a reusable KnowledgeAsset candidate ======
+        # Every run produces a DRAFT knowledge-asset candidate bound to this
+        # trace, so the loop does not stop at proposal/execution — it feeds the
+        # organizational knowledge store. Feedback (post-outcome) folds in later
+        # via the separate feedback path and can supersede this candidate.
+        knowledge_candidate = self.knowledge_builder.build(
+            evidence_chain=evidence,
+            action_proposal=proposal,
+            trace_id=trace_id,
+        )
+        self.knowledge_store.register(knowledge_candidate)
+        trace.record(
+            "knowledge_asset_candidate",
+            {
+                "asset_id": knowledge_candidate.asset_id,
+                "asset_type": knowledge_candidate.asset_type,
+                "source_trace_id": knowledge_candidate.source_trace_id,
+            },
+        )
+        trace.metric(
+            dimension=TelemetryDimension.BUSINESS,
+            name="knowledge_asset.candidate_generated",
+            value=1,
+            unit="count",
+            attributes={"asset_type": knowledge_candidate.asset_type},
+        )
+
         # Final telemetry
         trace.metric(
             dimension=TelemetryDimension.BUSINESS,
@@ -357,6 +389,7 @@ class TrustedLoopRuntime:
             state_snapshot=state_snapshot,
             action_result=action_result,
             approval_record=approval_record,
+            knowledge_asset_candidate=knowledge_candidate,
         )
 
     def _parse_intent(self, question: str) -> BusinessIntent:
