@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,13 +15,21 @@ from agent_os_contracts import (
 )
 from agent_os_core import ProviderRegistry, SemanticRegistry, TrustedLoopRuntime
 from agent_os_core.action_connectors import ActionConnectorRegistry
-from agent_os_core.query_runtime import StaticQueryExecutor
+from agent_os_core.query_runtime import SQLiteQueryExecutor, StaticQueryExecutor
+
+# Executor selection values accepted by RuntimeFactoryConfig.executor and --executor.
+EXECUTOR_STATIC = "static"
+EXECUTOR_SQLITE = "sqlite"
 
 
 @dataclass(frozen=True)
 class RuntimeFactoryConfig:
     domain_pack_path: Path
     sample_rows: tuple[dict[str, Any], ...] = ({"order_date": "2026-05-31", "value": 128800.0},)
+    # Which query executor to inject behind ProviderContract:
+    #   "static" -> StaticQueryExecutor (deterministic fixture rows; default, unchanged)
+    #   "sqlite" -> SQLiteQueryExecutor over the seeded Customer-0 data plane (real SQL)
+    executor: str = EXECUTOR_STATIC
 
 
 class ContentCommerceRuntimeFactory:
@@ -41,11 +50,64 @@ class ContentCommerceRuntimeFactory:
         return TrustedLoopRuntime(
             metric_contract=default_metric,
             sql_template=template,
-            query_executor=StaticQueryExecutor(list(self.config.sample_rows)),
+            query_executor=self._build_query_executor(providers),
             semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
             provider_registry=ProviderRegistry(tuple(providers.values())),
             connector_registry=connector_registry,
         )
+
+    def _build_query_executor(
+        self, providers: dict[str, ProviderContract]
+    ) -> StaticQueryExecutor | SQLiteQueryExecutor:
+        """Select and construct the injected query executor.
+
+        The static path (default) keeps the deterministic fixture rows. The sqlite
+        path "rides the data plane": the application layer owns the data source,
+        seeds the Customer-0 reference data behind ProviderContract, and hands a
+        generic SQLiteQueryExecutor a connection. OS Core never sees the data.
+        """
+        if self.config.executor == EXECUTOR_STATIC:
+            return StaticQueryExecutor(list(self.config.sample_rows))
+        if self.config.executor == EXECUTOR_SQLITE:
+            connection = self._build_seeded_connection(providers)
+            return SQLiteQueryExecutor(connection)
+        raise ValueError(
+            f"Unknown executor {self.config.executor!r}; "
+            f"expected {EXECUTOR_STATIC!r} or {EXECUTOR_SQLITE!r}."
+        )
+
+    def _build_seeded_connection(
+        self, providers: dict[str, ProviderContract]
+    ) -> sqlite3.Connection:
+        """Build an in-memory SQLite connection seeded with domain-pack reference data.
+
+        SQL templates reference schema-qualified tables (e.g. ``sales.orders``). For
+        each provider schema, an in-memory database is ATTACHed under that schema name
+        and the matching seed file ``seed/<schema>_<table>.sql`` is loaded into it.
+        This data lives in the domain pack, not in OS Core.
+        """
+        connection = sqlite3.connect(":memory:")
+        seed_dir = self.config.domain_pack_path / "seed"
+        schemas = {
+            schema
+            for provider in providers.values()
+            for schema in provider.allowed_schemas
+        }
+        if not schemas:
+            raise ValueError("sqlite executor requires at least one provider schema to seed.")
+        for schema in sorted(schemas):
+            if not schema.isidentifier():
+                raise ValueError(f"Unsafe schema name for seeding: {schema!r}")
+            connection.execute(f"attach database ':memory:' as {schema}")
+            seed_path = seed_dir / f"{schema}_orders.sql"
+            if not seed_path.exists():
+                raise FileNotFoundError(f"Missing seed file for schema {schema!r}: {seed_path}")
+            # The seed script uses a {schema} placeholder so tables land in the
+            # attached schema and resolve the schema-qualified SQL templates.
+            script = seed_path.read_text(encoding="utf-8").replace("{schema}", schema)
+            connection.executescript(script)
+        connection.commit()
+        return connection
 
     @staticmethod
     def _build_default_connector_registry() -> ActionConnectorRegistry:

@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 from typing import TextIO
 
-from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+from .runtime_factory import (
+    EXECUTOR_SQLITE,
+    EXECUTOR_STATIC,
+    ContentCommerceRuntimeFactory,
+    RuntimeFactoryConfig,
+)
 
 
 def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
@@ -19,10 +24,19 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
         type=Path,
         default=Path("domain_packs/content_commerce"),
     )
+    parser.add_argument(
+        "--executor",
+        choices=(EXECUTOR_STATIC, EXECUTOR_SQLITE),
+        default=EXECUTOR_STATIC,
+        help=(
+            "Query executor to use: 'static' (deterministic fixture rows, default) "
+            "or 'sqlite' (real SQL over the seeded Customer-0 data plane)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     runtime = ContentCommerceRuntimeFactory(
-        RuntimeFactoryConfig(domain_pack_path=args.domain_pack)
+        RuntimeFactoryConfig(domain_pack_path=args.domain_pack, executor=args.executor)
     ).build()
     result = runtime.run(
         args.question,
@@ -38,6 +52,7 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
         "provider_id": result.provider_contract.provider_id if result.provider_contract else None,
         "evidence_chain_id": result.evidence_chain.evidence_chain_id,
         "action_proposal_id": result.action_proposal.proposal_id,
+        "row_count": result.evidence_chain.query_result.row_count,
         "trace_steps": [event.step for event in result.trace_events],
     }
     output = stdout
