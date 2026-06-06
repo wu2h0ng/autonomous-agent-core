@@ -11,13 +11,28 @@ from __future__ import annotations
 
 from sqlalchemy import Engine
 
-from .repositories import SqlFeedbackStore, SqlKnowledgeStore, SqlSnapshotStore
-from .schema import feedback_events, knowledge_assets, metadata, state_snapshots
+from .repositories import (
+    SqlApprovalStore,
+    SqlFeedbackStore,
+    SqlKnowledgeStore,
+    SqlSnapshotStore,
+    SqlUnitOfWork,
+)
+from .schema import (
+    approval_records,
+    feedback_events,
+    knowledge_assets,
+    metadata,
+    state_snapshots,
+)
 
 __all__ = [
+    "SqlApprovalStore",
     "SqlFeedbackStore",
     "SqlKnowledgeStore",
     "SqlSnapshotStore",
+    "SqlUnitOfWork",
+    "approval_records",
     "create_all",
     "feedback_events",
     "knowledge_assets",

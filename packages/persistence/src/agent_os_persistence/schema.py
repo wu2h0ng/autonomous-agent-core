@@ -41,3 +41,12 @@ state_snapshots = Table(
     Column("operation_id", String, index=True, nullable=False),
     Column("payload", JSON, nullable=False),
 )
+
+# Approval records: one row per approval_id (upserted as the lifecycle advances).
+approval_records = Table(
+    "approval_records",
+    metadata,
+    Column("approval_id", String, primary_key=True),
+    Column("proposal_id", String, index=True, nullable=False),
+    Column("payload", JSON, nullable=False),
+)

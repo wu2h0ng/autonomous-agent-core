@@ -107,6 +107,25 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         self.assertEqual(store.get_by_trace("trace-k"), revised)
         self.assertEqual(store.version_of("trace-missing"), 0)
 
+    def test_approval_round_trip_and_lifecycle_over_sql_store(self) -> None:
+        from agent_os_core import ApprovalLiteRuntime
+        from agent_os_persistence import SqlApprovalStore
+
+        store = SqlApprovalStore(self.engine)
+        # Direct round-trip.
+        runtime = ApprovalLiteRuntime(store=store)
+        pending = runtime.create_pending(
+            approval_id="approval-1", proposal_id="proposal-1", approver_role="Business Owner"
+        )
+        self.assertEqual(store.get("approval-1"), pending)
+        self.assertIsNone(store.get("approval-missing"))
+
+        # Lifecycle persists: a SEPARATE runtime on the same store approves it.
+        runtime2 = ApprovalLiteRuntime(store=SqlApprovalStore(self.engine))
+        approved = runtime2.approve("approval-1", reason="looks good")
+        self.assertEqual(approved.status, "approved")
+        self.assertEqual(store.get("approval-1").status, "approved")
+
     def test_snapshot_round_trip_and_rewrite(self) -> None:
         from agent_os_persistence import SqlSnapshotStore
 
@@ -123,6 +142,32 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         snap2 = self._snapshot("snap-1", "op-1")
         store.save(snap2)
         self.assertEqual(store.list_for_operation("op-1"), (snap2,))
+
+    def test_unit_of_work_commits_both_stores(self) -> None:
+        from agent_os_persistence import SqlFeedbackStore, SqlKnowledgeStore, SqlUnitOfWork
+
+        uow = SqlUnitOfWork(self.engine)
+        with uow() as (fb, kn):
+            fb.record(self._feedback("feedback-uow", "trace-uow", "adopted"))
+            kn.register(self._asset("knowledge-uow", "trace-uow"))
+
+        # A fresh engine-bound store sees both committed writes.
+        self.assertEqual(len(SqlFeedbackStore(self.engine).get_by_trace("trace-uow")), 1)
+        self.assertEqual(SqlKnowledgeStore(self.engine).version_of("trace-uow"), 1)
+
+    def test_unit_of_work_rolls_back_both_on_failure(self) -> None:
+        from agent_os_persistence import SqlFeedbackStore, SqlKnowledgeStore, SqlUnitOfWork
+
+        uow = SqlUnitOfWork(self.engine)
+        with self.assertRaises(RuntimeError):
+            with uow() as (fb, kn):
+                fb.record(self._feedback("feedback-rb", "trace-rb", "adopted"))
+                kn.register(self._asset("knowledge-rb", "trace-rb"))
+                raise RuntimeError("boom after both writes")
+
+        # Neither write survived: the transaction rolled back atomically.
+        self.assertEqual(SqlFeedbackStore(self.engine).get_by_trace("trace-rb"), ())
+        self.assertEqual(SqlKnowledgeStore(self.engine).version_of("trace-rb"), 0)
 
 
 if __name__ == "__main__":

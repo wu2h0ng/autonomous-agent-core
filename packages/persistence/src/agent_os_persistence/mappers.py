@@ -15,6 +15,7 @@ from agent_os_contracts import (
     LifecycleState,
     StateSnapshot,
 )
+from agent_os_core import ApprovalRecord
 
 
 def feedback_to_payload(event: FeedbackEvent) -> dict[str, Any]:
@@ -80,4 +81,24 @@ def snapshot_from_payload(payload: dict[str, Any]) -> StateSnapshot:
         state_payload=dict(payload.get("state_payload") or {}),
         created_at=payload["created_at"],
         metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def approval_to_payload(record: ApprovalRecord) -> dict[str, Any]:
+    return {
+        "approval_id": record.approval_id,
+        "proposal_id": record.proposal_id,
+        "status": record.status,
+        "approver_role": record.approver_role,
+        "reason": record.reason,
+    }
+
+
+def approval_from_payload(payload: dict[str, Any]) -> ApprovalRecord:
+    return ApprovalRecord(
+        approval_id=payload["approval_id"],
+        proposal_id=payload["proposal_id"],
+        status=payload["status"],
+        approver_role=payload.get("approver_role"),
+        reason=payload.get("reason"),
     )

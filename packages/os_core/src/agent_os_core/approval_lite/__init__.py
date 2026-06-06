@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
@@ -14,16 +15,49 @@ class ApprovalRecord:
     reason: str | None = None
 
 
-class ApprovalLiteRuntime:
-    """Lightweight in-memory approval lifecycle manager.
+class ApprovalStorePort(ABC):
+    """Persistence port for approval records (storage only; lifecycle lives in the runtime).
 
-    Supports creating pending approval records, and transitioning them to
-    approved or rejected states.  Because ``ApprovalRecord`` is frozen,
-    approve/reject create a new record to replace the old one.
+    OS Core depends on this abstraction; concrete backends (in-memory below, or a
+    PostgreSQL adapter outside OS Core) implement it. Persisting approvals is what
+    lets an approval created in one process be acted on later in another.
     """
+
+    @abstractmethod
+    def save(self, record: ApprovalRecord) -> ApprovalRecord:
+        """Persist (insert or replace by ``approval_id``) and return the record."""
+        ...
+
+    @abstractmethod
+    def get(self, approval_id: str) -> ApprovalRecord | None:
+        """Return the record for ``approval_id``, or ``None`` if absent."""
+        ...
+
+
+class InMemoryApprovalStore(ApprovalStorePort):
+    """In-memory :class:`ApprovalStorePort` backed by a dict keyed on approval_id."""
 
     def __init__(self) -> None:
         self._records: dict[str, ApprovalRecord] = {}
+
+    def save(self, record: ApprovalRecord) -> ApprovalRecord:
+        self._records[record.approval_id] = record
+        return record
+
+    def get(self, approval_id: str) -> ApprovalRecord | None:
+        return self._records.get(approval_id)
+
+
+class ApprovalLiteRuntime:
+    """Lightweight approval lifecycle manager over an injected store.
+
+    Owns the lifecycle (pending -> approved/rejected); storage is delegated to an
+    :class:`ApprovalStorePort` (in-memory by default, or a durable adapter). Because
+    ``ApprovalRecord`` is frozen, approve/reject create a new record to replace the old.
+    """
+
+    def __init__(self, store: ApprovalStorePort | None = None) -> None:
+        self._store: ApprovalStorePort = store or InMemoryApprovalStore()
 
     def create_pending(
         self,
@@ -48,8 +82,7 @@ class ApprovalLiteRuntime:
             status="pending",
             approver_role=approver_role,
         )
-        self._records[approval_id] = record
-        return record
+        return self._store.save(record)
 
     def approve(self, approval_id: str, reason: str | None = None) -> ApprovalRecord:
         """Approve a pending approval record.
@@ -65,7 +98,7 @@ class ApprovalLiteRuntime:
             KeyError: If no record with the given ID exists.
             ValueError: If the record is not in "pending" status.
         """
-        existing = self._records.get(approval_id)
+        existing = self._store.get(approval_id)
         if existing is None:
             raise KeyError(f"No approval record found with id '{approval_id}'")
         if existing.status != "pending":
@@ -80,8 +113,7 @@ class ApprovalLiteRuntime:
             approver_role=existing.approver_role,
             reason=reason,
         )
-        self._records[approval_id] = updated
-        return updated
+        return self._store.save(updated)
 
     def reject(self, approval_id: str, reason: str | None = None) -> ApprovalRecord:
         """Reject a pending approval record.
@@ -97,7 +129,7 @@ class ApprovalLiteRuntime:
             KeyError: If no record with the given ID exists.
             ValueError: If the record is not in "pending" status.
         """
-        existing = self._records.get(approval_id)
+        existing = self._store.get(approval_id)
         if existing is None:
             raise KeyError(f"No approval record found with id '{approval_id}'")
         if existing.status != "pending":
@@ -112,8 +144,7 @@ class ApprovalLiteRuntime:
             approver_role=existing.approver_role,
             reason=reason,
         )
-        self._records[approval_id] = updated
-        return updated
+        return self._store.save(updated)
 
     def get(self, approval_id: str) -> ApprovalRecord:
         """Retrieve an approval record by ID.
@@ -127,6 +158,7 @@ class ApprovalLiteRuntime:
         Raises:
             KeyError: If no record with the given ID exists.
         """
-        if approval_id not in self._records:
+        record = self._store.get(approval_id)
+        if record is None:
             raise KeyError(f"No approval record found with id '{approval_id}'")
-        return self._records[approval_id]
+        return record
