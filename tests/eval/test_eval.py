@@ -18,6 +18,8 @@ from agent_os_contracts import (  # noqa: E402
     SQLTemplate,
 )
 from agent_os_core import (  # noqa: E402
+    EvalCaseOutcome,
+    EvalThresholdReporter,
     IntentParser,
     ProviderRegistry,
     SemanticRegistry,
@@ -103,6 +105,8 @@ class GoldenQueryEvalTest(unittest.TestCase):
             allowed_schemas=("sales",),
         )
 
+        outcomes: list[EvalCaseOutcome] = []
+
         for c in golden:
             with self.subTest(case_id=c["id"]):
                 t = SQLTemplate(
@@ -131,6 +135,34 @@ class GoldenQueryEvalTest(unittest.TestCase):
                     f"EvidenceChain incomplete for {c['id']}",
                 )
                 self.assertGreaterEqual(len(r.trace_events), 8)
+                outcomes.append(
+                    EvalCaseOutcome(
+                        case_id=c["id"],
+                        checks={
+                            "intent": r.intent.metric_name == c["expected_metric"],
+                            "metric": (
+                                r.evidence_chain.metric_contract.metric_name == c["expected_metric"]
+                            ),
+                            "sql_safety": r.evidence_chain.sql_safety.allowed,
+                            "evidence": r.evidence_chain.is_complete(),
+                            "action": r.action_proposal is not None,
+                        },
+                    )
+                )
+
+        report = EvalThresholdReporter(
+            {
+                "intent": 1.0,
+                "metric": 1.0,
+                "sql_safety": 1.0,
+                "evidence": 1.0,
+                "action": 1.0,
+            }
+        ).build(tuple(outcomes))
+
+        self.assertTrue(report.passed, report.failures)
+        self.assertEqual(report.case_count, len(golden))
+        self.assertEqual(report.dimension("evidence").pass_rate, 1.0)
 
 
 if __name__ == "__main__":
