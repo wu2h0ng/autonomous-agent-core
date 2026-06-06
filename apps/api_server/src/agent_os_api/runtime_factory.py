@@ -26,6 +26,10 @@ from agent_os_core.query_runtime import SQLiteQueryExecutor, StaticQueryExecutor
 EXECUTOR_STATIC = "static"
 EXECUTOR_SQLITE = "sqlite"
 
+# Store backend selection for the loop's stateful stores (feedback/knowledge/snapshot).
+STORE_MEMORY = "memory"
+STORE_POSTGRES = "postgres"
+
 
 @dataclass(frozen=True)
 class RuntimeFactoryConfig:
@@ -35,6 +39,13 @@ class RuntimeFactoryConfig:
     #   "static" -> StaticQueryExecutor (deterministic fixture rows; default, unchanged)
     #   "sqlite" -> SQLiteQueryExecutor over the seeded Customer-0 data plane (real SQL)
     executor: str = EXECUTOR_STATIC
+    # Which backend persists the loop's feedback/knowledge/snapshot stores:
+    #   "memory" -> in-memory (default; per-process, lost on restart)
+    #   "postgres" -> SQLAlchemy-Core stores from agent_os_persistence (durable, cross-session)
+    store_backend: str = STORE_MEMORY
+    # For "postgres": either an injected SQLAlchemy Engine (e.g. for tests) or a database_url.
+    store_engine: Any = None
+    database_url: str | None = None
 
 
 class ContentCommerceRuntimeFactory:
@@ -55,6 +66,9 @@ class ContentCommerceRuntimeFactory:
         # API layer owns connector construction (OS Core must not import connectors)
         connector_registry = self._build_default_connector_registry()
 
+        # API layer owns store backend selection (OS Core must not import persistence).
+        knowledge_store, feedback_store, snapshot_store = self._build_stores()
+
         return TrustedLoopRuntime(
             metric_contract=default_metric,
             template_registry=template_registry,
@@ -62,6 +76,51 @@ class ContentCommerceRuntimeFactory:
             semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
             provider_registry=ProviderRegistry(tuple(providers.values())),
             connector_registry=connector_registry,
+            knowledge_store=knowledge_store,
+            feedback_store=feedback_store,
+            snapshot_store=snapshot_store,
+        )
+
+    def _build_stores(self) -> tuple[Any, Any, Any]:
+        """Select the store backend for feedback/knowledge/snapshot.
+
+        Returns ``(knowledge_store, feedback_store, snapshot_store)``. For the
+        default ``"memory"`` backend all three are ``None`` so the runtime uses
+        its in-memory defaults. For ``"postgres"`` they are SQLAlchemy-Core stores
+        from ``agent_os_persistence`` (imported lazily so the memory path needs no
+        SQLAlchemy). OS Core never imports the persistence package — wiring lives
+        here in the composition layer.
+        """
+        backend = self.config.store_backend
+        if backend == STORE_MEMORY:
+            return None, None, None
+        if backend == STORE_POSTGRES:
+            from agent_os_persistence import (
+                SqlFeedbackStore,
+                SqlKnowledgeStore,
+                SqlSnapshotStore,
+                create_all,
+            )
+
+            engine = self.config.store_engine
+            if engine is None:
+                if not self.config.database_url:
+                    raise ValueError(
+                        "store_backend='postgres' requires either store_engine or database_url."
+                    )
+                from sqlalchemy import create_engine
+
+                engine = create_engine(self.config.database_url)
+            # Convenience for dev/first-run; production schema is owned by Alembic
+            # migrations (create_all is a no-op when tables already exist).
+            create_all(engine)
+            return (
+                SqlKnowledgeStore(engine),
+                SqlFeedbackStore(engine),
+                SqlSnapshotStore(engine),
+            )
+        raise ValueError(
+            f"Unknown store_backend {backend!r}; expected {STORE_MEMORY!r} or {STORE_POSTGRES!r}."
         )
 
     def _build_query_executor(

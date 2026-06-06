@@ -2,7 +2,7 @@
 # All CI checks can be reproduced locally by running: make ci
 
 PYTHON      ?= python
-PYTHONPATH   = packages/contracts/src:packages/os_core/src:packages/sdk/src:action_connectors
+PYTHONPATH   = packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors
 
 .PHONY: lint format-check unit eval test ci
 
