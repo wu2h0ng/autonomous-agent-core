@@ -18,7 +18,14 @@ TABLE_TOKEN = re.compile(
 PARAM_REF = re.compile(r":([a-zA-Z_][\w]*)")
 LIMIT_REF = re.compile(r"\blimit\s+(?::([a-zA-Z_][\w]*)|(\d+))\b", re.IGNORECASE)
 COMMENT_REF = re.compile(r"(--|/\*)")
-SELECT_STAR = re.compile(r"\bselect\s+\*", re.IGNORECASE)
+# Match a star used as a select-list expansion right after SELECT, including
+# the DISTINCT/ALL quantifier and qualified-star forms (e.g. ``select t.*``).
+# This deliberately does NOT match ``count(*)`` (a parenthesised aggregate) or
+# arithmetic ``a * b`` (a star not in the leading select-list position).
+SELECT_STAR = re.compile(
+    r"\bselect\s+(?:distinct\s+|all\s+)?(?:[a-zA-Z_]\w*\s*\.\s*)?\*",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
