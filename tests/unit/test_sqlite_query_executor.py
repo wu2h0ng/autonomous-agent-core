@@ -15,9 +15,7 @@ from agent_os_core.query_runtime import SQLiteQueryExecutor  # noqa: E402
 
 def _seed_orders(connection: sqlite3.Connection) -> None:
     """Create a tiny orders table with rows spanning the window boundaries."""
-    connection.execute(
-        "create table orders (order_date text, paid_amount real)"
-    )
+    connection.execute("create table orders (order_date text, paid_amount real)")
     connection.executemany(
         "insert into orders (order_date, paid_amount) values (?, ?)",
         [

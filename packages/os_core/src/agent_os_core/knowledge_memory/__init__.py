@@ -80,9 +80,7 @@ class KnowledgeAssetBuilder:
             state=LifecycleState.DRAFT,
         )
 
-    def with_feedback(
-        self, base_asset: KnowledgeAsset, feedback: FeedbackEvent
-    ) -> KnowledgeAsset:
+    def with_feedback(self, base_asset: KnowledgeAsset, feedback: FeedbackEvent) -> KnowledgeAsset:
         """Revise an existing candidate by folding in observed feedback.
 
         Used by the post-outcome path: once an outcome is known, the stored

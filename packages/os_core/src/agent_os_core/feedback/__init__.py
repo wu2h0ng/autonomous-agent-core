@@ -102,13 +102,9 @@ class FeedbackStore:
 
     def all_events(self) -> tuple[FeedbackEvent, ...]:
         """Return every recorded event across all traces."""
-        return tuple(
-            event for events in self._by_trace.values() for event in events
-        )
+        return tuple(event for events in self._by_trace.values() for event in events)
 
     def outcome_counts(self) -> dict[str, int]:
         """Aggregate event counts by outcome across all traces."""
-        counter: Counter[str] = Counter(
-            event.outcome for event in self.all_events()
-        )
+        counter: Counter[str] = Counter(event.outcome for event in self.all_events())
         return dict(counter)

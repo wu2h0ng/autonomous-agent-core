@@ -71,7 +71,5 @@ class InMemorySnapshotStore(SnapshotStore):
 
     def list_for_operation(self, operation_id: str) -> tuple[StateSnapshot, ...]:
         return tuple(
-            snapshot
-            for snapshot in self._by_id.values()
-            if snapshot.operation_id == operation_id
+            snapshot for snapshot in self._by_id.values() if snapshot.operation_id == operation_id
         )
