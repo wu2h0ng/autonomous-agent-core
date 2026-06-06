@@ -163,7 +163,18 @@ class FactoryMultiMetricTest(unittest.TestCase):
         gmv_value = gmv.evidence_chain.query_result.rows[0]["value"]
         spend_value = spend.evidence_chain.query_result.rows[0]["value"]
         self.assertEqual(gmv_value, 128800.0)
+        self.assertEqual(spend_value, 5000.0)
         self.assertNotEqual(gmv_value, spend_value)
+
+    def test_roi_and_conversion_rate_compute_real_ratios(self) -> None:
+        # In-window day 2026-05-31: paid=128800, spend=5000, orders=2, visits=250.
+        roi = self._runtime().run("ROI last 7 days", dict(PARAMS))
+        conv = self._runtime().run("conversion rate last 7 days", dict(PARAMS))
+
+        self.assertEqual(roi.intent.metric_name, "roi")
+        self.assertAlmostEqual(roi.evidence_chain.query_result.rows[0]["value"], 128800.0 / 5000.0)
+        self.assertEqual(conv.intent.metric_name, "conversion_rate")
+        self.assertAlmostEqual(conv.evidence_chain.query_result.rows[0]["value"], 2 / 250)
 
 
 if __name__ == "__main__":

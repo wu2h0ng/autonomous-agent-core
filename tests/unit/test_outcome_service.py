@@ -28,14 +28,14 @@ class RunServiceTest(unittest.TestCase):
         self.assertEqual(runtime.knowledge_store.version_of(summary["trace_id"]), 1)
 
     def test_run_service_blocked_returns_structured_block(self) -> None:
-        # 'roi' is a defined metric in the pack but has no SQL template -> NO_TEMPLATE.
+        # 'revenue' parses to a metric the pack does not define -> UNKNOWN_METRIC.
         runtime = _build_runtime()
-        summary = run_service(runtime, question="ROI", parameters=RUN_PARAMS)
+        summary = run_service(runtime, question="revenue", parameters=RUN_PARAMS)
 
         self.assertEqual(summary["status"], "blocked")
         self.assertNotIn("trace_id", summary)
-        self.assertEqual(summary["block"]["code"], "no_template")
-        self.assertEqual(summary["block"]["stage"], "template_selection")
+        self.assertEqual(summary["block"]["code"], "unknown_metric")
+        self.assertEqual(summary["block"]["stage"], "metric_resolution")
 
 
 class RecordOutcomeServiceTest(unittest.TestCase):

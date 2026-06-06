@@ -37,8 +37,10 @@ metrics with different SQL against real data.
 
 - All existing callers pass `sql_template=` (single) → unchanged behavior (single-entry registry
   with default fallback). Verified by the existing unit/eval suite staying green.
-- `roi` and `conversion_rate` remain template-less for now; asking for them raises the explicit
-  failure above (honest), pending their templates/seed columns in a later slice.
+- `roi` and `conversion_rate` were template-less at first (asking for them raised the explicit
+  failure above); their templates and the `visits` seed column were added in a follow-up slice, so
+  the content_commerce pack now serves gmv, spend, roi, conversion_rate. A metric defined in the
+  pack but still without a template continues to block with `NO_TEMPLATE`.
 
 ## Verification
 
