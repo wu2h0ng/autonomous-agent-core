@@ -12,7 +12,13 @@ from __future__ import annotations
 from collections import Counter
 
 from agent_os_contracts import FeedbackEvent, KnowledgeAsset, StateSnapshot
-from agent_os_core import FeedbackStorePort, KnowledgeStorePort, SnapshotStore
+from agent_os_core import (
+    ApprovalRecord,
+    ApprovalStorePort,
+    FeedbackStorePort,
+    KnowledgeStorePort,
+    SnapshotStore,
+)
 from sqlalchemy import Engine, select
 
 from . import mappers, schema
@@ -171,3 +177,41 @@ class SqlSnapshotStore(SnapshotStore):
         with self._engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.snapshot_from_payload(row[0]) for row in rows)
+
+
+class SqlApprovalStore(ApprovalStorePort):
+    """Approval-record store (upsert by approval_id) backed by SQLAlchemy Core."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    def save(self, record: ApprovalRecord) -> ApprovalRecord:
+        table = schema.approval_records
+        payload = mappers.approval_to_payload(record)
+        with self._engine.begin() as conn:
+            exists = conn.execute(
+                select(table.c.approval_id).where(table.c.approval_id == record.approval_id)
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    table.insert().values(
+                        approval_id=record.approval_id,
+                        proposal_id=record.proposal_id,
+                        payload=payload,
+                    )
+                )
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.approval_id == record.approval_id)
+                    .values(proposal_id=record.proposal_id, payload=payload)
+                )
+        return record
+
+    def get(self, approval_id: str) -> ApprovalRecord | None:
+        table = schema.approval_records
+        with self._engine.connect() as conn:
+            row = conn.execute(
+                select(table.c.payload).where(table.c.approval_id == approval_id)
+            ).fetchone()
+        return mappers.approval_from_payload(row[0]) if row is not None else None

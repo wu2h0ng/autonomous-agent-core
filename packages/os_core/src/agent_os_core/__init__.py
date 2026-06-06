@@ -1,6 +1,11 @@
 from .action_connectors import ActionConnector, ActionConnectorRegistry
 from .action_governance import ActionGovernance
-from .approval_lite import ApprovalLiteRuntime, ApprovalRecord
+from .approval_lite import (
+    ApprovalLiteRuntime,
+    ApprovalRecord,
+    ApprovalStorePort,
+    InMemoryApprovalStore,
+)
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporter
@@ -21,6 +26,7 @@ __all__ = [
     "ActionGovernance",
     "ApprovalLiteRuntime",
     "ApprovalRecord",
+    "ApprovalStorePort",
     "DataProductCompiler",
     "EvalCaseOutcome",
     "EvalThresholdReport",
@@ -28,6 +34,7 @@ __all__ = [
     "FeedbackEventBuilder",
     "FeedbackStore",
     "FeedbackStorePort",
+    "InMemoryApprovalStore",
     "InMemorySnapshotStore",
     "IntentParser",
     "InvalidStateTransition",

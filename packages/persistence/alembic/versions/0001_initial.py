@@ -46,8 +46,18 @@ def upgrade() -> None:
     )
     op.create_index("ix_state_snapshots_operation_id", "state_snapshots", ["operation_id"])
 
+    op.create_table(
+        "approval_records",
+        sa.Column("approval_id", sa.String(), primary_key=True),
+        sa.Column("proposal_id", sa.String(), nullable=False),
+        sa.Column("payload", sa.JSON(), nullable=False),
+    )
+    op.create_index("ix_approval_records_proposal_id", "approval_records", ["proposal_id"])
+
 
 def downgrade() -> None:
+    op.drop_index("ix_approval_records_proposal_id", table_name="approval_records")
+    op.drop_table("approval_records")
     op.drop_index("ix_state_snapshots_operation_id", table_name="state_snapshots")
     op.drop_table("state_snapshots")
     op.drop_table("knowledge_assets")
