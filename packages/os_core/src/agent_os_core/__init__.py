@@ -3,9 +3,9 @@ from .action_governance import ActionGovernance
 from .approval_lite import ApprovalLiteRuntime, ApprovalRecord
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
-from .feedback import FeedbackRuntime
+from .feedback import FeedbackEventBuilder, FeedbackStore
 from .intent_parser import IntentParser
-from .knowledge_memory import KnowledgeMemory
+from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore
 from .model_gateway import ModelProviderAdapter
 from .operation_state_machine import InvalidStateTransition, OperationStateMachine
 from .operation_trace import OperationTraceBuilder
@@ -19,10 +19,12 @@ __all__ = [
     "ApprovalLiteRuntime",
     "ApprovalRecord",
     "DataProductCompiler",
-    "FeedbackRuntime",
+    "FeedbackEventBuilder",
+    "FeedbackStore",
     "IntentParser",
     "InvalidStateTransition",
-    "KnowledgeMemory",
+    "KnowledgeAssetBuilder",
+    "KnowledgeStore",
     "ModelProviderAdapter",
     "OperationStateMachine",
     "OperationTraceBuilder",

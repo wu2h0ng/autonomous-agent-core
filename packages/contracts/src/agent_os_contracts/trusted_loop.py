@@ -7,6 +7,8 @@ from typing import Any
 from .architecture import (
     DataProductCandidate,
     DataRequirement,
+    FeedbackEvent,
+    KnowledgeAsset,
     LineageSnapshot,
     OperationContract,
     ProviderContract,
@@ -159,3 +161,5 @@ class TrustedLoopResult:
     state_snapshot: StateSnapshot | None = None
     action_result: dict[str, Any] | None = None
     approval_record: Any | None = None
+    feedback_event: FeedbackEvent | None = None
+    knowledge_asset_candidate: KnowledgeAsset | None = None
