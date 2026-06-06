@@ -28,6 +28,7 @@ class DataProductState(StrEnum):
 
 class OperationState(StrEnum):
     PROPOSED = "proposed"
+    AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
     REJECTED = "rejected"
     EXECUTED = "executed"

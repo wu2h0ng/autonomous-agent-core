@@ -46,6 +46,44 @@ def _build_default_connector_registry() -> ActionConnectorRegistry:
     return registry
 
 
+class _ExecutionSpyConnector(ManualReviewConnector):
+    """A connector that records whether execute() was invoked.
+
+    Registered under the ``manual_review`` name so it routes normally. When
+    ``raise_on_execute`` is True (default) it raises if execute() is called,
+    making it a hard regression guard for the approval gate.
+    """
+
+    def __init__(self, raise_on_execute: bool = True) -> None:
+        self.execute_called = False
+        self._raise_on_execute = raise_on_execute
+
+    def execute(self, operation, parameters):  # type: ignore[override]
+        self.execute_called = True
+        if self._raise_on_execute:
+            raise AssertionError(
+                "connector.execute() must not be called for approval_required operations"
+            )
+        return super().execute(operation, parameters)
+
+
+def _build_spy_connector_registry(spy: _ExecutionSpyConnector) -> ActionConnectorRegistry:
+    """Register the spy under the ``manual_review`` routing name."""
+    registry = ActionConnectorRegistry()
+    contract = ActionConnectorContract(
+        connector_name="manual_review",
+        display_name="Manual Review",
+        supported_action_types=("propose", "execute"),
+        supports_snapshot=False,
+        supports_rollback=False,
+        compensating_action_description=None,
+        risk_ceiling="R5",
+        owner="system",
+    )
+    registry.register(spy, contract)
+    return registry
+
+
 class TrustedLoopRuntimeTest(unittest.TestCase):
     def test_runs_minimum_trusted_loop(self) -> None:
         metric = MetricContract(
@@ -230,6 +268,63 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         self.assertTrue(result.action_proposal.approval_required)
         self.assertIsNotNone(result.approval_record)
         self.assertEqual(result.approval_record.status, "pending")
+
+    def test_approval_required_halts_before_execution(self) -> None:
+        """Governance gate: approval_required operations MUST NOT call the
+        side-effecting connector.execute() before human approval.
+
+        This is hard boundary #4 (R4/R5 proposal-only) and the core of
+        Governed Operation. The loop must halt at AWAITING_APPROVAL.
+
+        Regression guard: the spy connector raises if execute() is invoked,
+        so this test fails if the loop bypasses the approval gate.
+        """
+        spy = _ExecutionSpyConnector()
+        runtime = self._build_runtime(
+            rows=[],  # row_count=0 => high risk => approval_required
+            connector_registry=_build_spy_connector_registry(spy),
+        )
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        # The proposal is approval-required...
+        self.assertTrue(result.action_proposal.approval_required)
+        # ...so the connector's side-effecting execute() must NOT have been called.
+        self.assertFalse(
+            spy.execute_called,
+            "connector.execute() was called for an approval_required operation",
+        )
+        # A pending approval must be recorded (human responsibility entry point).
+        self.assertIsNotNone(result.approval_record)
+        self.assertEqual(result.approval_record.status, "pending")
+        # The loop halts at awaiting_approval, not connector_execute.
+        trace_steps = [event.step for event in result.trace_events]
+        self.assertIn("awaiting_approval", trace_steps)
+        self.assertNotIn("connector_execute", trace_steps)
+        # The result reports the halted status rather than an execution result.
+        self.assertIsNotNone(result.action_result)
+        self.assertEqual(result.action_result.get("status"), "awaiting_approval")
+
+    def test_non_approval_operation_executes(self) -> None:
+        """Counterpart to the gate test: low/medium-risk, no-approval operations
+        DO proceed through governed execution and call the connector."""
+        spy = _ExecutionSpyConnector(raise_on_execute=False)
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],  # non-empty => R2, no approval
+            connector_registry=_build_spy_connector_registry(spy),
+        )
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertFalse(result.action_proposal.approval_required)
+        self.assertTrue(spy.execute_called)
+        trace_steps = [event.step for event in result.trace_events]
+        self.assertIn("connector_execute", trace_steps)
+        self.assertNotIn("awaiting_approval", trace_steps)
 
     def test_nonexistent_connector_raises_keyerror(self) -> None:
         """Requesting a nonexistent connector should raise KeyError."""

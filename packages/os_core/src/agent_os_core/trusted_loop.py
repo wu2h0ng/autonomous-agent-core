@@ -218,7 +218,14 @@ class TrustedLoopRuntime:
             },
         )
 
-        # ====== New: Governance → State Machine → Connector → Approval → Trace ======
+        # ====== Governance gate: propose-only vs governed execution ======
+        #
+        # Hard boundary #4: operations that require approval (this includes all
+        # R4/R5 high-risk actions, see ActionGovernance.build_operation_contract)
+        # MUST NOT invoke the side-effecting connector.execute() before a human
+        # approves. The loop halts at AWAITING_APPROVAL and records a pending
+        # approval as the human responsibility entry point. Only non-approval
+        # operations proceed through governed execution.
 
         # 1. Build operation contract from proposal
         operation = self.action_governance.build_operation_contract(proposal)
@@ -235,67 +242,83 @@ class TrustedLoopRuntime:
             },
         )
 
-        # 2. Transition: PROPOSED → APPROVED
-        self.state_machine.transition(OperationState.PROPOSED, OperationState.APPROVED)
-
-        # 3. Snapshot if needed
-        state_snapshot: StateSnapshot | None = None
-        if self.action_governance.should_snapshot(operation):
-            self.state_machine.transition(OperationState.APPROVED, OperationState.SNAPSHOTTING)
-            connector = self.connector_registry.get(proposal.connector_name)
-            state_snapshot = connector.take_snapshot(operation)
-            trace.record(
-                "state_snapshot",
-                {
-                    "connector_name": proposal.connector_name,
-                    "has_snapshot": state_snapshot is not None,
-                },
-            )
-            self.state_machine.transition(OperationState.SNAPSHOTTING, OperationState.EXECUTED)
-        else:
-            self.state_machine.transition(OperationState.APPROVED, OperationState.EXECUTED)
-
-        # 4. Create pending approval if required
-        approval_record = None
-        if operation.approval_required:
-            approval_id = f"approval-{uuid4().hex[:12]}"
-            approval_record = self.approval_runtime.create_pending(
-                approval_id=approval_id,
-                proposal_id=proposal.proposal_id,
-                approver_role=proposal.approver_role,
-            )
-            trace.record(
-                "approval_pending",
-                {
-                    "approval_id": approval_id,
-                    "approver_role": proposal.approver_role,
-                },
-            )
-
-        # 5. Execute via connector
-        connector = self.connector_registry.get(proposal.connector_name)
-        action_result = connector.execute(operation, proposal.action_parameters)
-        trace.record(
-            "connector_execute",
-            {
-                "connector_name": proposal.connector_name,
-                "action_type": proposal.action_type,
-                "status": action_result.get("status"),
-            },
-        )
-
-        # 6. Build operation trace
         operation_trace = self.operation_trace_builder.open_trace(
             trace_id=f"optrace-{uuid4().hex[:12]}",
             proposal_id=proposal.proposal_id,
             evidence_chain_id=evidence.evidence_chain_id,
             operation_id=operation.operation_id,
         )
-        operation_trace = self.operation_trace_builder.update_trace(
-            operation_trace,
-            OperationState.EXECUTED,
-            {"step": "connector_executed", "connector_name": proposal.connector_name},
-        )
+
+        state_snapshot: StateSnapshot | None = None
+        approval_record = None
+
+        if operation.approval_required:
+            # Halt before execution: record pending approval, do NOT execute.
+            self.state_machine.transition(
+                OperationState.PROPOSED, OperationState.AWAITING_APPROVAL
+            )
+            approval_id = f"approval-{uuid4().hex[:12]}"
+            approval_record = self.approval_runtime.create_pending(
+                approval_id=approval_id,
+                proposal_id=proposal.proposal_id,
+                approver_role=proposal.approver_role,
+            )
+            action_result: dict[str, object] = {
+                "status": "awaiting_approval",
+                "operation_id": operation.operation_id,
+                "approval_id": approval_id,
+                "approver_role": proposal.approver_role,
+            }
+            trace.record(
+                "awaiting_approval",
+                {
+                    "approval_id": approval_id,
+                    "approver_role": proposal.approver_role,
+                    "operation_id": operation.operation_id,
+                },
+            )
+            operation_trace = self.operation_trace_builder.update_trace(
+                operation_trace,
+                OperationState.AWAITING_APPROVAL,
+                {"step": "awaiting_approval", "approval_id": approval_id},
+            )
+        else:
+            # Governed execution path for non-approval operations.
+            self.state_machine.transition(OperationState.PROPOSED, OperationState.APPROVED)
+            if self.action_governance.should_snapshot(operation):
+                self.state_machine.transition(
+                    OperationState.APPROVED, OperationState.SNAPSHOTTING
+                )
+                connector = self.connector_registry.get(proposal.connector_name)
+                state_snapshot = connector.take_snapshot(operation)
+                trace.record(
+                    "state_snapshot",
+                    {
+                        "connector_name": proposal.connector_name,
+                        "has_snapshot": state_snapshot is not None,
+                    },
+                )
+                self.state_machine.transition(
+                    OperationState.SNAPSHOTTING, OperationState.EXECUTED
+                )
+            else:
+                self.state_machine.transition(OperationState.APPROVED, OperationState.EXECUTED)
+
+            connector = self.connector_registry.get(proposal.connector_name)
+            action_result = connector.execute(operation, proposal.action_parameters)
+            trace.record(
+                "connector_execute",
+                {
+                    "connector_name": proposal.connector_name,
+                    "action_type": proposal.action_type,
+                    "status": action_result.get("status"),
+                },
+            )
+            operation_trace = self.operation_trace_builder.update_trace(
+                operation_trace,
+                OperationState.EXECUTED,
+                {"step": "connector_executed", "connector_name": proposal.connector_name},
+            )
 
         # Final telemetry
         trace.metric(
