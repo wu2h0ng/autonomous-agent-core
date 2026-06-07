@@ -10,7 +10,13 @@ from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .embedding import Embedder, HashingEmbedder
 from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporter
-from .knowledge_retrieval import InMemoryKnowledgeRetriever, KnowledgeRetriever
+from .knowledge_retrieval import (
+    Candidate,
+    HybridScorer,
+    InMemoryKnowledgeRetriever,
+    KnowledgeRetriever,
+    tokenize_content,
+)
 from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
 from .intent_parser import IntentParser
 from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore, KnowledgeStorePort
@@ -29,8 +35,10 @@ __all__ = [
     "ApprovalLiteRuntime",
     "ApprovalRecord",
     "ApprovalStorePort",
+    "Candidate",
     "DataProductCompiler",
     "Embedder",
+    "HybridScorer",
     "EvalCaseOutcome",
     "EvalThresholdReport",
     "EvalThresholdReporter",
@@ -56,6 +64,7 @@ __all__ = [
     "SnapshotStore",
     "StaticQueryExecutor",
     "TemplateRegistry",
+    "tokenize_content",
     "TrustedLoopBlocked",
     "TrustedLoopRuntime",
 ]

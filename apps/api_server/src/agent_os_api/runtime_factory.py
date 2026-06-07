@@ -47,6 +47,8 @@ class RuntimeFactoryConfig:
     # For "postgres": either an injected SQLAlchemy Engine (e.g. for tests) or a database_url.
     store_engine: Any = None
     database_url: str | None = None
+    # Embedding dimensions for the default HashingEmbedder used by retrieval.
+    embedding_dimensions: int = 64
 
 
 class ContentCommerceRuntimeFactory:
@@ -101,6 +103,7 @@ class ContentCommerceRuntimeFactory:
             return None, None, None, None, None
         if backend == STORE_POSTGRES:
             from agent_os_persistence import (
+                EmbeddingKnowledgeStore,
                 SqlApprovalStore,
                 SqlFeedbackStore,
                 SqlKnowledgeStore,
@@ -109,20 +112,17 @@ class ContentCommerceRuntimeFactory:
                 create_all,
             )
 
-            engine = self.config.store_engine
-            if engine is None:
-                if not self.config.database_url:
-                    raise ValueError(
-                        "store_backend='postgres' requires either store_engine or database_url."
-                    )
-                from sqlalchemy import create_engine
-
-                engine = create_engine(self.config.database_url)
+            engine = self._resolve_engine()
             # Convenience for dev/first-run; production schema is owned by Alembic
             # migrations (create_all is a no-op when tables already exist).
             create_all(engine)
+            # Write-side embedding cascade: maintain the knowledge_index on every
+            # knowledge write (decorator lives here, NOT in OS Core).
+            knowledge_store = EmbeddingKnowledgeStore(
+                SqlKnowledgeStore(engine), self._embedder(), engine
+            )
             return (
-                SqlKnowledgeStore(engine),
+                knowledge_store,
                 SqlFeedbackStore(engine),
                 SqlSnapshotStore(engine),
                 ApprovalLiteRuntime(store=SqlApprovalStore(engine)),
@@ -131,6 +131,42 @@ class ContentCommerceRuntimeFactory:
         raise ValueError(
             f"Unknown store_backend {backend!r}; expected {STORE_MEMORY!r} or {STORE_POSTGRES!r}."
         )
+
+    def build_knowledge_retriever(self) -> Any:
+        """Build a KnowledgeRetriever for the configured backend.
+
+        Separate from ``build()`` (the runtime doesn't own a retriever). ``memory``
+        returns an in-memory retriever; ``postgres`` returns a SqlKnowledgeRetriever
+        over the same engine, both using a HashingEmbedder of matching dimensions.
+        """
+        from agent_os_core import HybridScorer, InMemoryKnowledgeRetriever
+
+        if self.config.store_backend == STORE_MEMORY:
+            return InMemoryKnowledgeRetriever(self._embedder())
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlKnowledgeRetriever, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            return SqlKnowledgeRetriever(engine, HybridScorer(self._embedder()))
+        raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+
+    def _embedder(self) -> Any:
+        from agent_os_core import HashingEmbedder
+
+        return HashingEmbedder(dimensions=self.config.embedding_dimensions)
+
+    def _resolve_engine(self) -> Any:
+        engine = self.config.store_engine
+        if engine is None:
+            if not self.config.database_url:
+                raise ValueError(
+                    "store_backend='postgres' requires either store_engine or database_url."
+                )
+            from sqlalchemy import create_engine
+
+            engine = create_engine(self.config.database_url)
+        return engine
 
     def _build_query_executor(
         self, providers: dict[str, ProviderContract]
