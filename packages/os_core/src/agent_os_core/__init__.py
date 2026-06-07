@@ -8,7 +8,9 @@ from .approval_lite import (
 )
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
+from .embedding import Embedder, HashingEmbedder
 from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporter
+from .knowledge_retrieval import InMemoryKnowledgeRetriever, KnowledgeRetriever
 from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
 from .intent_parser import IntentParser
 from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore, KnowledgeStorePort
@@ -28,17 +30,21 @@ __all__ = [
     "ApprovalRecord",
     "ApprovalStorePort",
     "DataProductCompiler",
+    "Embedder",
     "EvalCaseOutcome",
     "EvalThresholdReport",
     "EvalThresholdReporter",
     "FeedbackEventBuilder",
     "FeedbackStore",
     "FeedbackStorePort",
+    "HashingEmbedder",
     "InMemoryApprovalStore",
+    "InMemoryKnowledgeRetriever",
     "InMemorySnapshotStore",
     "IntentParser",
     "InvalidStateTransition",
     "KnowledgeAssetBuilder",
+    "KnowledgeRetriever",
     "KnowledgeStore",
     "KnowledgeStorePort",
     "ModelProviderAdapter",
