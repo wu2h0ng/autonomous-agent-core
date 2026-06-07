@@ -145,6 +145,36 @@ class KnowledgeAsset:
 
 
 @dataclass(frozen=True)
+class KnowledgeQuery:
+    """A retrieval request over the KnowledgeAsset memory.
+
+    ``text`` drives vector + lexical matching; the optional structured fields are
+    exact filters (resolved against projected/indexed columns, never JSON scans).
+    """
+
+    text: str
+    metric_name: str | None = None
+    owner: str | None = None
+    risk_level: str | None = None
+    lifecycle_state: LifecycleState | None = None
+    outcome: str | None = None
+    k: int = 5
+
+
+@dataclass(frozen=True)
+class RetrievalResult:
+    """A retrieved asset plus an explainable score breakdown (the "why").
+
+    ``score_breakdown`` carries the component contributions (vector, lexical,
+    fusion, outcome/recency boosts) so every result is auditable.
+    """
+
+    asset: KnowledgeAsset
+    score: float
+    score_breakdown: dict[str, float]
+
+
+@dataclass(frozen=True)
 class StateSnapshot:
     snapshot_id: str
     operation_id: str
