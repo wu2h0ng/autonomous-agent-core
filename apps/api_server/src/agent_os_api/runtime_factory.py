@@ -47,7 +47,9 @@ class RuntimeFactoryConfig:
     # For "postgres": either an injected SQLAlchemy Engine (e.g. for tests) or a database_url.
     store_engine: Any = None
     database_url: str | None = None
-    # Embedding dimensions for the default HashingEmbedder used by retrieval.
+    # Embedding dimensions for the default HashingEmbedder used by retrieval. MUST match
+    # agent_os_persistence.schema.DEFAULT_EMBEDDING_DIMENSIONS (the pgvector 0004 column);
+    # changing it requires regenerating that migration.
     embedding_dimensions: int = 64
 
 
@@ -116,17 +118,25 @@ class ContentCommerceRuntimeFactory:
             # Convenience for dev/first-run; production schema is owned by Alembic
             # migrations (create_all is a no-op when tables already exist).
             create_all(engine)
+            embedder = self._embedder()
             # Write-side embedding cascade: maintain the knowledge_index on every
             # knowledge write (decorator lives here, NOT in OS Core).
-            knowledge_store = EmbeddingKnowledgeStore(
-                SqlKnowledgeStore(engine), self._embedder(), engine
+            knowledge_store = EmbeddingKnowledgeStore(SqlKnowledgeStore(engine), embedder, engine)
+            # The unit of work used by record_outcome binds an embedding-aware knowledge
+            # store to its connection, so the feedback write, the knowledge version bump,
+            # AND the index re-embed all commit/roll back atomically.
+            uow = SqlUnitOfWork(
+                engine,
+                knowledge_store_factory=lambda conn: EmbeddingKnowledgeStore(
+                    SqlKnowledgeStore(conn), embedder, conn
+                ),
             )
             return (
                 knowledge_store,
                 SqlFeedbackStore(engine),
                 SqlSnapshotStore(engine),
                 ApprovalLiteRuntime(store=SqlApprovalStore(engine)),
-                SqlUnitOfWork(engine),
+                uow,
             )
         raise ValueError(
             f"Unknown store_backend {backend!r}; expected {STORE_MEMORY!r} or {STORE_POSTGRES!r}."

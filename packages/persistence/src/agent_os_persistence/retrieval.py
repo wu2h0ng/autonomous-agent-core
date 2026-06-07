@@ -12,7 +12,8 @@ performance without changing semantics.)
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, RetrievalResult
@@ -24,21 +25,48 @@ from agent_os_core import (
     KnowledgeStorePort,
     tokenize_content,
 )
-from sqlalchemy import Engine, select
+from sqlalchemy import Connection, Engine, select
 
 from . import mappers, schema
 
+
+@contextmanager
+def _write(bind: Engine | Connection) -> Iterator[Connection]:
+    """Yield a connection for writes: reuse a caller-owned Connection (unit of work)
+    or open a short transaction on an Engine."""
+    if isinstance(bind, Connection):
+        yield bind
+    else:
+        with bind.begin() as conn:
+            yield conn
+
+
 # Projection: derive index columns from an asset. Default parses the metric from the
 # KnowledgeAssetBuilder title convention "[metric] question"; owner/lifecycle come from
-# the asset; risk/outcome are supplied by richer projectors / the feedback path.
+# the asset; outcome comes from the asset's feedback-folded `outcome` field.
 Projector = Callable[[KnowledgeAsset], dict[str, Any]]
 
 _TITLE_METRIC = re.compile(r"^\[(?P<metric>[^\]]+)\]")
 
+# Maps a feedback outcome to a [0,1] weight used by HybridScorer.outcome_boost.
+# Unknown outcomes are treated as neutral; no outcome yet -> 0 (not adopted).
+_OUTCOME_SCORES = {"adopted": 1.0, "rejected": 0.0}
+
+
+def outcome_to_score(outcome: str | None) -> float:
+    if outcome is None:
+        return 0.0
+    return _OUTCOME_SCORES.get(outcome, 0.5)
+
 
 def default_projector(asset: KnowledgeAsset) -> dict[str, Any]:
     match = _TITLE_METRIC.match(asset.title)
-    return {"metric_name": match.group("metric") if match else None, "content": asset.title}
+    return {
+        "metric_name": match.group("metric") if match else None,
+        "content": asset.title,
+        "outcome": asset.outcome,
+        "outcome_score": outcome_to_score(asset.outcome),
+    }
 
 
 class EmbeddingKnowledgeStore(KnowledgeStorePort):
@@ -48,13 +76,13 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
         self,
         base: KnowledgeStorePort,
         embedder: Embedder,
-        engine: Engine,
+        bind: Engine | Connection,
         *,
         projector: Projector = default_projector,
     ) -> None:
         self._base = base
         self._embedder = embedder
-        self._engine = engine
+        self._bind = bind
         self._projector = projector
 
     # --- KnowledgeStorePort: storage delegates to base, then (re)index ---
@@ -82,10 +110,15 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
     # --- indexing ---
 
     def _reindex(self, asset: KnowledgeAsset) -> None:
+        # Index is keyed by source_trace_id (one current row per trace). Assets without
+        # a trace are not retrievable memory and are skipped.
+        if asset.source_trace_id is None:
+            return
         proj = self._projector(asset)
         content = proj.get("content") or asset.title
         table = schema.knowledge_index
         values = {
+            "source_trace_id": asset.source_trace_id,
             "asset_id": asset.asset_id,
             "metric_name": proj.get("metric_name"),
             "owner": asset.owner,
@@ -97,8 +130,8 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
             "embedding": list(self._embedder.embed(content)),
             "asset_payload": mappers.knowledge_to_payload(asset),
         }
-        with self._engine.begin() as conn:
-            conn.execute(table.delete().where(table.c.asset_id == asset.asset_id))
+        with _write(self._bind) as conn:
+            conn.execute(table.delete().where(table.c.source_trace_id == asset.source_trace_id))
             conn.execute(table.insert().values(**values))
 
 

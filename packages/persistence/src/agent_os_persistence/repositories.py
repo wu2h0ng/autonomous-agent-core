@@ -11,7 +11,7 @@ production wires a PostgreSQL engine.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from agent_os_contracts import FeedbackEvent, KnowledgeAsset, StateSnapshot
@@ -240,15 +240,26 @@ class SqlUnitOfWork:
     bump are atomic. Injected into the runtime as ``feedback_knowledge_uow``.
     """
 
-    def __init__(self, engine: Engine) -> None:
+    def __init__(
+        self,
+        engine: Engine,
+        *,
+        feedback_store_factory: Callable[[Connection], FeedbackStorePort] | None = None,
+        knowledge_store_factory: Callable[[Connection], KnowledgeStorePort] | None = None,
+    ) -> None:
         self._engine = engine
+        # Default to the plain stores; the composition layer can pass a factory that
+        # binds an embedding-aware knowledge store to the connection so record_outcome
+        # re-indexes inside the same transaction.
+        self._feedback_factory = feedback_store_factory or SqlFeedbackStore
+        self._knowledge_factory = knowledge_store_factory or SqlKnowledgeStore
 
     @contextmanager
-    def __call__(self) -> Iterator[tuple[SqlFeedbackStore, SqlKnowledgeStore]]:
+    def __call__(self) -> Iterator[tuple[FeedbackStorePort, KnowledgeStorePort]]:
         conn = self._engine.connect()
         tx = conn.begin()
         try:
-            yield SqlFeedbackStore(conn), SqlKnowledgeStore(conn)
+            yield self._feedback_factory(conn), self._knowledge_factory(conn)
         except Exception:
             tx.rollback()
             raise

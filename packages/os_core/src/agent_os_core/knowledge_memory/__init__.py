@@ -136,6 +136,7 @@ class KnowledgeAssetBuilder:
             source_trace_id=base_asset.source_trace_id,
             owner=base_asset.owner,
             state=LifecycleState.DRAFT,
+            outcome=feedback.outcome,
         )
 
     @staticmethod

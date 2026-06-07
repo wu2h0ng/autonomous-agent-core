@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 from typing import TextIO
 
-from .outcome_service import record_outcome_service, run_service
+from .outcome_service import record_outcome_service, run_service, search_service
 from .runtime_factory import (
     EXECUTOR_SQLITE,
     EXECUTOR_STATIC,
+    STORE_MEMORY,
+    STORE_POSTGRES,
     ContentCommerceRuntimeFactory,
     RuntimeFactoryConfig,
 )
@@ -62,6 +64,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_domain_pack_args(outcome)
 
+    search = subparsers.add_parser(
+        "search",
+        help=(
+            "Search the knowledge memory (hybrid retrieval). With --store-backend memory "
+            "(default) the index is per-process/empty; use 'postgres' + --database-url to "
+            "search the durable index the loop writes."
+        ),
+    )
+    search.add_argument("--question", required=True)
+    search.add_argument("--metric", default=None)
+    search.add_argument("--owner", default=None)
+    search.add_argument("--k", type=int, default=5)
+    search.add_argument("--domain-pack", type=Path, default=Path("domain_packs/content_commerce"))
+    search.add_argument(
+        "--store-backend",
+        choices=(STORE_MEMORY, STORE_POSTGRES),
+        default=STORE_MEMORY,
+    )
+    search.add_argument("--database-url", default=None)
+
     return parser
 
 
@@ -99,7 +121,7 @@ def _emit(payload: dict[str, object], stdout: TextIO | None) -> None:
     output.write("\n")
 
 
-SUBCOMMANDS = ("query", "record-outcome")
+SUBCOMMANDS = ("query", "record-outcome", "search")
 
 
 def _normalize_argv(argv: list[str] | None) -> list[str] | None:
@@ -126,6 +148,24 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
     if args.command is None:
         parser.print_help()
         return 2
+
+    if args.command == "search":
+        retriever = ContentCommerceRuntimeFactory(
+            RuntimeFactoryConfig(
+                domain_pack_path=args.domain_pack,
+                store_backend=args.store_backend,
+                database_url=args.database_url,
+            )
+        ).build_knowledge_retriever()
+        payload = search_service(
+            retriever,
+            text=args.question,
+            metric_name=args.metric,
+            owner=args.owner,
+            k=args.k,
+        )
+        _emit(payload, stdout)
+        return 0
 
     factory = ContentCommerceRuntimeFactory(
         RuntimeFactoryConfig(domain_pack_path=args.domain_pack, executor=args.executor)

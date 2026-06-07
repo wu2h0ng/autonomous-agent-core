@@ -14,6 +14,35 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_os_contracts import KnowledgeQuery
+
+
+def search_service(
+    retriever: Any,
+    *,
+    text: str,
+    metric_name: str | None = None,
+    owner: str | None = None,
+    k: int = 5,
+) -> dict[str, Any]:
+    """Search the knowledge memory and return JSON-able, explainable results.
+
+    The real entry point for the KnowledgeRetriever capability (used by the CLI
+    ``search`` subcommand). Each result carries its score breakdown (the "why").
+    """
+    results = retriever.search(KnowledgeQuery(text=text, metric_name=metric_name, owner=owner, k=k))
+    return {
+        "results": [
+            {
+                "asset_id": r.asset.asset_id,
+                "title": r.asset.title,
+                "score": r.score,
+                "score_breakdown": r.score_breakdown,
+            }
+            for r in results
+        ]
+    }
+
 
 def run_service(
     runtime: Any,

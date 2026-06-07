@@ -142,6 +142,10 @@ class KnowledgeAsset:
     source_trace_id: str | None
     owner: str
     state: LifecycleState = LifecycleState.DRAFT
+    # Observed feedback outcome folded in via KnowledgeAssetBuilder.with_feedback
+    # (e.g. "adopted"/"rejected"); None until an outcome is recorded. Carries the
+    # feedback signal so retrieval projection/weighting can use it.
+    outcome: str | None = None
 
 
 @dataclass(frozen=True)

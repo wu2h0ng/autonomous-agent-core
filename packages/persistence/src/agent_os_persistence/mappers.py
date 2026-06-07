@@ -46,6 +46,7 @@ def knowledge_to_payload(asset: KnowledgeAsset) -> dict[str, Any]:
         "source_trace_id": asset.source_trace_id,
         "owner": asset.owner,
         "state": asset.state.value,
+        "outcome": asset.outcome,
     }
 
 
@@ -57,6 +58,7 @@ def knowledge_from_payload(payload: dict[str, Any]) -> KnowledgeAsset:
         source_trace_id=payload.get("source_trace_id"),
         owner=payload["owner"],
         state=LifecycleState(payload["state"]),
+        outcome=payload.get("outcome"),
     )
 
 

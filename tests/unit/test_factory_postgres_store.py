@@ -74,6 +74,29 @@ class FactoryPostgresStoreTest(unittest.TestCase):
         runtime3 = ContentCommerceRuntimeFactory(config).build()
         self.assertEqual(runtime3.knowledge_store.version_of(trace_id), 2)
 
+    def test_outcome_flows_into_retrieval_index(self) -> None:
+        # End-to-end: run() indexes the candidate, record_outcome re-embeds it with the
+        # feedback outcome, and the retriever surfaces that outcome (outcome_boost > 0).
+        from agent_os_contracts import KnowledgeQuery
+
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+
+        engine = self._engine()
+        config = self._config(engine)
+        factory = ContentCommerceRuntimeFactory(config)
+        runtime = factory.build()
+
+        result = runtime.run("GMV", dict(RUN_PARAMS))
+        trace_id = result.evidence_chain.trace_id
+        runtime.record_outcome(trace_id=trace_id, outcome="adopted")
+
+        retriever = factory.build_knowledge_retriever()
+        res = retriever.search(KnowledgeQuery(text="GMV", k=10))
+        match = next((r for r in res if r.asset.source_trace_id == trace_id), None)
+        self.assertIsNotNone(match, "indexed knowledge for the trace was not retrievable")
+        self.assertEqual(match.asset.outcome, "adopted")
+        self.assertGreater(match.score_breakdown["outcome_boost"], 0.0)
+
     def test_unknown_store_backend_raises(self) -> None:
         from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 

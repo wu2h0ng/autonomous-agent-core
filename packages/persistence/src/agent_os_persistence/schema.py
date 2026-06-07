@@ -11,6 +11,11 @@ from __future__ import annotations
 
 from sqlalchemy import JSON, Column, Float, Integer, MetaData, String, Table
 
+# Single source of truth for the embedding dimension. The pgvector column migration
+# (0004) and the runtime factory's default embedder MUST agree with this value; if a
+# deployment uses a different embedder dimension, the migration must be regenerated.
+DEFAULT_EMBEDDING_DIMENSIONS = 64
+
 metadata = MetaData()
 
 # Feedback events: append-only; a surrogate autoincrement id preserves insertion
@@ -61,7 +66,10 @@ knowledge_index = Table(
     "knowledge_index",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("asset_id", String, unique=True, nullable=False),
+    # Keyed by source_trace_id (one current row per trace, mirroring knowledge_assets);
+    # asset_id changes across versions and is stored for reference only.
+    Column("source_trace_id", String, unique=True, nullable=False),
+    Column("asset_id", String, nullable=False),
     Column("metric_name", String, index=True),
     Column("owner", String, index=True),
     Column("risk_level", String, index=True),
