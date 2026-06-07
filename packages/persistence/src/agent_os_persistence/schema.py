@@ -9,7 +9,7 @@ indexing/operators; that is a PG-only refinement, not required for correctness.
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, Integer, MetaData, String, Table
+from sqlalchemy import JSON, Column, Float, Integer, MetaData, String, Table
 
 metadata = MetaData()
 
@@ -49,4 +49,26 @@ approval_records = Table(
     Column("approval_id", String, primary_key=True),
     Column("proposal_id", String, index=True, nullable=False),
     Column("payload", JSON, nullable=False),
+)
+
+# Knowledge retrieval index: projected, indexed columns for structured filtering
+# (never JSON scans) + a stored embedding and content for hybrid ranking. Maintained
+# by the EmbeddingKnowledgeStore decorator. `id` (autoincrement) doubles as the recency
+# key; `asset_id` is the logical unique key (re-index = delete+insert -> newer id).
+# `embedding` is a generic JSON list for portability/tests; a PG-only migration can
+# later swap it to a pgvector `vector` column + HNSW for ANN performance.
+knowledge_index = Table(
+    "knowledge_index",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("asset_id", String, unique=True, nullable=False),
+    Column("metric_name", String, index=True),
+    Column("owner", String, index=True),
+    Column("risk_level", String, index=True),
+    Column("lifecycle_state", String, index=True),
+    Column("outcome", String, index=True),
+    Column("outcome_score", Float, nullable=False, default=0.0),
+    Column("content", String, nullable=False),
+    Column("embedding", JSON, nullable=False),
+    Column("asset_payload", JSON, nullable=False),
 )

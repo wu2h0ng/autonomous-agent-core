@@ -18,24 +18,30 @@ from .repositories import (
     SqlSnapshotStore,
     SqlUnitOfWork,
 )
+from .retrieval import EmbeddingKnowledgeStore, SqlKnowledgeRetriever, default_projector
 from .schema import (
     approval_records,
     feedback_events,
     knowledge_assets,
+    knowledge_index,
     metadata,
     state_snapshots,
 )
 
 __all__ = [
+    "EmbeddingKnowledgeStore",
     "SqlApprovalStore",
     "SqlFeedbackStore",
+    "SqlKnowledgeRetriever",
     "SqlKnowledgeStore",
     "SqlSnapshotStore",
     "SqlUnitOfWork",
     "approval_records",
     "create_all",
+    "default_projector",
     "feedback_events",
     "knowledge_assets",
+    "knowledge_index",
     "metadata",
     "state_snapshots",
 ]

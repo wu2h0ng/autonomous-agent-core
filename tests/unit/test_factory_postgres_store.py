@@ -51,14 +51,15 @@ class FactoryPostgresStoreTest(unittest.TestCase):
 
     def test_postgres_backend_persists_across_runtime_instances(self) -> None:
         from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
-        from agent_os_persistence import SqlKnowledgeStore
+        from agent_os_persistence import EmbeddingKnowledgeStore
 
         engine = self._engine()
         config = self._config(engine)
 
         # Instance 1 runs the loop -> writes a knowledge candidate to the DB.
         runtime1 = ContentCommerceRuntimeFactory(config).build()
-        self.assertIsInstance(runtime1.knowledge_store, SqlKnowledgeStore)
+        # The postgres knowledge store is the embedding decorator (write-side cascade).
+        self.assertIsInstance(runtime1.knowledge_store, EmbeddingKnowledgeStore)
         result = runtime1.run("GMV", dict(RUN_PARAMS))
         trace_id = result.evidence_chain.trace_id
 
