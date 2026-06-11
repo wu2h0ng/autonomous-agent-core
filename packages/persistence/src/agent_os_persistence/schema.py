@@ -80,3 +80,15 @@ knowledge_index = Table(
     Column("embedding", JSON, nullable=False),
     Column("asset_payload", JSON, nullable=False),
 )
+
+# Run traces (observability v1, AR-20260611): one row per trace_id, persisted on
+# BOTH exits of run() ("ok" answers and "blocked" refusals), so any run is
+# auditable after the fact. Events + telemetry are stored as the canonical
+# serialized payload.
+run_traces = Table(
+    "run_traces",
+    metadata,
+    Column("trace_id", String, primary_key=True),
+    Column("status", String, index=True, nullable=False),
+    Column("payload", JSON, nullable=False),
+)

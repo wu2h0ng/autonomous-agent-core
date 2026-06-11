@@ -69,6 +69,8 @@ def run_service(
                 "message": block.message,
                 "stage": block.stage,
                 "details": list(block.details),
+                # Refusals are auditable too (AR-20260611): the persisted RunTrace id.
+                "trace_id": block.trace_id,
             },
         }
 
@@ -92,6 +94,32 @@ def run_service(
         "related_knowledge": [
             {"asset_id": r.asset.asset_id, "title": r.asset.title, "score": r.score}
             for r in result.related_knowledge
+        ],
+    }
+
+
+def trace_service(runtime: Any, *, trace_id: str) -> dict[str, Any] | None:
+    """Fetch the persisted RunTrace for ``trace_id`` (observability v1, AR-20260611).
+
+    Returns a JSON-able dict, or ``None`` when no run with that trace_id was
+    persisted — the caller decides the transport-level not-found shape.
+    """
+    run_trace = runtime.trace_store.get(trace_id)
+    if run_trace is None:
+        return None
+    return {
+        "trace_id": run_trace.trace_id,
+        "status": run_trace.status,
+        "events": [{"step": e.step, "payload": e.payload} for e in run_trace.events],
+        "telemetry": [
+            {
+                "dimension": t.dimension.value,
+                "name": t.name,
+                "value": t.value,
+                "unit": t.unit,
+                "attributes": t.attributes,
+            }
+            for t in run_trace.telemetry_events
         ],
     }
 

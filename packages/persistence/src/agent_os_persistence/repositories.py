@@ -14,13 +14,14 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from agent_os_contracts import FeedbackEvent, KnowledgeAsset, StateSnapshot
+from agent_os_contracts import FeedbackEvent, KnowledgeAsset, RunTrace, StateSnapshot
 from agent_os_core import (
     ApprovalRecord,
     ApprovalStorePort,
     FeedbackStorePort,
     KnowledgeStorePort,
     SnapshotStore,
+    TraceStorePort,
 )
 from sqlalchemy import Connection, Engine, select
 
@@ -267,3 +268,39 @@ class SqlUnitOfWork:
             tx.commit()
         finally:
             conn.close()
+
+
+class SqlTraceStore(_SqlStoreBase, TraceStorePort):
+    """RunTrace store backed by SQLAlchemy Core (observability v1, AR-20260611)."""
+
+    def save(self, run_trace: RunTrace) -> None:
+        table = schema.run_traces
+        payload = mappers.run_trace_to_payload(run_trace)
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.trace_id).where(table.c.trace_id == run_trace.trace_id)
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    table.insert().values(
+                        trace_id=run_trace.trace_id,
+                        status=run_trace.status,
+                        payload=payload,
+                    )
+                )
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.trace_id == run_trace.trace_id)
+                    .values(status=run_trace.status, payload=payload)
+                )
+
+    def get(self, trace_id: str) -> RunTrace | None:
+        table = schema.run_traces
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload).where(table.c.trace_id == trace_id)
+            ).fetchone()
+        if row is None:
+            return None
+        return mappers.run_trace_from_payload(row.payload)

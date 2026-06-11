@@ -29,6 +29,7 @@ from .operation_trace import OperationTraceBuilder
 from .query_runtime import SQLiteQueryExecutor, StaticQueryExecutor, TemplateRegistry
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
+from .trace import InMemoryTraceStore, TraceRecorder, TraceStorePort
 from .trusted_loop import TrustedLoopBlocked, TrustedLoopRuntime
 
 __all__ = [
@@ -53,6 +54,9 @@ __all__ = [
     "InMemoryApprovalStore",
     "InMemoryKnowledgeRetriever",
     "InMemorySnapshotStore",
+    "InMemoryTraceStore",
+    "TraceRecorder",
+    "TraceStorePort",
     "IntentParser",
     "InvalidStateTransition",
     "KnowledgeAssetBuilder",

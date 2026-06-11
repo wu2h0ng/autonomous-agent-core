@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Any
 
-from agent_os_contracts import TelemetryDimension, TelemetryEvent, TraceEvent
+from agent_os_contracts import RunTrace, TelemetryDimension, TelemetryEvent, TraceEvent
 
 
 class TraceRecorder:
@@ -39,3 +40,30 @@ class TraceRecorder:
 
     def telemetry_events(self) -> tuple[TelemetryEvent, ...]:
         return tuple(self._telemetry_events)
+
+
+class TraceStorePort(ABC):
+    """Persist and query RunTraces by trace_id (AR-20260611 observability v1).
+
+    run() writes through this port on BOTH exits (ok and blocked), making every
+    answer AND every refusal auditable after the fact.
+    """
+
+    @abstractmethod
+    def save(self, run_trace: RunTrace) -> None: ...
+
+    @abstractmethod
+    def get(self, trace_id: str) -> RunTrace | None: ...
+
+
+class InMemoryTraceStore(TraceStorePort):
+    """Default per-process store: traces are queryable out of the box."""
+
+    def __init__(self) -> None:
+        self._by_trace: dict[str, RunTrace] = {}
+
+    def save(self, run_trace: RunTrace) -> None:
+        self._by_trace[run_trace.trace_id] = run_trace
+
+    def get(self, trace_id: str) -> RunTrace | None:
+        return self._by_trace.get(trace_id)

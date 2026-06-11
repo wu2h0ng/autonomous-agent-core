@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from dataclasses import replace
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -16,6 +17,7 @@ from agent_os_contracts import (
     ProviderKind,
     QueryPlan,
     RetrievalResult,
+    RunTrace,
     SQLTemplate,
     StateSnapshot,
     TelemetryDimension,
@@ -41,7 +43,7 @@ from .query_runtime import StaticQueryExecutor, TemplateRegistry
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .sql_safety import SQLSafetyChecker
-from .trace import TraceRecorder
+from .trace import InMemoryTraceStore, TraceRecorder, TraceStorePort
 
 
 class TrustedLoopBlocked(Exception):
@@ -95,6 +97,7 @@ class TrustedLoopRuntime:
         feedback_knowledge_uow: Any | None = None,
         knowledge_retriever: KnowledgeRetriever | None = None,
         recall_k: int = 3,
+        trace_store: TraceStorePort | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -154,11 +157,59 @@ class TrustedLoopRuntime:
         # run() recalls prior knowledge for the resolved metric as advisory context.
         self.knowledge_retriever = knowledge_retriever
         self.recall_k = recall_k
+        # Observability v1 (AR-20260611): every run persists its RunTrace here,
+        # on success AND on block, so runs are auditable by trace_id after the fact.
+        self.trace_store = trace_store or InMemoryTraceStore()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
-        started_at = perf_counter()
+        """Run the loop and persist its trace on BOTH exits (AR-20260611).
+
+        Success persists a ``status="ok"`` RunTrace; an expected business block
+        persists ``status="blocked"`` (final ``blocked`` step records code/stage)
+        and the re-raised block carries the trace_id, so refusals are as auditable
+        as answers. Programming/wiring errors propagate unpersisted — they are
+        bugs, not auditable outcomes.
+        """
         trace_id = f"trace-{uuid4().hex[:12]}"
         trace = TraceRecorder(trace_id)
+        try:
+            result = self._execute_loop(question, parameters, trace_id, trace)
+        except TrustedLoopBlocked as blocked:
+            trace.record(
+                "blocked",
+                {
+                    "code": blocked.block.code.value,
+                    "stage": blocked.block.stage,
+                    "message": blocked.block.message,
+                },
+            )
+            self.trace_store.save(
+                RunTrace(
+                    trace_id=trace_id,
+                    status="blocked",
+                    events=trace.events(),
+                    telemetry_events=trace.telemetry_events(),
+                )
+            )
+            raise TrustedLoopBlocked(replace(blocked.block, trace_id=trace_id)) from None
+        self.trace_store.save(
+            RunTrace(
+                trace_id=trace_id,
+                status="ok",
+                events=result.trace_events,
+                telemetry_events=result.telemetry_events,
+            )
+        )
+        return result
+
+    def _execute_loop(
+        self,
+        question: str,
+        parameters: dict[str, object],
+        trace_id: str,
+        trace: TraceRecorder,
+    ) -> TrustedLoopResult:
+        started_at = perf_counter()
         trace.metric(
             dimension=TelemetryDimension.BUSINESS,
             name="trusted_loop.run_started",

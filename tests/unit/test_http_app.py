@@ -204,6 +204,47 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
         hits = [r["asset_id"] for r in search_resp.json()["results"]]
         self.assertIn(asset_id, hits, "default app search no longer sees runtime writes")
 
+    def test_trace_endpoint_returns_persisted_run_trace(self) -> None:
+        client = self._default_client()
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        trace_id = run_resp.json()["trace_id"]
+
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        payload = trace_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        steps = [e["step"] for e in payload["events"]]
+        self.assertIn("evidence_chain", steps)
+        self.assertTrue(payload["telemetry"])
+
+    def test_blocked_run_is_auditable_via_trace_endpoint(self) -> None:
+        client = self._default_client()
+        headers = {"X-API-Key": API_KEY}
+
+        resp = client.post(
+            "/runs",
+            json={"question": "revenue", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 422)
+        trace_id = resp.json()["detail"]["trace_id"]
+        self.assertIsNotNone(trace_id, "422 must reference the persisted refusal trace")
+
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        payload = trace_resp.json()
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["events"][-1]["step"], "blocked")
+
+    def test_unknown_trace_is_404_and_endpoint_is_guarded(self) -> None:
+        client = self._default_client()
+        resp = client.get("/traces/trace-nope", headers={"X-API-Key": API_KEY})
+        self.assertEqual(resp.status_code, 404)
+        resp = client.get("/traces/trace-nope")
+        self.assertEqual(resp.status_code, 401)
+
     def test_runs_response_carries_related_knowledge(self) -> None:
         client = self._default_client()
         headers = {"X-API-Key": API_KEY}

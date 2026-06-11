@@ -22,7 +22,12 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .outcome_service import record_outcome_service, run_service, search_service
+from .outcome_service import (
+    record_outcome_service,
+    run_service,
+    search_service,
+    trace_service,
+)
 from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
@@ -86,17 +91,41 @@ class BlockDetail(BaseModel):
     """The unified business-block contract (AR-20260606-unified-block-outcome).
 
     Returned as the 422 ``detail`` when the Trusted Loop refuses to answer
-    (unsafe SQL, unknown metric, no template, no provider, ...).
+    (unsafe SQL, unknown metric, no template, no provider, ...). ``trace_id``
+    references the persisted RunTrace of the refusal (AR-20260611).
     """
 
     code: str
     message: str
     stage: str
     details: list[str] = Field(default_factory=list)
+    trace_id: str | None = None
 
 
 class BlockedResponse(BaseModel):
     detail: BlockDetail
+
+
+class TraceEventItem(BaseModel):
+    step: str
+    payload: dict[str, Any]
+
+
+class TelemetryItem(BaseModel):
+    dimension: str
+    name: str
+    value: float
+    unit: str
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class TraceResponse(BaseModel):
+    """The persisted, queryable trace of one run — answers AND refusals."""
+
+    trace_id: str
+    status: str
+    events: list[TraceEventItem] = Field(default_factory=list)
+    telemetry: list[TelemetryItem] = Field(default_factory=list)
 
 
 def _build_default_factory() -> ContentCommerceRuntimeFactory:
@@ -203,5 +232,12 @@ def create_app(
                 ),
             )
         return search_service(app.state.retriever, text=q, metric_name=metric, owner=owner, k=k)
+
+    @app.get("/traces/{trace_id}", response_model=TraceResponse)
+    def get_trace(trace_id: str, _: None = Depends(require_api_key)) -> dict[str, Any]:
+        payload = trace_service(app.state.runtime, trace_id=trace_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail=f"No run trace for {trace_id!r}.")
+        return payload
 
     return app

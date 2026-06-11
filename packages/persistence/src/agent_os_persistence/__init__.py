@@ -16,6 +16,7 @@ from .repositories import (
     SqlFeedbackStore,
     SqlKnowledgeStore,
     SqlSnapshotStore,
+    SqlTraceStore,
     SqlUnitOfWork,
 )
 from .retrieval import EmbeddingKnowledgeStore, SqlKnowledgeRetriever, default_projector
@@ -25,6 +26,7 @@ from .schema import (
     knowledge_assets,
     knowledge_index,
     metadata,
+    run_traces,
     state_snapshots,
 )
 
@@ -35,6 +37,7 @@ __all__ = [
     "SqlKnowledgeRetriever",
     "SqlKnowledgeStore",
     "SqlSnapshotStore",
+    "SqlTraceStore",
     "SqlUnitOfWork",
     "approval_records",
     "create_all",
@@ -43,6 +46,7 @@ __all__ = [
     "knowledge_assets",
     "knowledge_index",
     "metadata",
+    "run_traces",
     "state_snapshots",
 ]
 

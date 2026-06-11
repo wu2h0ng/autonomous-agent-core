@@ -116,7 +116,7 @@ class ContentCommerceRuntimeFactory:
         connector_registry = self._build_default_connector_registry()
 
         # API layer owns store backend selection (OS Core must not import persistence).
-        knowledge_store, feedback_store, snapshot_store, approval_runtime, uow = (
+        knowledge_store, feedback_store, snapshot_store, approval_runtime, uow, trace_store = (
             self._build_stores()
         )
 
@@ -135,17 +135,19 @@ class ContentCommerceRuntimeFactory:
             # Read-side of the learning loop: the runtime recalls prior knowledge
             # through the SAME retriever the search surfaces use.
             knowledge_retriever=self.build_knowledge_retriever(),
+            trace_store=trace_store,
         )
 
-    def _build_stores(self) -> tuple[Any, Any, Any, Any, Any]:
-        """Select the store backend for feedback/knowledge/snapshot/approval.
+    def _build_stores(self) -> tuple[Any, Any, Any, Any, Any, Any]:
+        """Select the store backend for feedback/knowledge/snapshot/approval/trace.
 
-        Returns ``(knowledge_store, feedback_store, snapshot_store, approval_runtime)``.
-        For the default ``"memory"`` backend all are ``None`` so the runtime uses its
-        in-memory defaults. For ``"postgres"`` they are SQLAlchemy-Core stores from
-        ``agent_os_persistence`` (imported lazily so the memory path needs no SQLAlchemy);
-        the approval runtime is an ``ApprovalLiteRuntime`` over a durable approval store.
-        OS Core never imports the persistence package — wiring lives in the composition layer.
+        Returns ``(knowledge_store, feedback_store, snapshot_store, approval_runtime,
+        uow, trace_store)``. For the default ``"memory"`` backend the unset members are
+        ``None`` so the runtime uses its in-memory defaults. For ``"postgres"`` they are
+        SQLAlchemy-Core stores from ``agent_os_persistence`` (imported lazily so the
+        memory path needs no SQLAlchemy); the approval runtime is an
+        ``ApprovalLiteRuntime`` over a durable approval store. OS Core never imports
+        the persistence package — wiring lives in the composition layer.
         """
         backend = self.config.store_backend
         if backend == STORE_MEMORY:
@@ -157,7 +159,7 @@ class ContentCommerceRuntimeFactory:
             knowledge_store = IndexingKnowledgeStore(
                 KnowledgeStore(), self.build_knowledge_retriever()
             )
-            return knowledge_store, None, None, None, None
+            return knowledge_store, None, None, None, None, None
         if backend == STORE_POSTGRES:
             from agent_os_persistence import (
                 EmbeddingKnowledgeStore,
@@ -165,6 +167,7 @@ class ContentCommerceRuntimeFactory:
                 SqlFeedbackStore,
                 SqlKnowledgeStore,
                 SqlSnapshotStore,
+                SqlTraceStore,
                 SqlUnitOfWork,
                 create_all,
             )
@@ -192,6 +195,7 @@ class ContentCommerceRuntimeFactory:
                 SqlSnapshotStore(engine),
                 ApprovalLiteRuntime(store=SqlApprovalStore(engine)),
                 uow,
+                SqlTraceStore(engine),
             )
         raise ValueError(
             f"Unknown store_backend {backend!r}; expected {STORE_MEMORY!r} or {STORE_POSTGRES!r}."

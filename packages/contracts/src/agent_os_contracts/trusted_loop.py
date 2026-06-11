@@ -148,6 +148,21 @@ class TraceEvent:
 
 
 @dataclass(frozen=True)
+class RunTrace:
+    """The persisted, queryable trace of one run (AR-20260611 observability v1).
+
+    Persisted on BOTH exits of run(): ``status="ok"`` for answers and
+    ``status="blocked"`` for refusals (whose last event is the ``blocked`` step),
+    so refusals are as auditable as answers.
+    """
+
+    trace_id: str
+    status: str  # "ok" | "blocked"
+    events: tuple[TraceEvent, ...]
+    telemetry_events: tuple[TelemetryEvent, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class TrustedLoopResult:
     intent: BusinessIntent
     query_plan: QueryPlan
@@ -193,6 +208,9 @@ class TrustedLoopBlock:
     message: str
     stage: str
     details: tuple[str, ...] = field(default_factory=tuple)
+    # The persisted trace of this refusal (AR-20260611): populated by run(), so
+    # 422 responses and CLI errors reference an auditable RunTrace.
+    trace_id: str | None = None
 
 
 @dataclass(frozen=True)

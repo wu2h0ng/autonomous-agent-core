@@ -43,7 +43,10 @@ class OpenApiContractTest(unittest.TestCase):
 
     def test_contract_covers_all_trigger_surfaces(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
-        self.assertEqual(sorted(spec["paths"]), ["/knowledge/search", "/outcomes", "/runs"])
+        self.assertEqual(
+            sorted(spec["paths"]),
+            ["/knowledge/search", "/outcomes", "/runs", "/traces/{trace_id}"],
+        )
 
     def test_unified_block_contract_is_declared_on_runs(self) -> None:
         # AR-20260606-unified-block-outcome: the 422 business-block shape must be
@@ -54,7 +57,8 @@ class OpenApiContractTest(unittest.TestCase):
         block = spec["components"]["schemas"]["BlockDetail"]
         self.assertEqual(
             set(block["required"]) | set(block["properties"]),
-            {"code", "message", "stage", "details"},
+            # trace_id: refusals reference their persisted RunTrace (AR-20260611).
+            {"code", "message", "stage", "details", "trace_id"},
         )
 
     def test_check_mode_detects_drift(self) -> None:

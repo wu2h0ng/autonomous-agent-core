@@ -13,7 +13,11 @@ from agent_os_contracts import (
     FeedbackEvent,
     KnowledgeAsset,
     LifecycleState,
+    RunTrace,
     StateSnapshot,
+    TelemetryDimension,
+    TelemetryEvent,
+    TraceEvent,
 )
 from agent_os_core import ApprovalRecord
 
@@ -103,4 +107,47 @@ def approval_from_payload(payload: dict[str, Any]) -> ApprovalRecord:
         status=payload["status"],
         approver_role=payload.get("approver_role"),
         reason=payload.get("reason"),
+    )
+
+
+def run_trace_to_payload(run_trace: RunTrace) -> dict[str, Any]:
+    return {
+        "trace_id": run_trace.trace_id,
+        "status": run_trace.status,
+        "events": [
+            {"trace_id": e.trace_id, "step": e.step, "payload": e.payload} for e in run_trace.events
+        ],
+        "telemetry_events": [
+            {
+                "trace_id": t.trace_id,
+                "dimension": t.dimension.value,
+                "name": t.name,
+                "value": t.value,
+                "unit": t.unit,
+                "attributes": t.attributes,
+            }
+            for t in run_trace.telemetry_events
+        ],
+    }
+
+
+def run_trace_from_payload(payload: dict[str, Any]) -> RunTrace:
+    return RunTrace(
+        trace_id=payload["trace_id"],
+        status=payload["status"],
+        events=tuple(
+            TraceEvent(trace_id=e["trace_id"], step=e["step"], payload=e["payload"])
+            for e in payload["events"]
+        ),
+        telemetry_events=tuple(
+            TelemetryEvent(
+                trace_id=t["trace_id"],
+                dimension=TelemetryDimension(t["dimension"]),
+                name=t["name"],
+                value=t["value"],
+                unit=t["unit"],
+                attributes=t.get("attributes", {}),
+            )
+            for t in payload.get("telemetry_events", [])
+        ),
     )

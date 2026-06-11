@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "BlockDetail": {
-        "description": "The unified business-block contract (AR-20260606-unified-block-outcome).\n\nReturned as the 422 ``detail`` when the Trusted Loop refuses to answer\n(unsafe SQL, unknown metric, no template, no provider, ...).",
+        "description": "The unified business-block contract (AR-20260606-unified-block-outcome).\n\nReturned as the 422 ``detail`` when the Trusted Loop refuses to answer\n(unsafe SQL, unknown metric, no template, no provider, ...). ``trace_id``\nreferences the persisted RunTrace of the refusal (AR-20260611).",
         "properties": {
           "code": {
             "title": "Code",
@@ -22,6 +22,17 @@
           "stage": {
             "title": "Stage",
             "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
           }
         },
         "required": [
@@ -311,6 +322,91 @@
         "title": "SearchResultItem",
         "type": "object"
       },
+      "TelemetryItem": {
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "dimension",
+          "name",
+          "value",
+          "unit"
+        ],
+        "title": "TelemetryItem",
+        "type": "object"
+      },
+      "TraceEventItem": {
+        "properties": {
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "payload"
+        ],
+        "title": "TraceEventItem",
+        "type": "object"
+      },
+      "TraceResponse": {
+        "description": "The persisted, queryable trace of one run \u2014 answers AND refusals.",
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TraceEventItem"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "telemetry": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryItem"
+            },
+            "title": "Telemetry",
+            "type": "array"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "status"
+        ],
+        "title": "TraceResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -575,6 +671,61 @@
           }
         },
         "summary": "Post Run"
+      }
+    },
+    "/traces/{trace_id}": {
+      "get": {
+        "operationId": "get_trace_traces__trace_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "title": "Trace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trace"
       }
     }
   }
