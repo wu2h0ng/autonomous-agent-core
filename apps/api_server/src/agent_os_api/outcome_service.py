@@ -98,13 +98,15 @@ def run_service(
     }
 
 
-def trace_service(runtime: Any, *, trace_id: str) -> dict[str, Any] | None:
+def trace_service(trace_store: Any, *, trace_id: str) -> dict[str, Any] | None:
     """Fetch the persisted RunTrace for ``trace_id`` (observability v1, AR-20260611).
 
-    Returns a JSON-able dict, or ``None`` when no run with that trace_id was
-    persisted — the caller decides the transport-level not-found shape.
+    Takes the ``TraceStorePort`` directly (HTTP passes ``runtime.trace_store``;
+    the CLI builds a standalone store) and returns a JSON-able dict, or ``None``
+    when no run with that trace_id was persisted — the caller decides the
+    transport-level not-found shape.
     """
-    run_trace = runtime.trace_store.get(trace_id)
+    run_trace = trace_store.get(trace_id)
     if run_trace is None:
         return None
     return {

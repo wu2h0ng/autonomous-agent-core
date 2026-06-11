@@ -225,6 +225,25 @@ class ContentCommerceRuntimeFactory:
             raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
         return self._retriever
 
+    def build_trace_store(self) -> Any:
+        """A standalone TraceStorePort for audit surfaces (CLI ``trace``).
+
+        ``memory`` returns a fresh per-process store (a separate CLI invocation
+        cannot see a prior process's runs); ``postgres`` returns a SqlTraceStore
+        over the shared engine, so any past run is auditable cross-process.
+        """
+        if self.config.store_backend == STORE_MEMORY:
+            from agent_os_core import InMemoryTraceStore
+
+            return InMemoryTraceStore()
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlTraceStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            return SqlTraceStore(engine)
+        raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+
     def _embedder(self) -> Any:
         from agent_os_core import HashingEmbedder
 

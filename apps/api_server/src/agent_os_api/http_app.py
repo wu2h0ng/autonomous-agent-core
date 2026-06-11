@@ -235,7 +235,7 @@ def create_app(
 
     @app.get("/traces/{trace_id}", response_model=TraceResponse)
     def get_trace(trace_id: str, _: None = Depends(require_api_key)) -> dict[str, Any]:
-        payload = trace_service(app.state.runtime, trace_id=trace_id)
+        payload = trace_service(app.state.runtime.trace_store, trace_id=trace_id)
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No run trace for {trace_id!r}.")
         return payload

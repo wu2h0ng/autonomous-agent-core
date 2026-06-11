@@ -230,6 +230,21 @@ class SqlTraceStoreTest(unittest.TestCase):
         self.assertEqual(store.get("trace-sql").status, "blocked")
 
 
+class CliTraceEntryPointTest(unittest.TestCase):
+    def test_cli_trace_not_found_exits_nonzero_with_error_payload(self) -> None:
+        import io
+        import json
+
+        sys.path.insert(0, str(ROOT / "apps" / "api_server" / "src"))
+        from agent_os_api.cli import run_cli
+
+        out = io.StringIO()
+        rc = run_cli(["trace", "--trace-id", "trace-nope"], stdout=out)
+        self.assertEqual(rc, 1)
+        payload = json.loads(out.getvalue())
+        self.assertIn("error", payload)
+
+
 @unittest.skipUnless(_SQLALCHEMY, "sqlalchemy not installed (install .[postgres])")
 class FactoryTraceStoreWiringTest(unittest.TestCase):
     def test_trace_survives_runtime_restart_on_postgres_backend(self) -> None:
@@ -259,6 +274,10 @@ class FactoryTraceStoreWiringTest(unittest.TestCase):
         stored = runtime2.trace_store.get(trace_id)
         self.assertIsNotNone(stored, "run trace did not survive the restart")
         self.assertEqual(stored.status, "ok")
+
+        # The factory's standalone trace store (CLI audit surface) sees it too.
+        audit_store = ContentCommerceRuntimeFactory(config).build_trace_store()
+        self.assertIsNotNone(audit_store.get(trace_id))
 
 
 if __name__ == "__main__":

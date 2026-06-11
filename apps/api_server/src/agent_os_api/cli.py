@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 from typing import TextIO
 
-from .outcome_service import record_outcome_service, run_service, search_service
+from .outcome_service import (
+    record_outcome_service,
+    run_service,
+    search_service,
+    trace_service,
+)
 from .runtime_factory import (
     EXECUTOR_SQLITE,
     EXECUTOR_STATIC,
@@ -84,6 +89,23 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     search.add_argument("--database-url", default=None)
 
+    trace = subparsers.add_parser(
+        "trace",
+        help=(
+            "Audit a past run (answer OR refusal) by trace id. With --store-backend "
+            "memory (default) traces are per-process; use 'postgres' + --database-url "
+            "to audit the durable run_traces any past process wrote."
+        ),
+    )
+    trace.add_argument("--trace-id", required=True)
+    trace.add_argument("--domain-pack", type=Path, default=Path("domain_packs/content_commerce"))
+    trace.add_argument(
+        "--store-backend",
+        choices=(STORE_MEMORY, STORE_POSTGRES),
+        default=STORE_MEMORY,
+    )
+    trace.add_argument("--database-url", default=None)
+
     return parser
 
 
@@ -121,7 +143,7 @@ def _emit(payload: dict[str, object], stdout: TextIO | None) -> None:
     output.write("\n")
 
 
-SUBCOMMANDS = ("query", "record-outcome", "search")
+SUBCOMMANDS = ("query", "record-outcome", "search", "trace")
 
 
 def _normalize_argv(argv: list[str] | None) -> list[str] | None:
@@ -148,6 +170,21 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
     if args.command is None:
         parser.print_help()
         return 2
+
+    if args.command == "trace":
+        store = ContentCommerceRuntimeFactory(
+            RuntimeFactoryConfig(
+                domain_pack_path=args.domain_pack,
+                store_backend=args.store_backend,
+                database_url=args.database_url,
+            )
+        ).build_trace_store()
+        payload = trace_service(store, trace_id=args.trace_id)
+        if payload is None:
+            _emit({"error": f"No run trace for {args.trace_id!r}."}, stdout)
+            return 1
+        _emit(payload, stdout)
+        return 0
 
     if args.command == "search":
         retriever = ContentCommerceRuntimeFactory(
