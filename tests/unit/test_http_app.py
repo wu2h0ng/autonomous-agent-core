@@ -178,5 +178,46 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 503)
 
 
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class HttpDefaultAppRecallTest(unittest.TestCase):
+    """The DEFAULT app (no injection) must close the knowledge loop (AR-20260611):
+    a run indexes knowledge that the search endpoint and later runs can see."""
+
+    def _default_client(self):
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+
+        return TestClient(create_app(api_key=API_KEY))
+
+    def test_default_app_search_reflects_runtime_writes(self) -> None:
+        client = self._default_client()
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        asset_id = run_resp.json()["knowledge_asset_id"]
+        self.assertIsNotNone(asset_id)
+
+        search_resp = client.get("/knowledge/search", params={"q": "GMV", "k": 10}, headers=headers)
+        self.assertEqual(search_resp.status_code, 200, search_resp.text)
+        hits = [r["asset_id"] for r in search_resp.json()["results"]]
+        self.assertIn(asset_id, hits, "default app search no longer sees runtime writes")
+
+    def test_runs_response_carries_related_knowledge(self) -> None:
+        client = self._default_client()
+        headers = {"X-API-Key": API_KEY}
+
+        first = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["related_knowledge"], [])  # nothing prior
+
+        second = client.post("/runs", json=RUN_BODY, headers=headers)
+        related = second.json()["related_knowledge"]
+        self.assertTrue(related, "second run should recall the first run's knowledge")
+        self.assertIn(first.json()["knowledge_asset_id"], [r["asset_id"] for r in related])
+        self.assertIn("score", related[0])
+
+
 if __name__ == "__main__":
     unittest.main()

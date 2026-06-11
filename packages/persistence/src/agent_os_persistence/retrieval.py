@@ -11,7 +11,6 @@ performance without changing semantics.)
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -23,6 +22,8 @@ from agent_os_core import (
     HybridScorer,
     KnowledgeRetriever,
     KnowledgeStorePort,
+    outcome_to_score,  # noqa: F401 - re-exported for backward compatibility
+    project_asset,
     tokenize_content,
 )
 from sqlalchemy import Connection, Engine, select
@@ -41,32 +42,13 @@ def _write(bind: Engine | Connection) -> Iterator[Connection]:
             yield conn
 
 
-# Projection: derive index columns from an asset. Default parses the metric from the
-# KnowledgeAssetBuilder title convention "[metric] question"; owner/lifecycle come from
-# the asset; outcome comes from the asset's feedback-folded `outcome` field.
+# Projection: derive index columns from an asset. The default delegates to OS Core's
+# shared `project_asset` (metric parsed from the "[metric] question" title convention,
+# content, feedback-folded outcome + score) so the SQL and in-memory indexes stay
+# semantically identical (AR-20260611).
 Projector = Callable[[KnowledgeAsset], dict[str, Any]]
 
-_TITLE_METRIC = re.compile(r"^\[(?P<metric>[^\]]+)\]")
-
-# Maps a feedback outcome to a [0,1] weight used by HybridScorer.outcome_boost.
-# Unknown outcomes are treated as neutral; no outcome yet -> 0 (not adopted).
-_OUTCOME_SCORES = {"adopted": 1.0, "rejected": 0.0}
-
-
-def outcome_to_score(outcome: str | None) -> float:
-    if outcome is None:
-        return 0.0
-    return _OUTCOME_SCORES.get(outcome, 0.5)
-
-
-def default_projector(asset: KnowledgeAsset) -> dict[str, Any]:
-    match = _TITLE_METRIC.match(asset.title)
-    return {
-        "metric_name": match.group("metric") if match else None,
-        "content": asset.title,
-        "outcome": asset.outcome,
-        "outcome_score": outcome_to_score(asset.outcome),
-    }
+default_projector: Projector = project_asset
 
 
 class EmbeddingKnowledgeStore(KnowledgeStorePort):

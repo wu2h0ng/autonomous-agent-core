@@ -11,19 +11,25 @@ structured filters in SQL and may push vector search into pgvector for performan
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, RetrievalResult
 
 from .. import embedding
 from ..embedding import Embedder
+from ..knowledge_memory import KnowledgeStorePort
 
 __all__ = [
     "Candidate",
     "HybridScorer",
+    "IndexingKnowledgeStore",
     "InMemoryKnowledgeRetriever",
     "KnowledgeRetriever",
+    "outcome_to_score",
+    "project_asset",
     "tokenize_content",
 ]
 
@@ -31,6 +37,36 @@ __all__ = [
 def tokenize_content(text: str) -> frozenset[str]:
     """Token set for lexical matching (shared by indexers and retrievers)."""
     return frozenset(embedding.tokenize(text))
+
+
+# --- Shared asset->index projection (one source of truth for ALL backends) ---
+#
+# The KnowledgeAssetBuilder titles assets "[metric] question"; the projection parses
+# the metric back out, uses the title as the searchable content, and folds the
+# feedback-derived outcome into a [0,1] ranking weight. The persistence layer's
+# default_projector delegates here so SQL and in-memory indexing stay semantically
+# identical (AR-20260611).
+
+_TITLE_METRIC = re.compile(r"^\[(?P<metric>[^\]]+)\]")
+
+# Unknown outcomes are neutral; no outcome yet -> 0 (not adopted).
+_OUTCOME_SCORES = {"adopted": 1.0, "rejected": 0.0}
+
+
+def outcome_to_score(outcome: str | None) -> float:
+    if outcome is None:
+        return 0.0
+    return _OUTCOME_SCORES.get(outcome, 0.5)
+
+
+def project_asset(asset: KnowledgeAsset) -> dict[str, Any]:
+    match = _TITLE_METRIC.match(asset.title)
+    return {
+        "metric_name": match.group("metric") if match else None,
+        "content": asset.title,
+        "outcome": asset.outcome,
+        "outcome_score": outcome_to_score(asset.outcome),
+    }
 
 
 @dataclass(frozen=True)
@@ -163,7 +199,18 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
         outcome_score: float = 0.0,
     ) -> None:
         content = text if text is not None else asset.title
-        self._entries = [e for e in self._entries if e.asset.asset_id != asset.asset_id]
+        # One current entry per asset AND per trace: a version bump (new asset id,
+        # same source_trace_id) replaces its predecessor — mirroring the SQL
+        # knowledge_index, which keys on source_trace_id.
+        self._entries = [
+            e
+            for e in self._entries
+            if e.asset.asset_id != asset.asset_id
+            and not (
+                asset.source_trace_id is not None
+                and e.asset.source_trace_id == asset.source_trace_id
+            )
+        ]
         self._seq += 1
         self._entries.append(
             _Entry(
@@ -205,6 +252,52 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
         if query.outcome is not None and entry.outcome != query.outcome:
             return False
         return True
+
+
+class IndexingKnowledgeStore(KnowledgeStorePort):
+    """KnowledgeStorePort decorator that indexes writes into an in-memory retriever.
+
+    The dependency-free counterpart of the persistence layer's EmbeddingKnowledgeStore:
+    register/register_version delegate to the wrapped store, then (re)index the stored
+    asset via the shared projection, so the memory backend's runtime writes are
+    immediately recallable/searchable. Assets without a trace are not retrievable
+    memory and are skipped.
+    """
+
+    def __init__(self, base: KnowledgeStorePort, retriever: InMemoryKnowledgeRetriever) -> None:
+        self._base = base
+        self._retriever = retriever
+
+    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+        stored = self._base.register(asset)
+        self._index(stored)
+        return stored
+
+    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+        stored = self._base.register_version(asset)
+        self._index(stored)
+        return stored
+
+    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
+        return self._base.get_by_trace(trace_id)
+
+    def version_of(self, trace_id: str) -> int:
+        return self._base.version_of(trace_id)
+
+    def all_assets(self) -> tuple[KnowledgeAsset, ...]:
+        return self._base.all_assets()
+
+    def _index(self, asset: KnowledgeAsset) -> None:
+        if asset.source_trace_id is None:
+            return
+        proj = project_asset(asset)
+        self._retriever.index(
+            asset,
+            text=proj["content"],
+            metric_name=proj["metric_name"],
+            outcome=proj["outcome"],
+            outcome_score=proj["outcome_score"],
+        )
 
 
 def _cosine(a: tuple[float, ...], b: tuple[float, ...]) -> float:

@@ -13,6 +13,7 @@ from .architecture import (
     OperationContract,
     OperationTrace,
     ProviderContract,
+    RetrievalResult,
     StateSnapshot,
 )
 from .observability import TelemetryEvent
@@ -165,6 +166,9 @@ class TrustedLoopResult:
     approval_record: Any | None = None
     feedback_event: FeedbackEvent | None = None
     knowledge_asset_candidate: KnowledgeAsset | None = None
+    # Prior organizational knowledge recalled for this question (read-side of the
+    # learning loop, AR-20260611). Advisory context: never alters the data/evidence path.
+    related_knowledge: tuple[RetrievalResult, ...] = field(default_factory=tuple)
 
 
 class BlockCode(StrEnum):

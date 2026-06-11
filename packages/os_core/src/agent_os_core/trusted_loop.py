@@ -9,11 +9,13 @@ from agent_os_contracts import (
     BlockCode,
     BusinessIntent,
     FeedbackEvent,
+    KnowledgeQuery,
     MetricContract,
     OperationState,
     ProviderContract,
     ProviderKind,
     QueryPlan,
+    RetrievalResult,
     SQLTemplate,
     StateSnapshot,
     TelemetryDimension,
@@ -32,6 +34,7 @@ from .evidence_chain import EvidenceChainBuilder
 from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
 from .intent_parser import IntentParser
 from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore, KnowledgeStorePort
+from .knowledge_retrieval import KnowledgeRetriever
 from .operation_state_machine import OperationStateMachine
 from .operation_trace import OperationTraceBuilder
 from .query_runtime import StaticQueryExecutor, TemplateRegistry
@@ -90,6 +93,8 @@ class TrustedLoopRuntime:
         feedback_store: FeedbackStorePort | None = None,
         snapshot_store: SnapshotStore | None = None,
         feedback_knowledge_uow: Any | None = None,
+        knowledge_retriever: KnowledgeRetriever | None = None,
+        recall_k: int = 3,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -145,6 +150,10 @@ class TrustedLoopRuntime:
         # transaction, making record_outcome's two writes atomic. When None,
         # record_outcome uses the runtime's own stores (in-memory needs no txn).
         self.feedback_knowledge_uow = feedback_knowledge_uow
+        # Read-side of the learning loop (AR-20260611): when a retriever is wired,
+        # run() recalls prior knowledge for the resolved metric as advisory context.
+        self.knowledge_retriever = knowledge_retriever
+        self.recall_k = recall_k
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         started_at = perf_counter()
@@ -194,6 +203,33 @@ class TrustedLoopRuntime:
                 "provider_id": provider_contract.provider_id,
             },
         )
+
+        # ====== Knowledge recall (read-side of the learning loop, AR-20260611) ======
+        #
+        # Recall happens BEFORE this run's own candidate is registered (no self-hit)
+        # and is ADVISORY: it adds explainable context to the result and the trace,
+        # never alters the data/evidence path, and a retriever failure must not block
+        # a governed answer — but it must be trace-visible, never silent.
+        related_knowledge: tuple[RetrievalResult, ...] = ()
+        if self.knowledge_retriever is not None:
+            try:
+                related_knowledge = self.knowledge_retriever.search(
+                    KnowledgeQuery(
+                        text=question,
+                        metric_name=metric_contract.metric_name,
+                        k=self.recall_k,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - advisory path, traced below
+                trace.record("knowledge_recall", {"error": str(exc)})
+            else:
+                trace.record(
+                    "knowledge_recall",
+                    {
+                        "asset_ids": [r.asset.asset_id for r in related_knowledge],
+                        "scores": [r.score for r in related_knowledge],
+                    },
+                )
 
         # Select the SQL template that computes THIS metric (not a fixed template),
         # so the EvidenceChain reproduces the requested metric. Unsupported metrics
@@ -483,6 +519,7 @@ class TrustedLoopRuntime:
             action_result=action_result,
             approval_record=approval_record,
             knowledge_asset_candidate=knowledge_candidate,
+            related_knowledge=related_knowledge,
         )
 
     def evaluate(self, question: str, parameters: dict[str, object]) -> TrustedLoopOutcome:

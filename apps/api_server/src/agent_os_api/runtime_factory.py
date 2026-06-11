@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -52,12 +54,54 @@ class RuntimeFactoryConfig:
     # changing it requires regenerating that migration.
     embedding_dimensions: int = 64
 
+    # 12-factor environment wiring (AR-20260611). Same DSN convention as Alembic's env.py.
+    ENV_DOMAIN_PACK = "AGENT_OS_DOMAIN_PACK"
+    ENV_EXECUTOR = "AGENT_OS_EXECUTOR"
+    ENV_STORE_BACKEND = "AGENT_OS_STORE_BACKEND"
+    ENV_DATABASE_URL = "AGENT_OS_DATABASE_URL"
+
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> RuntimeFactoryConfig:
+        """Build the config from environment variables (defaults preserve current behavior).
+
+        Misconfiguration fails loudly here, at startup, not at first request:
+        an unknown executor/backend or ``postgres`` without a DSN raises ValueError.
+        """
+        data: Mapping[str, str] = os.environ if env is None else env
+        executor = data.get(cls.ENV_EXECUTOR, EXECUTOR_STATIC)
+        if executor not in (EXECUTOR_STATIC, EXECUTOR_SQLITE):
+            raise ValueError(
+                f"{cls.ENV_EXECUTOR}={executor!r} is not one of "
+                f"{EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}."
+            )
+        backend = data.get(cls.ENV_STORE_BACKEND, STORE_MEMORY)
+        if backend not in (STORE_MEMORY, STORE_POSTGRES):
+            raise ValueError(
+                f"{cls.ENV_STORE_BACKEND}={backend!r} is not one of "
+                f"{STORE_MEMORY!r}, {STORE_POSTGRES!r}."
+            )
+        database_url = data.get(cls.ENV_DATABASE_URL) or None
+        if backend == STORE_POSTGRES and not database_url:
+            raise ValueError(
+                f"{cls.ENV_STORE_BACKEND}={STORE_POSTGRES!r} requires {cls.ENV_DATABASE_URL}."
+            )
+        return cls(
+            domain_pack_path=Path(data.get(cls.ENV_DOMAIN_PACK, "domain_packs/content_commerce")),
+            executor=executor,
+            store_backend=backend,
+            database_url=database_url,
+        )
+
 
 class ContentCommerceRuntimeFactory:
     """Builds a runnable Trusted Loop from content commerce domain-pack contracts."""
 
     def __init__(self, config: RuntimeFactoryConfig) -> None:
         self.config = config
+        # ONE retriever (and one engine) per factory: the runtime's recall and the
+        # search surfaces must observe the same knowledge state (AR-20260611).
+        self._retriever: Any = None
+        self._engine: Any = None
 
     def build(self) -> TrustedLoopRuntime:
         metrics = self._load_metrics()
@@ -88,6 +132,9 @@ class ContentCommerceRuntimeFactory:
             snapshot_store=snapshot_store,
             approval_runtime=approval_runtime,
             feedback_knowledge_uow=uow,
+            # Read-side of the learning loop: the runtime recalls prior knowledge
+            # through the SAME retriever the search surfaces use.
+            knowledge_retriever=self.build_knowledge_retriever(),
         )
 
     def _build_stores(self) -> tuple[Any, Any, Any, Any, Any]:
@@ -102,7 +149,15 @@ class ContentCommerceRuntimeFactory:
         """
         backend = self.config.store_backend
         if backend == STORE_MEMORY:
-            return None, None, None, None, None
+            from agent_os_core import IndexingKnowledgeStore, KnowledgeStore
+
+            # Wrap the in-memory store so runtime writes index into the shared
+            # retriever — otherwise the memory backend's search/recall would run
+            # against a permanently-empty fresh index (AR-20260611).
+            knowledge_store = IndexingKnowledgeStore(
+                KnowledgeStore(), self.build_knowledge_retriever()
+            )
+            return knowledge_store, None, None, None, None
         if backend == STORE_POSTGRES:
             from agent_os_persistence import (
                 EmbeddingKnowledgeStore,
@@ -143,23 +198,28 @@ class ContentCommerceRuntimeFactory:
         )
 
     def build_knowledge_retriever(self) -> Any:
-        """Build a KnowledgeRetriever for the configured backend.
+        """The factory's ONE KnowledgeRetriever for the configured backend (cached).
 
-        Separate from ``build()`` (the runtime doesn't own a retriever). ``memory``
-        returns an in-memory retriever; ``postgres`` returns a SqlKnowledgeRetriever
-        over the same engine, both using a HashingEmbedder of matching dimensions.
+        The same instance serves the runtime's recall (build()) and the search
+        surfaces (CLI/HTTP), so they observe the same knowledge state: ``memory``
+        shares the in-memory index the IndexingKnowledgeStore writes to; ``postgres``
+        shares state through the database (same engine).
         """
+        if self._retriever is not None:
+            return self._retriever
         from agent_os_core import HybridScorer, InMemoryKnowledgeRetriever
 
         if self.config.store_backend == STORE_MEMORY:
-            return InMemoryKnowledgeRetriever(self._embedder())
-        if self.config.store_backend == STORE_POSTGRES:
+            self._retriever = InMemoryKnowledgeRetriever(self._embedder())
+        elif self.config.store_backend == STORE_POSTGRES:
             from agent_os_persistence import SqlKnowledgeRetriever, create_all
 
             engine = self._resolve_engine()
             create_all(engine)
-            return SqlKnowledgeRetriever(engine, HybridScorer(self._embedder()))
-        raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+            self._retriever = SqlKnowledgeRetriever(engine, HybridScorer(self._embedder()))
+        else:
+            raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+        return self._retriever
 
     def _embedder(self) -> Any:
         from agent_os_core import HashingEmbedder
@@ -167,6 +227,9 @@ class ContentCommerceRuntimeFactory:
         return HashingEmbedder(dimensions=self.config.embedding_dimensions)
 
     def _resolve_engine(self) -> Any:
+        """ONE engine per factory: build() and the retriever share the connection pool."""
+        if self._engine is not None:
+            return self._engine
         engine = self.config.store_engine
         if engine is None:
             if not self.config.database_url:
@@ -176,6 +239,7 @@ class ContentCommerceRuntimeFactory:
             from sqlalchemy import create_engine
 
             engine = create_engine(self.config.database_url)
+        self._engine = engine
         return engine
 
     def _build_query_executor(

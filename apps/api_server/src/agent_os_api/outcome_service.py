@@ -87,6 +87,12 @@ def run_service(
         "trace_steps": [event.step for event in result.trace_events],
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
         "knowledge_version": runtime.knowledge_store.version_of(trace_id),
+        # Read-side of the learning loop (AR-20260611): prior knowledge recalled
+        # for this question, surfaced as advisory, explainable context.
+        "related_knowledge": [
+            {"asset_id": r.asset.asset_id, "title": r.asset.title, "score": r.score}
+            for r in result.related_knowledge
+        ],
     }
 
 

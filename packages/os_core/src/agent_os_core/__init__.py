@@ -13,8 +13,11 @@ from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporte
 from .knowledge_retrieval import (
     Candidate,
     HybridScorer,
+    IndexingKnowledgeStore,
     InMemoryKnowledgeRetriever,
     KnowledgeRetriever,
+    outcome_to_score,
+    project_asset,
     tokenize_content,
 )
 from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
@@ -46,6 +49,7 @@ __all__ = [
     "FeedbackStore",
     "FeedbackStorePort",
     "HashingEmbedder",
+    "IndexingKnowledgeStore",
     "InMemoryApprovalStore",
     "InMemoryKnowledgeRetriever",
     "InMemorySnapshotStore",
@@ -58,6 +62,8 @@ __all__ = [
     "ModelProviderAdapter",
     "OperationStateMachine",
     "OperationTraceBuilder",
+    "outcome_to_score",
+    "project_asset",
     "ProviderRegistry",
     "SQLiteQueryExecutor",
     "SemanticRegistry",

@@ -150,6 +150,30 @@
         "title": "OutcomeResponse",
         "type": "object"
       },
+      "RelatedKnowledgeItem": {
+        "description": "Prior organizational knowledge recalled for this run (AR-20260611).",
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "score"
+        ],
+        "title": "RelatedKnowledgeItem",
+        "type": "object"
+      },
       "RunRequest": {
         "properties": {
           "parameters": {
@@ -208,6 +232,13 @@
               }
             ],
             "title": "Provider Id"
+          },
+          "related_knowledge": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedKnowledgeItem"
+            },
+            "title": "Related Knowledge",
+            "type": "array"
           },
           "row_count": {
             "title": "Row Count",

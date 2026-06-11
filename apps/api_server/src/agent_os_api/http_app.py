@@ -17,7 +17,6 @@ silently allowing access; a wrong/missing key returns 401.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -35,6 +34,14 @@ class RunRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class RelatedKnowledgeItem(BaseModel):
+    """Prior organizational knowledge recalled for this run (AR-20260611)."""
+
+    asset_id: str
+    title: str
+    score: float
+
+
 class RunResponse(BaseModel):
     trace_id: str
     intent: str
@@ -45,6 +52,7 @@ class RunResponse(BaseModel):
     trace_steps: list[str] = Field(default_factory=list)
     knowledge_asset_id: str | None = None
     knowledge_version: int
+    related_knowledge: list[RelatedKnowledgeItem] = Field(default_factory=list)
 
 
 class OutcomeRequest(BaseModel):
@@ -92,9 +100,10 @@ class BlockedResponse(BaseModel):
 
 
 def _build_default_factory() -> ContentCommerceRuntimeFactory:
-    return ContentCommerceRuntimeFactory(
-        RuntimeFactoryConfig(domain_pack_path=Path("domain_packs/content_commerce"))
-    )
+    # 12-factor: the deployed surface selects real backends via environment variables
+    # (AGENT_OS_EXECUTOR / AGENT_OS_STORE_BACKEND / AGENT_OS_DATABASE_URL /
+    # AGENT_OS_DOMAIN_PACK); defaults preserve the in-memory demo behavior.
+    return ContentCommerceRuntimeFactory(RuntimeFactoryConfig.from_env())
 
 
 def create_app(
