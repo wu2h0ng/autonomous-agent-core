@@ -74,6 +74,23 @@ class SearchResponse(BaseModel):
     results: list[SearchResultItem] = Field(default_factory=list)
 
 
+class BlockDetail(BaseModel):
+    """The unified business-block contract (AR-20260606-unified-block-outcome).
+
+    Returned as the 422 ``detail`` when the Trusted Loop refuses to answer
+    (unsafe SQL, unknown metric, no template, no provider, ...).
+    """
+
+    code: str
+    message: str
+    stage: str
+    details: list[str] = Field(default_factory=list)
+
+
+class BlockedResponse(BaseModel):
+    detail: BlockDetail
+
+
 def _build_default_factory() -> ContentCommerceRuntimeFactory:
     return ContentCommerceRuntimeFactory(
         RuntimeFactoryConfig(domain_pack_path=Path("domain_packs/content_commerce"))
@@ -125,7 +142,19 @@ def create_app(
         if x_api_key != app.state.api_key:
             raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
-    @app.post("/runs", response_model=RunResponse)
+    @app.post(
+        "/runs",
+        response_model=RunResponse,
+        responses={
+            422: {
+                "model": BlockedResponse,
+                "description": (
+                    "Expected business block (unified block contract): the request was "
+                    "understood but the Trusted Loop refused to answer."
+                ),
+            }
+        },
+    )
     def post_run(body: RunRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
         result = run_service(
             app.state.runtime,

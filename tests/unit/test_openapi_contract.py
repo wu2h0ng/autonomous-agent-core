@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+for _p in (
+    ROOT / "packages" / "contracts" / "src",
+    ROOT / "packages" / "os_core" / "src",
+    ROOT / "packages" / "persistence" / "src",
+    ROOT / "action_connectors",
+    ROOT / "apps" / "api_server" / "src",
+):
+    sys.path.insert(0, str(_p))
+
+_FASTAPI = importlib.util.find_spec("fastapi") is not None
+
+SNAPSHOT = ROOT / "apps" / "api_server" / "openapi.json"
+
+
+@unittest.skipUnless(_FASTAPI, "fastapi not installed (install .[http])")
+class OpenApiContractTest(unittest.TestCase):
+    """The committed OpenAPI snapshot is the API contract (AR-20260611).
+
+    Any route/model/parameter/status-code change must regenerate the snapshot
+    (`python -m agent_os_api.openapi_contract`), turning API changes into
+    reviewable contract diffs. This test is the drift gate.
+    """
+
+    def test_snapshot_matches_live_schema(self) -> None:
+        from agent_os_api.openapi_contract import generate_openapi_spec, render
+
+        self.assertTrue(SNAPSHOT.exists(), f"missing API contract snapshot: {SNAPSHOT}")
+        self.assertEqual(
+            SNAPSHOT.read_text(encoding="utf-8"),
+            render(generate_openapi_spec()),
+            "OpenAPI contract drift: run `python -m agent_os_api.openapi_contract` "
+            "and commit the regenerated apps/api_server/openapi.json",
+        )
+
+    def test_contract_covers_all_trigger_surfaces(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(spec["paths"]), ["/knowledge/search", "/outcomes", "/runs"])
+
+    def test_unified_block_contract_is_declared_on_runs(self) -> None:
+        # AR-20260606-unified-block-outcome: the 422 business-block shape must be
+        # part of the published schema, not folklore.
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        responses = spec["paths"]["/runs"]["post"]["responses"]
+        self.assertIn("422", responses)
+        block = spec["components"]["schemas"]["BlockDetail"]
+        self.assertEqual(
+            set(block["required"]) | set(block["properties"]),
+            {"code", "message", "stage", "details"},
+        )
+
+    def test_check_mode_detects_drift(self) -> None:
+        # Negative path: --check must exit 1 when the snapshot disagrees.
+        import io
+        from unittest import mock
+
+        from agent_os_api import openapi_contract
+
+        out = io.StringIO()
+        self.assertEqual(openapi_contract.main(["--check"], stdout=out), 0)
+        with mock.patch.object(
+            openapi_contract, "generate_openapi_spec", return_value={"drifted": True}
+        ):
+            self.assertEqual(openapi_contract.main(["--check"], stdout=out), 1)
+        self.assertIn("drift", out.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
