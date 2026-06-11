@@ -20,10 +20,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .outcome_service import record_outcome_service, run_service
+from .outcome_service import record_outcome_service, run_service, search_service
 from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
@@ -63,28 +63,54 @@ class OutcomeResponse(BaseModel):
     knowledge_version: int
 
 
-def _build_default_runtime() -> Any:
+class SearchResultItem(BaseModel):
+    asset_id: str
+    title: str
+    score: float
+    score_breakdown: dict[str, float]
+
+
+class SearchResponse(BaseModel):
+    results: list[SearchResultItem] = Field(default_factory=list)
+
+
+def _build_default_factory() -> ContentCommerceRuntimeFactory:
     return ContentCommerceRuntimeFactory(
         RuntimeFactoryConfig(domain_pack_path=Path("domain_packs/content_commerce"))
-    ).build()
+    )
 
 
-def create_app(runtime: Any | None = None, *, api_key: str | None = None) -> FastAPI:
+def create_app(
+    runtime: Any | None = None, *, retriever: Any | None = None, api_key: str | None = None
+) -> FastAPI:
     """Build a FastAPI app bound to a single shared runtime.
 
     Args:
         runtime: A pre-built ``TrustedLoopRuntime``. If ``None``, one is built
             via :class:`ContentCommerceRuntimeFactory` so server state persists
             for the app's lifetime.
+        retriever: A pre-built ``KnowledgeRetriever`` for ``/knowledge/search``.
+            Defaults to the factory-built retriever when ``runtime`` is also
+            defaulted; if a runtime is injected WITHOUT a retriever, the search
+            route rejects with 503 (the app cannot know the runtime's backend).
         api_key: The required ``X-API-Key`` value. Falls back to the
             ``AGENT_OS_API_KEY`` environment variable. If neither is set, the
             protected routes reject with 503.
     """
-    shared_runtime = runtime if runtime is not None else _build_default_runtime()
+    if runtime is None:
+        factory = _build_default_factory()
+        shared_runtime = factory.build()
+        shared_retriever = (
+            retriever if retriever is not None else factory.build_knowledge_retriever()
+        )
+    else:
+        shared_runtime = runtime
+        shared_retriever = retriever
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
 
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
+    app.state.retriever = shared_retriever
     app.state.api_key = configured_key
 
     def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
@@ -121,5 +147,23 @@ def create_app(runtime: Any | None = None, *, api_key: str | None = None) -> Fas
             reviewer=body.reviewer,
             metric_deltas=body.metric_deltas,
         )
+
+    @app.get("/knowledge/search", response_model=SearchResponse)
+    def get_knowledge_search(
+        q: str = Query(..., min_length=1, description="free-text question"),
+        metric: str | None = Query(default=None, description="filter: exact metric name"),
+        owner: str | None = Query(default=None, description="filter: exact owner"),
+        k: int = Query(default=5, ge=1, le=50),
+        _: None = Depends(require_api_key),
+    ) -> dict[str, Any]:
+        if app.state.retriever is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Knowledge retriever is not configured. Pass retriever= to create_app "
+                    "(e.g. factory.build_knowledge_retriever()) to enable this endpoint."
+                ),
+            )
+        return search_service(app.state.retriever, text=q, metric_name=metric, owner=owner, k=k)
 
     return app

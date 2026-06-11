@@ -103,5 +103,80 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 401)
 
 
+_SQLALCHEMY = importlib.util.find_spec("sqlalchemy") is not None
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class HttpKnowledgeSearchTest(unittest.TestCase):
+    def _make_pg_backed_client(self):
+        """App over the postgres store backend (SQLite engine stand-in), so runtime
+        writes land in knowledge_index and the retriever reads them back over HTTP."""
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import (
+            STORE_POSTGRES,
+            ContentCommerceRuntimeFactory,
+            RuntimeFactoryConfig,
+        )
+
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        factory = ContentCommerceRuntimeFactory(
+            RuntimeFactoryConfig(
+                domain_pack_path=DOMAIN_PACK,
+                store_backend=STORE_POSTGRES,
+                store_engine=engine,
+            )
+        )
+        app = create_app(
+            factory.build(), retriever=factory.build_knowledge_retriever(), api_key=API_KEY
+        )
+        return TestClient(app)
+
+    @unittest.skipUnless(_SQLALCHEMY, "sqlalchemy not installed (install .[postgres])")
+    def test_run_outcome_search_end_to_end_over_http(self) -> None:
+        client = self._make_pg_backed_client()
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        outcome_resp = client.post(
+            "/outcomes", json={"trace_id": trace_id, "outcome": "adopted"}, headers=headers
+        )
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+
+        search_resp = client.get("/knowledge/search", params={"q": "GMV", "k": 10}, headers=headers)
+        self.assertEqual(search_resp.status_code, 200, search_resp.text)
+        results = search_resp.json()["results"]
+        self.assertTrue(results, "run+outcome produced no retrievable knowledge")
+        top = results[0]
+        self.assertIn("score_breakdown", top)
+        # The adopted outcome recorded over HTTP is reflected in the ranking signal.
+        self.assertGreater(top["score_breakdown"]["outcome_boost"], 0.0)
+
+    def test_search_requires_api_key(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.get("/knowledge/search", params={"q": "GMV"})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_search_missing_query_is_422(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.get("/knowledge/search", headers={"X-API-Key": API_KEY})
+        self.assertEqual(resp.status_code, 422)
+
+    def test_injected_runtime_without_retriever_returns_503(self) -> None:
+        # _make_client injects a runtime but no retriever -> search must refuse
+        # loudly, not pretend an empty index.
+        client = _make_client(API_KEY)
+        resp = client.get("/knowledge/search", params={"q": "GMV"}, headers={"X-API-Key": API_KEY})
+        self.assertEqual(resp.status_code, 503)
+
+
 if __name__ == "__main__":
     unittest.main()

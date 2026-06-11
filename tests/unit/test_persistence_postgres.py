@@ -84,6 +84,65 @@ class PostgresIntegrationTest(unittest.TestCase):
                 raise RuntimeError("boom")
         self.assertEqual(SqlFeedbackStore(self.engine).get_by_trace("t-rb"), ())
 
+    def test_hybrid_retrieval_round_trip_on_postgres(self) -> None:
+        # The full retrieval write path + hybrid search on the production dialect:
+        # register indexes (JSONB payload + JSON embedding), the uow re-embed folds the
+        # outcome in, and the retriever surfaces it with an explainable outcome_boost.
+        from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, LifecycleState
+        from agent_os_core import HashingEmbedder, HybridScorer
+        from agent_os_persistence import (
+            EmbeddingKnowledgeStore,
+            SqlKnowledgeRetriever,
+            SqlKnowledgeStore,
+            SqlUnitOfWork,
+        )
+
+        embedder = HashingEmbedder(64)
+        store = EmbeddingKnowledgeStore(SqlKnowledgeStore(self.engine), embedder, self.engine)
+
+        def _asset(
+            aid: str, title: str, *, trace: str | None = None, outcome: str | None = None
+        ) -> KnowledgeAsset:
+            return KnowledgeAsset(
+                asset_id=aid,
+                title=title,
+                asset_type="decision_loop",
+                source_trace_id=trace or f"trace-{aid}",
+                owner="revenue_ops",
+                state=LifecycleState.DRAFT,
+                outcome=outcome,
+            )
+
+        store.register(_asset("gmv", "[gmv] gross merchandise value daily"))
+        store.register(_asset("spend", "[spend] ad spend marketing budget"))
+
+        # Outcome folds in through the transactional uow re-embed path (the same
+        # version-bump-on-the-same-trace shape record_outcome produces).
+        uow = SqlUnitOfWork(
+            self.engine,
+            knowledge_store_factory=lambda conn: EmbeddingKnowledgeStore(
+                SqlKnowledgeStore(conn), embedder, conn
+            ),
+        )
+        with uow() as (_fb, kn):
+            kn.register_version(
+                _asset(
+                    "spend2",
+                    "[spend] ad spend marketing budget",
+                    trace="trace-spend",
+                    outcome="adopted",
+                )
+            )
+
+        retriever = SqlKnowledgeRetriever(self.engine, HybridScorer(HashingEmbedder(64)))
+        res = retriever.search(KnowledgeQuery(text="ad spend marketing budget", k=5))
+        self.assertEqual(res[0].asset.asset_id, "spend2")
+        self.assertEqual(res[0].asset.outcome, "adopted")
+        self.assertGreater(res[0].score_breakdown["outcome_boost"], 0.0)
+
+        by_metric = retriever.search(KnowledgeQuery(text="anything", metric_name="gmv"))
+        self.assertEqual({r.asset.asset_id for r in by_metric}, {"gmv"})
+
 
 if __name__ == "__main__":
     unittest.main()
