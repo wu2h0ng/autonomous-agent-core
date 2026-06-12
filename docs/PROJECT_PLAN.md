@@ -81,8 +81,74 @@
 | 2026-06-12 | founder 拍板 | LangChain/LLM/guardrail **只入 workflow**(data-os 亦不碰);主张2 新环境+罩硬化并行(P1.5 轨A/轨C);批准 ContextualActionModel 例外 | ADR-0007 Disposition / ADR-0010 |
 | 2026-06-12 | 轨A ISO-1+ISO-2 落地 | 罩硬度二维化;Agent 持 ShellView 非 shell;ISO-2 跨进程参考;106 测试绿(原38罩测试零改动) | ADR-0009 |
 | 2026-06-12 | 轨C G1' 跑完 | **NOT MET**(主张2 第4次未达标)。B0 干净赢 B3(8/10)/B2(10/10),输 vs B1 固定(5/10)+ recovery(3/10,度量过稀疏)。器官有效、追踪S确认。**D5 触发→升级 founder 定主张2 最终状态**。118 测试绿 | ADR-0010 §G1'结果 |
+| 2026-06-12 | G2 因果相关性(最后一次重设计) | **NOT MET**(第5次)。主张2 最终:"部分支持、本原型线未实验确立";**硬停生效** | ADR-0011 / RR-0003 尾节 |
+| 2026-06-12 | **founder 决策 A** | 接受现状往前走:不开 research reset,据主张1 推进 P2;外部文献报告独立趋同佐证合流顺序 | ADR-0012 Context |
+| 2026-06-12 | 完成门债清零 | ViabilityReflex 补 13 测试 + ADR-0008(追认);docstring 错引修正;**144 测试绿** | ADR-0008 |
 
 ## 6. 交接纪律
 
 每个工作会话结束前:全量测试绿;codebase_index 与本文件 §5 更新;机制/路线变更有 ADR;
 若使用 Claude 记忆,镜像关键决策,但**仓库文档是唯一权威源**(记忆只是缓存)。
+---
+
+## 7. Closed Route: Claim 2 Redesign G2(已收束,硬停生效)
+
+Founder decision: redesign once more after ADR-0010 D5.
+
+Authoritative design ADR: `docs/adr/ADR-0011-causal-relevance-redesign.md`.
+
+Current status: **Implemented; G2 NOT MET (2026-06-12)**.
+
+Intent:
+
+- Do not retune ADR-0010.
+- Do not make the task easier.
+- Remove fixed-attention lottery through a balanced regime schedule.
+- Replace marginal cue IP with causal relevance search over candidate relevant sets.
+- Replace sparse recovery with post-shift optimal-action area.
+
+Task cards:
+
+| Task | Scope | Gate |
+|---|---|---|
+| G2-T1 | Balanced regime schedule helper | No fixed m-subset covers more than 25% of regimes |
+| G2-T2 | `CausalRelevanceField` | Posterior entropy drops on informative evidence; surprise resets reframing |
+| G2-T3 | `FactorizedContextualActionModel` | Equivalent attention supersets share learning for the same hypothesized S |
+| G2-T4 | `experiments/causal_relevance_g2.py` | Run B0-B5, seeds 0-9, record MET/NOT MET honestly |
+
+Hard stop:
+
+If G2 is NOT MET, claim 2 becomes "partially supported but not experimentally established in this prototype line"; no further claim-2 redesign without a new founder-level research reset ADR.
+
+G2 result:
+
+- Command: `PYTHONPATH=src python experiments/causal_relevance_g2.py`
+- Unit tests: 131 passing.
+- Verdict: **NOT MET**.
+- Key gate counts: steps vs B1/B3/B4 = 0/10, 2/10, 0/10; adaptation vs B1/B3/B4 = 0/10, 5/10, 1/10; steps vs B2 = 4/10; adaptation vs B5 = 2/10.
+- Final claim-2 status for this prototype line: **partially supported but not experimentally established**.
+- Next route: do not redesign claim 2 again without a new founder-level research reset ADR. Continue by choosing a non-claim-2 roadmap item, such as P2 metabolism/endogenous drive, or a documentation/positioning pass that preserves the negative result.
+- **Resolution (2026-06-12): founder chose option A — proceed on claim 1. P2 is now current; see §8.**
+
+## 8. 任务卡(P2,当前)— 规格全文见 ADR-0012
+
+### T-P2.1 — ValueChannel(外部价值通道 v0)
+
+- **目标**:`src/aac/value_channel.py`,operator 独占 `op_credit`,agent 只读视图(镜像 ShellView 纪律)。
+- **约束**:ρ 为人定常数(默认 1.0,自调禁止);每笔到账/兑换入审计;纯标准库。
+- **边界**:不动已冻结的主张2 机制;不碰 shell 的现有 op_* 面(可并列,不可混入)。
+- **验收**:守卫测试证 agent 代码路径不可达 credit 面(MRO + 记录式探针);全量绿。
+
+### T-P2.2 — IdleDrives(内生驱力 v1)
+
+- **目标**:idle 窗口内由认识探针(最高不确定度采样)+ 自校准(最陈旧估计重访)驱动行动。
+- **约束**:idle 行动付代谢成本;每步带 idle 标记入审计(无暗活动);stake-first 推导链写入代码注释。
+- **边界**:环境用包装器加 idle 窗口,不改现有 env 语义。
+- **验收**:确定性机制测试(探针选择、陈旧度追踪、审计标记);全量绿。
+
+### T-P2.3 — G3 消融套件 + 门
+
+- **目标**:`experiments/metabolic_g3.py`,C0/C1/C2/C3 消融,种子 0–9,输出逐种子表 + `G3: MET / NOT MET`。
+- **约束**:判据照 ADR-0012 原文(主张1消融/闲时增益/审计完整/断供必死);环境有效性修正允许,同轮不动机制。
+- **边界**:**判据 1 失败 = 重大事件直接升级 founder**(动摇地基);其余未达走 ADR-0003。
+- **验收**:可复现;结果如实写回本文件 §5 + RR-0003。

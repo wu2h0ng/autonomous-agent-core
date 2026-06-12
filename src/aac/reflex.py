@@ -12,7 +12,7 @@ starving. If G1-r passes without Layer 0, the reflex remains as a
 safety enhancement. If G1-r fails, Layer 0 provides a measurable
 survival benefit that independently supports stake-first (Claim 1).
 
-ADR-0005: viability-reflex-layer
+ADR-0008: viability-reflex-layer
 """
 from __future__ import annotations
 

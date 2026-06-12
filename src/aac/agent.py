@@ -22,7 +22,7 @@ class Agent:
     Layer 0 (ViabilityReflex) is an optional hardcoded survival reflex: when
     budget pressure is extreme and the model is confident, it overrides the
     policy to force exploitation. It is unfalsifiable by design — a safety
-    net, not a competing mechanism. See ADR-0005.
+    net, not a competing mechanism. See ADR-0008.
     """
 
     def __init__(
