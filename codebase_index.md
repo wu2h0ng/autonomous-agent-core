@@ -26,6 +26,9 @@
 | `src/aac/policy.py` | EFE 味策略:pragmatic+epistemic,受场调制,禁令权重 0 | `PolicySelector(.select)` |
 | `src/aac/shell.py` | 可纠正罩 + **ISO-1 能力视图**:`op_*`=operator 主权面;`CorrigibilityShell.view()` 返回 `ShellView`(只读 paused/forbidden + observe,`__slots__`,无 op_*),agent 只拿 view | `CorrigibilityShell(.op_*/.view)` `ShellView(.paused/.forbidden/.observe)` |
 | `src/aac/shell_ipc.py` | **ISO-2 跨进程参考**(ADR-0009):shell 独立进程,worker 仅持 pipe;硬隔离守卫 | `run_isolated_demo()` `_agent_worker()` |
+| `src/aac/contextual.py` | **上下文动作器官**(ADR-0010):注意线索模式→动作值,EMA 再框定;G1' 证实在用(45%自信) | `ContextualActionModel(.best_action/.confident/.update)` |
+| `src/envs/lethal_cue_foraging.py` | **G1' 致命再框定环境**:漏判致命+预算紧,再框定决定生存;随机重映射(非对抗,避免 rigging) | `LethalCueForaging(.act/.observe/.best_action_for/.force_regime_change)` |
+| `experiments/cue_shift_g1prime.py` | G1' 消融(B0-B4 共享上下文骨架);**NOT MET,D5 触发** | `_run()/main()` |
 | `src/aac/audit.py` | 只增+哈希链审计(罩-观测支柱) | `AuditLog(.append/.verify)` |
 | `src/aac/agent.py` | 主体:缝合回路;每步过罩;**ISO-1:持 `ShellView` 非 shell**(收 raw shell 时构造期即降为 view);`modulate_relevance=False`=消融体 | `Agent(.step/.state/.restore)` |
 | `src/envs/survival.py` | P0 沙盒:行动均值漂移 | `GridlessSurvival(.act/.best_action/.force_regime_change)` |

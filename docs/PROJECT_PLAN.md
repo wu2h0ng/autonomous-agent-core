@@ -80,6 +80,7 @@
 | 2026-06-12 | 路线:苦涩教训/LangChain | 不开并行线→降为对抗基线;真风险=主张2环境缺区分力+罩仅Level1;3项升级 founder | ADR-0007 |
 | 2026-06-12 | founder 拍板 | LangChain/LLM/guardrail **只入 workflow**(data-os 亦不碰);主张2 新环境+罩硬化并行(P1.5 轨A/轨C);批准 ContextualActionModel 例外 | ADR-0007 Disposition / ADR-0010 |
 | 2026-06-12 | 轨A ISO-1+ISO-2 落地 | 罩硬度二维化;Agent 持 ShellView 非 shell;ISO-2 跨进程参考;106 测试绿(原38罩测试零改动) | ADR-0009 |
+| 2026-06-12 | 轨C G1' 跑完 | **NOT MET**(主张2 第4次未达标)。B0 干净赢 B3(8/10)/B2(10/10),输 vs B1 固定(5/10)+ recovery(3/10,度量过稀疏)。器官有效、追踪S确认。**D5 触发→升级 founder 定主张2 最终状态**。118 测试绿 | ADR-0010 §G1'结果 |
 
 ## 6. 交接纪律
 
