@@ -9,12 +9,27 @@
 - 主张 3(可纠正不抵抗)已演示;主张 4(器官非主体)结构成立。
 - **主张 2(相关性实现)v0 被证伪**(0/10,诊断:利用错绑饥饿)。诚实负结果,未调机制。
 
-## P1 硬相关性问题 + 注意力机制 v1 — ◀ 当前(founder 已批准选项 2)
+## P1 硬相关性问题 + 注意力机制 v1.1 — ◀ 当前(founder 已批准选项 2 + ADR-0004 再诊断 + ADR-0005 选项 C)
 
 - T1 `LatentCueForaging` 环境:相关线索集合 S 本身随 regime 漂移;注意力有限且计价。
-- T2 `AttentionField` 机制:相关性 = 注意力分配;利用由模型自信门控(修 v0 结构缺陷),饥饿只影响注意力预算。
+- T2 `AttentionField` v1.1:相关性 = 注意力分配;利用由模型自信门控;surprise-triggered IP reset 打破粘性陷阱。
 - T3 消融套件 + 预注册门 **G1**(ADR-0002):调制体在遗憾与突变后恢复上胜过固定注意力与均匀探索消融 ≥7/10 种子,且在注意力计价下生存力优于全注意力体。
-- G1 不过 → 走 ADR-0003 协议决定:再诊断 / 降级主张 2 / 升级问题难度。
+- **结果**:G1 NOT MET×3(v1 regime=60, v1.1 regime=60, v1.1 regime=120)。
+  regime=120 下 4/5 判据通过(recovery vs A3 5/10 未达)。
+  主张 2 降级为“部分验证”:代谢必要性+生存力+regret+recovery vs A1 被确认。
+  详见 ADR-0005。
+
+## P1.5 双轨并行(ADR-0007 founder 拍板)— ◀ 当前
+
+LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层主张证伪仅靠内部确定性消融。
+
+- **轨 A — 可纠正性硬化(护城河,不可滑落)= ADR-0009**:罩硬度二维化(逻辑轴 L × 隔离轴 ISO);
+  现状 (L1, ISO-0) → 目标 (L1, ISO-1) 默认 + (L1, ISO-2 跨进程) 参考。`Agent` 改持 `ShellView` 而非 shell,
+  消除 `self.shell._paused=False` 一行破洞。模块:`shell.py`/`audit.py` + multiprocessing 参考。**无保留事项,待 founder 点头即开工。**
+- **轨 C — 主张2 区分力环境 G1' = ADR-0010**:事后剖检发现真因=agent 无"注意线索→据此选动作"通路;
+  故 G1' = 新增 `ContextualActionModel`(**触碰机制冻结,需 founder 明确点头**)+ 致命再框定环境 + 修正 recovery 度量 +
+  消融共享上下文骨架(只隔离"相关性")。冻结 AttentionField 仍打不平朴素基线=更深证伪→升级 founder。禁止救援式调参。
+- 接缝纪律:`agent.py`(构造签名 + 选动作路径)为共享接缝,**轨A ISO-1 先落,轨C 在其上加上下文通路**,串行。
 
 ## P2 代谢通道 + 内生驱力
 

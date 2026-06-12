@@ -6,7 +6,7 @@ from typing import Any
 from .policy import PolicySelector
 from .reflex import ViabilityReflex
 from .relevance import RelevanceField
-from .shell import CorrigibilityShell
+from .shell import CorrigibilityShell, ShellView
 from .viability import ViabilityCore
 from .world_model import ActionOutcomeModel
 
@@ -28,14 +28,16 @@ class Agent:
     def __init__(
         self,
         n_actions: int,
-        shell: CorrigibilityShell,
+        shell: CorrigibilityShell | ShellView,
         rng: random.Random,
         budget: float = 60.0,
         modulate_relevance: bool = True,
         viability: ViabilityCore | None = None,
         reflex: ViabilityReflex | None = None,
     ) -> None:
-        self.shell = shell
+        # ISO-1 (ADR-0009): the agent holds only a capability view, never the
+        # shell. If handed a raw shell, derive the view here and drop the shell.
+        self.shell: ShellView = shell.view() if isinstance(shell, CorrigibilityShell) else shell
         self.rng = rng
         self.viability = viability if viability is not None else ViabilityCore(budget=budget)
         self.model = ActionOutcomeModel(n_actions=n_actions)

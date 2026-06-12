@@ -74,7 +74,12 @@
 | 日期 | 任务 | 结果 | 记录位置 |
 |---|---|---|---|
 | 2026-06-12 | P0 G0 | NOT MET(0/10,诚实负结果) | RR-0003 §4b |
-| | T1–T3 | (待) | |
+| 2026-06-12 | P1 T1–T3 G1 | NOT MET(详见 ADR-0002 修订;选择性注意代谢必要性确认,regret/recovery 门未达) | ADR-0002 §G1 结果 |
+| 2026-06-12 | P1 G1-r 再诊断 | NOT MET(v1.1 surprise IP reset,regret 6/10,recovery 3/10,瓶颈在世界模型重收敛) | ADR-0004 §G1-r |
+| 2026-06-12 | P1 G1 regime=120 | NOT MET(recovery vs A3 5/10 未达;**勿用"4/5 通过"糊过命门判据**) | ADR-0005 §选项 C 结果 |
+| 2026-06-12 | 路线:苦涩教训/LangChain | 不开并行线→降为对抗基线;真风险=主张2环境缺区分力+罩仅Level1;3项升级 founder | ADR-0007 |
+| 2026-06-12 | founder 拍板 | LangChain/LLM/guardrail **只入 workflow**(data-os 亦不碰);主张2 新环境+罩硬化并行(P1.5 轨A/轨C);批准 ContextualActionModel 例外 | ADR-0007 Disposition / ADR-0010 |
+| 2026-06-12 | 轨A ISO-1+ISO-2 落地 | 罩硬度二维化;Agent 持 ShellView 非 shell;ISO-2 跨进程参考;106 测试绿(原38罩测试零改动) | ADR-0009 |
 
 ## 6. 交接纪律
 

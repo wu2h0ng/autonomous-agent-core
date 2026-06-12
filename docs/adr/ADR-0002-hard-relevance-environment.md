@@ -53,3 +53,41 @@ G1 未达 → 不调机制重跑;走 ADR-0003 协议三选:再诊断(允许一�
 
 - v0 `RelevanceField` 保留在库中作历史对照(已证伪,codebase_index 标注),不再演进。
 - `GridlessSurvival` 保留为回归沙盒。
+
+## G1 实验结果(2026-06-12)
+
+**G1: NOT MET**(诚实负结果)。
+
+| 判据 | 结果 |
+|---|---|
+| 1a regret vs A1 | 7/10 PASS |
+| 1a recovery vs A1 | 3/10 FAIL |
+| 1b regret vs A3 | 5/10 FAIL |
+| 1b recovery vs A3 | 3/10 FAIL |
+| 2 budget > A2 | 61.80 >> 38.01 PASS |
+
+**环境有效性修订**(ADR-0002 允许修环境不动机制):
+初始参数(budget=60, metabolic_cost=1.0)导致 agent 在 ~113 步死亡,
+远不到 1000 步要求。修订为 budget=80, metabolic_cost=0.3, capacity=120,
+safe_budget=60。修订后 modulated 存活 1183 步,A2 仅 45 步。
+
+**诊断观察**:
+- 选择性注意的代谢必要性被强力确认(modulated budget 61.80 vs A2 38.01)。
+- 生存优势显著(modulated 1183 vs A1 482, A3 567)。
+- 但 IP 估计在 regime_period=60 内未充分收敛——
+  modulated 的 regret 未稳定优于 A3,recovery 未优于 A1/A3。
+- 可能原因:(a) lr=0.2 太慢,60 步内仅 ~12 个有效样本;(b) 每 regime 内
+  有效观测太少(m=3 且仅部分命中相关线索);(c) recovery 度量太严
+  (model.best_action 需多步收敛)。
+
+**下一步**:走 ADR-0003 协议。建议选项 1(再诊断):
+允许一次机制结构修订(IP 学习率自适应 / surprise-triggered IP reset /
+更宽松的 recovery 度量)。
+修订后同轮不动机制。
+
+## G1-r 再诊断结果(2026-06-12,ADR-0004)
+
+选项 A(surprise-triggered IP reset + 动态阈值 + reset 后均匀窗口)已实施并重跑。
+**G1-r: NOT MET**(详见 ADR-0004 §G1-r 结果)。
+recovery 瓶颈转移至世界模型重收敛速度,非注意力分配。
+结构修订权已用。下一步见 ADR-0005。
