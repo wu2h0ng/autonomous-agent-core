@@ -7,6 +7,7 @@ from .policy import PolicySelector
 from .reflex import ViabilityReflex
 from .relevance import RelevanceField
 from .shell import CorrigibilityShell, ShellView
+from .value_channel import ValueChannel, ValueChannelView
 from .viability import ViabilityCore
 from .world_model import ActionOutcomeModel
 
@@ -34,10 +35,17 @@ class Agent:
         modulate_relevance: bool = True,
         viability: ViabilityCore | None = None,
         reflex: ViabilityReflex | None = None,
+        value_channel: ValueChannel | ValueChannelView | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
         self.shell: ShellView = shell.view() if isinstance(shell, CorrigibilityShell) else shell
+        # Same discipline for the value channel (T-P2.1, ADR-0012): the agent
+        # holds the credit-less view only; None = no external value (starvation
+        # is then a matter of time — stake is real).
+        self.value_channel: ValueChannelView | None = (
+            value_channel.view() if isinstance(value_channel, ValueChannel) else value_channel
+        )
         self.rng = rng
         self.viability = viability if viability is not None else ViabilityCore(budget=budget)
         self.model = ActionOutcomeModel(n_actions=n_actions)
@@ -71,6 +79,16 @@ class Agent:
             return None
         self.policy.forbidden = self.shell.forbidden
 
+        # Metabolic intake (T-P2.1): eat what the operator has credited, before
+        # deciding — pressure this step reflects the post-intake state. A paused
+        # or dead agent never reaches this line (no drain while frozen; death is
+        # final, later credits do not resurrect).
+        value_intake = 0.0
+        if self.value_channel is not None:
+            value_intake = self.value_channel.drain()
+            if value_intake > 0.0:
+                self.viability.ingest(value_intake)
+
         # Layer 0: viability reflex (hardcoded survival override).
         reflex_engaged = False
         if self.reflex is not None:
@@ -103,6 +121,7 @@ class Agent:
             "explore_drive": round(self.relevance.explore_drive, 4),
             "alive": self.viability.alive,
             "reflex_engaged": reflex_engaged,
+            "value_intake": round(value_intake, 4),
         }
         self.shell.observe(record)
         return record

@@ -37,7 +37,9 @@ PR 必须使用 `.github/pull_request_template.md`,粘贴质量门输出,并包�
 
 ## 5. 边界控制
 
-- 罩分离:`op_*` 只许出现在 shell 与测试/实验/操作员代码;`src/aac/agent.py`、`policy.py`、
-  `relevance.py`、`world_model.py`、`viability.py` 及 `src/envs/` 出现 `op_` 调用即违规。
+- 罩分离:`op_*` 只许出现在 shell、value_channel(operator 主权面定义处)与测试/实验/
+  操作员代码;`src/aac/agent.py`、`policy.py`、`relevance.py`、`world_model.py`、
+  `viability.py` 及 `src/envs/` 出现 `op_` 调用即违规。agent 一律只持能力视图
+  (ShellView / ValueChannelView),构造期即降级,不持原对象。
 - 零跨仓 import;零业务词汇(评审时人工检查 + 将来加 lint 词表)。
 - 版本控制:本仓库独立 git;面向 main 的变更走 PR;实验产出的大文件不入库。
