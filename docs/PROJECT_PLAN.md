@@ -12,7 +12,7 @@
 - 13 个单元测试全绿;主张 3 演示、主张 4 结构成立、主张 1 实现未消融。
 - **主张 2 v0 被证伪**(0/10,诊断:利用错绑饥饿 + bandit 对固定探索过于友好)。
 - founder 已批准三岔路**选项 2**:换硬相关性问题。规格已钉死于 ADR-0002(门 G1 已预注册)。
-- 当前阶段 P1,任务 T1–T3。
+- 当前阶段 P3,T-P3.0 设计 ADR(ADR-0013 已拍板:照走 RAP v0,但先钉死 G4 与强基线)。
 
 ## 2. founder 决策倾向画像(决策时对照;与画像冲突→升级,不得代拍)
 
@@ -87,6 +87,7 @@
 | 2026-06-12 | **T-P2.1 完成** | ValueChannel+View 落地(operator 独占 op_credit,agent 只持视图);22 测试(主权守卫/账本/代谢集成);死亡终局+暂停冻结摄入+ρ不可变守卫;**166 测试绿**。下一步 T-P2.2 | ADR-0012 §T-P2.1 追记 |
 | 2026-06-12 | **T-P2.2 完成** | IdleDrives(认识探针+自校准,归一化竞争)+ IdleWindowEnv(世界不停摆);优先序 pause>反射>驱力>策略;闲时 100% 入审计、stake-priced;**安全修复:反射原可绕过 op_tighten,已修(可纠正性>生存)**;**188 测试绿**。三份研究输入文档登记为非规范。下一步 T-P2.3 | ADR-0012 §T-P2.2 追记+§安全修复 |
 | 2026-06-12 | **T-P2.3 G3 终局** | **G3: NOT MET**(r3 预承诺最终轮)。但**判据1(主张1消融)四轮 9/10 全稳 → 主张1 升级"消融验证成立"**;判据3/4 全稳;判据2(闲时增益)跨修订翻转未确立。**模式第三次出现:定向认知打不过廉价无定向基线(G1/G2/G3)**。IdleDrives 增益主张存疑,不再重设计(需新 ADR);P2 混合收束。下一步呈 founder | ADR-0012 §G3 结果 |
+| 2026-06-12 | **路线决策:走 P3** | CTO 按 ADR-0003 拍板选 A:照走 P3 RAP v0;模式消化作为 G4 强基线约束而非阻塞项;P4 器官/LLM 继续延后,需 founder 批准 | ADR-0013 |
 
 ## 6. 交接纪律
 
@@ -133,7 +134,7 @@ G2 result:
 - Next route: do not redesign claim 2 again without a new founder-level research reset ADR. Continue by choosing a non-claim-2 roadmap item, such as P2 metabolism/endogenous drive, or a documentation/positioning pass that preserves the negative result.
 - **Resolution (2026-06-12): founder chose option A — proceed on claim 1. P2 is now current; see §8.**
 
-## 8. 任务卡(P2,当前)— 规格全文见 ADR-0012
+## 8. 任务卡(P2,已完成)— 规格全文见 ADR-0012
 
 ### T-P2.1 — ValueChannel(外部价值通道 v0)
 
@@ -155,3 +156,15 @@ G2 result:
 - **约束**:判据照 ADR-0012 原文(主张1消融/闲时增益/审计完整/断供必死);环境有效性修正允许,同轮不动机制。
 - **边界**:**判据 1 失败 = 重大事件直接升级 founder**(动摇地基);其余未达走 ADR-0003。
 - **验收**:可复现;结果如实写回本文件 §5 + RR-0003。
+
+## 9. 当前路线(P3 RAP v0)
+
+权威路线决策:`docs/adr/ADR-0013-post-p2-route-to-p3-rap.md`。
+
+### T-P3.0 — P3 设计 ADR
+
+- **目标**:先定义 RAP v0 精确语义,再实现:NEED/BID/BOND/TRACE/DISSOLVE、进程内场、节点接口、trace 与 dissolve 规则。
+- **强基线**:必须包含手工固定流水线与廉价静态协调,不得只打弱 strawman。
+- **门 G4**:预注册质量、成本、扰动适应性与编排开销口径;NOT MET 处理同 ADR-0003。
+- **边界**:无 LLM、无业务语义、无真实执行器、无跨仓 import/copy、仅单进程 v0;多进程/多节点触发 ADR-0009 ISO-2 义务。
+- **验收**:设计 ADR accepted,T-P3.1+ 任务卡写清;G4 钉死前不写 RAP 机制代码。
