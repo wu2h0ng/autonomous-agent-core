@@ -1,61 +1,121 @@
 # AI Native Business Data Agent OS
 
-> Independent implementation project for AI Native Business Data Agent OS.  
-> Project directory: `ai-native-business-data-agent-os/`.
+> Independent product implementation — the **deployment layer** of the three-repo project.  
+> Future role: downgrade projection of the general autonomous core (`autonomous-agent-core/`)  
+> with `autonomy→0` + business domain pack + strong evidence governance.  
+> Git: branch `main`, remote `origin` at `git@github.com:wu2h0ng/data-agent-os.git`.
 
-## Boundary
+## Project Position (2026-06-12 repositioning)
 
-This repository is the product implementation root.
+This repository is one of three sibling repos in the workspace:
 
-FaSoLa is only Customer-0, Reference Domain Pack, and Connector source material. OS Core must not import FaSoLa monorepo modules or content-commerce-specific logic.
+| Repository | Role |
+|---|---|
+| `autonomous-agent-core/` | **Primary artifact** — general autonomous agent prototype (object layer) |
+| `ai-native-business-data-agent-os/` | **Deployment layer** — enterprise OS, future downgrade projection of the general core |
+| `ai-agent-engineering-workflow/` | **Meta layer** — dev-process governance tooling |
 
-## First Trusted Loop
+This repo is the **product implementation root** for the enterprise Business Data Agent OS. FaSoLa is only Customer-0, Reference Domain Pack, and Connector source material. OS Core must not import FaSoLa monorepo modules or content-commerce-specific logic.
 
-The first implementation slice is:
+## Stage 1 Status (Complete — 2026-06-11)
 
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. 284+ tests passing, ruff clean.
+
+### Delivered Capabilities
+
+**Trusted Loop** (full chain):
 ```text
-BusinessIntent
-  -> MetricContract
-  -> SQLTemplate / QueryPlan
-  -> SQL Safety
-  -> QueryResult
-  -> EvidenceChain
-  -> ActionProposal
-  -> Feedback / Trace
+BusinessIntent → SemanticObject → MetricContract → ProviderContract
+→ DataProduct candidate → SQL Safety → QueryResult → EvidenceChain
+→ ActionProposal → Approval/OperationTrace → Feedback → KnowledgeAsset candidate
 ```
 
-Current code provides a pure-Python reference loop with no external runtime dependency.
+**Persistence** (SQLAlchemy Core + Alembic):
+- FeedbackStore, KnowledgeStore, SnapshotStore, ApprovalStore — all Port-based
+- Postgres JSONB + pgvector-ready migrations (0001–0005)
+- In-memory default for tests; Postgres via env var
 
-The application boundary now provides a local runtime factory and CLI smoke entry point:
+**Knowledge Retrieval** (hybrid scoring):
+- Embedder / KnowledgeRetriever ports in OS Core
+- InMemoryKnowledgeRetriever + SqlKnowledgeRetriever (SQL index-column filtering, not JSON scan)
+- HybridScorer: vector + lexical RRF + outcome/recency weighted tiebreaker
+- `run()` recalls related_knowledge (advisory, trace-visible)
+- `GET /knowledge/search` (API key boundary, 503 when no retriever)
+- uow-transactional re-embed on record_outcome
 
-```bash
-set PYTHONPATH=apps/api_server/src;packages/contracts/src;packages/os_core/src
-python -m agent_os_api.cli --question "GMV" --start-date 2026-05-25 --end-date 2026-06-01 --limit 100
-```
+**Observability** (RunTrace):
+- TraceStorePort (InMemory default / SqlTraceStore + Alembic 0005)
+- `run()` dual-exit persistence (answers AND refusals equally auditable)
+- `GET /traces/{trace_id}` audit surface + CLI `trace` subcommand
+- Observability gate test (required trace steps and telemetry dimensions)
 
-The CLI loads `domain_packs/content_commerce/` and invokes the same Trusted Loop tested by
-the unit/eval suite.
+**API Contract** (OpenAPI snapshot gate):
+- `apps/api_server/openapi.json` = typed API contract
+- Drift-gated by unit test + CI `--check` step
+- 422 block contract declared in schema
+- `POST /runs`, `POST /outcomes`, `GET /knowledge/search`, `GET /traces/{id}`
+
+**SQL Safety**: SELECT-star hardening (distinct/all/qualified), schema allowlist, forbidden SQL, limit policy
+
+**Eval Hub**: EvalThresholdReporter with golden-loop dimension checks
+
+**Action Governance**: OperationState machine, snapshot/rollback, approval-required guard
+
+**12-Factor Env Wiring**: `RuntimeFactoryConfig.from_env()` — switch backends via environment variables
+
+### Unified Block Contract
+
+`BlockCode` / `TrustedLoopBlock` / `TrustedLoopOutcome` / `TrustedLoopBlocked`:
+distinguishes "expected business block" from "wiring error". `evaluate()` returns unified outcome without throwing.
 
 ## Layout
 
 ```text
 packages/os_core/       self-developed OS Core and Agent Runtime
 packages/contracts/     public contracts and shared data objects
+packages/persistence/   SQLAlchemy Core adapters (sync, Port-based)
 packages/sdk/           external SDK boundary
-apps/api_server/        future API application
+apps/api_server/        FastAPI application + OpenAPI contract + CLI
 apps/workspace/         future user workspace UI
-domain_packs/           domain-specific packs
-providers/              data providers behind contracts
-action_connectors/      controlled action connectors
+domain_packs/           domain-specific packs (content_commerce)
+providers/              data providers behind ProviderContract
+action_connectors/      governed action connectors (manual_review, action_record)
 examples/               Customer-0 and integration examples
 tests/                  unit, integration, eval, smoke
+docs/                   architecture reviews, decisions, scope
+scripts/                agent runner scripts
 ```
 
-## Local Smoke
+## Commands
 
 ```bash
-python -m unittest discover -s tests -p "test_*.py"
+# Full test suite
+make ci
+
+# Or directly:
+PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:apps/api_server/src \
+  python -m unittest discover -s tests -v
+
+# CLI query
+python -m agent_os_api.cli --question "GMV" --start-date 2026-05-25 --end-date 2026-06-01
+
+# CLI trace
+python -m agent_os_api.cli trace <trace_id>
+
+# CLI search
+python -m agent_os_api.cli search --query "ROI decline"
+
+# OpenAPI contract check
+python -m agent_os_api.openapi_contract --check
 ```
+
+## Remaining Items (Blocked on Decisions/Environment)
+
+- PR-07 Frontend F1 blueprint: pending CTO review
+- ActionProposal routing to real write connector: pending product decision
+- pgvector pushdown + HNSW: pending pgvector extension install
+- OTel bridge: pending real collector target
+- Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval
 
 ## Core Rule
 
