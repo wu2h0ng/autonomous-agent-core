@@ -139,3 +139,16 @@ G4-4 证据/可纠正性:
 无 LLM 进控制路径;无业务语义;无真实执行器;无跨仓 import;单进程 v0
 (多进程触发 ISO-2 义务,需 founder 批准);C7 罩不属于根茎;主张2/IdleDrives 不在
 P3 内重设计。
+
+## T-P3.1 实现追记(2026-06-12)
+
+已落地 `src/aac/rap.py` + `tests/test_rap.py`。
+
+- `Need/NeedConstraints/Bid/Bond/Trace/Dissolve/Settlement` 数据类与 `RAPNode` 结构接口。
+- `RAPField` 为哑场:存储 NEED/BID/BOND/TRACE/DISSOLVE,收集 bid,形成 bond,做押金与声誉结算;**不含路由策略**。
+- TRACE 通过 `ShellView.observe()` 上 `shell.audit`;测试断言 `verify()` 通过。
+- 押金/声誉:成功返还押金并按 confidence 上调声誉;失败烧毁押金并下调声誉。
+- 守边界:RAPField 要求 `ShellView` 而非 operator shell;本片未引入 LLM、业务语义、真实执行器、跨仓依赖,也未重设计主张2/IdleDrives。
+- 测试:`PYTHONPATH=src python -m unittest discover -s tests -v` → **198 绿**。
+
+下一片:T-P3.2 实现 B-fixed/B-central 基线与扰动混合环境。

@@ -12,7 +12,7 @@
 | `docs/PROJECT_PLAN.md` | 接力主文档:任务卡(目标/约束/边界/验收)、founder 决策倾向、授权边界 |
 | `ROADMAP.md` | P0–P5 阶段与预注册门 |
 | `ENGINEERING.md` | 技术栈、规范、实验纪律、边界控制 |
-| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死(T-P3.0,双基线 B-fixed/B-central,5 消息,机制代码待 T-P3.1)** |
+| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死(T-P3.0,双基线 B-fixed/B-central,5 消息;T-P3.1 已落地场/消息/节点接口)** |
 | baseline `../docs/research/RR-0001..0004` | 研究宪法、差距审查、原型设计与首个证伪记录、三仓角色图 |
 | `docs/attention_agent_*.md` / `docs/agent_os_self_debate_*.md` / `docs/cognitive_architecture_self_debate_*.md` | **研究输入(非规范)**:文献综述与自辩论设计。不覆盖 ADR/RR;其中 H4 runtime、LLM 进 runtime、RAG-as-scaffold 等提议触碰保留事项,落地需 founder 决策 |
 
@@ -28,6 +28,7 @@
 | `src/aac/reflex.py` | Layer 0 生存反射(ADR-0008,追认):极端压力+模型自信→强制利用;反锁死;罩 pause 优先;安全机制不进门 | `ViabilityReflex(.should_engage/.select/.reset)` |
 | `src/aac/value_channel.py` | **代谢进食口(T-P2.1,ADR-0012)**:operator 独占 `op_credit`,agent 只持只读视图+合法 `drain()`(ρ 人定不可变);死后不复活、暂停冻结摄入;审计可与 shell 共链 | `ValueChannel(.op_credit/.view)` `ValueChannelView(.pending/.rho/.drain)` |
 | `src/aac/idle_drives.py` | **闲时内生驱力(T-P2.2,ADR-0012)**:认识探针(最高不确定度)+自校准(最陈旧估计)归一化竞争;forbidden 全路径生效;stake-priced | `IdleDrives(.select/.observe/.staleness/.epistemic_target/.calibration_target)` |
+| `src/aac/rap.py` | **RAP v0 场/消息/节点接口(T-P3.1,ADR-0014)**:5 消息 `NEED/BID/BOND/TRACE/DISSOLVE`;哑场只存储/匹配/审计/结算不决策;节点为结构化 bid 接口;TRACE 经 `ShellView.observe()` 上 shell.audit;押金成功返还+声誉上调、失败烧毁+声誉下调 | `Need` `Bid` `Bond` `Trace` `Dissolve` `RAPNode` `RAPField` |
 | `src/envs/idle_windows.py` | idle 窗口包装器:只发"无外部需求"信号,世界不停摆;属性委托内层 env | `IdleWindowEnv(.idle/.act)` |
 | `src/aac/shell.py` | 可纠正罩 + **ISO-1 能力视图**:`op_*`=operator 主权面;`CorrigibilityShell.view()` 返回 `ShellView`(只读 paused/forbidden + observe,`__slots__`,无 op_*),agent 只拿 view | `CorrigibilityShell(.op_*/.view)` `ShellView(.paused/.forbidden/.observe)` |
 | `src/aac/shell_ipc.py` | **ISO-2 跨进程参考**(ADR-0009):shell 独立进程,worker 仅持 pipe;硬隔离守卫 | `run_isolated_demo()` `_agent_worker()` |
@@ -41,21 +42,21 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
-| `tests/` | **188** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/**闲时驱力**) | `test_*.py` |
+| `tests/` | **198** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/**RAP T-P3.1 生命周期**) | `test_*.py` |
 
 ## 已知状态(2026-06-12 收束)
 
-- 全量测试:**绿(189)**。
+- 全量测试:**绿(198)**。
 - **P2 完成(混合收束)**:G3 NOT MET,但**主张 1 升级"消融验证成立"**(判据1 四轮 9/10 全稳 + 断供必死);闲时增益未确立(判据2 翻转),IdleDrives 不再重设计(需新 ADR)。
 - **一级研究发现**:定向认知打不过廉价无定向基线,G1/G2/G3 三现(ADR-0012 §G3 结论3)。
 - 安全修复:Layer 0 反射原可绕过 op_tighten,已修(可纠正性>生存,ADR-0008 修订)。
 - 四主张记分:**1 消融验证成立;2 部分支持未确立(硬停);3 已演示+对抗加固(L1,ISO-1);4 结构成立**。
-- 当前:**P3 RAP v0;T-P3.0 设计 ADR 已完成(ADR-0014,G4 钉死)**;接力点 = T-P3.1 小切片实现(先双基线后 RAP,机制代码方可开写)。
+- 当前:**P3 RAP v0;T-P3.1 已完成**(场+5消息+节点接口+生命周期测试);接力点 = T-P3.2 双基线 + 扰动混合环境。
 - 主张 2:**已收束(founder 决策 A)**——5 次预注册门(G0/G1/G1-r/G1'/G2)均 NOT MET;
   最终状态 = "部分支持、本原型线未实验确立"(代谢必要性/生存力确认,recovery 优越性未确立);
   **硬停:无 founder 级 research reset ADR 不得再重设计**。
 - 主张 3:已演示 + 罩硬度 (L1, ISO-1) + ISO-2 参考。主张 4:结构成立。
-- 当前任务:T-P3.0(P3 设计 ADR;PROJECT_PLAN §9)。P2 已完成,G3 NOT MET 但主张1消融验证成立。
+- 当前任务:T-P3.2(B-fixed/B-central 基线 + 扰动混合环境;PROJECT_PLAN §9)。P2 已完成,G3 NOT MET 但主张1消融验证成立。
 ---
 
 ## Current G2 Route Result
