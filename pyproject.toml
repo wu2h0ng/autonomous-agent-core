@@ -1,0 +1,13 @@
+[project]
+name = "autonomous-agent-core"
+version = "0.0.1"
+description = "Domain-agnostic prototype of the viable, corrigible autonomous agent (RR-0001 v2 / RR-0003)."
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
