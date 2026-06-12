@@ -130,6 +130,17 @@ class TestIdleWindowEnv(unittest.TestCase):
         with self.assertRaises(ValueError):
             IdleWindowEnv(_StubEnv(), work_period=1, idle_period=-1)
 
+    def test_tick_advances_schedule_without_acting(self) -> None:
+        inner = _StubEnv()
+        env = IdleWindowEnv(inner, work_period=2, idle_period=2)
+        env.act(0)
+        env.act(0)
+        self.assertTrue(env.idle)
+        env.tick()
+        env.tick()
+        self.assertFalse(env.idle, "ticks advance the phase clock")
+        self.assertEqual(inner.action_count, 2, "tick must not act on the world")
+
 
 class TestAgentIdleIntegration(unittest.TestCase):
     def _agent(

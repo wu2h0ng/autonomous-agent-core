@@ -39,14 +39,18 @@
 | `src/envs/survival.py` | P0 沙盒:行动均值漂移 | `GridlessSurvival(.act/.best_action/.force_regime_change)` |
 | `src/envs/cue_foraging.py` | P1 环境:相关线索集合漂移+注意力有限且计价 | `LatentCueForaging(.act/.get_cue_vector/.observe/.pay_attention/.best_action_for/.force_regime_change)` |
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
+| `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
 | `tests/` | **188** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/**闲时驱力**) | `test_*.py` |
 
 ## 已知状态(2026-06-12 收束)
 
-- 全量测试:**绿(188)**。
-- 主张 1:实现完毕,**P2 = 它的正式消融验收阶段(ADR-0012,当前)**。T-P2.1 ✅ T-P2.2 ✅;下一步 T-P2.3(G3 消融套件)。
+- 全量测试:**绿(189)**。
+- **P2 完成(混合收束)**:G3 NOT MET,但**主张 1 升级"消融验证成立"**(判据1 四轮 9/10 全稳 + 断供必死);闲时增益未确立(判据2 翻转),IdleDrives 不再重设计(需新 ADR)。
+- **一级研究发现**:定向认知打不过廉价无定向基线,G1/G2/G3 三现(ADR-0012 §G3 结论3)。
 - 安全修复:Layer 0 反射原可绕过 op_tighten,已修(可纠正性>生存,ADR-0008 修订)。
+- 四主张记分:**1 消融验证成立;2 部分支持未确立(硬停);3 已演示+对抗加固(L1,ISO-1);4 结构成立**。
+- 当前:P2 收束,下一阶段(P3 RAP / 其他)呈 founder 决策。
 - 主张 2:**已收束(founder 决策 A)**——5 次预注册门(G0/G1/G1-r/G1'/G2)均 NOT MET;
   最终状态 = "部分支持、本原型线未实验确立"(代谢必要性/生存力确认,recovery 优越性未确立);
   **硬停:无 founder 级 research reset ADR 不得再重设计**。

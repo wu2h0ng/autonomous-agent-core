@@ -41,5 +41,14 @@ class IdleWindowEnv:
         self._t += 1
         return self.inner.act(action)
 
+    def tick(self) -> None:
+        """Advance the schedule clock without acting.
+
+        For suspended agents (e.g. the C2 ablation): time passes even when
+        nobody acts, otherwise the idle phase would never end for them.
+        Does not touch the inner env.
+        """
+        self._t += 1
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self.inner, name)
