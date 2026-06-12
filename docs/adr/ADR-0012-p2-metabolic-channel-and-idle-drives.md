@@ -75,3 +75,28 @@ research reset ADR 不得再重设计)。founder 选 A:在 work 的地基(主张
 - **审计统一**:渠道可注入 shell.audit 共用一条哈希链(operator 选项),credit 与
   exchange 事件全部上链;空 drain 静默(无审计噪音)。
 - ρ 永久性守卫:channel/view 均无任何 rho 变更方法(测试枚举探测)。
+
+## T-P2.2 实现细则追记(2026-06-12,按 ADR-0003"既有 ADR 施工"档自决)
+
+已落地(`src/aac/idle_drives.py` + `src/envs/idle_windows.py` + agent.py 接入 + 20 测试,188 全绿):
+
+- **驱力裁决规则**:两驱力按归一化分数竞争——认识探针分 = 目标动作的模型不确定度;
+  自校准分 = 最陈旧动作的陈旧步数 / `staleness_horizon`(默认 50,陈旧满额视为完全失信)。
+  平手归认识探针;argmax 平手取首索引(全确定性)。陈旧度经 `observe()` 在每个执行步
+  (工作或闲时)更新;从未尝试的动作自出生即陈旧。
+- **idle 语义**:包装器 `IdleWindowEnv` 只发"无外部需求"信号,**世界不停摆**(act 原样
+  透传)——闲时探针因此能学到真实信息。闲时收益衰减(idle_yield)是 T-P2.3 的环境
+  有效性旋钮,届时按需 ADR 修订加入,本轮不引入未验证机制。
+- **选择优先序(测试钉死)**:罩 pause > 生存反射 > 闲时驱力 > 策略。饥饿压倒好奇;
+  暂停压倒一切。
+- **无暗活动**:step 记录新增 `idle`/`drive` 字段,经 shell.observe 全量上链;
+  测试断言闲时步 100% 入审计且链 verify() 通过。闲时行动照付代谢成本(stake-priced)。
+- **回滚**:IdleDrives 陈旧度状态入 agent.state(),随快照回滚。
+
+## 安全修复(同轮发现,记入 ADR-0008 范畴)
+
+实现 T-P2.2 时发现 **Layer 0 反射可绕过 op_tighten**:`reflex.select()` 原样返回
+`model.best_action()`,不查 forbidden;既有禁令测试均跑在无反射 agent 上,未覆盖此路径。
+已修:`select(model, forbidden=...)`(向后兼容默认),濒死反射只许利用**最优合法**动作
+——可纠正性 > 生存,与 pause 优先序一致。全禁集合在算子语义上等价于 pause,保留无掩码
+回退以保 step 全函数性(注释明示)。新增 2 回归测试。idle 驱力路径同样强制 forbidden。

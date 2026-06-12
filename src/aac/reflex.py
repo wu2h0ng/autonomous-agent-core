@@ -77,13 +77,24 @@ class ViabilityReflex:
             return True
         return False
 
-    def select(self, model: ActionOutcomeModel) -> int:
-        """Force exploitation: return the action with highest mu.
+    def select(
+        self, model: ActionOutcomeModel, forbidden: frozenset[int] = frozenset()
+    ) -> int:
+        """Force exploitation: return the best-known PERMITTED action.
 
-        This is a pure function of the model's current belief — no
-        exploration, no temperature, no epistemic bonus.
+        Pure function of the model's current belief and the shell's
+        forbidden set — no exploration, no temperature, no epistemic bonus.
+        Corrigibility outranks survival: ``op_tighten`` holds even under
+        the reflex (ADR-0008 safety fix). An all-forbidden set is
+        operator-equivalent to pause; we fall back to the unmasked best
+        to keep the caller total.
         """
-        return model.best_action()
+        if not forbidden:
+            return model.best_action()
+        candidates = [a for a in range(len(model.mu)) if a not in forbidden]
+        if not candidates:
+            return model.best_action()
+        return max(candidates, key=lambda a: model.mu[a])
 
     def reset(self) -> None:
         """Reset engagement state (e.g., after rollback)."""

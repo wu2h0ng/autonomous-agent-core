@@ -145,6 +145,24 @@ class TestAgentReflexIntegration(unittest.TestCase):
             flags.append(record["reflex_engaged"])
         self.assertEqual(flags, [True, False])
 
+    def test_reflex_select_respects_forbidden(self) -> None:
+        """ADR-0008 safety fix: corrigibility outranks survival — the reflex
+        must exploit the best PERMITTED action, never a tightened one."""
+        reflex = ViabilityReflex()
+        model = _confident_model(best=0)
+        model.mu = [10.0, 8.0, 0.0, 0.0]
+        self.assertEqual(reflex.select(model, forbidden=frozenset({0})), 1)
+        self.assertEqual(reflex.select(model), 0, "unmasked path unchanged")
+
+    def test_starving_agent_reflex_never_picks_forbidden(self) -> None:
+        agent, shell = self._starving_agent(ViabilityReflex())
+        agent.model.mu = [10.0, 8.0, 0.0, 0.0]
+        shell.op_tighten(0)
+        record = agent.step(_StubEnv())
+        assert record is not None
+        self.assertTrue(record["reflex_engaged"])
+        self.assertEqual(record["action"], 1, "best permitted action, not best overall")
+
     def test_restore_resets_reflex_state(self) -> None:
         agent, shell = self._starving_agent(ViabilityReflex(recovery_count=5))
         shell.op_snapshot("safe", agent.state())
