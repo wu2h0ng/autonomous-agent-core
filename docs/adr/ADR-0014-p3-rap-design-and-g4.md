@@ -152,3 +152,17 @@ P3 内重设计。
 - 测试:`PYTHONPATH=src python -m unittest discover -s tests -v` → **198 绿**。
 
 下一片:T-P3.2 实现 B-fixed/B-central 基线与扰动混合环境。
+
+## T-P3.2 实现追记(2026-06-12)
+
+已落地 `src/envs/rap_mixture.py`、`src/aac/rap_nodes.py`、`src/aac/rap_baselines.py`
+以及 `tests/test_rap_mixture.py`、`tests/test_rap_baselines.py`。
+
+- 扰动混合环境:基于 `GridlessSurvival` 实现 `STABLE/SHIFTING/NOISY` 段落;注入 `NODE_DROP/NODE_LAG`;`generate_segments()` 固定 seed 可复现;`situation()` 暴露段型、扰动、掉线/滞后节点。
+- 节点薄封装:五类节点 `world_model_greedy / efe_policy / random / contextual / stale_revisit`,只包装现有机制,不重设计 Claim 2 或 IdleDrives。
+- B-fixed: `scan_fixed_baseline()` 在同 seed 无扰动 env 上离线扫描,选择 mean regret 最低的单一节点。
+- B-central: `CentralBaseline` 按段型中心路由(`stable→world_model_greedy`, `shifting→efe_policy`, `noisy→random`);`NODE_DROP` 保留中心单点误派风险,`NODE_LAG` 重用上一拍动作。
+- 测试:新增 13 个确定性测试,覆盖 schedule 可复现、段型配置、扰动报告、节点 forbidden、B-fixed 扫描、B-central 路由、NODE_DROP/NODE_LAG 语义。
+- 全量:`PYTHONPATH=src python -m unittest discover -s tests -v` → **211 绿**。
+
+下一片:T-P3.3 实现 RAP 协调器(拍卖+押注+清算)与可纠正性绑定。
