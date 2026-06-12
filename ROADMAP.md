@@ -48,9 +48,13 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 
 ## P3 RAP v0(单进程退化模式)
 
-- **ADR-0013 决策**:P2 后选择照走 P3。先做 T-P3.0 设计 ADR,钉死 G4、强手工基线、扰动任务混合与编排开销口径,再写机制代码。
-- 进程内场 + NEED/BID/BOND/TRACE/DISSOLVE;异质节点 = 不同机制变体。
-- 门 **G4**(更名):联盟形成在扰动任务混合下 ≥ 手工固定流水线,编排开销可测且可报告。
+- **ADR-0013 决策**:P2 后选择照走 P3。**T-P3.0 设计 ADR 已完成 = ADR-0014**(G4 钉死)。
+- 进程内场 + NEED/BID/BOND/TRACE/DISSOLVE(v0 丢 SCENT/RUPTURE);异质节点 = 现有机制薄封装(≥5 种)。
+- **关键设计**:三连败既是约束也是动机(无单一机制全局占优→路由也许赢);双基线
+  B-fixed(强固定)+ B-central(中心路由)分离"路由有用"与"去中心有用"。
+- 门 **G4**(4 判据,ADR-0014 §6 钉死):质量胜 B-fixed / 去中心增量不被 B-central 支配 /
+  编排税有界 / 证据上链+可纠正绑定。NOT MET → RAP 封存(keep static wiring)。
+- 接力:T-P3.1 场+消息+节点 → T-P3.2 双基线+扰动 → T-P3.3 RAP 协调器 → T-P3.4 G4 实验。
 
 ## P4 器官接入(LLM / 学习世界模型)— 需 founder 批准后启动
 

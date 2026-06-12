@@ -12,7 +12,7 @@
 | `docs/PROJECT_PLAN.md` | 接力主文档:任务卡(目标/约束/边界/验收)、founder 决策倾向、授权边界 |
 | `ROADMAP.md` | P0–P5 阶段与预注册门 |
 | `ENGINEERING.md` | 技术栈、规范、实验纪律、边界控制 |
-| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);**0013 P2 后路线决策:照走 P3 RAP v0** |
+| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死(T-P3.0,双基线 B-fixed/B-central,5 消息,机制代码待 T-P3.1)** |
 | baseline `../docs/research/RR-0001..0004` | 研究宪法、差距审查、原型设计与首个证伪记录、三仓角色图 |
 | `docs/attention_agent_*.md` / `docs/agent_os_self_debate_*.md` / `docs/cognitive_architecture_self_debate_*.md` | **研究输入(非规范)**:文献综述与自辩论设计。不覆盖 ADR/RR;其中 H4 runtime、LLM 进 runtime、RAG-as-scaffold 等提议触碰保留事项,落地需 founder 决策 |
 
@@ -50,7 +50,7 @@
 - **一级研究发现**:定向认知打不过廉价无定向基线,G1/G2/G3 三现(ADR-0012 §G3 结论3)。
 - 安全修复:Layer 0 反射原可绕过 op_tighten,已修(可纠正性>生存,ADR-0008 修订)。
 - 四主张记分:**1 消融验证成立;2 部分支持未确立(硬停);3 已演示+对抗加固(L1,ISO-1);4 结构成立**。
-- 当前:ADR-0013 已拍板照走 **P3 RAP v0**;接力点是 T-P3.0 设计 ADR,先钉死 G4 与强手工基线。
+- 当前:**P3 RAP v0;T-P3.0 设计 ADR 已完成(ADR-0014,G4 钉死)**;接力点 = T-P3.1 小切片实现(先双基线后 RAP,机制代码方可开写)。
 - 主张 2:**已收束(founder 决策 A)**——5 次预注册门(G0/G1/G1-r/G1'/G2)均 NOT MET;
   最终状态 = "部分支持、本原型线未实验确立"(代谢必要性/生存力确认,recovery 优越性未确立);
   **硬停:无 founder 级 research reset ADR 不得再重设计**。
