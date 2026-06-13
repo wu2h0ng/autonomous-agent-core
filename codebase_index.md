@@ -51,7 +51,7 @@
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
 | `tests/` | **235** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/RAP 生命周期/双基线+扰动环境/**grounded judge/协调器可纠正绑定/G4 账目**) | `test_*.py` |
 
-## 已知状态(2026-06-12 收束)
+## 已知状态(2026-06-13 收束)
 
 - 全量测试:**绿(235)**。
 - **P2 完成(混合收束)**:G3 NOT MET,但**主张 1 升级"消融验证成立"**(判据1 四轮 9/10 全稳 + 断供必死);闲时增益未确立(判据2 翻转),IdleDrives 不再重设计(需新 ADR)。
@@ -60,13 +60,16 @@
 - 四主张记分:**1 消融验证成立;2 部分支持未确立(硬停);3 已演示+对抗加固(L1,ISO-1);4 结构成立**。
 - 当前:**P3 RAP v0;T-P3.4 G4 r-final 已完成:NOT MET**。C-rap vs B-fixed = 0/10,NODE_DROP recovery = 3/10,编排税未过,证据/审计通过;RAP v0 按 ADR-0014 封存。
 - **ADR-0015(world-model 范围+P4 准入)**:A 段(范围定义/实验卫生/分层)已接受;
-  **B 段(P4 准入条件 B1-B4)提案待 founder 批准**,批准前仅为研究记录。world-model 官方定位 = local
-  action-outcome predictor organ(非 planner/simulator);"P3 判 coordination value,非单器官智能上限"。
+  **B 段(P4 准入条件 B1-B4)已由 founder 批准**(B1(iii):G4 NOT MET + D5 staleness 确认)。
+  world-model 官方定位 = local action-outcome predictor organ(非 planner/simulator);"P3 判 coordination value,
+  非 single-organ intelligence ceiling"。
+- **ADR-0016(P4 先验器官设计+G5)**:已 accepted as contract;G5 与最小器官接口冻结,但器官代码实现仍待
+  founder 对 G5 点头后启动。P4 v0 纯标准库,无 LLM/无花钱;LLM 器官属 P4.x,需独立 ADR。
 - 主张 2:**已收束(founder 决策 A)**——5 次预注册门(G0/G1/G1-r/G1'/G2)均 NOT MET;
   最终状态 = "部分支持、本原型线未实验确立"(代谢必要性/生存力确认,recovery 优越性未确立);
   **硬停:无 founder 级 research reset ADR 不得再重设计**。
 - 主张 3:已演示 + 罩硬度 (L1, ISO-1) + ISO-2 参考。主张 4:结构成立。
-- 当前任务:founder/CTO 路线决策。P2 已完成,G3 NOT MET 但主张1消融验证成立;P3 已完成,G4 NOT MET,RAP 封存。
+- 当前任务:T-P4.1 待 founder 对 ADR-0016 G5 冻结点头后开工(接口 + 信念合并钩子 + O0 回归)。
 ---
 
 ## Current G2 Route Result
@@ -101,24 +104,27 @@ Hard stop:
 
 ---
 
-## Current Route Decision: P3 RAP v0
+## Current Route Decision: P4 Prior Organ
 
 ADR:
 
-- `docs/adr/ADR-0013-post-p2-route-to-p3-rap.md`
+- `docs/adr/ADR-0015-world-model-scope-and-p4-admission.md`
+- `docs/adr/ADR-0016-p4-prior-organ-design-and-g5.md`
 
 Status:
 
-- Accepted route decision after P2.
-- Current stage is **T-P3.0 design ADR**, not RAP implementation yet.
+- ADR-0015 Decision B is accepted after G4 NOT MET + D5 staleness confirmation.
+- ADR-0016 is accepted as the P4 contract: minimal prior-organ interface + G5 pre-registration.
+- No P4 organ code has been written under this contract yet.
 
 Decision:
 
-- Proceed to P3 RAP v0.
-- Treat the G1/G2/G3 directed-cognition failure pattern as a baseline-strengthening constraint.
-- Defer P4 organs/LLM.
+- Proceed to P4 contract-first: test whether a richer learning prior can shorten post-drift reconvergence.
+- Keep Claim 2 and RAP hard-stopped/archived; P4 does not reopen them.
+- P4 v0 is standard-library only and has no LLM. LLM organs are P4.x and require a separate founder spend/dependency ADR.
 - Keep Claim 2 and IdleDrives hard-stopped unless a new founder-level ADR explicitly reopens them.
 
 Next required artifact:
 
-- P3 design ADR defining NEED/BID/BOND/TRACE/DISSOLVE semantics, fixed-pipeline baseline, perturbation mix, overhead metrics, and G4 criteria.
+- Founder/CTO thumbs-up on ADR-0016 G5 freeze, then T-P4.1: `PriorOrgan`/`OrganAdvice` interface,
+  belief merge hook, and O0 regression proving behavior is unchanged when the organ slot is off.
