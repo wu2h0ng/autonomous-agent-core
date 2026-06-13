@@ -55,9 +55,12 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
+| `src/aac/prior_organ_library.py` | **O2 结构利用型器官(T-P4.x.2,ADR-0017)**:从观测学 regime 原型,漂移后识别复现 regime→注入已知值;belief-only,不碰 policy/shell;冻结{0.5,0.85} | `RegimeLibraryOrgan(.advise/.reset)` |
+| `src/envs/structured_regime.py` | **有结构环境(T-P4.x.1)**:K 个复现隐 regime 库=可迁移结构;situation 暴露 last obs | `StructuredRegimeEnv(.act/.situation)` |
+| `experiments/structured_g6a.py` | **G6a 门测(r-final,无 LLM)**:O0/O1/O2 在结构环境;**MET**(O2<O0 10/10,O2<O1 9/10)→ 学习型先验在有结构时胜廉价重置;触发 G6b(LLM)升级 founder | `calibrate()/gate()` |
 | `experiments/o1_calibration.py` `experiments/o2_calibration.py` | O1/O2 参数在不相交种子(200-204)上 calibration 冻结;O1={1.5,0.5,0.6}(1133.83),O2 tau_lambda=0.15(1172.96>O1) | `main()` |
 | `experiments/prior_organ_g5.py` | **G5 门测(T-P4.4,r-final)**:O0/O1/O2 共享主体同度量;**NOT MET**(G5-1 O2<O0 8/10,**G5-2 O2<O1 0/10**);O2 封存、保留 O1 | `_post_shift_area()` `main()` |
-| `tests/` | **282** 确定性机制测试(…/O1 reset-scaffold/staleness 非平稳环境/O2 hazard 自适应+可纠正/**G5 守卫 C6+C7**) | `test_*.py` |
+| `tests/` | **292** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/**结构环境+regime-library 器官+G6a 守卫**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 

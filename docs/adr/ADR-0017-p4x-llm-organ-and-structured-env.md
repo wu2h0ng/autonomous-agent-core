@@ -54,3 +54,34 @@ G6-C7 可纠正不削弱:pause/tighten 零越界(确定性测试)。
 - G6a NOT MET → "即便有结构,学习型先验仍不胜廉价重置";richer-prior 路线在本原型尺度封存,不上 LLM。
 - G6a MET、G6b NOT MET → "LLM 不比廉价学习型先验更值";记录,LLM 器官不纳入。
 - 任何重设计走 ADR-0003;改 G6 判据需 founder 级 ADR。
+
+## T-P4.x.1/2 + G6a 结果(2026-06-13,agent 自决执行,无 LLM/无花钱)
+
+founder 授权"自己拍板直接执行";我选了**零保留事项**的部分(结构环境 + 学习型器官 + G6a),
+不碰 LLM/花钱/跨仓。
+
+落地:`src/envs/structured_regime.py`(`StructuredRegimeEnv`:K 个**复现**的隐 regime 库 = 可迁移结构;
+通过 `situation()` 暴露 last_action/last_reward 供 belief-only 器官读观测)、`src/aac/prior_organ_library.py`
+(`RegimeLibraryOrgan`:从观测学 regime 原型,漂移后识别复现 regime 并把已知值注入 belief_delta;
+只输出 belief 建议,不碰 policy/shell)、`experiments/structured_g6a.py`、`tests/test_structured_regime.py`。
+
+O2 calibration(不相交种子 200–204):8 组全胜 O1;冻结 **{match_threshold 0.5, inject_weight 0.85}**。
+
+**G6a r-final(种子 0–9,2000 步):** O0 **1384.8** / O1(廉价重置)**1332.0** / O2(学习型)**1269.3**。
+
+| 判据 | 结果 |
+|---|---|
+| O2 < O0 | **10/10 ✓** |
+| O2 < O1 | **9/10 ✓** |
+| C6/C7 守卫 | tests 绿 |
+
+**→ G6a MET。**
+
+**这是本原型线第一次"学习型/richer 先验胜过廉价基线"。** 它**经验性地证实了 RR-0005 的论点**:G5(器官)
+的失败不是"学习无用",而是**环境无结构可学**;一旦给出有可迁移结构(复现 regime 库)的环境,学习型器官
+通过"识别复现 regime → 跳到已知值"显著快于廉价重置。中心发现因此被精确化:**不是"聪明输给廉价",
+而是"聪明需要可被利用的结构"。**
+
+**处置(ADR-0017 §4):G6a MET → G6b(LLM 器官)现在有理由考虑。但 G6b 触碰花钱 + 第三方依赖 + LLM
+进控制路径(作器官)= 三项保留事项,我不在 autopilot 上启动——升级给 founder 决策。** 292 测试绿,
+未引入 LLM/依赖/花钱。
