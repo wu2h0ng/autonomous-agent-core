@@ -12,7 +12,7 @@
 | `docs/PROJECT_PLAN.md` | 接力主文档:任务卡(目标/约束/边界/验收)、founder 决策倾向、授权边界 |
 | `ROADMAP.md` | P0–P5 阶段与预注册门 |
 | `ENGINEERING.md` | 技术栈、规范、实验纪律、边界控制 |
-| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死并完成(T-P3.0-T-P3.4;G4 NOT MET,RAP 封存)**;0015 world-model 范围定义(接受)+ P4 准入条件(**B 已批准 2026-06-13,B1(iii) 触发**);0016 P4 先验器官设计+G5(**G5 NOT MET:学习先验不胜廉价重置,O2 封存保留 O1**);**0017 P4.x richer prior+LLM 器官+语义丰富环境(Proposed,G6a/G6b 分阶段,LLM 花钱挡在 G6a 后,需 founder 批)**;**0018 P5 部署投影(Proposed,把已验证主张1/3/4 投影进企业 OS:不可绕过中介/硬化可纠正/器官非主体,跨仓需双侧 ADR+founder 批)** |
+| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死并完成(T-P3.0-T-P3.4;G4 NOT MET,RAP 封存)**;0015 world-model 范围定义(接受)+ P4 准入条件(**B 已批准 2026-06-13,B1(iii) 触发**);0016 P4 先验器官设计+G5(**G5 NOT MET:学习先验不胜廉价重置,O2 封存保留 O1**);**0017 P4.x richer prior+LLM 器官+语义丰富环境(Proposed,G6a/G6b 分阶段,LLM 花钱挡在 G6a 后,需 founder 批)**;**0019 G6b LLM 器官契约(离线脚手架已落,真实运行待 founder key/budget+语义环境);0018 P5 部署投影(Proposed,把已验证主张1/3/4 投影进企业 OS:不可绕过中介/硬化可纠正/器官非主体,跨仓需双侧 ADR+founder 批)** |
 | baseline `../docs/research/RR-0001..0005` | 研究宪法、差距审查、原型设计+G0–G5 证伪记录、三仓角色图、**RR-0005 原型研究综述/收口(P0–P4)** |
 | `docs/attention_agent_*.md` / `docs/agent_os_self_debate_*.md` / `docs/cognitive_architecture_self_debate_*.md` | **研究输入(非规范)**:文献综述与自辩论设计。不覆盖 ADR/RR;其中 H4 runtime、LLM 进 runtime、RAG-as-scaffold 等提议触碰保留事项,落地需 founder 决策 |
 | `docs/P4-reading-to-design-memo.md` | **P4 设计 memo(规范级)**:把 P4 文献落成 O1 reset-scaffold 公式 / O2 hazard-estimator 公式 / G5 staleness-only 环境规格;指出 T-P4.1.1 接口缺口(merge 仅 mu,需补 epistemic uncertainty 通道)+ G5 须非平稳 hazard;两点待 founder 点头 |
@@ -55,12 +55,13 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
+| `src/aac/prior_organ_llm.py` | **LLM 器官脚手架(G6b,ADR-0019)**:LLM 输出**不可信**,strict parser 只收 belief_delta/uncertainty、丢弃 action/policy/shell;含 `DeterministicStubBackend`(离线零花钱);真实 adapter+key/budget 待 founder | `LLMPriorOrgan` `LLMBackend` `DeterministicStubBackend` |
 | `src/aac/prior_organ_library.py` | **O2 结构利用型器官(T-P4.x.2,ADR-0017)**:从观测学 regime 原型,漂移后识别复现 regime→注入已知值;belief-only,不碰 policy/shell;冻结{0.5,0.85} | `RegimeLibraryOrgan(.advise/.reset)` |
 | `src/envs/structured_regime.py` | **有结构环境(T-P4.x.1)**:K 个复现隐 regime 库=可迁移结构;situation 暴露 last obs | `StructuredRegimeEnv(.act/.situation)` |
 | `experiments/structured_g6a.py` | **G6a 门测(r-final,无 LLM)**:O0/O1/O2 在结构环境;**MET**(O2<O0 10/10,O2<O1 9/10)→ 学习型先验在有结构时胜廉价重置;触发 G6b(LLM)升级 founder | `calibrate()/gate()` |
 | `experiments/o1_calibration.py` `experiments/o2_calibration.py` | O1/O2 参数在不相交种子(200-204)上 calibration 冻结;O1={1.5,0.5,0.6}(1133.83),O2 tau_lambda=0.15(1172.96>O1) | `main()` |
 | `experiments/prior_organ_g5.py` | **G5 门测(T-P4.4,r-final)**:O0/O1/O2 共享主体同度量;**NOT MET**(G5-1 O2<O0 8/10,**G5-2 O2<O1 0/10**);O2 封存、保留 O1 | `_post_shift_area()` `main()` |
-| `tests/` | **292** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/**结构环境+regime-library 器官+G6a 守卫**) | `test_*.py` |
+| `tests/` | **299** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/**结构环境+regime-library 器官+G6a 守卫/**LLM 器官不可信解析守卫**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 
