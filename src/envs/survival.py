@@ -43,6 +43,16 @@ class GridlessSurvival:
     def best_action(self) -> int:
         return max(range(self.n_actions), key=lambda a: self._regime[a])
 
+    @property
+    def expected_random_regret(self) -> float:
+        """Expected regret of a uniform-random action under the current regime.
+
+        Scoring/judge use only (like :attr:`best_action`): equals
+        ``max(regime) - mean(regime)``. Deciders (RAP nodes, B-central) must
+        not read this — it would leak the regime.
+        """
+        return max(self._regime) - sum(self._regime) / self.n_actions
+
     def force_regime_change(self) -> None:
         self.regime_index += 1
         self._new_regime()

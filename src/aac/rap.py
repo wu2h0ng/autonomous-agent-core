@@ -174,6 +174,9 @@ class RAPField:
             raise ValueError("coalition must be non-empty")
         if evidence_obligation <= 0:
             raise ValueError("evidence_obligation must be positive")
+        # Per-NEED single bond (ADR-0014 D4): one auction → one bond.
+        if any(b.need_id == need_id for b in self._bonds.values()):
+            raise ValueError(f"need {need_id} already has a bond")
         bids_by_node = self._bids[need_id]
         if any(node_id not in bids_by_node for node_id in coalition):
             raise ValueError("all coalition nodes must have submitted bids")
@@ -249,6 +252,25 @@ class RAPField:
             settlements=settlements,
         )
         self._dissolves[bond_id] = dissolved
+        # DISSOLVE on the audit chain (ADR-0014 D4): settlements change
+        # reputation, which steers future routing — it must not be dark.
+        self._shell.observe(
+            {
+                "event": "rap_dissolve",
+                "bond_id": bond.bond_id,
+                "need_id": bond.need_id,
+                "outcome": outcome,
+                "settlements": [
+                    {
+                        "node_id": s.node_id,
+                        "returned": s.returned,
+                        "burned": s.burned,
+                        "reputation_after": s.reputation_after,
+                    }
+                    for s in settlements
+                ],
+            }
+        )
         return dissolved
 
     def reputation(self, node_id: str) -> float:

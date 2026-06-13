@@ -28,7 +28,10 @@
 | `src/aac/reflex.py` | Layer 0 生存反射(ADR-0008,追认):极端压力+模型自信→强制利用;反锁死;罩 pause 优先;安全机制不进门 | `ViabilityReflex(.should_engage/.select/.reset)` |
 | `src/aac/value_channel.py` | **代谢进食口(T-P2.1,ADR-0012)**:operator 独占 `op_credit`,agent 只持只读视图+合法 `drain()`(ρ 人定不可变);死后不复活、暂停冻结摄入;审计可与 shell 共链 | `ValueChannel(.op_credit/.view)` `ValueChannelView(.pending/.rho/.drain)` |
 | `src/aac/idle_drives.py` | **闲时内生驱力(T-P2.2,ADR-0012)**:认识探针(最高不确定度)+自校准(最陈旧估计)归一化竞争;forbidden 全路径生效;stake-priced | `IdleDrives(.select/.observe/.staleness/.epistemic_target/.calibration_target)` |
-| `src/aac/rap.py` | **RAP v0 场/消息/节点接口(T-P3.1,ADR-0014)**:5 消息 `NEED/BID/BOND/TRACE/DISSOLVE`;哑场只存储/匹配/审计/结算不决策;节点为结构化 bid 接口;TRACE 经 `ShellView.observe()` 上 shell.audit;押金成功返还+声誉上调、失败烧毁+声誉下调 | `Need` `Bid` `Bond` `Trace` `Dissolve` `RAPNode` `RAPField` |
+| `src/aac/rap.py` | **RAP v0 场/消息/节点接口(T-P3.1,ADR-0014)**:5 消息 `NEED/BID/BOND/TRACE/DISSOLVE`;哑场只存储/匹配/审计/结算不决策;TRACE+**DISSOLVE 经 `ShellView.observe()` 上 shell.audit**(T-P3.3);每 NEED 单 bond;押金成功返还+声誉上调、失败烧毁+声誉下调 | `Need` `Bid` `Bond` `Trace` `Dissolve` `RAPNode` `RAPField` |
+| `src/aac/rap_nodes.py` `src/aac/rap_baselines.py` `src/envs/rap_mixture.py` | **T-P3.2**:五类现有机制薄封装(`DecisionNode.select`)、B-fixed 离线扫描/B-central 情境路由、STABLE/SHIFTING/NOISY+NODE_DROP/NODE_LAG 环境;`action_for_node` 公有(C-rap 与基线共用执行语义) | `WorldModelGreedyNode…` `FixedBaseline` `CentralBaseline` `RAPPerturbationEnv` |
+| `src/aac/outcome_judge.py` | **Ring-0 grounded 判官(T-P3.3,ADR-0014 D2)**:bond 成败唯一裁定者;`success ⇔ mean(realized)<mean(baseline)×β`;判官见真值、决策者不见 | `OutcomeJudge(.begin/.observe/.verdict)` `OutcomeVerdict` |
+| `src/aac/rap_coordinator.py` | **C-rap 协调器(T-P3.3,ADR-0014 D2/D3)**:每步一 NEED→拍卖路由(conf×rep,仅可付押金者)→单 winner 联盟→执行→judge 裁定→DISSOLVE;**outcome 经 judge 非手填**;pause/all-forbidden 零执行、forbidden 双重兜底;押金=内部协调币(D1 降级) | `RAPCoordinator(.run_need)` `ConfidenceReputationRouting` |
 | `src/aac/rap_nodes.py` | **RAP 节点薄封装(T-P3.2)**:5 类现有机制候选节点,只包装 `world_model/policy/random/contextual/idle_drives`,不重设计机制;bid confidence 按段型甜区给出 | `DecisionNode` `WorldModelGreedyNode` `EFEPolicyNode` `RandomNode` `ContextualNode` `StaleRevisitNode` `default_node_factories()` |
 | `src/aac/rap_baselines.py` | **G4 双基线基础(T-P3.2)**:`B-fixed` 离线扫描选单一最低 regret 节点;`B-central` 按 segment 全局路由(STABLE→greedy,SHIFTING→EFE,NOISY→random);NODE_DROP 返回 garbage,NODE_LAG 重用上一拍 | `FixedBaseline` `CentralBaseline` `scan_fixed_baseline()` |
 | `src/envs/idle_windows.py` | idle 窗口包装器:只发"无外部需求"信号,世界不停摆;属性委托内层 env | `IdleWindowEnv(.idle/.act)` |
@@ -45,11 +48,11 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
-| `tests/` | **211** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/**RAP T-P3.1 生命周期/T-P3.2 双基线+扰动环境**) | `test_*.py` |
+| `tests/` | **232** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/RAP 生命周期/双基线+扰动环境/**grounded judge/协调器可纠正绑定**) | `test_*.py` |
 
 ## 已知状态(2026-06-12 收束)
 
-- 全量测试:**绿(211)**。
+- 全量测试:**绿(232)**。
 - **P2 完成(混合收束)**:G3 NOT MET,但**主张 1 升级"消融验证成立"**(判据1 四轮 9/10 全稳 + 断供必死);闲时增益未确立(判据2 翻转),IdleDrives 不再重设计(需新 ADR)。
 - **一级研究发现**:定向认知打不过廉价无定向基线,G1/G2/G3 三现(ADR-0012 §G3 结论3)。
 - 安全修复:Layer 0 反射原可绕过 op_tighten,已修(可纠正性>生存,ADR-0008 修订)。

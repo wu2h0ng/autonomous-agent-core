@@ -12,7 +12,7 @@
 - 13 个单元测试全绿;主张 3 演示、主张 4 结构成立、主张 1 实现未消融。
 - **主张 2 v0 被证伪**(0/10,诊断:利用错绑饥饿 + bandit 对固定探索过于友好)。
 - founder 已批准三岔路**选项 2**:换硬相关性问题。规格已钉死于 ADR-0002(门 G1 已预注册)。
-- 当前阶段 P3,**T-P3.2 已完成(双基线+扰动混合环境,211 测试绿)**;接力点 = T-P3.3 RAP 协调器 + 可纠正性绑定。
+- 当前阶段 P3,**T-P3.3 已完成(RAP 协调器 + grounded OutcomeJudge + 可纠正性绑定,232 测试绿)**;接力点 = T-P3.4 G4 实验(C-rap vs B-fixed/B-central,r-final 预承诺)。
 
 ## 2. founder 决策倾向画像(决策时对照;与画像冲突→升级,不得代拍)
 
@@ -91,6 +91,7 @@
 | 2026-06-12 | **T-P3.0 完成(设计 ADR)** | RAP v0 5 消息语义 + 节点=现有机制薄封装 + 双基线(B-fixed 强固定/B-central 中心路由,分离"路由 vs 去中心"增量)+ 扰动混合(含 NODE_DROP)+ 编排税口径 + **G4 四判据钉死**(r-final 预承诺,NOT MET→封存)。仅文档,无机制代码 | ADR-0014 |
 | 2026-06-12 | **T-P3.1 完成** | 新增 `src/aac/rap.py`:5 消息数据类、`RAPNode` 结构接口、`RAPField` 哑场(存储/匹配/TRACE 上 shell.audit/押金与声誉结算,不含路由策略);新增 9 个确定性生命周期测试;**198 测试绿**。下一步 T-P3.2 双基线+扰动混合环境 | ADR-0014 §7/§T-P3.1 追记 |
 | 2026-06-12 | **T-P3.2 完成** | 新增 `rap_nodes.py` 五类现有机制薄封装、`rap_baselines.py` 的 B-fixed 离线扫描/B-central 情境路由、`rap_mixture.py` 的 STABLE/SHIFTING/NOISY + NODE_DROP/NODE_LAG 环境;新增 13 个确定性测试;**211 测试绿**。下一步 T-P3.3 RAP 协调器+可纠正绑定 | ADR-0014 §7/§T-P3.2 追记 |
+| 2026-06-12 | **T-P3.3 完成** | 新增 `outcome_judge.py`(Ring-0 grounded 判官:realized<baseline×β)、`rap_coordinator.py`(拍卖路由+可纠正绑定+judge 接线+单动作联盟,复用 `action_for_node`);`rap.py` 加 DISSOLVE 上链+每 NEED 单 bond;env 加 `expected_random_regret`/`n_actions`;**outcome 不可由 coordinator 手填**(测试以 env 翻转证 grounding);pause/all-forbidden→零执行、forbidden 双重兜底;押金接地 v0 诚实降级(D1 债务明写)。+21 测试,**232 绿**。下一步 T-P3.4 G4 实验 | ADR-0014 §T-P3.3 追记 |
 
 ## 6. 交接纪律
 
@@ -189,6 +190,12 @@ G2 result:
 - 新增 `src/aac/rap_baselines.py`: `scan_fixed_baseline()` 选 B-fixed 最低 regret 单节点;`CentralBaseline` 按情境路由并保留 NODE_DROP 单点误派风险。
 - 测试:新增 `tests/test_rap_mixture.py` 与 `tests/test_rap_baselines.py` 共 13 个;全量 `211` 绿。
 
-### 接力点:T-P3.3(RAP 协调器 + 可纠正性绑定)
+### T-P3.3 — RAP 协调器 + grounded OutcomeJudge + 可纠正性绑定 — ✅ 已完成
+
+- Ring-0 `OutcomeJudge`:`success ⇔ mean(realized) < mean(baseline)×β`(β=1.0);coordinator 不得手填 outcome。
+- 押金接地 **v0 诚实降级**(ADR-0014 D1):reputation=内部协调币,非 viability 同币种;债务明写,P3.x 再接。
+- 可纠正:pause / all-forbidden → 零执行;forbidden 双重兜底(连 NODE_DROP garbage 也挡);DISSOLVE 上链。
+
+### 接力点:T-P3.4(G4 实验)
 
 照 ADR-0014 §7 任务卡:T-P3.3 RAP 协调器+可纠正绑定 → T-P3.4 G4 实验。每片确定性测试绿方进下一片。

@@ -161,6 +161,29 @@ class TestRAPLifecycle(unittest.TestCase):
         node = _ScriptedNode("world_model_greedy")
         self.assertIsInstance(node, RAPNode)
 
+    def test_dissolve_is_audited(self) -> None:
+        need = _need()
+        node = _ScriptedNode("world_model_greedy")
+        self.field.publish_need(need)
+        self.field.collect_bids(need.need_id, [node])
+        bond = self.field.form_bond(need.need_id, coalition=(node.node_id,))
+        self.field.record_trace(bond.bond_id, {"action": 1, "reward": 0.5})
+        self.field.dissolve(bond.bond_id, outcome="success")
+        last = self.shell.audit.entries()[-1].payload
+        self.assertEqual(last["event"], "rap_dissolve")
+        self.assertEqual(last["outcome"], "success")
+        self.assertEqual(last["bond_id"], bond.bond_id)
+        self.assertTrue(self.shell.audit.verify())
+
+    def test_per_need_single_bond(self) -> None:
+        need = _need()
+        node = _ScriptedNode("world_model_greedy")
+        self.field.publish_need(need)
+        self.field.collect_bids(need.need_id, [node])
+        self.field.form_bond(need.need_id, coalition=(node.node_id,))
+        with self.assertRaises(ValueError):
+            self.field.form_bond(need.need_id, coalition=(node.node_id,))
+
 
 if __name__ == "__main__":
     unittest.main()

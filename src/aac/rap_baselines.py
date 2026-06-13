@@ -37,7 +37,7 @@ class FixedBaseline:
 
     def step(self, env: Any, forbidden: frozenset[int] = frozenset()) -> BaselineStep:
         situation = env.situation()
-        action, dropped, lagged = _action_for_node(
+        action, dropped, lagged = action_for_node(
             node=self.node,
             env=env,
             situation=situation,
@@ -88,7 +88,7 @@ class CentralBaseline:
         situation = env.situation()
         node_id = self.select_node_id(situation)
         node = self.nodes[node_id]
-        action, dropped, lagged = _action_for_node(
+        action, dropped, lagged = action_for_node(
             node=node,
             env=env,
             situation=situation,
@@ -138,7 +138,7 @@ def scan_fixed_baseline(
     return FixedScanResult(node_id=best, mean_regret_by_node=mean_regret_by_node)
 
 
-def _action_for_node(
+def action_for_node(
     *,
     node: DecisionNode,
     env: Any,
@@ -146,6 +146,12 @@ def _action_for_node(
     forbidden: frozenset[int],
     previous_action: int | None,
 ) -> tuple[int, bool, bool]:
+    """Shared execution semantics (drop->garbage, lag->previous, else select).
+
+    Public so the RAP coordinator (C-rap) executes coalition actions through
+    the EXACT same perturbation handling as B-fixed/B-central — fairness of
+    the G4 comparison depends on identical NODE_DROP/NODE_LAG semantics.
+    """
     dropped = bool(hasattr(env, "node_available") and not env.node_available(node.node_id))
     if dropped:
         return int(env.garbage_action()), True, False

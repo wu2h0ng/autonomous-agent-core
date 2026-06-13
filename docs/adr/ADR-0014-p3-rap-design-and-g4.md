@@ -166,3 +166,64 @@ P3 内重设计。
 - 全量:`PYTHONPATH=src python -m unittest discover -s tests -v` → **211 绿**。
 
 下一片:T-P3.3 实现 RAP 协调器(拍卖+押注+清算)与可纠正性绑定。
+
+## T-P3.3 设计追记(2026-06-12,founder 拍板;contract-first,落码前钉死)
+
+### D1 押金接地——v0 诚实降级(债务明写)
+
+- v0 的 `price / escrow / reputation` = **协调层内部信用(reputation escrow)**,**不是**代谢预算、
+  **不是** ViabilityCore 同币种。`stake-first` 在 P3 v0 仅成立为"**可追溯的协调成本代理**"。
+- 真正接 ViabilityCore 留到 P3.x(需新 ADR / 本 ADR 修订)。
+- **作废本 ADR §2 早先"与 ViabilityCore 同币种,可追溯到本质变量"的措辞**(以本节为准)。
+
+### D2 Grounded OutcomeJudge(本片第一优先级)
+
+- 成败由**独立 Ring-0 `OutcomeJudge`**裁定;**协调器路径不得手填 outcome**。
+- 核心量 = `env.last_regret`(judge 侧),对照 = `env.expected_random_regret`
+  (均匀随机动作期望遗憾 = `max(regime) - mean(regime)`;新增为**仅打分**属性)。
+- **判据(预注册,跑前钉死)**:`success ⇔ mean(realized) < mean(baseline) × β`,β=1.0;
+  无 evidence 步 → `failure`(保守)。timing:`baseline` 在 `env.act` **前**读、`realized` 在 **后**读
+  (同一 regime)。
+- **真值隔离**:judge 读真值是判官特权;**节点 `bid`/`select`、coordinator 路由、B-central 一律不得读**
+  `last_regret`/`expected_random_regret`/`regime`/`best_action`。已核:`env.situation()` 不含这些。
+- `RAPField.dissolve()` 仍接收 outcome(场通用性 + 既有场测试不变);coordinator 必须经 judge 产出;
+  judge 均值依据写一条 `verdict` TRACE 上链(grounding 可审计)。
+
+### D3 可纠正性绑定(第二优先级,镜像既有纪律)
+
+- coordinator 驱动 NEED 前查 `shell.paused`:暂停 → 不发 NEED、不成键、不执行(return None)。
+- 全 forbidden(算子等价 pause)→ 同样 return None。
+- 联盟动作过 `shell.forbidden`:用既有 `DecisionNode.select(situation, forbidden)`;coordinator **双重兜底**——
+  若返回仍属 forbidden(如 NODE_DROP 的 garbage_action),override 到确定性合法动作并在 TRACE 标 `override=True`。
+- 确定性测试:pause→零执行零审计零 env 动作;tighten→执行动作永不在 forbidden。
+
+### D4 其余执行要求
+
+- **节点行动接口已存在**(T-P3.2 `DecisionNode.select`);**RAPNode 不变**。
+- 新增 `GridlessSurvival.expected_random_regret`(仅打分)+ `RAPPerturbationEnv` 委托 `expected_random_regret`/`n_actions`。
+- `rap_baselines._action_for_node` → 提升为公有 `action_for_node`;**C-rap 与基线共用同一执行语义**(扰动公平性)。
+- **每 NEED 单 bond**:`form_bond` 拒绝对已有 bond 的 need 二次成键。
+- **DISSOLVE 上 `shell.audit`**(结算影响后续路由,须可审计可 verify)。
+- **路由策略(C-rap 待测机制,也是 D5 怀疑的 staleness 所在)**:winner = argmax `confidence × reputation`
+  (仅在可付押金的 bid 中选;并列按 reputation、node_id)。v0 联盟 = 单 winner。
+
+### D5 G4 预注册诊断假设(**只是假设,不是新门槛**)
+
+> 若 C-rap 未达 G4-1,预期根因 = 声誉/confidence staleness:漂移后原最优节点因声誉/confidence
+> 仍高而续赢标,直到二者追上——与 G1/G2/G3 同一"世界模型重收敛过慢"根因。
+
+T-P3.4 插桩验证;诊断用,不改判定。赢=克服 staleness,输=单根因第四次强收敛证据。
+
+### D6 B-central 公平性
+
+B-central 只可见 `situation + 历史 TRACE/声誉/bid`;**禁读** `regime`/`best_action`/`expected_random_regret`/未来 regret。
+已核 T-P3.2 的 `CentralBaseline` 仅读 `situation()["segment"]`,合规。
+
+### T-P3.3 实现追记(2026-06-12)
+
+已落地:`src/aac/outcome_judge.py`(Ring-0 grounded judge)、`src/aac/rap_coordinator.py`
+(拍卖路由 + 可纠正性绑定 + judge 接线 + 单动作联盟执行,复用 `action_for_node`)、
+`GridlessSurvival.expected_random_regret`、`RAPPerturbationEnv.{expected_random_regret,n_actions}`、
+`rap.py`(DISSOLVE 上链 + 每 NEED 单 bond)、`rap_baselines.action_for_node`(提升公有)。
+测试:`test_outcome_judge.py`、`test_rap_coordinator.py`;`test_rap.py` 扩 DISSOLVE 审计/单 bond。
+B-fixed/B-central 已在 T-P3.2;G4 实验(C-rap vs 双基线,r-final)属 T-P3.4。

@@ -132,6 +132,15 @@ class RAPPerturbationEnv:
         return self._env.best_action
 
     @property
+    def expected_random_regret(self) -> float:
+        """Judge-side baseline (delegated); deciders must not read it."""
+        return self._env.expected_random_regret
+
+    @property
+    def n_actions(self) -> int:
+        return self._env.n_actions
+
+    @property
     def t(self) -> int:
         return self._env.t
 
