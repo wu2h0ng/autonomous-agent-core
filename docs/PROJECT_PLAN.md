@@ -12,7 +12,8 @@
 - 13 个单元测试全绿;主张 3 演示、主张 4 结构成立、主张 1 实现未消融。
 - **主张 2 v0 被证伪**(0/10,诊断:利用错绑饥饿 + bandit 对固定探索过于友好)。
 - founder 已批准三岔路**选项 2**:换硬相关性问题。规格已钉死于 ADR-0002(门 G1 已预注册)。
-- 当前阶段 P3 已跑完 **T-P3.4 G4 r-final**:**NOT MET**。C-rap vs B-fixed = 0/10,G4-2 NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。按 ADR-0014,RAP v0 封存,不调机制重跑。
+- P3 已跑完 **T-P3.4 G4 r-final**:**NOT MET**。C-rap vs B-fixed = 0/10,G4-2 NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。按 ADR-0014,RAP v0 封存,不调机制重跑。
+- **当前阶段 P4(方向已批,contract-first)**:ADR-0015 Decision B 已批准(B1(iii) 触发);ADR-0016 冻结 G5+最小接口+三体消融(O0/O1/O2)。**G5 冻结前不写器官代码**;每卡落码需 founder 对 G5 点头。接力点 = T-P4.1(接口+信念合并钩子,O0 回归)。
 
 ## 2. founder 决策倾向画像(决策时对照;与画像冲突→升级,不得代拍)
 
@@ -93,6 +94,8 @@
 | 2026-06-12 | **T-P3.2 完成** | 新增 `rap_nodes.py` 五类现有机制薄封装、`rap_baselines.py` 的 B-fixed 离线扫描/B-central 情境路由、`rap_mixture.py` 的 STABLE/SHIFTING/NOISY + NODE_DROP/NODE_LAG 环境;新增 13 个确定性测试;**211 测试绿**。下一步 T-P3.3 RAP 协调器+可纠正绑定 | ADR-0014 §7/§T-P3.2 追记 |
 | 2026-06-12 | **T-P3.3 完成** | 新增 `outcome_judge.py`(Ring-0 grounded 判官:realized<baseline×β)、`rap_coordinator.py`(拍卖路由+可纠正绑定+judge 接线+单动作联盟,复用 `action_for_node`);`rap.py` 加 DISSOLVE 上链+每 NEED 单 bond;env 加 `expected_random_regret`/`n_actions`;**outcome 不可由 coordinator 手填**(测试以 env 翻转证 grounding);pause/all-forbidden→零执行、forbidden 双重兜底;押金接地 v0 诚实降级(D1 债务明写)。+21 测试,**232 绿**。下一步 T-P3.4 G4 实验 | ADR-0014 §T-P3.3 追记 |
 | 2026-06-13 | **T-P3.4 G4 r-final** | **G4: NOT MET**。C-rap 平均遗憾 1.674 vs B-fixed 1.257/B-central 1.646;G4-1=0/10,G4-2 recovery=3/10 且 central non-dominated=True,G4-3 tax=False,G4-4 evidence/audit=True。D5 诊断支持:off-segment wins=4143,early stale wins=697,dropped-winner wins=450。按 ADR-0014 §8,RAP v0 **封存**,不调机制重跑。新增 `experiments/rap_g4.py` + 3 个账目测试。 | ADR-0014 §T-P3.4 / RR-0003 |
+| 2026-06-13 | **G4 复现 + P4 方向拍板** | reviewer 独立复跑 rap_g4.py,G4 NOT MET 数字逐位复现(真实)。founder 拍 (a):批准 ADR-0015 Decision B(P4 准入治理生效)+ 进入 P4 设计;P3 结论不动。 | ADR-0015 §B 批准记录 |
+| 2026-06-13 | **T-P4.0 P4 设计 ADR** | ADR-0016:contract-first 冻结 G5 + 最小器官接口(只出 belief_delta/uncertainty/counterfactual_hint,不碰 policy/shell)+ 三体消融(O0/O1 确定性 scaffold/O2 学习型,纯标准库无 LLM)+ G5 四判据(O2<O0、O2<O1、C6 非主体、C7 不削弱)r-final 预承诺。仅文档,无器官代码。**待 founder 对 G5 点头后落 T-P4.1** | ADR-0016 |
 
 ## 6. 交接纪律
 

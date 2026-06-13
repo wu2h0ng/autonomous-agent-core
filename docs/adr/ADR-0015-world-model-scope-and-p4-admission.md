@@ -1,7 +1,12 @@
 # ADR-0015: World-model 范围定义 + P4 准入条件
 
-- Status: **A 部分接受**(范围/实验卫生,ADR-0003 设计权)/ **B 提案待 founder 批准**(P4 准入触碰保留事项)
-- Date: 2026-06-12
+- Status: **A 接受**(范围/实验卫生,ADR-0003 设计权)/ **B 接受**(founder 批准 2026-06-13,见下)
+- Date: 2026-06-12(B 批准 2026-06-13)
+- **Decision B 批准记录(founder,2026-06-13)**:B1(iii) 已被 G4 干净触发——`G4 NOT MET`
+  + D5 staleness 诊断确认(off-segment wins=4143 / early-stale 697 / dropped-winner 450,r-final 复现)。
+  Decision B(B1–B4)即日**生效为 P4 准入治理条件**。门的用意不是救 RAP,而是把问题收窄到:
+  richer priors / 学习型 world-model 能否解决"重收敛太慢"。P4 启动方向已批,但**先 contract-first
+  冻结 G5,再落器官代码**(见 ADR-0016)。
 - 触发: 研究复盘(world-model 路线定位)+ 三连败模式(G1/G2/G3)+ P3 进行中,需在 T-P3.4/P4 之前钉死边界,防 scope creep 与 G4 误读。
 
 ## Context
