@@ -111,7 +111,7 @@ def _run_variant(
         env.pay_attention(len(attended), viability)
 
         # -- observe attended cues ----------------------------------------
-        observed = env.observe(attended)
+        env.observe(attended)
 
         # -- action selection ---------------------------------------------
         policy.forbidden = shell.forbidden

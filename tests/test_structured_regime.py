@@ -73,7 +73,6 @@ class TestRegimeLibraryOrgan(unittest.TestCase):
         self.assertGreater(injected.belief_delta[0], 3.0)
 
     def test_advice_is_belief_only_no_control_surface(self) -> None:
-        organ = RegimeLibraryOrgan()
         adv = OrganAdvice()
         for f in ("action", "policy", "shell", "forbidden"):
             self.assertFalse(hasattr(adv, f))

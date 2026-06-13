@@ -9,7 +9,6 @@ ADR-0006: shell-hardness-levels
 """
 from __future__ import annotations
 
-import copy
 import random
 import unittest
 

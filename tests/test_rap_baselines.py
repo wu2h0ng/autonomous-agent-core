@@ -5,7 +5,7 @@ import random
 import unittest
 from typing import Any, Mapping
 
-from aac.rap import Bid, Need, NeedConstraints, RAPNode
+from aac.rap import Bid, Need, RAPNode
 from aac.rap_baselines import CentralBaseline, scan_fixed_baseline
 from aac.rap_nodes import (
     RandomNode,

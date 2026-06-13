@@ -16,7 +16,7 @@ coordination-cost proxy.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from .outcome_judge import OutcomeJudge
 from .rap import Need, NeedConstraints, RAPField
@@ -165,7 +165,7 @@ class RAPCoordinator:
                 "mean_baseline": round(verdict.mean_baseline, 4),
             },
         )
-        dissolved = self.field.dissolve(bond.bond_id, outcome=verdict.outcome)
+        self.field.dissolve(bond.bond_id, outcome=verdict.outcome)
 
         return {
             "need_id": need.need_id,

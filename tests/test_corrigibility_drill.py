@@ -159,7 +159,7 @@ class TestCorrigibilityDrill(unittest.TestCase):
                 shell.op_snapshot(label, agent.state())
                 interventions.append(f"snapshot({label})")
 
-            result = agent.step(env)
+            agent.step(env)
 
         # Audit log should contain all interventions
         audit_events = [
@@ -188,7 +188,6 @@ class TestCorrigibilityDrill(unittest.TestCase):
         - Agent somehow unpaused itself
         """
         agent, shell, env = self._setup(4)
-        rng = random.Random(46)
 
         # Phase 1: normal execution
         for _ in range(20):
