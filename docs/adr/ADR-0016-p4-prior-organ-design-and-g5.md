@@ -162,3 +162,34 @@ fast/slow epoch 才偏离**。G5-2(O2<O1)因此干净地只测"按 hazard 自适
 13 测试(τ̂ 追踪 fast/slow、reset_strength/spike_k 自适应方向、平均 hazard 退化为 O1、联合重置、确定性、
 可纠正回归)。**275 测试绿**。本片**未建 G5 gate 实验、未跑 G5 verdict、未冻结 O2 常数、无 LLM/依赖/花钱**。
 下一片 **T-P4.4**:O2 calibration 冻结 + `experiments/prior_organ_g5.py`(O0/O1/O2,r-final)+ C6/C7 守卫测试(需 founder 点头)。
+
+## T-P4.4 G5 r-final 结果(2026-06-13)
+
+**G5: NOT MET**(G5-2 0/10)。诚实负结果,未调机制/未挪判据。
+
+O2 calibration(`o2_calibration.py`,种子 200–204):tau_lambda ∈ {0.15,0.3,0.45} → 冻结 **0.15**(area 1172.96;
+注:O2 最佳 1172.96 已 > O1 冻结 1133.83,calibration 即预示 G5-2 不达)。
+
+r-final(`prior_organ_g5.py`,种子 0–9,1500 步,window 15;O0/O1/O2 共享同一主体,同一度量):
+
+| 指标 | O0 | O1(确定性) | O2(学习型) |
+|---|---|---|---|
+| 平均 post-shift regret area | 1189.84 | **1134.77** | 1169.77 |
+
+| 判据 | 结果 |
+|---|---|
+| G5-1 O2<O0(器官增益为真) | **8/10 ✓** |
+| G5-2 O2<O1(学习必要性) | **0/10 ✗** |
+| G5-3 器官非主体(C6) | tests 绿(`test_g5_guards.py`) |
+| G5-4 可纠正不削弱(C7) | tests 绿(三臂 pause/tighten 零越界) |
+
+**处置(ADR-0016 §5 预先承诺,ADR-0003 设计权内执行)**:
+- **G5-2 未达 → "更快重置足矣,学习先验非必要";O2 降级/封存**(不重设计,需新 founder 级 ADR);
+  **保留 O1 确定性 scaffold 作为 P4 的器官结论**。
+- 旁注:器官**槽**有用——O1 10/10 胜 O0,O2 8/10 胜 O0。即"廉价结构(快重置)真的缩短了重收敛",
+  但**学习型结构(hazard 自适应)打不过廉价结构**。这是 G1–G4 苦涩教训模式的**第 5 次出现,且更锋利**:
+  不是"结构无用",而是"学习不比廉价结构更值"。
+- C6/C7 全程未削弱(主张3/4 在 P4 下仍立)。
+
+**282 测试绿**。本片新增 `o2_calibration.py`/`prior_organ_g5.py`/`test_g5_guards.py`;冻结 O2 tau_lambda=0.15;
+无 LLM/依赖/花钱。**P4 v0 收束;后续路线(成果整理 / P4.x LLM 器官 / 其他)= founder 决策。**

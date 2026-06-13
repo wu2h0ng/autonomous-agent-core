@@ -96,6 +96,7 @@
 | 2026-06-13 | **T-P3.4 G4 r-final** | **G4: NOT MET**。C-rap 平均遗憾 1.674 vs B-fixed 1.257/B-central 1.646;G4-1=0/10,G4-2 recovery=3/10 且 central non-dominated=True,G4-3 tax=False,G4-4 evidence/audit=True。D5 诊断支持:off-segment wins=4143,early stale wins=697,dropped-winner wins=450。按 ADR-0014 §8,RAP v0 **封存**,不调机制重跑。新增 `experiments/rap_g4.py` + 3 个账目测试。 | ADR-0014 §T-P3.4 / RR-0003 |
 | 2026-06-13 | **G4 复现 + P4 方向拍板** | reviewer 独立复跑 rap_g4.py,G4 NOT MET 数字逐位复现(真实)。founder 拍 (a):批准 ADR-0015 Decision B(P4 准入治理生效)+ 进入 P4 设计;P3 结论不动。 | ADR-0015 §B 批准记录 |
 | 2026-06-13 | **T-P4.0 P4 设计 ADR** | ADR-0016:contract-first 冻结 G5 + 最小器官接口(只出 belief_delta/uncertainty/counterfactual_hint,不碰 policy/shell)+ 三体消融(O0/O1 确定性 scaffold/O2 学习型,纯标准库无 LLM)+ G5 四判据(O2<O0、O2<O1、C6 非主体、C7 不削弱)r-final 预承诺。仅文档,无器官代码。**待 founder 对 G5 点头后落 T-P4.1** | ADR-0016 |
+| 2026-06-13 | **T-P4.1–4.4 完成(P4 收束)** | T-P4.1 接口+O0 钩子;T-P4.1.1 epistemic 通道;T-P4.2 O1 reset-scaffold(calibration 冻结{1.5,0.5,0.6});T-P4.3 O2 hazard 自适应(tau_lambda=0.15);T-P4.4 **G5 r-final NOT MET**(O0 1189.84/O1 1134.77/O2 1169.77;G5-1 8/10✓,**G5-2 0/10✗**,C6/C7 守卫绿)。**结论:更快重置足矣,学习先验非必要;O2 封存,保留 O1。第5次苦涩教训(更锋利)**。**282 测试绿** | ADR-0016 §T-P4.4 / RR-0003 |
 | 2026-06-13 | **T-P4.1 完成** | 新增 `prior_organ.py` 的 `PriorOrgan/OrganAdvice/BeliefSnapshot/merge_organ_advice`;`Agent` 增 `prior_organ=None` O0 槽位,建议只在正常 policy 分支前合并进 belief。O0 默认与显式 None 逐记录一致;pause 不调用 organ;tighten 阻断 boosted forbidden;prior 模块不 import policy/shell。新增 8 个守卫测试,全量 **243 绿**。未实现 O1/O2,未跑 G5。 | ADR-0016 §T-P4.1 |
 
 ## 6. 交接纪律

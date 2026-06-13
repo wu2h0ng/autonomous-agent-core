@@ -38,7 +38,8 @@ class AdaptiveHazardOrgan:
     warmup: int = 20
     # hazard estimate
     tau_init: float = 60.0
-    tau_lambda: float = 0.3
+    # FROZEN via experiments/o2_calibration.py (2026-06-13; seeds 200-204).
+    tau_lambda: float = 0.15
     # reset_strength = clip(rs_c / tau_hat): at tau_hat=60 -> 0.5 (== O1 frozen)
     rs_c: float = 30.0
     rs_min: float = 0.3

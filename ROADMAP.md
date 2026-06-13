@@ -57,7 +57,14 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - 处置:按 ADR-0014 §8,RAP v0 **封存**(keep static wiring),不调机制重跑。G1/G2/G3 的"定向机制打不过廉价基线"扩展为第四次:本尺度下去中心协调也未赢过强固定流水线。
 - 接力:P4 已按 ADR-0015/0016 启动 contract-first 路线;RAP 仍封存。
 
-## P4 先验器官接入 — ◀ 当前(T-P4.1 已完成,下一片 T-P4.2)
+## P4 先验器官接入 — ✅ 已完成(G5 NOT MET:更快重置足矣,学习先验非必要)
+
+- **G5 r-final 结果(T-P4.4,2026-06-13)**:O0 1189.84 / O1 1134.77 / O2 1169.77。
+  G5-1 O2<O0 **8/10 ✓**(器官槽有用);**G5-2 O2<O1 0/10 ✗**(学习不比廉价重置更值);
+  G5-3/G5-4 守卫测试绿(C6/C7 未削弱)。**G5 NOT MET**。
+- **处置**:O2 封存(需新 founder ADR),**保留 O1 确定性 reset-scaffold 为 P4 器官结论**。
+  第 5 次苦涩教训(更锋利):廉价结构有用,学习型结构打不过廉价结构。后续路线=founder 决策。
+
 
 - **触发**:ADR-0015 Decision B 已批准(B1(iii):G4 NOT MET + D5 staleness 确认)。问题收窄为:
   richer 学习型 world-model 器官能否解决"重收敛太慢"。

@@ -55,7 +55,9 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
-| `tests/` | **275** 确定性机制测试(…/G4 账目/P4 prior-organ 接口守卫/epistemic 通道/O1 reset-scaffold/staleness 非平稳环境/**O2 hazard 自适应+可纠正**) | `test_*.py` |
+| `experiments/o1_calibration.py` `experiments/o2_calibration.py` | O1/O2 参数在不相交种子(200-204)上 calibration 冻结;O1={1.5,0.5,0.6}(1133.83),O2 tau_lambda=0.15(1172.96>O1) | `main()` |
+| `experiments/prior_organ_g5.py` | **G5 门测(T-P4.4,r-final)**:O0/O1/O2 共享主体同度量;**NOT MET**(G5-1 O2<O0 8/10,**G5-2 O2<O1 0/10**);O2 封存、保留 O1 | `_post_shift_area()` `main()` |
+| `tests/` | **282** 确定性机制测试(…/O1 reset-scaffold/staleness 非平稳环境/O2 hazard 自适应+可纠正/**G5 守卫 C6+C7**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 
