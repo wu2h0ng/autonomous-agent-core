@@ -140,3 +140,25 @@ mu_decay 0.6}**,area = **1133.83**(优于 O0 约 4.8%)。增益温和——这�
 超过这 ~5% 才算"学习型先验必要"(G5-2)。冻结参数已写入 `ResetScaffoldOrgan` 默认值,跑 G5 后不再调。
 
 **262 测试绿**。本片未实现 O2、未建 G5 gate 实验、未跑 G5 verdict、无 LLM/依赖/花钱。下一片 T-P4.3 O2(需 founder 点头)。
+
+## T-P4.3 O2 实现追记(2026-06-13,memo §3)
+
+`AdaptiveHazardOrgan`(`prior_organ_o2.py`)。与 O1 **同形**(spike→联合重置:mu 衰减 + uncertainty 复位向先验),
+唯一差别:`reset_strength` 与 `spike_k` 随**在线估计的切换 hazard τ̂**(已检测 inter-shift 间隔的 EMA)自适应:
+
+- τ̂ 小(频繁)→ `reset_strength=clip(rs_c/τ̂)` 大、`spike_k` 小(激进 + 敏感);
+- τ̂ 大(稀疏)→ reset_strength 小、spike_k 大(保守,不把噪声当 shift)。
+
+**有意的设计性质(隔离"自适应"本身的价值)**:常数取 `rs_c=30, k_ref_tau=60`,使 τ̂≈60(平均 hazard)时
+`reset_strength≈0.5`、`spike_k≈1.5` —— **正好等于 O1 的冻结值**。故 O2 在平均 hazard 处退化为 O1,**只在
+fast/slow epoch 才偏离**。G5-2(O2<O1)因此干净地只测"按 hazard 自适应"是否有净增益。
+
+**取舍**:v0 O2 **去掉了 memo §3 的 recovery 爬山项**(那是次要项,且从 belief 推断 recovery 时长不干净),
+只保留 hazard→reset 的核心。recovery 反馈留作 O2.x 可能细化。
+
+**纪律**:O2 常数为设计预设,**必须在 G5 r-final 前用不相交种子 calibration 冻结**(T-P4.4,镜像 O1),
+跑 G5 后不调。belief-only、不 import policy/shell;advice 无 action/policy/shell 面;pause/tighten 回归测试通过。
+
+13 测试(τ̂ 追踪 fast/slow、reset_strength/spike_k 自适应方向、平均 hazard 退化为 O1、联合重置、确定性、
+可纠正回归)。**275 测试绿**。本片**未建 G5 gate 实验、未跑 G5 verdict、未冻结 O2 常数、无 LLM/依赖/花钱**。
+下一片 **T-P4.4**:O2 calibration 冻结 + `experiments/prior_organ_g5.py`(O0/O1/O2,r-final)+ C6/C7 守卫测试(需 founder 点头)。

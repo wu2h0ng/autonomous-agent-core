@@ -25,6 +25,7 @@
 | `src/aac/world_model.py` | 行动→奖励信念+不确定性(认识钩子) | `ActionOutcomeModel(.update→surprise/.best_action)` |
 | `src/aac/prior_organ.py` | **P4 先验器官接口(T-P4.1,ADR-0016)**:器官只读 situation + belief snapshot,只返回 `belief_delta/uncertainty/counterfactual_hint`;**T-P4.1.1 加 `uncertainty_delta` epistemic 通道**(merge 改 mu+uncertainty,钳零);模块不 import policy/shell | `PriorOrgan` `OrganAdvice` `BeliefSnapshot` `merge_organ_advice()` |
 | `src/aac/prior_organ_o1.py` | **O1 确定性 reset-scaffold(T-P4.2,ADR-0016)**:surprise 尖峰→联合 belief 重置(mu 衰减+uncertainty 复位向先验);**uncertainty 单用是 softmax no-op,故必联合**;参数 calibration 冻结{1.5,0.5,0.6};不 import policy/shell | `ResetScaffoldOrgan(.advise/.reset)` |
+| `src/aac/prior_organ_o2.py` | **O2 自适应 hazard estimator(T-P4.3,memo §3)**:与 O1 同形,reset_strength/spike_k 随 τ̂(inter-shift 间隔 EMA)自适应;频繁→激进、稀疏→保守;**τ̂≈60 退化为 O1 冻结值**(隔离自适应价值);常数待 T-P4.4 calibration 冻结;不 import policy/shell | `AdaptiveHazardOrgan(.advise/.tau_hat/.reset)` |
 | `src/envs/staleness.py` | **staleness-only 非平稳 hazard 环境(T-P4.2/G5)**:FAST/SLOW epoch 交替漂移(否则 G5-2 假阴);无线索/无节点;暴露 last_regret/best_action/just_shifted/expected_random_regret | `StalenessEnv(.act/.situation)` |
 | `experiments/o1_calibration.py` | O1 参数扫描(不相交种子 200-204)→ 选冻结{1.5,0.5,0.6},area 1133.83 vs O0 1191.53(+4.8%),8 组全胜 O0 | `post_shift_regret_area()` `main()` |
 | `src/aac/relevance.py` | 相关性场 v0(对立过程;**已被 G0 证伪,AttentionField 取代**) | `RelevanceField(.update→explore_drive)` |
@@ -54,7 +55,7 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
-| `tests/` | **262** 确定性机制测试(…/G4 账目/P4 prior-organ 接口守卫/**epistemic 通道/O1 reset-scaffold 机制+可纠正/staleness 非平稳环境**) | `test_*.py` |
+| `tests/` | **275** 确定性机制测试(…/G4 账目/P4 prior-organ 接口守卫/epistemic 通道/O1 reset-scaffold/staleness 非平稳环境/**O2 hazard 自适应+可纠正**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 
