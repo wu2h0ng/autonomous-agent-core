@@ -58,10 +58,13 @@
 | `src/aac/prior_organ_llm.py` | **LLM 器官脚手架(G6b,ADR-0019)**:LLM 输出**不可信**,strict parser 只收 belief_delta/uncertainty、丢弃 action/policy/shell;含 `DeterministicStubBackend`(离线零花钱);真实 adapter+key/budget 待 founder | `LLMPriorOrgan` `LLMBackend` `DeterministicStubBackend` |
 | `src/aac/prior_organ_library.py` | **O2 结构利用型器官(T-P4.x.2,ADR-0017)**:从观测学 regime 原型,漂移后识别复现 regime→注入已知值;belief-only,不碰 policy/shell;冻结{0.5,0.85} | `RegimeLibraryOrgan(.advise/.reset)` |
 | `src/envs/structured_regime.py` | **有结构环境(T-P4.x.1)**:K 个复现隐 regime 库=可迁移结构;situation 暴露 last obs | `StructuredRegimeEnv(.act/.situation)` |
+| `src/envs/semantic_regime.py` | **语义环境(G6b 前提,ADR-0019)**:regime=语义类别;动作带文字标签,最优=标签属当前类别者;每漂移重随机标签↔位置→数字/位置学习无效,唯读懂词义者零样本命中 | `SemanticRegimeEnv` `TAXONOMY` |
+| `src/aac/semantic_oracle.py` | **离线语义 LLM 替身(ADR-0019 §4b,零花钱)**:自带完美词知识从 prompt 读标签;**上界 de-risk,非 G6b 结论**;输出经同一 untrusted parser | `SemanticOracleBackend(.propose)` |
+| `experiments/semantic_g6b_offline.py` | **G6b 离线 de-risk(无 LLM)**:O0/O1/O2(数字)vs O3(语义 oracle)在语义环境;**环境 semantic-exploitable=YES**(O3 916 vs ~1910-1960,O3<O0/O2 各 10/10)→ 真实 LLM 值得跑;付费 r-final 待 founder key/budget | `main()` |
 | `experiments/structured_g6a.py` | **G6a 门测(r-final,无 LLM)**:O0/O1/O2 在结构环境;**MET**(O2<O0 10/10,O2<O1 9/10)→ 学习型先验在有结构时胜廉价重置;触发 G6b(LLM)升级 founder | `calibrate()/gate()` |
 | `experiments/o1_calibration.py` `experiments/o2_calibration.py` | O1/O2 参数在不相交种子(200-204)上 calibration 冻结;O1={1.5,0.5,0.6}(1133.83),O2 tau_lambda=0.15(1172.96>O1) | `main()` |
 | `experiments/prior_organ_g5.py` | **G5 门测(T-P4.4,r-final)**:O0/O1/O2 共享主体同度量;**NOT MET**(G5-1 O2<O0 8/10,**G5-2 O2<O1 0/10**);O2 封存、保留 O1 | `_post_shift_area()` `main()` |
-| `tests/` | **299** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/**结构环境+regime-library 器官+G6a 守卫/**LLM 器官不可信解析守卫**) | `test_*.py` |
+| `tests/` | **309** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/结构环境+regime-library 器官+G6a 守卫/LLM 器官不可信解析守卫/**语义环境+oracle 零样本+C6/C7**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 

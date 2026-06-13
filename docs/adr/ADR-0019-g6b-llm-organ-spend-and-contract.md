@@ -41,11 +41,32 @@ G6b-C6/C7 LLM 器官仅 belief-only(确定性测试:恶意响应被中和);pause
 action/pause/forbidden 一律被中和,只剩 belief 微调**;不 import policy/shell;pause/tighten 回归通过。
 **未引入真实 LLM、依赖、网络、花钱。**
 
+## 4b. 前提-1 已就位 + 离线 de-risk(2026-06-13,founder "你先建语义环境")
+
+**语义环境已建并验证可被语义知识利用——付费前先证它值得跑。**
+
+- `src/envs/semantic_regime.py`:`SemanticRegimeEnv`。每个 regime = 一个语义类别
+  (bird/vehicle/fruit/tool/fish);动作带**文字标签**;最优 = 标签属当前类别的那个。**每次漂移
+  重随机标签↔位置**,故 position/recurrence 不携带信号——数字/位置学习器只能逐 regime 试错重学,
+  唯有**读懂词义**(sparrow∈bird)的器官能零样本命中。这正是 LLM 预训练知识该发力、数字学习器发不了力处。
+- `src/aac/semantic_oracle.py`:`SemanticOracleBackend` = **离线零花钱的语义 LLM 替身**(自带完美词知识=
+  同一 TAXONOMY,从 prompt 读标签,与真 LLM 同路径)。它是**上界**("若器官懂词,环境会不会奖励它"),
+  **不是 G6b 结论**;其输出经**同一 untrusted strict parser**,权限不高于任何 backend。
+- `experiments/semantic_g6b_offline.py` 结果(seeds 0-9,steps 2000,post-shift regret area,越低越好):
+  **O0 1960.0 / O1 1948.0 / O2 1910.0 / O3(oracle) 916.4**;**O3<O0 10/10、O3<O2 10/10**。
+  三个数字器官(O0/O1/O2)互相难分=**确认数字/位置学习在此环境无效**;语义器官腰斩 regret。
+  **结论:环境确为 semantic-exploitable → 真实 LLM 运行值得做。**(残余 ~30% regret = 策略探索,各臂共有,公平。)
+- 仍**未**调用/未花钱/未引依赖;`ruff check` + 309 测试绿(新增 `tests/test_semantic_regime.py`)。
+- **判据边界(诚实):** oracle 是完美知识上界,证的是"环境奖励语义",**不是**"真 LLM 的实际知识够用"——
+  后者正是 §3 前提-2 的付费 r-final。oracle 不可冒充 LLM 结论。
+
 ## 5. 待 founder(保留事项)
 
-- **是否现在花钱跑 G6b**:我的诚实建议——**先建语义环境**(本身是一块实在的工作),否则在数字环境上
-  跑 LLM 是浪费。语义环境就位 + 你给 key/budget 后,真实运行只差接一个 backend adapter(几十行)。
+- **前提-1(语义环境)已就位**(§4b),且离线已证它 semantic-exploitable。**现在只差前提-2:你给
+  key + budget cap**,真实运行只剩接一个 backend adapter(实现 `LLMBackend.propose`,pin 模型+temp0+缓存,
+  几十行)替换 `SemanticOracleBackend`,跑 §3 的 r-final 门。
 - key/budget/选型(provider+model snapshot)由你定;本仓不碰你的钱与密钥。
+- 我的诚实建议:跑前确认 budget cap 与缓存就绪(确定性可复现);oracle 已表明环境奖励语义,值得这次花钱。
 
 ## 6. NOT MET 处置(预承诺)
 

@@ -61,11 +61,21 @@ class LLMPriorOrgan:
     max_abs_delta: float = 10.0  # clamp; a runaway LLM cannot blow up the belief
 
     def _prompt(self, situation: Mapping[str, Any], belief: BeliefSnapshot) -> str:
-        # A real adapter would render a semantic description; the stub ignores it.
-        return (
-            f"situation={dict(situation)} mu={belief.mu} "
-            f"uncertainty={belief.uncertainty} last_surprise={belief.last_surprise}"
-        )
+        # Render a parseable prompt. Semantic envs expose a category cue + word
+        # labels; a real LLM reads the same string an offline oracle parses. This
+        # method reads situation keys generically and imports no env.
+        parts: list[str] = []
+        cue = situation.get("category_cue")
+        labels = situation.get("action_labels")
+        if cue is not None and isinstance(labels, (list, tuple)):
+            parts.append(f"category={cue}")
+            parts.append("actions=" + " ".join(f"{i}:{lab}" for i, lab in enumerate(labels)))
+        else:
+            parts.append(f"situation={dict(situation)}")
+        parts.append(f"mu={tuple(belief.mu)}")
+        parts.append(f"uncertainty={tuple(belief.uncertainty)}")
+        parts.append(f"last_surprise={belief.last_surprise}")
+        return " | ".join(parts)
 
     def advise(
         self, situation: Mapping[str, Any], belief_readonly: BeliefSnapshot
