@@ -79,7 +79,17 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
   belief merge hook;O0 回归和 C6/C7 守卫测试通过。
 - **下一片**:T-P4.2 O1 确定性 scaffold(surprise→更快重置/抬不确定度);不实现 O2、不跑 G5。
 
-## P5 降级投影试点 — 跨仓,双侧 ADR
+## P4.x richer prior + LLM 器官 + 语义丰富环境 — Proposed(ADR-0017,需 founder 批)
 
-- 验证"企业 OS = 通用核 + autonomy→0 + 域包":在企业仓影子环境复演其 Trusted Loop 行为。
-- 出口 = RR-0004 §5 支撑关系闭环;此前企业仓照常独立演进。
+- 命题重写:不是"LLM 更聪明",是"有可迁移结构的环境里,richer prior 是否终于胜廉价重置"。
+- 分阶段挡花钱:T-P4.x.1 结构环境 → **G6a**(O2 学习型胜廉价,无 LLM 不花钱);G6a MET 才上 **G6b**(LLM 器官,需 spend/dependency ADR)。
+- LLM 以 world-model recovery / transition-consistency 评判,非自然语言说服力;C6/C7 不削弱。
+
+## P5 部署投影:收割已验证基底进企业 OS — Proposed(ADR-0018,跨仓+founder)
+
+- 收割**已验证**的(主张 1/3/4),不收割已封存机制。三映射:主张4 器官非主体(既成→形式化)、
+  主张3 可纠正(移植硬化罩:能力视图/哈希链审计/主权三分/演练)、主张1 利害(=不可绕过强制中介:
+  正式答复必过 SQL Safety+EvidenceChain 升格为旁路即失败的不变量)。
+- 验收 P5-1/2/3(企业域影子场景);**前置**:先分离企业仓 feedback 自写放水通道(RR-0002)。
+- 与 P4.x 正交可并行:P5 收割"已立住的",不依赖 P4.x 结果。
+- 边界:enterprise 仓需自己的 ADR/AR + founder 批;不跨仓 import(RR-0004 §4),模式移植非代码搬运。
