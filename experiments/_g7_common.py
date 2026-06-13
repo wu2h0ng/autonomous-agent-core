@@ -94,14 +94,30 @@ def wilcoxon_one_sided(ds: list[float]) -> float:
     if n == 0:
         return 1.0
 
-    abs_ds = sorted([abs(d) for d in nz])
-    ranks = list(range(1, n + 1))
+    # Rank absolute differences and assign average ranks for ties. Ranks can
+    # be half-integers, so store doubled ranks as integers for exact DP.
+    ranked = sorted((abs(d), d > 0.0) for d in nz)
+    rank2_by_sorted_index = [0] * n
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and ranked[j][0] == ranked[i][0]:
+            j += 1
+        # 1-based ranks i+1..j; doubled average rank = (i+1)+j.
+        rank2 = (i + 1) + j
+        for t in range(i, j):
+            rank2_by_sorted_index[t] = rank2
+        i = j
 
-    w_obs = sum(r for r, d in zip(ranks, nz) if d > 0)
+    w_obs = sum(
+        rank2_by_sorted_index[i]
+        for i, (_, is_positive) in enumerate(ranked)
+        if is_positive
+    )
 
-    # DP: count subsets of {1..n} with given sum
+    # DP: count sign-flip subsets by doubled signed-rank sum.
     dp: dict[int, int] = {0: 1}
-    for r in range(1, n + 1):
+    for r in rank2_by_sorted_index:
         new_dp: dict[int, int] = {}
         for s, c in dp.items():
             new_dp[s] = new_dp.get(s, 0) + c

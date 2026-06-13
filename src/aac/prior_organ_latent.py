@@ -81,6 +81,8 @@ class LatentRegimeOrgan:
 
     _prototypes: list[list[float]] = field(default_factory=list)
     _proto_counts: list[int] = field(default_factory=list)
+    _proto_known: list[list[bool]] = field(default_factory=list)
+    _proto_action_counts: list[list[int]] = field(default_factory=list)
 
     _obs_sum: dict[int, float] = field(default_factory=dict)
     _obs_cnt: dict[int, int] = field(default_factory=dict)
@@ -109,8 +111,12 @@ class LatentRegimeOrgan:
     def _append_prototype(self, vec: dict[int, float], n_actions: int) -> None:
         mean_r = sum(vec.values()) / max(1, len(vec))
         full = [vec.get(a, mean_r) for a in range(n_actions)]
+        known = [a in vec for a in range(n_actions)]
+        action_counts = [1 if known[a] else 0 for a in range(n_actions)]
         self._prototypes.append(full)
         self._proto_counts.append(1)
+        self._proto_known.append(known)
+        self._proto_action_counts.append(action_counts)
 
     def _reset_posterior(self, departed_index: int | None) -> None:
         n = len(self._prototypes)
@@ -133,27 +139,41 @@ class LatentRegimeOrgan:
     def _update_likelihood(self, action: int, reward: float) -> None:
         if not self._log_post:
             return
-        inv = 1.0 / (self.sigma ** 2)
         for k, proto in enumerate(self._prototypes):
+            sigma = self.sigma if self._proto_known[k][action] else self.unknown_sigma
+            inv = 1.0 / (sigma ** 2)
             diff = reward - proto[action]
             self._log_post[k] += -0.5 * diff * diff * inv
         self._normalise_posterior()
 
-    def _posterior_mean_reward(self, n_actions: int) -> list[float]:
+    def _posterior_mean_reward(self, n_actions: int) -> tuple[list[float], list[float]]:
         if not self._prototypes:
-            return [0.0] * n_actions
+            return [0.0] * n_actions, [0.0] * n_actions
         w = _softmax_weights(self._log_post)
-        return [
-            sum(w[k] * self._prototypes[k][a]
-                for k in range(len(self._prototypes)))
-            for a in range(n_actions)
-        ]
+        means: list[float] = []
+        known_mass: list[float] = []
+        for a in range(n_actions):
+            mass = sum(
+                w[k] for k in range(len(self._prototypes))
+                if self._proto_known[k][a]
+            )
+            known_mass.append(mass)
+            if mass <= 0.0:
+                means.append(0.0)
+            else:
+                means.append(
+                    sum(
+                        w[k] * self._prototypes[k][a]
+                        for k in range(len(self._prototypes))
+                        if self._proto_known[k][a]
+                    ) / mass
+                )
+        return means, known_mass
 
     def _confidence(self) -> float:
-        if len(self._log_post) < 2:
-            return 1.0 if self._log_post else 0.0
-        sorted_lp = sorted(self._log_post, reverse=True)
-        return min(1.0, max(0.0, sorted_lp[0] - sorted_lp[1]))
+        if not self._log_post:
+            return 0.0
+        return max(_softmax_weights(self._log_post))
 
     def _disagreement(self, n_actions: int) -> list[float]:
         if not self._prototypes:
@@ -161,10 +181,17 @@ class LatentRegimeOrgan:
         w = _softmax_weights(self._log_post)
         result = []
         for a in range(n_actions):
-            mean = sum(w[k] * self._prototypes[k][a]
-                       for k in range(len(self._prototypes)))
-            var = sum(w[k] * (self._prototypes[k][a] - mean) ** 2
-                      for k in range(len(self._prototypes)))
+            known = [k for k in range(len(self._prototypes))
+                     if self._proto_known[k][a]]
+            mass = sum(w[k] for k in known)
+            if len(known) < 2 or mass <= 0.0:
+                result.append(0.0)
+                continue
+            mean = sum(w[k] * self._prototypes[k][a] for k in known) / mass
+            var = sum(
+                (w[k] / mass) * (self._prototypes[k][a] - mean) ** 2
+                for k in known
+            )
             result.append(var ** 0.5)
         return result
 
@@ -182,11 +209,14 @@ class LatentRegimeOrgan:
             if d < best_d:
                 best_i, best_d = i, d
         if best_i >= 0 and best_d < self.merge_threshold:
-            c = self._proto_counts[best_i]
             proto = self._prototypes[best_i]
+            action_counts = self._proto_action_counts[best_i]
             for a in vec:
+                c = action_counts[a]
                 proto[a] = (proto[a] * c + vec[a]) / (c + 1)
-            self._proto_counts[best_i] = c + 1
+                action_counts[a] = c + 1
+                self._proto_known[best_i][a] = True
+            self._proto_counts[best_i] += 1
             return best_i
         self._append_prototype(vec, n_actions)
         return len(self._prototypes) - 1
@@ -251,14 +281,14 @@ class LatentRegimeOrgan:
             return OrganAdvice()
 
         self._last_confidence = self._confidence()
-        pmr = self._posterior_mean_reward(n)
+        pmr, known_mass = self._posterior_mean_reward(n)
 
         best_k = max(range(len(self._log_post)), key=lambda k: self._log_post[k])
         self._last_best_proto = best_k
 
         belief_delta: dict[int, float] = {}
         for a in range(n):
-            raw = pmr[a] - belief_readonly.mu[a]
+            raw = (pmr[a] - belief_readonly.mu[a]) * known_mass[a]
             clamped = max(-self.max_belief_delta, min(self.max_belief_delta, raw))
             belief_delta[a] = clamped
 
@@ -298,6 +328,7 @@ class LatentRegimeOrgan:
         self._mean = self._mean_sq = 0.0
         self._seen = 0
         self._prototypes, self._proto_counts = [], []
+        self._proto_known, self._proto_action_counts = [], []
         self._obs_sum, self._obs_cnt = {}, {}
         self._since_shift = 10_000
         self._log_post = []
