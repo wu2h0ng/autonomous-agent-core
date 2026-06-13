@@ -12,7 +12,7 @@
 | `docs/PROJECT_PLAN.md` | 接力主文档:任务卡(目标/约束/边界/验收)、founder 决策倾向、授权边界 |
 | `ROADMAP.md` | P0–P5 阶段与预注册门 |
 | `ENGINEERING.md` | 技术栈、规范、实验纪律、边界控制 |
-| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死并完成(T-P3.0-T-P3.4;G4 NOT MET,RAP 封存)**;0015 world-model 范围定义(接受)+ P4 准入条件(**B 已批准 2026-06-13,B1(iii) 触发**);0016 P4 先验器官设计+G5(**G5 NOT MET:学习先验不胜廉价重置,O2 封存保留 O1**);**0017 P4.x richer prior+LLM 器官+语义丰富环境(Proposed,G6a/G6b 分阶段,LLM 花钱挡在 G6a 后,需 founder 批)**;**0019 G6b LLM 器官契约(离线脚手架已落,真实运行待 founder key/budget+语义环境);0018 P5 部署投影(Proposed,把已验证主张1/3/4 投影进企业 OS:不可绕过中介/硬化可纠正/器官非主体,跨仓需双侧 ADR+founder 批)** |
+| `docs/adr/` | 0001 引导;0002 硬相关性环境(G1);0003 自主决策协议;0004 surprise IP reset;0005 G1 后续路线;0006 罩硬度分级;0007 苦涩教训/LangChain(workflow-only)+founder disposition;**0008 ViabilityReflex 追认(债已清)**;0009 罩隔离轴 ISO(已落地);0010 G1' 区分力环境(NOT MET);0011 因果相关性重设计(NOT MET,硬停);0012 P2 预注册(G3 NOT MET,主张1消融验证成立);0013 P2 后路线决策:照走 P3 RAP v0;**0014 P3 RAP 设计+G4 钉死并完成(T-P3.0-T-P3.4;G4 NOT MET,RAP 封存)**;0015 world-model 范围定义(接受)+ P4 准入条件(**B 已批准 2026-06-13,B1(iii) 触发**);0016 P4 先验器官设计+G5(**G5 NOT MET:学习先验不胜廉价重置,O2 封存保留 O1**);**0017 P4.x richer prior+LLM 器官+语义丰富环境(Proposed,G6a/G6b 分阶段,LLM 花钱挡在 G6a 后,需 founder 批)**;**0019 G6b LLM 器官契约(离线脚手架已落,真实运行待 founder key/budget+语义环境);0018 P5 部署投影(Proposed,把已验证主张1/3/4 投影进企业 OS:不可绕过中介/硬化可纠正/器官非主体,跨仓需双侧 ADR+founder 批)**;**0020 G7 LatentRegimeOrgan 贝叶斯 regime 跟踪(MET:O4=1194.1<O1=1325.6,30/30 胜,p<0.000001)**;**0021 P1 论文加固实验:谱系扫描(4×4 n_regimes×noise)+O4 消融(5 臂,30 seeds,预注册冻结)** |
 | baseline `../docs/research/RR-0001..0005` | 研究宪法、差距审查、原型设计+G0–G5 证伪记录、三仓角色图、**RR-0005 原型研究综述/收口(P0–P4)** |
 | `docs/attention_agent_*.md` / `docs/agent_os_self_debate_*.md` / `docs/cognitive_architecture_self_debate_*.md` | **研究输入(非规范)**:文献综述与自辩论设计。不覆盖 ADR/RR;其中 H4 runtime、LLM 进 runtime、RAG-as-scaffold 等提议触碰保留事项,落地需 founder 决策 |
 | `docs/P4-reading-to-design-memo.md` | **P4 设计 memo(规范级)**:把 P4 文献落成 O1 reset-scaffold 公式 / O2 hazard-estimator 公式 / G5 staleness-only 环境规格;指出 T-P4.1.1 接口缺口(merge 仅 mu,需补 epistemic uncertainty 通道)+ G5 须非平稳 hazard;两点待 founder 点头 |
@@ -62,13 +62,18 @@
 | `src/aac/semantic_oracle.py` | **离线语义 LLM 替身(ADR-0019 §4b,零花钱)**:自带完美词知识从 prompt 读标签;**上界 de-risk,非 G6b 结论**;输出经同一 untrusted parser | `SemanticOracleBackend(.propose)` |
 | `experiments/semantic_g6b_offline.py` | **G6b 离线 de-risk(无 LLM)**:O0/O1/O2(数字)vs O3(语义 oracle)在语义环境;**环境 semantic-exploitable=YES**(O3 916 vs ~1910-1960,O3<O0/O2 各 10/10)→ 真实 LLM 值得跑;付费 r-final 待 founder key/budget | `main()` |
 | `experiments/structured_g6a.py` | **G6a 门测(r-final,无 LLM)**:O0/O1/O2 在结构环境;**MET**(O2<O0 10/10,O2<O1 9/10)→ 学习型先验在有结构时胜廉价重置;触发 G6b(LLM)升级 founder | `calibrate()/gate()` |
+| `src/aac/prior_organ_latent.py` | **O4 贝叶斯隐 regime 跟踪器官(G7,ADR-0020;P1-T2 消融 flag)**:log posterior 逐观测更新;漂移后 transition prior 降权刚离开原型;连续注入+信息导向不确定度塑形;不读 regime_index;不 import policy/shell;参数 calibration 冻结{0.3,0.85,0.3,0.5,1.0,2.0};**P1-T2 消融 flag**:`continuous_inject`(默认 True,关=一次性注入),`bayesian_update`(默认 True,关=均匀后验) | `LatentRegimeOrgan(.advise/.reset)` |
+| `experiments/latent_regime_g7.py` | **G7 门测(r-final)**:O0/O1/O2/O4 在结构环境;**MET**(G7-1 O4=1194.1<=1219.6,O4<O2 29/30,O4<O1 30/30,Wilcoxon p<0.000001);O4 决定性胜廉价重置;共享工具提取至 `_g7_common.py` | `calibrate()/gate()` |
 | `experiments/o1_calibration.py` `experiments/o2_calibration.py` | O1/O2 参数在不相交种子(200-204)上 calibration 冻结;O1={1.5,0.5,0.6}(1133.83),O2 tau_lambda=0.15(1172.96>O1) | `main()` |
+| `experiments/_g7_common.py` | **G7 族共享工具(P1,ADR-0021)**:`run_area`(泛化 post-shift regret area,支持 env_kwargs)、`wilcoxon_one_sided`(DP 精确检验)、`format_table`(ASCII 表格)、常量 `STEPS/WINDOW/N_ACTIONS/O4_FROZEN` | `run_area()` `wilcoxon_one_sided()` |
+| `experiments/spectrum_scan.py` | **P1-T1 结构可迁移性谱系扫描(ADR-0021)**:4×4 网格(n_regimes×noise),O1 vs O4,10 seeds/条件,输出相变边界 | `_scan_condition()` `spectrum_scan()` |
+| `experiments/ablation_o4.py` | **P1-T2 O4 消融实验(ADR-0021)**:5 臂(full/no-info/no-transition/oneshot/no-posterior),30 seeds,配对 Wilcoxon | `ablation_study()` |
 | `experiments/prior_organ_g5.py` | **G5 门测(T-P4.4,r-final)**:O0/O1/O2 共享主体同度量;**NOT MET**(G5-1 O2<O0 8/10,**G5-2 O2<O1 0/10**);O2 封存、保留 O1 | `_post_shift_area()` `main()` |
-| `tests/` | **309** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/结构环境+regime-library 器官+G6a 守卫/LLM 器官不可信解析守卫/**语义环境+oracle 零样本+C6/C7**) | `test_*.py` |
+| `tests/` | **338** 确定性机制测试(…/O2 hazard 自适应/G5 守卫 C6+C7/结构环境+regime-library 器官+G6a 守卫/LLM 器官不可信解析守卫/**语义环境+oracle 零样本+C6/C7**/**O4 latent regime 后验集中+信息塑形+边界守卫 C6+C7**/**P1 谱系扫描逻辑+P1 消融 flag 行为+C6/C7 守卫**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 
-- 全量测试:**绿(243)**。
+- 全量测试:**绿(317)**。
 - **P2 完成(混合收束)**:G3 NOT MET,但**主张 1 升级"消融验证成立"**(判据1 四轮 9/10 全稳 + 断供必死);闲时增益未确立(判据2 翻转),IdleDrives 不再重设计(需新 ADR)。
 - **一级研究发现**:定向认知打不过廉价无定向基线,G1/G2/G3 三现(ADR-0012 §G3 结论3)。
 - 安全修复:Layer 0 反射原可绕过 op_tighten,已修(可纠正性>生存,ADR-0008 修订)。
