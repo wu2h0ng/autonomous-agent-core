@@ -13,7 +13,7 @@
 - **主张 2 v0 被证伪**(0/10,诊断:利用错绑饥饿 + bandit 对固定探索过于友好)。
 - founder 已批准三岔路**选项 2**:换硬相关性问题。规格已钉死于 ADR-0002(门 G1 已预注册)。
 - P3 已跑完 **T-P3.4 G4 r-final**:**NOT MET**。C-rap vs B-fixed = 0/10,G4-2 NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。按 ADR-0014,RAP v0 封存,不调机制重跑。
-- **当前阶段 P4(方向已批,contract-first)**:ADR-0015 Decision B 已批准(B1(iii) 触发);ADR-0016 冻结 G5+最小接口+三体消融(O0/O1/O2)。**G5 冻结前不写器官代码**;每卡落码需 founder 对 G5 点头。接力点 = T-P4.1(接口+信念合并钩子,O0 回归)。
+- **当前阶段 P4(方向已批,contract-first)**:ADR-0015 Decision B 已批准(B1(iii) 触发);ADR-0016 冻结 G5+最小接口+三体消融(O0/O1/O2)。T-P4.1 已完成接口+信念合并钩子+O0 回归。接力点 = T-P4.2(O1 确定性 scaffold)。
 
 ## 2. founder 决策倾向画像(决策时对照;与画像冲突→升级,不得代拍)
 
@@ -96,6 +96,7 @@
 | 2026-06-13 | **T-P3.4 G4 r-final** | **G4: NOT MET**。C-rap 平均遗憾 1.674 vs B-fixed 1.257/B-central 1.646;G4-1=0/10,G4-2 recovery=3/10 且 central non-dominated=True,G4-3 tax=False,G4-4 evidence/audit=True。D5 诊断支持:off-segment wins=4143,early stale wins=697,dropped-winner wins=450。按 ADR-0014 §8,RAP v0 **封存**,不调机制重跑。新增 `experiments/rap_g4.py` + 3 个账目测试。 | ADR-0014 §T-P3.4 / RR-0003 |
 | 2026-06-13 | **G4 复现 + P4 方向拍板** | reviewer 独立复跑 rap_g4.py,G4 NOT MET 数字逐位复现(真实)。founder 拍 (a):批准 ADR-0015 Decision B(P4 准入治理生效)+ 进入 P4 设计;P3 结论不动。 | ADR-0015 §B 批准记录 |
 | 2026-06-13 | **T-P4.0 P4 设计 ADR** | ADR-0016:contract-first 冻结 G5 + 最小器官接口(只出 belief_delta/uncertainty/counterfactual_hint,不碰 policy/shell)+ 三体消融(O0/O1 确定性 scaffold/O2 学习型,纯标准库无 LLM)+ G5 四判据(O2<O0、O2<O1、C6 非主体、C7 不削弱)r-final 预承诺。仅文档,无器官代码。**待 founder 对 G5 点头后落 T-P4.1** | ADR-0016 |
+| 2026-06-13 | **T-P4.1 完成** | 新增 `prior_organ.py` 的 `PriorOrgan/OrganAdvice/BeliefSnapshot/merge_organ_advice`;`Agent` 增 `prior_organ=None` O0 槽位,建议只在正常 policy 分支前合并进 belief。O0 默认与显式 None 逐记录一致;pause 不调用 organ;tighten 阻断 boosted forbidden;prior 模块不 import policy/shell。新增 8 个守卫测试,全量 **243 绿**。未实现 O1/O2,未跑 G5。 | ADR-0016 §T-P4.1 |
 
 ## 6. 交接纪律
 
@@ -205,4 +206,19 @@ G2 result:
 - 新增 `experiments/rap_g4.py`:C-rap vs B-fixed vs B-central,种子 0..9,每种子 1500 步,扰动混合按 ADR-0014。
 - 结果:质量胜 B-fixed = 0/10;NODE_DROP recovery = 3/10;central non-dominated=True;编排税未过;证据/审计过。
 - **结论**:G4 NOT MET。按 ADR-0014 §8,RAP v0 封存(keep static wiring),不调机制重跑。
-- 接力点:founder/CTO 路线决策。P4 器官接入仍是 founder 保留事项;若不进 P4,可先做"四次同根负结果"的研究收束/论文式整理。
+- P4 方向已由 ADR-0015/0016 接续;RAP 仍封存,不调机制重跑。
+
+## 10. 当前路线(P4 先验器官,ADR-0016)
+
+### T-P4.0 — P4 设计 ADR — ✅ 已完成
+
+- ADR-0015 Decision B 已批准(B1(iii):G4 NOT MET + D5 staleness 确认)。
+- ADR-0016 冻结最小器官接口与 G5:O0 无器官 / O1 确定性 scaffold / O2 学习型器官;
+  G5-1 O2<O0, G5-2 O2<O1, G5-3 C6 非主体, G5-4 C7 不削弱。
+
+### T-P4.1 — PriorOrgan 接口 + 信念合并钩子 — ✅ 已完成
+
+- 新增 `src/aac/prior_organ.py`:器官只产出 `belief_delta/uncertainty/counterfactual_hint`,无 action/policy/shell 面。
+- `Agent` 增 `prior_organ` 可选槽位;默认 O0 关闭,回归测试与显式 None 逐记录一致。
+- 信念合并只发生在正常 policy 分支前;pause/reflex/idle 优先级不动;`op_tighten` 仍能阻断被 advice boost 的动作。
+- 接力点:T-P4.2 O1 确定性 scaffold(surprise→更快重置/抬不确定度),不实现 O2、不跑 G5。

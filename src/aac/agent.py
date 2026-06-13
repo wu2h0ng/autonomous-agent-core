@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import random
-from typing import Any
+from typing import Any, Mapping
 
 from .idle_drives import IdleDrives
 from .policy import PolicySelector
+from .prior_organ import PriorOrgan, merge_organ_advice, snapshot_belief
 from .reflex import ViabilityReflex
 from .relevance import RelevanceField
 from .shell import CorrigibilityShell, ShellView
@@ -38,6 +39,7 @@ class Agent:
         reflex: ViabilityReflex | None = None,
         value_channel: ValueChannel | ValueChannelView | None = None,
         idle_drives: IdleDrives | None = None,
+        prior_organ: PriorOrgan | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -55,6 +57,7 @@ class Agent:
         self.policy = PolicySelector(rng=rng)
         self.reflex = reflex  # None = Layer 0 disabled (backward compatible)
         self.idle_drives = idle_drives  # None = no endogenous idle behaviour
+        self.prior_organ = prior_organ  # None = O0 baseline (ADR-0016)
         self.modulate_relevance = modulate_relevance
         self.steps = 0
         self._reflex_engaged = False
@@ -67,6 +70,7 @@ class Agent:
             "steps": self.steps,
             "reflex_engaged": self._reflex_engaged,
             "idle_drives": self.idle_drives,
+            "prior_organ": self.prior_organ,
         }
 
     def restore(self, state: dict[str, Any]) -> None:
@@ -76,6 +80,7 @@ class Agent:
         self.steps = state["steps"]
         self._reflex_engaged = state.get("reflex_engaged", False)
         self.idle_drives = state.get("idle_drives", self.idle_drives)
+        self.prior_organ = state.get("prior_organ", self.prior_organ)
         if self.reflex is not None:
             self.reflex.reset()
 
@@ -107,6 +112,8 @@ class Agent:
         # the reflex outranks idle curiosity (a starving agent exploits).
         idle = bool(getattr(env, "idle", False))
         drive: str | None = None
+        prior_applied = 0
+        prior_uncertainty: float | None = None
         if reflex_engaged:
             action = self.reflex.select(  # type: ignore[union-attr]
                 self.model, forbidden=self.shell.forbidden
@@ -116,6 +123,13 @@ class Agent:
                 self.model, forbidden=self.shell.forbidden
             )
         else:
+            if self.prior_organ is not None:
+                advice = self.prior_organ.advise(
+                    self._organ_situation(env, idle=idle),
+                    snapshot_belief(self.model),
+                )
+                prior_applied = merge_organ_advice(self.model, advice)
+                prior_uncertainty = advice.uncertainty
             explore = self.relevance.explore_drive if self.modulate_relevance else 0.5
             action = self.policy.select(self.model, explore, self.viability.pressure)
 
@@ -143,5 +157,22 @@ class Agent:
             "idle": idle,
             "drive": drive,
         }
+        if self.prior_organ is not None and prior_uncertainty is not None:
+            record["prior_organ"] = type(self.prior_organ).__name__
+            record["prior_uncertainty"] = round(prior_uncertainty, 4)
+            record["prior_delta_n"] = prior_applied
         self.shell.observe(record)
         return record
+
+    def _organ_situation(self, env: Any, *, idle: bool) -> Mapping[str, Any]:
+        situation = getattr(env, "situation", None)
+        if callable(situation):
+            observed = situation()
+            if isinstance(observed, Mapping):
+                return dict(observed)
+            return {"observed": observed}
+        return {
+            "step": self.steps,
+            "idle": idle,
+            "pressure": self.viability.pressure,
+        }

@@ -55,9 +55,9 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - 门 **G4**(4 判据,ADR-0014 §6 钉死)已跑 r-final(2026-06-13):**NOT MET**。
   C-rap vs B-fixed = 0/10,NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。
 - 处置:按 ADR-0014 §8,RAP v0 **封存**(keep static wiring),不调机制重跑。G1/G2/G3 的"定向机制打不过廉价基线"扩展为第四次:本尺度下去中心协调也未赢过强固定流水线。
-- 接力:founder/CTO 路线决策。P4 器官接入(LLM / 学习世界模型)仍需 founder 批准后启动。
+- 接力:P4 已按 ADR-0015/0016 启动 contract-first 路线;RAP 仍封存。
 
-## P4 先验器官接入 — ◀ 当前(方向已批,contract-first,G5 冻结前不落码)
+## P4 先验器官接入 — ◀ 当前(T-P4.1 已完成,下一片 T-P4.2)
 
 - **触发**:ADR-0015 Decision B 已批准(B1(iii):G4 NOT MET + D5 staleness 确认)。问题收窄为:
   richer 学习型 world-model 器官能否解决"重收敛太慢"。
@@ -68,7 +68,9 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - 门 **G5**(ADR-0016 §4 冻结):G5-1 O2<O0 重收敛、G5-2 O2<O1(学习必要性)、G5-3 器官非主体、
   G5-4 可纠正不削弱;r-final 预承诺。
 - **边界**:P4 v0 纯标准库无 LLM/无花钱;LLM 器官 = P4.x,需独立 founder spend/dependency ADR。
-  每卡落码前需 founder 对 G5 冻结点头。
+- **T-P4.1 完成**:`PriorOrgan/OrganAdvice/BeliefSnapshot` + `Agent.prior_organ=None` O0 槽位 +
+  belief merge hook;O0 回归和 C6/C7 守卫测试通过。
+- **下一片**:T-P4.2 O1 确定性 scaffold(surprise→更快重置/抬不确定度);不实现 O2、不跑 G5。
 
 ## P5 降级投影试点 — 跨仓,双侧 ADR
 

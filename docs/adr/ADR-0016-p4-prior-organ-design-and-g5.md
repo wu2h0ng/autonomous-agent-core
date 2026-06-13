@@ -106,3 +106,15 @@ G5-4 可纠正性不削弱(C7,确定性单元测试):
 
 落码顺序:T-P4.1(接口+钩子,O0 回归)→ T-P4.2(O1)→ T-P4.3(O2)→ T-P4.4(G5 门)。
 **每卡落码前需 founder 对本 ADR 的 G5 冻结点头(P4 launch 保留事项)。**
+
+## T-P4.1 实现追记(2026-06-13)
+
+已落地 `src/aac/prior_organ.py`、`Agent.prior_organ` 可选槽位与 `tests/test_prior_organ.py`。
+
+- 新增 `PriorOrgan` / `OrganAdvice` / `BeliefSnapshot` / `merge_organ_advice()`。
+- `prior_organ.py` 仅依赖标准库 + `world_model`;静态测试断言不 import `policy` / `shell`。
+- `Agent` 默认 `prior_organ=None` 即 O0;O0 回归测试证明默认与显式 None 逐记录一致。
+- 器官建议只在正常 policy 分支前合并到 action-outcome belief;pause、survival reflex、idle drives 优先级不变。
+- 守卫测试覆盖:advice 字段不含 action/policy/shell/forbidden;belief snapshot 只读;boosted forbidden 动作仍被 `op_tighten`
+  阻断;`op_pause` 时 organ 不被调用。
+- 本片未实现 O1/O2,未跑 G5,未引入 LLM/第三方依赖/真实执行器。

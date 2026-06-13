@@ -1,6 +1,6 @@
 # codebase_index — autonomous-agent-core
 
-> Last updated: 2026-06-12。新增顶层模块/源真文档时必须更新本文件。
+> Last updated: 2026-06-13。新增顶层模块/源真文档时必须更新本文件。
 
 ## 源真文档(读码前先读)
 
@@ -22,6 +22,7 @@
 |---|---|---|
 | `src/aac/viability.py` | 生存力核:本质变量+代谢预算+压力(内感受源) | `ViabilityCore(.alive/.pressure/.metabolize/.ingest)` |
 | `src/aac/world_model.py` | 行动→奖励信念+不确定性(认识钩子) | `ActionOutcomeModel(.update→surprise/.best_action)` |
+| `src/aac/prior_organ.py` | **P4 先验器官接口(T-P4.1,ADR-0016)**:器官只读 situation + belief snapshot,只返回 `belief_delta/uncertainty/counterfactual_hint`;合并函数仅改 action-outcome belief;模块不 import policy/shell | `PriorOrgan` `OrganAdvice` `BeliefSnapshot` `merge_organ_advice()` |
 | `src/aac/relevance.py` | 相关性场 v0(对立过程;**已被 G0 证伪,AttentionField 取代**) | `RelevanceField(.update→explore_drive)` |
 | `src/aac/attention.py` | P1 注意力场 v1.1:IP估计+top-m选择+自信利用门+压力收缩+surprise IP reset(ADR-0004) | `AttentionField(.update/.select_attention/.should_exploit/.sync_explore_drive/.on_surprise)` |
 | `src/aac/policy.py` | EFE 味策略:pragmatic+epistemic,受场调制,禁令权重 0 | `PolicySelector(.select)` |
@@ -43,17 +44,17 @@
 | `src/envs/lethal_cue_foraging.py` | **G1' 致命再框定环境**:漏判致命+预算紧,再框定决定生存;随机重映射(非对抗,避免 rigging) | `LethalCueForaging(.act/.observe/.best_action_for/.force_regime_change)` |
 | `experiments/cue_shift_g1prime.py` | G1' 消融(B0-B4 共享上下文骨架);**NOT MET,D5 触发** | `_run()/main()` |
 | `src/aac/audit.py` | 只增+哈希链审计(罩-观测支柱) | `AuditLog(.append/.verify)` |
-| `src/aac/agent.py` | 主体:缝合回路;每步过罩;**ISO-1:持 `ShellView` 非 shell**(收 raw shell 时构造期即降为 view);`modulate_relevance=False`=消融体 | `Agent(.step/.state/.restore)` |
+| `src/aac/agent.py` | 主体:缝合回路;每步过罩;**ISO-1:持 `ShellView` 非 shell**(收 raw shell 时构造期即降为 view);`modulate_relevance=False`=消融体;T-P4.1 增 `prior_organ=None` O0 槽位,只在正常 policy 分支前合并 belief advice,pause/reflex/idle 优先级不动 | `Agent(.step/.state/.restore)` |
 | `src/envs/survival.py` | P0 沙盒:行动均值漂移 | `GridlessSurvival(.act/.best_action/.force_regime_change)` |
 | `src/envs/cue_foraging.py` | P1 环境:相关线索集合漂移+注意力有限且计价 | `LatentCueForaging(.act/.get_cue_vector/.observe/.pay_attention/.best_action_for/.force_regime_change)` |
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
-| `tests/` | **235** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/RAP 生命周期/双基线+扰动环境/**grounded judge/协调器可纠正绑定/G4 账目**) | `test_*.py` |
+| `tests/` | **243** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/RAP 生命周期/双基线+扰动环境/grounded judge/协调器可纠正绑定/G4 账目/**P4 prior-organ 接口守卫**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 
-- 全量测试:**绿(235)**。
+- 全量测试:**绿(243)**。
 - **P2 完成(混合收束)**:G3 NOT MET,但**主张 1 升级"消融验证成立"**(判据1 四轮 9/10 全稳 + 断供必死);闲时增益未确立(判据2 翻转),IdleDrives 不再重设计(需新 ADR)。
 - **一级研究发现**:定向认知打不过廉价无定向基线,G1/G2/G3 三现(ADR-0012 §G3 结论3)。
 - 安全修复:Layer 0 反射原可绕过 op_tighten,已修(可纠正性>生存,ADR-0008 修订)。
@@ -63,13 +64,13 @@
   **B 段(P4 准入条件 B1-B4)已由 founder 批准**(B1(iii):G4 NOT MET + D5 staleness 确认)。
   world-model 官方定位 = local action-outcome predictor organ(非 planner/simulator);"P3 判 coordination value,
   非 single-organ intelligence ceiling"。
-- **ADR-0016(P4 先验器官设计+G5)**:已 accepted as contract;G5 与最小器官接口冻结,但器官代码实现仍待
-  founder 对 G5 点头后启动。P4 v0 纯标准库,无 LLM/无花钱;LLM 器官属 P4.x,需独立 ADR。
+- **ADR-0016(P4 先验器官设计+G5)**:已 accepted as contract;G5 与最小器官接口冻结。T-P4.1 已落地
+  prior-organ 接口 + belief merge hook + O0 回归。P4 v0 纯标准库,无 LLM/无花钱;LLM 器官属 P4.x,需独立 ADR。
 - 主张 2:**已收束(founder 决策 A)**——5 次预注册门(G0/G1/G1-r/G1'/G2)均 NOT MET;
   最终状态 = "部分支持、本原型线未实验确立"(代谢必要性/生存力确认,recovery 优越性未确立);
   **硬停:无 founder 级 research reset ADR 不得再重设计**。
 - 主张 3:已演示 + 罩硬度 (L1, ISO-1) + ISO-2 参考。主张 4:结构成立。
-- 当前任务:T-P4.1 待 founder 对 ADR-0016 G5 冻结点头后开工(接口 + 信念合并钩子 + O0 回归)。
+- 当前任务:T-P4.2 O1 确定性 scaffold(surprise→更快重置/抬不确定度);不实现 O2、不跑 G5。
 ---
 
 ## Current G2 Route Result
@@ -115,7 +116,7 @@ Status:
 
 - ADR-0015 Decision B is accepted after G4 NOT MET + D5 staleness confirmation.
 - ADR-0016 is accepted as the P4 contract: minimal prior-organ interface + G5 pre-registration.
-- No P4 organ code has been written under this contract yet.
+- T-P4.1 is implemented: `PriorOrgan`/`OrganAdvice`, belief merge hook, and O0 regression.
 
 Decision:
 
@@ -126,5 +127,5 @@ Decision:
 
 Next required artifact:
 
-- Founder/CTO thumbs-up on ADR-0016 G5 freeze, then T-P4.1: `PriorOrgan`/`OrganAdvice` interface,
-  belief merge hook, and O0 regression proving behavior is unchanged when the organ slot is off.
+- T-P4.2: deterministic scaffold organ (O1) that responds to surprise by accelerating reset / raising uncertainty.
+  Do not implement O2 or run G5 in T-P4.2.
