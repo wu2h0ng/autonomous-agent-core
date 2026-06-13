@@ -118,3 +118,25 @@ G5-4 可纠正性不削弱(C7,确定性单元测试):
 - 守卫测试覆盖:advice 字段不含 action/policy/shell/forbidden;belief snapshot 只读;boosted forbidden 动作仍被 `op_tighten`
   阻断;`op_pause` 时 organ 不被调用。
 - 本片未实现 O1/O2,未跑 G5,未引入 LLM/第三方依赖/真实执行器。
+
+## T-P4.1.1 epistemic 通道 + T-P4.2 O1 实现追记(2026-06-13,founder 批准两点后)
+
+**T-P4.1.1(接口扩展,仍 belief-only,守 C6/C7)**:`OrganAdvice` 增 `uncertainty_delta:Mapping[int,float]`;
+`merge_organ_advice` 增 `uncertainty[a]=max(0, uncertainty[a]+self_conf*udelta[a])`。无 action/policy/shell 字段;
+器官仍不 import policy/shell。守卫测试覆盖新通道(应用/钳零/越界拒绝/双通道并用/空双通道 no-op)。
+
+**机制核验(重要,写死于 `prior_organ_o1.py` 注释)**:在策略 `prag_w*mu+epis_w*uncertainty` 下,
+**均匀抬高所有动作的 uncertainty 是 softmax 无操作**(各项加同一常数)。故 O1 必须做**联合重置**:
+mu 衰减(去旧最优统治)+ uncertainty 复位向先验(令后续更新如新学)。uncertainty 单用无效、对旧最优甚至
+反作用。这修正了 memo 对"抬不确定度"的朴素表述。
+
+**T-P4.2 O1**:`ResetScaffoldOrgan`(surprise 尖峰 → 联合重置;EMA 估 surprise 尺度 + warmup);
+`StalenessEnv`(非平稳 hazard:FAST period_fast~20 / SLOW period_slow~120 按 epoch 交替——否则 G5-2 假阴);
+`experiments/o1_calibration.py`(在**不相交** calibration 种子上扫参选最强 O1,防稻草人)。
+
+**Calibration 结果(env-validity 记录,冻结)**:种子 200–204(与 G5 的 0–9 不相交),1500 步,window=15。
+O0 post-shift regret area = **1191.53**;8 组**全部跑赢 O0**;**冻结 O1 = {spike_k 1.5, reset_strength 0.5,
+mu_decay 0.6}**,area = **1133.83**(优于 O0 约 4.8%)。增益温和——这正好把 O2 的门槛设实:O2 必须明显
+超过这 ~5% 才算"学习型先验必要"(G5-2)。冻结参数已写入 `ResetScaffoldOrgan` 默认值,跑 G5 后不再调。
+
+**262 测试绿**。本片未实现 O2、未建 G5 gate 实验、未跑 G5 verdict、无 LLM/依赖/花钱。下一片 T-P4.3 O2(需 founder 点头)。

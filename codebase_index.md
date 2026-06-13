@@ -23,7 +23,10 @@
 |---|---|---|
 | `src/aac/viability.py` | 生存力核:本质变量+代谢预算+压力(内感受源) | `ViabilityCore(.alive/.pressure/.metabolize/.ingest)` |
 | `src/aac/world_model.py` | 行动→奖励信念+不确定性(认识钩子) | `ActionOutcomeModel(.update→surprise/.best_action)` |
-| `src/aac/prior_organ.py` | **P4 先验器官接口(T-P4.1,ADR-0016)**:器官只读 situation + belief snapshot,只返回 `belief_delta/uncertainty/counterfactual_hint`;合并函数仅改 action-outcome belief;模块不 import policy/shell | `PriorOrgan` `OrganAdvice` `BeliefSnapshot` `merge_organ_advice()` |
+| `src/aac/prior_organ.py` | **P4 先验器官接口(T-P4.1,ADR-0016)**:器官只读 situation + belief snapshot,只返回 `belief_delta/uncertainty/counterfactual_hint`;**T-P4.1.1 加 `uncertainty_delta` epistemic 通道**(merge 改 mu+uncertainty,钳零);模块不 import policy/shell | `PriorOrgan` `OrganAdvice` `BeliefSnapshot` `merge_organ_advice()` |
+| `src/aac/prior_organ_o1.py` | **O1 确定性 reset-scaffold(T-P4.2,ADR-0016)**:surprise 尖峰→联合 belief 重置(mu 衰减+uncertainty 复位向先验);**uncertainty 单用是 softmax no-op,故必联合**;参数 calibration 冻结{1.5,0.5,0.6};不 import policy/shell | `ResetScaffoldOrgan(.advise/.reset)` |
+| `src/envs/staleness.py` | **staleness-only 非平稳 hazard 环境(T-P4.2/G5)**:FAST/SLOW epoch 交替漂移(否则 G5-2 假阴);无线索/无节点;暴露 last_regret/best_action/just_shifted/expected_random_regret | `StalenessEnv(.act/.situation)` |
+| `experiments/o1_calibration.py` | O1 参数扫描(不相交种子 200-204)→ 选冻结{1.5,0.5,0.6},area 1133.83 vs O0 1191.53(+4.8%),8 组全胜 O0 | `post_shift_regret_area()` `main()` |
 | `src/aac/relevance.py` | 相关性场 v0(对立过程;**已被 G0 证伪,AttentionField 取代**) | `RelevanceField(.update→explore_drive)` |
 | `src/aac/attention.py` | P1 注意力场 v1.1:IP估计+top-m选择+自信利用门+压力收缩+surprise IP reset(ADR-0004) | `AttentionField(.update/.select_attention/.should_exploit/.sync_explore_drive/.on_surprise)` |
 | `src/aac/policy.py` | EFE 味策略:pragmatic+epistemic,受场调制,禁令权重 0 | `PolicySelector(.select)` |
@@ -51,7 +54,7 @@
 | `experiments/regime_shift.py` | G0 证伪测量(已触发 NOT MET,如实保留) | `run()/main()` |
 | `experiments/metabolic_g3.py` | **G3 门测(T-P2.3)**:C0/C1numb/C2挂起/C3随机 消融;r3 预承诺终局 **NOT MET**(判据1/3/4 稳,判据2 未确立);主张1 消融验证成立 | `_run()/main()` |
 | `experiments/cue_shift.py` | G1/G1-r 消融实验(Modulated vs A1/A2/A3,NOT MET×2,环境有效性已修订) | `_run_variant()/main()` |
-| `tests/` | **243** 确定性机制测试(生存力/世界模型/相关性v0/可纠正性/cue_foraging/attention/罩对抗/罩不变量/演练/罩隔离 ISO/因果相关性/生存反射/价值通道主权守卫/闲时驱力/RAP 生命周期/双基线+扰动环境/grounded judge/协调器可纠正绑定/G4 账目/**P4 prior-organ 接口守卫**) | `test_*.py` |
+| `tests/` | **262** 确定性机制测试(…/G4 账目/P4 prior-organ 接口守卫/**epistemic 通道/O1 reset-scaffold 机制+可纠正/staleness 非平稳环境**) | `test_*.py` |
 
 ## 已知状态(2026-06-13 收束)
 
