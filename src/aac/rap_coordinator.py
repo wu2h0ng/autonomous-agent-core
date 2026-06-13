@@ -175,4 +175,6 @@ class RAPCoordinator:
             "outcome": verdict.outcome,
             "override": override,
             "dropped": dropped,
+            "lagged": lagged,
+            "bid_count": len(bids),
         }
