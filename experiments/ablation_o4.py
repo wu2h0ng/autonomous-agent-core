@@ -15,18 +15,26 @@ Pre-registered design:
   - Gate: O4-full must significantly beat each ablation (p < 0.05)
     to claim the component contributes
 
-Run: PYTHONPATH=src python experiments/ablation_o4.py
+Run: PYTHONPATH=src python -m experiments.ablation_o4
 """
 from __future__ import annotations
 
 from aac.prior_organ_latent import LatentRegimeOrgan
 
-from experiments._g7_common import (
-    O4_FROZEN,
-    format_table,
-    run_area,
-    wilcoxon_one_sided,
-)
+try:
+    from experiments._g7_common import (
+        O4_FROZEN,
+        format_table,
+        run_area,
+        wilcoxon_one_sided,
+    )
+except ModuleNotFoundError:  # direct script execution: python experiments/...
+    from _g7_common import (  # type: ignore[no-redef]
+        O4_FROZEN,
+        format_table,
+        run_area,
+        wilcoxon_one_sided,
+    )
 
 SEEDS = tuple(range(30))
 
@@ -132,7 +140,7 @@ def ablation_study() -> None:
     n_sig = sum(1 for _, _, _, sig in component_results if sig)
     total_abl = len(component_results)
     gate_pass = n_sig >= 1
-    print(f"\nP1-T2 ABLATION GATE:")
+    print("\nP1-T2 ABLATION GATE:")
     print(f"  O4-full significantly beats {n_sig}/{total_abl} ablation arms")
     print(f"  {'PASS' if gate_pass else 'FAIL'}")
 

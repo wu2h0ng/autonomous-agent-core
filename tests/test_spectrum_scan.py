@@ -10,7 +10,6 @@ from experiments.spectrum_scan import (
     NOISE_GRID,
     SEEDS,
     _scan_condition,
-    spectrum_scan,
 )
 import experiments.spectrum_scan as scan_module
 

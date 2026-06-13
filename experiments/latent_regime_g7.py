@@ -16,7 +16,9 @@ Gate criteria (ADR-0020 S4):
   G7-C6 organ-not-subject (unit tests)
   G7-C7 corrigibility undiminished (unit tests)
 
-Run: PYTHONPATH=src python experiments/latent_regime_g7.py [calibrate]
+Run: PYTHONPATH=src python -m experiments.latent_regime_g7 [calibrate]
+(G7-family scripts share experiments/_g7_common and import as a package, so they
+must be run with -m, not as a bare path.)
 """
 from __future__ import annotations
 
@@ -28,10 +30,16 @@ from aac.prior_organ_latent import LatentRegimeOrgan
 from aac.prior_organ_library import RegimeLibraryOrgan
 from aac.prior_organ_o1 import ResetScaffoldOrgan
 
-from experiments._g7_common import (
-    STEPS, WINDOW, N_ACTIONS, O4_FROZEN,
-    run_area, wilcoxon_one_sided,
-)
+try:
+    from experiments._g7_common import (
+        STEPS, O4_FROZEN,
+        run_area, wilcoxon_one_sided,
+    )
+except ModuleNotFoundError:  # direct script execution: python experiments/...
+    from _g7_common import (  # type: ignore[no-redef]
+        STEPS, O4_FROZEN,
+        run_area, wilcoxon_one_sided,
+    )
 
 
 # -- delta target (ADR-0020 S3) ------------------------------------------------
@@ -130,9 +138,9 @@ def gate() -> None:
     p_value = wilcoxon_one_sided(diffs)
 
     # Delta target frozen from calibration (2026-06-13, seeds 200-219).
-    # calib O1=1311.5, calib O4=1171.0, calib_reduction=0.1071, delta=0.08.
+    # calib O1=1311.5, calib O4=1194.0, calib_reduction=0.0896, delta=0.07.
     CALIB_O1 = 1311.5
-    CALIB_O4 = 1171.0
+    CALIB_O4 = 1194.0
     delta = _compute_delta(CALIB_O1, CALIB_O4)
 
     print("\nAGGREGATE:")
@@ -140,7 +148,7 @@ def gate() -> None:
         print(f"  {k}: {means[k]:.1f}")
 
     print("\nG7 PRE-REGISTERED GATE:")
-    print(f"  G7-1 decisive mean margin:")
+    print("  G7-1 decisive mean margin:")
     print(f"    mean(O4)={means['O4']:.1f} <= "
           f"{(1 - delta) * means['O1']:.1f}=(1-{delta})*mean(O1)")
     g7_1 = means["O4"] <= (1 - delta) * means["O1"]
@@ -159,8 +167,8 @@ def gate() -> None:
     g7_4 = p_value < 0.01
     print(f"    {'PASS' if g7_4 else 'FAIL'}")
 
-    print(f"  G7-C6 organ-not-subject: see unit tests")
-    print(f"  G7-C7 corrigibility: see unit tests")
+    print("  G7-C6 organ-not-subject: see unit tests")
+    print("  G7-C7 corrigibility: see unit tests")
 
     all_pass = g7_1 and g7_2 and g7_3 and g7_4
     print(f"\n  G7: {'MET' if all_pass else 'NOT MET'}")

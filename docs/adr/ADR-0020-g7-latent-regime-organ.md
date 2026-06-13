@@ -1,6 +1,6 @@
 # ADR-0020: G7 LatentRegimeOrgan, Bayesian regime tracking gate
 
-- Status: Accepted; G7 MET (2026-06-13)
+- Status: Accepted; corrected G7 r-final NOT MET (2026-06-13)
 - Date: 2026-06-13
 - Scope: P4.x structured-regime prior organ, no LLM, no spend, no new runtime dependency
 - Predecessor: ADR-0017 G6a showed that `RegimeLibraryOrgan` beats the cheap reset on a structured recurring-regime environment, but only marginally.
@@ -184,26 +184,27 @@ Do not retune O4 and rerun G7. If O4 beats O1 but fails O2 dominance, record tha
 ## 9. Status log
 
 - 2026-06-13: ADR created before O4 implementation and before G7 calibration/r-final.
-- 2026-06-13: O4 implemented (`src/aac/prior_organ_latent.py`), experiment harness (`experiments/latent_regime_g7.py`), deterministic tests (`tests/test_prior_organ_latent.py`). All 8 unit tests pass.
-- 2026-06-13: Calibration on seeds 200..219 complete. FROZEN params:
-  - `sigma=0.3, inject_weight=0.85, info_weight=0.3, probe_confidence=0.5, departed_penalty=1.0, max_belief_delta=2.0`
-  - calib O1=1311.5, calib O4=1171.0, calib_reduction=0.1071, delta=0.08
-- 2026-06-13: r-final gate on seeds 0..29 complete:
+- 2026-06-13: O4 implemented (`src/aac/prior_organ_latent.py`), experiment harness (`experiments/latent_regime_g7.py`), deterministic tests (`tests/test_prior_organ_latent.py`).
+- 2026-06-13: Validity repair before corrected r-final: `confidence` now means maximum posterior probability, prototype records keep known-action masks so unknown actions are not treated as strong evidence, and `wilcoxon_one_sided` now ranks by absolute differences with average ranks for ties.
+- 2026-06-13: Corrected calibration on seeds 200..219 complete. FROZEN params:
+  - `sigma=0.5, inject_weight=0.85, info_weight=0.3, probe_confidence=0.7, departed_penalty=2.0, max_belief_delta=2.0`
+  - calib O1=1311.5, calib O4=1194.0, calib_reduction=0.0896, delta=0.07
+- 2026-06-13: Corrected r-final gate on seeds 0..29 complete:
 
 | arm | mean post-shift regret area, seeds 0-29 |
 |---|---:|
 | O0 no organ | 1361.6 |
 | O1 cheap reset | 1325.6 |
 | O2 regime library | 1271.6 |
-| O4 latent regime | 1194.1 |
+| O4 latent regime | 1224.3 |
 
 | criterion | result |
 |---|---|
-| G7-1 decisive mean margin | 1194.1 <= 1219.6=(1-0.08)*1325.6 PASS |
-| G7-2 O4 < O2 | 29/30 (need >=27) PASS |
-| G7-3 O4 < O1 | 30/30 (need >=29) PASS |
+| G7-1 decisive mean margin | 1224.3 <= 1232.8=(1-0.07)*1325.6 PASS |
+| G7-2 O4 < O2 | 26/30 (need >=27) FAIL |
+| G7-3 O4 < O1 | 29/30 (need >=29) PASS |
 | G7-4 Wilcoxon | p<0.000001 PASS |
 | G7-C6 organ-not-subject | unit tests PASS |
 | G7-C7 corrigibility | unit tests PASS |
 
-**G7: MET.** Bayesian latent-regime posterior tracking with information-directed epistemic shaping decisively beats the cheap reset on structured recurring-regime environments.
+**G7: NOT MET.** Bayesian latent-regime posterior tracking with information-directed epistemic shaping significantly beats the cheap reset, but it misses the preregistered 90% dominance bar over the current learned O2 organ by one seed. Per this ADR, O4 is not retuned and rerun under G7.

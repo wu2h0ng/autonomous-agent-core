@@ -224,11 +224,12 @@ G2 result:
 - 信念合并只发生在正常 policy 分支前;pause/reflex/idle 优先级不动;`op_tighten` 仍能阻断被 advice boost 的动作。
 - 接力点:T-P4.2 O1 确定性 scaffold(surprise→更快重置/抬不确定度),不实现 O2、不跑 G5。
 
-### G7 — LatentRegimeOrgan 贝叶斯 regime 跟踪 — ✅ MET
+### G7 — LatentRegimeOrgan 贝叶斯 regime 跟踪 — NOT MET
 
 - ADR-0020 预注册 O4 `LatentRegimeOrgan`:log posterior 逐观测更新+transition prior+连续注入+信息导向不确定度塑形。
-- Calibration(seeds 200-219):FROZEN `sigma=0.3,inject_weight=0.85,info_weight=0.3,probe_confidence=0.5,departed_penalty=1.0,max_belief_delta=2.0`。calib O1=1311.5,O4=1171.0,reduction=10.7%,delta=0.08。
-- r-final(seeds 0-29):**G7 MET**(G7-1 O4=1194.1<=1219.6;G7-2 O4<O2 29/30;G7-3 O4<O1 30/30;G7-4 Wilcoxon p<0.000001;C6/C7 守卫绿)。
-- **结论:贝叶斯后验跟踪+信息导向塑形决定性胜廉价重置(O1 -9.9%)及 O2 原型库(-6.1%)**。原型线首次学习型先验明确胜廉价基线。
-- 新增 `src/aac/prior_organ_latent.py` + `experiments/latent_regime_g7.py` + `tests/test_prior_organ_latent.py`。**317 测试绿**。
+- Corrected validity repair:confidence 改为 max posterior probability;prototype 记录 known-mask,未知动作不再当强证据;Wilcoxon 修为绝对差排序+tie 平均秩。
+- Calibration(seeds 200-219):FROZEN `sigma=0.5,inject_weight=0.85,info_weight=0.3,probe_confidence=0.7,departed_penalty=2.0,max_belief_delta=2.0`。calib O1=1311.5,O4=1194.0,reduction=9.0%,delta=0.07。
+- r-final(seeds 0-29):**G7 NOT MET**。G7-1 O4=1224.3<=1232.8 PASS;G7-2 O4<O2 26/30 **FAIL**(need >=27);G7-3 O4<O1 29/30 PASS;G7-4 Wilcoxon p<0.000001 PASS;C6/C7 守卫绿。
+- **结论:O4 显著胜廉价重置 O1(-7.6%,29/30,p<0.000001),但未满足对当前 learned O2 的 90% seed dominance。**按 ADR-0020 不调参重跑 G7;下一步若继续追求“显著跑赢所有基线”,必须新机制+新 gate。
+- 新增/更新 `src/aac/prior_organ_latent.py` + `experiments/latent_regime_g7.py` + `experiments/_g7_common.py` + `tests/test_prior_organ_latent.py` + `tests/test_g7_common.py`。
 - 后续:G6b(LLM 器官)升级待 founder key/budget。

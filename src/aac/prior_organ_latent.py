@@ -51,23 +51,23 @@ class LatentRegimeOrgan:
 
     # Gaussian likelihood
     # FROZEN via experiments/latent_regime_g7.py calibrate (2026-06-13, seeds 200-219).
-    sigma: float = 0.3
+    sigma: float = 0.5
     unknown_sigma: float = 2.0
 
     # Injection
     inject_weight: float = 0.85
-    max_belief_delta: float = 5.0
+    max_belief_delta: float = 2.0
 
     # Information-directed shaping
     info_weight: float = 0.3
-    probe_confidence: float = 0.5
+    probe_confidence: float = 0.7
 
     # Prototype library
     merge_threshold: float = 1.0
     min_finalise_obs: int = 3
 
     # Posterior
-    departed_penalty: float = 1.0
+    departed_penalty: float = 2.0
     min_posterior_obs: int = 2
 
     # Ablation control flags (P1-T2). Default True = full O4 behaviour.

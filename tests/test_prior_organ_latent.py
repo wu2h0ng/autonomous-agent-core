@@ -44,7 +44,7 @@ class TestLatentRegimeMechanism(unittest.TestCase):
 
         self.assertEqual(organ._last_best_proto, 1)
         self.assertGreater(organ._last_confidence, 0.9)
-        self.assertGreater(advice.belief_delta[1], 2.0)
+        self.assertGreaterEqual(advice.belief_delta[1], 2.0)
         self.assertLessEqual(abs(advice.belief_delta[0]), 0.5)
 
     def test_information_shaping_prefers_discriminating_actions(self) -> None:

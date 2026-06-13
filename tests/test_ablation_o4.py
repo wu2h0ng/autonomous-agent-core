@@ -6,7 +6,7 @@ import random
 import unittest
 
 from aac.agent import Agent
-from aac.prior_organ import BeliefSnapshot, OrganAdvice
+from aac.prior_organ import BeliefSnapshot
 from aac.prior_organ_latent import LatentRegimeOrgan
 from aac.shell import CorrigibilityShell
 from aac.viability import ViabilityCore
@@ -218,7 +218,7 @@ class TestAblationExperiment(unittest.TestCase):
         # O4-full: no overrides
         _, full_params = ARMS["O4-full"]
         self.assertEqual(full_params["info_weight"], 0.3)
-        self.assertEqual(full_params["departed_penalty"], 1.0)
+        self.assertEqual(full_params["departed_penalty"], 2.0)
         self.assertTrue(full_params.get("continuous_inject", True))
         self.assertTrue(full_params.get("bayesian_update", True))
 

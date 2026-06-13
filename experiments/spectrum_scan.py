@@ -11,7 +11,7 @@ Pre-registered design:
     advantage > 0 => O4 better; <= 0 => O4 no longer wins
   - Significance: paired Wilcoxon (one-sided, p < 0.05)
 
-Run: PYTHONPATH=src python experiments/spectrum_scan.py
+Run: PYTHONPATH=src python -m experiments.spectrum_scan
 """
 from __future__ import annotations
 
@@ -20,12 +20,20 @@ from typing import Any
 from aac.prior_organ_latent import LatentRegimeOrgan
 from aac.prior_organ_o1 import ResetScaffoldOrgan
 
-from experiments._g7_common import (
-    O4_FROZEN,
-    format_table,
-    run_area,
-    wilcoxon_one_sided,
-)
+try:
+    from experiments._g7_common import (
+        O4_FROZEN,
+        format_table,
+        run_area,
+        wilcoxon_one_sided,
+    )
+except ModuleNotFoundError:  # direct script execution: python experiments/...
+    from _g7_common import (  # type: ignore[no-redef]
+        O4_FROZEN,
+        format_table,
+        run_area,
+        wilcoxon_one_sided,
+    )
 
 N_REGIMES_GRID = [2, 5, 10, 20]
 NOISE_GRID = [0.1, 0.3, 0.5, 1.0]
@@ -112,7 +120,7 @@ def spectrum_scan() -> None:
     # Phase boundary summary
     wins = sum(1 for r in results if r["significant"])
     losses = [r for r in results if not r["significant"]]
-    print(f"\nPhase boundary summary:")
+    print("\nPhase boundary summary:")
     print(f"  O4 wins in {wins}/{total} conditions")
     if losses:
         first_loss = losses[0]

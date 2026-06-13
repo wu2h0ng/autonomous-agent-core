@@ -19,11 +19,11 @@ N_ACTIONS = 8
 
 # FROZEN calibration defaults (2026-06-13, seeds 200-219).
 O4_FROZEN = dict(
-    sigma=0.3,
+    sigma=0.5,
     inject_weight=0.85,
     info_weight=0.3,
-    probe_confidence=0.5,
-    departed_penalty=1.0,
+    probe_confidence=0.7,
+    departed_penalty=2.0,
     max_belief_delta=2.0,
 )
 
