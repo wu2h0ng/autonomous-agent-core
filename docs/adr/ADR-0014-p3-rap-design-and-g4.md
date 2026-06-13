@@ -227,3 +227,51 @@ B-central 只可见 `situation + 历史 TRACE/声誉/bid`;**禁读** `regime`/`b
 `rap.py`(DISSOLVE 上链 + 每 NEED 单 bond)、`rap_baselines.action_for_node`(提升公有)。
 测试:`test_outcome_judge.py`、`test_rap_coordinator.py`;`test_rap.py` 扩 DISSOLVE 审计/单 bond。
 B-fixed/B-central 已在 T-P3.2;G4 实验(C-rap vs 双基线,r-final)属 T-P3.4。
+
+## T-P3.4 实现与 G4 结果(2026-06-13,r-final)
+
+已落地 `experiments/rap_g4.py` 与 `tests/test_rap_g4_experiment.py`。本轮为 ADR-0014 §6 预承诺的
+**r-final** 门测,跑前固定:
+
+- seeds = 0..9,steps = 1500,n_actions = 8,disturbance_rate = 0.25。
+- ε = 0.05,用于 G4-2 的 "C-rap 不被 B-central 支配" 小裕度。
+- C-rap 开销账目按 §5 原式解释:每 bond 计 NEED + BID*n + BOND + TRACE*2 + DISSOLVE + bid_eval*n;
+  无 bond 时不免费暂停,环境执行 `garbage_action()` 作为协调失败的外显后果并计 regret。
+- B-central 开销账目:每步中心评分 n 个节点 + 1 次 dispatch。
+
+命令:
+
+```text
+PYTHONPATH=src python experiments/rap_g4.py
+```
+
+逐项结果:
+
+```text
+G4-1 quality vs B-fixed:     0/10 (need >=7)
+G4-2 NODE_DROP recovery:     3/10 (need >=7)
+G4-2 central non-dominated: True (C <= B-central + 0.05)
+G4-3 orchestration tax:      False (need True, all seeds)
+G4-4 evidence/audit:         True (need True, all seeds)
+
+aggregate regret:
+  C-rap    1.674
+  B-fixed  1.257
+  B-central 1.646
+
+diagnostics:
+  off-segment wins = 4143
+  early-segment stale wins = 697
+  dropped-winner wins = 450
+```
+
+**G4: NOT MET.** 按 §8,RAP v0 **封存**(keep static wiring),不调机制重跑。
+
+解释:
+
+- G4-1 以 0/10 失败,说明 RAP 的情境路由/声誉押注没有打过强固定流水线;这是第四次模式重现。
+- G4-2 恢复面 3/10 未达,但 aggregate mean regret 满足非支配小裕度;可记为"没有证明去中心增量"。
+- G4-3 税失败不是实现 bug,而是 v0 NEED/BID/BOND/TRACE/DISSOLVE 全账目下的结构成本暴露。
+- G4-4 通过:所有 bond 有 TRACE/DISSOLVE 审计,hash chain verify 通过;可纠正性单元测试仍是本判据的确定性部分。
+- D5 诊断获得支持:大量 off-segment / early-segment stale winner 与 dropped-winner 表明声誉/confidence
+  重收敛慢的问题确实搬到了协调层。输 = G1/G2/G3 同根因的第四次强收敛证据。

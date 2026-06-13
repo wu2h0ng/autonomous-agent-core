@@ -46,15 +46,16 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **三次模式**:G1/G2/G3 中定向认知机制均未稳定胜过廉价无定向基线——已升级为本原型线的
   一级研究发现(见 ADR-0012 §G3 结论 3)。
 
-## P3 RAP v0(单进程退化模式)
+## P3 RAP v0(单进程退化模式) — ✅ 已完成(G4 NOT MET,RAP 封存)
 
 - **ADR-0013 决策**:P2 后选择照走 P3。**T-P3.0 设计 ADR 已完成 = ADR-0014**(G4 钉死)。
 - 进程内场 + NEED/BID/BOND/TRACE/DISSOLVE(v0 丢 SCENT/RUPTURE);异质节点 = 现有机制薄封装(≥5 种)。
 - **关键设计**:三连败既是约束也是动机(无单一机制全局占优→路由也许赢);双基线
   B-fixed(强固定)+ B-central(中心路由)分离"路由有用"与"去中心有用"。
-- 门 **G4**(4 判据,ADR-0014 §6 钉死):质量胜 B-fixed / 去中心增量不被 B-central 支配 /
-  编排税有界 / 证据上链+可纠正绑定。NOT MET → RAP 封存(keep static wiring)。
-- 接力:T-P3.1 场+消息+节点 → T-P3.2 双基线+扰动 → T-P3.3 RAP 协调器 → T-P3.4 G4 实验。
+- 门 **G4**(4 判据,ADR-0014 §6 钉死)已跑 r-final(2026-06-13):**NOT MET**。
+  C-rap vs B-fixed = 0/10,NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。
+- 处置:按 ADR-0014 §8,RAP v0 **封存**(keep static wiring),不调机制重跑。G1/G2/G3 的"定向机制打不过廉价基线"扩展为第四次:本尺度下去中心协调也未赢过强固定流水线。
+- 接力:founder/CTO 路线决策。P4 器官接入(LLM / 学习世界模型)仍需 founder 批准后启动。
 
 ## P4 器官接入(LLM / 学习世界模型)— 需 founder 批准后启动
 

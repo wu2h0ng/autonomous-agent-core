@@ -8,11 +8,11 @@
 
 **使命**:造出 RR-0001 v2 的通用自主智能体(主产物);企业 OS 是其降级投影,不在本仓库。
 
-**当前真相(2026-06-12)**:
+**当前真相(2026-06-13)**:
 - 13 个单元测试全绿;主张 3 演示、主张 4 结构成立、主张 1 实现未消融。
 - **主张 2 v0 被证伪**(0/10,诊断:利用错绑饥饿 + bandit 对固定探索过于友好)。
 - founder 已批准三岔路**选项 2**:换硬相关性问题。规格已钉死于 ADR-0002(门 G1 已预注册)。
-- 当前阶段 P3,**T-P3.3 已完成(RAP 协调器 + grounded OutcomeJudge + 可纠正性绑定,232 测试绿)**;接力点 = T-P3.4 G4 实验(C-rap vs B-fixed/B-central,r-final 预承诺)。
+- 当前阶段 P3 已跑完 **T-P3.4 G4 r-final**:**NOT MET**。C-rap vs B-fixed = 0/10,G4-2 NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。按 ADR-0014,RAP v0 封存,不调机制重跑。
 
 ## 2. founder 决策倾向画像(决策时对照;与画像冲突→升级,不得代拍)
 
@@ -92,6 +92,7 @@
 | 2026-06-12 | **T-P3.1 完成** | 新增 `src/aac/rap.py`:5 消息数据类、`RAPNode` 结构接口、`RAPField` 哑场(存储/匹配/TRACE 上 shell.audit/押金与声誉结算,不含路由策略);新增 9 个确定性生命周期测试;**198 测试绿**。下一步 T-P3.2 双基线+扰动混合环境 | ADR-0014 §7/§T-P3.1 追记 |
 | 2026-06-12 | **T-P3.2 完成** | 新增 `rap_nodes.py` 五类现有机制薄封装、`rap_baselines.py` 的 B-fixed 离线扫描/B-central 情境路由、`rap_mixture.py` 的 STABLE/SHIFTING/NOISY + NODE_DROP/NODE_LAG 环境;新增 13 个确定性测试;**211 测试绿**。下一步 T-P3.3 RAP 协调器+可纠正绑定 | ADR-0014 §7/§T-P3.2 追记 |
 | 2026-06-12 | **T-P3.3 完成** | 新增 `outcome_judge.py`(Ring-0 grounded 判官:realized<baseline×β)、`rap_coordinator.py`(拍卖路由+可纠正绑定+judge 接线+单动作联盟,复用 `action_for_node`);`rap.py` 加 DISSOLVE 上链+每 NEED 单 bond;env 加 `expected_random_regret`/`n_actions`;**outcome 不可由 coordinator 手填**(测试以 env 翻转证 grounding);pause/all-forbidden→零执行、forbidden 双重兜底;押金接地 v0 诚实降级(D1 债务明写)。+21 测试,**232 绿**。下一步 T-P3.4 G4 实验 | ADR-0014 §T-P3.3 追记 |
+| 2026-06-13 | **T-P3.4 G4 r-final** | **G4: NOT MET**。C-rap 平均遗憾 1.674 vs B-fixed 1.257/B-central 1.646;G4-1=0/10,G4-2 recovery=3/10 且 central non-dominated=True,G4-3 tax=False,G4-4 evidence/audit=True。D5 诊断支持:off-segment wins=4143,early stale wins=697,dropped-winner wins=450。按 ADR-0014 §8,RAP v0 **封存**,不调机制重跑。新增 `experiments/rap_g4.py` + 3 个账目测试。 | ADR-0014 §T-P3.4 / RR-0003 |
 
 ## 6. 交接纪律
 
@@ -196,6 +197,9 @@ G2 result:
 - 押金接地 **v0 诚实降级**(ADR-0014 D1):reputation=内部协调币,非 viability 同币种;债务明写,P3.x 再接。
 - 可纠正:pause / all-forbidden → 零执行;forbidden 双重兜底(连 NODE_DROP garbage 也挡);DISSOLVE 上链。
 
-### 接力点:T-P3.4(G4 实验)
+### T-P3.4 — G4 实验(r-final) — ✅ 已完成,NOT MET
 
-照 ADR-0014 §7 任务卡:T-P3.3 RAP 协调器+可纠正绑定 → T-P3.4 G4 实验。每片确定性测试绿方进下一片。
+- 新增 `experiments/rap_g4.py`:C-rap vs B-fixed vs B-central,种子 0..9,每种子 1500 步,扰动混合按 ADR-0014。
+- 结果:质量胜 B-fixed = 0/10;NODE_DROP recovery = 3/10;central non-dominated=True;编排税未过;证据/审计过。
+- **结论**:G4 NOT MET。按 ADR-0014 §8,RAP v0 封存(keep static wiring),不调机制重跑。
+- 接力点:founder/CTO 路线决策。P4 器官接入仍是 founder 保留事项;若不进 P4,可先做"四次同根负结果"的研究收束/论文式整理。
