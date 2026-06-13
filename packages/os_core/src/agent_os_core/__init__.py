@@ -1,5 +1,11 @@
 from .action_connectors import ActionConnector, ActionConnectorRegistry
 from .action_governance import ActionGovernance
+from .adoption import (
+    AdoptionIngest,
+    AdoptionLedger,
+    AdoptionLedgerPort,
+    AdoptionLedgerView,
+)
 from .approval_lite import (
     ApprovalLiteRuntime,
     ApprovalRecord,
@@ -36,6 +42,10 @@ __all__ = [
     "ActionConnector",
     "ActionConnectorRegistry",
     "ActionGovernance",
+    "AdoptionIngest",
+    "AdoptionLedger",
+    "AdoptionLedgerPort",
+    "AdoptionLedgerView",
     "ApprovalLiteRuntime",
     "ApprovalRecord",
     "ApprovalStorePort",

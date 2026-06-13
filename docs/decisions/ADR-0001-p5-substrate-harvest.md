@@ -45,10 +45,31 @@ P5-3 器官非主体:正式答复/真相在 data/evidence 路径;LLM/模型仅 a
 
 | 任务 | 范围 | 验收 |
 |---|---|---|
-| **P5.1a** | feedback 自写通道分离(独立 ingest + 运行时只读端口) | 守卫测试:运行时代码路径不可伪造外部采纳;自报与外部价值 schema 分离 |
+| **P5.1a ✅ DONE** | feedback 自写通道分离(独立 ingest + 运行时只读端口) | 守卫测试:运行时代码路径不可伪造外部采纳;自报与外部价值 schema 分离 |
 | P5.1b | 正式答复/R4-R5 必过 SQL Safety+EvidenceChain 升为强制不变量 | 旁路尝试 = 测试失败 |
 | P5.2 | 硬化罩移植(能力视图 + 哈希链审计 + 演练) | pause/rollback/tighten 零越界;audit verify;演练零抵抗 |
 | P5.3 | 器官非主体形式化(model_gateway advisory 不变量) | 旁路不可产出正式答复 |
+
+## 4b. P5.1a 落地(2026-06-13,founder "你先建语义环境并同时推 P5.1a")
+
+镜像原型 operator 独占 ValueChannel(op_credit)的能力隔离:
+
+- **契约(contracts first):** `FeedbackEvent.source` ∈ `{runtime_self_report, external_adoption}`
+  (`FeedbackSource`);默认 `runtime_self_report`(裸构造永远不是实现价值)。
+- **能力边界:** `FeedbackEventBuilder(source=...)` 在构造时**钉死** source,`build()` 不收 source 参数——
+  持有谁的 builder 就只能发谁的 source。运行时的 builder = self_report,**结构上无法铸造 external_adoption**。
+- **独立 ingest(独立写路径):** 新 `agent_os_core.adoption`——`AdoptionLedger`(独立于 self-report `FeedbackStore`
+  的存储;`record` 拒收非 external_adoption)、`AdoptionIngest`(唯一写入者,operator 持有,自带 external_adoption builder)、
+  `AdoptionLedgerView`(只读:无 record/submit)。
+- **运行时只读端口:** `TrustedLoopRuntime` 新增 `adoption_ledger_view`(只读)+ `adoption_for_trace()` 读取;
+  `record_outcome` 保持原行为(自报+knowledge fold,向后兼容),但事件现 stamped self_report,**绝不计入实现价值**。
+- **真实入口:** `ContentCommerceRuntimeFactory.adoption_ingest()` 给 operator 返回 ingest;`build()` 注入只读 view;
+  二者共享同一 ledger(runtime 读、operator 写)。
+- **验收(全绿):** `tests/unit/test_adoption_channel.py`(13 守卫测)——self-report≠adoption、运行时无写入者、
+  ledger 拒收 self-report、读端口无写面、operator 写经只读端口可见、factory 共享一账本;
+  全仓 300 unit 绿(3 skip=postgres)、`ruff check` + `format-check` 干净;既有 `record_outcome` 测试不变(向后兼容)。
+- **剩余 schema 分离的下一步(P5.1b 边界):** 把"实现价值驱动 knowledge/promotion"从 self_report 改为消费 adoption ledger
+  (经只读 view),并把正式答复/R4-R5 必过 SQL Safety+EvidenceChain 升为强制不变量。
 
 ## 5. 边界
 

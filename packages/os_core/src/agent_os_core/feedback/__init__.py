@@ -15,7 +15,7 @@ import json
 from abc import ABC, abstractmethod
 from collections import Counter
 
-from agent_os_contracts import FeedbackEvent
+from agent_os_contracts import FeedbackEvent, FeedbackSource
 
 __all__ = ["FeedbackEventBuilder", "FeedbackStore", "FeedbackStorePort"]
 
@@ -42,7 +42,17 @@ class FeedbackStorePort(ABC):
 
 
 class FeedbackEventBuilder:
-    """Build deterministic ``FeedbackEvent`` records from loop outcome signals."""
+    """Build deterministic ``FeedbackEvent`` records from loop outcome signals.
+
+    The ``source`` (provenance channel) is FIXED at construction and stamped on
+    every event; ``build`` does not accept it as a parameter. This is the
+    capability boundary (P5.1a, ADR-0001): whoever holds a builder can only emit
+    that builder's source. The runtime's builder is ``RUNTIME_SELF_REPORT``, so
+    the runtime is structurally unable to mint an ``EXTERNAL_ADOPTION`` event.
+    """
+
+    def __init__(self, source: str = FeedbackSource.RUNTIME_SELF_REPORT) -> None:
+        self.source = source
 
     def build(
         self,
@@ -52,7 +62,7 @@ class FeedbackEventBuilder:
         reviewer: str | None = None,
         metric_deltas: dict[str, object] | None = None,
     ) -> FeedbackEvent:
-        """Produce a typed ``FeedbackEvent``.
+        """Produce a typed ``FeedbackEvent`` stamped with this builder's source.
 
         Args:
             trace_id: The trace this feedback is about. Required.
@@ -61,9 +71,10 @@ class FeedbackEventBuilder:
             reviewer: Optional human/agent reviewer attribution.
             metric_deltas: Optional metric deltas observed after the action.
 
-        The ``feedback_id`` is derived deterministically from the trace id and the
-        full content (outcome, reviewer, metric deltas), so identical inputs yield
-        identical ids and any change in content yields a different id.
+        The ``feedback_id`` is derived deterministically from the trace id, the
+        full content (outcome, reviewer, metric deltas), AND the source, so
+        identical inputs yield identical ids and any change in content or
+        provenance yields a different id.
         """
         if not trace_id:
             raise ValueError("trace_id is required to build a FeedbackEvent")
@@ -76,6 +87,7 @@ class FeedbackEventBuilder:
             outcome=outcome,
             reviewer=reviewer,
             metrics=metrics,
+            source=self.source,
         )
         return FeedbackEvent(
             feedback_id=feedback_id,
@@ -83,6 +95,7 @@ class FeedbackEventBuilder:
             outcome=outcome,
             metrics=metrics,
             reviewer=reviewer,
+            source=self.source,
         )
 
     @staticmethod
@@ -92,6 +105,7 @@ class FeedbackEventBuilder:
         outcome: str,
         reviewer: str | None,
         metrics: dict[str, object],
+        source: str,
     ) -> str:
         payload = json.dumps(
             {
@@ -99,6 +113,7 @@ class FeedbackEventBuilder:
                 "outcome": outcome,
                 "reviewer": reviewer,
                 "metrics": metrics,
+                "source": source,
             },
             sort_keys=True,
             default=str,

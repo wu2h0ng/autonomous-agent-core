@@ -16,6 +16,8 @@ from agent_os_contracts import (
     SQLTemplate,
 )
 from agent_os_core import (
+    AdoptionIngest,
+    AdoptionLedger,
     ApprovalLiteRuntime,
     ProviderRegistry,
     SemanticRegistry,
@@ -102,6 +104,10 @@ class ContentCommerceRuntimeFactory:
         # search surfaces must observe the same knowledge state (AR-20260611).
         self._retriever: Any = None
         self._engine: Any = None
+        # ONE adoption ledger per factory (P5.1a, ADR-0001): the runtime's
+        # read-only view and the operator's ingest must share the same value
+        # channel. The runtime gets the view; only adoption_ingest() yields a writer.
+        self._adoption_ledger: AdoptionLedger | None = None
 
     def build(self) -> TrustedLoopRuntime:
         metrics = self._load_metrics()
@@ -136,7 +142,25 @@ class ContentCommerceRuntimeFactory:
             # through the SAME retriever the search surfaces use.
             knowledge_retriever=self.build_knowledge_retriever(),
             trace_store=trace_store,
+            # Read-only port onto the external adoption value channel (P5.1a):
+            # the runtime can read realized value, never write it.
+            adoption_ledger_view=self._adoption_ledger_singleton().view(),
         )
+
+    def _adoption_ledger_singleton(self) -> AdoptionLedger:
+        if self._adoption_ledger is None:
+            self._adoption_ledger = AdoptionLedger()
+        return self._adoption_ledger
+
+    def adoption_ingest(self) -> AdoptionIngest:
+        """Operator-exclusive writer for realized external value (P5.1a).
+
+        Returns an ``AdoptionIngest`` over the SAME ledger the runtime reads. The
+        composition/operator layer holds this; the runtime is never given one, so
+        OS Core code cannot mint realized value. The real entry point for the
+        external value channel.
+        """
+        return AdoptionIngest(self._adoption_ledger_singleton())
 
     def _build_stores(self) -> tuple[Any, Any, Any, Any, Any, Any]:
         """Select the store backend for feedback/knowledge/snapshot/approval/trace.

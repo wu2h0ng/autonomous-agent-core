@@ -28,6 +28,7 @@ from agent_os_contracts import (
 
 from .action_connectors.registry import ActionConnectorRegistry
 from .action_governance import ActionGovernance
+from .adoption import AdoptionLedgerView
 from .action_proposal import ActionProposalBuilder
 from .approval_lite import ApprovalLiteRuntime
 from .data_access_plane import ProviderRegistry
@@ -98,6 +99,7 @@ class TrustedLoopRuntime:
         knowledge_retriever: KnowledgeRetriever | None = None,
         recall_k: int = 3,
         trace_store: TraceStorePort | None = None,
+        adoption_ledger_view: AdoptionLedgerView | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -145,9 +147,17 @@ class TrustedLoopRuntime:
         self.state_machine = state_machine or OperationStateMachine()
         self.knowledge_builder = knowledge_builder or KnowledgeAssetBuilder()
         self.knowledge_store = knowledge_store or KnowledgeStore()
+        # The runtime's feedback builder is the SELF-REPORT channel (default
+        # source). It is structurally unable to mint realized external value
+        # (P5.1a, ADR-0001): realized value lives in the adoption ledger, which
+        # the runtime can only READ through the read-only view below.
         self.feedback_builder = feedback_builder or FeedbackEventBuilder()
         self.feedback_store = feedback_store or FeedbackStore()
         self.snapshot_store = snapshot_store or InMemorySnapshotStore()
+        # Read-only port onto the external adoption value channel (P5.1a). The
+        # runtime holds NO writer — only an operator-held AdoptionIngest writes
+        # realized value. ``None`` = no value channel wired (reads return empty).
+        self.adoption_ledger_view = adoption_ledger_view
         # Optional unit-of-work factory: a zero-arg callable returning a context
         # manager that yields (feedback_store, knowledge_store) bound to one
         # transaction, making record_outcome's two writes atomic. When None,
@@ -595,10 +605,13 @@ class TrustedLoopRuntime:
         reviewer: str | None = None,
         metric_deltas: dict[str, object] | None = None,
     ) -> FeedbackEvent:
-        """Record an observed outcome for a completed run and fold it back in.
+        """Record a runtime SELF-REPORT for a completed run and fold it back in.
 
-        This is the post-outcome half of the loop, invoked separately from
-        ``run()`` once a business result is observed. It:
+        This is the post-outcome half of the loop. Its events are stamped with
+        the runtime's self-report provenance (``FeedbackSource.RUNTIME_SELF_REPORT``)
+        — it CANNOT mint realized external value, which is a separate, operator-only
+        channel (P5.1a, ADR-0001; see ``AdoptionIngest`` / ``adoption_for_trace``).
+        Invoked separately from ``run()`` once a result is observed. It:
 
         1. Builds and stores a typed ``FeedbackEvent`` bound to ``trace_id``.
         2. If a KnowledgeAsset candidate exists for that trace, supersedes it
@@ -639,6 +652,18 @@ class TrustedLoopRuntime:
                 knowledge_store.register_version(revised)
 
         return feedback
+
+    def adoption_for_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]:
+        """Read realized external-value (adoption) events for ``trace_id``.
+
+        Read-only by construction (P5.1a, ADR-0001): the runtime holds an
+        ``AdoptionLedgerView``, never a writer, so this is the only adoption
+        surface OS Core code can reach. Returns an empty tuple when no value
+        channel is wired.
+        """
+        if self.adoption_ledger_view is None:
+            return ()
+        return self.adoption_ledger_view.get_by_trace(trace_id)
 
     def rollback(self, snapshot_id: str) -> dict[str, Any]:
         """Roll back a previously persisted snapshot via its connector.

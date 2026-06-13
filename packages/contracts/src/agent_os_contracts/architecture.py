@@ -125,6 +125,23 @@ class OperationTrace:
     events: tuple[dict[str, Any], ...] = field(default_factory=tuple)
 
 
+class FeedbackSource:
+    """Provenance of a feedback signal (P5.1a, ADR-0001).
+
+    The two channels are schema-separated and must never be co-aggregated:
+
+    - ``RUNTIME_SELF_REPORT``: written by the runtime about its own execution.
+      The runtime MAY emit this. It is NOT realized external value.
+    - ``EXTERNAL_ADOPTION``: an external attestation that a result was adopted /
+      produced business value. This is the signal a self-evolving credit
+      mechanism would feed on, so the runtime must NOT be able to mint it — it
+      enters only through the operator-exclusive adoption ingest.
+    """
+
+    RUNTIME_SELF_REPORT = "runtime_self_report"
+    EXTERNAL_ADOPTION = "external_adoption"
+
+
 @dataclass(frozen=True)
 class FeedbackEvent:
     feedback_id: str
@@ -132,6 +149,9 @@ class FeedbackEvent:
     outcome: str
     metrics: dict[str, Any] = field(default_factory=dict)
     reviewer: str | None = None
+    # Provenance channel (P5.1a). Defaults to the safe channel: a bare
+    # construction is a runtime self-report, never realized external value.
+    source: str = FeedbackSource.RUNTIME_SELF_REPORT
 
 
 @dataclass(frozen=True)
