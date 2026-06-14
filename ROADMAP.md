@@ -110,8 +110,9 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 
 **founder 拍板(2026-06-14)**:挪门高度 = 组件标量 → 系统级向量;**先锁 P0 再泛化(C3 de-risk → C1);C2 停泊**。一切研究/实验须遵 ENGINEERING.md §4 项5-6(统计功效/MDE/样本量;候选预指定/禁同种子认领事后赢家)。
 
-### P6.1 — G10 P0 单轴确认门(ADR-0024)— Accepted,待跑
+### P6.1 — G10 P0 单轴确认门(ADR-0024)— **MET(2026-06-14,fresh seeds 800..829)**
 
+- **结果**:A0 1304.7 / A1 1268.6 / **P0 759.8**;P0<A0 30/30、P0<A1 30/30、p<1e-6;effect **−40.1%**(mean 508.8,median 499.4),bootstrap 95% CI [457.0, 562.9];四判据全 PASS。**G9 P0 非种子 artifact,决定性 subject-side 胜势在 fresh seeds 复现——全程首个 MET 决定性门**。367 测试绿。
 - 纯确认性测量,机制不动(复用 G9 冻结 gate `{gate_kappa=0.5, gate_temp_floor=0.1}`)。
 - 臂 A0/A1/P0,**P0=预指定候选**;fresh seeds `800..829`(与所有历史种子集不相交)。
 - 门 G10:δ≥0.20 vs A1 / P0<A0 ≥27/30 p<0.01 / P0<A1 ≥27/30 p<0.01 / 效应量+bootstrap CI / C6/C7 守卫。

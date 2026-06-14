@@ -1,6 +1,6 @@
 # ADR-0024: G10 — confirm the decisive subject-side win (P0 gate-alone) on fresh seeds
 
-- Status: **Accepted (pre-registration; founder-directed 2026-06-14 "先锁P0再泛化"). Gate §4 frozen, experiment pending. Pure confirmatory measurement on the existing frozen confidence gate — no new mechanism.**
+- Status: **Accepted; G10 MET (2026-06-14, see §8) — P0 confirmed on fresh seeds, −40.1% vs cheap reset, 30/30, p<1e-6. Pure confirmatory measurement on the existing frozen confidence gate — no new mechanism.**
 - Date: 2026-06-14
 - Deciders: founder (sequencing ruling 2026-06-14: lock P0 single-axis first, then generalise to system level via ADR-0025/G11). Agent drafts per ADR-0003 ("按既有 ADR 施工 + 实验有效性").
 - Scope: P4.x structured-regime line; **pure measurement** on the already-implemented, gate-off-by-default `PolicySelector` confidence gate from ADR-0023/G9. No LLM, no spend, no new dependency, no cross-repo, no mechanism change.
@@ -62,3 +62,25 @@ If P0 does not replicate the decisive margin on fresh seeds 800..829, the G9 P0 
 - **On MET**: the program has its first *confirmed* decisive win — subject-side belief→action coupling, C6-preserving, beating cheap baselines on a single axis. This becomes the foundation ADR-0025/G11 generalises to the multi-axis system-level signature.
 - **Coordination note**: the confidence-gate mechanism is owned by the concurrent `feat/g9-confidence-gated-policy` line (committed `bb65121`/`9c0d6c3`). G10 adds only an experiment + guard tests on the frozen gate; it does not modify `policy.py`. Branch/merge coordination is a founder-hands item (this work and the G9 line share the orchestrator surface).
 - **PROJECT_PLAN update on first run**: add P6.1/G10 result to §5 and ROADMAP after r-final.
+
+## 8. Result (2026-06-14, r-final seeds 800..829) — G10 MET
+
+Pure confirmatory run against the frozen G9 gate `{gate_kappa=0.5, gate_temp_floor=0.1}`, P0 the pre-specified candidate. Full suite 367 tests green.
+
+| arm | mean post-shift regret area, seeds 800..829 |
+|---|---:|
+| A0 baseline + none | 1304.7 |
+| A1 baseline + O1 cheap reset | 1268.6 |
+| **P0 gated policy + none** | **759.8** |
+
+| criterion | result |
+|---|---|
+| G10-1 mean(P0) ≤ 0.8·A1 | 759.8 ≤ 1014.9 PASS |
+| G10-2 P0<A0 ≥27/30 & Wilcoxon p<0.01 | 30/30, p<1e-6 PASS |
+| G10-3 P0<A1 ≥27/30 & Wilcoxon p<0.01 | 30/30, p<1e-6 PASS |
+| G10-4 effect size + bootstrap 95% CI lower>0 | mean reduction 508.8, median 499.4, −40.1%, CI [457.0, 562.9] PASS |
+| G10-C6/C7 | unit tests PASS |
+
+**G10: MET.** The decisive subject-side win replicates cleanly on fresh seeds — the G9 P0 result was **not** a seed artifact. P0 (confidence-gated policy, no organ, C6-preserving) beats the cheap reset by **40.1%** (30/30, p<1e-6, bootstrap 95% CI [457, 563]). This is the **first MET decisive gate in the G0–G10 program** and the first break of the bitter-lesson pattern, confirmed under ENGINEERING.md §4 items 5–6 (fresh seeds, pre-specified candidate, effect size + CI). Foundation for ADR-0025/G11 (system-level generalisation).
+
+Reproduce: `PYTHONPATH=src python -m experiments.confidence_gated_g10`.
