@@ -103,3 +103,27 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - 验收 P5-1/2/3(企业域影子场景);**前置**:先分离企业仓 feedback 自写放水通道(RR-0002)。
 - 与 P4.x 正交可并行:P5 收割"已立住的",不依赖 P4.x 结果。
 - 边界:enterprise 仓需自己的 ADR/AR + founder 批;不跨仓 import(RR-0004 §4),模式移植非代码搬运。
+
+## P6 主体侧耦合 + 抬到系统级门 — 当前路线(2026-06-14 founder 拍板 route C)
+
+**前情桥接(G8/G9 未单列段,以 ADR 为权威源)**:G8(ADR-0022)NOT MET——belief-only ensemble ≈ O4,无互补增益;ADR-0021 谱系/消融确认 belief-only 器官优势有界(~8–13%,赚钱的是诚实贝叶斯记账非花式机制)。**G9(ADR-0023)首次打破苦涩教训**:subject-side confidence-gated policy temperature(读主体自己的 `ActionOutcomeModel`,**C6-preserving,器官不进控制路径**)→ **P0 gate-alone −45%(30/30,p<1e-6)**,决定性胜廉价重置 A1 与 O4 天花板 A4;器官在 gate 下反而有害。G9 NOT MET 仅因预注册候选选错(钉 P4=gate+organ,实测赢家 P0=gate-alone)。诊断翻盘:G7/G8 六门都在修 belief 质量,真瓶颈是 policy 里的 belief→action 耦合(=主体)。
+
+**founder 拍板(2026-06-14)**:挪门高度 = 组件标量 → 系统级向量;**先锁 P0 再泛化(C3 de-risk → C1);C2 停泊**。一切研究/实验须遵 ENGINEERING.md §4 项5-6(统计功效/MDE/样本量;候选预指定/禁同种子认领事后赢家)。
+
+### P6.1 — G10 P0 单轴确认门(ADR-0024)— Accepted,待跑
+
+- 纯确认性测量,机制不动(复用 G9 冻结 gate `{gate_kappa=0.5, gate_temp_floor=0.1}`)。
+- 臂 A0/A1/P0,**P0=预指定候选**;fresh seeds `800..829`(与所有历史种子集不相交)。
+- 门 G10:δ≥0.20 vs A1 / P0<A0 ≥27/30 p<0.01 / P0<A1 ≥27/30 p<0.01 / 效应量+bootstrap CI / C6/C7 守卫。
+- NOT MET → G9 P0 为种子 artifact,如实记录不调参;route C 失单轴地基,需重界定。
+
+### P6.2 — G11 系统级自主签名门(ADR-0025)— route 级 Accepted,门待 G10+C3 后冻结
+
+- **C3 idle-productivity 锐门先行 de-risk**(复用 IdleDrives/IdleWindowEnv);过/含糊才上 **C1 复合需求环境**。
+- 门 G11:被测 AGENT = 被整合主体(viability+主动推理+相关性场+IdleDrives+G9 gate),对手 = 逐轴 oracle-best 廉价组合;§9 向量 Pareto-dominate + validity 前置 + 功效预注册 + C6/C7。
+- NOT MET(充分功效下)→ 系统高度也打不过廉价组合 = 自主主张本原型线未确立的最强证据 → founder 签字定收口或 research-reset。
+
+### 仍 founder-hands(非本 agent 可决)
+
+- G11 冻结数字(K/N、编排税预算、MDE/功效、种子、度量定义)+ NOT MET 终局处置(近"对四主张下最终结论",保留)。
+- **集成债**:`feat/g9-confidence-gated-policy = main + 7`(G6b/G7/G8/G9 线,线性领先未并 main);ROADMAP/PROJECT_PLAN 缺独立 G8/G9 段 → 建议先 reconcile/merge 再做一次完整 catch-up。路 B(G6b 付费 key/budget)/路 A(P5 跨仓)停泊未关。
