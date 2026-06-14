@@ -1,5 +1,11 @@
 # autonomous-agent-core
 
+## Current State
+
+Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the current branch, stage, next task, latest tests, latest ADRs, and known drift risks.
+
+As of 2026-06-14: branch `feat/g9-confidence-gated-policy`; `G10` is MET, `C3` is RED, and ADR-0027 parks G11/C1 until a second independent vs-cheap-baseline winning axis exists. Latest recorded full suite: `370 tests OK`.
+
 域无关的自主智能体原型核 —— RR-0001 v2 / RR-0003 的第一纵切片。
 
 这是**主产物**:一个有利害、能重新框定、可被纠正的自主智能体。企业 OS

@@ -1,5 +1,18 @@
 # AGENTS.md — autonomous-agent-core 智能体工作指令(权威版)
 
+## 0. Current State First
+
+Before broad reading, read `docs/CURRENT_STATE.yaml`. It is the live handoff anchor for branch, current stage, latest experiment state, test count, ADR status, and next task.
+
+As of 2026-06-14, the live branch is `feat/g9-confidence-gated-policy`; `G10` is MET and `C3` is RED. The current execution stage is post-C3 route disposition: G11/C1 is parked by ADR-0027 until a second independent vs-cheap-baseline winning axis exists. Older P1/P2/P3/P4 notes in this file or memory are historical unless repeated in `docs/CURRENT_STATE.yaml`.
+
+Minimal read order for agent handoff:
+
+1. `docs/CURRENT_STATE.yaml`
+2. `docs/PROJECT_PLAN.md`
+3. `codebase_index.md`
+4. ADRs/tests/code named by those files
+
 任何 AI agent(Claude 或其他)在本仓库工作前必须读完本文件。Claude Code 另见 `CLAUDE.md`(指回本文件并补充平台细节)。
 
 ## 1. 本仓库是什么

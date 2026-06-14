@@ -1,0 +1,103 @@
+updated: "2026-06-14"
+owner: "founder-delegated CTO"
+repo: "autonomous-agent-core"
+branch: "feat/g9-confidence-gated-policy"
+status: "active research line; G10 confirmed; C3 de-risk RED; G11 not frozen"
+test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
+last_verified_tests:
+  count: 370
+  result: "OK"
+  source: "ADR-0026 C3 r-final full-suite record on 2026-06-14; re-run locally before submit"
+
+current_stage:
+  label: "P6 route C: subject-side coupling confirmed; system-level gate paused for disposition"
+  immediate_next: "T-P6.3 / ADR-0027: record post-C3 route disposition; park or rescope G11 before any C1 build"
+  after_next: "Consolidate G10 as the confirmed positive result; optional future ADR for a new independent winning axis or P5 deployment projection"
+  not_current:
+    - "P1/T1-T3"
+    - "P2"
+    - "P3 RAP implementation"
+    - "P4 prior-organ G5"
+    - "G10 execution"
+    - "C3 execution"
+
+authoritative_adrs:
+  latest_committed:
+    - "docs/adr/ADR-0023-g9-confidence-gated-policy.md"
+    - "docs/adr/ADR-0024-g10-subject-side-win-confirmation.md"
+    - "docs/adr/ADR-0025-system-level-autonomy-signature-gate.md"
+    - "docs/adr/ADR-0026-c3-idle-productivity-de-risk.md"
+  current_decision:
+    - "docs/adr/ADR-0027-post-c3-route-disposition.md"
+  tracked_g10_files:
+    - "experiments/confidence_gated_g10.py"
+    - "tests/test_confidence_gated_g10.py"
+  tracked_c3_files:
+    - "experiments/idle_productivity_c3.py"
+    - "tests/test_idle_productivity_c3.py"
+
+current_truth:
+  g9:
+    adr: "ADR-0023"
+    verdict: "NOT MET by preregistered candidate P4, but discovered decisive P0 gate-alone result."
+    frozen_params:
+      gate_kappa: 0.5
+      gate_temp_floor: 0.1
+    key_result:
+      A0_baseline_none: 1361.6
+      A1_baseline_o1: 1325.6
+      A4_baseline_o4: 1224.3
+      P0_gated_none: 746.5
+      P4_gated_o4: 893.4
+  g10:
+    adr: "ADR-0024"
+    verdict: "MET"
+    candidate: "P0 gated policy + no organ"
+    seeds: "800..829"
+    key_result:
+      A0_baseline_none: 1304.7
+      A1_baseline_o1: 1268.6
+      P0_gated_none: 759.8
+      reduction_vs_a1: "40.1%"
+      per_seed_vs_a0: "30/30"
+      per_seed_vs_a1: "30/30"
+      bootstrap_ci_mean_reduction: "[457.0, 562.9]"
+    interpretation:
+      - "P0 decisive subject-side win replicated on fresh seeds."
+      - "The result is C6-preserving: the gate reads the subject's own ActionOutcomeModel, not an organ control surface."
+      - "This is the program's first confirmed decisive positive gate."
+  c3:
+    adr: "ADR-0026"
+    verdict: "RED"
+    seeds: "900..929"
+    key_result:
+      DIRECTED: 1.691
+      RANDOM: 1.676
+      POLICY: 1.701
+      directed_vs_policy: "18/30, p=0.33, CI [-0.029, +0.048]"
+      directed_vs_random: "12/30, p=0.90"
+    interpretation:
+      - "Endogeny/IdleDrives carries no directed post-idle signal even in the structured environment."
+      - "Drop the endogeny axis from the proposed C1 signature."
+  g11:
+    adr: "ADR-0025"
+    status: "route accepted, gate not frozen; original C1 scope is no longer executable after C3 RED"
+    disposition: "ADR-0027 parks G11/C1 until another independent vs-cheap-baseline winning axis exists."
+
+research_constraints:
+  - "Do not claim C1/G11 as ready: C3 RED leaves only reframe as a confirmed vs-cheap win."
+  - "Do not build the C1 composite environment before a new ADR freezes a valid multi-axis gate."
+  - "Do not reopen IdleDrives or G7/G8 belief-only organ tuning without a new founder-level ADR."
+  - "Do not relax C6: organs remain belief-only; subject-side gate reads the agent's own ActionOutcomeModel."
+  - "No LLM in control path, no business semantics, no cross-repo imports."
+
+handoff_read_order:
+  - "docs/CURRENT_STATE.yaml"
+  - "docs/PROJECT_PLAN.md"
+  - "codebase_index.md"
+  - "ROADMAP.md"
+  - "docs/adr/ADR-0024-g10-subject-side-win-confirmation.md"
+  - "docs/adr/ADR-0026-c3-idle-productivity-de-risk.md"
+  - "docs/adr/ADR-0027-post-c3-route-disposition.md"
+  - "docs/adr/ADR-0025-system-level-autonomy-signature-gate.md"
+  - "ENGINEERING.md"

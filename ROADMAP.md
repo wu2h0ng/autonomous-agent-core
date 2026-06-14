@@ -129,3 +129,9 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 
 - G11 冻结数字(K/N、编排税预算、MDE/功效、种子、度量定义)+ NOT MET 终局处置(近"对四主张下最终结论",保留)。
 - **集成债**:`feat/g9-confidence-gated-policy = main + 7`(G6b/G7/G8/G9 线,线性领先未并 main);ROADMAP/PROJECT_PLAN 缺独立 G8/G9 段 → 建议先 reconcile/merge 再做一次完整 catch-up。路 B(G6b 付费 key/budget)/路 A(P5 跨仓)停泊未关。
+
+### P6.3 — Post-C3 route disposition(ADR-0027) — 当前裁决
+
+- **裁决**:不冻结 G11,不构建原 C1 复合环境。C3 RED 后,原四轴只剩 reframe 有 vs-cheap 决定性胜利;survival 是消融支持非 head-to-head 胜利,robustness=G4 NOT MET,endogeny=C3 RED。原 C1 会退化为 G10 + 弱侧指标,不足以作为真正多轴 autonomy signature。
+- **当前正结果**:G10 作为已确认成果收口——subject-side belief-to-action coupling 在不放松 C6/C7 的情况下决定性击败廉价 reset。
+- **后续**:G11/C1 停泊,直到新 ADR 先证明第二条独立 vs-cheap-baseline 胜轴。可并行推进 P5 部署投影或做 G10 成果整理;不得为救 G11 重开 IdleDrives/RAP/G7/G8。

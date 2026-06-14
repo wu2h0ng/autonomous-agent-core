@@ -1,235 +1,157 @@
-# PROJECT_PLAN — 接力主文档
+# PROJECT_PLAN - autonomous-agent-core
 
-- Status: Active(接力 agent 从这里开始)
-- Date: 2026-06-12
-- 读序: AGENTS.md → 本文件 → ROADMAP → 相关 ADR → 动手
+> Last updated: 2026-06-14
+> Status: Active handoff document
+> First read: `docs/CURRENT_STATE.yaml` -> this file -> `codebase_index.md` -> `ROADMAP.md` -> current ADRs.
 
-## 1. 使命与当前真相
+## 1. Current Truth
 
-**使命**:造出 RR-0001 v2 的通用自主智能体(主产物);企业 OS 是其降级投影,不在本仓库。
+This repository is the object-layer primary artifact: a domain-agnostic autonomous-agent prototype. The enterprise OS is a deployment projection, not the main research line.
 
-**当前真相(2026-06-13)**:
-- 13 个单元测试全绿;主张 3 演示、主张 4 结构成立、主张 1 实现未消融。
-- **主张 2 v0 被证伪**(0/10,诊断:利用错绑饥饿 + bandit 对固定探索过于友好)。
-- founder 已批准三岔路**选项 2**:换硬相关性问题。规格已钉死于 ADR-0002(门 G1 已预注册)。
-- P3 已跑完 **T-P3.4 G4 r-final**:**NOT MET**。C-rap vs B-fixed = 0/10,G4-2 NODE_DROP recovery = 3/10,编排税未过;证据/审计通过。按 ADR-0014,RAP v0 封存,不调机制重跑。
-- **当前阶段 P4(方向已批,contract-first)**:ADR-0015 Decision B 已批准(B1(iii) 触发);ADR-0016 冻结 G5+最小接口+三体消融(O0/O1/O2)。T-P4.1 已完成接口+信念合并钩子+O0 回归。接力点 = T-P4.2(O1 确定性 scaffold)。
+Current branch:
 
-## 2. founder 决策倾向画像(决策时对照;与画像冲突→升级,不得代拍)
+```text
+feat/g9-confidence-gated-policy
+```
 
-1. **谱系右端优先**:保守/激进二选一时,选自主性与能力上限更高的一端;对齐靠机制设计,不靠压低能力。
-2. **逻辑可说服**:被证明某约束是其自身策略的逻辑前提时,会接受硬约束(如 C7 完整罩)。论证>劝说;给推导链,不给情绪。
-3. **研究优先但必须落地**:接受工程妥协换可运行原型;拒绝纸上架构;拒绝市面"system-on-a-system"式 agent。
-4. **通用先于专用**:不许业务假设污染通用核;企业场景=投影,后做。
-5. **尊重证伪**:接受诚实负结果;倾向信息量最大的下一步(已验证:选 2 而非快速修补或忽略)。
-6. **授权充分、要求留痕**:委托 agent 辩论+自审+拍板;一切决策入 ADR、文档完备、可接力。
-7. **文档驱动**:PRD/ADR/roadmap/规范成套是硬要求。
-8. 中文为工作语言;代码与工程产物可英文。
+Current stage:
 
-## 3. 授权与边界(摘自 ADR-0003,全文以 ADR 为准)
+```text
+P6 route C
+  -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET)
+  -> C3: idle-productivity de-risk returned RED
+  -> ADR-0027: G11/C1 parked until a second independent winning axis exists
+  -> next: consolidate G10, or open a new-axis ADR / P5 projection
+```
 
-- **agent 可自决**:实现细节、测试、重构、文档、实验有效性修复、按既有 ADR 施工。
-- **agent 经协议可拍板**(起草≥2选项→对抗评审/子agent辩论→对照画像→ADR留痕→否决窗口):
-  门失败后的改道、机制结构选型、阶段顺序调整。
-- **保留给 founder**:改 C1–C7 / 挪任何预注册门;真实执行器;LLM 进控制路径(含 P4 启动);
-  跨仓变更;花钱/发布;对四主张下最终失败结论。
+Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
 
-## 4. 任务卡(P1)
+Latest test truth:
 
-### T1 — LatentCueForaging 环境
+```text
+PYTHONPATH=src python -m unittest discover -s tests -v
+370 tests OK
+```
 
-- **目标**:实现 ADR-0002 §Decision-T1 规格的环境(`src/envs/cue_foraging.py`)。
-- **约束**:纯标准库;随机性全部经注入 `random.Random`;`force_regime_change()` 与
-  `best_action_for(cues)` 暴露给实验/测试;`last_regret` 语义与 GridlessSurvival 一致
-  (按当前 regime 的无噪声最优差)。
-- **边界**:不修改 ViabilityCore/Agent 既有行为;注意力计价经 `ViabilityCore.ingest(-α·m)` 走通用路径。
-- **验收**:确定性单元测试覆盖:S 漂移确实改变最优映射;未注意线索不可读;注意力计价入账;
-  k_rel/K/m 参数化可调。全量测试绿。
+The 370-test result is recorded by ADR-0026's C3 r-final on 2026-06-14. Re-run before code submission if you change code.
 
-### T2 — AttentionField 机制 v1
+## 2. Immediate Task
 
-- **目标**:按 ADR-0002 §Decision-T2 结构约束实现注意力分配机制,新建 `src/aac/attention.py`;
-  Agent 增加 cue-conditioned 决策路径(对 LatentCueForaging),保持对 GridlessSurvival 的回归兼容。
-- **约束(结构性,不可违)**:利用由模型自信门控、与饥饿解耦;pressure 只收缩注意力预算;
-  每个内部打分可推导至本质变量(stake-first);v0 RelevanceField 不删,留作历史对照。
-- **边界**:不为 G1 的任何单一对照写特判;不动 shell/audit;不引第三方库。
-- **验收**:机制级确定性测试(信息力估计收敛、漂移后注意力重分配、自信门控、压力收缩);全量绿。
+### T-P6.3 - Post-C3 Route Disposition
 
-### T3 — 消融套件 + G1 测量
+Authority:
 
-- **目标**:`experiments/cue_shift.py` 实现 ADR-0002 预注册的 A1/A2/A3 对照与 G1 判据,
-  种子 0–9,输出逐种子表 + 汇总 + `G1: MET / NOT MET`。
-- **约束**:G1 判据照 ADR-0002 原文,不得重述时变形;结果(无论正负)写回 RR-0003 §4c
-  (baseline)与本文件 §5。
-- **边界**:**绝不**为过门调机制;发现实验有效性问题(如全员早死)可修环境参数,
-  但须在 ADR-0002 加修订记录且同轮不动机制。
-- **验收**:实验可复现(固定种子);报告落盘;G1 结论如实。
+- `docs/adr/ADR-0024-g10-subject-side-win-confirmation.md` (G10 MET)
+- `docs/adr/ADR-0026-c3-idle-productivity-de-risk.md` (C3 RED)
+- `docs/adr/ADR-0025-system-level-autonomy-signature-gate.md` (G11 route accepted, gate not frozen)
+- `docs/adr/ADR-0027-post-c3-route-disposition.md` (current route ruling)
+- `ENGINEERING.md` section 4 items 5-6
 
-### T4(条件:G1 之后,按 ADR-0003 协议决定)
+Goal:
 
-- G1 MET → 进 P2(代谢通道+内生驱力,见 ROADMAP);G1 NOT MET → 协议三选
-  (再诊断一次/升级问题/建议降级主张 2),记新 ADR。
+Keep the handoff state honest after G10 MET and C3 RED. Do not freeze G11/C1 as originally scoped: after C3, only the reframe axis has a confirmed vs-cheap-baseline win. Consolidate G10 as the current positive result; any new system-level gate needs a new independent winning axis first.
 
-## 5. 结果登记(接力者追加)
+Confirmed G10 result:
 
-| 日期 | 任务 | 结果 | 记录位置 |
-|---|---|---|---|
-| 2026-06-12 | P0 G0 | NOT MET(0/10,诚实负结果) | RR-0003 §4b |
-| 2026-06-12 | P1 T1–T3 G1 | NOT MET(详见 ADR-0002 修订;选择性注意代谢必要性确认,regret/recovery 门未达) | ADR-0002 §G1 结果 |
-| 2026-06-12 | P1 G1-r 再诊断 | NOT MET(v1.1 surprise IP reset,regret 6/10,recovery 3/10,瓶颈在世界模型重收敛) | ADR-0004 §G1-r |
-| 2026-06-12 | P1 G1 regime=120 | NOT MET(recovery vs A3 5/10 未达;**勿用"4/5 通过"糊过命门判据**) | ADR-0005 §选项 C 结果 |
-| 2026-06-12 | 路线:苦涩教训/LangChain | 不开并行线→降为对抗基线;真风险=主张2环境缺区分力+罩仅Level1;3项升级 founder | ADR-0007 |
-| 2026-06-12 | founder 拍板 | LangChain/LLM/guardrail **只入 workflow**(data-os 亦不碰);主张2 新环境+罩硬化并行(P1.5 轨A/轨C);批准 ContextualActionModel 例外 | ADR-0007 Disposition / ADR-0010 |
-| 2026-06-12 | 轨A ISO-1+ISO-2 落地 | 罩硬度二维化;Agent 持 ShellView 非 shell;ISO-2 跨进程参考;106 测试绿(原38罩测试零改动) | ADR-0009 |
-| 2026-06-12 | 轨C G1' 跑完 | **NOT MET**(主张2 第4次未达标)。B0 干净赢 B3(8/10)/B2(10/10),输 vs B1 固定(5/10)+ recovery(3/10,度量过稀疏)。器官有效、追踪S确认。**D5 触发→升级 founder 定主张2 最终状态**。118 测试绿 | ADR-0010 §G1'结果 |
-| 2026-06-12 | G2 因果相关性(最后一次重设计) | **NOT MET**(第5次)。主张2 最终:"部分支持、本原型线未实验确立";**硬停生效** | ADR-0011 / RR-0003 尾节 |
-| 2026-06-12 | **founder 决策 A** | 接受现状往前走:不开 research reset,据主张1 推进 P2;外部文献报告独立趋同佐证合流顺序 | ADR-0012 Context |
-| 2026-06-12 | 完成门债清零 | ViabilityReflex 补 13 测试 + ADR-0008(追认);docstring 错引修正;**144 测试绿** | ADR-0008 |
-| 2026-06-12 | **T-P2.1 完成** | ValueChannel+View 落地(operator 独占 op_credit,agent 只持视图);22 测试(主权守卫/账本/代谢集成);死亡终局+暂停冻结摄入+ρ不可变守卫;**166 测试绿**。下一步 T-P2.2 | ADR-0012 §T-P2.1 追记 |
-| 2026-06-12 | **T-P2.2 完成** | IdleDrives(认识探针+自校准,归一化竞争)+ IdleWindowEnv(世界不停摆);优先序 pause>反射>驱力>策略;闲时 100% 入审计、stake-priced;**安全修复:反射原可绕过 op_tighten,已修(可纠正性>生存)**;**188 测试绿**。三份研究输入文档登记为非规范。下一步 T-P2.3 | ADR-0012 §T-P2.2 追记+§安全修复 |
-| 2026-06-12 | **T-P2.3 G3 终局** | **G3: NOT MET**(r3 预承诺最终轮)。但**判据1(主张1消融)四轮 9/10 全稳 → 主张1 升级"消融验证成立"**;判据3/4 全稳;判据2(闲时增益)跨修订翻转未确立。**模式第三次出现:定向认知打不过廉价无定向基线(G1/G2/G3)**。IdleDrives 增益主张存疑,不再重设计(需新 ADR);P2 混合收束。下一步呈 founder | ADR-0012 §G3 结果 |
-| 2026-06-12 | **路线决策:走 P3** | CTO 按 ADR-0003 拍板选 A:照走 P3 RAP v0;模式消化作为 G4 强基线约束而非阻塞项;P4 器官/LLM 继续延后,需 founder 批准 | ADR-0013 |
-| 2026-06-12 | **T-P3.0 完成(设计 ADR)** | RAP v0 5 消息语义 + 节点=现有机制薄封装 + 双基线(B-fixed 强固定/B-central 中心路由,分离"路由 vs 去中心"增量)+ 扰动混合(含 NODE_DROP)+ 编排税口径 + **G4 四判据钉死**(r-final 预承诺,NOT MET→封存)。仅文档,无机制代码 | ADR-0014 |
-| 2026-06-12 | **T-P3.1 完成** | 新增 `src/aac/rap.py`:5 消息数据类、`RAPNode` 结构接口、`RAPField` 哑场(存储/匹配/TRACE 上 shell.audit/押金与声誉结算,不含路由策略);新增 9 个确定性生命周期测试;**198 测试绿**。下一步 T-P3.2 双基线+扰动混合环境 | ADR-0014 §7/§T-P3.1 追记 |
-| 2026-06-12 | **T-P3.2 完成** | 新增 `rap_nodes.py` 五类现有机制薄封装、`rap_baselines.py` 的 B-fixed 离线扫描/B-central 情境路由、`rap_mixture.py` 的 STABLE/SHIFTING/NOISY + NODE_DROP/NODE_LAG 环境;新增 13 个确定性测试;**211 测试绿**。下一步 T-P3.3 RAP 协调器+可纠正绑定 | ADR-0014 §7/§T-P3.2 追记 |
-| 2026-06-12 | **T-P3.3 完成** | 新增 `outcome_judge.py`(Ring-0 grounded 判官:realized<baseline×β)、`rap_coordinator.py`(拍卖路由+可纠正绑定+judge 接线+单动作联盟,复用 `action_for_node`);`rap.py` 加 DISSOLVE 上链+每 NEED 单 bond;env 加 `expected_random_regret`/`n_actions`;**outcome 不可由 coordinator 手填**(测试以 env 翻转证 grounding);pause/all-forbidden→零执行、forbidden 双重兜底;押金接地 v0 诚实降级(D1 债务明写)。+21 测试,**232 绿**。下一步 T-P3.4 G4 实验 | ADR-0014 §T-P3.3 追记 |
-| 2026-06-13 | **T-P3.4 G4 r-final** | **G4: NOT MET**。C-rap 平均遗憾 1.674 vs B-fixed 1.257/B-central 1.646;G4-1=0/10,G4-2 recovery=3/10 且 central non-dominated=True,G4-3 tax=False,G4-4 evidence/audit=True。D5 诊断支持:off-segment wins=4143,early stale wins=697,dropped-winner wins=450。按 ADR-0014 §8,RAP v0 **封存**,不调机制重跑。新增 `experiments/rap_g4.py` + 3 个账目测试。 | ADR-0014 §T-P3.4 / RR-0003 |
-| 2026-06-13 | **G4 复现 + P4 方向拍板** | reviewer 独立复跑 rap_g4.py,G4 NOT MET 数字逐位复现(真实)。founder 拍 (a):批准 ADR-0015 Decision B(P4 准入治理生效)+ 进入 P4 设计;P3 结论不动。 | ADR-0015 §B 批准记录 |
-| 2026-06-13 | **T-P4.0 P4 设计 ADR** | ADR-0016:contract-first 冻结 G5 + 最小器官接口(只出 belief_delta/uncertainty/counterfactual_hint,不碰 policy/shell)+ 三体消融(O0/O1 确定性 scaffold/O2 学习型,纯标准库无 LLM)+ G5 四判据(O2<O0、O2<O1、C6 非主体、C7 不削弱)r-final 预承诺。仅文档,无器官代码。**待 founder 对 G5 点头后落 T-P4.1** | ADR-0016 |
-| 2026-06-13 | **T-P4.1–4.4 完成(P4 收束)** | T-P4.1 接口+O0 钩子;T-P4.1.1 epistemic 通道;T-P4.2 O1 reset-scaffold(calibration 冻结{1.5,0.5,0.6});T-P4.3 O2 hazard 自适应(tau_lambda=0.15);T-P4.4 **G5 r-final NOT MET**(O0 1189.84/O1 1134.77/O2 1169.77;G5-1 8/10✓,**G5-2 0/10✗**,C6/C7 守卫绿)。**结论:更快重置足矣,学习先验非必要;O2 封存,保留 O1。第5次苦涩教训(更锋利)**。**282 测试绿** | ADR-0016 §T-P4.4 / RR-0003 |
-| 2026-06-13 | **T-P4.1 完成** | 新增 `prior_organ.py` 的 `PriorOrgan/OrganAdvice/BeliefSnapshot/merge_organ_advice`;`Agent` 增 `prior_organ=None` O0 槽位,建议只在正常 policy 分支前合并进 belief。O0 默认与显式 None 逐记录一致;pause 不调用 organ;tighten 阻断 boosted forbidden;prior 模块不 import policy/shell。新增 8 个守卫测试,全量 **243 绿**。未实现 O1/O2,未跑 G5。 | ADR-0016 §T-P4.1 |
+```text
+A0 baseline + none       = 1304.7
+A1 baseline + O1         = 1268.6
+P0 gated policy + none   = 759.8
+P0 vs A1 reduction       = 40.1%, 30/30, p<1e-6, bootstrap CI [457.0, 562.9]
+```
 
-## 6. 交接纪律
+Confirmed C3 result:
 
-每个工作会话结束前:全量测试绿;codebase_index 与本文件 §5 更新;机制/路线变更有 ADR;
-若使用 Claude 记忆,镜像关键决策,但**仓库文档是唯一权威源**(记忆只是缓存)。
----
+```text
+DIRECTED IdleDrives = 1.691
+RANDOM idle         = 1.676
+POLICY no drive     = 1.701
+Verdict             = RED; endogeny axis dropped
+```
 
-## 7. Closed Route: Claim 2 Redesign G2(已收束,硬停生效)
+Do not:
 
-Founder decision: redesign once more after ADR-0010 D5.
+- Build C1 before a new ADR freezes a valid multi-axis gate.
+- Reopen IdleDrives, RAP, or G7/G8 organ tuning to rescue a gate.
+- Claim G11 is ready while it would collapse to G10 plus weak side metrics.
 
-Authoritative design ADR: `docs/adr/ADR-0011-causal-relevance-redesign.md`.
+## 3. Current Research Interpretation
 
-Current status: **Implemented; G2 NOT MET (2026-06-12)**.
+G9 is the key pivot:
 
-Intent:
+- G9 is formally **NOT MET** because the preregistered candidate was `P4 = gate + O4`, and G9-2 failed.
+- The data nevertheless showed the first decisive positive signal:
 
-- Do not retune ADR-0010.
-- Do not make the task easier.
-- Remove fixed-attention lottery through a balanced regime schedule.
-- Replace marginal cue IP with causal relevance search over candidate relevant sets.
-- Replace sparse recovery with post-shift optimal-action area.
+```text
+A0 baseline + none       = 1361.6
+A1 baseline + O1         = 1325.6
+A4 baseline + O4         = 1224.3
+P0 gated policy + none   = 746.5
+P4 gated policy + O4     = 893.4
+```
 
-Task cards:
+Interpretation:
 
-| Task | Scope | Gate |
+- The real bottleneck was not belief quality; it was belief-to-action coupling inside the subject policy.
+- `P0` is subject-side and C6-preserving because it reads the agent's own `ActionOutcomeModel`.
+- O4 becomes counterproductive under the gate because it re-inflates uncertainty and delays exploitation.
+- G10 confirmed P0 on fresh seeds without HARKing.
+- C3 showed the endogeny axis has no directed signal even in the structured environment.
+
+## 4. Phase Ledger
+
+| Phase/Gate | Status | Meaning |
 |---|---|---|
-| G2-T1 | Balanced regime schedule helper | No fixed m-subset covers more than 25% of regimes |
-| G2-T2 | `CausalRelevanceField` | Posterior entropy drops on informative evidence; surprise resets reframing |
-| G2-T3 | `FactorizedContextualActionModel` | Equivalent attention supersets share learning for the same hypothesized S |
-| G2-T4 | `experiments/causal_relevance_g2.py` | Run B0-B5, seeds 0-9, record MET/NOT MET honestly |
+| P0 / G0 | Complete, NOT MET for relevance v0 | First vertical slice; v0 RelevanceField falsified |
+| P1 / G1 family | Complete, NOT MET | Attention/relevance mechanisms did not clear recovery/regret gates |
+| P1.5 / G1'/G2 | Complete, NOT MET | Contextual and causal relevance routes hard-stopped |
+| P2 / G3 | Complete, mixed | Claim 1 viability/metabolic necessity supported; IdleDrives gain not established |
+| P3 / G4 | Complete, NOT MET | RAP v0 archived; coordination did not beat strong baselines |
+| P4 / G5 | Complete, NOT MET | Learned prior O2 did not beat cheap reset O1 |
+| P4.x / G6a | MET | Structured reusable regime can make richer prior useful |
+| P4.x / G6b | de-risk only | Semantic environment exploitable offline; real LLM requires founder spend/key ADR |
+| P4.x / G7 | NOT MET | O4 beats O1 significantly but not O2 at 90% seed dominance |
+| P4.x / G8 | NOT MET | Ensemble O5 did not improve over O4 |
+| P4.x / G9 | NOT MET formally; P0 discovery positive | P0 gate-alone decisive, but not preregistered candidate |
+| P6 / G10 | MET | Fresh-seed confirmation of P0; first decisive positive gate |
+| P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
+| P6 / G11 | Route accepted, parked | Not frozen; original C1 scope lacks a true multi-axis basis after C3 RED |
 
-Hard stop:
+## 5. ADR Ledger
 
-If G2 is NOT MET, claim 2 becomes "partially supported but not experimentally established in this prototype line"; no further claim-2 redesign without a new founder-level research reset ADR.
+Recent authoritative ADRs:
 
-G2 result:
+- `ADR-0020-g7-latent-regime-organ.md` - G7, NOT MET.
+- `ADR-0021-p1-spectrum-ablation.md` - spectrum/ablation strengthening around O4.
+- `ADR-0022-g8-ensemble-regime-organ.md` - G8, NOT MET.
+- `ADR-0023-g9-confidence-gated-policy.md` - G9, confidence-gated policy, formal NOT MET with decisive P0 discovery.
+- `ADR-0024-g10-subject-side-win-confirmation.md` - G10 MET; P0 confirmed on fresh seeds.
+- `ADR-0025-system-level-autonomy-signature-gate.md` - route accepted; gate not frozen.
+- `ADR-0026-c3-idle-productivity-de-risk.md` - C3 RED; endogeny axis dropped.
+- `ADR-0027-post-c3-route-disposition.md` - G11/C1 parked until a second independent winning axis exists.
 
-- Command: `PYTHONPATH=src python experiments/causal_relevance_g2.py`
-- Unit tests: 131 passing.
-- Verdict: **NOT MET**.
-- Key gate counts: steps vs B1/B3/B4 = 0/10, 2/10, 0/10; adaptation vs B1/B3/B4 = 0/10, 5/10, 1/10; steps vs B2 = 4/10; adaptation vs B5 = 2/10.
-- Final claim-2 status for this prototype line: **partially supported but not experimentally established**.
-- Next route: do not redesign claim 2 again without a new founder-level research reset ADR. Continue by choosing a non-claim-2 roadmap item, such as P2 metabolism/endogenous drive, or a documentation/positioning pass that preserves the negative result.
-- **Resolution (2026-06-12): founder chose option A — proceed on claim 1. P2 is now current; see §8.**
+G10 and C3 results are written back. Handoff is unsafe only if a document still says G10 is pending or C3 has not run.
 
-## 8. 任务卡(P2,已完成)— 规格全文见 ADR-0012
+## 6. Non-Negotiable Boundaries
 
-### T-P2.1 — ValueChannel(外部价值通道 v0)
+- No LLM in the control path.
+- No business semantics in this repository.
+- No cross-repo imports.
+- No moving preregistered gates after seeing results.
+- No claiming post-hoc winners on the same r-final seeds; fresh-seed confirmation is mandatory.
+- C6 remains intact: organs may affect belief only, not action/policy/shell.
+- C7 remains intact: pause/tighten/forbidden must dominate all action paths.
 
-- **目标**:`src/aac/value_channel.py`,operator 独占 `op_credit`,agent 只读视图(镜像 ShellView 纪律)。
-- **约束**:ρ 为人定常数(默认 1.0,自调禁止);每笔到账/兑换入审计;纯标准库。
-- **边界**:不动已冻结的主张2 机制;不碰 shell 的现有 op_* 面(可并列,不可混入)。
-- **验收**:守卫测试证 agent 代码路径不可达 credit 面(MRO + 记录式探针);全量绿。
+## 7. Handoff Discipline
 
-### T-P2.2 — IdleDrives(内生驱力 v1)
+Every material research/code change must update, in this order:
 
-- **目标**:idle 窗口内由认识探针(最高不确定度采样)+ 自校准(最陈旧估计重访)驱动行动。
-- **约束**:idle 行动付代谢成本;每步带 idle 标记入审计(无暗活动);stake-first 推导链写入代码注释。
-- **边界**:环境用包装器加 idle 窗口,不改现有 env 语义。
-- **验收**:确定性机制测试(探针选择、陈旧度追踪、审计标记);全量绿。
+1. `docs/CURRENT_STATE.yaml`
+2. `docs/PROJECT_PLAN.md`
+3. `codebase_index.md`
+4. `ROADMAP.md` if the phase/route changed
+5. relevant ADR result/status section
+6. root `../code_index.md` if the workspace-level truth changed
+7. root `../MEMORY.md` only as a concise cross-agent summary
 
-### T-P2.3 — G3 消融套件 + 门
-
-- **目标**:`experiments/metabolic_g3.py`,C0/C1/C2/C3 消融,种子 0–9,输出逐种子表 + `G3: MET / NOT MET`。
-- **约束**:判据照 ADR-0012 原文(主张1消融/闲时增益/审计完整/断供必死);环境有效性修正允许,同轮不动机制。
-- **边界**:**判据 1 失败 = 重大事件直接升级 founder**(动摇地基);其余未达走 ADR-0003。
-- **验收**:可复现;结果如实写回本文件 §5 + RR-0003。
-
-## 9. 当前路线(P3 RAP v0)
-
-权威路线决策:`docs/adr/ADR-0013-post-p2-route-to-p3-rap.md`。
-**P3 设计 ADR(G4 已钉死):`docs/adr/ADR-0014-p3-rap-design-and-g4.md`。**
-
-### T-P3.0 — P3 设计 ADR — ✅ 已完成(ADR-0014)
-
-- 5 消息(丢 SCENT/RUPTURE)、节点=现有机制薄封装(≥5 种,不重设计)、哑场、押注定价、
-  拍卖权 per-NEED、证据义务上 shell.audit、C7 罩绑定每联盟行动。
-- **关键设计判断**:三连败既是 G4 强基线约束**也是 RAP 动机**(无单一机制全局占优→路由也许赢);
-  故设**两个**基线 B-fixed(强固定)+ B-central(中心路由),把"路由有用"与"去中心有用"分开。
-- G4 四判据已钉死(质量胜 B-fixed / 去中心增量不被 B-central 支配 / 编排税有界 / 证据+可纠正);
-  r-final 预承诺反环境购物;NOT MET → RAP 封存(§8)。
-
-### T-P3.1 — 场 + 5 消息 + 节点接口 — ✅ 已完成
-
-- 新增 `src/aac/rap.py`: `Need/NeedConstraints/Bid/Bond/Trace/Dissolve/Settlement`、`RAPNode`、`RAPField`。
-- `RAPField` 是哑场:只做存储、bid 收集、bond 形成、TRACE 审计、DISSOLVE 清算;没有路由策略,不重设计任何现有机制。
-- TRACE 通过 `ShellView.observe()` 写入 `shell.audit`,测试断言 hash chain verify。
-- 押金结算:success 返还押金并按 confidence 上调声誉;failure 烧毁押金并下调声誉。
-- 测试:新增 `tests/test_rap.py` 9 个;全量 `198` 绿。
-
-### T-P3.2 — 双基线 + 扰动混合环境 — ✅ 已完成
-
-- 新增 `src/envs/rap_mixture.py`: `STABLE/SHIFTING/NOISY` 段落、`NODE_DROP/NODE_LAG` 扰动、可复现 `generate_segments()`、`RAPPerturbationEnv.situation()`。
-- 新增 `src/aac/rap_nodes.py`: `world_model_greedy / efe_policy / random / contextual / stale_revisit` 五类现有机制薄封装;不重设计主张2或 IdleDrives。
-- 新增 `src/aac/rap_baselines.py`: `scan_fixed_baseline()` 选 B-fixed 最低 regret 单节点;`CentralBaseline` 按情境路由并保留 NODE_DROP 单点误派风险。
-- 测试:新增 `tests/test_rap_mixture.py` 与 `tests/test_rap_baselines.py` 共 13 个;全量 `211` 绿。
-
-### T-P3.3 — RAP 协调器 + grounded OutcomeJudge + 可纠正性绑定 — ✅ 已完成
-
-- Ring-0 `OutcomeJudge`:`success ⇔ mean(realized) < mean(baseline)×β`(β=1.0);coordinator 不得手填 outcome。
-- 押金接地 **v0 诚实降级**(ADR-0014 D1):reputation=内部协调币,非 viability 同币种;债务明写,P3.x 再接。
-- 可纠正:pause / all-forbidden → 零执行;forbidden 双重兜底(连 NODE_DROP garbage 也挡);DISSOLVE 上链。
-
-### T-P3.4 — G4 实验(r-final) — ✅ 已完成,NOT MET
-
-- 新增 `experiments/rap_g4.py`:C-rap vs B-fixed vs B-central,种子 0..9,每种子 1500 步,扰动混合按 ADR-0014。
-- 结果:质量胜 B-fixed = 0/10;NODE_DROP recovery = 3/10;central non-dominated=True;编排税未过;证据/审计过。
-- **结论**:G4 NOT MET。按 ADR-0014 §8,RAP v0 封存(keep static wiring),不调机制重跑。
-- P4 方向已由 ADR-0015/0016 接续;RAP 仍封存,不调机制重跑。
-
-## 10. 当前路线(P4 先验器官,ADR-0016)
-
-### T-P4.0 — P4 设计 ADR — ✅ 已完成
-
-- ADR-0015 Decision B 已批准(B1(iii):G4 NOT MET + D5 staleness 确认)。
-- ADR-0016 冻结最小器官接口与 G5:O0 无器官 / O1 确定性 scaffold / O2 学习型器官;
-  G5-1 O2<O0, G5-2 O2<O1, G5-3 C6 非主体, G5-4 C7 不削弱。
-
-### T-P4.1 — PriorOrgan 接口 + 信念合并钩子 — ✅ 已完成
-
-- 新增 `src/aac/prior_organ.py`:器官只产出 `belief_delta/uncertainty/counterfactual_hint`,无 action/policy/shell 面。
-- `Agent` 增 `prior_organ` 可选槽位;默认 O0 关闭,回归测试与显式 None 逐记录一致。
-- 信念合并只发生在正常 policy 分支前;pause/reflex/idle 优先级不动;`op_tighten` 仍能阻断被 advice boost 的动作。
-- 接力点:T-P4.2 O1 确定性 scaffold(surprise→更快重置/抬不确定度),不实现 O2、不跑 G5。
-
-### G7 — LatentRegimeOrgan 贝叶斯 regime 跟踪 — NOT MET
-
-- ADR-0020 预注册 O4 `LatentRegimeOrgan`:log posterior 逐观测更新+transition prior+连续注入+信息导向不确定度塑形。
-- Corrected validity repair:confidence 改为 max posterior probability;prototype 记录 known-mask,未知动作不再当强证据;Wilcoxon 修为绝对差排序+tie 平均秩。
-- Calibration(seeds 200-219):FROZEN `sigma=0.5,inject_weight=0.85,info_weight=0.3,probe_confidence=0.7,departed_penalty=2.0,max_belief_delta=2.0`。calib O1=1311.5,O4=1194.0,reduction=9.0%,delta=0.07。
-- r-final(seeds 0-29):**G7 NOT MET**。G7-1 O4=1224.3<=1232.8 PASS;G7-2 O4<O2 26/30 **FAIL**(need >=27);G7-3 O4<O1 29/30 PASS;G7-4 Wilcoxon p<0.000001 PASS;C6/C7 守卫绿。
-- **结论:O4 显著胜廉价重置 O1(-7.6%,29/30,p<0.000001),但未满足对当前 learned O2 的 90% seed dominance。**按 ADR-0020 不调参重跑 G7;下一步若继续追求“显著跑赢所有基线”,必须新机制+新 gate。
-- 新增/更新 `src/aac/prior_organ_latent.py` + `experiments/latent_regime_g7.py` + `experiments/_g7_common.py` + `tests/test_prior_organ_latent.py` + `tests/test_g7_common.py`。
-- 后续:G6b(LLM 器官)升级待 founder key/budget。
+Agents should not read the whole repository by default. Start from `docs/CURRENT_STATE.yaml` and follow its `handoff_read_order`.
