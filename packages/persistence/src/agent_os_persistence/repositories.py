@@ -237,8 +237,9 @@ class SqlUnitOfWork:
 
     Calling the instance opens a single connection+transaction and yields
     connection-bound stores; the transaction commits on clean exit and rolls back
-    on exception — so ``record_outcome``'s feedback write and knowledge version
-    bump are atomic. Injected into the runtime as ``feedback_knowledge_uow``.
+    on exception. P5.1b uses this unit for adoption-driven knowledge promotion
+    (knowledge version bump + optional re-index), not for runtime self-report
+    feedback, which is observation-only.
     """
 
     def __init__(
@@ -250,8 +251,8 @@ class SqlUnitOfWork:
     ) -> None:
         self._engine = engine
         # Default to the plain stores; the composition layer can pass a factory that
-        # binds an embedding-aware knowledge store to the connection so record_outcome
-        # re-indexes inside the same transaction.
+        # binds an embedding-aware knowledge store to the connection so adoption
+        # promotion re-indexes inside the same transaction.
         self._feedback_factory = feedback_store_factory or SqlFeedbackStore
         self._knowledge_factory = knowledge_store_factory or SqlKnowledgeStore
 

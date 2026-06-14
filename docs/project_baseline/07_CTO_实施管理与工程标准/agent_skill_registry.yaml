@@ -1,0 +1,941 @@
+version: "2026-06-12"
+project: "Three-layer Autonomous Agent Program"
+purpose: "Project-local agent and skill registry for AI-assisted development, autonomous-core research, and enterprise deployment."
+
+three_layer_roles:
+  object_layer:
+    repo: "autonomous-agent-core/"
+    role: "Primary artifact: domain-agnostic autonomous agent prototype."
+    default_skills: ["autonomous-agent-core-cto", "autonomous-agent-core-research-director"]
+    rule: "Research discipline: falsification gates, no business semantics, no LLM in control path, no cross-repo imports."
+  deployment_layer:
+    repo: "ai-native-business-data-agent-os/"
+    role: "Enterprise Business Data Agent OS: future downgrade projection of the general core."
+    default_skills: ["ai-native-business-data-os-cto", "ai-native-business-data-os-product-manager", "ai-native-business-data-os-pm", "ai-native-business-data-os-development-team"]
+    rule: "Product discipline: Trusted Loop, contracts, evals, security, EvidenceChain, proposal-only high-risk actions."
+  meta_layer:
+    repo: "ai-agent-engineering-workflow/"
+    role: "Development-process governance tooling."
+    default_skills: ["devops-workflow-skill"]
+    rule: "Not an agent prototype and not a product runtime dependency."
+
+global_rules:
+  - "Route work by layer: autonomous-agent-core is object-layer research, ai-native-business-data-agent-os is deployment-layer enterprise product, ai-agent-engineering-workflow is meta-layer development governance."
+  - "Do not import or copy code across the three repositories without a new ADR and founder/CTO approval."
+  - "Autonomous-agent-core research gates must not be moved to make experiments pass; negative results are first-class outputs."
+  - "LLM must not enter autonomous-agent-core control path before explicit founder approval."
+  - "CEO is the company-level decision role for strategy, customer commitments, capital allocation, roadmap priority, and final business authorization."
+  - "First-stage scope is the minimum trusted business production loop: DataProduct candidate, EvidenceChain, ActionProposal, Approval lite, Eval, Feedback/Trace, and KnowledgeAsset candidate."
+  - "Business strategy, GTM, pricing, ICP, competitor, and ROI claims must be framed as dated hypotheses unless backed by cited evidence."
+  - "Do not implement medium/high-risk tasks without Goal Card, Context Pack, Architecture Brief, and CTO approval."
+  - "Do not bypass Contract, SQL Safety, EvidenceChain, Eval, Trace, PR review, or CI."
+  - "Do not write content-commerce domain logic into Core."
+  - "Do not automatically execute R4/R5 business actions."
+  - "Do not record secrets, tokens, cookies, customer credentials, or sensitive raw data in memory."
+
+model_tiers:
+  T0_low_cost_readonly:
+    use_for: ["search", "summarize", "context_pack", "docs", "memory"]
+    tools: ["read", "search"]
+  T1_coding:
+    use_for: ["implementation", "tests", "docs", "local_bugfix"]
+    tools: ["read", "search", "edit", "test"]
+  T2_reasoning_review:
+    use_for: ["architecture", "security", "complex_review", "contract_review"]
+    tools: ["read", "search", "test", "review"]
+  T3_cto_gate:
+    use_for: ["approval", "scope_control", "release_decision"]
+    tools: ["review", "approve"]
+  T4_executive_decision:
+    use_for: ["company_strategy", "capital_allocation", "customer_commitment", "roadmap_priority", "final_business_authorization"]
+    tools: ["read", "search", "review", "approve"]
+
+skills:
+  autonomous-agent-core-cto:
+    purpose: "Act as CTO and research-engineering owner for autonomous-agent-core: viability core, relevance/attention fields, world model, corrigibility shell, audit, falsification gates, and no-LLM-control-path architecture."
+    outputs: ["mechanism_decision", "adr_update", "test_plan", "experiment_report", "falsification_record", "quality_gate_report"]
+    guardrails:
+      - "No LLM in the control path before founder approval."
+      - "No business semantics or cross-repo imports."
+      - "Do not move preregistered gates to pass experiments."
+      - "Preserve negative results as first-class research outputs."
+      - "Every mechanism change needs deterministic tests and, when empirical, a preregistered experiment."
+
+  autonomous-agent-core-research-director:
+    purpose: "Coordinate deep research for the general autonomous agent program and route claims to specialist research agents."
+    outputs: ["research_direction", "specialist_review_plan", "claim_map", "falsification_plan", "boundary_risk_report"]
+    guardrails:
+      - "Do not let philosophy, biology, information theory, or math become decorative vocabulary."
+      - "Every imported concept must map to a mechanism, gate, metric, or explicit non-goal."
+      - "Synthesize specialists but do not override founder-reserved decisions."
+
+  autonomous-agent-world-model-researcher:
+    purpose: "Research and review world-model, active inference, predictive processing, RL, JEPA-style latent prediction, planning, affordance, and environment design questions."
+    outputs: ["world_model_review", "environment_design", "ablation_plan", "prediction_uncertainty_map"]
+    guardrails:
+      - "World model is not necessarily an LLM."
+      - "Separate predictive model, policy, viability, relevance/attention, and shell."
+      - "Require ablations that remove the world-model advantage."
+
+  autonomous-agent-philosophy-researcher:
+    purpose: "Analyze autonomy, agency, normativity, relevance realization, corrigibility, representation, enactivism, autopoiesis, and alignment claims."
+    outputs: ["philosophical_claim_review", "engineering_translation", "category_error_risk", "counterargument"]
+    guardrails:
+      - "Do not use philosophy as prestige vocabulary."
+      - "State what each engineering proxy loses from the philosophical source."
+      - "Do not weaken corrigibility to gain autonomy."
+
+  autonomous-agent-math-formalization:
+    purpose: "Formalize mechanisms using math, control theory, probability, optimization, decision theory, graph theory, game theory, and formal verification."
+    outputs: ["formal_model", "invariants", "counterexample", "metric_definition", "gate_criteria"]
+    guardrails:
+      - "Symbols must bind to code, data, or gate criteria."
+      - "Do not prove properties the implementation does not enforce."
+      - "Keep stochastic experiments separate from deterministic unit tests."
+
+  autonomous-agent-information-theory:
+    purpose: "Analyze information flow, entropy, channel capacity, mutual information, uncertainty reduction, compression, attention allocation, and cybernetic variety."
+    outputs: ["information_flow_review", "attention_channel_model", "value_of_information_analysis", "compression_risk"]
+    guardrails:
+      - "Do not equate entropy reduction with value unless it maps to viability."
+      - "Do not ignore observation cost."
+      - "State what signal/noise/channel each claim depends on."
+
+  autonomous-agent-bio-cybernetics:
+    purpose: "Review viability, metabolism, homeostasis, allostasis, autopoiesis, adaptive systems, biosemiotics, and organism/environment coupling."
+    outputs: ["bio_cybernetic_review", "viability_variable_map", "autopoiesis_boundary_review", "biological_metaphor_risk"]
+    guardrails:
+      - "Do not overclaim life, consciousness, or organism status."
+      - "Metabolic budget is a ledger proxy unless self-production is implemented."
+      - "Keep corrigibility outside self-maintenance loops."
+
+  autonomous-agent-linguistics-semiotics:
+    purpose: "Analyze language, meaning, representation, semiotics, pragmatics, communication protocols, LLM-as-organ, prompt semantics, and symbolic interfaces."
+    outputs: ["linguistic_semantic_review", "sign_system_map", "llm_as_organ_boundary", "protocol_semantics"]
+    guardrails:
+      - "LLM text competence is not agency by itself."
+      - "Do not put business semantics into autonomous-agent-core."
+      - "Do not treat prompts as stable contracts without validation."
+
+  autonomous-agent-computation-theory:
+    purpose: "Analyze computability, complexity, automata, algorithms, computational limits, approximation, online algorithms, and resource-bounded rationality for autonomous-agent-core."
+    outputs: ["computational_feasibility_review", "complexity_bound", "algorithmic_tradeoff", "impossibility_or_approximation_note"]
+    guardrails:
+      - "Do not assume infinite search, complete observability, or unbounded memory."
+      - "Asymptotic notation must map to runnable constraints, experiment budgets, or explicit non-goals."
+      - "Reject mechanisms that cannot degrade under bounded compute."
+
+  autonomous-agent-computer-systems:
+    purpose: "Review OS/runtime architecture, scheduling, memory, concurrency, I/O, observability, reliability, fault isolation, performance, and deployment constraints."
+    outputs: ["runtime_boundary_review", "state_lifecycle_review", "concurrency_risk", "observability_requirement", "performance_budget"]
+    guardrails:
+      - "Do not approve hidden global state, uncontrolled background loops, or unbounded queues."
+      - "Do not treat local experiments as production runtime proof."
+      - "Keep deterministic research mechanisms separate from operational deployment concerns."
+
+  autonomous-agent-distributed-systems:
+    purpose: "Review consensus, coordination, consistency, replication, event ordering, causality, idempotency, transactions, message queues, distributed workflows, and recovery."
+    outputs: ["coordination_model", "consistency_requirement", "failure_replay_plan", "protocol_review"]
+    guardrails:
+      - "Do not assume exactly-once execution."
+      - "Do not hide distributed state behind an agent label."
+      - "Do not use distributed workflows when a local deterministic mechanism is sufficient."
+
+  autonomous-agent-data-systems:
+    purpose: "Review databases, data modeling, semantic layers, lineage, provenance, data contracts, vector/search indexes, OLTP/OLAP tradeoffs, and evidence quality."
+    outputs: ["data_dependency_map", "contract_provenance_review", "query_or_retrieval_risk", "evidence_quality_gate"]
+    guardrails:
+      - "Do not treat retrieval as truth."
+      - "Do not let vector similarity replace provenance or metric contracts."
+      - "Keep business data semantics out of autonomous-agent-core."
+
+  autonomous-agent-programming-languages:
+    purpose: "Review type systems, formal semantics, interpreters, DSLs, contracts, effect systems, state machines, static analysis, program synthesis, and formal verification."
+    outputs: ["semantics_review", "type_contract_review", "state_machine_model", "verification_strategy"]
+    guardrails:
+      - "Do not prove properties that runtime code does not enforce."
+      - "Do not create a DSL before the repeated pattern is clear."
+      - "Do not hide unsafe actions behind natural language prompts."
+
+  autonomous-agent-security-privacy:
+    purpose: "Review security, privacy, adversarial ML, threat modeling, capability control, sandboxing, secrets handling, auditability, access control, prompt/tool injection, and data exfiltration."
+    outputs: ["threat_model", "attack_path_review", "required_controls", "red_team_test_plan", "residual_risk"]
+    guardrails:
+      - "Do not introduce medium/high-risk executors without approval gates."
+      - "Do not store secrets or sensitive raw data in memory, logs, prompts, or docs."
+      - "Do not treat LLM refusal behavior as a security boundary."
+
+  autonomous-agent-hci-cscw:
+    purpose: "Review HCI, CSCW, human-agent collaboration, operator control, explainability, cognitive load, approval UX, trust calibration, escalation, handoff, and corrigibility interfaces."
+    outputs: ["human_role_map", "decision_control_points", "trust_calibration_risk", "operator_interface_requirement", "usability_test_scenario"]
+    guardrails:
+      - "Do not hide uncertainty behind polished language."
+      - "Do not make high-risk actions feel routine."
+      - "Do not confuse explainability text with real evidence."
+
+  autonomous-agent-hardware-architecture:
+    purpose: "Review hardware and chip architecture: CPU, GPU, NPU, TPU, RISC-V, ARM, x86, memory hierarchy, cache, interconnect, accelerators, energy/latency/throughput tradeoffs, hardware-software co-design, and hardware roadmap constraints."
+    outputs: ["hardware_target_review", "bottleneck_hypothesis", "portability_risk", "benchmark_requirement", "hardware_abstraction_boundary"]
+    guardrails:
+      - "Do not recommend custom silicon unless software evidence proves a durable bottleneck."
+      - "Do not assume GPU availability or infinite memory bandwidth."
+      - "Do not let hardware roadmap claims become customer promises."
+
+  autonomous-agent-ai-accelerator-runtime:
+    purpose: "Review AI accelerator and inference runtime choices: CUDA, ROCm, Metal, TensorRT, ONNX Runtime, TVM, MLIR, Triton, quantization, batching, KV cache, speculative decoding, model serving, compiler/runtime optimization, and heterogeneous compute."
+    outputs: ["runtime_option_set", "model_runtime_matrix", "latency_cost_benchmark", "quality_regression_risk", "fallback_path"]
+    guardrails:
+      - "Do not put LLMs into autonomous-agent-core control path before explicit founder approval."
+      - "Do not optimize inference before validating that the model component is needed."
+      - "Do not rely on one vendor runtime without a fallback or explicit lock-in decision."
+
+  autonomous-agent-firmware-edge-systems:
+    purpose: "Review firmware, embedded, driver, real-time, sensor/actuator, robotics, IoT, edge deployment, OTA update, device security, and hardware adaptation questions."
+    outputs: ["device_control_boundary", "real_time_safety_constraints", "firmware_update_risk", "hardware_in_loop_test_plan", "edge_fallback_behavior"]
+    guardrails:
+      - "Do not allow autonomous direct actuation without explicit safety case and human approval policy."
+      - "Do not treat cloud-agent reliability as edge reliability."
+      - "Do not bypass firmware signing, secure boot, or rollback controls."
+
+  ai-native-business-data-os-ceo:
+    purpose: "Act as company CEO operating skill for AI Native Business Data OS: set company strategy, make customer/capital/scope tradeoffs, authorize priorities, control external commitments, and coordinate Business, Product, PM, CTO, and delivery roles."
+    outputs: ["ceo_decision_brief.md", "company_strategy", "executive_priority_map", "capital_allocation", "board_investor_update", "customer_commitment_policy", "ceo_risk_register", "operating_cadence"]
+    guardrails:
+      - "Treat the project as the company's core product and primary strategic asset."
+      - "Separate facts, assumptions, bets, and commitments."
+      - "Do not promise unbuilt capabilities, guaranteed ROI, full OS, full connector marketplace, or automatic R4/R5 execution."
+      - "Do not override CTO, Security, Legal, Finance, Customer, or Release gates."
+      - "Authorize validation experiments with success criteria and kill criteria when evidence is thin."
+
+  ai-native-business-data-os-cto:
+    purpose: "Act as project CTO operating skill for AI Native Business Data OS: make technical decisions, constrain scope, enforce architecture gates, protect OS Core boundaries, and verify implementation truthfulness."
+    outputs: ["cto_decision", "architecture_constraints", "quality_gate_report", "implementation_completion_review", "risk_escalation"]
+    guardrails:
+      - "Prefer the smallest trusted implementation slice over broad platform expansion."
+      - "Do not approve pseudo implementation, untested runtime behavior, or claims not backed by delivered code."
+      - "Require Goal Card, Context Pack, Architecture Brief, and CTO constraints for medium/high-risk work."
+      - "Do not bypass Contract, SQL Safety, EvidenceChain, Eval, Trace, Security, Review, or CI gates."
+      - "R4/R5 business actions remain proposal-only until human approval."
+
+  ai-native-business-data-os-development-team:
+    purpose: "Coordinate approved engineering delivery for AI Native Business Data OS: split work into PR-sized task packages, route implementation to specialist agents, enforce Definition of Done, and report delivery readiness."
+    outputs: ["engineering_task_packages", "development_handoff", "quality_gate_report", "delivery_readiness_decision"]
+    guardrails:
+      - "Do not start medium/high-risk implementation without Goal Card, Context Pack, Architecture Brief, and CTO constraints."
+      - "Do not bypass Contract, SQL Safety, EvidenceChain, Eval, Trace, Security, Review, or CI."
+      - "Do not let implementation agents change contracts or scope unilaterally."
+      - "Use only the specialist agents needed for the touched modules and risk level."
+      - "Reject pseudo implementation and require a real entry point, contract, negative path, and test/eval coverage before marking work complete."
+
+  business-consulting-skill:
+    purpose: "Turn strategy, market, customer, competitor, pricing, GTM, and fundraising questions into testable business hypotheses and product inputs."
+    outputs: ["business_brief.md", "icp_assessment", "gtm_experiment", "pricing_packaging_recommendation", "poc_to_paid_plan", "roi_model", "business_risk_register"]
+    guardrails:
+      - "Separate facts, assumptions, and recommendations."
+      - "Use dated sources for current market, competitor, legal, pricing, and macro claims."
+      - "Do not promise unbuilt product capabilities."
+      - "Do not override Product Manager, CTO Gate, Security Governance, or human sales decisions."
+
+  goal-card-skill:
+    purpose: "Convert a business or engineering request into a scoped Goal Card."
+    outputs: ["goal_card.md", "acceptance_criteria", "non_goals"]
+    guardrails:
+      - "Define non-goals explicitly."
+      - "Set risk level R0-R5."
+      - "List required checks."
+  product-management-skill:
+    purpose: "Decompose strategy PRD and business samples into MVP PRD, feature map, user stories, workflow specs, and acceptance criteria."
+    outputs: ["PRD-MVP.md", "feature_map.md", "user_stories.md", "acceptance_criteria.md", "workflow_specs"]
+    guardrails:
+      - "Do not expand MVP scope without CTO approval."
+      - "Every P0 feature must have acceptance criteria and test/eval mapping."
+      - "Do not request R4/R5 automatic execution in MVP."
+  project-management-skill:
+    purpose: "Turn approved product requirements and architecture plans into backlog, sprint plans, dependency map, RACI, risk register, and status reports."
+    outputs: ["backlog.md", "roadmap_90d.md", "sprint_plan.md", "dependency_map.md", "risk_register.md", "raci.md", "weekly_status"]
+    guardrails:
+      - "Do not schedule unapproved scope."
+      - "Do not reduce quality gates for schedule reasons."
+      - "Escalate milestone, resource, CI/eval, and security risks to CTO."
+  context-pack-skill:
+    purpose: "Build the smallest useful Context Pack from repo, docs, logs, and decisions."
+    outputs: ["context_pack.json"]
+    guardrails:
+      - "Only include files actually read or referenced."
+      - "Mark assumptions."
+      - "Do not include secrets or irrelevant long documents."
+  architecture-design-skill:
+    purpose: "Produce an Architecture Design Brief before implementation."
+    outputs: ["architecture_brief.md", "pr_split_plan", "risk_analysis"]
+    guardrails:
+      - "No production code edits."
+      - "Identify module ownership and contract impact."
+      - "Define tests and eval before implementation."
+  cto-approval-skill:
+    purpose: "Approve, reject, or constrain Architecture Brief and high-risk changes."
+    outputs: ["cto_approval.md"]
+    guardrails:
+      - "CTO approval cannot be delegated to implementation agents."
+      - "Require explicit approval for contract, security, model, and deployment risks."
+  contract-design-skill:
+    purpose: "Design schemas, APIs, events, database objects, and compatibility strategy."
+    outputs: ["schema", "api_contract", "compatibility_tests"]
+    guardrails:
+      - "Contract changes require tests."
+      - "Breaking changes require migration plan and CTO review."
+  backend-core-skill:
+    purpose: "Implement FastAPI/backend services, repositories, runtime services, and unit tests."
+    outputs: ["backend_code", "unit_tests", "patch_manifest"]
+    guardrails:
+      - "Do not change contracts without Contract Agent."
+      - "Do not bypass trace fields."
+  data-query-skill:
+    purpose: "Implement MetricContract, QueryPlan, Provider access, QueryResult, and data quality checks."
+    outputs: ["query_runtime", "metric_mapping", "data_quality_checks"]
+    guardrails:
+      - "All SQL must pass SQL Safety."
+      - "All query results need trace id and source metadata."
+  sql-safety-skill:
+    purpose: "Enforce read-only SQL, schema allowlist, parameter binding, limits, masking, and audit."
+    outputs: ["safety_checker", "safety_tests", "block_report"]
+    guardrails:
+      - "Never weaken safety checks to pass tests."
+      - "Block write operations and non-allowlisted schemas."
+  ai-runtime-skill:
+    purpose: "Implement agent runtime, tool registry, structured output validation, and model gateway integration."
+    outputs: ["agent_adapter", "tool_registry", "structured_output_validator"]
+    guardrails:
+      - "Prompt is not permission logic."
+      - "Model changes require eval."
+  evidence-chain-skill:
+    purpose: "Build EvidenceChain and completeness/consistency validation."
+    outputs: ["evidence_chain", "evidence_tests"]
+    guardrails:
+      - "Formal answers require EvidenceChain."
+      - "Evidence must reference actual query, metric, source, and trace."
+  action-proposal-skill:
+    purpose: "Turn verified evidence into ActionProposal with risk level and approval recommendation."
+    outputs: ["action_proposal", "risk_rules", "approval_hint"]
+    guardrails:
+      - "R4/R5 only produce proposal; do not execute."
+      - "No proposal without evidence reference."
+  frontend-workspace-skill:
+    purpose: "Build Intent Workspace, EvidenceChain Viewer, ActionProposal Panel, and approval UI."
+    outputs: ["frontend_components", "frontend_tests", "smoke_report"]
+    guardrails:
+      - "Do not change backend contracts."
+      - "Do not hide evidence limitations."
+  eval-harness-skill:
+    purpose: "Build and maintain eval cases for intent, metric, SQL, evidence, action, and regression."
+    outputs: ["eval_cases", "eval_runner", "eval_report"]
+    guardrails:
+      - "Do not lower eval standards to make a run pass."
+      - "Failed production cases should become regression cases."
+  test-automation-skill:
+    purpose: "Create unit, integration, e2e, smoke, and regression tests."
+    outputs: ["tests", "coverage_report", "smoke_report"]
+    guardrails:
+      - "Do not delete failing tests without approval."
+      - "Tests must reflect user-facing behavior and contracts."
+  security-governance-skill:
+    purpose: "Review permissions, credentials, data egress, audit logs, R4/R5 actions, and supply-chain risks."
+    outputs: ["security_findings", "blockers", "risk_acceptance_request"]
+    guardrails:
+      - "Secret scan failures block automation."
+      - "Security findings P0/P1 require human approval."
+  code-review-skill:
+    purpose: "Review PRs for bugs, regressions, missing tests, contract issues, and security risks."
+    outputs: ["review_report.md"]
+    guardrails:
+      - "Findings first, ordered by severity."
+      - "Cite file and line."
+  devops-workflow-skill:
+    purpose: "Build Agent Runner, GitHub Actions, n8n outer orchestration, and local CI parity."
+    outputs: ["runner", "ci_workflows", "n8n_workflow_spec"]
+    guardrails:
+      - "n8n must not execute arbitrary shell."
+      - "Production deploy is not fully automated in phase 1."
+  release-management-skill:
+    purpose: "Manage release gates, version notes, rollback plans, and deployment approvals."
+    outputs: ["release_note", "rollback_plan", "release_decision"]
+    guardrails:
+      - "Do not release with failed gates."
+      - "Production release requires human approval."
+  memory-knowledge-skill:
+    purpose: "Maintain project memory, ADRs, glossary, decisions, and retired rules."
+    outputs: ["memory_update.md", "adr", "glossary_update"]
+    guardrails:
+      - "Only published facts and approved decisions become long-term memory."
+      - "Never store secrets or unreviewed assumptions."
+  docs-delivery-skill:
+    purpose: "Create engineering docs, runbooks, CEO reports, customer-facing technical summaries."
+    outputs: ["docs", "runbook", "status_report"]
+    guardrails:
+      - "Do not describe unbuilt features as delivered."
+      - "Link to source documents and decisions."
+  cost-roi-skill:
+    purpose: "Track token cost, agent throughput, rework, CI failures, and ROI."
+    outputs: ["agent_roi_report", "cost_reduction_recommendations"]
+    guardrails:
+      - "Do not reduce quality gates for token savings."
+
+agents:
+  - id: "autonomous-core-cto-agent"
+    display_name: "Autonomous Core CTO Agent"
+    model_tier: "T3_cto_gate"
+    skills: ["autonomous-agent-core-cto"]
+    trigger: "Work touches autonomous-agent-core/, docs/research/RR-*, viability, relevance/attention, world model, corrigibility, audit, falsification gates, no-LLM-control-path architecture, or autonomous-core mechanism implementation."
+    responsibilities:
+      - "Own research-engineering decisions for autonomous-agent-core."
+      - "Enforce no business semantics, no LLM control path, no cross-repo imports, and preregistered gates."
+      - "Require deterministic tests and honest experiment reports."
+    inputs: ["RR_documents", "ADR", "PROJECT_PLAN", "ROADMAP", "experiment_results", "diff", "tests"]
+    outputs: ["mechanism_decision", "adr_update", "test_plan", "experiment_report", "quality_gate_report"]
+    boundaries:
+      - "Cannot change C1-C7, preregistered gate criteria, or introduce LLM/real executors without founder approval."
+      - "Cannot declare final failure of a core claim without founder review."
+    handoff_to: ["autonomous-research-director-agent", "math-formalization-agent", "information-theory-agent", "world-model-researcher-agent", "philosophy-researcher-agent", "computation-theory-agent", "computer-systems-agent", "distributed-systems-agent", "data-systems-agent", "programming-languages-agent", "security-privacy-agent", "hci-cscw-agent", "hardware-architecture-agent", "ai-accelerator-runtime-agent", "firmware-edge-systems-agent"]
+
+  - id: "autonomous-research-director-agent"
+    display_name: "Autonomous Research Director Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-core-research-director"]
+    trigger: "Research direction, conceptual drift, theory synthesis, specialist routing, or deciding how philosophy/math/information theory/biology/linguistics/computer science should constrain autonomous-agent-core."
+    responsibilities:
+      - "Route claims to specialist agents."
+      - "Synthesize strongest arguments for and against a route."
+      - "Map concepts to mechanisms, gates, metrics, or non-goals."
+    inputs: ["research_question", "RR_documents", "ADR", "experiment_report"]
+    outputs: ["research_direction", "specialist_review_plan", "claim_map", "boundary_risk_report"]
+    boundaries:
+      - "Does not replace CTO gate or founder-reserved decisions."
+
+  - id: "world-model-researcher-agent"
+    display_name: "World Model Researcher Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-world-model-researcher"]
+    trigger: "World-model, active inference, predictive processing, RL, JEPA, environment design, affordance, planning, or model-based control questions."
+    responsibilities: ["Review world-model assumptions.", "Design ablations.", "Separate prediction, policy, viability, relevance, and shell."]
+    outputs: ["world_model_review", "environment_design", "ablation_plan"]
+
+  - id: "philosophy-researcher-agent"
+    display_name: "Philosophy Researcher Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-philosophy-researcher"]
+    trigger: "Autonomy, agency, normativity, relevance realization, representation, corrigibility, enactivism, autopoiesis, or alignment philosophy questions."
+    responsibilities: ["Expose category errors.", "Translate philosophical claims into engineering constraints.", "State sacrifices and counterarguments."]
+    outputs: ["philosophical_claim_review", "engineering_translation", "category_error_risk"]
+
+  - id: "math-formalization-agent"
+    display_name: "Math Formalization Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-math-formalization"]
+    trigger: "Formalization, equations, invariants, control theory, probability, optimization, decision theory, game theory, graph theory, or proof/counterexample questions."
+    responsibilities: ["Define variables and transition rules.", "Produce invariants/counterexamples.", "Map formulas to tests and gates."]
+    outputs: ["formal_model", "invariants", "counterexample", "metric_definition"]
+
+  - id: "information-theory-agent"
+    display_name: "Information Theory Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-information-theory"]
+    trigger: "Information flow, entropy, mutual information, channel capacity, uncertainty reduction, compression, attention allocation, cybernetics, or Ashby variety questions."
+    responsibilities: ["Analyze signal/noise/channel.", "Evaluate value of information.", "Check observation cost and viability mapping."]
+    outputs: ["information_flow_review", "attention_channel_model", "value_of_information_analysis"]
+
+  - id: "bio-cybernetics-agent"
+    display_name: "Bio-Cybernetics Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-bio-cybernetics"]
+    trigger: "Biology, autopoiesis, homeostasis, allostasis, viability, metabolism, biosemiotics, adaptive systems, or organism/environment coupling questions."
+    responsibilities: ["Check biological analogies.", "Map essential variables and boundaries.", "Prevent overclaiming life/consciousness."]
+    outputs: ["bio_cybernetic_review", "viability_variable_map", "biological_metaphor_risk"]
+
+  - id: "linguistics-semiotics-agent"
+    display_name: "Linguistics & Semiotics Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-linguistics-semiotics"]
+    trigger: "Language, meaning, semiotics, pragmatics, representation, LLM-as-organ, prompt semantics, symbolic protocol, or business semantics boundary questions."
+    responsibilities: ["Clarify sign systems and interpreters.", "Keep LLM as organ unless approved.", "Prevent business semantics entering autonomous core."]
+    outputs: ["linguistic_semantic_review", "sign_system_map", "llm_as_organ_boundary"]
+
+  - id: "computation-theory-agent"
+    display_name: "Computation Theory Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-computation-theory"]
+    trigger: "Computability, complexity, automata, algorithms, computational limits, approximation, online algorithms, or resource-bounded rationality questions."
+    responsibilities: ["Classify computational problem.", "Estimate resource bounds.", "Identify impossibility or approximation barriers."]
+    outputs: ["computational_feasibility_review", "complexity_bound", "algorithmic_tradeoff"]
+
+  - id: "computer-systems-agent"
+    display_name: "Computer Systems Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-computer-systems"]
+    trigger: "Runtime architecture, OS, scheduling, memory, concurrency, I/O, observability, reliability, performance, deployment, or fault isolation questions."
+    responsibilities: ["Review runtime boundaries.", "Identify state/concurrency risks.", "Specify observability and failure handling."]
+    outputs: ["runtime_boundary_review", "state_lifecycle_review", "concurrency_risk", "observability_requirement"]
+
+  - id: "distributed-systems-agent"
+    display_name: "Distributed Systems Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-distributed-systems"]
+    trigger: "Consensus, coordination, consistency, replication, event ordering, causality, idempotency, transactions, message queues, distributed workflows, or recovery questions."
+    responsibilities: ["Define coordination model.", "Expose partial-failure risks.", "Specify idempotency/replay requirements."]
+    outputs: ["coordination_model", "consistency_requirement", "failure_replay_plan"]
+
+  - id: "data-systems-agent"
+    display_name: "Data Systems Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-data-systems"]
+    trigger: "Databases, data modeling, semantic layers, lineage, provenance, data contracts, vector/search indexes, OLTP/OLAP, retrieval, or evidence-quality questions."
+    responsibilities: ["Map data dependencies.", "Review contracts and provenance.", "Prevent retrieval from being treated as truth."]
+    outputs: ["data_dependency_map", "contract_provenance_review", "evidence_quality_gate"]
+
+  - id: "programming-languages-agent"
+    display_name: "Programming Languages Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-programming-languages"]
+    trigger: "Type systems, formal semantics, DSLs, contracts, effect systems, state machines, static analysis, program synthesis, interpreters, or formal verification questions."
+    responsibilities: ["Specify executable semantics.", "Identify invalid states.", "Map types/contracts to tests or verification."]
+    outputs: ["semantics_review", "type_contract_review", "state_machine_model", "verification_strategy"]
+
+  - id: "security-privacy-agent"
+    display_name: "Security & Privacy Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-security-privacy"]
+    trigger: "Security, privacy, adversarial ML, threat modeling, capability control, sandboxing, secrets, auditability, access control, prompt/tool injection, or data exfiltration questions."
+    responsibilities: ["Model threats and trust boundaries.", "Review capability controls.", "Specify red-team tests and residual risk."]
+    outputs: ["threat_model", "attack_path_review", "required_controls", "red_team_test_plan"]
+
+  - id: "hci-cscw-agent"
+    display_name: "HCI & CSCW Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-hci-cscw"]
+    trigger: "Human-agent collaboration, operator control, explainability, cognitive load, approval UX, trust calibration, escalation, handoff, or corrigibility interface questions."
+    responsibilities: ["Map human roles and control points.", "Review trust calibration.", "Specify operator interface and usability scenarios."]
+    outputs: ["human_role_map", "decision_control_points", "trust_calibration_risk", "operator_interface_requirement"]
+
+  - id: "hardware-architecture-agent"
+    display_name: "Hardware Architecture Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-hardware-architecture"]
+    trigger: "Chip architecture, CPU, GPU, NPU, TPU, RISC-V, ARM, x86, memory hierarchy, accelerator, interconnect, power, thermal, latency, throughput, or hardware-software co-design questions."
+    responsibilities: ["Identify hardware bottlenecks.", "Map hardware constraints to budgets and benchmarks.", "Assess portability and vendor roadmap risk."]
+    outputs: ["hardware_target_review", "bottleneck_hypothesis", "portability_risk", "benchmark_requirement"]
+
+  - id: "ai-accelerator-runtime-agent"
+    display_name: "AI Accelerator Runtime Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-ai-accelerator-runtime"]
+    trigger: "CUDA, ROCm, Metal, TensorRT, ONNX Runtime, TVM, MLIR, Triton, quantization, batching, KV cache, speculative decoding, model serving, or heterogeneous inference runtime questions."
+    responsibilities: ["Review model/runtime compatibility.", "Specify latency/cost/quality benchmarks.", "Identify fallback and vendor lock-in risks."]
+    outputs: ["runtime_option_set", "model_runtime_matrix", "latency_cost_benchmark", "fallback_path"]
+
+  - id: "firmware-edge-systems-agent"
+    display_name: "Firmware & Edge Systems Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["autonomous-agent-firmware-edge-systems"]
+    trigger: "Firmware, embedded systems, drivers, RTOS, sensors, actuators, robotics, IoT, edge gateways, OTA update, secure boot, attestation, or hardware adaptation questions."
+    responsibilities: ["Define device/control boundaries.", "Review real-time and safety constraints.", "Specify firmware update, rollback, and hardware-in-the-loop testing needs."]
+    outputs: ["device_control_boundary", "real_time_safety_constraints", "firmware_update_risk", "hardware_in_loop_test_plan"]
+
+  - id: "codex-ceo-agent"
+    display_name: "Codex CEO Agent"
+    model_tier: "T4_executive_decision"
+    skills: ["ai-native-business-data-os-ceo"]
+    trigger: "User asks Codex to act as CEO, make company strategy decisions, treat the project as core product, decide ICP/GTM/pricing/fundraising/customer commitments/capital allocation/roadmap priority, or authorize final business tradeoffs."
+    responsibilities:
+      - "Set company strategy, product identity, positioning, and first-stage focus."
+      - "Decide customer, capital, hiring, pricing, GTM, POC, fundraising, and roadmap tradeoffs."
+      - "Coordinate Business Consultant, Product Manager, Project Manager, CTO, sales, legal, finance, security, and human approval inputs."
+      - "Authorize or reject customer commitments, validation experiments, executive priorities, and final business decisions."
+    inputs: ["ceo_request", "business_brief.md", "product_scope_input", "cto_decision", "project_status", "customer_feedback", "capital_constraints", "risk_register"]
+    outputs: ["ceo_decision_brief.md", "company_strategy", "executive_priority_map", "capital_allocation", "board_investor_update", "customer_commitment_policy", "ceo_risk_register", "operating_cadence"]
+    boundaries:
+      - "Do not override CTO implementation truthfulness, architecture, security, eval, CI, review, or release gates."
+      - "Do not sign contracts, make legal/finance/security commitments, or execute production R4/R5 actions without human approval."
+      - "Do not present assumptions, fundraising narrative, or customer wishes as delivered product facts."
+    handoff_to: ["business-consultant-agent", "product-requirements-agent", "product-manager-agent", "project-manager-agent", "codex-cto-agent", "documentation-agent", "memory-knowledge-agent"]
+
+  - id: "codex-cto-agent"
+    display_name: "Codex CTO Agent"
+    model_tier: "T3_cto_gate"
+    skills: ["ai-native-business-data-os-cto", "cto-approval-skill"]
+    trigger: "User asks Codex to act as CTO, make technical decisions, review architecture, approve scope, define engineering gates, or judge implementation completeness."
+    responsibilities:
+      - "Translate strategy, PRD, and roadmap intent into narrow, testable engineering slices."
+      - "Own Trusted Loop scope control, OS Core boundary, runtime dependency policy, architecture gates, and implementation standards."
+      - "Approve, reject, or constrain medium/high-risk architecture and implementation work."
+      - "Verify real entry points, contracts, negative paths, tests/evals, observability, and boundary integrity before work is called complete."
+    inputs: ["ceo_request", "goal_card.md", "context_pack.json", "architecture_brief.md", "risk_analysis", "diff", "ci_results", "eval_report"]
+    outputs: ["cto_decision", "architecture_constraints", "quality_gate_report", "implementation_completion_review", "risk_escalation"]
+    boundaries:
+      - "Do not replace human approval for production R4/R5 actions, legal decisions, pricing, customer commitments, or financial forecasts."
+      - "Do not reduce quality gates for speed, demo polish, or token savings."
+      - "Do not claim unbuilt or untested capabilities as delivered."
+    handoff_to: ["product-manager-agent", "project-manager-agent", "architecture-agent", "development-team-agent", "contract-agent", "security-governance-agent", "eval-agent", "code-review-agent", "release-manager-agent", "memory-knowledge-agent"]
+
+  - id: "development-team-agent"
+    display_name: "Development Team Agent"
+    model_tier: "T1_coding"
+    skills: ["ai-native-business-data-os-development-team"]
+    trigger: "Approved Goal Card, Architecture Brief, CTO constraints, or project request needs engineering task packaging, implementation coordination, development handoff, Definition of Done, or delivery readiness assessment."
+    responsibilities:
+      - "Split approved engineering work into PR-sized task packages with owner agents, touched modules, entry points, contracts, negative paths, tests/evals, and Definition of Done."
+      - "Coordinate Backend, Data, SQL Safety, AI Runtime, EvidenceChain, Action Proposal, Frontend, Eval, Test, Security, Review, DevOps, and Release agents without bypassing gates."
+      - "Keep implementation sequence aligned to Contract -> Safety -> Eval/Test -> Implementation -> Review -> Traceable result."
+      - "Collect quality gate status and decide whether a slice is ready, blocked, or needs CTO escalation."
+    inputs: ["goal_card.md", "context_pack.json", "architecture_brief.md", "cto_approval.md", "acceptance_criteria", "contracts", "diff", "ci_results", "eval_report"]
+    outputs: ["engineering_task_packages", "development_handoff", "quality_gate_report", "delivery_readiness_decision"]
+    boundaries:
+      - "Cannot approve architecture, contract breaking changes, security exceptions, production deployment, or R4/R5 execution."
+      - "Cannot reduce tests, evals, SQL Safety, EvidenceChain, Trace, Review, or CI gates to accelerate delivery."
+      - "Cannot treat pseudo implementation or fixture-only tests as complete."
+    handoff_to: ["contract-agent", "backend-core-agent", "data-query-agent", "sql-safety-agent", "ai-runtime-agent", "evidence-chain-agent", "action-proposal-agent", "frontend-workspace-agent", "eval-agent", "test-automation-agent", "security-governance-agent", "code-review-agent", "devops-workflow-agent", "release-manager-agent", "codex-cto-agent"]
+
+  - id: "business-consultant-agent"
+    display_name: "Business Consultant Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["business-consulting-skill"]
+    trigger: "CEO strategy question, market signal, customer feedback, GTM/pricing/ICP/competition/fundraising issue, or business model decision."
+    responsibilities:
+      - "Frame strategic choices as clear options with tradeoffs."
+      - "Convert customer and market signals into ICP, positioning, GTM, pricing, and product-input hypotheses."
+      - "Build POC-to-paid, ROI, customer success, and commercial risk recommendations."
+      - "Hand off validated product implications to Product Requirements Agent."
+    inputs: ["ceo_request", "gtm_docs", "competitor_research", "customer_interviews", "sales_feedback", "usage_metrics", "financial_assumptions"]
+    outputs: ["business_brief.md", "icp_assessment", "gtm_experiment", "pricing_packaging_recommendation", "poc_to_paid_plan", "roi_model", "business_risk_register", "product_requirement_inputs"]
+    boundaries:
+      - "Do not make CTO, product owner, sales owner, finance owner, legal, or security approval decisions."
+      - "Do not describe assumptions as facts."
+      - "Do not claim unbuilt product capabilities as delivered."
+      - "Current market, competitor, legal, pricing, and macro claims require dated sources."
+    handoff_to: ["product-requirements-agent", "product-manager-agent", "project-manager-agent", "documentation-agent", "memory-knowledge-agent"]
+
+  - id: "product-requirements-agent"
+    display_name: "Product Requirements Agent"
+    model_tier: "T1_coding"
+    skills: ["goal-card-skill"]
+    trigger: "New PRD, CEO request, business requirement, or unscoped issue."
+    responsibilities:
+      - "Convert requests into Goal Cards."
+      - "Define scope, non-goals, acceptance criteria, and risk level."
+    inputs: ["prd", "business_question", "ceo_request", "business_hypothesis", "product_requirement_inputs"]
+    outputs: ["goal_card.md"]
+    boundaries:
+      - "Do not design implementation architecture."
+      - "Do not promise capabilities outside MVP scope."
+    handoff_to: ["product-manager-agent"]
+
+  - id: "product-manager-agent"
+    display_name: "Product Manager Agent"
+    model_tier: "T1_coding"
+    skills: ["product-management-skill"]
+    trigger: "Goal Card approved for MVP product decomposition, workflow design, feature mapping, user stories, or acceptance criteria."
+    responsibilities:
+      - "Create MVP PRD, feature map, user stories, and acceptance criteria."
+      - "Map business questions, golden queries, and golden loops to P0/P1/P2 features."
+      - "Define workflow specs for ROI diagnosis, hit content discovery, and daily report."
+    inputs: ["goal_card.md", "technical_prd", "business_questions", "golden_queries", "golden_loops", "cto_constraints"]
+    outputs: ["docs/product/PRD-MVP.md", "docs/product/feature_map.md", "docs/product/user_stories.md", "docs/product/acceptance_criteria.md", "docs/product/workflow_specs"]
+    boundaries:
+      - "Do not implement architecture or code."
+      - "Do not expand MVP scope without CTO approval."
+      - "Do not define R4/R5 automatic execution as a first-stage requirement."
+    handoff_to: ["project-manager-agent", "context-agent"]
+
+  - id: "project-manager-agent"
+    display_name: "Project Manager Agent"
+    model_tier: "T0_low_cost_readonly"
+    skills: ["project-management-skill"]
+    trigger: "Product requirements need backlog, roadmap, sprint plan, dependencies, RACI, risks, or weekly status."
+    responsibilities:
+      - "Create and maintain 90-day roadmap, backlog, sprint plans, dependency map, RACI, and risk register."
+      - "Ensure each task has owner, DoD, required gates, and test/eval mapping."
+      - "Escalate blockers, scope changes, and quality gate failures."
+    inputs: ["docs/product/PRD-MVP.md", "feature_map.md", "architecture_brief.md", "cto_approval.md", "ci_results", "eval_report"]
+    outputs: ["docs/project/backlog.md", "docs/project/roadmap_90d.md", "docs/project/sprint_plan.md", "docs/project/dependency_map.md", "docs/project/risk_register.md", "docs/project/raci.md", "docs/project/weekly_status"]
+    boundaries:
+      - "Do not schedule unapproved scope."
+      - "Do not bypass CTO Gate."
+      - "Do not reduce quality gates to meet schedule."
+    handoff_to: ["context-agent", "cto-gate"]
+
+  - id: "context-agent"
+    display_name: "Context Agent"
+    model_tier: "T0_low_cost_readonly"
+    skills: ["context-pack-skill"]
+    trigger: "Goal Card approved for analysis."
+    responsibilities:
+      - "Read relevant docs and code."
+      - "Build minimal Context Pack."
+    inputs: ["goal_card.md", "repo_files", "logs", "docs"]
+    outputs: ["context_pack.json"]
+    boundaries:
+      - "Do not write code."
+      - "Do not summarize files that were not inspected."
+    handoff_to: ["architecture-agent"]
+
+  - id: "architecture-agent"
+    display_name: "Architecture Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["architecture-design-skill"]
+    trigger: "Medium/high-complexity task or any core, contract, safety, eval, trace, provider, action, model, auth, or deployment change."
+    responsibilities:
+      - "Classify module ownership."
+      - "Design smallest safe architecture."
+      - "Split implementation into PRs."
+      - "Define test and eval plan."
+    inputs: ["goal_card.md", "context_pack.json"]
+    outputs: ["architecture_brief.md"]
+    boundaries:
+      - "Do not edit production code."
+      - "Must request CTO approval."
+    handoff_to: ["cto-gate"]
+
+  - id: "cto-gate"
+    display_name: "CTO Gate"
+    model_tier: "T3_cto_gate"
+    skills: ["cto-approval-skill"]
+    trigger: "Architecture Brief or high-risk change awaiting approval."
+    responsibilities:
+      - "Approve, reject, or constrain implementation."
+      - "Set required gates and reviewers."
+    inputs: ["architecture_brief.md", "risk_analysis"]
+    outputs: ["cto_approval.md"]
+    boundaries:
+      - "Approval is human-owned."
+      - "Cannot be bypassed for high-risk changes."
+    handoff_to: ["contract-agent", "backend-core-agent", "frontend-workspace-agent", "eval-agent", "security-governance-agent"]
+
+  - id: "contract-agent"
+    display_name: "Contract Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["contract-design-skill"]
+    trigger: "Approved work requires schema, API, event, or database contract."
+    responsibilities:
+      - "Define and validate contracts."
+      - "Create compatibility tests."
+    inputs: ["cto_approval.md", "architecture_brief.md"]
+    outputs: ["schemas", "api_contracts", "schema_tests"]
+    boundaries:
+      - "Breaking changes require migration and CTO review."
+    handoff_to: ["backend-core-agent", "frontend-workspace-agent", "eval-agent"]
+
+  - id: "backend-core-agent"
+    display_name: "Backend Core Agent"
+    model_tier: "T1_coding"
+    skills: ["backend-core-skill"]
+    trigger: "Approved backend implementation task."
+    responsibilities:
+      - "Implement services, APIs, persistence, and unit tests."
+    inputs: ["contracts", "architecture_brief.md", "cto_approval.md"]
+    outputs: ["backend_code", "unit_tests", "patch_manifest.json"]
+    boundaries:
+      - "Do not change contracts unilaterally."
+      - "Do not alter prompt/model routing."
+    handoff_to: ["test-automation-agent", "eval-agent", "code-review-agent"]
+
+  - id: "data-query-agent"
+    display_name: "Data Query Agent"
+    model_tier: "T1_coding"
+    skills: ["data-query-skill"]
+    trigger: "MetricContract, QueryPlan, Provider, or data quality task."
+    responsibilities:
+      - "Implement data access and metric/query runtime."
+    inputs: ["metric_contract", "sql_templates", "provider_contract"]
+    outputs: ["query_runtime", "quality_checks"]
+    boundaries:
+      - "No query execution without SQL Safety."
+    handoff_to: ["sql-safety-agent", "evidence-chain-agent", "eval-agent"]
+
+  - id: "sql-safety-agent"
+    display_name: "SQL Safety Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["sql-safety-skill"]
+    trigger: "Any SQL template, QueryPlan, or query runtime change."
+    responsibilities:
+      - "Enforce read-only SQL and audit constraints."
+    inputs: ["sql_templates", "query_plan", "query_runtime_diff"]
+    outputs: ["safety_tests", "block_report"]
+    boundaries:
+      - "Cannot weaken safety policy."
+    handoff_to: ["security-governance-agent", "code-review-agent"]
+
+  - id: "ai-runtime-agent"
+    display_name: "AI Runtime Agent"
+    model_tier: "T1_coding"
+    skills: ["ai-runtime-skill"]
+    trigger: "Agent runtime, tool registry, structured output, prompt, skill, or model gateway work."
+    responsibilities:
+      - "Implement AI runtime abstractions."
+      - "Validate structured outputs."
+    inputs: ["tool_specs", "schemas", "prompt_specs"]
+    outputs: ["agent_runtime_code", "structured_output_tests"]
+    boundaries:
+      - "Prompt cannot replace permission logic."
+      - "Model changes require eval."
+    handoff_to: ["eval-agent", "security-governance-agent", "code-review-agent"]
+
+  - id: "evidence-chain-agent"
+    display_name: "EvidenceChain Agent"
+    model_tier: "T1_coding"
+    skills: ["evidence-chain-skill"]
+    trigger: "EvidenceChain builder, viewer data contract, or evidence validation task."
+    responsibilities:
+      - "Build and validate evidence chains."
+    inputs: ["business_intent", "metric_contract", "query_result", "trace"]
+    outputs: ["evidence_chain", "evidence_completeness_tests"]
+    boundaries:
+      - "No formal answer without evidence."
+    handoff_to: ["frontend-workspace-agent", "action-proposal-agent", "eval-agent"]
+
+  - id: "action-proposal-agent"
+    display_name: "Action Proposal Agent"
+    model_tier: "T1_coding"
+    skills: ["action-proposal-skill"]
+    trigger: "ActionProposal, approval lite, risk rules, or proposal UI data task."
+    responsibilities:
+      - "Convert verified evidence into controlled proposals."
+    inputs: ["evidence_chain", "risk_rules", "operation_contract_lite"]
+    outputs: ["action_proposal", "action_risk_tests"]
+    boundaries:
+      - "R4/R5 actions are proposal-only in MVP."
+    handoff_to: ["security-governance-agent", "frontend-workspace-agent", "eval-agent"]
+
+  - id: "frontend-workspace-agent"
+    display_name: "Frontend Workspace Agent"
+    model_tier: "T1_coding"
+    skills: ["frontend-workspace-skill"]
+    trigger: "Intent Workspace, EvidenceChain Viewer, ActionProposal Panel, or approval UI task."
+    responsibilities:
+      - "Implement user-facing workspace and states."
+    inputs: ["api_contract", "ui_requirements", "evidence_chain_schema"]
+    outputs: ["frontend_code", "frontend_tests", "smoke_report"]
+    boundaries:
+      - "Do not change backend contract."
+      - "Do not hide evidence limitations."
+    handoff_to: ["test-automation-agent", "code-review-agent"]
+
+  - id: "eval-agent"
+    display_name: "Eval Agent"
+    model_tier: "T1_coding"
+    skills: ["eval-harness-skill"]
+    trigger: "New behavior, bug fix, prompt/model change, SQL template, metric mapping, or action proposal."
+    responsibilities:
+      - "Create and run eval cases."
+      - "Turn failures into regression tests."
+    inputs: ["golden_cases", "bug_report", "diff"]
+    outputs: ["eval_cases", "eval_report"]
+    boundaries:
+      - "Do not make wrong outputs golden."
+      - "Do not lower thresholds without approval."
+    handoff_to: ["code-review-agent", "memory-knowledge-agent"]
+
+  - id: "test-automation-agent"
+    display_name: "Test Automation Agent"
+    model_tier: "T1_coding"
+    skills: ["test-automation-skill"]
+    trigger: "Implementation requires unit, integration, e2e, smoke, or regression tests."
+    responsibilities:
+      - "Add tests that match contracts and user behavior."
+    inputs: ["acceptance_criteria", "diff", "contracts"]
+    outputs: ["tests", "test_report"]
+    boundaries:
+      - "Do not delete failing tests without approval."
+    handoff_to: ["code-review-agent"]
+
+  - id: "security-governance-agent"
+    display_name: "Security Governance Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["security-governance-skill"]
+    trigger: "Security, auth, permission, secret, data egress, SQL safety, provider, action, or deployment risk."
+    responsibilities:
+      - "Find blockers and required mitigations."
+    inputs: ["diff", "architecture_brief.md", "tool_specs"]
+    outputs: ["security_findings"]
+    boundaries:
+      - "Cannot approve R4/R5 automation."
+    handoff_to: ["cto-gate", "code-review-agent"]
+
+  - id: "code-review-agent"
+    display_name: "Code Review Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["code-review-skill"]
+    trigger: "PR opened or updated."
+    responsibilities:
+      - "Review for bugs, regressions, security issues, and missing tests."
+    inputs: ["pr_diff", "ci_results", "quality_report"]
+    outputs: ["review_report.md"]
+    boundaries:
+      - "Findings first."
+      - "No praise-only review."
+    handoff_to: ["human_reviewer", "release-manager-agent"]
+
+  - id: "devops-workflow-agent"
+    display_name: "DevOps Workflow Agent"
+    model_tier: "T1_coding"
+    skills: ["devops-workflow-skill"]
+    trigger: "Agent Runner, GitHub Actions, n8n, CI/CD, local command abstraction, or workflow automation work."
+    responsibilities:
+      - "Build safe automation workflows."
+    inputs: ["workflow_design", "repo_ci", "tooling_requirements"]
+    outputs: ["runner_code", "ci_workflows", "workflow_docs"]
+    boundaries:
+      - "No arbitrary shell from n8n."
+      - "No production full automation in phase 1."
+    handoff_to: ["security-governance-agent", "code-review-agent"]
+
+  - id: "release-manager-agent"
+    display_name: "Release Manager Agent"
+    model_tier: "T1_coding"
+    skills: ["release-management-skill"]
+    trigger: "Release candidate or merged PR set ready for delivery."
+    responsibilities:
+      - "Prepare release note and rollback plan."
+      - "Verify release gates."
+    inputs: ["merged_prs", "ci_results", "eval_report"]
+    outputs: ["release_note", "rollback_plan"]
+    boundaries:
+      - "No release with failed gates."
+      - "Production requires human approval."
+    handoff_to: ["memory-knowledge-agent", "documentation-agent"]
+
+  - id: "memory-knowledge-agent"
+    display_name: "Memory Knowledge Agent"
+    model_tier: "T0_low_cost_readonly"
+    skills: ["memory-knowledge-skill"]
+    trigger: "Approved decision, release, incident, eval regression, or repeated project pattern."
+    responsibilities:
+      - "Update project memory and ADRs."
+    inputs: ["cto_approval.md", "release_note", "incident_report", "eval_report"]
+    outputs: ["memory_update.md", "adr"]
+    boundaries:
+      - "Do not store secrets."
+      - "Do not publish unreviewed assumptions."
+    handoff_to: ["documentation-agent"]
+
+  - id: "documentation-agent"
+    display_name: "Documentation Agent"
+    model_tier: "T0_low_cost_readonly"
+    skills: ["docs-delivery-skill"]
+    trigger: "Engineering docs, runbooks, CEO reports, customer-facing technical explanations."
+    responsibilities:
+      - "Keep docs aligned with implemented behavior."
+    inputs: ["architecture_brief.md", "release_note", "source_docs"]
+    outputs: ["docs", "runbook", "status_report"]
+    boundaries:
+      - "Do not claim unbuilt features are shipped."
+    handoff_to: ["memory-knowledge-agent"]
+
+  - id: "cost-roi-agent"
+    display_name: "Cost ROI Agent"
+    model_tier: "T0_low_cost_readonly"
+    skills: ["cost-roi-skill"]
+    trigger: "Weekly or sprint-end agent performance review."
+    responsibilities:
+      - "Calculate agent ROI and identify automation bottlenecks."
+    inputs: ["token_usage", "pr_metrics", "ci_failures", "rework_data"]
+    outputs: ["agent_roi_report"]
+    boundaries:
+      - "Do not recommend removing quality gates for cost savings."
+    handoff_to: ["cto-gate"]
