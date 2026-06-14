@@ -43,6 +43,7 @@ class Agent:
         policy_gate: bool = False,
         gate_kappa: float = 1.0,
         gate_temp_floor: float = 0.1,
+        base_temperature: float = 0.3,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -65,6 +66,7 @@ class Agent:
             confidence_gate=policy_gate,
             gate_kappa=gate_kappa,
             gate_temp_floor=gate_temp_floor,
+            base_temperature=base_temperature,
         )
         self.reflex = reflex  # None = Layer 0 disabled (backward compatible)
         self.idle_drives = idle_drives  # None = no endogenous idle behaviour
