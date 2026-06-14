@@ -10,7 +10,7 @@
 branch: feat/p6-consolidate-g10
 stage: P6 consolidated
 immediate_next: publish P6 consolidation; continue P5 deployment projection in enterprise repo
-tests: 376 OK
+tests: 380 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -42,6 +42,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0027-post-c3-route-disposition.md` | Accepted | Consolidate G10; park G11/C1 until another axis wins |
 | `ADR-0028-survival-axis-de-risk.md` | RED | Survival-under-cost is not independent; it shadows reframe/adaptation speed |
 | `ADR-0029-risk-calibration-axis-de-risk.md` | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
+| `ADR-0030-g10-completeness-trap-avoidance.md` | COMPLETENESS PASS | G10/P0 survives fixed-low-temp, metric, real-stake, structure-theft, and spectrum traps |
 
 ## Current Code Map
 
@@ -76,6 +77,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/confidence_gated_g9.py` | G9 | Implemented and run; formal NOT MET, P0 discovery positive |
 | `experiments/confidence_gated_g10.py` | G10 | MET on fresh seeds 800..829 |
 | `tests/test_confidence_gated_g10.py` | G10 | Exists; C6/C7 and determinism guards |
+| `experiments/completeness_g10.py` | ADR-0030 | COMPLETENESS PASS; P0 survives flip-the-conclusion traps |
+| `tests/test_completeness_g10.py` | ADR-0030 | additive `base_temperature` wiring and B-temp guard |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
@@ -96,7 +99,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-376 tests OK
+380 tests OK
 ```
 
 Important current test files:
@@ -105,6 +108,7 @@ Important current test files:
 |---|---|
 | `tests/test_confidence_gated_policy.py` | G9 policy gate, C6/C7 guards, deterministic replay |
 | `tests/test_confidence_gated_g10.py` | G10 fresh-seed confirmation guards |
+| `tests/test_completeness_g10.py` | G10 completeness additive temperature wiring |
 | `tests/test_idle_productivity_c3.py` | C3 idle-productivity de-risk guards |
 | `tests/test_survival_axis_c1.py` | ADR-0028 survival-axis de-risk guards |
 | `tests/test_risk_calibration_c1.py` | ADR-0029 stationary risk-axis de-risk guards |
@@ -142,6 +146,12 @@ G9 verdict:
 - G10 confirmed P0 on fresh seeds 800..829:
   - A0 1304.7 / A1 1268.6 / P0 759.8.
   - P0 beats A1 by 40.1%, 30/30, p<1e-6, bootstrap CI [457.0, 562.9].
+- ADR-0030 completeness strengthened G10:
+  - B-temp fixed-low baseline 1292.9 window area vs P0 739.8.
+  - T1 P0<B-temp 30/30, p<1e-6.
+  - T3 real-stake survival PASS: P0 1734.8 vs A0 1245.3 and B-temp 1482.6.
+  - T5b StalenessEnv PASS: P0 advantage 36.4%, GENERAL FIX not structure theft.
+  - Interpretation: the subject-side belief-to-action coupling survives all flip-the-conclusion traps.
 - C3 returned RED:
   - DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701.
   - Endogeny has no directed post-idle signal and is dropped from C1.

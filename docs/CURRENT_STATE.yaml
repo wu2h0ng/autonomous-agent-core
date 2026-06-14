@@ -2,12 +2,12 @@ updated: "2026-06-14"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "feat/p6-consolidate-g10"
-status: "P6 consolidated; G10 confirmed; C3/survival/risk de-risks RED; system-level-axis hunt closed"
+status: "P6 consolidated; G10 confirmed and trap-complete; C3/survival/risk de-risks RED; system-level-axis hunt closed"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 376
+  count: 380
   result: "OK"
-  source: "ADR-0029 risk-calibration r-final full-suite record on 2026-06-14; re-run locally before submit"
+  source: "ADR-0030 completeness integration full-suite record on 2026-06-14"
 
 current_stage:
   label: "P6 consolidation: one robust subject-side lever, no independent second axis"
@@ -31,11 +31,14 @@ authoritative_adrs:
     - "docs/adr/ADR-0027-post-c3-route-disposition.md"
     - "docs/adr/ADR-0028-survival-axis-de-risk.md"
     - "docs/adr/ADR-0029-risk-calibration-axis-de-risk.md"
+    - "docs/adr/ADR-0030-g10-completeness-trap-avoidance.md"
   current_decision:
-    - "ADR-0029 closes the natural multi-axis hunt; G10 stands as the consolidated decisive result."
+    - "ADR-0030 makes G10 trap-complete; ADR-0029 still closes the natural multi-axis hunt."
   tracked_g10_files:
     - "experiments/confidence_gated_g10.py"
     - "tests/test_confidence_gated_g10.py"
+    - "experiments/completeness_g10.py"
+    - "tests/test_completeness_g10.py"
   tracked_axis_derisk_files:
     - "experiments/idle_productivity_c3.py"
     - "tests/test_idle_productivity_c3.py"
@@ -58,8 +61,8 @@ current_truth:
       P0_gated_none: 746.5
       P4_gated_o4: 893.4
   g10:
-    adr: "ADR-0024"
-    verdict: "MET"
+    adr: "ADR-0024; strengthened by ADR-0030"
+    verdict: "MET; COMPLETENESS PASS"
     candidate: "P0 gated policy + no organ"
     seeds: "800..829"
     key_result:
@@ -72,6 +75,7 @@ current_truth:
       bootstrap_ci_mean_reduction: "[457.0, 562.9]"
     interpretation:
       - "P0 decisive subject-side win replicated on fresh seeds."
+      - "ADR-0030 confirms the win survives fixed-low-temperature, metric-spillover, real-stake survival, structure-theft, and spectrum traps."
       - "The result is C6-preserving: the gate reads the subject's own ActionOutcomeModel, not an organ control surface."
       - "This is the program's first confirmed decisive positive gate."
   c3:
@@ -135,6 +139,7 @@ handoff_read_order:
   - "docs/G9-G10-subject-side-coupling-synthesis.md"
   - "docs/P5-landing-feasibility-memo.md"
   - "docs/adr/ADR-0024-g10-subject-side-win-confirmation.md"
+  - "docs/adr/ADR-0030-g10-completeness-trap-avoidance.md"
   - "docs/adr/ADR-0027-post-c3-route-disposition.md"
   - "docs/adr/ADR-0028-survival-axis-de-risk.md"
   - "docs/adr/ADR-0029-risk-calibration-axis-de-risk.md"

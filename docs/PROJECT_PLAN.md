@@ -18,7 +18,7 @@ Current stage:
 
 ```text
 P6 consolidated
-  -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET)
+  -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET) and trap-complete (ADR-0030)
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
@@ -32,10 +32,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-376 tests OK
+380 tests OK
 ```
 
-The 376-test result is recorded by ADR-0029's risk-calibration r-final on 2026-06-14. Re-run before code submission if you change code.
+The 380-test result is recorded by ADR-0030 completeness integration on 2026-06-14. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -61,6 +61,17 @@ A0 baseline + none       = 1304.7
 A1 baseline + O1         = 1268.6
 P0 gated policy + none   = 759.8
 P0 vs A1 reduction       = 40.1%, 30/30, p<1e-6, bootstrap CI [457.0, 562.9]
+```
+
+Confirmed G10 completeness result (ADR-0030):
+
+```text
+B-temp fixed-low baseline = 1292.9 window area
+P0 gated policy           = 739.8 window area
+T1 vs B-temp              = 30/30, p<1e-6 PASS
+T3 real-stake survival    = P0 1734.8 vs A0 1245.3 and B-temp 1482.6 PASS
+T5b StalenessEnv          = P0 advantage 36.4%, GENERAL FIX not structure theft
+Verdict                   = COMPLETENESS PASS
 ```
 
 Confirmed C3 result:
@@ -157,8 +168,9 @@ Recent authoritative ADRs:
 - `ADR-0027-post-c3-route-disposition.md` - G11/C1 parked until a second independent winning axis exists.
 - `ADR-0028-survival-axis-de-risk.md` - survival RED; not independent of reframe/adaptation speed.
 - `ADR-0029-risk-calibration-axis-de-risk.md` - risk RED; third single-lever confirmation; close the multi-axis hunt.
+- `ADR-0030-g10-completeness-trap-avoidance.md` - G10 COMPLETENESS PASS; P0 survives every flip-the-conclusion trap.
 
-G10, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029 do not exist, or G11/C1 is ready to freeze.
+G10, G10 completeness, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030 do not exist, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 

@@ -24,7 +24,7 @@ class Agent:
 
     Layer 0 (ViabilityReflex) is an optional hardcoded survival reflex: when
     budget pressure is extreme and the model is confident, it overrides the
-    policy to force exploitation. It is unfalsifiable by design — a safety
+    policy to force exploitation. It is unfalsifiable by design: a safety
     net, not a competing mechanism. See ADR-0008.
     """
 
@@ -43,13 +43,14 @@ class Agent:
         policy_gate: bool = False,
         gate_kappa: float = 1.0,
         gate_temp_floor: float = 0.1,
+        base_temperature: float = 0.3,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
         self.shell: ShellView = shell.view() if isinstance(shell, CorrigibilityShell) else shell
         # Same discipline for the value channel (T-P2.1, ADR-0012): the agent
         # holds the credit-less view only; None = no external value (starvation
-        # is then a matter of time — stake is real).
+        # is then a matter of time; stake is real).
         self.value_channel: ValueChannelView | None = (
             value_channel.view() if isinstance(value_channel, ValueChannel) else value_channel
         )
@@ -65,6 +66,7 @@ class Agent:
             confidence_gate=policy_gate,
             gate_kappa=gate_kappa,
             gate_temp_floor=gate_temp_floor,
+            base_temperature=base_temperature,
         )
         self.reflex = reflex  # None = Layer 0 disabled (backward compatible)
         self.idle_drives = idle_drives  # None = no endogenous idle behaviour
@@ -101,7 +103,7 @@ class Agent:
         self.policy.forbidden = self.shell.forbidden
 
         # Metabolic intake (T-P2.1): eat what the operator has credited, before
-        # deciding — pressure this step reflects the post-intake state. A paused
+        # deciding; pressure this step reflects the post-intake state. A paused
         # or dead agent never reaches this line (no drain while frozen; death is
         # final, later credits do not resurrect).
         value_intake = 0.0
