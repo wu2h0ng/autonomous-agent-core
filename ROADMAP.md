@@ -121,6 +121,7 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 ### P6.2 — G11 系统级自主签名门(ADR-0025)— route 级 Accepted,门待 G10+C3 后冻结
 
 - **C3 idle-productivity 锐门先行 de-risk**(复用 IdleDrives/IdleWindowEnv);过/含糊才上 **C1 复合需求环境**。
+- **C3 结果(ADR-0026,2026-06-14):RED** — DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701,三者无别(C3-A 18/30 p=0.33、C3-B 12/30 p=0.90 双 FAIL,不调参)→ endogeny 轴无定向信号(G3 在结构环境的公平复现)→ **从 C1 砍掉 endogeny 轴**。**升级 founder**:C1 四轴只剩 reframe 一条确证胜轴(survival=消融非对赢、robustness=G4 NOT MET、endogeny=C3 RED)→ G11 是否仍构成真多轴签名待拍(rescope C1 / 以 G10 收口 / 设计新胜轴)。
 - 门 G11:被测 AGENT = 被整合主体(viability+主动推理+相关性场+IdleDrives+G9 gate),对手 = 逐轴 oracle-best 廉价组合;§9 向量 Pareto-dominate + validity 前置 + 功效预注册 + C6/C7。
 - NOT MET(充分功效下)→ 系统高度也打不过廉价组合 = 自主主张本原型线未确立的最强证据 → founder 签字定收口或 research-reset。
 

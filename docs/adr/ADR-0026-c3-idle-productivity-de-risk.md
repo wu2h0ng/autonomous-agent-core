@@ -1,6 +1,6 @@
 # ADR-0026: C3 idle-productivity de-risk probe — does the endogeny axis carry a directed signal?
 
-- Status: **Accepted (pre-registration; founder-directed 2026-06-14 "接着起 C3 de-risk"). Decision rule §4 frozen before any run. De-risk probe informing ADR-0025/G11, not a verdict gate.**
+- Status: **Accepted; C3 VERDICT: RED (2026-06-14, see §7) — endogeny axis carries no directed post-idle signal, dropped from C1. Decision rule §4 was frozen before the run; not retuned. De-risk probe informing ADR-0025/G11, not a verdict gate.**
 - Date: 2026-06-14
 - Deciders: founder directed the C3 de-risk (2026-06-14). Agent executes per ADR-0003 (de-risk probe, deterministic, no reserved items) and ADR-0025 §4 (C3 runs before C1).
 - Scope: route-C de-risk. Reuses `IdleDrives` (built + audited in P2/ADR-0012), `StructuredRegimeEnv`, `IdleWindowEnv`. No new mechanism, no spend, no LLM, no cross-repo. Does not relax C6/C7.
@@ -57,3 +57,36 @@ POLICY   : idle_drives = None              (agent runs its normal policy during 
 ## 6. Disposition
 
 A de-risk is informative in every outcome; **no arm is retuned after seeing results** (ENGINEERING.md §4 item 3). The verdict (§4) feeds ADR-0025/G11's C1 scope and is recorded in §7 + ROADMAP after the run.
+
+## 7. Result (2026-06-14, seeds 900..929) — C3 VERDICT: RED
+
+Full suite 370 tests green. Mean post-idle work regret (lower = better):
+
+| arm | mean post-idle work regret |
+|---|---:|
+| DIRECTED (IdleDrives) | 1.691 |
+| RANDOM | 1.676 |
+| POLICY (no drive) | 1.701 |
+
+| check | result |
+|---|---|
+| C3-A DIRECTED<POLICY ≥21/30 & p<0.05 & bootstrap CI lower>0 | 18/30, p=0.33, CI [−0.029, +0.048] **FAIL** |
+| C3-B DIRECTED<RANDOM ≥21/30 & p<0.05 | 12/30, p=0.90 **FAIL** |
+| C3-C6/C7 | unit tests PASS |
+
+**Verdict: RED.** The three idle behaviours are statistically indistinguishable (1.68–1.70); directed idle is marginally *worse* than random. The endogeny axis carries **no directed post-idle signal even in structure** — a fairer, properly-powered replication of G3's idle-gain non-result.
+
+Interpretation: `IdleDrives` is structure-blind exploration (uncertainty/staleness), so it cannot exploit the recurring regime library a belief organ can; and G9/G10 already localised the real lever to belief→action *coupling* (the policy gate), not belief *acquisition* (exploration), which is exactly where cheap ≈ clever across the whole program.
+
+## 8. Escalation — does C1 still have enough independent winning axes?
+
+C3 RED removes one of C1's four proposed demand axes. Surveying the rest:
+
+| C1 axis | status |
+|---|---|
+| **reframe** | subject-side gate WINS decisively (G9/G10, −40%) ✓ |
+| survival | claim 1 ablation-validated (silencing interoception costs survival) — an *ablation*, not a head-to-head win over a cheap baseline |
+| robustness (node-drop) | G4/RAP NOT MET; decentralised coordination lost to static wiring |
+| endogeny (idle) | C3 RED |
+
+Only **reframe** is a confirmed vs-cheap-baseline win. A "joint Pareto-dominance over a cheap portfolio" gate (G11) therefore risks collapsing to "the reframe axis wins" = G10 restated, not a genuine multi-axis system signature. **Founder decision owed before freezing G11** (reserved — gate scope / approaching a conclusion on the autonomy thesis): (a) rescope C1 to axes that can win, (b) treat G10 as the program's decisive result and consolidate, or (c) design a new demand axis where the integrated subject can plausibly win.
