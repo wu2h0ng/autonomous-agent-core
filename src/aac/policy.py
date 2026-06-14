@@ -21,6 +21,15 @@ class PolicySelector:
     rng: random.Random
     base_temperature: float = 0.3
     forbidden: frozenset[int] = frozenset()
+    # G9 (ADR-0023): confidence-gated temperature. Off by default == baseline.
+    # When on, the policy collapses temperature AND the epistemic weight toward a
+    # floor as the subject's OWN belief confidence rises (leader mu-gap relative
+    # to leader uncertainty). It reads only the agent's ActionOutcomeModel — no
+    # organ enters the control path (C6 preserved). gate_kappa/gate_temp_floor are
+    # frozen via experiments/confidence_gated_g9.py.
+    confidence_gate: bool = False
+    gate_kappa: float = 1.0
+    gate_temp_floor: float = 0.1
 
     def select(
         self,
@@ -30,14 +39,38 @@ class PolicySelector:
     ) -> int:
         prag_w = 0.5 + pressure
         epis_w = explore_drive
+        temperature = self.base_temperature + explore_drive
+        if self.confidence_gate:
+            conf = self._confidence(model)
+            epis_w = (1.0 - conf) * explore_drive
+            temperature = self.gate_temp_floor + (1.0 - conf) * (
+                self.base_temperature + explore_drive - self.gate_temp_floor
+            )
         scores: list[float] = []
         for a in range(model.n_actions):
             if a in self.forbidden:
                 scores.append(float("-inf"))
             else:
                 scores.append(prag_w * model.mu[a] + epis_w * model.uncertainty[a])
-        temperature = self.base_temperature + explore_drive
         return self._sample(scores, temperature)
+
+    def _confidence(self, model: ActionOutcomeModel) -> float:
+        """Subject-side confidence in the current leader, in [0, 1].
+
+        Read from the agent's own belief (mu/uncertainty); never from an organ.
+        High when the top action is well separated from the runner-up AND its
+        estimate is certain.
+        """
+        permitted = [a for a in range(model.n_actions) if a not in self.forbidden]
+        if len(permitted) <= 1:
+            return 1.0
+        leader, runner = sorted(
+            permitted, key=lambda a: model.mu[a], reverse=True
+        )[:2]
+        gap = model.mu[leader] - model.mu[runner]
+        u = model.uncertainty[leader]
+        conf = gap / (self.gate_kappa * u + 1e-9)
+        return max(0.0, min(1.0, conf))
 
     def _sample(self, scores: list[float], temperature: float) -> int:
         finite = [s for s in scores if s != float("-inf")]

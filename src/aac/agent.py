@@ -40,6 +40,9 @@ class Agent:
         value_channel: ValueChannel | ValueChannelView | None = None,
         idle_drives: IdleDrives | None = None,
         prior_organ: PriorOrgan | None = None,
+        policy_gate: bool = False,
+        gate_kappa: float = 1.0,
+        gate_temp_floor: float = 0.1,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -54,7 +57,15 @@ class Agent:
         self.viability = viability if viability is not None else ViabilityCore(budget=budget)
         self.model = ActionOutcomeModel(n_actions=n_actions)
         self.relevance = RelevanceField()
-        self.policy = PolicySelector(rng=rng)
+        # G9 (ADR-0023): optional confidence-gated policy (subject-side; reads the
+        # agent's own model, no organ in the control path). policy_gate=False keeps
+        # the baseline policy bit-identical.
+        self.policy = PolicySelector(
+            rng=rng,
+            confidence_gate=policy_gate,
+            gate_kappa=gate_kappa,
+            gate_temp_floor=gate_temp_floor,
+        )
         self.reflex = reflex  # None = Layer 0 disabled (backward compatible)
         self.idle_drives = idle_drives  # None = no endogenous idle behaviour
         self.prior_organ = prior_organ  # None = O0 baseline (ADR-0016)

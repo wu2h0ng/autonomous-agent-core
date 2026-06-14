@@ -1,6 +1,6 @@
 # ADR-0023: G9 confidence-gated policy temperature — the C6-preserving test of the post-shift ceiling
 
-- Status: **Proposed (preregistration; contract-first, NO mechanism code until G9 is frozen and this ADR is accepted).**
+- Status: **Accepted (preregistration; founder-approved 2026-06-14). Implementation in progress; gate criteria §6 frozen, not to be moved.**
 - Date: 2026-06-14
 - Scope: P4.x structured-regime prototype line; **subject-side policy mechanism**, no LLM, no spend, no new dependency, no cross-repo. **Does NOT relax C6.**
 - Predecessor: ADR-0020 (G7 NOT MET), ADR-0022 (G8 NOT MET), RR-0005 G7/G8 addendum (bounded belief-only advantage).
@@ -122,5 +122,44 @@ G9 is MET only if all six rows pass.
 
 ## 10. Status log
 
-- 2026-06-14: ADR drafted before any mechanism code, before G9 calibration/r-final. Awaiting review
-  of the preregistration. C6 explicitly preserved; C6-relaxation held as founder-reserved fallback.
+- 2026-06-14: ADR drafted before any mechanism code, before G9 calibration/r-final. C6 explicitly
+  preserved; C6-relaxation held as founder-reserved fallback.
+- 2026-06-14: Founder approved the preregistration. Implemented `PolicySelector` confidence gate +
+  `Agent` params + `tests/test_confidence_gated_policy.py` (12 tests, gate-off bit-identical; 363
+  suite green). Calibration on disjoint seeds 700..719: FROZEN `{gate_kappa=0.5, gate_temp_floor=0.1}`
+  (calib A1=1327.8, P4=899.0, reduction 0.323 → delta capped at 0.20).
+- 2026-06-14: G9 r-final, seeds 0..29:
+
+| arm | mean post-shift regret area |
+|---|---:|
+| A0 baseline + none | 1361.6 |
+| A1 baseline + O1 cheap reset | 1325.6 |
+| A4 baseline + O4 (belief-only ceiling) | 1224.3 |
+| **P0 gated policy + none** | **746.5** |
+| P4 gated policy + O4 | 893.4 |
+
+| criterion | result |
+|---|---|
+| G9-1 mean(P4) ≤ 0.8·A1 | 893.4 ≤ 1060.5 PASS |
+| G9-2 P4<A4 ≥27/30 & Wilcoxon p<0.01 | 25/30 **FAIL** (p=2.5e-5) |
+| G9-3 P0<A0 ≥27/30 & Wilcoxon p<0.05 | 30/30, p<1e-6 PASS |
+| G9-4 Wilcoxon P4 vs A1 p<0.01 | p<1e-6 PASS |
+| G9-C6/C7 | unit tests PASS |
+
+**G9: NOT MET** (fails G9-2 only). The gate is **not** retuned (§8). But the experiment is a decisive
+positive for the underlying question, with a surprise:
+
+1. **The subject-side confidence gate removes the post-shift ceiling decisively, and it is
+   C6-preserving.** P0 (gate **alone, no organ**) = 746.5 vs A0 1361.6 = **−45%**, 30/30, p<1e-6 — the
+   *passed* G9-3 criterion. P0 also beats the cheap reset A1 and the O4 ceiling A4 by large margins.
+   The founder-reserved C6-relaxation lever is therefore **unnecessary**: the decisive win uses no
+   organ and does not touch the soundness model.
+2. **The belief-only organ is counterproductive under the gate.** P4 (gate + O4) = 893.4 is *worse*
+   than P0 = 746.5. O4's post-shift reset re-inflates the leader's uncertainty, keeping the gate's
+   confidence low and delaying exploitation — the organ fights the gate. The G7/G8 organ line was
+   improving belief *quality*; the real bottleneck was the belief→action *coupling* in the policy.
+
+G9-2 returned FAIL because the gate nominated P4 (gate+organ) as the candidate; the data shows P0
+(gate alone) is the winner and the organ hurts. **Next (proposed): ADR-0024 / G10** — a clean
+preregistered gate with P0 (gate-alone) as the candidate on **fresh r-final seeds** (disjoint from
+0..29 and 700..719), to formally establish the decisive subject-side win without reusing G9's data.
