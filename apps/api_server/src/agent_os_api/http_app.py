@@ -23,6 +23,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .outcome_service import (
+    attest_adoption_service,
     record_outcome_service,
     run_service,
     search_service,
@@ -69,6 +70,22 @@ class OutcomeRequest(BaseModel):
 
 class OutcomeResponse(BaseModel):
     feedback_id: str
+    trace_id: str
+    outcome: str
+    reviewer: str | None = None
+    knowledge_asset_id: str | None = None
+    knowledge_version: int
+
+
+class AdoptionRequest(BaseModel):
+    trace_id: str = Field(..., min_length=1)
+    outcome: str = Field(..., min_length=1)
+    reviewer: str | None = None
+    metric_deltas: dict[str, Any] | None = None
+
+
+class AdoptionResponse(BaseModel):
+    adoption_id: str
     trace_id: str
     outcome: str
     reviewer: str | None = None
@@ -136,7 +153,11 @@ def _build_default_factory() -> ContentCommerceRuntimeFactory:
 
 
 def create_app(
-    runtime: Any | None = None, *, retriever: Any | None = None, api_key: str | None = None
+    runtime: Any | None = None,
+    *,
+    retriever: Any | None = None,
+    api_key: str | None = None,
+    adoption_ingest: Any | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to a single shared runtime.
 
@@ -158,15 +179,22 @@ def create_app(
         shared_retriever = (
             retriever if retriever is not None else factory.build_knowledge_retriever()
         )
+        # Operator value channel over the SAME ledger the runtime reads (P5.1a):
+        # the default app can promote knowledge from realized adoption out of the box.
+        shared_adoption_ingest = (
+            adoption_ingest if adoption_ingest is not None else factory.adoption_ingest()
+        )
     else:
         shared_runtime = runtime
         shared_retriever = retriever
+        shared_adoption_ingest = adoption_ingest
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
 
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
+    app.state.adoption_ingest = shared_adoption_ingest
 
     def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
         if not app.state.api_key:
@@ -207,8 +235,30 @@ def create_app(
 
     @app.post("/outcomes", response_model=OutcomeResponse)
     def post_outcome(body: OutcomeRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+        # Self-report only (P5.1b): records feedback, does NOT promote knowledge.
         return record_outcome_service(
             app.state.runtime,
+            trace_id=body.trace_id,
+            outcome=body.outcome,
+            reviewer=body.reviewer,
+            metric_deltas=body.metric_deltas,
+        )
+
+    @app.post("/adoptions", response_model=AdoptionResponse)
+    def post_adoption(body: AdoptionRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+        # The operator value channel (P5.1b): attest realized external value and
+        # promote the trace's knowledge. The only surface that drives promotion.
+        if app.state.adoption_ingest is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Adoption value channel is not configured. Build the app from the default "
+                    "factory, or pass adoption_ingest= to create_app to enable this endpoint."
+                ),
+            )
+        return attest_adoption_service(
+            app.state.runtime,
+            app.state.adoption_ingest,
             trace_id=body.trace_id,
             outcome=body.outcome,
             reviewer=body.reviewer,

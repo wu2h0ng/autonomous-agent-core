@@ -1,6 +1,99 @@
 {
   "components": {
     "schemas": {
+      "AdoptionRequest": {
+        "properties": {
+          "metric_deltas": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Deltas"
+          },
+          "outcome": {
+            "minLength": 1,
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reviewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer"
+          },
+          "trace_id": {
+            "minLength": 1,
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "outcome"
+        ],
+        "title": "AdoptionRequest",
+        "type": "object"
+      },
+      "AdoptionResponse": {
+        "properties": {
+          "adoption_id": {
+            "title": "Adoption Id",
+            "type": "string"
+          },
+          "knowledge_asset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Asset Id"
+          },
+          "knowledge_version": {
+            "title": "Knowledge Version",
+            "type": "integer"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reviewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adoption_id",
+          "trace_id",
+          "outcome",
+          "knowledge_version"
+        ],
+        "title": "AdoptionResponse",
+        "type": "object"
+      },
       "BlockDetail": {
         "description": "The unified business-block contract (AR-20260606-unified-block-outcome).\n\nReturned as the 422 ``detail`` when the Trusted Loop refuses to answer\n(unsafe SQL, unknown metric, no template, no provider, ...). ``trace_id``\nreferences the persisted RunTrace of the refusal (AR-20260611).",
         "properties": {
@@ -455,6 +548,62 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/adoptions": {
+      "post": {
+        "operationId": "post_adoption_adoptions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdoptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdoptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Adoption"
+      }
+    },
     "/knowledge/search": {
       "get": {
         "operationId": "get_knowledge_search_knowledge_search_get",

@@ -64,19 +64,24 @@ class FactoryPostgresStoreTest(unittest.TestCase):
         trace_id = result.evidence_chain.trace_id
 
         # Instance 2 (fresh build, same engine = simulated restart) sees it.
-        runtime2 = ContentCommerceRuntimeFactory(config).build()
+        factory2 = ContentCommerceRuntimeFactory(config)
+        runtime2 = factory2.build()
         asset = runtime2.knowledge_store.get_by_trace(trace_id)
         self.assertIsNotNone(asset, "knowledge candidate did not persist across instances")
         self.assertEqual(runtime2.knowledge_store.version_of(trace_id), 1)
 
-        # An outcome recorded on instance 2 is durable and visible to instance 3.
+        # P5.1b: a self-report does NOT promote knowledge (wirehead closed)...
         runtime2.record_outcome(trace_id=trace_id, outcome="adopted")
+        self.assertEqual(runtime2.knowledge_store.version_of(trace_id), 1)
+        # ...only realized external value (operator adoption) promotes it, durably.
+        factory2.adoption_ingest().submit(trace_id=trace_id, outcome="adopted")
+        runtime2.promote_from_adoption(trace_id)
         runtime3 = ContentCommerceRuntimeFactory(config).build()
         self.assertEqual(runtime3.knowledge_store.version_of(trace_id), 2)
 
     def test_outcome_flows_into_retrieval_index(self) -> None:
-        # End-to-end: run() indexes the candidate, record_outcome re-embeds it with the
-        # feedback outcome, and the retriever surfaces that outcome (outcome_boost > 0).
+        # End-to-end: run() indexes the candidate, promote_from_adoption re-embeds it with
+        # the realized-adoption outcome, and the retriever surfaces that outcome (outcome_boost > 0).
         from agent_os_contracts import KnowledgeQuery
 
         from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
@@ -88,7 +93,10 @@ class FactoryPostgresStoreTest(unittest.TestCase):
 
         result = runtime.run("GMV", dict(RUN_PARAMS))
         trace_id = result.evidence_chain.trace_id
-        runtime.record_outcome(trace_id=trace_id, outcome="adopted")
+        # P5.1b: knowledge promotion (and its re-embed) is driven by realized
+        # external value, not self-report.
+        factory.adoption_ingest().submit(trace_id=trace_id, outcome="adopted")
+        runtime.promote_from_adoption(trace_id)
 
         retriever = factory.build_knowledge_retriever()
         res = retriever.search(KnowledgeQuery(text="GMV", k=10))

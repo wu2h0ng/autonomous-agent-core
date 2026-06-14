@@ -149,9 +149,10 @@ class StorePortsTest(unittest.TestCase):
         self.assertIsNotNone(store.get_by_trace(trace_id))
         self.assertEqual(store.version_of(trace_id), 1)
 
-        # record_outcome supersedes via the same injected port -> version bumps.
+        # P5.1b: a self-report does NOT program knowledge through the port
+        # (wirehead closed) — promotion is reserved for realized adoption.
         runtime.record_outcome(trace_id=trace_id, outcome="adopted")
-        self.assertEqual(store.version_of(trace_id), 2)
+        self.assertEqual(store.version_of(trace_id), 1)
 
 
 if __name__ == "__main__":

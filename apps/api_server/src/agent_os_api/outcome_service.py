@@ -134,12 +134,12 @@ def record_outcome_service(
     reviewer: str | None = None,
     metric_deltas: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Record an observed outcome for ``trace_id`` and report the result.
+    """Record a runtime SELF-REPORT for ``trace_id`` (observation only).
 
-    Delegates to ``runtime.record_outcome`` (which builds+stores a
-    ``FeedbackEvent`` and, when a candidate exists for the trace, supersedes it
-    with a version bump), then reads back the knowledge store so the caller sees
-    the resulting asset id and version.
+    Delegates to ``runtime.record_outcome`` (which builds+stores a self-report
+    ``FeedbackEvent``). P5.1b (ADR-0001 / AR-20260614): a self-report does NOT
+    promote knowledge — ``knowledge_version`` is reported unchanged. Value-driven
+    promotion requires realized external value via :func:`attest_adoption_service`.
 
     For an unknown trace the feedback is still recorded, but no knowledge asset
     is fabricated: ``knowledge_asset_id`` is ``None`` and ``knowledge_version``
@@ -155,6 +155,45 @@ def record_outcome_service(
 
     return {
         "feedback_id": feedback.feedback_id,
+        "trace_id": trace_id,
+        "outcome": outcome,
+        "reviewer": reviewer,
+        "knowledge_asset_id": asset.asset_id if asset is not None else None,
+        "knowledge_version": runtime.knowledge_store.version_of(trace_id),
+    }
+
+
+def attest_adoption_service(
+    runtime: Any,
+    adoption_ingest: Any,
+    *,
+    trace_id: str,
+    outcome: str,
+    reviewer: str | None = None,
+    metric_deltas: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Attest REALIZED external value and promote the trace's knowledge (P5.1b).
+
+    The operator-facing value channel and the single source of truth for both the
+    CLI and HTTP adoption surfaces. ``adoption_ingest.submit`` records realized
+    external adoption (the only path that can mint realized value, P5.1a); then
+    ``runtime.promote_from_adoption`` folds it into the trace's KnowledgeAsset
+    (version bump). Unlike a self-report, this is what drives knowledge promotion.
+
+    For an unknown trace the adoption is still recorded, but no knowledge asset is
+    fabricated: ``knowledge_asset_id`` is ``None`` and ``knowledge_version`` is ``0``.
+    """
+    adoption = adoption_ingest.submit(
+        trace_id=trace_id,
+        outcome=outcome,
+        reviewer=reviewer,
+        metric_deltas=metric_deltas,
+    )
+    runtime.promote_from_adoption(trace_id)
+    asset = runtime.knowledge_store.get_by_trace(trace_id)
+
+    return {
+        "adoption_id": adoption.feedback_id,
         "trace_id": trace_id,
         "outcome": outcome,
         "reviewer": reviewer,

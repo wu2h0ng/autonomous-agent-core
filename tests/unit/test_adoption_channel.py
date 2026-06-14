@@ -211,5 +211,48 @@ class TestFactoryWiring(unittest.TestCase):
         self.assertEqual(runtime.adoption_for_trace("nope"), ())
 
 
+class TestAdoptionDrivenKnowledgePromotion(unittest.TestCase):
+    """P5.1b (AR-20260614): self-report cannot promote knowledge; only realized adoption can."""
+
+    RUN_PARAMS = {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100}
+
+    def _run_to_candidate(self, runtime) -> str:
+        result = runtime.run("GMV", dict(self.RUN_PARAMS))
+        trace_id = result.evidence_chain.trace_id
+        # the loop's back half registered a DRAFT knowledge candidate (version 1)
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+        return trace_id
+
+    def test_self_report_does_not_promote_knowledge(self) -> None:
+        # The wirehead this closes: a runtime self-reporting "adopted" must not
+        # grow its own knowledge. record_outcome audits the self-report only.
+        runtime = _build_runtime(adoption_ledger_view=AdoptionLedger().view())
+        trace_id = self._run_to_candidate(runtime)
+        runtime.record_outcome(trace_id=trace_id, outcome="adopted")
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)  # NOT promoted
+        self.assertTrue(runtime.feedback_store.get_by_trace(trace_id))  # but still audited
+
+    def test_adoption_promotes_knowledge(self) -> None:
+        ledger = AdoptionLedger()
+        runtime = _build_runtime(adoption_ledger_view=ledger.view())
+        trace_id = self._run_to_candidate(runtime)
+        AdoptionIngest(ledger).submit(trace_id=trace_id, outcome="adopted", reviewer="ops")
+        revised = runtime.promote_from_adoption(trace_id)
+        self.assertIsNotNone(revised)
+        self.assertEqual(revised.outcome, "adopted")
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)  # promoted
+
+    def test_promote_with_no_adoption_is_noop(self) -> None:
+        runtime = _build_runtime(adoption_ledger_view=AdoptionLedger().view())
+        trace_id = self._run_to_candidate(runtime)
+        self.assertIsNone(runtime.promote_from_adoption(trace_id))
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+
+    def test_promote_with_no_view_is_noop(self) -> None:
+        runtime = _build_runtime(adoption_ledger_view=None)
+        trace_id = self._run_to_candidate(runtime)
+        self.assertIsNone(runtime.promote_from_adoption(trace_id))
+
+
 if __name__ == "__main__":
     unittest.main()

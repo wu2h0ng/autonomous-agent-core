@@ -611,15 +611,14 @@ class TrustedLoopRuntime:
         the runtime's self-report provenance (``FeedbackSource.RUNTIME_SELF_REPORT``)
         — it CANNOT mint realized external value, which is a separate, operator-only
         channel (P5.1a, ADR-0001; see ``AdoptionIngest`` / ``adoption_for_trace``).
-        Invoked separately from ``run()`` once a result is observed. It:
+        Invoked separately from ``run()`` once a result is observed.
 
-        1. Builds and stores a typed ``FeedbackEvent`` bound to ``trace_id``.
-        2. If a KnowledgeAsset candidate exists for that trace, supersedes it
-           with a revision that reflects the feedback (version bumped), closing
-           the Feedback -> KnowledgeAsset learning loop.
-
-        Feedback for an unknown trace is still recorded, but no knowledge asset
-        is fabricated where none existed.
+        Records the typed ``FeedbackEvent`` (self-report) bound to ``trace_id`` as
+        an OBSERVATION ONLY. P5.1b (ADR-0001): a self-report MUST NOT promote
+        knowledge — value-driven knowledge promotion is reserved for realized
+        external value via :meth:`promote_from_adoption`. This closes the
+        self-feeding loop: the runtime cannot grow its own knowledge by
+        self-reporting ``"adopted"``.
 
         Args:
             trace_id: The trace of the originating run (``evidence_chain.trace_id``).
@@ -636,22 +635,42 @@ class TrustedLoopRuntime:
             reviewer=reviewer,
             metric_deltas=metric_deltas,
         )
+        # P5.1b (ADR-0001): self-report is recorded for trace/audit ONLY and never
+        # folds into knowledge. Knowledge promotion is reserved for realized
+        # external value (``promote_from_adoption``) — the anti-wirehead guarantee.
+        self.feedback_store.record(feedback)
+        return feedback
 
-        # Feedback write + knowledge version bump are one atomic unit: under a
-        # configured unit of work they share a transaction (rolled back together
-        # on failure); otherwise they run on the runtime's own (in-memory) stores.
+    def promote_from_adoption(self, trace_id: str) -> Any | None:
+        """Promote the trace's KnowledgeAsset from REALIZED external value (P5.1b).
+
+        Value-driven knowledge promotion consumes the operator-attested adoption
+        ledger (read through the read-only ``AdoptionLedgerView`` — the runtime
+        holds no writer, P5.1a), never self-report. If realized-value events exist
+        for ``trace_id`` and a knowledge candidate exists, the candidate is
+        superseded by a revision reflecting the latest adoption outcome (version
+        bumped), atomically under the configured unit of work.
+
+        Returns the revised ``KnowledgeAsset``, or ``None`` when no value channel
+        is wired, no adoption is recorded, or no base candidate exists (no
+        knowledge is fabricated where none existed).
+        """
+        if self.adoption_ledger_view is None:
+            return None
+        events = self.adoption_ledger_view.get_by_trace(trace_id)
+        if not events:
+            return None
         if self.feedback_knowledge_uow is not None:
             context = self.feedback_knowledge_uow()
         else:
             context = nullcontext((self.feedback_store, self.knowledge_store))
-        with context as (feedback_store, knowledge_store):
-            feedback_store.record(feedback)
+        with context as (_feedback_store, knowledge_store):
             base_asset = knowledge_store.get_by_trace(trace_id)
-            if base_asset is not None:
-                revised = self.knowledge_builder.with_feedback(base_asset, feedback)
-                knowledge_store.register_version(revised)
-
-        return feedback
+            if base_asset is None:
+                return None
+            revised = self.knowledge_builder.with_feedback(base_asset, events[-1])
+            knowledge_store.register_version(revised)
+            return revised
 
     def adoption_for_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]:
         """Read realized external-value (adoption) events for ``trace_id``.

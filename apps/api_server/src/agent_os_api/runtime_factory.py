@@ -204,9 +204,10 @@ class ContentCommerceRuntimeFactory:
             # Write-side embedding cascade: maintain the knowledge_index on every
             # knowledge write (decorator lives here, NOT in OS Core).
             knowledge_store = EmbeddingKnowledgeStore(SqlKnowledgeStore(engine), embedder, engine)
-            # The unit of work used by record_outcome binds an embedding-aware knowledge
-            # store to its connection, so the feedback write, the knowledge version bump,
-            # AND the index re-embed all commit/roll back atomically.
+            # The unit of work used by promote_from_adoption binds an embedding-aware
+            # knowledge store to its connection, so the knowledge version bump AND the
+            # index re-embed commit/roll back atomically (P5.1b: knowledge promotion is
+            # driven by realized adoption, not self-report).
             uow = SqlUnitOfWork(
                 engine,
                 knowledge_store_factory=lambda conn: EmbeddingKnowledgeStore(

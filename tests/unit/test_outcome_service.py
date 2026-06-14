@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-from agent_os_api.outcome_service import record_outcome_service, run_service
+from agent_os_api.outcome_service import (
+    attest_adoption_service,
+    record_outcome_service,
+    run_service,
+)
 from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 DOMAIN_PACK = Path("domain_packs/content_commerce")
@@ -39,7 +43,8 @@ class RunServiceTest(unittest.TestCase):
 
 
 class RecordOutcomeServiceTest(unittest.TestCase):
-    def test_record_outcome_bumps_knowledge_version(self) -> None:
+    def test_record_outcome_does_not_promote_knowledge(self) -> None:
+        # P5.1b: a self-report records feedback but MUST NOT promote knowledge.
         runtime = _build_runtime()
         summary = run_service(runtime, question="GMV", parameters=RUN_PARAMS)
         trace_id = summary["trace_id"]
@@ -56,7 +61,27 @@ class RecordOutcomeServiceTest(unittest.TestCase):
         self.assertEqual(result["outcome"], "adopted")
         self.assertEqual(result["reviewer"], "ops@example.com")
         self.assertTrue(result["feedback_id"].startswith("feedback-"))
-        # Recording an outcome supersedes the DRAFT candidate: version bumps to 2.
+        # Self-report does NOT promote knowledge (wirehead closed): version stays 1.
+        self.assertEqual(result["knowledge_version"], 1)
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+
+    def test_attest_adoption_promotes_knowledge(self) -> None:
+        # P5.1b: realized external value (operator adoption) DOES promote knowledge.
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        trace_id = run_service(runtime, question="GMV", parameters=RUN_PARAMS)["trace_id"]
+
+        result = attest_adoption_service(
+            runtime,
+            factory.adoption_ingest(),
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops@example.com",
+        )
+
+        self.assertEqual(result["trace_id"], trace_id)
+        self.assertTrue(result["adoption_id"].startswith("feedback-"))
+        # Realized adoption promotes the DRAFT candidate: version bumps to 2.
         self.assertEqual(result["knowledge_version"], 2)
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)
         self.assertIsNotNone(result["knowledge_asset_id"])

@@ -45,7 +45,7 @@ class OpenApiContractTest(unittest.TestCase):
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         self.assertEqual(
             sorted(spec["paths"]),
-            ["/knowledge/search", "/outcomes", "/runs", "/traces/{trace_id}"],
+            ["/adoptions", "/knowledge/search", "/outcomes", "/runs", "/traces/{trace_id}"],
         )
 
     def test_unified_block_contract_is_declared_on_runs(self) -> None:

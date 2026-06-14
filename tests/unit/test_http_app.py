@@ -23,10 +23,9 @@ def _make_client(api_key: str | None):
     from agent_os_api.http_app import create_app
     from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
-    runtime = ContentCommerceRuntimeFactory(
-        RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK)
-    ).build()
-    app = create_app(runtime, api_key=api_key)
+    factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+    runtime = factory.build()
+    app = create_app(runtime, api_key=api_key, adoption_ingest=factory.adoption_ingest())
     return TestClient(app)
 
 
@@ -56,9 +55,19 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
         outcome_payload = outcome_resp.json()
         self.assertEqual(outcome_payload["trace_id"], trace_id)
-        # The outcome endpoint sees the run's trace via the shared runtime.
-        self.assertEqual(outcome_payload["knowledge_version"], 2)
-        self.assertIsNotNone(outcome_payload["knowledge_asset_id"])
+        # P5.1b: a self-report does NOT promote knowledge (wirehead closed)...
+        self.assertEqual(outcome_payload["knowledge_version"], 1)
+
+        # ...only operator-attested realized value promotes it, over the shared ledger.
+        adopt_resp = client.post(
+            "/adoptions",
+            json={"trace_id": trace_id, "outcome": "adopted", "reviewer": "ops@example.com"},
+            headers=headers,
+        )
+        self.assertEqual(adopt_resp.status_code, 200, adopt_resp.text)
+        adopt_payload = adopt_resp.json()
+        self.assertEqual(adopt_payload["knowledge_version"], 2)
+        self.assertIsNotNone(adopt_payload["knowledge_asset_id"])
 
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
@@ -133,7 +142,10 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
             )
         )
         app = create_app(
-            factory.build(), retriever=factory.build_knowledge_retriever(), api_key=API_KEY
+            factory.build(),
+            retriever=factory.build_knowledge_retriever(),
+            api_key=API_KEY,
+            adoption_ingest=factory.adoption_ingest(),
         )
         return TestClient(app)
 
@@ -146,10 +158,11 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
         self.assertEqual(run_resp.status_code, 200, run_resp.text)
         trace_id = run_resp.json()["trace_id"]
 
-        outcome_resp = client.post(
-            "/outcomes", json={"trace_id": trace_id, "outcome": "adopted"}, headers=headers
+        # P5.1b: promotion (and its index re-embed) is driven by realized adoption.
+        adopt_resp = client.post(
+            "/adoptions", json={"trace_id": trace_id, "outcome": "adopted"}, headers=headers
         )
-        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+        self.assertEqual(adopt_resp.status_code, 200, adopt_resp.text)
 
         search_resp = client.get("/knowledge/search", params={"q": "GMV", "k": 10}, headers=headers)
         self.assertEqual(search_resp.status_code, 200, search_resp.text)

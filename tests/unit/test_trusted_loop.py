@@ -358,18 +358,17 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         self.assertIsNotNone(result.operation_trace)
         self.assertEqual(result.operation_trace.state, OperationState.AWAITING_APPROVAL)
 
-    def test_record_outcome_creates_feedback_and_supersedes_knowledge(self) -> None:
-        """Post-outcome feedback path: observing an outcome must (1) create and
-        store a real FeedbackEvent bound to the trace, and (2) fold it into the
-        trace's KnowledgeAsset as a superseding version. This closes the
-        Feedback -> KnowledgeAsset loop (the moat's learning step)."""
+    def test_record_outcome_creates_feedback_without_promoting_knowledge(self) -> None:
+        """Post-outcome self-report: observing an outcome (1) creates and stores a
+        real FeedbackEvent bound to the trace, but P5.1b (anti-wirehead, AR-20260614)
+        it (2) does NOT promote the trace's KnowledgeAsset. Knowledge promotion is
+        reserved for realized external value (promote_from_adoption / adoption channel)."""
         runtime = self._build_runtime()
         result = runtime.run(
             "最近7天GMV是多少？",
             {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
         )
         trace_id = result.evidence_chain.trace_id
-        base_asset_id = result.knowledge_asset_candidate.asset_id
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
 
         feedback = runtime.record_outcome(
@@ -385,12 +384,8 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         self.assertEqual(feedback.reviewer, "ops_lead")
         self.assertIn(feedback, runtime.feedback_store.get_by_trace(trace_id))
 
-        # (2) knowledge superseded: version bumped, new id, same trace binding
-        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)
-        revised = runtime.knowledge_store.get_by_trace(trace_id)
-        self.assertIsNotNone(revised)
-        self.assertNotEqual(revised.asset_id, base_asset_id)
-        self.assertEqual(revised.source_trace_id, trace_id)
+        # (2) knowledge NOT promoted by a self-report (wirehead closed): version stays 1
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
 
     def test_record_outcome_requires_known_trace_for_knowledge_update(self) -> None:
         """Recording an outcome for an unknown trace still produces feedback but
