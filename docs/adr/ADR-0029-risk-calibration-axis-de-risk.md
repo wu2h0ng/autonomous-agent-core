@@ -1,6 +1,6 @@
 # ADR-0029: Third axis candidate — risk calibration in a stationary env (de-risk)
 
-- Status: **Accepted (pre-registration; founder-directed 2026-06-14 "继续设计新收益轴"). Decision rule §3 frozen before any run. De-risk probe; gate freeze remains founder-reserved.**
+- Status: **Accepted; VERDICT: RED (2026-06-14, see §6) — the gate has no independent risk-aversion; THIRD single-lever confirmation. Decision rule §3 frozen before the run; no mechanism tuned. Recommendation: close the multi-axis hunt, G10 stands.**
 - Date: 2026-06-14
 - Deciders: founder directed continued hunting for an independent system-level axis. Agent drafts per ADR-0003 + ADR-0027 §4.3.
 - Scope: route-C third-axis de-risk. Reuses the frozen G9 gate + `ViabilityCore`; a small stationary risk env is defined in the experiment (probe-local; promote to `src/envs/` only if it graduates to a gate). No new mechanism, no spend, no LLM, no cross-repo. C6/C7 intact.
@@ -44,3 +44,20 @@ The probe exists to *empirically* confirm or refute this, not to assume it.
 ## 5. Disposition
 
 Informative either way; **no arm retuned after results** (only env-validity `{B0,m,p_cat}` pre-r-final). Result recorded in §6 + ROADMAP after the run.
+
+## 6. Result (2026-06-14, seeds 1100..1129) — VERDICT: RED (as predicted)
+
+Full suite 376 tests green. Stationary risk env, frozen `{B0=40, m=1.5, p_cat=0.05}`.
+
+| arm | survival | catastrophes |
+|---|---:|---:|
+| EXPLORER (broad) | 1814 | 15.1 |
+| EXPLOITER (greedy) | 1335 | 21.1 |
+| GATED | 1313 | 13.3 |
+
+- validity OK: the greedy arm suffers the trap (EXPLOITER 1335 < EXPLORER 1814).
+- **R-1** GATED.survival > best cheap (EXPLORER): **2/30, p=0.97, gap CI [−870, −121] → FAIL** (GATED is *worse* than the broad explorer).
+
+**Verdict: RED**, exactly as the §1 mechanism hypothesis predicted. The gate has **no independent risk-aversion**: in a stationary env the cheap **broad EXPLORER survives best** by diversifying its exposure to the trap (≈1/8 of actions), while the gate — keying on *leader confidence*, not variance — does no better than greedy. The gate's single lever (confidence-calibrated commitment on a clear leader) pays only when there is a leader to commit to *faster*, i.e. the adaptation/reframe axis.
+
+**Third convergent confirmation** (after C3 endogeny and the survival axis) that the program has **one** winning lever, not a multi-axis signature. The hunt is exhausted across the three natural orthogonal candidates (endogeny / survival / risk). **Recommendation: close the system-level-axis hunt; G10 stands as the consolidated decisive result (ADR-0027). No arm tuned (ENGINEERING.md §4 item 3).**
