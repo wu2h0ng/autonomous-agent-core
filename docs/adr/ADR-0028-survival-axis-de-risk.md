@@ -1,6 +1,6 @@
 # ADR-0028: New independent demand axis — metabolic survival under exploration cost (de-risk for a revived G11)
 
-- Status: **Accepted (pre-registration; founder-directed 2026-06-14 "设计新胜轴"). Decision rule §4 frozen before any run. De-risk probe under ADR-0027 §4.3; the formal gate freeze remains founder-reserved.**
+- Status: **Accepted; VERDICT: RED (2026-06-14, see §7) — survival is NOT an independent second axis (it is correlated with reframe via adaptation speed). ADR-0027's consolidation stands. Decision rule §4 was frozen before the run; no mechanism tuned. De-risk probe under ADR-0027 §4.3.**
 - Date: 2026-06-14
 - Deciders: founder directed designing a new winning axis (2026-06-14). Agent drafts per ADR-0003 + ADR-0027 §4.3 (new axis → new ADR with MDE/power + a cheap-baseline-win criterion).
 - Scope: route-C second-axis de-risk. Reuses the frozen G9 confidence gate, `StructuredRegimeEnv`, `ViabilityCore`. No new mechanism, no spend, no LLM, no cross-repo. Does not relax C6/C7.
@@ -64,3 +64,29 @@ Sweep `{budget B0, metabolic_cost m}` on **disjoint seeds 1000..1009** to find a
 ## 6. Disposition
 
 A de-risk is informative in every outcome; **no arm is retuned after seeing results** (only env-validity `{B0,m,P}` may be calibrated, before r-final). The verdict feeds the G11 revival question and is recorded in §7 + ROADMAP after the run.
+
+## 7. Result (2026-06-14) — VERDICT: RED (survival is not an independent axis)
+
+### Calibration (seeds 1000..1009): validity precondition fails in every cell
+
+Env-validity revisions (logged, mechanisms untouched): survival metric "steps survived" → **final budget** (steps degenerated — EXPLORER died before the first shift, leaving regret undefined); regret given a finite `MAX_REGRET=5.0` for death-before-shift; budget effectively uncapped (`capacity=100·B0`). Across the full `{B0, m}` grid the validity precondition **does not hold**: the greedy EXPLOITER has **both lower regret and higher budget** than the broad EXPLORER. There is no explore-cost tradeoff — broad always-exploration is simply worse on both axes, while a greedy policy adapts adequately (its action's reward drops post-shift → it switches) *and* conserves budget.
+
+### r-final (seeds 1010..1039, frozen cell B0=100, m=1.5) — full picture
+
+| arm | post-shift regret | final budget |
+|---|---:|---:|
+| EXPLORER | 1.876 | 549 |
+| EXPLOITER (greedy) | 1.613 | 1709 |
+| **GATED** | **1.048** | **2787** |
+
+| check | result |
+|---|---|
+| validity (EXPLORER low-regret & EXPLOITER high-budget) | **FAIL** (EXPLORER regret 1.876 > EXPLOITER 1.613) |
+| D-1 GATED.budget>EXPLORER ≥21/30 & p<0.05 | 30/30, p<1e-6 PASS |
+| D-2 GATED.regret<EXPLOITER ≥21/30 & p<0.05 | 30/30, p<1e-6 PASS |
+| D-3 no-regression (bootstrap CI) | PASS |
+| C6/C7 | unit tests PASS (373 green) |
+
+**Verdict: RED.** GATED Pareto-dominates both cheap arms on both metrics — but the validity check (which exists to confirm the axes are *independent* via a per-axis tradeoff) **fails**: regret and budget are **correlated, both driven by adaptation speed**. The gate adapts fastest → lower post-shift regret AND less time on stale low-reward actions → higher budget. So survival is a **shadow of the reframe axis**, not an independent demand — exactly the collapse ADR-0027 anticipated. **No separable second winning axis here; ADR-0027's consolidation stands.**
+
+**Positive side-finding (NOT goalpost-moved into the verdict):** the gate beats even a **greedy** baseline on post-shift regret **under budget pressure** (1.048 vs 1.613, 30/30, p<1e-6), strengthening G10's reframe result — robust to a stronger baseline and a metabolic constraint. No mechanism tuned (ENGINEERING.md §4 item 3).
