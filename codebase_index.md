@@ -7,10 +7,10 @@
 ## Current Snapshot
 
 ```yaml
-branch: feat/g9-confidence-gated-policy
-stage: P6 route C
-immediate_next: T-P6.3 / ADR-0027 route disposition after G10 MET + C3 RED
-tests: 370 OK
+branch: feat/p6-consolidate-g10
+stage: P6 consolidated
+immediate_next: publish P6 consolidation; continue P5 deployment projection in enterprise repo
+tests: 376 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -40,6 +40,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0025-system-level-autonomy-signature-gate.md` | Route accepted, parked by ADR-0027 | G11 system-level vector gate needs a second independent winning axis |
 | `ADR-0026-c3-idle-productivity-de-risk.md` | RED | Endogeny axis has no directed signal; dropped from C1 |
 | `ADR-0027-post-c3-route-disposition.md` | Accepted | Consolidate G10; park G11/C1 until another axis wins |
+| `ADR-0028-survival-axis-de-risk.md` | RED | Survival-under-cost is not independent; it shadows reframe/adaptation speed |
+| `ADR-0029-risk-calibration-axis-de-risk.md` | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
 
 ## Current Code Map
 
@@ -76,6 +78,10 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_confidence_gated_g10.py` | G10 | Exists; C6/C7 and determinism guards |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
+| `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
+| `tests/test_survival_axis_c1.py` | ADR-0028 | determinism, arm wiring, C6/C7 guards |
+| `experiments/risk_calibration_c1.py` | ADR-0029 | RED; no independent stationary risk advantage |
+| `tests/test_risk_calibration_c1.py` | ADR-0029 | deterministic risk-env and C6/C7 guards |
 | `experiments/ensemble_regime_g8.py` | G8 | NOT MET |
 | `experiments/latent_regime_g7.py` | G7 | NOT MET |
 | `experiments/structured_g6a.py` | G6a | MET |
@@ -90,7 +96,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-370 tests OK
+376 tests OK
 ```
 
 Important current test files:
@@ -100,6 +106,8 @@ Important current test files:
 | `tests/test_confidence_gated_policy.py` | G9 policy gate, C6/C7 guards, deterministic replay |
 | `tests/test_confidence_gated_g10.py` | G10 fresh-seed confirmation guards |
 | `tests/test_idle_productivity_c3.py` | C3 idle-productivity de-risk guards |
+| `tests/test_survival_axis_c1.py` | ADR-0028 survival-axis de-risk guards |
+| `tests/test_risk_calibration_c1.py` | ADR-0029 stationary risk-axis de-risk guards |
 | `tests/test_prior_organ_ensemble.py` | G8 ensemble organ |
 | `tests/test_prior_organ_latent.py` | G7/O4 latent regime organ |
 | `tests/test_prior_organ_o1.py` | O1 reset scaffold |
@@ -137,7 +145,16 @@ G9 verdict:
 - C3 returned RED:
   - DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701.
   - Endogeny has no directed post-idle signal and is dropped from C1.
-- Next: ADR-0027 parks G11/C1 until a second independent vs-cheap-baseline winning axis exists.
+- ADR-0028 returned RED:
+  - EXPLORER regret/budget 1.876 / 549.
+  - EXPLOITER regret/budget 1.613 / 1709.
+  - GATED regret/budget 1.048 / 2787.
+  - Gated policy wins the measured metrics, but validity fails: survival is not independent of reframe/adaptation speed.
+- ADR-0029 returned RED:
+  - EXPLORER survival 1814 / EXPLOITER survival 1335 / GATED survival 1313.
+  - GATED beats the best cheap arm in only 2/30 seeds, p=0.97, gap CI [-570, -321].
+  - Stationary risk calibration is not an independent gate advantage.
+- Next: G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
 
 ## Drift Prevention
 

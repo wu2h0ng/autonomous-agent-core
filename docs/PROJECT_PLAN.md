@@ -11,17 +11,19 @@ This repository is the object-layer primary artifact: a domain-agnostic autonomo
 Current branch:
 
 ```text
-feat/g9-confidence-gated-policy
+feat/p6-consolidate-g10
 ```
 
 Current stage:
 
 ```text
-P6 route C
+P6 consolidated
   -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET)
   -> C3: idle-productivity de-risk returned RED
-  -> ADR-0027: G11/C1 parked until a second independent winning axis exists
-  -> next: consolidate G10, or open a new-axis ADR / P5 projection
+  -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
+  -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
+  -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
+  -> next: publish consolidation; continue P5 deployment projection in the enterprise repo
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -30,26 +32,27 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-370 tests OK
+376 tests OK
 ```
 
-The 370-test result is recorded by ADR-0026's C3 r-final on 2026-06-14. Re-run before code submission if you change code.
+The 376-test result is recorded by ADR-0029's risk-calibration r-final on 2026-06-14. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
-### T-P6.3 - Post-C3 Route Disposition
+### T-P6.4 - P6 Consolidation And Handoff
 
 Authority:
 
 - `docs/adr/ADR-0024-g10-subject-side-win-confirmation.md` (G10 MET)
 - `docs/adr/ADR-0026-c3-idle-productivity-de-risk.md` (C3 RED)
-- `docs/adr/ADR-0025-system-level-autonomy-signature-gate.md` (G11 route accepted, gate not frozen)
-- `docs/adr/ADR-0027-post-c3-route-disposition.md` (current route ruling)
+- `docs/adr/ADR-0027-post-c3-route-disposition.md` (G11/C1 parked until a second independent axis exists)
+- `docs/adr/ADR-0028-survival-axis-de-risk.md` (survival RED)
+- `docs/adr/ADR-0029-risk-calibration-axis-de-risk.md` (risk RED; close the multi-axis hunt)
 - `ENGINEERING.md` section 4 items 5-6
 
 Goal:
 
-Keep the handoff state honest after G10 MET and C3 RED. Do not freeze G11/C1 as originally scoped: after C3, only the reframe axis has a confirmed vs-cheap-baseline win. Consolidate G10 as the current positive result; any new system-level gate needs a new independent winning axis first.
+Keep the handoff state honest after the full P6 de-risk sequence. Do not freeze G11/C1 as originally scoped: after C3, survival, and stationary risk all returned RED, only the reframe/adaptation axis has a confirmed vs-cheap-baseline win. G10 is the consolidated positive result; any future system-level gate needs a new founder-level ADR and a new independent winning axis first.
 
 Confirmed G10 result:
 
@@ -69,11 +72,30 @@ POLICY no drive     = 1.701
 Verdict             = RED; endogeny axis dropped
 ```
 
+Confirmed survival-axis result (ADR-0028):
+
+```text
+EXPLORER regret/budget  = 1.876 / 549
+EXPLOITER regret/budget = 1.613 / 1709
+GATED regret/budget     = 1.048 / 2787
+Verdict                 = RED; validity failed, survival shadows adaptation speed
+```
+
+Confirmed stationary risk-axis result (ADR-0029):
+
+```text
+EXPLORER survival = 1814
+EXPLOITER survival = 1335
+GATED survival = 1313
+GATED vs best cheap = 2/30, p=0.97, gap CI [-570, -321]
+Verdict = RED; no independent risk-aversion
+```
+
 Do not:
 
 - Build C1 before a new ADR freezes a valid multi-axis gate.
 - Reopen IdleDrives, RAP, or G7/G8 organ tuning to rescue a gate.
-- Claim G11 is ready while it would collapse to G10 plus weak side metrics.
+- Claim G11 is ready while it would collapse to G10 plus weak or non-independent side metrics.
 
 ## 3. Current Research Interpretation
 
@@ -97,6 +119,8 @@ Interpretation:
 - O4 becomes counterproductive under the gate because it re-inflates uncertainty and delays exploitation.
 - G10 confirmed P0 on fresh seeds without HARKing.
 - C3 showed the endogeny axis has no directed signal even in the structured environment.
+- ADR-0028 showed survival-under-cost is not independent; budget and regret are both driven by adaptation speed.
+- ADR-0029 showed the gate has no stationary risk-calibration advantage; the cheap broad explorer wins.
 
 ## 4. Phase Ledger
 
@@ -115,7 +139,9 @@ Interpretation:
 | P4.x / G9 | NOT MET formally; P0 discovery positive | P0 gate-alone decisive, but not preregistered candidate |
 | P6 / G10 | MET | Fresh-seed confirmation of P0; first decisive positive gate |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
-| P6 / G11 | Route accepted, parked | Not frozen; original C1 scope lacks a true multi-axis basis after C3 RED |
+| P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
+| P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
+| P6 / G11 | Closed/parked | Not frozen; original C1 scope lacks a true multi-axis basis after C3/survival/risk RED |
 
 ## 5. ADR Ledger
 
@@ -129,8 +155,10 @@ Recent authoritative ADRs:
 - `ADR-0025-system-level-autonomy-signature-gate.md` - route accepted; gate not frozen.
 - `ADR-0026-c3-idle-productivity-de-risk.md` - C3 RED; endogeny axis dropped.
 - `ADR-0027-post-c3-route-disposition.md` - G11/C1 parked until a second independent winning axis exists.
+- `ADR-0028-survival-axis-de-risk.md` - survival RED; not independent of reframe/adaptation speed.
+- `ADR-0029-risk-calibration-axis-de-risk.md` - risk RED; third single-lever confirmation; close the multi-axis hunt.
 
-G10 and C3 results are written back. Handoff is unsafe only if a document still says G10 is pending or C3 has not run.
+G10, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029 do not exist, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 

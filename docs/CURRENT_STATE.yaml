@@ -1,25 +1,26 @@
 updated: "2026-06-14"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
-branch: "feat/g9-confidence-gated-policy"
-status: "active research line; G10 confirmed; C3 de-risk RED; G11 not frozen"
+branch: "feat/p6-consolidate-g10"
+status: "P6 consolidated; G10 confirmed; C3/survival/risk de-risks RED; system-level-axis hunt closed"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 370
+  count: 376
   result: "OK"
-  source: "ADR-0026 C3 r-final full-suite record on 2026-06-14; re-run locally before submit"
+  source: "ADR-0029 risk-calibration r-final full-suite record on 2026-06-14; re-run locally before submit"
 
 current_stage:
-  label: "P6 route C: subject-side coupling confirmed; system-level gate paused for disposition"
-  immediate_next: "T-P6.3 / ADR-0027: record post-C3 route disposition; park or rescope G11 before any C1 build"
-  after_next: "Consolidate G10 as the confirmed positive result; optional future ADR for a new independent winning axis or P5 deployment projection"
+  label: "P6 consolidation: one robust subject-side lever, no independent second axis"
+  immediate_next: "Merge/publish P6 consolidation branch after local full-suite verification; continue P5 deployment projection in the enterprise repo under its own ADR/AR boundary"
+  after_next: "Do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
     - "P2"
     - "P3 RAP implementation"
-    - "P4 prior-organ G5"
+    - "P4 prior-organ G5/G6/G7/G8 tuning"
     - "G10 execution"
     - "C3 execution"
+    - "G11/C1 freeze or implementation"
 
 authoritative_adrs:
   latest_committed:
@@ -27,14 +28,21 @@ authoritative_adrs:
     - "docs/adr/ADR-0024-g10-subject-side-win-confirmation.md"
     - "docs/adr/ADR-0025-system-level-autonomy-signature-gate.md"
     - "docs/adr/ADR-0026-c3-idle-productivity-de-risk.md"
-  current_decision:
     - "docs/adr/ADR-0027-post-c3-route-disposition.md"
+    - "docs/adr/ADR-0028-survival-axis-de-risk.md"
+    - "docs/adr/ADR-0029-risk-calibration-axis-de-risk.md"
+  current_decision:
+    - "ADR-0029 closes the natural multi-axis hunt; G10 stands as the consolidated decisive result."
   tracked_g10_files:
     - "experiments/confidence_gated_g10.py"
     - "tests/test_confidence_gated_g10.py"
-  tracked_c3_files:
+  tracked_axis_derisk_files:
     - "experiments/idle_productivity_c3.py"
     - "tests/test_idle_productivity_c3.py"
+    - "experiments/survival_axis_c1.py"
+    - "tests/test_survival_axis_c1.py"
+    - "experiments/risk_calibration_c1.py"
+    - "tests/test_risk_calibration_c1.py"
 
 current_truth:
   g9:
@@ -79,15 +87,43 @@ current_truth:
     interpretation:
       - "Endogeny/IdleDrives carries no directed post-idle signal even in the structured environment."
       - "Drop the endogeny axis from the proposed C1 signature."
+  survival_axis:
+    adr: "ADR-0028"
+    verdict: "RED"
+    seeds: "1010..1039"
+    key_result:
+      EXPLORER_regret: 1.876
+      EXPLORER_final_budget: 549
+      EXPLOITER_regret: 1.613
+      EXPLOITER_final_budget: 1709
+      GATED_regret: 1.048
+      GATED_final_budget: 2787
+    interpretation:
+      - "GATED Pareto-dominates cheap arms, but the validity precondition fails."
+      - "Survival is a shadow of reframe/adaptation speed, not an independent second axis."
+  risk_axis:
+    adr: "ADR-0029"
+    verdict: "RED"
+    seeds: "1100..1129"
+    key_result:
+      EXPLORER_survival: 1814
+      EXPLOITER_survival: 1335
+      GATED_survival: 1313
+      GATED_vs_best_cheap: "2/30, p=0.97, gap CI [-570, -321]"
+    interpretation:
+      - "The gate has no independent risk-aversion in a stationary environment."
+      - "The cheap broad explorer survives best by diversifying trap exposure."
+      - "Third confirmation of the single-lever finding."
   g11:
     adr: "ADR-0025"
-    status: "route accepted, gate not frozen; original C1 scope is no longer executable after C3 RED"
-    disposition: "ADR-0027 parks G11/C1 until another independent vs-cheap-baseline winning axis exists."
+    status: "route accepted historically, but not frozen and not executable after C3/ADR-0028/ADR-0029 RED"
+    disposition: "System-level-axis hunt is closed across endogeny, survival, and risk; G10 stands as the consolidated result."
 
 research_constraints:
-  - "Do not claim C1/G11 as ready: C3 RED leaves only reframe as a confirmed vs-cheap win."
-  - "Do not build the C1 composite environment before a new ADR freezes a valid multi-axis gate."
-  - "Do not reopen IdleDrives or G7/G8 belief-only organ tuning without a new founder-level ADR."
+  - "Do not claim C1/G11 as ready: there is no second independent vs-cheap-baseline winning axis."
+  - "Do not build the C1 composite environment or freeze G11 without a new founder-level reset ADR."
+  - "Do not reopen IdleDrives, RAP, G7/G8, O2, or risk/survival probes to rescue a gate."
+  - "Do not claim survival or risk as independent wins; both are recorded RED."
   - "Do not relax C6: organs remain belief-only; subject-side gate reads the agent's own ActionOutcomeModel."
   - "No LLM in control path, no business semantics, no cross-repo imports."
 
@@ -96,8 +132,10 @@ handoff_read_order:
   - "docs/PROJECT_PLAN.md"
   - "codebase_index.md"
   - "ROADMAP.md"
+  - "docs/G9-G10-subject-side-coupling-synthesis.md"
+  - "docs/P5-landing-feasibility-memo.md"
   - "docs/adr/ADR-0024-g10-subject-side-win-confirmation.md"
-  - "docs/adr/ADR-0026-c3-idle-productivity-de-risk.md"
   - "docs/adr/ADR-0027-post-c3-route-disposition.md"
-  - "docs/adr/ADR-0025-system-level-autonomy-signature-gate.md"
+  - "docs/adr/ADR-0028-survival-axis-de-risk.md"
+  - "docs/adr/ADR-0029-risk-calibration-axis-de-risk.md"
   - "ENGINEERING.md"
