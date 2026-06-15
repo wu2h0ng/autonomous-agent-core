@@ -9,7 +9,7 @@
 ```yaml
 branch: main
 stage: P6 consolidated
-immediate_next: implement ADR-0034 T-P6.5 relevance-aware G10 theory test in serial slices
+immediate_next: implement ADR-0034 T-P6.5 relevance-aware G10 theory test; ADR-0035/P7 G12 is accepted but blocked behind ADR-0034
 tests: 388 OK
 ```
 
@@ -48,6 +48,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` | Accepted | Frontier systems enter only through classified lanes/channels; structured environments are the next admissible experiment family |
 | `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
 | `ADR-0034-relevance-aware-g10-theory-test.md` | Accepted, implementation pending | Full-Agent B/R/K theory test with severity/noise knobs and RSTAR relevance-aware control |
+| `ADR-0035-p7-ecological-environment-axis.md` | Accepted, blocked | P7 ecological environment axis; G12 2x2 gate, internal reset vs external rollback distinction |
 
 ## Current Code Map
 
@@ -88,6 +89,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/prediction1_residual_calibrator.py` | ADR-0031 | PRED1-HOLDS; residual calibrator vs frozen G10 |
 | `tests/test_residual_calibrator.py` | ADR-0031 | calibrator math, default-off wiring, C6/C7 guards |
 | ADR-0034 planned | T-P6.5 | Relevance-aware G10 theory test: severity/noise env, policy diagnostics, RSTAR calibration, r-final pending |
+| ADR-0035 planned | P7/G12 | Ecological 2x2 environment gate: thin/ecological x reversible/irreversible, blocked until ADR-0034 |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |

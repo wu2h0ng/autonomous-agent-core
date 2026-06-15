@@ -150,3 +150,16 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Frozen seeds**: calibration `1400..1419`, r-final `1500..1529`.
 - **Implementation order**: severity/noise env guards -> policy diagnostics (`rho/conf/tau/w_e`) -> RSTAR calibration -> r-final result update.
 - **Boundary**: this is theory attribution only. It does not reopen G11/C1, retune P0, import LLMs, or weaken C6/C7.
+
+## P7 — Ecological Environment Axis (ADR-0035, blocked until ADR-0034 completes)
+
+- **Purpose**: shift the independent variable from organ/model cleverness to the environment. P7 asks whether autonomy-like advantage appears only when the world has ecological coupling and irreversible external consequences.
+- **Gate**: G12 2x2 design:
+  - thin/reversible
+  - thin/irreversible
+  - ecological/reversible
+  - ecological/irreversible
+- **Load-bearing distinction**: O1/internal reset remains allowed in every cell; only external-world rollback is removed in irreversible cells. This prevents "O1 lost because we crippled O1" from contaminating the result.
+- **Metrics**: post-shift regret area, irreversible external damage, damage-weighted loss, recovery steps.
+- **Interpretation discipline**: all four cells failing downgrades P7; wins in all four cells do not prove a distinct ecological axis; only the pre-registered pattern table in ADR-0035 may be used.
+- **Boundary**: no implementation or r-final until ADR-0034 resolves the B/R/K attribution and freezes the strong relevance-aware control set.
