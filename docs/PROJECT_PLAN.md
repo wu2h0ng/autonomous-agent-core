@@ -11,7 +11,7 @@ This repository is the object-layer primary artifact: a domain-agnostic autonomo
 Current branch:
 
 ```text
-feat/p6-consolidate-g10
+main
 ```
 
 Current stage:
@@ -26,7 +26,8 @@ P6 consolidated
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
   -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
-  -> next: publish consolidation; continue P5 deployment projection in the enterprise repo
+  -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
+  -> next: review/use the synthesis package; continue P5 deployment projection in the enterprise repo
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -46,6 +47,7 @@ The 388-test result is recorded by ADR-0031 residual-calibrator integration on 2
 
 Authority:
 
+- `docs/P6-research-synthesis.md` (P6 synthesis package, claim ledger, negative-result map, reproducibility/publication outline)
 - `docs/adr/ADR-0024-g10-subject-side-win-confirmation.md` (G10 MET)
 - `docs/adr/ADR-0026-c3-idle-productivity-de-risk.md` (C3 RED)
 - `docs/adr/ADR-0027-post-c3-route-disposition.md` (G11/C1 parked until a second independent axis exists)
@@ -60,6 +62,12 @@ Authority:
 Goal:
 
 Keep the handoff state honest after the full P6 de-risk sequence. Do not freeze G11/C1 as originally scoped: after C3, survival, and stationary risk all returned RED, only the reframe/adaptation axis has a confirmed vs-cheap-baseline win. G10 is the consolidated positive result; any future system-level gate needs a new founder-level ADR and a new independent winning axis first.
+
+Deliverable status:
+
+```text
+docs/P6-research-synthesis.md published on 2026-06-15
+```
 
 Confirmed G10 result:
 

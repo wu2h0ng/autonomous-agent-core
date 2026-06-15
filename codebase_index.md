@@ -9,7 +9,7 @@
 ```yaml
 branch: main
 stage: P6 consolidated
-immediate_next: publish/review P6 research synthesis; continue P5 deployment projection in enterprise repo
+immediate_next: review/use docs/P6-research-synthesis.md; continue P5 deployment projection in enterprise repo
 tests: 388 OK
 ```
 
@@ -20,6 +20,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | File | Role |
 |---|---|
 | `docs/CURRENT_STATE.yaml` | Machine-readable current state, read order, latest tests, active gate |
+| `docs/P6-research-synthesis.md` | P6 synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, publication outline |
 | `docs/PROJECT_PLAN.md` | Human handoff plan and task cards |
 | `ROADMAP.md` | Phase ledger and gate sequence |
 | `ENGINEERING.md` | Engineering and experiment discipline, especially statistical rules |

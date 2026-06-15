@@ -2,7 +2,7 @@ updated: "2026-06-15"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed; P6 synthesis package published"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
   count: 388
@@ -11,7 +11,8 @@ last_verified_tests:
 
 current_stage:
   label: "P6 consolidation: one robust subject-side lever, no independent second axis"
-  immediate_next: "Publish/review the P6 research synthesis and成果包; continue P5 deployment projection in the enterprise repo under its own ADR/AR boundary"
+  synthesis_artifact: "docs/P6-research-synthesis.md"
+  immediate_next: "Review/use docs/P6-research-synthesis.md for publication packaging; continue P5 deployment projection in the enterprise repo under its own ADR/AR boundary"
   after_next: "Do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
@@ -164,6 +165,7 @@ research_constraints:
 
 handoff_read_order:
   - "docs/CURRENT_STATE.yaml"
+  - "docs/P6-research-synthesis.md"
   - "docs/PROJECT_PLAN.md"
   - "codebase_index.md"
   - "ROADMAP.md"

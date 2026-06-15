@@ -139,5 +139,6 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 ### P6.4 — Consolidation / Publication Readiness (current)
 
 - **Current state**: P6 is consolidated on `main`. G10 is the confirmed positive result; ADR-0030 makes it trap-complete; ADR-0031 says residual belief calibration does not open a second axis; ADR-0032/0033 bind frontier/self-recursive systems to safe intake lanes.
-- **Next work**: produce the P6 research synthesis and成果包: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, and publication/whitepaper outline.
+- **Deliverable**: `docs/P6-research-synthesis.md` now publishes the P6 research synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, and publication/whitepaper outline.
+- **Next work**: review the synthesis package, revise the paper/whitepaper, and package reproducibility artifacts. New mechanism work requires a fresh founder ADR.
 - **Not next**: do not freeze G11/C1, do not reopen IdleDrives/RAP/G7/G8, and do not import HyperAgents/DGM into runtime. Future mechanism work needs a fresh founder ADR and a new independent winning axis or structured-environment gate.
