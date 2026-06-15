@@ -1,6 +1,6 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-06-14
+> Last updated: 2026-06-15
 > Status: Active handoff document
 > First read: `docs/CURRENT_STATE.yaml` -> this file -> `codebase_index.md` -> `ROADMAP.md` -> current ADRs.
 
@@ -20,6 +20,8 @@ Current stage:
 P6 consolidated
   -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET) and trap-complete (ADR-0030)
   -> ADR-0031: residual self-calibrator falsification attack returned PRED1-HOLDS
+  -> ADR-0032: frontier architecture intake lanes accepted; structured semantic/hierarchical environments are the next admissible experiment family
+  -> ADR-0033: HyperAgents/DGM assimilation boundary accepted; self-recursive systems are external candidate generators only
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
@@ -49,6 +51,10 @@ Authority:
 - `docs/adr/ADR-0027-post-c3-route-disposition.md` (G11/C1 parked until a second independent axis exists)
 - `docs/adr/ADR-0028-survival-axis-de-risk.md` (survival RED)
 - `docs/adr/ADR-0029-risk-calibration-axis-de-risk.md` (risk RED; close the multi-axis hunt)
+- `docs/adr/ADR-0030-g10-completeness-trap-avoidance.md` (G10 trap-complete)
+- `docs/adr/ADR-0031-prediction1-residual-calibrator-vs-g10.md` (PRED1-HOLDS)
+- `docs/adr/ADR-0032-frontier-architecture-intake-and-structured-env-route.md` (frontier intake lanes)
+- `docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md` (self-recursive assimilation boundary)
 - `ENGINEERING.md` section 4 items 5-6
 
 Goal:
@@ -148,6 +154,8 @@ Interpretation:
 - ADR-0028 showed survival-under-cost is not independent; budget and regret are both driven by adaptation speed.
 - ADR-0029 showed the gate has no stationary risk-calibration advantage; the cheap broad explorer wins.
 - ADR-0031 showed a residual belief calibrator does not beat frozen G10; RR-0019 Claim 1/3 survives this attack.
+- ADR-0032 classifies frontier systems into admissible lanes: P4.x bounded organs, external research automation, product/deployment layers, or forbidden core paths.
+- ADR-0033 specifically confines HyperAgents/DGM-style systems to external candidate generation; runtime self-modification and safety-substrate self-editing remain forbidden.
 
 ## 4. Phase Ledger
 
@@ -166,6 +174,8 @@ Interpretation:
 | P4.x / G9 | NOT MET formally; P0 discovery positive | P0 gate-alone decisive, but not preregistered candidate |
 | P6 / G10 | MET | Fresh-seed confirmation of P0; first decisive positive gate |
 | P6 / ADR-0031 | PRED1-HOLDS | Residual calibrator failed to beat frozen G10; channel-decomposition prediction survived |
+| P6 / ADR-0032 | Accepted | Frontier architecture intake lanes accepted; structured semantic/hierarchical environment route allowed as future docs/gate work |
+| P6 / ADR-0033 | Accepted | HyperAgents/DGM assimilation boundary accepted; L0-L3 external use allowed, L4/L5 runtime self-editing forbidden |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -187,8 +197,10 @@ Recent authoritative ADRs:
 - `ADR-0029-risk-calibration-axis-de-risk.md` - risk RED; third single-lever confirmation; close the multi-axis hunt.
 - `ADR-0030-g10-completeness-trap-avoidance.md` - G10 COMPLETENESS PASS; P0 survives every flip-the-conclusion trap.
 - `ADR-0031-prediction1-residual-calibrator-vs-g10.md` - PRED1-HOLDS; residual calibrator did not open a second axis over frozen G10.
+- `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` - frontier intake lanes; P4.x bounded organs and external research automation only.
+- `ADR-0033-hyperagents-dgm-assimilation-boundary.md` - HyperAgents/DGM external candidate-generation boundary; no runtime self-modification.
 
-G10, G10 completeness, ADR-0031, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031 do not exist, or G11/C1 is ready to freeze.
+G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033 do not exist, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 
@@ -199,6 +211,8 @@ G10, G10 completeness, ADR-0031, C3, survival, and risk results are written back
 - No claiming post-hoc winners on the same r-final seeds; fresh-seed confirmation is mandatory.
 - C6 remains intact: organs may affect belief only, not action/policy/shell.
 - C7 remains intact: pause/tighten/forbidden must dominate all action paths.
+- ADR-0032 remains intact: every frontier candidate must be classified by lane and channel before implementation.
+- ADR-0033 remains intact: HyperAgents/DGM-style systems are external candidate generators only, never runtime self-modifiers.
 
 ## 7. Handoff Discipline
 
