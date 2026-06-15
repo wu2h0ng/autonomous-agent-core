@@ -19,6 +19,7 @@ Current stage:
 ```text
 P6 consolidated
   -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET) and trap-complete (ADR-0030)
+  -> ADR-0031: residual self-calibrator falsification attack returned PRED1-HOLDS
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
@@ -32,10 +33,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-380 tests OK
+388 tests OK
 ```
 
-The 380-test result is recorded by ADR-0030 completeness integration on 2026-06-14. Re-run before code submission if you change code.
+The 388-test result is recorded by ADR-0031 residual-calibrator integration on 2026-06-15. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -72,6 +73,20 @@ T1 vs B-temp              = 30/30, p<1e-6 PASS
 T3 real-stake survival    = P0 1734.8 vs A0 1245.3 and B-temp 1482.6 PASS
 T5b StalenessEnv          = P0 advantage 36.4%, GENERAL FIX not structure theft
 Verdict                   = COMPLETENESS PASS
+```
+
+Confirmed PREDICTION 1 result (ADR-0031):
+
+```text
+Calibration seeds          = 1200..1219
+Frozen params              = lambda 0.8 / eta 0.1
+Prereg hash                = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
+R-final seeds              = 1300..1329
+P0 frozen G10              = 788.8
+PR gate + calibrator       = 793.3
+PR vs P0                   = margin -0.006, 13/30, p=0.550830, CI [-30.8, 19.0]
+PR-B vs A1                 = margin -0.039, CI [-67.9, -32.6]
+Verdict                    = PRED1-HOLDS
 ```
 
 Confirmed C3 result:
@@ -132,6 +147,7 @@ Interpretation:
 - C3 showed the endogeny axis has no directed signal even in the structured environment.
 - ADR-0028 showed survival-under-cost is not independent; budget and regret are both driven by adaptation speed.
 - ADR-0029 showed the gate has no stationary risk-calibration advantage; the cheap broad explorer wins.
+- ADR-0031 showed a residual belief calibrator does not beat frozen G10; RR-0019 Claim 1/3 survives this attack.
 
 ## 4. Phase Ledger
 
@@ -149,6 +165,7 @@ Interpretation:
 | P4.x / G8 | NOT MET | Ensemble O5 did not improve over O4 |
 | P4.x / G9 | NOT MET formally; P0 discovery positive | P0 gate-alone decisive, but not preregistered candidate |
 | P6 / G10 | MET | Fresh-seed confirmation of P0; first decisive positive gate |
+| P6 / ADR-0031 | PRED1-HOLDS | Residual calibrator failed to beat frozen G10; channel-decomposition prediction survived |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -169,8 +186,9 @@ Recent authoritative ADRs:
 - `ADR-0028-survival-axis-de-risk.md` - survival RED; not independent of reframe/adaptation speed.
 - `ADR-0029-risk-calibration-axis-de-risk.md` - risk RED; third single-lever confirmation; close the multi-axis hunt.
 - `ADR-0030-g10-completeness-trap-avoidance.md` - G10 COMPLETENESS PASS; P0 survives every flip-the-conclusion trap.
+- `ADR-0031-prediction1-residual-calibrator-vs-g10.md` - PRED1-HOLDS; residual calibrator did not open a second axis over frozen G10.
 
-G10, G10 completeness, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030 do not exist, or G11/C1 is ready to freeze.
+G10, G10 completeness, ADR-0031, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031 do not exist, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 

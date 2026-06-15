@@ -8,6 +8,7 @@ from .policy import PolicySelector
 from .prior_organ import PriorOrgan, merge_organ_advice, snapshot_belief
 from .reflex import ViabilityReflex
 from .relevance import RelevanceField
+from .residual_calibrator import ResidualCalibrator
 from .shell import CorrigibilityShell, ShellView
 from .value_channel import ValueChannel, ValueChannelView
 from .viability import ViabilityCore
@@ -44,6 +45,7 @@ class Agent:
         gate_kappa: float = 1.0,
         gate_temp_floor: float = 0.1,
         base_temperature: float = 0.3,
+        residual_calibrator: ResidualCalibrator | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -71,6 +73,7 @@ class Agent:
         self.reflex = reflex  # None = Layer 0 disabled (backward compatible)
         self.idle_drives = idle_drives  # None = no endogenous idle behaviour
         self.prior_organ = prior_organ  # None = O0 baseline (ADR-0016)
+        self.residual_calibrator = residual_calibrator  # None = no ADR-0031 calibrator
         self.modulate_relevance = modulate_relevance
         self.steps = 0
         self._reflex_engaged = False
@@ -84,6 +87,7 @@ class Agent:
             "reflex_engaged": self._reflex_engaged,
             "idle_drives": self.idle_drives,
             "prior_organ": self.prior_organ,
+            "residual_calibrator": self.residual_calibrator,
         }
 
     def restore(self, state: dict[str, Any]) -> None:
@@ -94,6 +98,7 @@ class Agent:
         self._reflex_engaged = state.get("reflex_engaged", False)
         self.idle_drives = state.get("idle_drives", self.idle_drives)
         self.prior_organ = state.get("prior_organ", self.prior_organ)
+        self.residual_calibrator = state.get("residual_calibrator", self.residual_calibrator)
         if self.reflex is not None:
             self.reflex.reset()
 
@@ -149,7 +154,15 @@ class Agent:
         reward = env.act(action)
         self.viability.ingest(reward)
         self.viability.metabolize()
+        model_prior_uncertainty = self.model.uncertainty[action]
         surprise = self.model.update(action, reward)
+        residual_scale: float | None = None
+        if self.residual_calibrator is not None:
+            residual_scale = self.residual_calibrator.after_update(
+                self.model,
+                action=action,
+                prior_uncertainty=model_prior_uncertainty,
+            )
         if self.idle_drives is not None:
             self.idle_drives.observe(action)
         if self.modulate_relevance:
@@ -174,6 +187,9 @@ class Agent:
             record["prior_organ"] = type(self.prior_organ).__name__
             record["prior_uncertainty"] = round(prior_uncertainty, 4)
             record["prior_delta_n"] = prior_applied
+        if self.residual_calibrator is not None and residual_scale is not None:
+            record["residual_calibrator"] = type(self.residual_calibrator).__name__
+            record["residual_scale"] = round(residual_scale, 4)
         self.shell.observe(record)
         return record
 

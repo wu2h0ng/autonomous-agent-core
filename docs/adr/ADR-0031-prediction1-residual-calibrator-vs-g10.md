@@ -1,6 +1,11 @@
 # ADR-0031: PREDICTION 1 — residual self-calibrator vs the frozen G10 gate (a falsification attempt on RR-0019 Claim 1/3)
 
-- Status: **Proposed** (agent draft per ADR-0003; **founder acceptance required before r-final** — this gate can wound a core claim, see §7).
+- Status: **Accepted; PRED1-HOLDS (2026-06-15, see §10).** Mechanism & gate design
+  ratified by founder. Calibration froze `(λ=0.8, η=0.1)` on seeds 1200..1219 and
+  prereg hash `fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf`
+  before r-final. R-final seeds 1300..1329 did **not** give PR a decisive margin over
+  P0. RR-0019 Claim 1/3 survive this powered attack; the calibrator is at most a G10
+  sharpener candidate, not a second axis.
 - Date: 2026-06-14
 - Deciders: founder (reserved: accepting a pre-registered gate whose decisive outcome wounds Claim 1/3 and the C6-orthogonality narrative — AGENTS.md §5). Agent drafts and runs once accepted.
 - Scope: P6/theory line. Tests `RR-0019` **[PREDICTION 1]**. One additive, frozen, subject-side calibrator inside `PolicySelector`; the G9/G10 confidence gate stays frozen. No LLM, no spend, no new dependency, no cross-repo import, no business semantics.
@@ -37,31 +42,50 @@ program's first original principle. A theory contributor invites the attack firs
 ## 2. The mechanism under test (frozen, subject-side, C6-safe)
 
 A **residual self-calibrator**: an additive, deterministic, auditable function that
-lives inside the subject and recalibrates per-action uncertainty `u` from realised
-prediction residuals. Per RR-0019 §6 it is admissible **only** as a subject-side
-function whose output feeds the subject's own belief — **never** an external organ
-writing a control signal.
+lives inside the subject and recalibrates per-action uncertainty `u` toward empirical
+coverage. Per RR-0019 §6 it is admissible **only** as a subject-side function whose
+output feeds the subject's own belief — **never** an external organ writing a control
+signal.
+
+**Design constraint (why not a re-smoother).** `ActionOutcomeModel.update` already sets
+`uncertainty[a] = (1−lr)·uncertainty[a] + lr·surprise` — the subject's uncertainty is
+*already* an EWMA of the surprise magnitude (`src/aac/world_model.py`, `lr=0.3`). A
+calibrator that re-smooths the same `surprise` signal and writes it back to `u` would be
+**mechanically redundant** with the native update, so a null PR-B result would be true
+*by construction*, not an empirical test — a §5 strawman-by-redundancy. To be a genuine
+attempt on PREDICTION 1, the calibrator must use a statistic the native update does
+**not** compute: the **standardized residual** (surprise relative to the model's
+*claimed* uncertainty), correcting `u`'s *calibration* (over-/under-confidence)
+multiplicatively.
 
 ```text
-For the chosen action a at each step:
-  residual_a   = |observed_reward - model.mu[a]|              # predict → observe
-  ewma_res[a] ← (1-λ)·ewma_res[a] + λ·residual_a              # frozen λ
-  # recalibrate the subject's own uncertainty toward the empirical residual:
-  model.uncertainty[a] ← (1-η)·model.uncertainty[a] + η·ewma_res[a]   # frozen η
+For the chosen action a at each step (the calibrator brackets model.update):
+  u_pred      = model.uncertainty[a]                 # claimed uncertainty BEFORE the update
+  model.update(a, reward)                            # native: mu, uncertainty=EWMA_lr(surprise), last_surprise
+  z_a         = model.last_surprise / (u_pred + ε)   # standardized residual: was the claim honest?
+  ewma_z[a]  ← (1-λ)·ewma_z[a] + λ·z_a               # frozen λ; empirical coverage, ≈1 iff well-calibrated
+  scale       = clip(ewma_z[a], 0.5, 2.0)            # fixed bounds (not gridded)
+  model.uncertainty[a] ← model.uncertainty[a]·(1 + η·(scale − 1))   # frozen η; over-confident→inflate, over-cautious→deflate
+  # init ewma_z[a] = 1.0  →  the first step is an identity (scale=1, u unchanged).
+  # A 0.0 init would deflate u through the gate (conf = gap/(κ·u+ε)) and force premature
+  # commitment right after a shift — a §5 convenient-failure artifact, not a fair test.
 ```
 
 The recalibrated `u` then enters, unchanged, the two places the subject already uses
 it: (i) the score `s_a = w_p·μ_a + w_e·u_a` (belief channel `B`), and (ii) the gate's
-confidence `conf = clip(gap/(κ·u_best+ε), 0, 1)` (the `B → K` input). By construction
-it writes only `u`: **it is a channel-`B` mechanism by RR-0019's own table.** That is
-precisely why Claim 1 predicts it cannot win a decisive independent margin.
+confidence `conf = clip(gap/(κ·u_best+ε), 0, 1)` (the `B → K` input). Because it
+corrects *miscalibration* rather than re-smoothing surprise, it is a genuine,
+non-redundant mechanism — yet it still **writes only `u`**, so by RR-0019's own table it
+is channel-`B`, which is exactly why Claim 1 predicts it cannot win a decisive
+independent margin.
 
 - Implementation surface: a frozen `ResidualCalibrator` (new `src/aac/residual_calibrator.py`),
-  wired into the subject's update path; `PolicySelector` and the frozen gate
-  `{gate_kappa=0.5, gate_temp_floor=0.1}` are **unchanged**.
+  wired into the subject's update path so it brackets `ActionOutcomeModel.update`;
+  `world_model.py`, `PolicySelector`, and the frozen gate `{gate_kappa=0.5,
+  gate_temp_floor=0.1}` are **unchanged**.
 - C6 invariant (deterministic unit test, gating): the calibrator reads only the
-  subject's own `(reward, μ, u)`; no organ value enters it; it never touches
-  `τ`, `w_e`, the forbidden set, the shell, or the audit log.
+  subject's own `(u_pred, last_surprise, uncertainty)`; no organ value enters it; it
+  never touches `τ`, `w_e`, the forbidden set, the shell, or the audit log.
 
 ## 3. Arms (candidate pre-specified; incumbent is P0, not a cheap baseline)
 
@@ -138,12 +162,18 @@ C6/C7 guards (gating, deterministic, independent of the regret outcome):
 ## 7. Frozen params (filled at freeze time, before r-final)
 
 ```text
-lambda (residual EWMA)      = TBD  (frozen on seeds 1200..1219, max PR-B benefit)
-eta    (u recalibration)    = TBD  (frozen on seeds 1200..1219, max PR-B benefit)
+lambda (residual EWMA)      = 0.8  (frozen on seeds 1200..1219, max PR-B benefit)
+eta    (u recalibration)    = 0.1  (frozen on seeds 1200..1219, max PR-B benefit)
 gate (unchanged)            = {gate_kappa: 0.5, gate_temp_floor: 0.1}
 base_temperature            = 0.3
-prereg lock hash            = TBD  (prereg freeze, before first r-final run)
+prereg lock hash            = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
 ```
+
+Calibration result (2026-06-15, seeds 1200..1219): the whole grid was negative
+for PR-B vs A1; the least-bad, hence strongest admissible candidate, was
+`lambda=0.8, eta=0.1` with PR-B area `1260.3` and benefit `-0.036` vs A1. This
+still satisfies the two-sided integrity rule: the frozen candidate is the maximum
+standalone PR-B performer found on the calibration grid, not a convenient foil.
 
 ## 8. Implementation (contract-first; gate untouched)
 
@@ -169,3 +199,55 @@ prereg lock hash            = TBD  (prereg freeze, before first r-final run)
 - **PROJECT_PLAN / CURRENT_STATE / RR-0019 update on r-final**, regardless of outcome.
 
 Reproduce (after acceptance + freeze): `PYTHONPATH=src python -m experiments.prediction1_residual_calibrator`.
+
+## 10. Result (2026-06-15, r-final seeds 1300..1329)
+
+Frozen after calibration:
+
+```text
+lambda = 0.8
+eta    = 0.1
+prereg = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
+```
+
+Calibration note: every PR-B grid point was worse than A1; the frozen pair is the
+least-bad / strongest admissible PR-B setting (`PR-B=1260.3`, benefit `-0.036` vs A1
+on calibration seeds).
+
+R-final aggregate:
+
+| arm | mean post-shift regret area |
+|---|---:|
+| A0 | 1333.7 |
+| A1 | 1290.6 |
+| P0 | 788.8 |
+| PR | 793.3 |
+| PR-B | 1341.1 |
+
+Gate accounting:
+
+```text
+PR vs P0:
+  margin = -0.006
+  wins   = 13/30
+  p      = 0.550830
+  CI     = [-30.8, 19.0]
+
+PR-B vs A1:
+  margin = -0.039
+  CI     = [-67.9, -32.6]
+```
+
+**Verdict: PRED1-HOLDS.** The residual self-calibrator does not beat the frozen G10
+gate and does not open an independent decisive belief-channel axis. Because the run
+was powered, preregistered, and calibrated to give PR-B its strongest grid setting,
+this is evidence for RR-0019 Claim 1/3 surviving the program's sharpest current
+belief-channel attack. It is not a proof. The admissible disposition is narrow:
+retain residual calibration only as a possible G10 sharpener candidate; do not treat
+it as a second axis and do not reopen G11/C1 on this result.
+
+Reproduce:
+
+```powershell
+$env:PYTHONPATH='src'; python -m experiments.prediction1_residual_calibrator
+```
