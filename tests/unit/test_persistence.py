@@ -105,6 +105,10 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         store.register_version(revised)
         self.assertEqual(store.version_of("trace-k"), 2)
         self.assertEqual(store.get_by_trace("trace-k"), revised)
+        revised2 = self._asset("knowledge-3", "trace-k")
+        store.register_version(revised2)
+        self.assertEqual(store.version_of("trace-k"), 3)
+        self.assertEqual(store.get_by_trace("trace-k"), revised2)
         self.assertEqual(store.version_of("trace-missing"), 0)
 
     def test_approval_round_trip_and_lifecycle_over_sql_store(self) -> None:

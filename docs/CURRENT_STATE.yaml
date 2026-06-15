@@ -3,7 +3,7 @@ project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway"
+status: "Stage 1 complete; P5 substrate harvest underway; critical-fix hygiene clean"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -13,6 +13,7 @@ current_stage:
     - "P5.1b adoption-driven knowledge promotion complete"
     - "P5.1b-ii non-bypassable grounding invariant complete"
     - "P5.2a corrigibility pause shell complete"
+    - "Critical-fix cleanup complete: SQL LIMIT lower bound, CLI env-store parity, knowledge/index atomicity, atomic knowledge version bump"
   immediate_next:
     id: "P5-decision-gated-next-slice"
     description: "Select the next decision-gated slice: PR-07 frontend, ActionProposal routing, pgvector pushdown, OTel bridge, Stage 2, or P5.2b/c."
@@ -23,8 +24,8 @@ current_stage:
 
 last_verified_tests:
   command: "pytest unit + eval suites; OpenAPI contract check; ruff check + format check"
-  result: "309 unit tests passed, 3 skipped, 4 subtests; 2 eval tests passed, 10 subtests; OpenAPI contract clean; ruff clean"
-  source: "local verification after fast-forward merge of feat/p5.1b-ii-grounding-invariant"
+  result: "315 unit tests passed, 4 skipped, 7 subtests; 2 eval tests passed, 10 subtests; OpenAPI contract clean; ruff check and format clean"
+  source: "local verification after critical-fix cleanup on current main"
   verified_at: "2026-06-15"
 
 authoritative_records:
@@ -42,6 +43,7 @@ authoritative_records:
     - "docs/architecture_reviews/AR-20260614-p5.1b-adoption-driven-knowledge.md"
     - "docs/architecture_reviews/AR-20260614-p5.1b-ii-grounding-invariant.md"
     - "docs/architecture_reviews/AR-20260614-p5.2-corrigibility-shell.md"
+    - "docs/architecture_reviews/AR-20260615-critical-fix-cleanup.md"
   archived_baseline:
     - "docs/project_baseline/"
 

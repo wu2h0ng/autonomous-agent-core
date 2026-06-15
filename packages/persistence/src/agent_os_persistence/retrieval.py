@@ -70,15 +70,28 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
     # --- KnowledgeStorePort: storage delegates to base, then (re)index ---
 
     def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        stored = self._base.register(asset)
-        # Index the asset now associated with the trace (dedup may return an existing one).
-        self._reindex(stored)
-        return stored
+        return self._register_and_reindex(asset, register=True)
 
     def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        stored = self._base.register_version(asset)
-        self._reindex(stored)
-        return stored
+        return self._register_and_reindex(asset, register=False)
+
+    def _register_and_reindex(self, asset: KnowledgeAsset, *, register: bool) -> KnowledgeAsset:
+        """Persist the canonical asset and its search index in one transaction.
+
+        Engine-bound stores are the normal runtime path. They must not commit the
+        canonical knowledge row separately from the projection row, or a failed
+        embed/reindex step can leave durable knowledge invisible to search.
+        """
+        if isinstance(self._bind, Connection):
+            stored = self._base.register(asset) if register else self._base.register_version(asset)
+            self._reindex(stored, conn=self._bind)
+            return stored
+
+        with self._bind.begin() as conn:
+            conn_base = type(self._base)(conn)
+            stored = conn_base.register(asset) if register else conn_base.register_version(asset)
+            self._reindex(stored, conn=conn)
+            return stored
 
     def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
         return self._base.get_by_trace(trace_id)
@@ -91,7 +104,7 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
 
     # --- indexing ---
 
-    def _reindex(self, asset: KnowledgeAsset) -> None:
+    def _reindex(self, asset: KnowledgeAsset, *, conn: Connection | None = None) -> None:
         # Index is keyed by source_trace_id (one current row per trace). Assets without
         # a trace are not retrievable memory and are skipped.
         if asset.source_trace_id is None:
@@ -112,9 +125,12 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
             "embedding": list(self._embedder.embed(content)),
             "asset_payload": mappers.knowledge_to_payload(asset),
         }
-        with _write(self._bind) as conn:
-            conn.execute(table.delete().where(table.c.source_trace_id == asset.source_trace_id))
-            conn.execute(table.insert().values(**values))
+        bind = conn if conn is not None else self._bind
+        with _write(bind) as write_conn:
+            write_conn.execute(
+                table.delete().where(table.c.source_trace_id == asset.source_trace_id)
+            )
+            write_conn.execute(table.insert().values(**values))
 
 
 class SqlKnowledgeRetriever(KnowledgeRetriever):

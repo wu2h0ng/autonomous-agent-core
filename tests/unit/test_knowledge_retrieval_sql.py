@@ -127,6 +127,38 @@ class SqlKnowledgeRetrievalTest(unittest.TestCase):
         self.store.register_version(self._revised("a2", "[gmv] new title beta", "trace-a"))
         self.assertEqual(self._index_asset_ids("trace-a"), ["a2"])
 
+    def test_register_rolls_back_canonical_when_reindex_fails(self) -> None:
+        from sqlalchemy import select
+
+        from agent_os_persistence import EmbeddingKnowledgeStore, SqlKnowledgeStore
+        from agent_os_persistence import knowledge_assets, knowledge_index
+
+        class FailingEmbedder:
+            def embed(self, text: str) -> tuple[float, ...]:
+                raise RuntimeError("embed failed")
+
+        broken = EmbeddingKnowledgeStore(
+            SqlKnowledgeStore(self.engine), FailingEmbedder(), self.engine
+        )
+
+        with self.assertRaises(RuntimeError):
+            broken.register(_asset("orphan", "[gmv] should not persist"))
+
+        with self.engine.connect() as conn:
+            canonical = conn.execute(
+                select(knowledge_assets.c.source_trace_id).where(
+                    knowledge_assets.c.source_trace_id == "trace-orphan"
+                )
+            ).fetchone()
+            indexed = conn.execute(
+                select(knowledge_index.c.source_trace_id).where(
+                    knowledge_index.c.source_trace_id == "trace-orphan"
+                )
+            ).fetchone()
+
+        self.assertIsNone(canonical)
+        self.assertIsNone(indexed)
+
     def test_uow_reembeds_index_atomically(self) -> None:
         from agent_os_core import HashingEmbedder
         from agent_os_persistence import (

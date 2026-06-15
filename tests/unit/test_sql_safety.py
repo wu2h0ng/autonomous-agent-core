@@ -96,6 +96,34 @@ class SQLSafetyCheckerTest(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertIn("LIMIT_TOO_HIGH", {issue.code for issue in result.issues})
 
+    def test_blocks_non_positive_limit(self) -> None:
+        checker = SQLSafetyChecker(("sales",), max_limit=1000)
+
+        for limit in (-1, 0, -100):
+            with self.subTest(limit=limit):
+                result = checker.check(
+                    "select amount from sales.orders where order_date >= :start_date limit :limit",
+                    ("start_date", "limit"),
+                    {"start_date": "2026-05-25", "limit": limit},
+                    required_time_parameters=("start_date",),
+                )
+
+                self.assertFalse(result.allowed)
+                self.assertIn("LIMIT_TOO_LOW", {issue.code for issue in result.issues})
+
+    def test_blocks_non_positive_literal_limit(self) -> None:
+        checker = SQLSafetyChecker(("sales",), max_limit=1000)
+
+        result = checker.check(
+            "select amount from sales.orders where order_date >= :start_date limit -1",
+            ("start_date",),
+            {"start_date": "2026-05-25"},
+            required_time_parameters=("start_date",),
+        )
+
+        self.assertFalse(result.allowed)
+        self.assertIn("LIMIT_TOO_LOW", {issue.code for issue in result.issues})
+
     def test_blocks_missing_runtime_parameter(self) -> None:
         checker = SQLSafetyChecker(("sales",))
 

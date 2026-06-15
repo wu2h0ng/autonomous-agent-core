@@ -84,6 +84,47 @@ class PostgresIntegrationTest(unittest.TestCase):
                 raise RuntimeError("boom")
         self.assertEqual(SqlFeedbackStore(self.engine).get_by_trace("t-rb"), ())
 
+    def test_concurrent_register_version_increments_both(self) -> None:
+        import concurrent.futures
+
+        from agent_os_contracts import KnowledgeAsset, LifecycleState
+        from agent_os_persistence import SqlKnowledgeStore
+
+        store = SqlKnowledgeStore(self.engine)
+        store.register(
+            KnowledgeAsset(
+                asset_id="k-race-1",
+                title="[gmv] race",
+                asset_type="decision_loop",
+                source_trace_id="trace-race",
+                owner="revenue_ops",
+                state=LifecycleState.DRAFT,
+            )
+        )
+
+        def bump(asset_id: str, outcome: str) -> None:
+            SqlKnowledgeStore(self.engine).register_version(
+                KnowledgeAsset(
+                    asset_id=asset_id,
+                    title="[gmv] race",
+                    asset_type="decision_loop",
+                    source_trace_id="trace-race",
+                    owner="revenue_ops",
+                    state=LifecycleState.DRAFT,
+                    outcome=outcome,
+                )
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(bump, "k-race-2", "adopted"),
+                pool.submit(bump, "k-race-3", "rejected"),
+            ]
+            for future in futures:
+                future.result()
+
+        self.assertEqual(SqlKnowledgeStore(self.engine).version_of("trace-race"), 3)
+
     def test_hybrid_retrieval_round_trip_on_postgres(self) -> None:
         # The full retrieval write path + hybrid search on the production dialect:
         # register indexes (JSONB payload + JSON embedding), the uow re-embed folds the

@@ -16,7 +16,7 @@ TABLE_TOKEN = re.compile(
     re.IGNORECASE,
 )
 PARAM_REF = re.compile(r":([a-zA-Z_][\w]*)")
-LIMIT_REF = re.compile(r"\blimit\s+(?::([a-zA-Z_][\w]*)|(\d+))\b", re.IGNORECASE)
+LIMIT_REF = re.compile(r"\blimit\s+(?::([a-zA-Z_][\w]*)|(-?\d+))\b", re.IGNORECASE)
 COMMENT_REF = re.compile(r"(--|/\*)")
 # Match a star used as a select-list expansion right after SELECT, including
 # the DISTINCT/ALL quantifier and qualified-star forms (e.g. ``select t.*``).
@@ -138,6 +138,13 @@ class SQLSafetyChecker:
         limit_value = _extract_limit(masked, parameters)
         if self.policy.require_limit and limit_value is None:
             issues.append(_issue("MISSING_LIMIT", "SQL must include an explicit LIMIT."))
+        elif limit_value is not None and limit_value < 1:
+            issues.append(
+                _issue(
+                    "LIMIT_TOO_LOW",
+                    f"LIMIT {limit_value} must be a positive integer.",
+                )
+            )
         elif limit_value is not None and limit_value > effective_max_limit:
             issues.append(
                 _issue(

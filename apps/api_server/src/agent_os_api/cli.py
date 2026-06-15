@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import TextIO
 
@@ -30,12 +31,47 @@ def _add_domain_pack_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--executor",
         choices=(EXECUTOR_STATIC, EXECUTOR_SQLITE),
-        default=EXECUTOR_STATIC,
+        default=None,
         help=(
-            "Query executor to use: 'static' (deterministic fixture rows, default) "
-            "or 'sqlite' (real SQL over the seeded Customer-0 data plane)."
+            "Query executor to use: 'static' (deterministic fixture rows) "
+            "or 'sqlite' (real SQL over the seeded Customer-0 data plane). "
+            "Defaults to AGENT_OS_EXECUTOR or 'static'."
         ),
     )
+
+
+def _add_store_backend_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--store-backend",
+        choices=(STORE_MEMORY, STORE_POSTGRES),
+        default=None,
+        help=(
+            "Store backend for feedback/knowledge/traces. Defaults to "
+            "AGENT_OS_STORE_BACKEND or 'memory'."
+        ),
+    )
+    parser.add_argument(
+        "--database-url",
+        default=None,
+        help="PostgreSQL DSN when store-backend is 'postgres'. Defaults to AGENT_OS_DATABASE_URL.",
+    )
+
+
+def _resolve_factory_config(args: argparse.Namespace) -> RuntimeFactoryConfig:
+    """Merge CLI overrides with 12-factor env, matching the HTTP app factory."""
+    env = dict(os.environ)
+    if args.domain_pack is not None:
+        env[RuntimeFactoryConfig.ENV_DOMAIN_PACK] = str(args.domain_pack)
+    executor = getattr(args, "executor", None)
+    if executor is not None:
+        env[RuntimeFactoryConfig.ENV_EXECUTOR] = executor
+    store_backend = getattr(args, "store_backend", None)
+    if store_backend is not None:
+        env[RuntimeFactoryConfig.ENV_STORE_BACKEND] = store_backend
+    database_url = getattr(args, "database_url", None)
+    if database_url is not None:
+        env[RuntimeFactoryConfig.ENV_DATABASE_URL] = database_url
+    return RuntimeFactoryConfig.from_env(env)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -48,6 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
     query.add_argument("--end-date", required=True)
     query.add_argument("--limit", type=int, default=100)
     _add_domain_pack_args(query)
+    _add_store_backend_args(query)
 
     outcome = subparsers.add_parser(
         "record-outcome",
@@ -68,6 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Observed metric delta as name=value. Repeatable.",
     )
     _add_domain_pack_args(outcome)
+    _add_store_backend_args(outcome)
 
     search = subparsers.add_parser(
         "search",
@@ -81,11 +119,11 @@ def _build_parser() -> argparse.ArgumentParser:
     search.add_argument("--metric", default=None)
     search.add_argument("--owner", default=None)
     search.add_argument("--k", type=int, default=5)
-    search.add_argument("--domain-pack", type=Path, default=Path("domain_packs/content_commerce"))
+    search.add_argument("--domain-pack", type=Path, default=None)
     search.add_argument(
         "--store-backend",
         choices=(STORE_MEMORY, STORE_POSTGRES),
-        default=STORE_MEMORY,
+        default=None,
     )
     search.add_argument("--database-url", default=None)
 
@@ -98,11 +136,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     trace.add_argument("--trace-id", required=True)
-    trace.add_argument("--domain-pack", type=Path, default=Path("domain_packs/content_commerce"))
+    trace.add_argument("--domain-pack", type=Path, default=None)
     trace.add_argument(
         "--store-backend",
         choices=(STORE_MEMORY, STORE_POSTGRES),
-        default=STORE_MEMORY,
+        default=None,
     )
     trace.add_argument("--database-url", default=None)
 
@@ -172,13 +210,7 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
         return 2
 
     if args.command == "trace":
-        store = ContentCommerceRuntimeFactory(
-            RuntimeFactoryConfig(
-                domain_pack_path=args.domain_pack,
-                store_backend=args.store_backend,
-                database_url=args.database_url,
-            )
-        ).build_trace_store()
+        store = ContentCommerceRuntimeFactory(_resolve_factory_config(args)).build_trace_store()
         payload = trace_service(store, trace_id=args.trace_id)
         if payload is None:
             _emit({"error": f"No run trace for {args.trace_id!r}."}, stdout)
@@ -188,11 +220,7 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
 
     if args.command == "search":
         retriever = ContentCommerceRuntimeFactory(
-            RuntimeFactoryConfig(
-                domain_pack_path=args.domain_pack,
-                store_backend=args.store_backend,
-                database_url=args.database_url,
-            )
+            _resolve_factory_config(args)
         ).build_knowledge_retriever()
         payload = search_service(
             retriever,
@@ -204,9 +232,7 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
         _emit(payload, stdout)
         return 0
 
-    factory = ContentCommerceRuntimeFactory(
-        RuntimeFactoryConfig(domain_pack_path=args.domain_pack, executor=args.executor)
-    )
+    factory = ContentCommerceRuntimeFactory(_resolve_factory_config(args))
     runtime = factory.build()
 
     if args.command == "query":

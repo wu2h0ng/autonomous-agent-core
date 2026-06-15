@@ -11,9 +11,9 @@ For the three-repo role map, see the baseline workspace `.agent` file and `docs/
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: 309 unit tests passing, 2 eval tests passing, OpenAPI contract clean, ruff clean.
+PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: 315 unit tests passing, 2 eval tests passing, OpenAPI contract clean, ruff clean.
 
-Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
+Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
 
 ## Hard Boundaries
 

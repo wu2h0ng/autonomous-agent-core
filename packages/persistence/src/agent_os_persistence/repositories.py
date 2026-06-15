@@ -115,25 +115,22 @@ class SqlKnowledgeStore(_SqlStoreBase, KnowledgeStorePort):
         table = schema.knowledge_assets
         payload = mappers.knowledge_to_payload(asset)
         with self._write() as conn:
-            row = conn.execute(
-                select(table.c.version).where(table.c.source_trace_id == key)
-            ).fetchone()
-            if row is None:
+            updated = conn.execute(
+                table.update()
+                .where(table.c.source_trace_id == key)
+                .values(version=table.c.version + 1, payload=payload)
+            )
+            if updated.rowcount == 0:
                 conn.execute(table.insert().values(source_trace_id=key, version=1, payload=payload))
-            else:
-                conn.execute(
-                    table.update()
-                    .where(table.c.source_trace_id == key)
-                    .values(version=row[0] + 1, payload=payload)
-                )
         return asset
 
     def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
         table = schema.knowledge_assets
         with self._read() as conn:
-            row = conn.execute(
-                select(table.c.payload).where(table.c.source_trace_id == trace_id)
-            ).fetchone()
+            stmt = select(table.c.payload).where(table.c.source_trace_id == trace_id)
+            if isinstance(self._bind, Connection):
+                stmt = stmt.with_for_update()
+            row = conn.execute(stmt).fetchone()
         return mappers.knowledge_from_payload(row[0]) if row is not None else None
 
     def version_of(self, trace_id: str) -> int:
