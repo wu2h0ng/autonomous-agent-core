@@ -37,7 +37,11 @@ from .query_runtime import SQLiteQueryExecutor, StaticQueryExecutor, TemplateReg
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .trace import InMemoryTraceStore, TraceRecorder, TraceStorePort
-from .trusted_loop import TrustedLoopBlocked, TrustedLoopRuntime
+from .trusted_loop import (
+    GroundingInvariantViolation,
+    TrustedLoopBlocked,
+    TrustedLoopRuntime,
+)
 
 __all__ = [
     "ActionConnector",
@@ -88,6 +92,7 @@ __all__ = [
     "ShellView",
     "SnapshotStore",
     "StaticQueryExecutor",
+    "GroundingInvariantViolation",
     "TemplateRegistry",
     "tokenize_content",
     "TrustedLoopBlocked",

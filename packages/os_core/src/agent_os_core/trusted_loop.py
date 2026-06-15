@@ -9,6 +9,7 @@ from uuid import uuid4
 from agent_os_contracts import (
     BlockCode,
     BusinessIntent,
+    EvidenceChain,
     FeedbackEvent,
     KnowledgeQuery,
     MetricContract,
@@ -18,6 +19,7 @@ from agent_os_contracts import (
     QueryPlan,
     RetrievalResult,
     RunTrace,
+    SQLSafetyResult,
     SQLTemplate,
     StateSnapshot,
     TelemetryDimension,
@@ -59,6 +61,19 @@ class TrustedLoopBlocked(Exception):
     def __init__(self, block: TrustedLoopBlock) -> None:
         self.block = block
         super().__init__(f"[{block.code.value}] {block.message}")
+
+
+class GroundingInvariantViolation(Exception):
+    """Raised when a formal answer/action would be emitted WITHOUT passing SQL Safety
+    and a complete EvidenceChain — a bypass of the Trusted Loop's non-bypassable
+    mediation (P5.1b, ADR-0001 P5-1 / AR-20260614).
+
+    This is distinct from :class:`TrustedLoopBlocked`: a block is an expected,
+    user-facing business outcome; this is a HARD invariant breach. The Trusted Loop
+    is the only sanctioned producer of grounded answers, so reaching here means the
+    data/evidence path was bypassed by a wiring/refactor bug. Fail loudly; never
+    emit an ungrounded answer or action.
+    """
 
 
 class TrustedLoopRuntime:
@@ -421,6 +436,13 @@ class TrustedLoopRuntime:
             attributes={"metric": metric_contract.metric_name},
         )
 
+        # Non-bypassable mediation invariant (P5.1b, ADR-0001 P5-1 / AR-20260614):
+        # the single, explicit grounding checkpoint. No proposal, governed execution,
+        # R4/R5 halt, or answer below this line exists unless the query passed SQL
+        # Safety AND the EvidenceChain is complete. A surface/refactor that bypasses
+        # the data/evidence path trips this loudly instead of emitting an ungrounded answer.
+        self._assert_grounded(safety, evidence)
+
         proposal = self.action_builder.build(
             proposal_id=f"proposal-{uuid4().hex[:12]}",
             evidence=evidence,
@@ -740,3 +762,22 @@ class TrustedLoopRuntime:
             tenant_id=parsed.tenant_id,
             workspace_id=parsed.workspace_id,
         )
+
+    @staticmethod
+    def _assert_grounded(safety: SQLSafetyResult, evidence: EvidenceChain) -> None:
+        """The non-bypassable mediation invariant (P5.1b, ADR-0001 P5-1).
+
+        A formal answer or action MUST be grounded: the query passed SQL Safety AND
+        the EvidenceChain is complete (``is_complete()`` itself requires
+        ``sql_safety.allowed``). This is the single explicit checkpoint every
+        answer/proposal/execution flows through; bypassing the data/evidence path
+        raises :class:`GroundingInvariantViolation` — a hard breach, not a block.
+        """
+        if not safety.allowed:
+            raise GroundingInvariantViolation(
+                "refused to ground a formal answer/action: SQL Safety did not pass"
+            )
+        if not evidence.is_complete():
+            raise GroundingInvariantViolation(
+                "refused to ground a formal answer/action: EvidenceChain is incomplete"
+            )
