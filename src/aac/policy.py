@@ -37,15 +37,10 @@ class PolicySelector:
         explore_drive: float,
         pressure: float,
     ) -> int:
-        prag_w = 0.5 + pressure
-        epis_w = explore_drive
-        temperature = self.base_temperature + explore_drive
-        if self.confidence_gate:
-            conf = self._confidence(model)
-            epis_w = (1.0 - conf) * explore_drive
-            temperature = self.gate_temp_floor + (1.0 - conf) * (
-                self.base_temperature + explore_drive - self.gate_temp_floor
-            )
+        diag = self.diagnostics(model, explore_drive, pressure)
+        prag_w = diag["w_p"]
+        epis_w = diag["w_e"]
+        temperature = diag["tau"]
         scores: list[float] = []
         for a in range(model.n_actions):
             if a in self.forbidden:
@@ -53,6 +48,30 @@ class PolicySelector:
             else:
                 scores.append(prag_w * model.mu[a] + epis_w * model.uncertainty[a])
         return self._sample(scores, temperature)
+
+    def diagnostics(
+        self,
+        model: ActionOutcomeModel,
+        explore_drive: float,
+        pressure: float,
+    ) -> dict[str, float]:
+        """Return policy path diagnostics without sampling or mutating RNG state."""
+        conf = self._confidence(model)
+        prag_w = 0.5 + pressure
+        epis_w = explore_drive
+        temperature = self.base_temperature + explore_drive
+        if self.confidence_gate:
+            epis_w = (1.0 - conf) * explore_drive
+            temperature = self.gate_temp_floor + (1.0 - conf) * (
+                self.base_temperature + explore_drive - self.gate_temp_floor
+            )
+        return {
+            "rho": explore_drive,
+            "conf": conf,
+            "tau": temperature,
+            "w_e": epis_w,
+            "w_p": prag_w,
+        }
 
     def _confidence(self, model: ActionOutcomeModel) -> float:
         """Subject-side confidence in the current leader, in [0, 1].

@@ -46,6 +46,7 @@ class Agent:
         gate_temp_floor: float = 0.1,
         base_temperature: float = 0.3,
         residual_calibrator: ResidualCalibrator | None = None,
+        relevance: RelevanceField | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -59,7 +60,7 @@ class Agent:
         self.rng = rng
         self.viability = viability if viability is not None else ViabilityCore(budget=budget)
         self.model = ActionOutcomeModel(n_actions=n_actions)
-        self.relevance = RelevanceField()
+        self.relevance = relevance if relevance is not None else RelevanceField()
         # G9 (ADR-0023): optional confidence-gated policy (subject-side; reads the
         # agent's own model, no organ in the control path). policy_gate=False keeps
         # the baseline policy bit-identical.
@@ -132,6 +133,7 @@ class Agent:
         drive: str | None = None
         prior_applied = 0
         prior_uncertainty: float | None = None
+        policy_diag: dict[str, float] | None = None
         if reflex_engaged:
             action = self.reflex.select(  # type: ignore[union-attr]
                 self.model, forbidden=self.shell.forbidden
@@ -149,6 +151,9 @@ class Agent:
                 prior_applied = merge_organ_advice(self.model, advice)
                 prior_uncertainty = advice.uncertainty
             explore = self.relevance.explore_drive if self.modulate_relevance else 0.5
+            policy_diag = self.policy.diagnostics(
+                self.model, explore, self.viability.pressure
+            )
             action = self.policy.select(self.model, explore, self.viability.pressure)
 
         reward = env.act(action)
@@ -190,6 +195,11 @@ class Agent:
         if self.residual_calibrator is not None and residual_scale is not None:
             record["residual_calibrator"] = type(self.residual_calibrator).__name__
             record["residual_scale"] = round(residual_scale, 4)
+        if policy_diag is not None:
+            record["rho"] = round(policy_diag["rho"], 4)
+            record["conf"] = round(policy_diag["conf"], 4)
+            record["tau"] = round(policy_diag["tau"], 4)
+            record["w_e"] = round(policy_diag["w_e"], 4)
         self.shell.observe(record)
         return record
 

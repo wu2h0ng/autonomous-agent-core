@@ -27,19 +27,32 @@ class StructuredRegimeEnv:
         noise: float = 0.3,
         reward_low: float = -1.0,
         reward_high: float = 4.0,
+        severity: float | None = None,
     ) -> None:
         if n_actions <= 0 or n_regimes <= 1 or period <= 0:
             raise ValueError("n_actions>0, n_regimes>1, period>0 required")
+        if severity is not None and not 0.0 <= severity <= 1.0:
+            raise ValueError("severity must be in [0, 1]")
         self.n_actions = n_actions
         self.rng = rng if rng is not None else random.Random()
         self.n_regimes = n_regimes
         self.period = period
         self.noise = noise
+        self.severity = severity
         # Fixed library of recurring latent regimes (generated once, seeded).
-        self._library = [
-            [self.rng.uniform(reward_low, reward_high) for _ in range(n_actions)]
-            for _ in range(n_regimes)
-        ]
+        if severity is None:
+            self._library = [
+                [self.rng.uniform(reward_low, reward_high) for _ in range(n_actions)]
+                for _ in range(n_regimes)
+            ]
+        else:
+            non_best = reward_high - severity * (reward_high - reward_low)
+            self._library = []
+            for _ in range(n_regimes):
+                best = self.rng.randrange(n_actions)
+                rewards = [non_best] * n_actions
+                rewards[best] = reward_high
+                self._library.append(rewards)
         self._current = 0
         self.t = 0
         self.regime_index = 0

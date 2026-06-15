@@ -1,0 +1,218 @@
+{
+  "adr": "ADR-0034",
+  "best_mean_area": 1986.55,
+  "best_params": {
+    "base_temperature": 0.03,
+    "inertia": 0.25,
+    "surprise_gain": 1.0
+  },
+  "conditions": [
+    {
+      "noise": 0.3,
+      "severity": 0.1
+    },
+    {
+      "noise": 0.3,
+      "severity": 1.0
+    },
+    {
+      "noise": 0.1,
+      "severity": 1.0
+    },
+    {
+      "noise": 0.5,
+      "severity": 1.0
+    },
+    {
+      "noise": 1.0,
+      "severity": 1.0
+    }
+  ],
+  "grid_rows": [
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.25,
+      "mean_area": 1986.55,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.5,
+      "mean_area": 1989.3,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.75,
+      "mean_area": 1990.645,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.25,
+      "mean_area": 2008.875,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.5,
+      "mean_area": 2017.765,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.75,
+      "mean_area": 2018.775,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.5,
+      "mean_area": 2027.4,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.5,
+      "mean_area": 2031.195,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.25,
+      "mean_area": 2031.46,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.75,
+      "mean_area": 2033.655,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.03,
+      "inertia": 0.75,
+      "mean_area": 2036.88,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.25,
+      "mean_area": 2037.045,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.5,
+      "mean_area": 2052.935,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.75,
+      "mean_area": 2059.14,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.25,
+      "mean_area": 2060.53,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.75,
+      "mean_area": 2075.875,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.5,
+      "mean_area": 2078.66,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.1,
+      "inertia": 0.25,
+      "mean_area": 2084.32,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.75,
+      "mean_area": 2125.575,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.5,
+      "mean_area": 2128.025,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.25,
+      "mean_area": 2129.86,
+      "surprise_gain": 1.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.5,
+      "mean_area": 2146.765,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.75,
+      "mean_area": 2150.345,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.25,
+      "mean_area": 2151.115,
+      "surprise_gain": 2.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.25,
+      "mean_area": 2165.85,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.5,
+      "mean_area": 2166.495,
+      "surprise_gain": 4.0
+    },
+    {
+      "base_temperature": 0.3,
+      "inertia": 0.75,
+      "mean_area": 2172.9,
+      "surprise_gain": 4.0
+    }
+  ],
+  "kind": "RSTAR calibration freeze",
+  "seeds": [
+    1400,
+    1401,
+    1402,
+    1403,
+    1404,
+    1405,
+    1406,
+    1407,
+    1408,
+    1409,
+    1410,
+    1411,
+    1412,
+    1413,
+    1414,
+    1415,
+    1416,
+    1417,
+    1418,
+    1419
+  ]
+}
