@@ -69,6 +69,16 @@ skills:
       - "Every imported concept must map to a mechanism, gate, metric, or explicit non-goal."
       - "Synthesize specialists but do not override founder-reserved decisions."
 
+  academic-paper-reviewer:
+    purpose: "Write, review, revise, and prepare scholarly manuscripts under strict academic peer-review standards: novelty, claim-evidence alignment, methodology, experiments, statistics, related work, reproducibility, limitations, rebuttal, and publication readiness."
+    outputs: ["peer_review_report", "claim_evidence_audit", "revision_plan", "manuscript_draft", "related_work_gap_map", "rebuttal_response", "submission_readiness_report"]
+    guardrails:
+      - "Do not inflate claims beyond evidence."
+      - "Separate established results, exploratory observations, hypotheses, and speculation."
+      - "Require strong baselines, ablations, statistics, limitations, and reproducibility details for empirical claims."
+      - "Treat negative results as first-class academic evidence."
+      - "For autonomous-agent-core papers, ADR/RR/current-state records are authoritative and post-hoc winners require fresh confirmation."
+
   autonomous-agent-world-model-researcher:
     purpose: "Research and review world-model, active inference, predictive processing, RL, JEPA-style latent prediction, planning, affordance, and environment design questions."
     outputs: ["world_model_review", "environment_design", "ablation_plan", "prediction_uncertainty_map"]
@@ -537,6 +547,24 @@ agents:
     trigger: "Firmware, embedded systems, drivers, RTOS, sensors, actuators, robotics, IoT, edge gateways, OTA update, secure boot, attestation, or hardware adaptation questions."
     responsibilities: ["Define device/control boundaries.", "Review real-time and safety constraints.", "Specify firmware update, rollback, and hardware-in-the-loop testing needs."]
     outputs: ["device_control_boundary", "real_time_safety_constraints", "firmware_update_risk", "hardware_in_loop_test_plan"]
+
+  - id: "academic-paper-reviewer-agent"
+    display_name: "Academic Paper Reviewer Agent"
+    model_tier: "T2_reasoning_review"
+    skills: ["academic-paper-reviewer"]
+    trigger: "Academic paper writing, strict peer review, manuscript revision, arXiv/conference/journal submission preparation, related work, novelty audit, methodology audit, experiment/statistics review, limitations, rebuttal, claim-evidence validation, or research paper polishing."
+    responsibilities:
+      - "Audit novelty, claims, evidence, methods, baselines, ablations, statistics, reproducibility, limitations, and related work."
+      - "Draft and revise manuscripts without overstating results."
+      - "Prepare reviewer-style reports, rebuttals, revision plans, and submission-readiness checks."
+      - "Enforce project research truth from ADR/RR/current-state records when papers use local project results."
+    inputs: ["manuscript", "research_records", "experiment_results", "target_venue", "reviewer_comments", "related_work_notes"]
+    outputs: ["peer_review_report", "claim_evidence_audit", "manuscript_revision", "rebuttal_response", "submission_readiness_report"]
+    boundaries:
+      - "Do not invent citations, results, proofs, reviewer standards, or venue requirements."
+      - "Do not convert exploratory or negative results into established claims."
+      - "Do not override founder/CTO research verdicts or preregistered gates."
+    handoff_to: ["autonomous-agent-core-research-director-agent", "documentation-agent", "memory-knowledge-agent", "codex-cto-agent"]
 
   - id: "codex-ceo-agent"
     display_name: "Codex CEO Agent"

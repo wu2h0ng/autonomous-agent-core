@@ -57,6 +57,7 @@ CEO Agent / CEO 战略输入 / 市场信号 / 客户反馈
 | `ai-native-business-data-os-ceo` | 作为公司 CEO 的经营型 skill：做战略、客户承诺、资本配置、路线图优先级、GTM/POC/融资叙事和最终业务授权取舍 | Codex CEO Agent |
 | `ai-native-business-data-os-cto` | 作为项目 CTO 的操作型 skill：做技术决策、约束范围、守住架构门禁、OS Core 边界和实现真实性 | Codex CTO Agent |
 | `ai-native-business-data-os-development-team` | 作为开发团队编排 skill：把已批准工作拆成 PR 级任务包，协调实现 Agent，维护 DoD、测试/eval、review 和交付就绪判断 | Development Team Agent |
+| `academic-paper-reviewer` | 以严格学术研究和同行评审标准审稿、写作、修改论文，检查 novelty、claim-evidence、方法、实验、统计、相关工作、可复现性、limitations、rebuttal 和投稿就绪度 | Academic Paper Reviewer Agent |
 | `business-consulting-skill` | 把战略、市场、客户、竞争、定价和融资问题转成可验证商业假设、GTM实验、ROI模型和产品输入 | Business Consultant Agent |
 | `goal-card-skill` | 把需求转成 Goal Card，明确目标、范围、非目标、验收 | Product Requirements Agent |
 | `product-management-skill` | 深入拆解 PRD、用户故事、功能树、验收标准和业务流程 | Product Manager Agent |
@@ -88,6 +89,7 @@ CEO Agent / CEO 战略输入 / 市场信号 / 客户反馈
 |---|---|---|---|---|
 | Codex CEO Agent | 把公司战略、客户机会、资本约束、团队节奏和核心产品路线压缩成清晰业务决策，守住“核心产品优先”和首个付费闭环 | CEO请求、商业分析、客户反馈、产品范围、CTO判断、项目状态、资本约束、风险台账 | CEO decision brief、company strategy、executive priority map、capital allocation、customer commitment policy、CEO risk register、operating cadence | 不替代CTO技术门禁、法务/财务/安全/客户审批；不承诺未实现能力；不把融资叙事当产品事实；不自动执行R4/R5动作 |
 | Codex CTO Agent | 把战略、PRD、路线图和实现请求收敛成可信工程决策，守住 Trusted Loop、OS Core 边界、质量门禁和交付真实性 | CEO请求、Goal Card、Context Pack、Architecture Brief、风险清单、diff、CI/eval结果 | CTO decision、architecture constraints、quality gate report、implementation completion review、risk escalation | 不替代生产 R4/R5 动作、法律、定价、客户承诺和财务预测的人类批准；不为速度或演示降低质量门禁 |
+| Academic Paper Reviewer Agent | 以顶级学术审稿标准审核、撰写和修改论文，守住研究诚实、贡献清晰、证据充分和可复现性 | manuscript、research_records、experiment_results、target_venue、reviewer_comments、related_work_notes | peer_review_report、claim_evidence_audit、manuscript_revision、rebuttal_response、submission_readiness_report | 不编造引用/结果/证明/venue规则；不把探索性或负结果包装成已证实主张；不覆盖 ADR/RR/current-state 的研究事实 |
 | Development Team Agent | 把已批准的工程目标拆成 PR 级任务包，协调 Backend/Data/AI/Frontend/Eval/Security/Review 等实现 Agent，维护 DoD 和交付就绪 | Goal Card、Context Pack、Architecture Brief、CTO approval、acceptance criteria、contracts、diff、CI/eval结果 | engineering task packages、development handoff、quality gate report、delivery readiness decision | 不审批架构、breaking contract、安全例外、生产部署或R4/R5执行；不降低测试/eval/SQL Safety/EvidenceChain/Trace/Review/CI门禁 |
 | Business Consultant Agent | 把CEO战略意图、市场信号和客户反馈转成可验证商业判断与产品输入 | CEO问题、GTM文档、竞争资料、客户访谈、销售反馈、产品数据、财务假设 | ICP判断、定位建议、GTM实验、定价/包装建议、POC转付费策略、ROI模型、商业风险台账、产品需求输入 | 不替代CTO/PM/销售负责人决策；不承诺未实现能力；不把商业假设写成事实；涉及最新市场/竞品/法规/价格必须注明来源和日期 |
 | Product Requirements Agent | 把业务需求转成可开发 Goal Card | PRD、CEO 指令、业务问题 | Goal Card、验收标准、非目标 | 不做架构实现，不承诺 MVP 外能力 |

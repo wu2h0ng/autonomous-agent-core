@@ -11,6 +11,7 @@ current_stage:
     - "Stage 1 Trusted Business Loop MVP complete as of 2026-06-11"
     - "PR-01 through PR-06 merged to main"
     - "P5.1b adoption-driven knowledge promotion complete"
+    - "P5.1b-ii non-bypassable grounding invariant complete"
     - "P5.2a corrigibility pause shell complete"
   immediate_next:
     id: "P5-decision-gated-next-slice"
@@ -21,9 +22,9 @@ current_stage:
     - "Automatic production R4/R5 action execution"
 
 last_verified_tests:
-  command: "make ci or unittest suite per README"
-  result: "304 unit tests passed, 3 skipped, 4 subtests; OpenAPI contract clean; ruff clean"
-  source: "README.md and root code_index.md current-state summary"
+  command: "pytest unit + eval suites; OpenAPI contract check; ruff check + format check"
+  result: "309 unit tests passed, 3 skipped, 4 subtests; 2 eval tests passed, 10 subtests; OpenAPI contract clean; ruff clean"
+  source: "local verification after fast-forward merge of feat/p5.1b-ii-grounding-invariant"
   verified_at: "2026-06-15"
 
 authoritative_records:
@@ -39,6 +40,7 @@ authoritative_records:
     - "docs/decisions/ADR-0001-p5-substrate-harvest.md"
     - "docs/decisions/ADR-0001-P5.1b-current-addendum.md"
     - "docs/architecture_reviews/AR-20260614-p5.1b-adoption-driven-knowledge.md"
+    - "docs/architecture_reviews/AR-20260614-p5.1b-ii-grounding-invariant.md"
     - "docs/architecture_reviews/AR-20260614-p5.2-corrigibility-shell.md"
   archived_baseline:
     - "docs/project_baseline/"
