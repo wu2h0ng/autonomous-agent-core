@@ -1,15 +1,15 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-06-14
+> Last updated: 2026-06-15
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
 ## Current Snapshot
 
 ```yaml
-branch: feat/p6-consolidate-g10
+branch: main
 stage: P6 consolidated
-immediate_next: publish P6 consolidation; continue P5 deployment projection in enterprise repo
+immediate_next: publish/review P6 research synthesis; continue P5 deployment projection in enterprise repo
 tests: 388 OK
 ```
 
@@ -44,6 +44,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0029-risk-calibration-axis-de-risk.md` | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
 | `ADR-0030-g10-completeness-trap-avoidance.md` | COMPLETENESS PASS | G10/P0 survives fixed-low-temp, metric, real-stake, structure-theft, and spectrum traps |
 | `ADR-0031-prediction1-residual-calibrator-vs-g10.md` | PRED1-HOLDS | Residual self-calibrator did not beat frozen G10; RR-0019 Claim 1/3 survived the attack |
+| `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` | Accepted | Frontier systems enter only through classified lanes/channels; structured environments are the next admissible experiment family |
+| `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
 
 ## Current Code Map
 

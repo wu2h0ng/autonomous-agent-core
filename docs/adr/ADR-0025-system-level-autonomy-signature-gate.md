@@ -1,6 +1,6 @@
 # ADR-0025: Lift the falsification altitude — system-level autonomy-signature gate (G11)
 
-- Status: **Accepted at the route level** (founder 2026-06-14 session ruling: altitude move agreed, option **C3 de-risk → C1**, C2 parked). **The G11 gate pre-registration freezes only after ADR-0024/G10 (P0 single-axis confirmation) and the C3 de-risk probe.** No mechanism implemented by this ADR.
+- Status: **Historical route-level Accepted; parked/not executable after ADR-0027, ADR-0028, and ADR-0029.** Founder 2026-06-14 accepted the altitude move and option C3 de-risk -> C1, but C3/survival/risk de-risks left no second independent vs-cheap-baseline axis. The G11 gate was never frozen and must not be implemented without a new founder-level reset ADR.
 - Date: 2026-06-14
 - Deciders: founder ruled route C, the altitude move (component scalar → system vector), option C3→C1, and C2 parked. Agent drafts per ADR-0003 "起草≥2选项→对抗评审→画像对照→留痕→否决窗口".
 - Scope: research-program route after the P4.x ladder and the G9 subject-side breakthrough. Pre-registers candidate gate **G11**; no spend, no LLM-in-control-path, no cross-repo.
