@@ -31,6 +31,7 @@ from .action_governance import ActionGovernance
 from .adoption import AdoptionLedgerView
 from .action_proposal import ActionProposalBuilder
 from .approval_lite import ApprovalLiteRuntime
+from .corrigibility import ShellView
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .evidence_chain import EvidenceChainBuilder
@@ -100,6 +101,7 @@ class TrustedLoopRuntime:
         recall_k: int = 3,
         trace_store: TraceStorePort | None = None,
         adoption_ledger_view: AdoptionLedgerView | None = None,
+        shell_view: ShellView | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -158,6 +160,11 @@ class TrustedLoopRuntime:
         # runtime holds NO writer — only an operator-held AdoptionIngest writes
         # realized value. ``None`` = no value channel wired (reads return empty).
         self.adoption_ledger_view = adoption_ledger_view
+        # Operator sovereignty: a read-only view of the corrigibility shell (P5.2,
+        # ADR-0001). The runtime reads ``paused`` and can ``observe`` into the
+        # tamper-evident audit, but holds no op_* — it cannot pause/resume itself.
+        # ``None`` = no shell wired (the loop runs unguarded).
+        self.shell_view = shell_view
         # Optional unit-of-work factory: a zero-arg callable returning a context
         # manager that yields (feedback_store, knowledge_store) bound to one
         # transaction, making record_outcome's two writes atomic. When None,
@@ -226,6 +233,20 @@ class TrustedLoopRuntime:
             value=1,
             unit="count",
         )
+
+        # Operator sovereignty (P5.2, ADR-0001 P5-2): if the operator has paused the
+        # system via the corrigibility shell, the loop refuses to answer until resumed.
+        # The runtime holds only a read-only ShellView — it cannot un-pause itself. The
+        # refusal is recorded in the tamper-evident audit chain.
+        if self.shell_view is not None and self.shell_view.paused:
+            self.shell_view.observe({"event": "run_refused_paused", "trace_id": trace_id})
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.PAUSED,
+                    message="The system is paused by the operator.",
+                    stage="corrigibility_pause",
+                )
+            )
 
         intent = self._parse_intent(question)
         trace.record("intent", {"intent_id": intent.intent_id, "metric": intent.metric_name})

@@ -19,6 +19,7 @@ from agent_os_core import (
     AdoptionIngest,
     AdoptionLedger,
     ApprovalLiteRuntime,
+    CorrigibilityShell,
     ProviderRegistry,
     SemanticRegistry,
     TemplateRegistry,
@@ -108,6 +109,10 @@ class ContentCommerceRuntimeFactory:
         # read-only view and the operator's ingest must share the same value
         # channel. The runtime gets the view; only adoption_ingest() yields a writer.
         self._adoption_ledger: AdoptionLedger | None = None
+        # ONE corrigibility shell per factory (P5.2a, ADR-0001): the operator keeps
+        # the shell/op_* surface; every runtime built by this factory gets only the
+        # read-only ShellView. This mirrors the adoption-channel split.
+        self._corrigibility_shell: CorrigibilityShell | None = None
 
     def build(self) -> TrustedLoopRuntime:
         metrics = self._load_metrics()
@@ -145,6 +150,9 @@ class ContentCommerceRuntimeFactory:
             # Read-only port onto the external adoption value channel (P5.1a):
             # the runtime can read realized value, never write it.
             adoption_ledger_view=self._adoption_ledger_singleton().view(),
+            # Read-only capability view: runtime can observe pause state and audit
+            # refusal, but it cannot pause/resume itself.
+            shell_view=self.corrigibility_shell().view(),
         )
 
     def _adoption_ledger_singleton(self) -> AdoptionLedger:
@@ -161,6 +169,17 @@ class ContentCommerceRuntimeFactory:
         external value channel.
         """
         return AdoptionIngest(self._adoption_ledger_singleton())
+
+    def corrigibility_shell(self) -> CorrigibilityShell:
+        """Operator-exclusive sovereignty shell for pause/resume (P5.2a).
+
+        The factory is the composition boundary: callers that represent the operator
+        may hold this object and call ``op_*``. The runtime built by this factory is
+        handed only ``shell.view()`` and therefore has no operator surface.
+        """
+        if self._corrigibility_shell is None:
+            self._corrigibility_shell = CorrigibilityShell()
+        return self._corrigibility_shell
 
     def _build_stores(self) -> tuple[Any, Any, Any, Any, Any, Any]:
         """Select the store backend for feedback/knowledge/snapshot/approval/trace.

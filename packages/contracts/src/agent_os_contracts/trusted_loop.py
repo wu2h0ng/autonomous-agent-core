@@ -193,6 +193,10 @@ class BlockCode(StrEnum):
     NO_PROVIDER = "no_provider"
     NO_TEMPLATE = "no_template"
     SQL_SAFETY = "sql_safety"
+    # P5.2 (ADR-0001): the operator has paused the system via the corrigibility
+    # shell; the loop refuses to answer until resumed. Operator sovereignty, not
+    # a data/intent problem.
+    PAUSED = "paused"
 
 
 @dataclass(frozen=True)

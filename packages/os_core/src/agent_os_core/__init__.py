@@ -12,6 +12,7 @@ from .approval_lite import (
     ApprovalStorePort,
     InMemoryApprovalStore,
 )
+from .corrigibility import AuditEntry, AuditLog, CorrigibilityShell, ShellView
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .embedding import Embedder, HashingEmbedder
@@ -49,7 +50,10 @@ __all__ = [
     "ApprovalLiteRuntime",
     "ApprovalRecord",
     "ApprovalStorePort",
+    "AuditEntry",
+    "AuditLog",
     "Candidate",
+    "CorrigibilityShell",
     "DataProductCompiler",
     "Embedder",
     "HybridScorer",
@@ -81,6 +85,7 @@ __all__ = [
     "ProviderRegistry",
     "SQLiteQueryExecutor",
     "SemanticRegistry",
+    "ShellView",
     "SnapshotStore",
     "StaticQueryExecutor",
     "TemplateRegistry",

@@ -19,7 +19,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. 284+ tests passing, ruff clean.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway with 304 unit tests passing, OpenAPI contract clean, and ruff clean.
 
 ### Delivered Capabilities
 
@@ -60,6 +60,8 @@ BusinessIntent → SemanticObject → MetricContract → ProviderContract
 **Eval Hub**: EvalThresholdReporter with golden-loop dimension checks
 
 **Action Governance**: OperationState machine, snapshot/rollback, approval-required guard
+
+**Corrigibility Pause Shell (P5.2a)**: operator-held `CorrigibilityShell`, runtime-held read-only `ShellView`, hash-chain audit, and `BlockCode.PAUSED` refusal path
 
 **12-Factor Env Wiring**: `RuntimeFactoryConfig.from_env()` — switch backends via environment variables
 
