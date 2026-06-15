@@ -2,7 +2,7 @@ updated: "2026-06-15"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed; P6 synthesis package published; ADR-0034 relevance-aware G10 theory test pre-registered; ADR-0035 P7 ecological environment axis accepted but blocked until ADR-0034 completes"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed; P6 synthesis package published; ADR-0034 relevance-aware G10 theory test pre-registered; ADR-0035 P7 transferable ecological-structure environment axis accepted but blocked until ADR-0034 completes"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
   count: 388
@@ -13,7 +13,7 @@ current_stage:
   label: "P6 consolidation: one robust subject-side lever, no independent second axis"
   synthesis_artifact: "docs/P6-research-synthesis.md"
   immediate_next: "Implement ADR-0034 T-P6.5 in serial slices: severity/noise env guards, policy diagnostics, RSTAR calibration, then r-final; continue P5 deployment projection separately"
-  after_next: "After ADR-0034, implement ADR-0035/P7 G12 2x2 ecological environment gate; do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
+  after_next: "After ADR-0034, implement ADR-0035/P7 G12 2x2 transferable ecological-structure environment gate; do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -43,7 +43,7 @@ authoritative_adrs:
     - "ADR-0032 accepts frontier architecture intake lanes: self-recursive systems stay external, LLM/world-model organs stay P4.x bounded advisers, and structured semantic/hierarchical environments are the next admissible experiment family."
     - "ADR-0033 accepts the HyperAgents/DGM assimilation boundary: L0-L3 external candidate generation is allowed under scans/review; L4 runtime self-modification and L5 safety-substrate self-editing are forbidden."
     - "ADR-0034 accepts a relevance-aware full-Agent theory test: G10 remains true, but RR-0019's mechanism attribution must be tested as B/R/K rather than B/K."
-    - "ADR-0035 accepts P7 as an ecological environment axis with a 2x2 G12 gate; implementation is blocked until ADR-0034 completes and must preserve the internal-reset vs external-rollback distinction."
+    - "ADR-0035 accepts P7 as a transferable ecological-structure environment axis with a 2x2 G12 gate; implementation is blocked until ADR-0034 completes and must preserve the internal-reset vs external-rollback distinction."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"

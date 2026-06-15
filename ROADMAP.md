@@ -151,9 +151,9 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Implementation order**: severity/noise env guards -> policy diagnostics (`rho/conf/tau/w_e`) -> RSTAR calibration -> r-final result update.
 - **Boundary**: this is theory attribution only. It does not reopen G11/C1, retune P0, import LLMs, or weaken C6/C7.
 
-## P7 — Ecological Environment Axis (ADR-0035, blocked until ADR-0034 completes)
+## P7 — Transferable Ecological-Structure Environment Axis (ADR-0035, blocked until ADR-0034 completes)
 
-- **Purpose**: shift the independent variable from organ/model cleverness to the environment. P7 asks whether autonomy-like advantage appears only when the world has ecological coupling and irreversible external consequences.
+- **Purpose**: shift the independent variable from organ/model cleverness to the environment. P7 asks whether autonomy-like advantage appears only when the world has transferable ecological structure and irreversible external consequences.
 - **Gate**: G12 2x2 design:
   - thin/reversible
   - thin/irreversible

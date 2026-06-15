@@ -1,4 +1,4 @@
-# ADR-0035: P7 Ecological Environment Axis And G12 2x2 Gate
+# ADR-0035: P7 Transferable Ecological-Structure Environment Axis And G12 2x2 Gate
 
 - Status: Accepted (P7 design / pre-registration; implementation blocked until ADR-0034 completes)
 - Date: 2026-06-15
@@ -63,7 +63,7 @@ Pros:
 Cons:
 
 - Leaves the original autonomy intuition under-tested: real autonomy may only be visible
-  when the world has ecological coupling and irreversible consequence.
+  when the world has transferable environmental structure and irreversible consequence.
 - Risks overfitting the whole program to reversible bandit-style toy worlds.
 
 ### Option B: Add a new organ or LLM/world-model mechanism
@@ -79,12 +79,12 @@ Cons:
   cleverness.
 - Risks re-opening parked routes without a new axis.
 
-### Option C: Open P7 as an ecological environment axis with a 2x2 gate
+### Option C: Open P7 as a transferable ecological-structure environment axis with a 2x2 gate
 
 Pros:
 
 - Moves the independent variable to the environment.
-- Separates ecological coupling from irreversible consequence.
+- Separates transferable environmental structure from irreversible consequence.
 - Keeps O1/internal reset as a fair baseline while removing only external rollback.
 - Pre-registers failure interpretations, including "all four cells fail".
 
@@ -100,30 +100,44 @@ Choose **Option C**.
 P7 is accepted as a research axis, but implementation is blocked until ADR-0034 finishes.
 This avoids stacking a new environment gate on top of an unresolved G10 attribution question.
 
-## Gate: G12 2x2 Ecological Environment Test
+## Gate: G12 2x2 Transferable Ecological-Structure Environment Test
 
 ### D1. Axes
 
 G12 uses a 2x2 design:
 
-| Cell | Ecology | External reversibility | Short name |
+| Cell | Environmental structure | External reversibility | Short name |
 |---|---|---|---|
 | C00 | Thin | Reversible | thin/reversible |
 | C01 | Thin | Irreversible | thin/irreversible |
-| C10 | Ecological | Reversible | ecological/reversible |
-| C11 | Ecological | Irreversible | ecological/irreversible |
+| C10 | Transferable ecological structure | Reversible | ecological/reversible |
+| C11 | Transferable ecological structure | Irreversible | ecological/irreversible |
 
 Definitions:
 
-- **Thin**: actions produce immediate reward/regret but do not create rich, persistent
-  affordance state beyond the current regime. This is closest to the current structured
-  bandit family.
-- **Ecological**: actions alter future affordances/resources/niches enough that short-term
-  reward, later viable options, and recovery path are coupled.
+- **Thin**: actions produce immediate reward/regret but do not expose transferable
+  environmental structure beyond the current regime. This is closest to the current
+  structured bandit family.
+- **Transferable ecological structure**: the environment contains stable affordance topology,
+  niche/route structure, or reusable state-action relations that can support generalization
+  across shifts. This column tests whether autonomy benefits from structure in the world,
+  not from a new representation organ.
 - **Reversible**: external consequences may be rolled back or cleared by the environment
   at a pre-specified boundary.
 - **Irreversible**: external consequences accumulate as external world state and cannot be
   undone by O1/internal reset.
+
+Load-bearing orthogonality rule:
+
+```text
+Ecological structure is not resource scarcity, irreversible damage, or external rollback.
+Scarcity, damage, and rollback belong to the external-reversibility axis and evaluator
+metrics. The column factor must remain transferable environmental structure.
+```
+
+Tier-1 may hold incomplete observation and conflicting utility as background constants if
+they are applied identically across all four cells. They must not become hidden extra axes
+or post-hoc rescue knobs.
 
 ### D2. Mechanisms are frozen
 
@@ -164,6 +178,13 @@ damage_weighted_loss = post_shift_regret_area + irreversible_damage
 recovery_steps
 ```
 
+Secondary diagnostics:
+
+```text
+conflict_stability
+resource_survival
+```
+
 Definitions:
 
 - `irreversible_damage` is an **external-world** quantity: accumulated non-rollbackable
@@ -171,6 +192,10 @@ Definitions:
 - `recovery_steps` is an **internal adaptation** quantity: how quickly the subject returns
   to a low-regret policy after a shift while still being allowed to reset its own internal
   state.
+- `conflict_stability` tracks whether the agent avoids oscillation or collapse under the
+  shared background conflicting-utility condition, if enabled.
+- `resource_survival` tracks resource continuity as a diagnostic, but it is not allowed to
+  replace the primary damage-weighted gate unless a later ADR explicitly promotes it.
 - The core P7 question is:
 
 ```text
@@ -225,9 +250,9 @@ The following interpretations are pre-registered:
 | Pattern | Interpretation | Disposition |
 |---|---|---|
 | P0 wins only C11, or C11 advantage is at least 0.10 above every other cell | **P7 ecological-irreversible axis supported** | New environment axis is real enough to study; still no G11/C1 revival without a separate ADR |
-| P0 wins C01 and C11 but not reversible cells | Irreversibility, not ecology, is the active variable | P7 is narrowed to irreversibility; ecological claim downgraded |
-| P0 wins C10 and C11 but not thin cells | Ecology, not irreversibility, is the active variable | P7 remains environment-axis work, but irreversibility is not necessary |
-| P0 wins all four cells | P0 generalizes broadly; 2x2 does not isolate a new axis | Do not call this P7 ecological-axis proof; revise theory |
+| P0 wins C01 and C11 but not reversible cells | Irreversibility, not transferable structure, is the active variable | P7 is narrowed to irreversibility; ecological-structure claim downgraded |
+| P0 wins C10 and C11 but not thin cells | Transferable structure, not irreversibility, is the active variable | P7 remains environment-axis work, but irreversibility is not necessary |
+| P0 wins all four cells | P0 generalizes broadly; 2x2 does not isolate a new axis | Do not call this P7 ecological-structure-axis proof; revise theory |
 | P0 wins no cells | P7 environment axis downgraded | Preserve P6 boundaries; do not keep shopping environments |
 | Mixed/unstable pattern below thresholds | Inconclusive | Record as such; no retuning to rescue |
 

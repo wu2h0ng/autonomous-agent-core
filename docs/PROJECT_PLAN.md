@@ -23,7 +23,7 @@ P6 consolidated
   -> ADR-0032: frontier architecture intake lanes accepted; structured semantic/hierarchical environments are the next admissible experiment family
   -> ADR-0033: HyperAgents/DGM assimilation boundary accepted; self-recursive systems are external candidate generators only
   -> ADR-0034: relevance-aware full-Agent G10 theory test pre-registered; B/R/K attribution must be tested before publication overclaims
-  -> ADR-0035: P7 ecological environment axis accepted; G12 2x2 gate frozen but blocked until ADR-0034 completes
+  -> ADR-0035: P7 transferable ecological-structure environment axis accepted; G12 2x2 gate frozen but blocked until ADR-0034 completes
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
@@ -60,7 +60,7 @@ Authority:
 - `docs/adr/ADR-0032-frontier-architecture-intake-and-structured-env-route.md` (frontier intake lanes)
 - `docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md` (self-recursive assimilation boundary)
 - `docs/adr/ADR-0034-relevance-aware-g10-theory-test.md` (B/R/K relevance-aware G10 theory test)
-- `docs/adr/ADR-0035-p7-ecological-environment-axis.md` (P7 ecological environment axis, G12 2x2 gate)
+- `docs/adr/ADR-0035-p7-ecological-environment-axis.md` (P7 transferable ecological-structure environment axis, G12 2x2 gate)
 - `ENGINEERING.md` section 4 items 5-6
 
 Goal:
@@ -100,7 +100,7 @@ T-P6.5d  r-final on seeds 1500..1529 and ADR-0034 result update
 
 Do not run r-final until T-P6.5a-c are implemented and the RSTAR triple is frozen.
 
-### T-P7.0 - Ecological Environment Axis (Blocked Behind T-P6.5)
+### T-P7.0 - Transferable Ecological-Structure Environment Axis (Blocked Behind T-P6.5)
 
 Authority:
 
@@ -115,6 +115,11 @@ matrix:
 thin/reversible        thin/irreversible
 ecological/reversible  ecological/irreversible
 ```
+
+The column factor is **transferable environmental structure** (affordance topology,
+niche/route structure, or reusable state-action relations), not resource scarcity or
+external damage. Scarcity, damage, and rollback belong to the external-reversibility axis
+and evaluator metrics.
 
 The load-bearing distinction is:
 
@@ -245,7 +250,7 @@ Interpretation:
 | P6 / ADR-0032 | Accepted | Frontier architecture intake lanes accepted; structured semantic/hierarchical environment route allowed as future docs/gate work |
 | P6 / ADR-0033 | Accepted | HyperAgents/DGM assimilation boundary accepted; L0-L3 external use allowed, L4/L5 runtime self-editing forbidden |
 | P6 / ADR-0034 | Accepted, implementation pending | Relevance-aware full-Agent theory test pre-registered; tests B/R/K attribution, not a new autonomy axis |
-| P7 / ADR-0035 | Accepted, blocked | Ecological environment axis and G12 2x2 gate accepted; implementation after ADR-0034 |
+| P7 / ADR-0035 | Accepted, blocked | Transferable ecological-structure environment axis and G12 2x2 gate accepted; implementation after ADR-0034 |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -270,7 +275,7 @@ Recent authoritative ADRs:
 - `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` - frontier intake lanes; P4.x bounded organs and external research automation only.
 - `ADR-0033-hyperagents-dgm-assimilation-boundary.md` - HyperAgents/DGM external candidate-generation boundary; no runtime self-modification.
 - `ADR-0034-relevance-aware-g10-theory-test.md` - B/R/K relevance-aware G10 theory test pre-registration; implementation pending.
-- `ADR-0035-p7-ecological-environment-axis.md` - P7 ecological environment axis and G12 2x2 gate; implementation blocked until ADR-0034.
+- `ADR-0035-p7-ecological-environment-axis.md` - P7 transferable ecological-structure environment axis and G12 2x2 gate; implementation blocked until ADR-0034.
 
 G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035 do not exist, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
 
