@@ -1,6 +1,6 @@
 # ADR-0035: P7 Transferable Ecological-Structure Environment Axis And G12 2x2 Gate
 
-- Status: Accepted (P7 design / pre-registration; implementation blocked until ADR-0034 completes)
+- Status: Accepted (P7 design / pre-registration; implementation ready after ADR-0034 completion)
 - Date: 2026-06-15
 - Deciders: founder approval; Codex as autonomous-agent-core single writer
 
@@ -21,8 +21,17 @@ Subsequent de-risks closed the natural second-axis hunt:
 - G11/C1 is parked until a new independent winning axis exists.
 
 ADR-0034 then froze the next attribution test: before claiming what exactly drives G10,
-run a relevance-aware full-Agent test of the amended B/R/K model. ADR-0034 must run before
-any P7 implementation or r-final.
+run a relevance-aware full-Agent test of the amended B/R/K model. ADR-0034 had to run
+before any P7 implementation or r-final.
+
+ADR-0034 completed on 2026-06-15: PRED-A' and PRED-C' passed, PRED-B' failed. The
+frozen strong control set now includes RSTAR with:
+
+```text
+base_temperature = 0.03
+RelevanceField.inertia = 0.25
+RelevanceField.surprise_gain = 1.0
+```
 
 However, the research debate has converged on a separate question: perhaps the next real
 variable is not another organ, LLM, world model, VSA, option module, or coordination layer.
@@ -97,8 +106,8 @@ Cons:
 
 Choose **Option C**.
 
-P7 is accepted as a research axis, but implementation is blocked until ADR-0034 finishes.
-This avoids stacking a new environment gate on top of an unresolved G10 attribution question.
+P7 is accepted as a research axis. Implementation may proceed now that ADR-0034 has
+finished and frozen the strong relevance-aware control set.
 
 ## Gate: G12 2x2 Transferable Ecological-Structure Environment Test
 
@@ -153,8 +162,8 @@ Candidate and controls are frozen as:
 | `BT` | fixed-low-temperature baseline from ADR-0030 |
 | `RSTAR` | relevance-aware non-gated control from ADR-0034, if ADR-0034 completes and freezes it |
 
-If ADR-0034 downgrades P0 attribution or changes the required strong control set, ADR-0035
-must receive a short addendum before implementation. Silent substitution is forbidden.
+ADR-0034 did not downgrade G10 to "mostly relevance"; it froze RSTAR as a strong control
+with the parameters above. Silent substitution is forbidden.
 
 ### D3. Internal reset and external rollback guards
 
@@ -272,9 +281,8 @@ G12 must not:
 
 ## Consequences
 
-- P7 is now an accepted research axis, not an implementation-ready task.
-- ADR-0034 remains the immediate core implementation queue.
-- ADR-0035 implementation starts only after ADR-0034 resolves the B/R/K attribution and
-  freezes the appropriate strong relevance-aware control.
+- P7 is now an accepted research axis and the next core implementation queue.
+- ADR-0034 resolved the B/R/K attribution enough for G12: P0 keeps a decisive K residue,
+  and RSTAR joins the cheap-control set.
 - Future RR-0022 can use this ADR as the core gate reference, but RR-0022 is not a core
   implementation authority.
