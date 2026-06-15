@@ -121,7 +121,9 @@ The scarred condition must satisfy all of the following:
 3. Scar is not label-leaked: policy/coordinator code cannot observe the hidden optimal
    action, hidden hazard bit, or evaluator damage oracle.
 4. Scar is not cheap-trivially avoided: a simple frozen CAUTIOUS rule must not capture
-   the full CP gain.
+   the full CP gain on development seeds. This is an apparatus check, not the r-final
+   result. The r-final `cheap_caution_capture` metric in the interpretation table is a
+   separate confirmatory guard.
 5. Internal reset remains allowed: O1-style belief/policy reset is a mechanism baseline
    and must not be disabled merely because the cell is irreversible.
 
@@ -150,6 +152,28 @@ C11 ecological/irreversible
 
 But G13's load-bearing contrast is reversible vs irreversible, not a renewed attempt to
 prove the G12 ecological axis.
+
+### Aggregation And Analysis Freeze
+
+If the implementation keeps the four G12-style cells, all G13 gates are computed on the
+pre-registered reversibility collapse:
+
+```text
+R0(seed) = mean over reversible cells present for that seed
+R1(seed) = mean over irreversible cells present for that seed
+```
+
+So:
+
+- reversible metrics use the per-seed `R0` collapsed value;
+- irreversible metrics use the per-seed `R1` collapsed value;
+- paired wins and the `24/30` threshold are computed over 30 collapsed per-seed `R1`
+  comparisons, not over 60 cell-seed comparisons;
+- the four-cell C00/C01/C10/C11 table is descriptive only unless a later ADR explicitly
+  freezes a four-cell gate.
+
+No post-hoc choice between per-cell, pooled-cell, or collapsed-cell aggregation is
+allowed after r-final data are visible.
 
 ### Seeds
 
@@ -199,6 +223,18 @@ Definitions:
 - `cheap_caution_capture` is the fraction of CP's irreversible damage reduction that is
   already achieved by the frozen CAUTIOUS control, when that control exists.
 
+Degenerate denominator rule:
+
+```text
+epsilon = 1e-9
+if loss(P0) <= epsilon:   adv(CP,P0) = 0.0
+if damage(P0) <= epsilon: damage_adv(CP,P0) = 0.0
+```
+
+The paired absolute reductions are still reported for diagnostics, but normalized
+advantage thresholds cannot be passed from a near-zero denominator. Report the count of
+near-zero denominators per cell/collapse so the result cannot hide this case.
+
 ## G13 Gate
 
 G13 is `MET` only if all four criteria pass.
@@ -218,6 +254,11 @@ mean damage_adv(CP,P0) >= +0.10
 ### G13-2: Scar Specificity
 
 The irreversible advantage must be meaningfully larger than the reversible advantage:
+
+This is the sole deliberate exception to the R0/R1 aggregation collapse. To keep the
+specificity bar conservative, `max_reversible_adv` is the larger per-cell reversible
+advantage over C00 and C10 when both cells exist; if only one reversible cell exists, it
+is that cell's advantage. All other G13 metrics use the pre-registered R0/R1 collapse.
 
 ```text
 mean_irreversible_adv - max_reversible_adv >= +0.10
@@ -289,4 +330,3 @@ screen, C6/C7 tests, and frozen parameters are committed.
 - A `NOT MET` result is acceptable and informative: it would strengthen the conclusion
   that P0's subject-side confidence coupling is the dominant lever even under scarred
   environments.
-
