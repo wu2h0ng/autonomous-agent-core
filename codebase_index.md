@@ -8,8 +8,8 @@
 
 ```yaml
 branch: main
-stage: P6 consolidated
-immediate_next: synthesize ADR-0034/0035 results and request founder direction
+stage: P7.x bounded consequence-prior admission
+immediate_next: implement ADR-0036/G13 serial slices before one r-final on seeds 1800..1829
 tests: 412 OK
 ```
 
@@ -49,6 +49,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
 | `ADR-0034-relevance-aware-g10-theory-test.md` | Completed | Full-Agent B/R/K test: PRED-A/C pass, PRED-B fail; RSTAR explains part but not most of the old margin |
 | `ADR-0035-p7-ecological-environment-axis.md` | Completed, inconclusive | P7/G12 mixed pattern; C01/C10/C11 win, C00 misses threshold, so no distinct ecological-irreversible axis isolated |
+| `ADR-0036-bounded-consequence-prior-gate.md` | Accepted, implementation pending | G13 tests a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 
 ## Current Code Map
 
@@ -187,6 +188,11 @@ G9 verdict:
   - C11 ecological/irreversible: P0 win, adv +0.300, damage_adv +0.340.
   - Mixed pattern C01/C10/C11 without C00 does not isolate a distinct ecological-irreversible axis.
   - Interpretation: record as inconclusive; no G12 retuning or G11/C1 revival.
+- ADR-0036/G13 is accepted as the next narrow core gate:
+  - Candidate `CP = P0 + bounded consequence prior`; baseline `P0-alone`.
+  - It is not a G12 rescue. G12 remains inconclusive.
+  - Gate requires irreversible/scarred benefit over P0, scar specificity versus reversible cells, stale-prior safety, and C6/C7 invariants.
+  - Fresh seeds: development `1750..1769`, r-final `1800..1829`.
 - C3 returned RED:
   - DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701.
   - Endogeny has no directed post-idle signal and is dropped from C1.
@@ -199,7 +205,7 @@ G9 verdict:
   - EXPLORER survival 1814 / EXPLOITER survival 1335 / GATED survival 1313.
   - GATED beats the best cheap arm in only 2/30 seeds, p=0.97, gap CI [-570, -321].
   - Stationary risk calibration is not an independent gate advantage.
-- Next: synthesize ADR-0034/0035 and ask for founder direction; G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
+- Next: implement ADR-0036/G13 serial slices; G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
 
 ## Drift Prevention
 

@@ -165,3 +165,13 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Interpretation discipline**: all four cells failing downgrades P7; wins in all four cells do not prove a distinct ecological axis; only the pre-registered pattern table in ADR-0035 may be used.
 - **Result**: G12 is inconclusive. P0 wins C01/C10/C11 but not C00 (`adv=+0.175`, below the `+0.20` threshold), and C11 is not uniquely strongest because C01 has higher advantage.
 - **Boundary**: no implementation may retune P0/O1/BT/RSTAR, weaken C6/C7, or rescue G12 by environment shopping.
+
+## P7.x - Bounded Consequence Prior (ADR-0036, accepted / implementation pending)
+
+- **Purpose**: test one narrow B-channel candidate over the confirmed P0 lever. ADR-0036 is not a rescue of G12; it asks whether a belief-only consequence prior helps only when external action consequences can create persistent scars.
+- **Candidate**: `CP = P0 confidence-gated policy + bounded consequence prior`.
+- **Primary baseline**: frozen `P0` with no consequence prior.
+- **Gate**: G13. CP must beat P0 in irreversible/scarred cells (`adv>=+0.10`, `wins>=24/30`, `p<0.01`, CI lower >0, `damage_adv>=+0.10`), remain near-null in reversible cells, avoid stale-prior harm, and preserve C6/C7.
+- **Seeds**: development/calibration `1750..1769`; one r-final on `1800..1829`.
+- **Serial work**: scar validity screen -> belief-only interface and merge path -> frozen controls -> development harness -> r-final and ADR result update.
+- **Boundary**: no LLM, no other-agent modeling, no action/policy/shell/audit/gate writes, no G12 retuning, no G11/C1 revival.

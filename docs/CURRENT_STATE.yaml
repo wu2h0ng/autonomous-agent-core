@@ -2,7 +2,7 @@ updated: "2026-06-15"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; no new core gate is open without founder decision"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 accepted as a narrow bounded consequence-prior gate"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
   count: 412
@@ -10,9 +10,9 @@ last_verified_tests:
   source: "Full suite after ADR-0035/G12 harness implementation on 2026-06-15"
 
 current_stage:
-  label: "P6 consolidation: one robust subject-side lever, no independent second axis"
+  label: "P7.x bounded consequence-prior admission: test one scar-specific B-channel candidate over P0"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Synthesize ADR-0034/0035 results and request founder direction; continue P5 deployment projection separately"
+  immediate_next: "Implement ADR-0036/G13 serially: scar validity screen, belief-only consequence-prior interface, frozen controls, development harness, then one r-final on seeds 1800..1829"
   after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
@@ -21,6 +21,7 @@ current_stage:
     - "P4 prior-organ G5/G6/G7/G8 tuning"
     - "G10 execution"
     - "C3 execution"
+    - "ADR-0036/G13 result claimed before r-final"
     - "G11/C1 freeze or implementation"
 
 authoritative_adrs:
@@ -38,12 +39,14 @@ authoritative_adrs:
     - "docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md"
     - "docs/adr/ADR-0034-relevance-aware-g10-theory-test.md"
     - "docs/adr/ADR-0035-p7-ecological-environment-axis.md"
+    - "docs/adr/ADR-0036-bounded-consequence-prior-gate.md"
   current_decision:
     - "ADR-0031 PRED1-HOLDS corroborates RR-0019 Claim 1/3 under a powered attack; ADR-0029 still closes the natural multi-axis hunt."
     - "ADR-0032 accepts frontier architecture intake lanes: self-recursive systems stay external, LLM/world-model organs stay P4.x bounded advisers, and structured semantic/hierarchical environments are the next admissible experiment family."
     - "ADR-0033 accepts the HyperAgents/DGM assimilation boundary: L0-L3 external candidate generation is allowed under scans/review; L4 runtime self-modification and L5 safety-substrate self-editing are forbidden."
     - "ADR-0034 r-final completed: PRED-A severity threshold PASS, PRED-B difficulty-band/inverted-U FAIL, PRED-C relevance-aware share PASS; G10 empirical result is preserved, but the trajectory account is weakened to B/R/K with a decisive K residue."
     - "ADR-0035/G12 completed inconclusive: P0 wins C01/C10/C11 but not C00, so the 2x2 does not isolate a distinct ecological-irreversible axis."
+    - "ADR-0036/G13 accepted: not a rescue of G12; test only whether a belief-only bounded consequence prior improves P0 specifically in scarred/irreversible cells while staying near-null in reversible cells."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
@@ -214,6 +217,23 @@ current_truth:
       - "Mixed pattern: C01/C10/C11 win, C00 misses only the 0.20 advantage threshold."
       - "C11 is not uniquely strongest; C01 is stronger, so ecological-irreversible support is not established."
       - "Record as inconclusive; no environment retuning or G11/C1 revival follows from this result."
+  g13:
+    adr: "ADR-0036"
+    status: "ACCEPTED / IMPLEMENTATION PENDING"
+    candidate: "CP = P0 confidence-gated policy + bounded consequence prior"
+    baseline: "P0 frozen confidence-gated policy, no consequence prior"
+    seeds:
+      development: "1750..1769"
+      r_final: "1800..1829"
+    gate_summary:
+      irreversible_benefit: "adv(CP,P0) >= +0.10, wins >=24/30, p<0.01, CI lower >0, damage_adv >= +0.10"
+      scar_specificity: "irreversible advantage exceeds max reversible advantage by >= +0.10 with bootstrap CI lower >0"
+      stale_prior_guard: "no reversible degradation beyond -0.05 mean advantage; stale harm bounded"
+      c6_c7: "organ is belief-only; no action/policy/shell/audit/gate writes; pause/forbidden dominate"
+    interpretation:
+      - "ADR-0036 does not alter G12's inconclusive result."
+      - "The only live hypothesis is scar-specific B-channel usefulness over already-strong P0."
+      - "NOT MET is a valid strong negative and would leave G10/P0 as the dominant lever."
 
 research_constraints:
   - "Do not claim C1/G11 as ready: there is no second independent vs-cheap-baseline winning axis."
@@ -221,6 +241,8 @@ research_constraints:
   - "Do not reopen IdleDrives, RAP, G7/G8, O2, or risk/survival probes to rescue a gate."
   - "Do not claim survival or risk as independent wins; both are recorded RED."
   - "Do not relax C6: organs remain belief-only; subject-side gate reads the agent's own ActionOutcomeModel."
+  - "Do not treat ADR-0036 as a G12 rescue; it may only test a single-variable bounded consequence-prior candidate over P0."
+  - "Do not run G13 r-final before the scar validity screen, frozen controls, and C6/C7 tests are committed."
   - "No LLM in control path, no business semantics, no cross-repo imports."
   - "Apply ADR-0032 before importing frontier systems: classify every candidate by channel/lane, keep self-recursive systems external, and score P4.x organs by recovery, transition consistency, regret, stale-prior harm, and calibration."
   - "Apply ADR-0033 before using HyperAgents/DGM-style systems: only external candidate generation is allowed; runtime self-modification and safety-substrate self-editing are forbidden."
@@ -240,6 +262,7 @@ handoff_read_order:
   - "docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md"
   - "docs/adr/ADR-0034-relevance-aware-g10-theory-test.md"
   - "docs/adr/ADR-0035-p7-ecological-environment-axis.md"
+  - "docs/adr/ADR-0036-bounded-consequence-prior-gate.md"
   - "../docs/research/research_index.md"
   - "docs/adr/ADR-0027-post-c3-route-disposition.md"
   - "docs/adr/ADR-0028-survival-axis-de-risk.md"
