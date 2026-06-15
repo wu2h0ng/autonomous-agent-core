@@ -2,18 +2,18 @@ updated: "2026-06-15"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed; P6 synthesis package published; ADR-0034 relevance-aware G10 theory test pre-registered; ADR-0035 P7 transferable ecological-structure environment axis accepted but blocked until ADR-0034 completes"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 r-final complete (A/C pass, B fail); P7/G12 transferable ecological-structure environment axis is the next core execution lane"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 388
+  count: 402
   result: "OK"
-  source: "Full-suite record after ADR-0032/0033 docs-only acceptance on 2026-06-15"
+  source: "Full suite after ADR-0034 T-P6.5 harness implementation on 2026-06-15"
 
 current_stage:
   label: "P6 consolidation: one robust subject-side lever, no independent second axis"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Implement ADR-0034 T-P6.5 in serial slices: severity/noise env guards, policy diagnostics, RSTAR calibration, then r-final; continue P5 deployment projection separately"
-  after_next: "After ADR-0034, implement ADR-0035/P7 G12 2x2 transferable ecological-structure environment gate; do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
+  immediate_next: "Implement ADR-0035/P7 G12 2x2 transferable ecological-structure environment gate in serial slices; continue P5 deployment projection separately"
+  after_next: "After G12, update the P6/P7 synthesis and do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -42,8 +42,8 @@ authoritative_adrs:
     - "ADR-0031 PRED1-HOLDS corroborates RR-0019 Claim 1/3 under a powered attack; ADR-0029 still closes the natural multi-axis hunt."
     - "ADR-0032 accepts frontier architecture intake lanes: self-recursive systems stay external, LLM/world-model organs stay P4.x bounded advisers, and structured semantic/hierarchical environments are the next admissible experiment family."
     - "ADR-0033 accepts the HyperAgents/DGM assimilation boundary: L0-L3 external candidate generation is allowed under scans/review; L4 runtime self-modification and L5 safety-substrate self-editing are forbidden."
-    - "ADR-0034 accepts a relevance-aware full-Agent theory test: G10 remains true, but RR-0019's mechanism attribution must be tested as B/R/K rather than B/K."
-    - "ADR-0035 accepts P7 as a transferable ecological-structure environment axis with a 2x2 G12 gate; implementation is blocked until ADR-0034 completes and must preserve the internal-reset vs external-rollback distinction."
+    - "ADR-0034 r-final completed: PRED-A severity threshold PASS, PRED-B difficulty-band/inverted-U FAIL, PRED-C relevance-aware share PASS; G10 empirical result is preserved, but the trajectory account is weakened to B/R/K with a decisive K residue."
+    - "ADR-0035 accepts P7 as a transferable ecological-structure environment axis with a 2x2 G12 gate; implementation is now next and must preserve the internal-reset vs external-rollback distinction."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
@@ -156,6 +156,25 @@ current_truth:
     interpretation:
       - "Residual self-calibration did not open an independent decisive axis over frozen G10."
       - "RR-0019 Claim 1/3 survives this powered attack; the calibrator remains at most a G10 sharpener candidate."
+  adr0034:
+    verdict: "PARTIAL: PRED-A PASS, PRED-B FAIL, PRED-C PASS"
+    seeds:
+      calibration: "1400..1419"
+      r_final: "1500..1529"
+    frozen_rstar:
+      base_temperature: 0.03
+      inertia: 0.25
+      surprise_gain: 1.0
+    key_result:
+      mild_adv_p0_vs_rstar: "-0.089 at severity=0.10, noise=0.30"
+      severe_default_adv_p0_vs_rstar: "+0.235 at severity=1.00, noise=0.30"
+      severe_default_share_R: 0.373
+      pred_b_best_interior: "noise=0.30, but interior-minus-high CI lower=-0.020"
+    interpretation:
+      - "Relevance-aware exploration explains a substantial part of the old A1->P0 margin, but not most of it."
+      - "Confidence-gated commitment leaves a decisive residue under severe stale-action cost."
+      - "Severity-threshold account is supported; inverted-U difficulty-band account is unsupported."
+      - "ADR-0035/P7 is unblocked and should use the frozen RSTAR control set."
 
 research_constraints:
   - "Do not claim C1/G11 as ready: there is no second independent vs-cheap-baseline winning axis."

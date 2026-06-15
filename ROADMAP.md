@@ -140,18 +140,19 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 
 - **Current state**: P6 is consolidated on `main`. G10 is the confirmed positive result; ADR-0030 makes it trap-complete; ADR-0031 says residual belief calibration does not open a second axis; ADR-0032/0033 bind frontier/self-recursive systems to safe intake lanes.
 - **Deliverable**: `docs/P6-research-synthesis.md` now publishes the P6 research synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, and publication/whitepaper outline.
-- **Next work**: ADR-0034/T-P6.5 relevance-aware G10 theory test, then revise the paper/whitepaper with the resulting attribution.
+- **Next work**: ADR-0035/P7 G12 transferable ecological-structure environment gate, now that ADR-0034 has frozen the relevance-aware control set.
 - **Not next**: do not freeze G11/C1, do not reopen IdleDrives/RAP/G7/G8, and do not import HyperAgents/DGM into runtime. Future mechanism work needs a fresh founder ADR and a new independent winning axis or structured-environment gate.
 
-### P6.5 — ADR-0034 Relevance-Aware G10 Theory Test (pre-registered, implementation pending)
+### P6.5 — ADR-0034 Relevance-Aware G10 Theory Test (completed)
 
 - **Purpose**: test RR-0019's amended B/R/K model in the real `Agent + RelevanceField` harness. This asks whether P0's G10 margin remains after a strong relevance-aware non-gated control (`RSTAR`) is calibrated on disjoint seeds.
 - **Frozen predictions**: PRED-A' severity threshold, PRED-B' difficulty band, PRED-C' relevance-aware control share.
 - **Frozen seeds**: calibration `1400..1419`, r-final `1500..1529`.
-- **Implementation order**: severity/noise env guards -> policy diagnostics (`rho/conf/tau/w_e`) -> RSTAR calibration -> r-final result update.
+- **Result**: PRED-A' PASS, PRED-B' FAIL, PRED-C' PASS. RSTAR explains a substantial share of the old margin (`share_R=0.373`), but P0 still decisively beats frozen RSTAR at severe/default (`adv=+0.235`).
+- **Frozen RSTAR**: `base_temperature=0.03`, `inertia=0.25`, `surprise_gain=1.0`.
 - **Boundary**: this is theory attribution only. It does not reopen G11/C1, retune P0, import LLMs, or weaken C6/C7.
 
-## P7 — Transferable Ecological-Structure Environment Axis (ADR-0035, blocked until ADR-0034 completes)
+## P7 — Transferable Ecological-Structure Environment Axis (ADR-0035, next)
 
 - **Purpose**: shift the independent variable from organ/model cleverness to the environment. P7 asks whether autonomy-like advantage appears only when the world has transferable ecological structure and irreversible external consequences.
 - **Gate**: G12 2x2 design:
@@ -162,4 +163,4 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Load-bearing distinction**: O1/internal reset remains allowed in every cell; only external-world rollback is removed in irreversible cells. This prevents "O1 lost because we crippled O1" from contaminating the result.
 - **Metrics**: post-shift regret area, irreversible external damage, damage-weighted loss, recovery steps.
 - **Interpretation discipline**: all four cells failing downgrades P7; wins in all four cells do not prove a distinct ecological axis; only the pre-registered pattern table in ADR-0035 may be used.
-- **Boundary**: no implementation or r-final until ADR-0034 resolves the B/R/K attribution and freezes the strong relevance-aware control set.
+- **Boundary**: use the frozen ADR-0034 strong control set; no implementation may retune P0/O1/BT/RSTAR or weaken C6/C7.

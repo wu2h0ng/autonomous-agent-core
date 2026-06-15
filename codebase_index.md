@@ -9,8 +9,8 @@
 ```yaml
 branch: main
 stage: P6 consolidated
-immediate_next: implement ADR-0034 T-P6.5 relevance-aware G10 theory test; ADR-0035/P7 G12 is accepted but blocked behind ADR-0034
-tests: 388 OK
+immediate_next: implement ADR-0035/P7 G12 transferable ecological-structure environment gate
+tests: 402 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -47,8 +47,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0031-prediction1-residual-calibrator-vs-g10.md` | PRED1-HOLDS | Residual self-calibrator did not beat frozen G10; RR-0019 Claim 1/3 survived the attack |
 | `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` | Accepted | Frontier systems enter only through classified lanes/channels; structured environments are the next admissible experiment family |
 | `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
-| `ADR-0034-relevance-aware-g10-theory-test.md` | Accepted, implementation pending | Full-Agent B/R/K theory test with severity/noise knobs and RSTAR relevance-aware control |
-| `ADR-0035-p7-ecological-environment-axis.md` | Accepted, blocked | P7 transferable ecological-structure environment axis; G12 2x2 gate, internal reset vs external rollback distinction |
+| `ADR-0034-relevance-aware-g10-theory-test.md` | Completed | Full-Agent B/R/K test: PRED-A/C pass, PRED-B fail; RSTAR explains part but not most of the old margin |
+| `ADR-0035-p7-ecological-environment-axis.md` | Accepted, next | P7 transferable ecological-structure environment axis; G12 2x2 gate, internal reset vs external rollback distinction |
 
 ## Current Code Map
 
@@ -88,8 +88,9 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_completeness_g10.py` | ADR-0030 | additive `base_temperature` wiring and B-temp guard |
 | `experiments/prediction1_residual_calibrator.py` | ADR-0031 | PRED1-HOLDS; residual calibrator vs frozen G10 |
 | `tests/test_residual_calibrator.py` | ADR-0031 | calibrator math, default-off wiring, C6/C7 guards |
-| ADR-0034 planned | T-P6.5 | Relevance-aware G10 theory test: severity/noise env, policy diagnostics, RSTAR calibration, r-final pending |
-| ADR-0035 planned | P7/G12 | Transferable ecological-structure 2x2 environment gate: thin/ecological x reversible/irreversible, blocked until ADR-0034 |
+| `experiments/relevance_aware_g10.py` | ADR-0034 | Completed; RSTAR calibration + r-final B/R/K attribution |
+| `tests/test_relevance_aware_g10.py` | ADR-0034 | severity/noise env, policy diagnostics, RSTAR freeze/r-final guards |
+| ADR-0035 planned | P7/G12 | Transferable ecological-structure 2x2 environment gate: thin/ecological x reversible/irreversible, next |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
@@ -110,7 +111,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-388 tests OK
+402 tests OK
 ```
 
 Important current test files:
@@ -121,6 +122,7 @@ Important current test files:
 | `tests/test_confidence_gated_g10.py` | G10 fresh-seed confirmation guards |
 | `tests/test_completeness_g10.py` | G10 completeness additive temperature wiring |
 | `tests/test_residual_calibrator.py` | ADR-0031 residual self-calibrator C6/C7 guards |
+| `tests/test_relevance_aware_g10.py` | ADR-0034 severity env, policy diagnostics, RSTAR calibration/r-final guards |
 | `tests/test_idle_productivity_c3.py` | C3 idle-productivity de-risk guards |
 | `tests/test_survival_axis_c1.py` | ADR-0028 survival-axis de-risk guards |
 | `tests/test_risk_calibration_c1.py` | ADR-0029 stationary risk-axis de-risk guards |
@@ -169,6 +171,13 @@ G9 verdict:
   - P0 788.8 vs PR 793.3; PR margin -0.006, wins 13/30, p=0.550830, CI [-30.8, 19.0].
   - PR-B vs A1 margin -0.039, CI [-67.9, -32.6].
   - Interpretation: residual calibration is not an independent second axis over frozen G10.
+- ADR-0034 relevance-aware G10 theory test returned PARTIAL:
+  - RSTAR frozen on seeds 1400..1419 as base_temperature=0.03, inertia=0.25, surprise_gain=1.0.
+  - r-final seeds 1500..1529: PRED-A PASS, PRED-B FAIL, PRED-C PASS.
+  - Mild severity: P0 loses to RSTAR (adv -0.089), as predicted.
+  - Severe/default: P0 beats RSTAR decisively (adv +0.235, 30/30, CI [495.7,605.3]).
+  - share_R=0.373: relevance-aware exploration explains part, not most, of the old margin.
+  - Interpretation: G10 empirical result preserved; trajectory account weakened to B/R/K with a decisive K residue.
 - C3 returned RED:
   - DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701.
   - Endogeny has no directed post-idle signal and is dropped from C1.
@@ -181,7 +190,7 @@ G9 verdict:
   - EXPLORER survival 1814 / EXPLOITER survival 1335 / GATED survival 1313.
   - GATED beats the best cheap arm in only 2/30 seeds, p=0.97, gap CI [-570, -321].
   - Stationary risk calibration is not an independent gate advantage.
-- Next: G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
+- Next: implement ADR-0035/P7 G12; G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
 
 ## Drift Prevention
 

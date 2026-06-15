@@ -1,6 +1,6 @@
 # ADR-0034: Relevance-Aware G10 Theory Test
 
-- Status: Accepted (pre-registration; implementation pending)
+- Status: Completed (r-final run 2026-06-15)
 - Date: 2026-06-15
 - Deciders: founder approval, Codex CTO execution under ADR-0003 discipline
 
@@ -341,3 +341,58 @@ Possible outcomes:
 - The current P6 synthesis remains valid, but its publication wording should treat the
   G10 mechanism as `K x R` until ADR-0034 resolves the split.
 - No core mechanism code should be changed before these gates are implemented in tests.
+
+## Result (2026-06-15)
+
+Implementation artifacts:
+
+```text
+experiments/relevance_aware_g10.py
+experiments/relevance_aware_g10.rstar.json
+experiments/relevance_aware_g10.result.json
+tests/test_relevance_aware_g10.py
+```
+
+RSTAR was calibrated only on seeds `1400..1419` across the five pre-registered
+D3 conditions. The frozen global triple is:
+
+```text
+base_temperature = 0.03
+RelevanceField.inertia = 0.25
+RelevanceField.surprise_gain = 1.0
+```
+
+r-final used seeds `1500..1529` and the frozen RSTAR triple. Summary:
+
+| Condition | A0 | A1 | BT | P0 | RSTAR | adv(P0,RSTAR) |
+|---|---:|---:|---:|---:|---:|---:|
+| severity=0.10, noise=0.30 | 317.2 | 316.2 | 315.9 | 343.7 | 315.6 | -0.089 |
+| severity=1.00, noise=0.10 | 2489.8 | 2678.2 | 2313.5 | 1803.8 | 2277.2 | +0.208 |
+| severity=1.00, noise=0.30 | 2542.7 | 2675.7 | 2381.0 | 1796.0 | 2347.8 | +0.235 |
+| severity=1.00, noise=0.50 | 2570.7 | 2690.2 | 2422.0 | 1861.2 | 2367.3 | +0.214 |
+| severity=1.00, noise=1.00 | 2622.5 | 2744.8 | 2482.7 | 1889.0 | 2441.7 | +0.226 |
+
+Pre-registered prediction verdicts:
+
+| Prediction | Verdict | Key reading |
+|---|---|---|
+| PRED-A' severity threshold | PASS | P0 does not beat RSTAR under mild stale-cost (`adv=-0.089`) but decisively beats it under severe stale-cost (`adv=+0.235`, gap CI lower `+0.284`). |
+| PRED-B' difficulty band | FAIL | Best interior condition is noise `0.30`, but the high-noise edge did not fall enough; interior-minus-high CI lower is `-0.020`. The inverted-U account is unsupported. |
+| PRED-C' relevance-aware share | PASS | `share_R=0.373` and `adv(P0,RSTAR)=0.235`: relevance-aware exploration explains a substantial part of the old A1->P0 margin, but confidence-gated commitment leaves a decisive residue. |
+
+Disposition:
+
+```text
+G10 empirical result preserved; trajectory account weakened.
+```
+
+Interpretation:
+
+- The old two-channel `B/K` story was under-specified; the faithful account is `B/R/K`.
+- RSTAR captures a real part of the margin, so relevance-aware exploration cannot be ignored.
+- RSTAR does **not** capture most of the margin: P0 still beats it decisively in the severe/default
+  condition and across all severe noise conditions.
+- The severity-threshold account is supported; the difficulty-band / inverted-U account is not.
+- ADR-0030's broad claim is not downgraded to "mostly relevance": C' did not trigger the
+  `share_R > 0.75` or `adv(P0,RSTAR) < 0.15` downgrade clause.
+- ADR-0035/P7 is now unblocked, using the frozen control set that includes RSTAR.
