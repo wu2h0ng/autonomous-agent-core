@@ -2,7 +2,7 @@ updated: "2026-06-15"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed; P6 synthesis package published"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0031 PRED1-HOLDS; ADR-0032 frontier intake accepted; ADR-0033 HyperAgents/DGM boundary accepted; system-level-axis hunt closed; P6 synthesis package published; ADR-0034 relevance-aware G10 theory test pre-registered"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
   count: 388
@@ -12,7 +12,7 @@ last_verified_tests:
 current_stage:
   label: "P6 consolidation: one robust subject-side lever, no independent second axis"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Review/use docs/P6-research-synthesis.md for publication packaging; continue P5 deployment projection in the enterprise repo under its own ADR/AR boundary"
+  immediate_next: "Implement ADR-0034 T-P6.5 in serial slices: severity/noise env guards, policy diagnostics, RSTAR calibration, then r-final; continue P5 deployment projection separately"
   after_next: "Do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
@@ -36,10 +36,12 @@ authoritative_adrs:
     - "docs/adr/ADR-0031-prediction1-residual-calibrator-vs-g10.md"
     - "docs/adr/ADR-0032-frontier-architecture-intake-and-structured-env-route.md"
     - "docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md"
+    - "docs/adr/ADR-0034-relevance-aware-g10-theory-test.md"
   current_decision:
     - "ADR-0031 PRED1-HOLDS corroborates RR-0019 Claim 1/3 under a powered attack; ADR-0029 still closes the natural multi-axis hunt."
     - "ADR-0032 accepts frontier architecture intake lanes: self-recursive systems stay external, LLM/world-model organs stay P4.x bounded advisers, and structured semantic/hierarchical environments are the next admissible experiment family."
     - "ADR-0033 accepts the HyperAgents/DGM assimilation boundary: L0-L3 external candidate generation is allowed under scans/review; L4 runtime self-modification and L5 safety-substrate self-editing are forbidden."
+    - "ADR-0034 accepts a relevance-aware full-Agent theory test: G10 remains true, but RR-0019's mechanism attribution must be tested as B/R/K rather than B/K."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
@@ -176,6 +178,7 @@ handoff_read_order:
   - "docs/adr/ADR-0031-prediction1-residual-calibrator-vs-g10.md"
   - "docs/adr/ADR-0032-frontier-architecture-intake-and-structured-env-route.md"
   - "docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md"
+  - "docs/adr/ADR-0034-relevance-aware-g10-theory-test.md"
   - "../docs/research/research_index.md"
   - "docs/adr/ADR-0027-post-c3-route-disposition.md"
   - "docs/adr/ADR-0028-survival-axis-de-risk.md"

@@ -171,7 +171,8 @@ Allowed next work:
 - Paper/whitepaper revision around this synthesis.
 - Reproducibility artifact packaging.
 - P5 enterprise deployment projection under the enterprise repo's own ADR/AR.
-- Structured-environment experiment design only after a fresh gate is written and frozen.
+- ADR-0034/T-P6.5 relevance-aware G10 theory test, now frozen as a theory-attribution experiment. It tests whether P0's margin remains after a strong `RelevanceField`-aware non-gated control, not whether G11/C1 should be reopened.
+- Other structured-environment experiment design only after a fresh gate is written and frozen.
 
 Not allowed without a new founder-level ADR:
 

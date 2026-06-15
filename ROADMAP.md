@@ -140,5 +140,13 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 
 - **Current state**: P6 is consolidated on `main`. G10 is the confirmed positive result; ADR-0030 makes it trap-complete; ADR-0031 says residual belief calibration does not open a second axis; ADR-0032/0033 bind frontier/self-recursive systems to safe intake lanes.
 - **Deliverable**: `docs/P6-research-synthesis.md` now publishes the P6 research synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, and publication/whitepaper outline.
-- **Next work**: review the synthesis package, revise the paper/whitepaper, and package reproducibility artifacts. New mechanism work requires a fresh founder ADR.
+- **Next work**: ADR-0034/T-P6.5 relevance-aware G10 theory test, then revise the paper/whitepaper with the resulting attribution.
 - **Not next**: do not freeze G11/C1, do not reopen IdleDrives/RAP/G7/G8, and do not import HyperAgents/DGM into runtime. Future mechanism work needs a fresh founder ADR and a new independent winning axis or structured-environment gate.
+
+### P6.5 — ADR-0034 Relevance-Aware G10 Theory Test (pre-registered, implementation pending)
+
+- **Purpose**: test RR-0019's amended B/R/K model in the real `Agent + RelevanceField` harness. This asks whether P0's G10 margin remains after a strong relevance-aware non-gated control (`RSTAR`) is calibrated on disjoint seeds.
+- **Frozen predictions**: PRED-A' severity threshold, PRED-B' difficulty band, PRED-C' relevance-aware control share.
+- **Frozen seeds**: calibration `1400..1419`, r-final `1500..1529`.
+- **Implementation order**: severity/noise env guards -> policy diagnostics (`rho/conf/tau/w_e`) -> RSTAR calibration -> r-final result update.
+- **Boundary**: this is theory attribution only. It does not reopen G11/C1, retune P0, import LLMs, or weaken C6/C7.

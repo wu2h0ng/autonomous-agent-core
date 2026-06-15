@@ -9,7 +9,7 @@
 ```yaml
 branch: main
 stage: P6 consolidated
-immediate_next: review/use docs/P6-research-synthesis.md; continue P5 deployment projection in enterprise repo
+immediate_next: implement ADR-0034 T-P6.5 relevance-aware G10 theory test in serial slices
 tests: 388 OK
 ```
 
@@ -47,6 +47,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0031-prediction1-residual-calibrator-vs-g10.md` | PRED1-HOLDS | Residual self-calibrator did not beat frozen G10; RR-0019 Claim 1/3 survived the attack |
 | `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` | Accepted | Frontier systems enter only through classified lanes/channels; structured environments are the next admissible experiment family |
 | `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
+| `ADR-0034-relevance-aware-g10-theory-test.md` | Accepted, implementation pending | Full-Agent B/R/K theory test with severity/noise knobs and RSTAR relevance-aware control |
 
 ## Current Code Map
 
@@ -86,6 +87,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_completeness_g10.py` | ADR-0030 | additive `base_temperature` wiring and B-temp guard |
 | `experiments/prediction1_residual_calibrator.py` | ADR-0031 | PRED1-HOLDS; residual calibrator vs frozen G10 |
 | `tests/test_residual_calibrator.py` | ADR-0031 | calibrator math, default-off wiring, C6/C7 guards |
+| ADR-0034 planned | T-P6.5 | Relevance-aware G10 theory test: severity/noise env, policy diagnostics, RSTAR calibration, r-final pending |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |

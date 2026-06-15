@@ -22,12 +22,13 @@ P6 consolidated
   -> ADR-0031: residual self-calibrator falsification attack returned PRED1-HOLDS
   -> ADR-0032: frontier architecture intake lanes accepted; structured semantic/hierarchical environments are the next admissible experiment family
   -> ADR-0033: HyperAgents/DGM assimilation boundary accepted; self-recursive systems are external candidate generators only
+  -> ADR-0034: relevance-aware full-Agent G10 theory test pre-registered; B/R/K attribution must be tested before publication overclaims
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
   -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
   -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
-  -> next: review/use the synthesis package; continue P5 deployment projection in the enterprise repo
+  -> next: implement T-P6.5 in serial slices; continue P5 deployment projection in the enterprise repo
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -57,6 +58,7 @@ Authority:
 - `docs/adr/ADR-0031-prediction1-residual-calibrator-vs-g10.md` (PRED1-HOLDS)
 - `docs/adr/ADR-0032-frontier-architecture-intake-and-structured-env-route.md` (frontier intake lanes)
 - `docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md` (self-recursive assimilation boundary)
+- `docs/adr/ADR-0034-relevance-aware-g10-theory-test.md` (B/R/K relevance-aware G10 theory test)
 - `ENGINEERING.md` section 4 items 5-6
 
 Goal:
@@ -67,7 +69,33 @@ Deliverable status:
 
 ```text
 docs/P6-research-synthesis.md published on 2026-06-15
+docs/adr/ADR-0034-relevance-aware-g10-theory-test.md accepted on 2026-06-15
 ```
+
+### T-P6.5 - Relevance-Aware G10 Theory Test
+
+Authority:
+
+- `docs/adr/ADR-0034-relevance-aware-g10-theory-test.md`
+- `../docs/research/RR-0019-channel-decomposition-principle.md` section 13
+
+Goal:
+
+Test the amended B/R/K theory in the real `Agent + RelevanceField` harness. This does
+not re-open G11/C1 and does not alter the G10 result; it tests the mechanism attribution:
+how much of P0's old margin remains after a relevance-aware non-gated control (`RSTAR`)
+is calibrated on disjoint seeds.
+
+Serial slices:
+
+```text
+T-P6.5a  severity/noise environment path + default-compatibility tests
+T-P6.5b  policy diagnostics for rho/conf/tau/w_e + C6/C7 guards
+T-P6.5c  RSTAR calibration harness on seeds 1400..1419
+T-P6.5d  r-final on seeds 1500..1529 and ADR-0034 result update
+```
+
+Do not run r-final until T-P6.5a-c are implemented and the RSTAR triple is frozen.
 
 Confirmed G10 result:
 
@@ -184,6 +212,7 @@ Interpretation:
 | P6 / ADR-0031 | PRED1-HOLDS | Residual calibrator failed to beat frozen G10; channel-decomposition prediction survived |
 | P6 / ADR-0032 | Accepted | Frontier architecture intake lanes accepted; structured semantic/hierarchical environment route allowed as future docs/gate work |
 | P6 / ADR-0033 | Accepted | HyperAgents/DGM assimilation boundary accepted; L0-L3 external use allowed, L4/L5 runtime self-editing forbidden |
+| P6 / ADR-0034 | Accepted, implementation pending | Relevance-aware full-Agent theory test pre-registered; tests B/R/K attribution, not a new autonomy axis |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -207,8 +236,9 @@ Recent authoritative ADRs:
 - `ADR-0031-prediction1-residual-calibrator-vs-g10.md` - PRED1-HOLDS; residual calibrator did not open a second axis over frozen G10.
 - `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` - frontier intake lanes; P4.x bounded organs and external research automation only.
 - `ADR-0033-hyperagents-dgm-assimilation-boundary.md` - HyperAgents/DGM external candidate-generation boundary; no runtime self-modification.
+- `ADR-0034-relevance-aware-g10-theory-test.md` - B/R/K relevance-aware G10 theory test pre-registration; implementation pending.
 
-G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033 do not exist, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
+G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034 do not exist, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 
