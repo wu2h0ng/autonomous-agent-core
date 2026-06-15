@@ -1,0 +1,81 @@
+updated: "2026-06-15"
+project: "ai-native-business-data-agent-os"
+layer: "deployment"
+branch: "main"
+remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
+status: "Stage 1 complete; P5 substrate harvest underway"
+
+current_stage:
+  label: "P5 deployment projection / substrate harvest"
+  completed:
+    - "Stage 1 Trusted Business Loop MVP complete as of 2026-06-11"
+    - "PR-01 through PR-06 merged to main"
+    - "P5.1b adoption-driven knowledge promotion complete"
+    - "P5.2a corrigibility pause shell complete"
+  immediate_next:
+    id: "P5-decision-gated-next-slice"
+    description: "Select the next decision-gated slice: PR-07 frontend, ActionProposal routing, pgvector pushdown, OTel bridge, Stage 2, or P5.2b/c."
+  not_current:
+    - "Enterprise OS as sole primary research line"
+    - "Thin control-plane-only product"
+    - "Automatic production R4/R5 action execution"
+
+last_verified_tests:
+  command: "make ci or unittest suite per README"
+  result: "304 unit tests passed, 3 skipped, 4 subtests; OpenAPI contract clean; ruff clean"
+  source: "README.md and root code_index.md current-state summary"
+  verified_at: "2026-06-15"
+
+authoritative_records:
+  primary_read_order:
+    - "docs/CURRENT_STATE.yaml"
+    - "README.md"
+    - "AGENTS.md"
+    - "docs/decisions/"
+    - "docs/architecture_reviews/"
+    - "docs/project_baseline/docs/product/"
+    - "docs/project_baseline/docs/project/"
+  current_decisions:
+    - "docs/decisions/ADR-0001-p5-substrate-harvest.md"
+    - "docs/decisions/ADR-0001-P5.1b-current-addendum.md"
+    - "docs/architecture_reviews/AR-20260614-p5.1b-adoption-driven-knowledge.md"
+    - "docs/architecture_reviews/AR-20260614-p5.2-corrigibility-shell.md"
+  archived_baseline:
+    - "docs/project_baseline/"
+
+scope:
+  owns:
+    - "Enterprise Trusted Loop product implementation"
+    - "Contracts, SQL Safety, EvidenceChain, Eval, Trace, Provider, ActionProposal, Approval, Feedback, KnowledgeAsset"
+    - "Deployment-layer projection of validated autonomous-core substrate"
+  does_not_own:
+    - "Autonomous-core falsification gates"
+    - "Meta-layer workflow automation runtime"
+    - "LLM or open-source agent framework as Core runtime dependency"
+    - "Customer-0 domain logic inside OS Core"
+
+open_items:
+  blocked_on_decision_or_environment:
+    - "PR-07 Frontend F1 blueprint"
+    - "ActionProposal routing to real write connector"
+    - "pgvector pushdown + HNSW"
+    - "OTel bridge"
+    - "Stage 2 / Temporal / DataProduct Compiler v1"
+    - "P5.2b/c future corrigibility slices"
+
+handoff_read_order:
+  - "docs/CURRENT_STATE.yaml"
+  - "README.md"
+  - "AGENTS.md"
+  - "docs/decisions/README.md"
+  - "docs/architecture_reviews/README.md"
+  - "docs/project_baseline/docs/product/PRD-MVP.md"
+  - "docs/project_baseline/docs/product/acceptance_criteria.md"
+  - "docs/project_baseline/docs/project/roadmap_90d.md"
+  - "docs/project_baseline/docs/project/backlog.md"
+
+drift_checks:
+  - "Stage label must agree with README.md and root code_index.md."
+  - "Test count must agree with README.md and latest verification record."
+  - "P5 decision status must agree with implementation-local ADRs and architecture reviews."
+  - "Do not promote archived baseline material over current docs/CURRENT_STATE.yaml."

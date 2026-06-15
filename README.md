@@ -5,6 +5,10 @@
 > with `autonomy→0` + business domain pack + strong evidence governance.  
 > Git: branch `main`, remote `origin` at `git@github.com:wu2h0ng/data-agent-os.git`.
 
+## Current State
+
+Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
+
 ## Project Position (2026-06-12 repositioning)
 
 This repository is one of three sibling repos in the workspace:
