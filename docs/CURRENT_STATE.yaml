@@ -2,18 +2,18 @@ updated: "2026-06-15"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 r-final complete (A/C pass, B fail); P7/G12 transferable ecological-structure environment axis is the next core execution lane"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; no new core gate is open without founder decision"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 402
+  count: 412
   result: "OK"
-  source: "Full suite after ADR-0034 T-P6.5 harness implementation on 2026-06-15"
+  source: "Full suite after ADR-0035/G12 harness implementation on 2026-06-15"
 
 current_stage:
   label: "P6 consolidation: one robust subject-side lever, no independent second axis"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Implement ADR-0035/P7 G12 2x2 transferable ecological-structure environment gate in serial slices; continue P5 deployment projection separately"
-  after_next: "After G12, update the P6/P7 synthesis and do not revive G11/C1 unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
+  immediate_next: "Synthesize ADR-0034/0035 results and request founder direction; continue P5 deployment projection separately"
+  after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -43,7 +43,7 @@ authoritative_adrs:
     - "ADR-0032 accepts frontier architecture intake lanes: self-recursive systems stay external, LLM/world-model organs stay P4.x bounded advisers, and structured semantic/hierarchical environments are the next admissible experiment family."
     - "ADR-0033 accepts the HyperAgents/DGM assimilation boundary: L0-L3 external candidate generation is allowed under scans/review; L4 runtime self-modification and L5 safety-substrate self-editing are forbidden."
     - "ADR-0034 r-final completed: PRED-A severity threshold PASS, PRED-B difficulty-band/inverted-U FAIL, PRED-C relevance-aware share PASS; G10 empirical result is preserved, but the trajectory account is weakened to B/R/K with a decisive K residue."
-    - "ADR-0035 accepts P7 as a transferable ecological-structure environment axis with a 2x2 G12 gate; implementation is now next and must preserve the internal-reset vs external-rollback distinction."
+    - "ADR-0035/G12 completed inconclusive: P0 wins C01/C10/C11 but not C00, so the 2x2 does not isolate a distinct ecological-irreversible axis."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
@@ -175,6 +175,45 @@ current_truth:
       - "Confidence-gated commitment leaves a decisive residue under severe stale-action cost."
       - "Severity-threshold account is supported; inverted-U difficulty-band account is unsupported."
       - "ADR-0035/P7 is unblocked and should use the frozen RSTAR control set."
+  g12:
+    adr: "ADR-0035"
+    verdict: "INCONCLUSIVE"
+    seeds: "1700..1729"
+    frozen_rstar:
+      base_temperature: 0.03
+      inertia: 0.25
+      surprise_gain: 1.0
+    cell_results:
+      C00_thin_reversible:
+        best_cheap: "RSTAR"
+        p0_loss: 2052.7
+        best_cheap_loss: 2487.7
+        adv: 0.175
+        win: false
+      C01_thin_irreversible:
+        best_cheap: "RSTAR"
+        p0_loss: 4445.7
+        best_cheap_loss: 6730.8
+        adv: 0.340
+        damage_adv: 0.436
+        win: true
+      C10_ecological_reversible:
+        best_cheap: "RSTAR"
+        p0_loss: 1374.0
+        best_cheap_loss: 1735.7
+        adv: 0.208
+        win: true
+      C11_ecological_irreversible:
+        best_cheap: "RSTAR"
+        p0_loss: 4000.2
+        best_cheap_loss: 5714.4
+        adv: 0.300
+        damage_adv: 0.340
+        win: true
+    interpretation:
+      - "Mixed pattern: C01/C10/C11 win, C00 misses only the 0.20 advantage threshold."
+      - "C11 is not uniquely strongest; C01 is stronger, so ecological-irreversible support is not established."
+      - "Record as inconclusive; no environment retuning or G11/C1 revival follows from this result."
 
 research_constraints:
   - "Do not claim C1/G11 as ready: there is no second independent vs-cheap-baseline winning axis."

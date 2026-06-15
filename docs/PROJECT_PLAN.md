@@ -23,13 +23,13 @@ P6 consolidated
   -> ADR-0032: frontier architecture intake lanes accepted; structured semantic/hierarchical environments are the next admissible experiment family
   -> ADR-0033: HyperAgents/DGM assimilation boundary accepted; self-recursive systems are external candidate generators only
   -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
-  -> ADR-0035: P7 transferable ecological-structure environment axis accepted; G12 2x2 gate is next
+  -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
   -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
   -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
-  -> next: implement ADR-0035/P7 G12 in serial slices; continue P5 deployment projection in the enterprise repo
+  -> next: synthesize ADR-0034/0035 results and request founder direction; continue P5 deployment projection in the enterprise repo
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -38,10 +38,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-402 tests OK
+412 tests OK
 ```
 
-The 402-test result is recorded by ADR-0034 relevance-aware G10 harness integration on 2026-06-15. Re-run before code submission if you change code.
+The 412-test result is recorded by ADR-0035/G12 harness integration on 2026-06-15. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -116,7 +116,7 @@ Disposition:
   (adv=+0.235).
 ```
 
-### T-P7.0 - Transferable Ecological-Structure Environment Axis (Next)
+### T-P7.0 - Transferable Ecological-Structure Environment Axis (Completed, Inconclusive)
 
 Authority:
 
@@ -147,7 +147,17 @@ external rollback = environment undoing consequences, allowed only in reversible
 Status:
 
 ```text
-Design accepted. Implementation may proceed after ADR-0034/T-P6.5; use the frozen RSTAR control set from experiments/relevance_aware_g10.rstar.json.
+G12 r-final completed on seeds 1700..1729.
+
+Cell wins:
+  C00 thin/reversible:        no  (adv=+0.175 < +0.20 threshold)
+  C01 thin/irreversible:      yes (adv=+0.340, damage_adv=+0.436)
+  C10 ecological/reversible:  yes (adv=+0.208)
+  C11 ecological/irreversible:yes (adv=+0.300, damage_adv=+0.340)
+
+Disposition:
+  Inconclusive. The mixed pattern does not isolate a distinct ecological-irreversible axis.
+  No retuning or G11/C1 revival follows.
 ```
 
 Confirmed G10 result:
@@ -266,7 +276,7 @@ Interpretation:
 | P6 / ADR-0032 | Accepted | Frontier architecture intake lanes accepted; structured semantic/hierarchical environment route allowed as future docs/gate work |
 | P6 / ADR-0033 | Accepted | HyperAgents/DGM assimilation boundary accepted; L0-L3 external use allowed, L4/L5 runtime self-editing forbidden |
 | P6 / ADR-0034 | Completed | Relevance-aware full-Agent theory test: PRED-A/C pass, PRED-B fail; B/R/K account stands with weakened trajectory story and decisive K residue |
-| P7 / ADR-0035 | Accepted, next | Transferable ecological-structure environment axis and G12 2x2 gate accepted; implementation after ADR-0034 |
+| P7 / ADR-0035 | Completed, inconclusive | G12 mixed pattern: C01/C10/C11 win, C00 does not; distinct ecological-irreversible axis not established |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -291,9 +301,9 @@ Recent authoritative ADRs:
 - `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` - frontier intake lanes; P4.x bounded organs and external research automation only.
 - `ADR-0033-hyperagents-dgm-assimilation-boundary.md` - HyperAgents/DGM external candidate-generation boundary; no runtime self-modification.
 - `ADR-0034-relevance-aware-g10-theory-test.md` - B/R/K relevance-aware G10 theory test completed; RSTAR explains part but not most of the margin.
-- `ADR-0035-p7-ecological-environment-axis.md` - P7 transferable ecological-structure environment axis and G12 2x2 gate; implementation next.
+- `ADR-0035-p7-ecological-environment-axis.md` - P7 transferable ecological-structure environment axis and G12 2x2 gate; completed inconclusive.
 
-G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035 do not exist, ADR-0034 is pending, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
+G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035/G12, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035 do not exist, ADR-0034 is pending, ADR-0035/G12 is pending, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 

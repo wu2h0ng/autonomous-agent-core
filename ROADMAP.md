@@ -140,7 +140,7 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 
 - **Current state**: P6 is consolidated on `main`. G10 is the confirmed positive result; ADR-0030 makes it trap-complete; ADR-0031 says residual belief calibration does not open a second axis; ADR-0032/0033 bind frontier/self-recursive systems to safe intake lanes.
 - **Deliverable**: `docs/P6-research-synthesis.md` now publishes the P6 research synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, and publication/whitepaper outline.
-- **Next work**: ADR-0035/P7 G12 transferable ecological-structure environment gate, now that ADR-0034 has frozen the relevance-aware control set.
+- **Next work**: synthesize ADR-0034/0035 results and choose whether the core line now pauses for publication/retrospective or opens a new founder-level gate.
 - **Not next**: do not freeze G11/C1, do not reopen IdleDrives/RAP/G7/G8, and do not import HyperAgents/DGM into runtime. Future mechanism work needs a fresh founder ADR and a new independent winning axis or structured-environment gate.
 
 ### P6.5 — ADR-0034 Relevance-Aware G10 Theory Test (completed)
@@ -152,7 +152,7 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Frozen RSTAR**: `base_temperature=0.03`, `inertia=0.25`, `surprise_gain=1.0`.
 - **Boundary**: this is theory attribution only. It does not reopen G11/C1, retune P0, import LLMs, or weaken C6/C7.
 
-## P7 — Transferable Ecological-Structure Environment Axis (ADR-0035, next)
+## P7 — Transferable Ecological-Structure Environment Axis (ADR-0035, completed inconclusive)
 
 - **Purpose**: shift the independent variable from organ/model cleverness to the environment. P7 asks whether autonomy-like advantage appears only when the world has transferable ecological structure and irreversible external consequences.
 - **Gate**: G12 2x2 design:
@@ -163,4 +163,5 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Load-bearing distinction**: O1/internal reset remains allowed in every cell; only external-world rollback is removed in irreversible cells. This prevents "O1 lost because we crippled O1" from contaminating the result.
 - **Metrics**: post-shift regret area, irreversible external damage, damage-weighted loss, recovery steps.
 - **Interpretation discipline**: all four cells failing downgrades P7; wins in all four cells do not prove a distinct ecological axis; only the pre-registered pattern table in ADR-0035 may be used.
-- **Boundary**: use the frozen ADR-0034 strong control set; no implementation may retune P0/O1/BT/RSTAR or weaken C6/C7.
+- **Result**: G12 is inconclusive. P0 wins C01/C10/C11 but not C00 (`adv=+0.175`, below the `+0.20` threshold), and C11 is not uniquely strongest because C01 has higher advantage.
+- **Boundary**: no implementation may retune P0/O1/BT/RSTAR, weaken C6/C7, or rescue G12 by environment shopping.

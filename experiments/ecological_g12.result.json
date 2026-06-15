@@ -1,0 +1,287 @@
+{
+  "adr": "ADR-0035",
+  "cells": {
+    "C00": {
+      "best_cheap": "RSTAR",
+      "label": "thin/reversible",
+      "means": {
+        "A0": {
+          "conflict_stability": 0.3545272636318159,
+          "damage_weighted_loss": 2662.5,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2662.5,
+          "recovery_steps": 8.082,
+          "resource_survival": 1.0
+        },
+        "A1": {
+          "conflict_stability": 0.2346006336501584,
+          "damage_weighted_loss": 2784.8333333333335,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2784.8333333333335,
+          "recovery_steps": 7.252,
+          "resource_survival": 1.0
+        },
+        "BT": {
+          "conflict_stability": 0.5088044022011006,
+          "damage_weighted_loss": 2547.8333333333335,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2547.8333333333335,
+          "recovery_steps": 8.797333333333334,
+          "resource_survival": 1.0
+        },
+        "P0": {
+          "conflict_stability": 0.8506086376521594,
+          "damage_weighted_loss": 2052.6666666666665,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2052.6666666666665,
+          "recovery_steps": 8.472,
+          "resource_survival": 1.0
+        },
+        "RSTAR": {
+          "conflict_stability": 0.5406703351675838,
+          "damage_weighted_loss": 2487.6666666666665,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2487.6666666666665,
+          "recovery_steps": 8.642666666666665,
+          "resource_survival": 1.0
+        }
+      },
+      "reversible": true,
+      "stats_vs_best_cheap": {
+        "adv": 0.17486265576845772,
+        "ci_lower": 377.6666666666667,
+        "ci_upper": 491.6666666666667,
+        "damage_adv": 0.0,
+        "damage_ci_lower": 0.0,
+        "damage_ci_upper": 0.0,
+        "wilcoxon_p": 9.313225746154785e-10,
+        "win": false,
+        "wins": 30
+      },
+      "structured": false
+    },
+    "C01": {
+      "best_cheap": "RSTAR",
+      "label": "thin/irreversible",
+      "means": {
+        "A0": {
+          "conflict_stability": 0.3545272636318159,
+          "damage_weighted_loss": 8153.5,
+          "irreversible_damage": 5491.0,
+          "post_shift_regret_area": 2662.5,
+          "recovery_steps": 8.082,
+          "resource_survival": 0.0009333333333333342
+        },
+        "A1": {
+          "conflict_stability": 0.2346006336501584,
+          "damage_weighted_loss": 9123.666666666666,
+          "irreversible_damage": 6338.833333333333,
+          "post_shift_regret_area": 2784.8333333333335,
+          "recovery_steps": 7.252,
+          "resource_survival": 0.0
+        },
+        "BT": {
+          "conflict_stability": 0.5088044022011006,
+          "damage_weighted_loss": 7034.166666666667,
+          "irreversible_damage": 4486.333333333333,
+          "post_shift_regret_area": 2547.8333333333335,
+          "recovery_steps": 8.797333333333334,
+          "resource_survival": 0.10516666666666667
+        },
+        "P0": {
+          "conflict_stability": 0.8506086376521594,
+          "damage_weighted_loss": 4445.666666666667,
+          "irreversible_damage": 2393.0,
+          "post_shift_regret_area": 2052.6666666666665,
+          "recovery_steps": 8.472,
+          "resource_survival": 0.5214
+        },
+        "RSTAR": {
+          "conflict_stability": 0.5406703351675838,
+          "damage_weighted_loss": 6730.833333333333,
+          "irreversible_damage": 4243.166666666667,
+          "post_shift_regret_area": 2487.6666666666665,
+          "recovery_steps": 8.642666666666665,
+          "resource_survival": 0.15176666666666666
+        }
+      },
+      "reversible": false,
+      "stats_vs_best_cheap": {
+        "adv": 0.3395072427881638,
+        "ci_lower": 2134.5,
+        "ci_upper": 2436.1666666666665,
+        "damage_adv": 0.4360344082642681,
+        "damage_ci_lower": 1745.1666666666667,
+        "damage_ci_upper": 1960.1666666666667,
+        "wilcoxon_p": 9.313225746154785e-10,
+        "win": true,
+        "wins": 30
+      },
+      "structured": false
+    },
+    "C10": {
+      "best_cheap": "RSTAR",
+      "label": "ecological/reversible",
+      "means": {
+        "A0": {
+          "conflict_stability": 0.19646489911622478,
+          "damage_weighted_loss": 1890.2916666666667,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1890.2916666666667,
+          "recovery_steps": 6.298666666666667,
+          "resource_survival": 1.0
+        },
+        "A1": {
+          "conflict_stability": 0.19456394864098717,
+          "damage_weighted_loss": 1910.3833333333334,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1910.3833333333334,
+          "recovery_steps": 6.004666666666666,
+          "resource_survival": 1.0
+        },
+        "BT": {
+          "conflict_stability": 0.24115391028847757,
+          "damage_weighted_loss": 1775.1416666666667,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1775.1416666666667,
+          "recovery_steps": 6.592,
+          "resource_survival": 1.0
+        },
+        "P0": {
+          "conflict_stability": 0.8913289978322495,
+          "damage_weighted_loss": 1374.0416666666667,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1374.0416666666667,
+          "recovery_steps": 11.198,
+          "resource_survival": 1.0
+        },
+        "RSTAR": {
+          "conflict_stability": 0.256661664165416,
+          "damage_weighted_loss": 1735.7333333333333,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1735.7333333333333,
+          "recovery_steps": 6.498,
+          "resource_survival": 1.0
+        }
+      },
+      "reversible": true,
+      "stats_vs_best_cheap": {
+        "adv": 0.2083797434321708,
+        "ci_lower": 324.90833333333336,
+        "ci_upper": 397.18333333333334,
+        "damage_adv": 0.0,
+        "damage_ci_lower": 0.0,
+        "damage_ci_upper": 0.0,
+        "wilcoxon_p": 9.313225746154785e-10,
+        "win": true,
+        "wins": 30
+      },
+      "structured": true
+    },
+    "C11": {
+      "best_cheap": "RSTAR",
+      "label": "ecological/irreversible",
+      "means": {
+        "A0": {
+          "conflict_stability": 0.19646489911622478,
+          "damage_weighted_loss": 6476.408333333334,
+          "irreversible_damage": 4586.116666666667,
+          "post_shift_regret_area": 1890.2916666666667,
+          "recovery_steps": 6.298666666666667,
+          "resource_survival": 0.08277666666666667
+        },
+        "A1": {
+          "conflict_stability": 0.19456394864098717,
+          "damage_weighted_loss": 6498.358333333334,
+          "irreversible_damage": 4587.975,
+          "post_shift_regret_area": 1910.3833333333334,
+          "recovery_steps": 6.004666666666666,
+          "resource_survival": 0.082405
+        },
+        "BT": {
+          "conflict_stability": 0.24115391028847757,
+          "damage_weighted_loss": 5911.275,
+          "irreversible_damage": 4136.133333333333,
+          "post_shift_regret_area": 1775.1416666666667,
+          "recovery_steps": 6.592,
+          "resource_survival": 0.17277333333333333
+        },
+        "P0": {
+          "conflict_stability": 0.8913289978322495,
+          "damage_weighted_loss": 4000.1833333333334,
+          "irreversible_damage": 2626.141666666667,
+          "post_shift_regret_area": 1374.0416666666667,
+          "recovery_steps": 11.198,
+          "resource_survival": 0.47477166666666665
+        },
+        "RSTAR": {
+          "conflict_stability": 0.256661664165416,
+          "damage_weighted_loss": 5714.433333333333,
+          "irreversible_damage": 3978.7,
+          "post_shift_regret_area": 1735.7333333333333,
+          "recovery_steps": 6.498,
+          "resource_survival": 0.20426000000000002
+        }
+      },
+      "reversible": false,
+      "stats_vs_best_cheap": {
+        "adv": 0.29998600036165735,
+        "ci_lower": 1630.0333333333333,
+        "ci_upper": 1793.0333333333333,
+        "damage_adv": 0.3399498161040875,
+        "damage_ci_lower": 1297.4,
+        "damage_ci_upper": 1407.1833333333334,
+        "wilcoxon_p": 9.313225746154785e-10,
+        "win": true,
+        "wins": 30
+      },
+      "structured": true
+    }
+  },
+  "interpretation": "Inconclusive",
+  "kind": "G12 r-final",
+  "rstar": {
+    "base_temperature": 0.03,
+    "inertia": 0.25,
+    "surprise_gain": 1.0
+  },
+  "seeds": [
+    1700,
+    1701,
+    1702,
+    1703,
+    1704,
+    1705,
+    1706,
+    1707,
+    1708,
+    1709,
+    1710,
+    1711,
+    1712,
+    1713,
+    1714,
+    1715,
+    1716,
+    1717,
+    1718,
+    1719,
+    1720,
+    1721,
+    1722,
+    1723,
+    1724,
+    1725,
+    1726,
+    1727,
+    1728,
+    1729
+  ],
+  "steps": 2000,
+  "wins": {
+    "C00": false,
+    "C01": true,
+    "C10": true,
+    "C11": true
+  }
+}

@@ -9,8 +9,8 @@
 ```yaml
 branch: main
 stage: P6 consolidated
-immediate_next: implement ADR-0035/P7 G12 transferable ecological-structure environment gate
-tests: 402 OK
+immediate_next: synthesize ADR-0034/0035 results and request founder direction
+tests: 412 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -48,7 +48,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` | Accepted | Frontier systems enter only through classified lanes/channels; structured environments are the next admissible experiment family |
 | `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
 | `ADR-0034-relevance-aware-g10-theory-test.md` | Completed | Full-Agent B/R/K test: PRED-A/C pass, PRED-B fail; RSTAR explains part but not most of the old margin |
-| `ADR-0035-p7-ecological-environment-axis.md` | Accepted, next | P7 transferable ecological-structure environment axis; G12 2x2 gate, internal reset vs external rollback distinction |
+| `ADR-0035-p7-ecological-environment-axis.md` | Completed, inconclusive | P7/G12 mixed pattern; C01/C10/C11 win, C00 misses threshold, so no distinct ecological-irreversible axis isolated |
 
 ## Current Code Map
 
@@ -76,6 +76,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/envs/staleness.py` | P4 staleness-only environment | `StalenessEnv` |
 | `src/envs/semantic_regime.py` | Offline semantic de-risk env | `SemanticRegimeEnv` |
 | `src/envs/idle_windows.py` | Idle window wrapper used by C3 | `IdleWindowEnv` |
+| `src/envs/ecological_regime.py` | ADR-0035/G12 2x2 environment cells | `EcologicalRegimeEnv` |
 
 ## Current Experiments
 
@@ -90,7 +91,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_residual_calibrator.py` | ADR-0031 | calibrator math, default-off wiring, C6/C7 guards |
 | `experiments/relevance_aware_g10.py` | ADR-0034 | Completed; RSTAR calibration + r-final B/R/K attribution |
 | `tests/test_relevance_aware_g10.py` | ADR-0034 | severity/noise env, policy diagnostics, RSTAR freeze/r-final guards |
-| ADR-0035 planned | P7/G12 | Transferable ecological-structure 2x2 environment gate: thin/ecological x reversible/irreversible, next |
+| `experiments/ecological_g12.py` | ADR-0035/G12 | Completed; P7 transferable ecological-structure 2x2 r-final |
+| `tests/test_ecological_g12.py` | ADR-0035/G12 | 2x2 env, reset boundary, RSTAR control, cell-win guards |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
@@ -111,7 +113,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-402 tests OK
+412 tests OK
 ```
 
 Important current test files:
@@ -178,6 +180,13 @@ G9 verdict:
   - Severe/default: P0 beats RSTAR decisively (adv +0.235, 30/30, CI [495.7,605.3]).
   - share_R=0.373: relevance-aware exploration explains part, not most, of the old margin.
   - Interpretation: G10 empirical result preserved; trajectory account weakened to B/R/K with a decisive K residue.
+- ADR-0035/G12 P7 ecological environment axis returned INCONCLUSIVE:
+  - C00 thin/reversible: P0 adv vs RSTAR +0.175, 30/30, but below the +0.20 cell-win threshold -> no win.
+  - C01 thin/irreversible: P0 win, adv +0.340, damage_adv +0.436.
+  - C10 ecological/reversible: P0 win, adv +0.208.
+  - C11 ecological/irreversible: P0 win, adv +0.300, damage_adv +0.340.
+  - Mixed pattern C01/C10/C11 without C00 does not isolate a distinct ecological-irreversible axis.
+  - Interpretation: record as inconclusive; no G12 retuning or G11/C1 revival.
 - C3 returned RED:
   - DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701.
   - Endogeny has no directed post-idle signal and is dropped from C1.
@@ -190,7 +199,7 @@ G9 verdict:
   - EXPLORER survival 1814 / EXPLOITER survival 1335 / GATED survival 1313.
   - GATED beats the best cheap arm in only 2/30 seeds, p=0.97, gap CI [-570, -321].
   - Stationary risk calibration is not an independent gate advantage.
-- Next: implement ADR-0035/P7 G12; G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
+- Next: synthesize ADR-0034/0035 and ask for founder direction; G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
 
 ## Drift Prevention
 

@@ -75,7 +75,7 @@ Current full-suite truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-402 tests OK
+412 tests OK
 ```
 
 Key scripts and guards:
@@ -87,6 +87,8 @@ Key scripts and guards:
 | `experiments/completeness_g10.py` | ADR-0030 trap/completeness checks |
 | `experiments/relevance_aware_g10.py` | ADR-0034 B/R/K attribution with frozen RSTAR control |
 | `tests/test_relevance_aware_g10.py` | ADR-0034 env, diagnostics, calibration, and r-final guards |
+| `experiments/ecological_g12.py` | ADR-0035/G12 transferable ecological-structure 2x2 r-final |
+| `tests/test_ecological_g12.py` | ADR-0035/G12 env, reset-boundary, and cell-win guards |
 | `tests/test_completeness_g10.py` | Temperature/baseline wiring guards |
 | `experiments/prediction1_residual_calibrator.py` | ADR-0031 powered attack on RR-0019 Prediction 1 |
 | `tests/test_residual_calibrator.py` | Residual calibrator math and default-off C6/C7 guards |
@@ -174,7 +176,7 @@ Allowed next work:
 - Reproducibility artifact packaging.
 - P5 enterprise deployment projection under the enterprise repo's own ADR/AR.
 - ADR-0034/T-P6.5 relevance-aware G10 theory test, now completed as a theory-attribution experiment. Result: PRED-A/C pass, PRED-B fails; P0 keeps a decisive severe/default advantage over frozen RSTAR (`adv=+0.235`) while RSTAR explains a substantial minority of the old margin (`share_R=0.373`).
-- ADR-0035/P7 transferable ecological-structure environment axis, now the next core execution lane. It freezes the G12 2x2 environment gate and the internal-reset vs external-rollback distinction.
+- ADR-0035/P7 transferable ecological-structure environment axis, now completed as an inconclusive G12 result. P0 wins C01/C10/C11 but not C00, so the gate does not isolate a distinct ecological-irreversible axis.
 - Other structured-environment experiment design only after a fresh gate is written and frozen.
 
 Not allowed without a new founder-level ADR:

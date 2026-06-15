@@ -1,6 +1,6 @@
 # ADR-0035: P7 Transferable Ecological-Structure Environment Axis And G12 2x2 Gate
 
-- Status: Accepted (P7 design / pre-registration; implementation ready after ADR-0034 completion)
+- Status: Completed (G12 r-final inconclusive, 2026-06-15)
 - Date: 2026-06-15
 - Deciders: founder approval; Codex as autonomous-agent-core single writer
 
@@ -281,8 +281,53 @@ G12 must not:
 
 ## Consequences
 
-- P7 is now an accepted research axis and the next core implementation queue.
+- P7 is now an accepted research axis with a completed first G12 gate.
 - ADR-0034 resolved the B/R/K attribution enough for G12: P0 keeps a decisive K residue,
   and RSTAR joins the cheap-control set.
 - Future RR-0022 can use this ADR as the core gate reference, but RR-0022 is not a core
   implementation authority.
+
+## Result (2026-06-15)
+
+Implementation artifacts:
+
+```text
+src/envs/ecological_regime.py
+experiments/ecological_g12.py
+experiments/ecological_g12.result.json
+tests/test_ecological_g12.py
+```
+
+G12 r-final used seeds `1700..1729`, `steps=2000`, `window=15`, `n_actions=8`,
+`n_regimes=5`, and the frozen ADR-0034 RSTAR control.
+
+| Cell | Label | BEST_CHEAP | P0 loss | BEST_CHEAP loss | adv(P0,BEST_CHEAP) | P0 wins? |
+|---|---|---|---:|---:|---:|---|
+| C00 | thin/reversible | RSTAR | 2052.7 | 2487.7 | +0.175 | No |
+| C01 | thin/irreversible | RSTAR | 4445.7 | 6730.8 | +0.340 | Yes |
+| C10 | ecological/reversible | RSTAR | 1374.0 | 1735.7 | +0.208 | Yes |
+| C11 | ecological/irreversible | RSTAR | 4000.2 | 5714.4 | +0.300 | Yes |
+
+Irreversible damage checks:
+
+| Cell | P0 damage | BEST_CHEAP damage | damage advantage | Damage gate |
+|---|---:|---:|---:|---|
+| C01 | 2393.0 | 4243.2 | +0.436 | PASS |
+| C11 | 2626.1 | 3978.7 | +0.340 | PASS |
+
+Disposition:
+
+```text
+Inconclusive.
+```
+
+Interpretation:
+
+- C00 did not clear the pre-registered cell win threshold: `adv=+0.175`, below the
+  required `+0.20`, even though paired wins were `30/30`.
+- C01, C10, and C11 all cleared their cell gates. This is a mixed pattern, not the
+  pre-registered ecological-irreversible signature.
+- C11 is not at least `0.10` advantage above every other cell; C01 is stronger than C11.
+- Therefore G12 does **not** isolate a distinct P7 ecological-irreversible axis.
+- This is not a mandate to retune the environment. Per D7, record as inconclusive and do
+  not rescue the gate by shopping variants.
