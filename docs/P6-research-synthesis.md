@@ -177,7 +177,7 @@ Allowed next work:
 - P5 enterprise deployment projection under the enterprise repo's own ADR/AR.
 - ADR-0034/T-P6.5 relevance-aware G10 theory test, now completed as a theory-attribution experiment. Result: PRED-A/C pass, PRED-B fails; P0 keeps a decisive severe/default advantage over frozen RSTAR (`adv=+0.235`) while RSTAR explains a substantial minority of the old margin (`share_R=0.373`).
 - ADR-0035/P7 transferable ecological-structure environment axis, now completed as an inconclusive G12 result. P0 wins C01/C10/C11 but not C00, so the gate does not isolate a distinct ecological-irreversible axis.
-- ADR-0036/G13 bounded consequence-prior gate, now accepted as a post-P6 narrow test. It does not rescue G12; it tests whether `P0 + consequence_prior` improves over `P0-alone` only in scarred/irreversible cells while preserving C6/C7.
+- ADR-0036/G13 bounded consequence-prior gate, now completed NOT MET. It did not rescue G12: `CP = P0 + consequence_prior` reduced irreversible damage but missed the net R1 advantage threshold and harmed reversible cells through stale-prior spillover.
 
 Not allowed without a new founder-level ADR:
 

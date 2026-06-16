@@ -1,0 +1,545 @@
+{
+  "adr": "ADR-0036",
+  "cells": {
+    "C00": {
+      "CAUTIOUS_vs_P0": {
+        "adv": 0.0,
+        "candidate_damage_mean": 0.0,
+        "candidate_loss_mean": 2179.3333333333335,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "damage_adv": 0.0,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 30,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 0.0,
+        "p0_loss_mean": 2179.3333333333335,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 1.0,
+        "wins": 0
+      },
+      "CP_vs_P0": {
+        "adv": -0.23416189002559182,
+        "candidate_damage_mean": 0.0,
+        "candidate_loss_mean": 2494.5,
+        "ci_lower": -471.3333333333333,
+        "ci_upper": -169.83333333333334,
+        "damage_adv": 0.0,
+        "harm_seed_count": 15,
+        "near_zero_damage_denominators": 30,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 0.0,
+        "p0_loss_mean": 2179.3333333333335,
+        "stale_prior_harm": 11.333333333333334,
+        "wilcoxon_p": 0.9998146984726191,
+        "wins": 8
+      },
+      "label": "thin/reversible",
+      "means": {
+        "A0": {
+          "damage_weighted_loss": 2718.6666666666665,
+          "first_window_damage_weighted_loss": 53.333333333333336,
+          "first_window_regret_area": 53.333333333333336,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2718.6666666666665,
+          "recovery_steps": 8.49,
+          "resource_survival": 1.0
+        },
+        "A1": {
+          "damage_weighted_loss": 2772.3333333333335,
+          "first_window_damage_weighted_loss": 57.166666666666664,
+          "first_window_regret_area": 57.166666666666664,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2772.3333333333335,
+          "recovery_steps": 6.872,
+          "resource_survival": 1.0
+        },
+        "BT": {
+          "damage_weighted_loss": 2625.5,
+          "first_window_damage_weighted_loss": 58.666666666666664,
+          "first_window_regret_area": 58.666666666666664,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2625.5,
+          "recovery_steps": 9.283999999999999,
+          "resource_survival": 1.0
+        },
+        "CAUTIOUS": {
+          "damage_weighted_loss": 2179.3333333333335,
+          "first_window_damage_weighted_loss": 48.5,
+          "first_window_regret_area": 48.5,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2179.3333333333335,
+          "recovery_steps": 8.968,
+          "resource_survival": 1.0
+        },
+        "CP": {
+          "damage_weighted_loss": 2494.5,
+          "first_window_damage_weighted_loss": 53.5,
+          "first_window_regret_area": 53.5,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2494.5,
+          "recovery_steps": 6.228,
+          "resource_survival": 1.0
+        },
+        "P0": {
+          "damage_weighted_loss": 2179.3333333333335,
+          "first_window_damage_weighted_loss": 48.5,
+          "first_window_regret_area": 48.5,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2179.3333333333335,
+          "recovery_steps": 8.968,
+          "resource_survival": 1.0
+        },
+        "RSTAR": {
+          "damage_weighted_loss": 2579.1666666666665,
+          "first_window_damage_weighted_loss": 56.833333333333336,
+          "first_window_regret_area": 56.833333333333336,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 2579.1666666666665,
+          "recovery_steps": 9.085333333333333,
+          "resource_survival": 1.0
+        }
+      },
+      "reversible": true,
+      "structured": false
+    },
+    "C01": {
+      "CAUTIOUS_vs_P0": {
+        "adv": -0.025108032935212046,
+        "candidate_damage_mean": 2325.480000000026,
+        "candidate_loss_mean": 4689.313333333359,
+        "ci_lower": -206.85166666667686,
+        "ci_upper": 59.64833333332167,
+        "damage_adv": 0.06483400468841273,
+        "harm_seed_count": 2,
+        "near_zero_damage_denominators": 0,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 2515.035000000013,
+        "p0_loss_mean": 4610.3683333333465,
+        "stale_prior_harm": 27.606666666669845,
+        "wilcoxon_p": 0.8857235889881849,
+        "wins": 10
+      },
+      "CP_vs_P0": {
+        "adv": 0.04703601175121796,
+        "candidate_damage_mean": 1741.6900000000426,
+        "candidate_loss_mean": 4303.023333333376,
+        "ci_lower": 109.34499999998073,
+        "ci_upper": 501.49999999997,
+        "damage_adv": 0.2609215329891224,
+        "harm_seed_count": 1,
+        "near_zero_damage_denominators": 0,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 2515.035000000013,
+        "p0_loss_mean": 4610.3683333333465,
+        "stale_prior_harm": 8.165000000000699,
+        "wilcoxon_p": 0.004352731630206108,
+        "wins": 19
+      },
+      "label": "thin/irreversible",
+      "means": {
+        "A0": {
+          "damage_weighted_loss": 5647.3716666666905,
+          "first_window_damage_weighted_loss": 3017.8716666666905,
+          "first_window_regret_area": 57.666666666666664,
+          "irreversible_damage": 2960.205000000024,
+          "post_shift_regret_area": 2687.1666666666665,
+          "recovery_steps": 8.188666666666666,
+          "resource_survival": 0.40795899999999524
+        },
+        "A1": {
+          "damage_weighted_loss": 5918.713333333353,
+          "first_window_damage_weighted_loss": 3201.713333333354,
+          "first_window_regret_area": 58.833333333333336,
+          "irreversible_damage": 3142.8800000000206,
+          "post_shift_regret_area": 2775.8333333333335,
+          "recovery_steps": 6.928,
+          "resource_survival": 0.37142399999999587
+        },
+        "BT": {
+          "damage_weighted_loss": 5367.23666666669,
+          "first_window_damage_weighted_loss": 2848.403333333357,
+          "first_window_regret_area": 53.333333333333336,
+          "irreversible_damage": 2795.0700000000234,
+          "post_shift_regret_area": 2572.1666666666665,
+          "recovery_steps": 8.883999999999999,
+          "resource_survival": 0.44098599999999527
+        },
+        "CAUTIOUS": {
+          "damage_weighted_loss": 4689.313333333359,
+          "first_window_damage_weighted_loss": 2376.3133333333594,
+          "first_window_regret_area": 50.833333333333336,
+          "irreversible_damage": 2325.480000000026,
+          "post_shift_regret_area": 2363.8333333333335,
+          "recovery_steps": 8.483333333333333,
+          "resource_survival": 0.5349039999999948
+        },
+        "CP": {
+          "damage_weighted_loss": 4303.023333333376,
+          "first_window_damage_weighted_loss": 1791.5233333333758,
+          "first_window_regret_area": 49.833333333333336,
+          "irreversible_damage": 1741.6900000000426,
+          "post_shift_regret_area": 2561.3333333333335,
+          "recovery_steps": 8.418666666666667,
+          "resource_survival": 0.6516619999999914
+        },
+        "P0": {
+          "damage_weighted_loss": 4610.3683333333465,
+          "first_window_damage_weighted_loss": 2557.3683333333465,
+          "first_window_regret_area": 42.333333333333336,
+          "irreversible_damage": 2515.035000000013,
+          "post_shift_regret_area": 2095.3333333333335,
+          "recovery_steps": 8.614666666666666,
+          "resource_survival": 0.4969929999999973
+        },
+        "RSTAR": {
+          "damage_weighted_loss": 5302.468333333355,
+          "first_window_damage_weighted_loss": 2817.468333333355,
+          "first_window_regret_area": 50.833333333333336,
+          "irreversible_damage": 2766.635000000022,
+          "post_shift_regret_area": 2535.8333333333335,
+          "recovery_steps": 8.777999999999999,
+          "resource_survival": 0.44667299999999555
+        }
+      },
+      "reversible": false,
+      "structured": false
+    },
+    "C10": {
+      "CAUTIOUS_vs_P0": {
+        "adv": 0.0,
+        "candidate_damage_mean": 0.0,
+        "candidate_loss_mean": 1305.925,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "damage_adv": 0.0,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 30,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 0.0,
+        "p0_loss_mean": 1305.925,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 1.0,
+        "wins": 0
+      },
+      "CP_vs_P0": {
+        "adv": -0.37101488697092067,
+        "candidate_damage_mean": 0.0,
+        "candidate_loss_mean": 1784.225,
+        "ci_lower": -508.8333333333333,
+        "ci_upper": -445.48333333333335,
+        "damage_adv": 0.0,
+        "harm_seed_count": 12,
+        "near_zero_damage_denominators": 30,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 0.0,
+        "p0_loss_mean": 1305.925,
+        "stale_prior_harm": 17.85,
+        "wilcoxon_p": 1.0,
+        "wins": 0
+      },
+      "label": "ecological/reversible",
+      "means": {
+        "A0": {
+          "damage_weighted_loss": 1848.2583333333334,
+          "first_window_damage_weighted_loss": 32.8,
+          "first_window_regret_area": 32.8,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1848.2583333333334,
+          "recovery_steps": 6.161333333333333,
+          "resource_survival": 1.0
+        },
+        "A1": {
+          "damage_weighted_loss": 1900.3583333333333,
+          "first_window_damage_weighted_loss": 36.675,
+          "first_window_regret_area": 36.675,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1900.3583333333333,
+          "recovery_steps": 5.815333333333333,
+          "resource_survival": 1.0
+        },
+        "BT": {
+          "damage_weighted_loss": 1716.1666666666667,
+          "first_window_damage_weighted_loss": 28.991666666666667,
+          "first_window_regret_area": 28.991666666666667,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1716.1666666666667,
+          "recovery_steps": 6.29,
+          "resource_survival": 1.0
+        },
+        "CAUTIOUS": {
+          "damage_weighted_loss": 1305.925,
+          "first_window_damage_weighted_loss": 18.9,
+          "first_window_regret_area": 18.9,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1305.925,
+          "recovery_steps": 10.865333333333332,
+          "resource_survival": 1.0
+        },
+        "CP": {
+          "damage_weighted_loss": 1784.225,
+          "first_window_damage_weighted_loss": 33.96666666666667,
+          "first_window_regret_area": 33.96666666666667,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1784.225,
+          "recovery_steps": 7.88,
+          "resource_survival": 1.0
+        },
+        "P0": {
+          "damage_weighted_loss": 1305.925,
+          "first_window_damage_weighted_loss": 18.9,
+          "first_window_regret_area": 18.9,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1305.925,
+          "recovery_steps": 10.865333333333332,
+          "resource_survival": 1.0
+        },
+        "RSTAR": {
+          "damage_weighted_loss": 1682.3583333333333,
+          "first_window_damage_weighted_loss": 28.758333333333333,
+          "first_window_regret_area": 28.758333333333333,
+          "irreversible_damage": 0.0,
+          "post_shift_regret_area": 1682.3583333333333,
+          "recovery_steps": 6.336,
+          "resource_survival": 1.0
+        }
+      },
+      "reversible": true,
+      "structured": true
+    },
+    "C11": {
+      "CAUTIOUS_vs_P0": {
+        "adv": 0.09860277760134063,
+        "candidate_damage_mean": 2526.8900000000067,
+        "candidate_loss_mean": 4699.131666666673,
+        "ci_lower": 346.93208333321553,
+        "ci_upper": 914.9666666665287,
+        "damage_adv": 0.34543211835984516,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 0,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 3972.6824999998844,
+        "p0_loss_mean": 5331.790833333218,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 0.004650561138987541,
+        "wins": 19
+      },
+      "CP_vs_P0": {
+        "adv": 0.08534605243430977,
+        "candidate_damage_mean": 1676.4475000000032,
+        "candidate_loss_mean": 4761.330833333337,
+        "ci_lower": 271.5558333332327,
+        "ci_upper": 876.7633333332004,
+        "damage_adv": 0.559255988692719,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 0,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 3972.6824999998844,
+        "p0_loss_mean": 5331.790833333218,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 0.008726834319531918,
+        "wins": 16
+      },
+      "label": "ecological/irreversible",
+      "means": {
+        "A0": {
+          "damage_weighted_loss": 5379.733749999948,
+          "first_window_damage_weighted_loss": 3544.7587499999486,
+          "first_window_regret_area": 33.6,
+          "irreversible_damage": 3511.1587499999487,
+          "post_shift_regret_area": 1868.575,
+          "recovery_steps": 6.283333333333333,
+          "resource_survival": 0.29776825000001034
+        },
+        "A1": {
+          "damage_weighted_loss": 5392.228749999953,
+          "first_window_damage_weighted_loss": 3501.412083333287,
+          "first_window_regret_area": 37.208333333333336,
+          "irreversible_damage": 3464.2037499999537,
+          "post_shift_regret_area": 1928.025,
+          "recovery_steps": 6.036666666666666,
+          "resource_survival": 0.3071592500000093
+        },
+        "BT": {
+          "damage_weighted_loss": 5309.057916666604,
+          "first_window_damage_weighted_loss": 3593.1912499999376,
+          "first_window_regret_area": 29.625,
+          "irreversible_damage": 3563.5662499999376,
+          "post_shift_regret_area": 1745.4916666666666,
+          "recovery_steps": 6.540666666666667,
+          "resource_survival": 0.28728675000001247
+        },
+        "CAUTIOUS": {
+          "damage_weighted_loss": 4699.131666666673,
+          "first_window_damage_weighted_loss": 2569.056666666673,
+          "first_window_regret_area": 42.166666666666664,
+          "irreversible_damage": 2526.8900000000067,
+          "post_shift_regret_area": 2172.241666666667,
+          "recovery_steps": 10.080666666666668,
+          "resource_survival": 0.4946219999999987
+        },
+        "CP": {
+          "damage_weighted_loss": 4761.330833333337,
+          "first_window_damage_weighted_loss": 1739.4225000000033,
+          "first_window_regret_area": 62.975,
+          "irreversible_damage": 1676.4475000000032,
+          "post_shift_regret_area": 3084.883333333333,
+          "recovery_steps": 14.730666666666668,
+          "resource_survival": 0.6647104999999994
+        },
+        "P0": {
+          "damage_weighted_loss": 5331.790833333218,
+          "first_window_damage_weighted_loss": 3995.7074999998845,
+          "first_window_regret_area": 23.025,
+          "irreversible_damage": 3972.6824999998844,
+          "post_shift_regret_area": 1359.1083333333333,
+          "recovery_steps": 11.146666666666667,
+          "resource_survival": 0.20546350000002314
+        },
+        "RSTAR": {
+          "damage_weighted_loss": 5301.442499999934,
+          "first_window_damage_weighted_loss": 3619.6924999999337,
+          "first_window_regret_area": 29.45,
+          "irreversible_damage": 3590.242499999934,
+          "post_shift_regret_area": 1711.2,
+          "recovery_steps": 6.546,
+          "resource_survival": 0.2819515000000132
+        }
+      },
+      "reversible": false,
+      "structured": true
+    }
+  },
+  "collapse": {
+    "R0": {
+      "CAUTIOUS_vs_P0": {
+        "adv": 0.0,
+        "candidate_damage_mean": 0.0,
+        "candidate_loss_mean": 1742.6291666666666,
+        "ci_lower": 0.0,
+        "ci_upper": 0.0,
+        "damage_adv": 0.0,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 30,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 0.0,
+        "p0_loss_mean": 1742.6291666666666,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 1.0,
+        "wins": 0
+      },
+      "CP_vs_P0": {
+        "adv": -0.25454193910450856,
+        "candidate_damage_mean": 0.0,
+        "candidate_loss_mean": 2139.3625,
+        "ci_lower": -474.55833333333334,
+        "ci_upper": -323.175,
+        "damage_adv": 0.0,
+        "harm_seed_count": 19,
+        "near_zero_damage_denominators": 30,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 0.0,
+        "p0_loss_mean": 1742.6291666666666,
+        "reversible_any_cell_harm_seed_count": 21,
+        "stale_prior_harm": 12.679166666666667,
+        "wilcoxon_p": 1.0,
+        "wins": 0
+      },
+      "cheap_caution_capture": 0.0,
+      "reversible_spillover": 0.0
+    },
+    "R1": {
+      "CAUTIOUS_vs_P0": {
+        "adv": 0.05232302715931829,
+        "candidate_damage_mean": 2426.1850000000163,
+        "candidate_loss_mean": 4694.222500000016,
+        "ci_lower": 131.76437499993787,
+        "ci_upper": 422.6641666665976,
+        "damage_adv": 0.24573348511583246,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 0,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 3243.858749999949,
+        "p0_loss_mean": 4971.079583333282,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 0.0011837473139166832,
+        "wins": 21
+      },
+      "CP_vs_P0": {
+        "adv": 0.08301230991728271,
+        "candidate_damage_mean": 1709.0687500000229,
+        "candidate_loss_mean": 4532.177083333357,
+        "ci_lower": 291.6602083332664,
+        "ci_upper": 589.9422916665823,
+        "damage_adv": 0.4627528237382133,
+        "harm_seed_count": 0,
+        "near_zero_damage_denominators": 0,
+        "near_zero_loss_denominators": 0,
+        "p0_damage_mean": 3243.858749999949,
+        "p0_loss_mean": 4971.079583333282,
+        "stale_prior_harm": 0.0,
+        "wilcoxon_p": 1.8952414393424988e-06,
+        "wins": 25
+      },
+      "cheap_caution_capture": 0.532759367731072,
+      "reversible_spillover": 0.0
+    }
+  },
+  "gate_preview": {
+    "G13_1_irreversible_benefit": false,
+    "G13_2_scar_specificity": true,
+    "G13_3_no_stale_prior_harm": false,
+    "note": "Preview only; r-final remains locked until freeze/audit artifacts exist."
+  },
+  "kind": "G13 r-final",
+  "scar_validity_screen": {
+    "cheap_caution_capture": 0.532759367731072,
+    "cheap_not_trivially_avoided": true,
+    "external_irreversible": true,
+    "foresight_avoidable": true,
+    "no_label_leak": true,
+    "reversible_rolls_back_current_damage": true,
+    "valid": true
+  },
+  "seeds": [
+    1800,
+    1801,
+    1802,
+    1803,
+    1804,
+    1805,
+    1806,
+    1807,
+    1808,
+    1809,
+    1810,
+    1811,
+    1812,
+    1813,
+    1814,
+    1815,
+    1816,
+    1817,
+    1818,
+    1819,
+    1820,
+    1821,
+    1822,
+    1823,
+    1824,
+    1825,
+    1826,
+    1827,
+    1828,
+    1829
+  ],
+  "specificity": {
+    "contrast": 0.31717419994287455,
+    "contrast_ci_lower": 0.15013965497543033,
+    "contrast_ci_upper": 0.268020012085767,
+    "irreversible_adv": 0.08301230991728271,
+    "max_reversible_adv": -0.23416189002559182,
+    "max_reversible_cell": "C00"
+  },
+  "steps": 2000
+}

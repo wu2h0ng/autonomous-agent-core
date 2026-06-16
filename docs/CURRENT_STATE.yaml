@@ -1,18 +1,18 @@
-updated: "2026-06-15"
+updated: "2026-06-16"
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 accepted as a narrow bounded consequence-prior gate"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 412
+  count: 429
   result: "OK"
-  source: "Full suite after ADR-0035/G12 harness implementation on 2026-06-15"
+  source: "Full suite verified by Codex on 2026-06-16 while committing the ADR-0036/G13 r-final bundle"
 
 current_stage:
   label: "P7.x bounded consequence-prior admission: test one scar-specific B-channel candidate over P0"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Implement ADR-0036/G13 serially: scar validity screen, belief-only consequence-prior interface, frozen controls, development harness, then one r-final on seeds 1800..1829"
+  immediate_next: "Record ADR-0036/G13 as NOT MET; do not rerun, retune, or rescue this candidate. Any new consequence-prior attempt requires a new ADR and fresh seeds."
   after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
   not_current:
     - "P1/T1-T3"
@@ -21,7 +21,8 @@ current_stage:
     - "P4 prior-organ G5/G6/G7/G8 tuning"
     - "G10 execution"
     - "C3 execution"
-    - "ADR-0036/G13 result claimed before r-final"
+    - "ADR-0036/G13 pending or locked"
+    - "ADR-0036/G13 rerun, retune, or rescue after NOT MET"
     - "G11/C1 freeze or implementation"
 
 authoritative_adrs:
@@ -46,7 +47,7 @@ authoritative_adrs:
     - "ADR-0033 accepts the HyperAgents/DGM assimilation boundary: L0-L3 external candidate generation is allowed under scans/review; L4 runtime self-modification and L5 safety-substrate self-editing are forbidden."
     - "ADR-0034 r-final completed: PRED-A severity threshold PASS, PRED-B difficulty-band/inverted-U FAIL, PRED-C relevance-aware share PASS; G10 empirical result is preserved, but the trajectory account is weakened to B/R/K with a decisive K residue."
     - "ADR-0035/G12 completed inconclusive: P0 wins C01/C10/C11 but not C00, so the 2x2 does not isolate a distinct ecological-irreversible axis."
-    - "ADR-0036/G13 accepted: not a rescue of G12; test only whether a belief-only bounded consequence prior improves P0 specifically in scarred/irreversible cells while staying near-null in reversible cells."
+    - "ADR-0036/G13 r-final completed NOT MET: scar validity passes and CP reduces irreversible damage, but net R1 advantage misses the +0.10 threshold and R0 stale-prior harm fails."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
@@ -219,12 +220,56 @@ current_truth:
       - "Record as inconclusive; no environment retuning or G11/C1 revival follows from this result."
   g13:
     adr: "ADR-0036"
-    status: "ACCEPTED / IMPLEMENTATION PENDING"
+    verdict: "NOT MET"
+    status: "R-FINAL COMPLETE"
     candidate: "CP = P0 confidence-gated policy + bounded consequence prior"
     baseline: "P0 frozen confidence-gated policy, no consequence prior"
+    implementation_files:
+      - "src/aac/consequence_prior.py"
+      - "src/envs/consequence_scar.py"
+      - "experiments/consequence_prior_g13.py"
+      - "tests/test_consequence_prior_g13.py"
+      - "experiments/consequence_prior_g13.development.json"
+      - "experiments/consequence_prior_g13.freeze.json"
+      - "experiments/consequence_prior_g13.result.json"
     seeds:
       development: "1750..1769"
       r_final: "1800..1829"
+    development_audit:
+      result_path: "experiments/consequence_prior_g13.development.json"
+      scar_validity_screen: "PASS"
+      R0_reversible_CP_vs_P0_adv: -0.2738
+      R0_stale_prior_harm: 13.09375
+      R0_reversible_any_cell_harm_seed_count: "17/20"
+      R1_irreversible_CP_vs_P0_adv: 0.0478
+      R1_irreversible_damage_adv: 0.4341
+      R1_wins: "14/20"
+      R1_wilcoxon_p: 0.00604
+      specificity_contrast: 0.2644
+      cheap_caution_capture: 0.4704
+      gate_preview: "NOT MET preview: G13-1 irreversible benefit below threshold; G13-2 specificity passes; G13-3 stale-prior guard fails."
+    r_final:
+      result_path: "experiments/consequence_prior_g13.result.json"
+      freeze_path: "experiments/consequence_prior_g13.freeze.json"
+      seeds: "1800..1829"
+      scar_validity_screen: "PASS"
+      verdict: "NOT MET"
+      R0_reversible_CP_vs_P0_adv: -0.2545
+      R0_first_window_stale_prior_harm: 12.6792
+      R0_reversible_any_cell_harm_seed_count: "21/30"
+      R1_irreversible_CP_vs_P0_adv: 0.0830
+      R1_irreversible_damage_adv: 0.4628
+      R1_wins: "25/30"
+      R1_wilcoxon_p: 0.000001895
+      R1_loss_reduction_ci: "[291.66, 589.94]"
+      specificity_contrast: 0.3172
+      specificity_ci: "[0.150, 0.268]"
+      cheap_caution_capture: 0.5328
+      gate_result:
+        G13_1_irreversible_benefit: "FAIL: adv +0.083 < +0.10 despite 25/30 wins, p<0.01, CI lower>0, and damage_adv +0.463"
+        G13_2_scar_specificity: "PASS"
+        G13_3_no_stale_prior_harm: "FAIL: R0 adv -0.255 and any reversible-cell harm 21/30"
+        G13_4_c6_c7: "PASS by tests/test_consequence_prior_g13.py"
     gate_summary:
       irreversible_benefit: "adv(CP,P0) >= +0.10, wins >=24/30, p<0.01, CI lower >0, damage_adv >= +0.10"
       scar_specificity: "irreversible advantage exceeds max reversible advantage by >= +0.10 with bootstrap CI lower >0"
@@ -232,8 +277,9 @@ current_truth:
       c6_c7: "organ is belief-only; no action/policy/shell/audit/gate writes; pause/forbidden dominate"
     interpretation:
       - "ADR-0036 does not alter G12's inconclusive result."
-      - "The only live hypothesis is scar-specific B-channel usefulness over already-strong P0."
-      - "NOT MET is a valid strong negative and would leave G10/P0 as the dominant lever."
+      - "CP has real damage-reduction signal in irreversible cells, but it does not clear net loss advantage and harms reversible cells."
+      - "The result repeats the prior-organ stale-harm pattern and strengthens the view that P0's subject-side coupling remains the dominant lever."
+      - "Any future consequence-prior candidate must be a new ADR with a theory of why it escapes the belief-channel ceiling, not a retune of G13."
 
 research_constraints:
   - "Do not claim C1/G11 as ready: there is no second independent vs-cheap-baseline winning axis."
@@ -242,7 +288,7 @@ research_constraints:
   - "Do not claim survival or risk as independent wins; both are recorded RED."
   - "Do not relax C6: organs remain belief-only; subject-side gate reads the agent's own ActionOutcomeModel."
   - "Do not treat ADR-0036 as a G12 rescue; it may only test a single-variable bounded consequence-prior candidate over P0."
-  - "Do not run G13 r-final before the scar validity screen, frozen controls, and C6/C7 tests are committed."
+  - "Do not rerun, retune, or rescue G13 after the completed r-final; any successor consequence-prior requires a new ADR and fresh seeds."
   - "No LLM in control path, no business semantics, no cross-repo imports."
   - "Apply ADR-0032 before importing frontier systems: classify every candidate by channel/lane, keep self-recursive systems external, and score P4.x organs by recovery, transition consistency, regret, stale-prior harm, and calibration."
   - "Apply ADR-0033 before using HyperAgents/DGM-style systems: only external candidate generation is allowed; runtime self-modification and safety-substrate self-editing are forbidden."

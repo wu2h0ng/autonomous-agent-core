@@ -1,6 +1,6 @@
 # ADR-0036: Bounded Consequence Prior And G13 Scar-Specific Gate
 
-- Status: Accepted (pre-registered; implementation pending)
+- Status: Completed, NOT MET
 - Date: 2026-06-15
 - Deciders: founder approval; Codex as autonomous-agent-core single writer
 
@@ -321,12 +321,100 @@ T-P7.1e  R-final on seeds 1800..1829 and ADR-0036 result update.
 Do not write mechanism code outside this scope. Do not run r-final until the validity
 screen, C6/C7 tests, and frozen parameters are committed.
 
+## Implementation Progress
+
+Implemented on 2026-06-15:
+
+```text
+src/aac/consequence_prior.py
+src/envs/consequence_scar.py
+experiments/consequence_prior_g13.py
+tests/test_consequence_prior_g13.py
+experiments/consequence_prior_g13.development.json
+```
+
+Development audit on seeds `1750..1769`:
+
+```text
+Scar validity screen: PASS
+R0 reversible CP vs P0: adv=-0.274, first-window stale_prior_harm=13.094,
+                         any reversible-cell harm seeds=17/20
+R1 irreversible CP vs P0: adv=+0.048, wins=14/20, p=0.00604, damage_adv=+0.434
+Specificity contrast: +0.264, CI lower +0.125
+CAUTIOUS capture: 0.470
+Gate preview: NOT MET preview because G13-1 irreversible benefit and
+              G13-3 stale-prior guard fail.
+```
+
+This was not a r-final result and did not change the G13 gate. The r-final path was
+then unlocked by `experiments/consequence_prior_g13.freeze.json` after founder approval.
+
+## Result
+
+R-final executed once on seeds `1800..1829`:
+
+```text
+Result artifact: experiments/consequence_prior_g13.result.json
+Freeze artifact: experiments/consequence_prior_g13.freeze.json
+Scar validity screen: PASS
+G13 verdict: NOT MET
+
+R0 reversible CP vs P0:
+  adv=-0.255
+  first-window stale_prior_harm=12.679
+  any reversible-cell harm seeds=21/30
+
+R1 irreversible CP vs P0:
+  adv=+0.083
+  wins=25/30
+  p=0.000001895
+  loss-reduction CI=[291.66,589.94]
+  damage_adv=+0.463
+
+Specificity:
+  contrast=+0.317
+  CI lower=+0.150
+
+CAUTIOUS capture:
+  0.533
+```
+
+Gate status:
+
+```text
+G13-1 irreversible benefit: FAIL
+  Net R1 advantage is +0.083, below the +0.10 threshold, despite strong
+  damage reduction and paired significance.
+
+G13-2 scar specificity: PASS
+  Irreversible advantage is meaningfully larger than reversible advantage.
+
+G13-3 no stale-prior harm: FAIL
+  R0 advantage is -0.255 and any reversible-cell harm occurs in 21/30 seeds.
+
+G13-4 C6/C7 invariants: PASS
+  Covered by tests/test_consequence_prior_g13.py.
+```
+
+Interpretation:
+
+G13 is a clean negative, not an invalid experiment. The consequence prior did learn a
+real damage-avoidance signal in irreversible cells, but that signal did not produce
+enough net loss advantage and it repeated the pre-registered stale-prior harm pattern in
+reversible cells. CAUTIOUS captured more than half of the damage reduction, further
+weakening the need for this belief-channel organ.
+
+The result strengthens the current program conclusion: frozen P0's subject-side
+confidence coupling remains the dominant confirmed lever. A future consequence-prior
+attempt must be a new ADR with a theory for escaping the belief-channel ceiling; it must
+not retune or rescue this G13 candidate.
+
 ## Consequences
 
 - The next core work is no longer "synthesize ADR-0034/0035 and ask for direction";
   founder direction has selected this narrow G13 gate.
 - G12 remains inconclusive. ADR-0036 does not modify that record.
 - G10 remains the only decisive confirmed positive gate.
-- A `NOT MET` result is acceptable and informative: it would strengthen the conclusion
+- The result is `NOT MET`, acceptable, and informative: it strengthens the conclusion
   that P0's subject-side confidence coupling is the dominant lever even under scarred
   environments.

@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-06-15
+> Last updated: 2026-06-16
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
@@ -9,8 +9,8 @@
 ```yaml
 branch: main
 stage: P7.x bounded consequence-prior admission
-immediate_next: implement ADR-0036/G13 serial slices before one r-final on seeds 1800..1829
-tests: 412 OK
+immediate_next: record ADR-0036/G13 NOT MET; do not rerun or retune without a new ADR and fresh seeds
+tests: 429 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -49,7 +49,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0033-hyperagents-dgm-assimilation-boundary.md` | Accepted | HyperAgents/DGM-style systems are external candidate generators only; runtime self-modification remains forbidden |
 | `ADR-0034-relevance-aware-g10-theory-test.md` | Completed | Full-Agent B/R/K test: PRED-A/C pass, PRED-B fail; RSTAR explains part but not most of the old margin |
 | `ADR-0035-p7-ecological-environment-axis.md` | Completed, inconclusive | P7/G12 mixed pattern; C01/C10/C11 win, C00 misses threshold, so no distinct ecological-irreversible axis isolated |
-| `ADR-0036-bounded-consequence-prior-gate.md` | Accepted, implementation pending | G13 tests a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
+| `ADR-0036-bounded-consequence-prior-gate.md` | Completed, NOT MET | G13 tested a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 
 ## Current Code Map
 
@@ -68,6 +68,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/aac/prior_organ_latent.py` | Bayesian latent regime organ, G7/O4 | `LatentRegimeOrgan` |
 | `src/aac/prior_organ_ensemble.py` | Ensemble regime organ, G8/O5 | `EnsembleRegimeOrgan` |
 | `src/aac/prior_organ_llm.py` | LLM organ scaffold, no live key/control path | `LLMPriorOrgan`, `DeterministicStubBackend` |
+| `src/aac/consequence_prior.py` | ADR-0036 bounded consequence-prior organ and cheap CAUTIOUS control | `ConsequencePriorRecord`, `BoundedConsequencePriorOrgan`, `CautiousScarOrgan` |
 | `src/aac/rap.py` | RAP field/messages, archived after G4 | `Need`, `Bid`, `Bond`, `Trace`, `Dissolve`, `RAPField` |
 | `src/aac/rap_coordinator.py` | RAP coordinator, archived after G4 | `RAPCoordinator` |
 | `src/aac/outcome_judge.py` | Grounded RAP outcome judge | `OutcomeJudge` |
@@ -78,6 +79,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/envs/semantic_regime.py` | Offline semantic de-risk env | `SemanticRegimeEnv` |
 | `src/envs/idle_windows.py` | Idle window wrapper used by C3 | `IdleWindowEnv` |
 | `src/envs/ecological_regime.py` | ADR-0035/G12 2x2 environment cells | `EcologicalRegimeEnv` |
+| `src/envs/consequence_scar.py` | ADR-0036/G13 public-affordance scar environment | `ConsequenceScarEnv`, `ConsequenceFeature` |
 
 ## Current Experiments
 
@@ -94,6 +96,11 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_relevance_aware_g10.py` | ADR-0034 | severity/noise env, policy diagnostics, RSTAR freeze/r-final guards |
 | `experiments/ecological_g12.py` | ADR-0035/G12 | Completed; P7 transferable ecological-structure 2x2 r-final |
 | `tests/test_ecological_g12.py` | ADR-0035/G12 | 2x2 env, reset boundary, RSTAR control, cell-win guards |
+| `experiments/consequence_prior_g13.py` | ADR-0036/G13 | Completed; development and one r-final harness |
+| `experiments/consequence_prior_g13.development.json` | ADR-0036/G13 | Development audit artifact; scar screen PASS, gate preview NOT MET |
+| `experiments/consequence_prior_g13.freeze.json` | ADR-0036/G13 | Founder unlock artifact for the one r-final |
+| `experiments/consequence_prior_g13.result.json` | ADR-0036/G13 | R-final artifact; G13 NOT MET |
+| `tests/test_consequence_prior_g13.py` | ADR-0036/G13 | CP interface, C6/C7, scar env, collapse, denominator, r-final guard tests |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
@@ -114,7 +121,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-412 tests OK
+429 tests OK
 ```
 
 Important current test files:
@@ -127,6 +134,7 @@ Important current test files:
 | `tests/test_residual_calibrator.py` | ADR-0031 residual self-calibrator C6/C7 guards |
 | `tests/test_relevance_aware_g10.py` | ADR-0034 severity env, policy diagnostics, RSTAR calibration/r-final guards |
 | `tests/test_idle_productivity_c3.py` | C3 idle-productivity de-risk guards |
+| `tests/test_consequence_prior_g13.py` | ADR-0036 bounded consequence-prior organ, scar env, r-final lock, collapse/denominator guards |
 | `tests/test_survival_axis_c1.py` | ADR-0028 survival-axis de-risk guards |
 | `tests/test_risk_calibration_c1.py` | ADR-0029 stationary risk-axis de-risk guards |
 | `tests/test_prior_organ_ensemble.py` | G8 ensemble organ |
@@ -188,11 +196,25 @@ G9 verdict:
   - C11 ecological/irreversible: P0 win, adv +0.300, damage_adv +0.340.
   - Mixed pattern C01/C10/C11 without C00 does not isolate a distinct ecological-irreversible axis.
   - Interpretation: record as inconclusive; no G12 retuning or G11/C1 revival.
-- ADR-0036/G13 is accepted as the next narrow core gate:
+- ADR-0036/G13 completed NOT MET:
   - Candidate `CP = P0 + bounded consequence prior`; baseline `P0-alone`.
   - It is not a G12 rescue. G12 remains inconclusive.
   - Gate requires irreversible/scarred benefit over P0, scar specificity versus reversible cells, stale-prior safety, and C6/C7 invariants.
   - Fresh seeds: development `1750..1769`, r-final `1800..1829`.
+  - Implementation and development audit are complete:
+    - `experiments/consequence_prior_g13.development.json` records the development run.
+    - Scar validity screen PASS; CAUTIOUS capture is `0.470`, so the apparatus is not cheap-trivially avoided on development seeds.
+    - R1 irreversible preview: `adv=+0.048`, `wins=14/20`, `p=0.00604`, `damage_adv=+0.434`.
+    - R0 reversible preview: `adv=-0.274`, first-window `stale_prior_harm=13.094`, any reversible-cell harm seeds `17/20`; stale-prior guard fails.
+  - R-final:
+    - `experiments/consequence_prior_g13.freeze.json` records founder unlock.
+    - `experiments/consequence_prior_g13.result.json` records the one r-final.
+    - Scar validity screen PASS.
+    - R1 irreversible: `adv=+0.083`, `wins=25/30`, `p=0.000001895`, CI `[291.66,589.94]`, `damage_adv=+0.463`.
+    - R0 reversible: `adv=-0.255`, first-window `stale_prior_harm=12.679`, any reversible-cell harm seeds `21/30`.
+    - Specificity PASS: contrast `+0.317`, CI lower `+0.150`.
+    - CAUTIOUS captures `0.533` of CP's irreversible damage reduction.
+    - Verdict: NOT MET. G13-1 and G13-3 fail; G13-2 and C6/C7 pass.
 - C3 returned RED:
   - DIRECTED 1.691 / RANDOM 1.676 / POLICY 1.701.
   - Endogeny has no directed post-idle signal and is dropped from C1.
@@ -205,7 +227,7 @@ G9 verdict:
   - EXPLORER survival 1814 / EXPLOITER survival 1335 / GATED survival 1313.
   - GATED beats the best cheap arm in only 2/30 seeds, p=0.97, gap CI [-570, -321].
   - Stationary risk calibration is not an independent gate advantage.
-- Next: implement ADR-0036/G13 serial slices; G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
+- Next: do not rerun or retune G13; any successor consequence-prior requires a new ADR with fresh seeds and a theory for escaping the belief-channel ceiling. G11/C1 remains parked/closed unless a founder-level reset ADR first proves a new independent vs-cheap-baseline winning axis.
 
 ## Drift Prevention
 

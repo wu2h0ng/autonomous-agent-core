@@ -1,6 +1,6 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-06-15
+> Last updated: 2026-06-16
 > Status: Active handoff document
 > First read: `docs/CURRENT_STATE.yaml` -> this file -> `codebase_index.md` -> `ROADMAP.md` -> current ADRs.
 
@@ -24,13 +24,13 @@ P6 consolidated
   -> ADR-0033: HyperAgents/DGM assimilation boundary accepted; self-recursive systems are external candidate generators only
   -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
   -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
-  -> ADR-0036: bounded consequence-prior G13 gate accepted; not a G12 rescue, only a scar-specific B-channel test over P0
+  -> ADR-0036: bounded consequence-prior G13 r-final complete, NOT MET; not a G12 rescue
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
   -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
   -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
-  -> next: implement ADR-0036/G13 serially: scar validity screen, belief-only consequence-prior interface, frozen controls, development harness, then one r-final on seeds 1800..1829
+  -> next: record G13 as a strong negative; do not rerun/retune/rescue without a new ADR and fresh seeds
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -39,10 +39,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-412 tests OK
+429 tests OK
 ```
 
-The 412-test result is recorded by ADR-0035/G12 harness integration on 2026-06-15. Re-run before code submission if you change code.
+The 429-test result was verified by Codex on 2026-06-16 while committing the ADR-0036/G13 r-final bundle. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -163,7 +163,7 @@ Disposition:
   No retuning or G11/C1 revival follows.
 ```
 
-### T-P7.1 - Bounded Consequence Prior Gate (Accepted, Implementation Pending)
+### T-P7.1 - Bounded Consequence Prior Gate (Completed, NOT MET)
 
 Authority:
 
@@ -193,16 +193,47 @@ r-final:                 1800..1829
 Serial slices:
 
 ```text
-T-P7.1a  scar validity screen and reversible/irreversible harness guards
-T-P7.1b  consequence-prior interface, belief-only merge path, and C6/C7 tests
-T-P7.1c  frozen controls: P0, RSTAR, and CAUTIOUS where applicable
-T-P7.1d  G13 development harness on non-r-final seeds
-T-P7.1e  one r-final on seeds 1800..1829 and ADR-0036 result update
+T-P7.1a  scar validity screen and reversible/irreversible harness guards - complete
+T-P7.1b  consequence-prior interface, belief-only merge path, and C6/C7 tests - complete
+T-P7.1c  frozen controls: P0, RSTAR, and CAUTIOUS where applicable - complete
+T-P7.1d  G13 development harness on non-r-final seeds - complete
+T-P7.1e  one r-final on seeds 1800..1829 and ADR-0036 result update - complete
 ```
 
-G13 is MET only if irreversible benefit, scar specificity, stale-prior safety, and C6/C7
-invariants all pass. NOT MET is an acceptable strong negative and leaves G10/P0 as the
-dominant confirmed lever.
+Development audit (not a scientific result):
+
+```text
+Result artifact: experiments/consequence_prior_g13.development.json
+Scar validity screen: PASS
+R0 reversible CP vs P0: adv=-0.274, first-window stale_prior_harm=13.094, any reversible-cell harm seeds=17/20, stale guard FAIL
+R1 irreversible CP vs P0: adv=+0.048, wins=14/20, p=0.00604, damage_adv=+0.434
+Specificity contrast: +0.264, CI lower +0.125, PASS preview
+CAUTIOUS capture: 0.470
+Gate preview: NOT MET preview because G13-1 irreversible benefit and G13-3 stale-prior guard fail.
+R-final: completed after experiments/consequence_prior_g13.freeze.json unlock.
+```
+
+R-final result:
+
+```text
+Result artifact: experiments/consequence_prior_g13.result.json
+Freeze artifact: experiments/consequence_prior_g13.freeze.json
+Scar validity screen: PASS
+G13 verdict: NOT MET
+R0 reversible CP vs P0: adv=-0.255, first-window stale_prior_harm=12.679, any reversible-cell harm seeds=21/30
+R1 irreversible CP vs P0: adv=+0.083, wins=25/30, p=0.000001895, CI=[291.66,589.94], damage_adv=+0.463
+Specificity contrast: +0.317, CI lower +0.150, PASS
+CAUTIOUS capture: 0.533
+Gate: G13-1 FAIL (net adv below +0.10), G13-2 PASS, G13-3 FAIL, G13-4 PASS by tests.
+```
+
+Interpretation:
+
+```text
+CP carries a real irreversible-damage reduction signal, but not enough net loss advantage,
+and it harms reversible cells. This is the pre-registered stale-prior failure pattern,
+not an invalid apparatus result. G10/P0 remains the dominant confirmed lever.
+```
 
 Confirmed G10 result:
 
@@ -321,7 +352,7 @@ Interpretation:
 | P6 / ADR-0033 | Accepted | HyperAgents/DGM assimilation boundary accepted; L0-L3 external use allowed, L4/L5 runtime self-editing forbidden |
 | P6 / ADR-0034 | Completed | Relevance-aware full-Agent theory test: PRED-A/C pass, PRED-B fail; B/R/K account stands with weakened trajectory story and decisive K residue |
 | P7 / ADR-0035 | Completed, inconclusive | G12 mixed pattern: C01/C10/C11 win, C00 does not; distinct ecological-irreversible axis not established |
-| P7.x / ADR-0036 | Accepted, implementation pending | G13 tests a bounded consequence prior over P0 only for scar-specific irreversible benefit |
+| P7.x / ADR-0036 | Completed, NOT MET | CP reduces irreversible damage but fails net R1 advantage and stale-prior guard |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -347,9 +378,9 @@ Recent authoritative ADRs:
 - `ADR-0033-hyperagents-dgm-assimilation-boundary.md` - HyperAgents/DGM external candidate-generation boundary; no runtime self-modification.
 - `ADR-0034-relevance-aware-g10-theory-test.md` - B/R/K relevance-aware G10 theory test completed; RSTAR explains part but not most of the margin.
 - `ADR-0035-p7-ecological-environment-axis.md` - P7 transferable ecological-structure environment axis and G12 2x2 gate; completed inconclusive.
-- `ADR-0036-bounded-consequence-prior-gate.md` - G13 bounded consequence-prior gate; accepted, implementation pending.
+- `ADR-0036-bounded-consequence-prior-gate.md` - G13 bounded consequence-prior gate; r-final complete, NOT MET.
 
-G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035/G12, ADR-0036/G13, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035/0036 do not exist, ADR-0034 is pending, ADR-0035/G12 is pending, ADR-0036/G13 has a result before r-final, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
+G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035/G12, ADR-0036/G13 r-final, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035/0036 do not exist, ADR-0034 is pending, ADR-0035/G12 is pending, ADR-0036/G13 is pending/locked instead of NOT MET, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
 
 ## 6. Non-Negotiable Boundaries
 

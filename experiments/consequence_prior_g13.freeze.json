@@ -1,0 +1,125 @@
+{
+  "adr": "ADR-0036",
+  "kind": "G13 r-final unlock freeze",
+  "date": "2026-06-15",
+  "rfinal_unlocked": true,
+  "unlock_authority": "founder explicit request: 解锁并跑 G13 r-final",
+  "discipline_basis": [
+    "Development preview is treated as a candidate failure signal, not an apparatus-invalid result.",
+    "No candidate, gate, threshold, seed, or environment retuning is introduced by this unlock.",
+    "Only spec-conformance reporting fixes were applied before unlock: first-window stale harm, reversible_spillover, and any reversible-cell harm seed count."
+  ],
+  "development_seeds": [
+    1750,
+    1751,
+    1752,
+    1753,
+    1754,
+    1755,
+    1756,
+    1757,
+    1758,
+    1759,
+    1760,
+    1761,
+    1762,
+    1763,
+    1764,
+    1765,
+    1766,
+    1767,
+    1768,
+    1769
+  ],
+  "rfinal_seeds": [
+    1800,
+    1801,
+    1802,
+    1803,
+    1804,
+    1805,
+    1806,
+    1807,
+    1808,
+    1809,
+    1810,
+    1811,
+    1812,
+    1813,
+    1814,
+    1815,
+    1816,
+    1817,
+    1818,
+    1819,
+    1820,
+    1821,
+    1822,
+    1823,
+    1824,
+    1825,
+    1826,
+    1827,
+    1828,
+    1829
+  ],
+  "frozen_candidate": {
+    "CP": "P0 confidence-gated policy + BoundedConsequencePriorOrgan",
+    "baseline": "P0 confidence-gated policy with no consequence prior",
+    "gate_kappa": 0.5,
+    "gate_temp_floor": 0.1,
+    "bounded_consequence_prior_defaults": {
+      "scar_weight": 1.2,
+      "resource_weight": 0.25,
+      "conflict_weight": 0.15,
+      "max_abs_delta": 2.0,
+      "merge_weight": 0.65
+    },
+    "cautious_control_defaults": {
+      "threshold": 0.75,
+      "penalty": 1.5,
+      "merge_weight": 0.7
+    }
+  },
+  "frozen_analysis": {
+    "cells": [
+      "C00 thin/reversible",
+      "C01 thin/irreversible",
+      "C10 ecological/reversible",
+      "C11 ecological/irreversible"
+    ],
+    "primary_collapse": "R0(seed)=mean(C00,C10); R1(seed)=mean(C01,C11)",
+    "specificity_exception": "max reversible per-cell advantage over C00/C10",
+    "epsilon": 1e-9,
+    "gate": {
+      "G13_1": "R1 adv>=0.10, wins>=24/30, p<0.01, CI lower>0, damage_adv>=0.10",
+      "G13_2": "irreversible advantage - max reversible advantage>=0.10 and CI lower>0",
+      "G13_3": "R0 adv>=-0.05, first-window stale harm<=0.05*P0 loss, any reversible-cell harm seeds<=3/30",
+      "G13_4": "C6/C7 tests pass"
+    }
+  },
+  "development_audit": {
+    "result_path": "experiments/consequence_prior_g13.development.json",
+    "scar_validity_screen": "PASS",
+    "gate_preview": "NOT MET preview",
+    "R0_reversible_CP_vs_P0_adv": -0.2738316858228401,
+    "R0_first_window_stale_prior_harm": 13.09375,
+    "R0_any_reversible_cell_harm_seed_count": "17/20",
+    "R1_irreversible_CP_vs_P0_adv": 0.04777828113949834,
+    "R1_irreversible_damage_adv": 0.43410164692632536,
+    "R1_wins": "14/20",
+    "specificity_contrast": 0.2644269635840789,
+    "cheap_caution_capture": 0.4704230005495034
+  },
+  "verification_before_unlock": {
+    "test_command": "PYTHONPATH=src python -m unittest discover -s tests -v",
+    "test_result": "429 tests OK"
+  },
+  "sha256": {
+    "experiments/consequence_prior_g13.development.json": "9AA285F26EF531EBBD5E7E2D0FE9DA9B6D7BB78EEC03773A1E723CB22BC5B0C1",
+    "experiments/consequence_prior_g13.py": "2BBD9B06562A639696B4C8FD0AD7280A533FF91AC4D8F487BFC7EEC282B7A270",
+    "src/aac/consequence_prior.py": "74EF5ED186ABF39BFA3F69C9F702953D4D5F3B1AF1FBBC59D87A35EE8CD6A256",
+    "src/envs/consequence_scar.py": "2736876DCB797CD4A88F6731B70C1F98406DCF1974C02C4E19E52A29423723BC",
+    "tests/test_consequence_prior_g13.py": "198E26EF4D560591045B0C2BEDDAA7147C185F37A39C2B842AB0E830EC766C27"
+  }
+}
