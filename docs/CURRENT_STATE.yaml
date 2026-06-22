@@ -1,4 +1,4 @@
-updated: "2026-06-16"
+updated: "2026-06-22"  # docs-only edits by Claude (spec/adjudication lane), awaiting Codex/CTO ratification: added open_questions (ADR-0037) + current_stage.route_c_status forward pointer. Engineering state (tests/gates/phase) UNCHANGED since 2026-06-16 Codex verification below.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
@@ -14,6 +14,7 @@ current_stage:
   synthesis_artifact: "docs/P6-research-synthesis.md"
   immediate_next: "Record ADR-0036/G13 as NOT MET; do not rerun, retune, or rescue this candidate. Any new consequence-prior attempt requires a new ADR and fresh seeds."
   after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
+  route_c_status: "Forward pointer (do not read this anchor in isolation): founder COMMITTED Route C on 2026-06-22 (docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md). G-Eco preregistration is DRAFT v4, Gate-1 co-signed, Codex handoff packet ready. It is NOT yet scheduled into this core repo — per founder 2026-06-15 scheduling note (G-Eco-7a-baseline-audit-TEMPLATE.md), G-Eco implementation enters autonomous-agent-core only when founder explicitly queues it as the next core ADR. Until then this repo's engineering state legitimately remains P7.x / ADR-0036·G13 NOT MET; the live project direction lives in docs/research/ (Route C charter + G-Eco spec)."
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -51,6 +52,8 @@ authoritative_adrs:
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
+  open_questions:
+    - "ADR-0037 (Proposed, docs-only, founder-raised 2026-06-22): registers Self-Determination Depth (SD0-SD4) as a subject-side axis distinct from ADR-0033 assimilation L0-L5, and opens Q2 — is SD4 (revising/refusing the C7 correction channel) separable from autonomy, or does C7 permanently foreclose the summit? No change to C6/C7/gates/params. Q2 is moved by Route C / G-Eco results; awaits Codex/CTO ratification and a future founder ruling before any status change."
   tracked_g10_files:
     - "experiments/confidence_gated_g10.py"
     - "tests/test_confidence_gated_g10.py"
@@ -295,6 +298,9 @@ research_constraints:
 
 handoff_read_order:
   - "docs/CURRENT_STATE.yaml"
+  - "../docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md"
+  - "../docs/research/G-Eco-preregistration-spec.md"
+  - "../docs/research/G-Eco-codex-handoff.md"
   - "docs/P6-research-synthesis.md"
   - "docs/PROJECT_PLAN.md"
   - "codebase_index.md"

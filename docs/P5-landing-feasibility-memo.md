@@ -8,6 +8,8 @@
 
 Estimate effort / value / risk for landing what the prototype has *validated* into `ai-native-business-data-agent-os` as a downgrade projection (autonomy dial → min + business domain pack + mandatory evidence governance). Reuse claims **1 / 3 / 4** plus the hardened **G10** conclusion.
 
+Interpretation boundary: P5 is a **necessary but not sufficient** landing of the safety/governance substrate. It does not prove that true autonomous intelligence, RSI, AGI, or a complete Agent OS product has been achieved. It makes the enterprise OS a safer commercial carrier for future autonomy, while leaving the core autonomy/intelligence claims under `autonomous-agent-core` falsification discipline.
+
 ## 2. Harvest inventory (only validated substrate; shelved mechanisms excluded)
 
 | asset | prototype status | portable? |
