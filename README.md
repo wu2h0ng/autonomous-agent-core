@@ -9,6 +9,8 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
+**Current next decision (2026-06-22):** **ADR-0002 — governed-action outcome-loop v0** is **Proposed** (decision + SPEC + goal-card landed; runtime not started, gated on CEO→Product→Architecture→CTO). It is the de-facto next implementation plan and supersedes the older "PR-07 frontend next" framing in the Stage 1 / Remaining Items sections below. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
+
 ## Project Position (2026-06-12 repositioning)
 
 This repository is one of three sibling repos in the workspace:

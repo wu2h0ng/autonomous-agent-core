@@ -1,7 +1,8 @@
 # AGENTS.md — ai-native-business-data-agent-os
 
-> Last updated: 2026-06-12  
+> Last updated: 2026-06-22  
 > Role in workspace: **Deployment Layer** (enterprise OS, future downgrade projection of `autonomous-agent-core/`)
+> Current next decision: **ADR-0002 governed-action outcome-loop v0** is Proposed/gated (runtime not started); it is the next implementation plan. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
 
 ## Scope
 
