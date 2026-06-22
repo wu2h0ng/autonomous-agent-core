@@ -34,6 +34,14 @@ class ActionConnector(ABC):
         """
         ...
 
+    def dry_run(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Preview execution without mutating connector state.
+
+        Connectors that cannot provide a real preview must fail loudly rather
+        than silently treating dry-run as success.
+        """
+        raise NotImplementedError(f"{self.connector_name} does not support dry_run")
+
     @abstractmethod
     def execute(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
         """Execute the action described by the operation contract.

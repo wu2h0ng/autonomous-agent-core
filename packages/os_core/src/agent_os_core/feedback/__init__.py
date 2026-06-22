@@ -15,7 +15,7 @@ import json
 from abc import ABC, abstractmethod
 from collections import Counter
 
-from agent_os_contracts import FeedbackEvent, FeedbackSource
+from agent_os_contracts import CausalOutcomeAttribution, FeedbackEvent, FeedbackSource
 
 __all__ = ["FeedbackEventBuilder", "FeedbackStore", "FeedbackStorePort"]
 
@@ -61,6 +61,7 @@ class FeedbackEventBuilder:
         outcome: str,
         reviewer: str | None = None,
         metric_deltas: dict[str, object] | None = None,
+        causal_attribution: CausalOutcomeAttribution | None = None,
     ) -> FeedbackEvent:
         """Produce a typed ``FeedbackEvent`` stamped with this builder's source.
 
@@ -96,6 +97,7 @@ class FeedbackEventBuilder:
             metrics=metrics,
             reviewer=reviewer,
             source=self.source,
+            causal_attribution=causal_attribution,
         )
 
     @staticmethod

@@ -1,5 +1,7 @@
 from .architecture import (
     ActionConnectorContract,
+    CausalAttributionMethod,
+    CausalOutcomeAttribution,
     DataProductCandidate,
     DataProductState,
     DataRequirement,
@@ -44,6 +46,8 @@ __all__ = [
     "ActionProposal",
     "BlockCode",
     "BusinessIntent",
+    "CausalAttributionMethod",
+    "CausalOutcomeAttribution",
     "DataClassification",
     "DataProductCandidate",
     "DataProductState",

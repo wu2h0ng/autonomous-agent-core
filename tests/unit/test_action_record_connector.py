@@ -14,7 +14,9 @@ from agent_os_contracts import OperationContract, StateSnapshot  # noqa: E402
 from action_record import ActionRecordConnector, ActionRecordStore  # noqa: E402
 
 
-def _operation(operation_id: str = "operation-1") -> OperationContract:
+def _operation(
+    operation_id: str = "operation-1", idempotency_key: str | None = None
+) -> OperationContract:
     return OperationContract(
         operation_id=operation_id,
         name="op",
@@ -25,6 +27,7 @@ def _operation(operation_id: str = "operation-1") -> OperationContract:
         rollback_supported=True,
         connector_name="action_record",
         action_type="execute",
+        idempotency_key=idempotency_key,
     )
 
 
@@ -78,6 +81,36 @@ class ActionRecordConnectorTest(unittest.TestCase):
         self.assertEqual(len(store.records()), 1)
         self.assertEqual(store.records()[0]["operation_id"], "operation-1")
         self.assertEqual(store.records()[0]["parameters"], {"amount": 100})
+
+    def test_dry_run_previews_without_mutating_store(self) -> None:
+        store = ActionRecordStore()
+        connector = ActionRecordConnector(store=store)
+        preview = connector.dry_run(_operation(idempotency_key="key-1"), {"amount": 100})
+
+        self.assertEqual(preview["status"], "dry_run")
+        self.assertEqual(preview["connector_name"], "action_record")
+        self.assertEqual(preview["idempotency_key"], "key-1")
+        self.assertEqual(store.records(), ())
+
+    def test_idempotency_key_prevents_retry_double_write(self) -> None:
+        store = ActionRecordStore()
+        connector = ActionRecordConnector(store=store)
+        operation = _operation(idempotency_key="trace-1:proposal-1")
+
+        first = connector.execute(operation, {"amount": 100})
+        second = connector.execute(operation, {"amount": 100})
+
+        self.assertEqual(first["record_id"], second["record_id"])
+        self.assertEqual(second["status"], "idempotent_replay")
+        self.assertEqual(len(store.records()), 1)
+
+    def test_reusing_idempotency_key_with_different_payload_fails(self) -> None:
+        connector = ActionRecordConnector(store=ActionRecordStore())
+        operation = _operation(idempotency_key="trace-1:proposal-1")
+        connector.execute(operation, {"amount": 100})
+
+        with self.assertRaises(ValueError):
+            connector.execute(operation, {"amount": 200})
 
     def test_take_snapshot_returns_state_snapshot(self) -> None:
         store = ActionRecordStore()

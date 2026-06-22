@@ -61,6 +61,7 @@ class ActionGovernance:
             compensating_action=compensating_action,
             connector_name=proposal.connector_name,
             action_type=proposal.action_type,
+            idempotency_key=proposal.idempotency_key,
         )
 
     def can_auto_execute(self, operation: OperationContract) -> bool:

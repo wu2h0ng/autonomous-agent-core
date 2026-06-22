@@ -69,6 +69,17 @@
             "title": "Outcome",
             "type": "string"
           },
+          "result_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Weight"
+          },
           "reviewer": {
             "anyOf": [
               {

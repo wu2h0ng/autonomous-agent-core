@@ -138,6 +138,7 @@ class ActionProposal:
     connector_name: str = "manual_review"
     action_type: str = "propose"
     action_parameters: dict[str, Any] = field(default_factory=dict)
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)

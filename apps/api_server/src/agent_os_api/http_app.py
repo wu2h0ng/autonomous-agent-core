@@ -91,6 +91,7 @@ class AdoptionResponse(BaseModel):
     reviewer: str | None = None
     knowledge_asset_id: str | None = None
     knowledge_version: int
+    result_weight: float | None = None
 
 
 class SearchResultItem(BaseModel):

@@ -21,18 +21,43 @@ class ActionRecordStore:
 
     def __init__(self) -> None:
         self._records: list[dict[str, Any]] = []
+        self._idempotency: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
 
     def add(
-        self, *, operation_id: str, action_type: str, parameters: dict[str, Any]
+        self,
+        *,
+        operation_id: str,
+        action_type: str,
+        parameters: dict[str, Any],
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Append a new record and return it (including its generated id)."""
+        payload = {
+            "operation_id": operation_id,
+            "action_type": action_type,
+            "parameters": copy.deepcopy(parameters),
+        }
+        if idempotency_key is not None and idempotency_key in self._idempotency:
+            original_payload, original_record = self._idempotency[idempotency_key]
+            if original_payload != payload:
+                raise ValueError(
+                    "idempotency_key was reused with a different operation/action payload"
+                )
+            replay = copy.deepcopy(original_record)
+            replay["status"] = "idempotent_replay"
+            return replay
+
         record = {
             "record_id": f"record-{uuid4().hex[:12]}",
             "operation_id": operation_id,
             "action_type": action_type,
             "parameters": copy.deepcopy(parameters),
         }
+        if idempotency_key is not None:
+            record["idempotency_key"] = idempotency_key
         self._records.append(record)
+        if idempotency_key is not None:
+            self._idempotency[idempotency_key] = (payload, copy.deepcopy(record))
         return copy.deepcopy(record)
 
     def records(self) -> tuple[dict[str, Any], ...]:
@@ -41,11 +66,15 @@ class ActionRecordStore:
 
     def snapshot_state(self) -> dict[str, Any]:
         """Capture a deep copy of the current state, restorable via ``restore``."""
-        return {"records": copy.deepcopy(self._records)}
+        return {
+            "records": copy.deepcopy(self._records),
+            "idempotency": copy.deepcopy(self._idempotency),
+        }
 
     def restore(self, state_payload: dict[str, Any]) -> None:
         """Replace the live state with a deep copy of ``state_payload``."""
         self._records = copy.deepcopy(list(state_payload.get("records", [])))
+        self._idempotency = copy.deepcopy(dict(state_payload.get("idempotency", {})))
 
 
 class ActionRecordConnector(ActionConnector):
@@ -81,13 +110,32 @@ class ActionRecordConnector(ActionConnector):
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    def dry_run(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Preview the record that execute would append without mutating state."""
+        return {
+            "status": "dry_run",
+            "connector_name": self.connector_name,
+            "operation_id": operation.operation_id,
+            "action_type": operation.action_type,
+            "parameters": copy.deepcopy(parameters),
+            "idempotency_key": operation.idempotency_key,
+            "would_append": True,
+        }
+
     def execute(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
         """Perform a REAL write: append a record to the store."""
         record = self._store.add(
             operation_id=operation.operation_id,
             action_type=operation.action_type,
             parameters=parameters,
+            idempotency_key=operation.idempotency_key,
         )
+        if record.get("status") == "idempotent_replay":
+            return {
+                "status": "idempotent_replay",
+                "record_id": record["record_id"],
+                "idempotency_key": operation.idempotency_key,
+            }
         return {"status": "executed", "record_id": record["record_id"]}
 
     def rollback(self, snapshot: StateSnapshot) -> dict[str, Any]:

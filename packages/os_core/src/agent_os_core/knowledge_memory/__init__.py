@@ -105,6 +105,7 @@ class KnowledgeAssetBuilder:
             source_trace_id=trace_id,
             owner=owner,
             state=LifecycleState.DRAFT,
+            result_weight=0.0,
         )
 
     def with_feedback(self, base_asset: KnowledgeAsset, feedback: FeedbackEvent) -> KnowledgeAsset:
@@ -137,6 +138,7 @@ class KnowledgeAssetBuilder:
             owner=base_asset.owner,
             state=LifecycleState.DRAFT,
             outcome=feedback.outcome,
+            result_weight=self._result_weight(feedback),
         )
 
     @staticmethod
@@ -165,6 +167,22 @@ class KnowledgeAssetBuilder:
         )
         digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
         return f"knowledge-{digest}"
+
+    @staticmethod
+    def _result_weight(feedback: FeedbackEvent) -> float:
+        if feedback.causal_attribution is not None:
+            sign = 1.0 if feedback.causal_attribution.delta_absolute > 0 else -1.0
+            if feedback.causal_attribution.delta_absolute == 0:
+                sign = 0.0
+            weighted = sign * feedback.causal_attribution.confidence
+            return max(-1.0, min(1.0, weighted))
+
+        normalized = feedback.outcome.strip().lower()
+        if normalized in {"adopted", "success", "succeeded"}:
+            return 1.0
+        if normalized in {"rejected", "failure", "failed"}:
+            return -1.0
+        return 0.0
 
 
 class KnowledgeStore(KnowledgeStorePort):

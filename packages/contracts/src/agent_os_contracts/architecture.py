@@ -113,6 +113,7 @@ class OperationContract:
     compensating_action: str | None = None
     connector_name: str = "manual_review"
     action_type: str = "propose"
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +143,28 @@ class FeedbackSource:
     EXTERNAL_ADOPTION = "external_adoption"
 
 
+class CausalAttributionMethod(StrEnum):
+    HOLDOUT = "holdout"
+    COUNTERFACTUAL = "counterfactual"
+    BEFORE_AFTER = "before_after"
+    OPERATOR_ATTESTED = "operator_attested"
+
+
+@dataclass(frozen=True)
+class CausalOutcomeAttribution:
+    metric_name: str
+    observed_value: float
+    counterfactual_value: float
+    delta_absolute: float
+    delta_percent: float | None
+    method: CausalAttributionMethod
+    comparison_ref: str
+    window_start: str
+    window_end: str
+    confidence: float
+    notes: str | None = None
+
+
 @dataclass(frozen=True)
 class FeedbackEvent:
     feedback_id: str
@@ -152,6 +175,7 @@ class FeedbackEvent:
     # Provenance channel (P5.1a). Defaults to the safe channel: a bare
     # construction is a runtime self-report, never realized external value.
     source: str = FeedbackSource.RUNTIME_SELF_REPORT
+    causal_attribution: CausalOutcomeAttribution | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +190,7 @@ class KnowledgeAsset:
     # (e.g. "adopted"/"rejected"); None until an outcome is recorded. Carries the
     # feedback signal so retrieval projection/weighting can use it.
     outcome: str | None = None
+    result_weight: float = 0.0
 
 
 @dataclass(frozen=True)

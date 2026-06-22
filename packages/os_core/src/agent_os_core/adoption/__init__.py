@@ -24,7 +24,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import Counter
 
-from agent_os_contracts import FeedbackEvent, FeedbackSource
+from agent_os_contracts import CausalOutcomeAttribution, FeedbackEvent, FeedbackSource
 
 from ..feedback import FeedbackEventBuilder
 
@@ -124,6 +124,7 @@ class AdoptionIngest:
         outcome: str,
         reviewer: str | None = None,
         metric_deltas: dict[str, object] | None = None,
+        causal_attribution: CausalOutcomeAttribution | None = None,
     ) -> FeedbackEvent:
         """Attest realized external value for ``trace_id`` and record it."""
         event = self._builder.build(
@@ -131,6 +132,7 @@ class AdoptionIngest:
             outcome=outcome,
             reviewer=reviewer,
             metric_deltas=metric_deltas,
+            causal_attribution=causal_attribution,
         )
         return self._ledger.record(event)
 

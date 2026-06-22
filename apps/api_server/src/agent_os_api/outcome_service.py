@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_os_contracts import KnowledgeQuery
+from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
 
 
 def search_service(
@@ -171,6 +171,7 @@ def attest_adoption_service(
     outcome: str,
     reviewer: str | None = None,
     metric_deltas: dict[str, Any] | None = None,
+    causal_attribution: CausalOutcomeAttribution | None = None,
 ) -> dict[str, Any]:
     """Attest REALIZED external value and promote the trace's knowledge (P5.1b).
 
@@ -188,8 +189,9 @@ def attest_adoption_service(
         outcome=outcome,
         reviewer=reviewer,
         metric_deltas=metric_deltas,
+        causal_attribution=causal_attribution,
     )
-    runtime.promote_from_adoption(trace_id)
+    revised = runtime.promote_from_adoption(trace_id)
     asset = runtime.knowledge_store.get_by_trace(trace_id)
 
     return {
@@ -199,4 +201,5 @@ def attest_adoption_service(
         "reviewer": reviewer,
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
         "knowledge_version": runtime.knowledge_store.version_of(trace_id),
+        "result_weight": revised.result_weight if revised is not None else None,
     }

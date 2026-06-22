@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent_os_contracts import (
+    CausalAttributionMethod,
+    CausalOutcomeAttribution,
     FeedbackEvent,
     KnowledgeAsset,
     LifecycleState,
@@ -23,22 +25,58 @@ from agent_os_core import ApprovalRecord
 
 
 def feedback_to_payload(event: FeedbackEvent) -> dict[str, Any]:
+    causal = event.causal_attribution
     return {
         "feedback_id": event.feedback_id,
         "trace_id": event.trace_id,
         "outcome": event.outcome,
         "metrics": dict(event.metrics),
         "reviewer": event.reviewer,
+        "causal_attribution": (
+            {
+                "metric_name": causal.metric_name,
+                "observed_value": causal.observed_value,
+                "counterfactual_value": causal.counterfactual_value,
+                "delta_absolute": causal.delta_absolute,
+                "delta_percent": causal.delta_percent,
+                "method": causal.method.value,
+                "comparison_ref": causal.comparison_ref,
+                "window_start": causal.window_start,
+                "window_end": causal.window_end,
+                "confidence": causal.confidence,
+                "notes": causal.notes,
+            }
+            if causal is not None
+            else None
+        ),
     }
 
 
 def feedback_from_payload(payload: dict[str, Any]) -> FeedbackEvent:
+    causal = payload.get("causal_attribution")
     return FeedbackEvent(
         feedback_id=payload["feedback_id"],
         trace_id=payload["trace_id"],
         outcome=payload["outcome"],
         metrics=dict(payload.get("metrics") or {}),
         reviewer=payload.get("reviewer"),
+        causal_attribution=(
+            CausalOutcomeAttribution(
+                metric_name=causal["metric_name"],
+                observed_value=causal["observed_value"],
+                counterfactual_value=causal["counterfactual_value"],
+                delta_absolute=causal["delta_absolute"],
+                delta_percent=causal.get("delta_percent"),
+                method=CausalAttributionMethod(causal["method"]),
+                comparison_ref=causal["comparison_ref"],
+                window_start=causal["window_start"],
+                window_end=causal["window_end"],
+                confidence=causal["confidence"],
+                notes=causal.get("notes"),
+            )
+            if causal is not None
+            else None
+        ),
     )
 
 
@@ -51,6 +89,7 @@ def knowledge_to_payload(asset: KnowledgeAsset) -> dict[str, Any]:
         "owner": asset.owner,
         "state": asset.state.value,
         "outcome": asset.outcome,
+        "result_weight": asset.result_weight,
     }
 
 
@@ -63,6 +102,7 @@ def knowledge_from_payload(payload: dict[str, Any]) -> KnowledgeAsset:
         owner=payload["owner"],
         state=LifecycleState(payload["state"]),
         outcome=payload.get("outcome"),
+        result_weight=float(payload.get("result_weight") or 0.0),
     )
 
 

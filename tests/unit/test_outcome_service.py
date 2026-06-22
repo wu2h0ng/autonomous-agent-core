@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 from agent_os_api.outcome_service import (
     attest_adoption_service,
     record_outcome_service,
@@ -85,6 +86,36 @@ class RecordOutcomeServiceTest(unittest.TestCase):
         self.assertEqual(result["knowledge_version"], 2)
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)
         self.assertIsNotNone(result["knowledge_asset_id"])
+
+    def test_attest_adoption_surfaces_causal_result_weight(self) -> None:
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        trace_id = run_service(runtime, question="GMV", parameters=RUN_PARAMS)["trace_id"]
+
+        result = attest_adoption_service(
+            runtime,
+            factory.adoption_ingest(),
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops@example.com",
+            causal_attribution=CausalOutcomeAttribution(
+                metric_name="gmv",
+                observed_value=11200.0,
+                counterfactual_value=10000.0,
+                delta_absolute=1200.0,
+                delta_percent=0.12,
+                method=CausalAttributionMethod.HOLDOUT,
+                comparison_ref="holdout:campaign-42",
+                window_start="2026-06-01",
+                window_end="2026-06-07",
+                confidence=0.8,
+            ),
+        )
+
+        self.assertEqual(result["result_weight"], 0.8)
+        asset = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(asset)
+        self.assertEqual(asset.result_weight, 0.8)
 
     def test_record_outcome_unknown_trace_is_recorded_without_asset(self) -> None:
         runtime = _build_runtime()
