@@ -1,6 +1,6 @@
 # ADR-0002: 治理动作—结果闭环 v0（Governed-Action Outcome Loop v0）
 
-- Status: **Proposed**（founder 口头批准方向 2026-06-22；待 Product/Architecture/CTO Gate 复核后方可实现）
+- Status: **Accepted — gate recorded 2026-06-22**（founder 批准 D2；CEO→Product→Architecture→CTO gate 签批已记录，可按 SPEC 起 Codex 实现：T1→T7，8 RED eval 红先行，T3/T4 走 claude-diff-review，T5 回滚演示需 CTO 验收）。**边界不变（见 §5）**：仅宣称 P5 治理 + 受治理可逆动作，**不**宣称 G-Eco 自主；`execute_approved_operation` **不得**新建任何 R4/R5 自动执行路径（proposal→approval→governed-execute 全程人审）。**保留 founder 门**：merge-to-main / 对外发布不随实现自动放行。
 - Date: 2026-06-22
 - 对侧 ADR: ADR-0001（P5 substrate harvest）—— 本 ADR 构建在 P5.1a / P5.1b / P5.2a 已落地的底座之上，不重建。
 - 边界: 仅宣称 **P5 治理 / 可审计 + 受治理动作（可验证回滚 + operator 独占结果通道）**；**不**宣称 G-Eco 自主（参见 `docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md`）。
