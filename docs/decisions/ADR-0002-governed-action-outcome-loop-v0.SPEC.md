@@ -584,3 +584,32 @@ make ci
 - Integration: Trusted Loop, adoption ledger, action connector registry, action_record connector, knowledge store, HTTP, CLI, eval harness.
 - Boundary: OS Core remains domain-independent; FaSoLa-specific fixtures stay outside OS Core.
 - Observability: `OperationTrace`, `RunTrace`, connector dry-run/execute trace events, adoption ledger, and knowledge version/result weight are visible.
+
+---
+
+## Addendum A — readiness patches (2026-06-22, spec-claude)
+
+> Source: Codex-handoff readiness review (workflow `wvc09br42`) — 4 verified blockers, all spec-level. These complete/supersede the cited sections so Codex implements without improvising un-co-signed design. Codex's RELAY STOP-LIST (what NOT to build in the first pass) ships with the relay packet.
+
+### A-G1 — D2b Connector Risk Ceiling Enforcement (resolves File-Structure line "Enforce connector risk ceiling")
+- New Contract Delta item **D2b**: deterministic RiskLevel ordering `R0<R1<R2<R3<R4<R5` via an `_RISK_ORDER` index map in `action_governance` (do NOT add comparison dunders to the contract enum).
+- Semantics: `ActionGovernance.build_operation_contract(proposal)` compares `proposal.risk_level` vs the routed connector's `contract.risk_ceiling`. If `_order(proposal.risk_level) > _order(contract.risk_ceiling)` → raise a typed `RiskCeilingExceeded` (Codex may reuse an existing governance-violation error, recorded in impl) **BEFORE** building the OperationContract. Fires at **BUILD time only, once** — therefore enforced for both `run()` and `execute_approved_operation()` (both consume an already-built contract). Trace event `risk_ceiling_check{connector_name, risk_level, ceiling, allowed}`.
+- The gate does **NOT** raise any production connector's ceiling. R4 demo authority comes from the Codex-authored test fixture (A-G2), not from changing `runtime_factory.py`.
+- §D5 addendum: "`execute_approved_operation` consumes the already-ceiling-checked OperationContract; it does NOT re-run the ceiling gate."
+
+### A-G2 — R4 shared fixture (resolves undefined `_build_runtime_with_action_record_r4`)
+- Proposal builder fields: `risk_level=RiskLevel.R4, approval_required=True, approver_role='Business Owner', connector_name='action_record', action_type='execute', action_parameters={'amount':100}`.
+- The `action_record` `ActionConnectorContract`: `risk_ceiling='R4'` (admits the R4 proposal → reaches AWAITING_APPROVAL, not refused), `supports_snapshot=True, supports_rollback=True`. Returns `(runtime, store)`.
+- Other helpers (`_operation`, `RUN_PARAMS`, `_build_runtime`, `_run_to_candidate`, `_run_approved_action`, `_incomplete_evidence_chain`) follow `tests/unit/test_trusted_loop_snapshot_rollback.py:33-115` + Red Cases 1/6; `_incomplete_evidence_chain` must fail `EvidenceChain.is_complete()` (e.g. `sql_safety.allowed=False`).
+
+### A-G3 — causal_attribution threading (resolves §D1 builder edit)
+- `FeedbackEventBuilder.build(...)` gains `causal_attribution: CausalOutcomeAttribution | None = None`, stamps it on the returned FeedbackEvent (default None preserves all callers + the RUNTIME_SELF_REPORT path).
+- `AdoptionIngest.submit(...)` accepts + passes through to `build(...)`; the runtime self-report builder never receives it.
+- `causal_attribution` is **NOT** folded into `_derive_id`; `feedback_id` stays `{trace_id, outcome, reviewer, metrics, source}` only (keeps the determinism guard + source-based capability boundary).
+- `with_feedback(...)` reads `result_weight` from `feedback.causal_attribution` via the v0 weighting formula; falls back to the outcome-sign rule when None.
+
+### A-G4 — result_weight surfacing in service (resolves discarded promote return)
+- `attest_adoption_service` captures `revised = runtime.promote_from_adoption(trace_id)` (currently discarded `outcome_service.py:192`) and adds `"result_weight"` to its response dict: `revised.result_weight` when revised is not None, else `None`.
+- `AdoptionResponse` (`http_app.py:87-93`) gains `result_weight: float | None = None`; CLI `adopt` prints the service dict unchanged.
+- `KnowledgeAsset` gains `result_weight: float = 0.0` dataclass default.
+- Add ≥1 Red Case exercising the REAL `attest_adoption_service` end-to-end asserting `response["result_weight"] == 0.8` (no fixture echo, #17).
