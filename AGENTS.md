@@ -4,7 +4,7 @@
 
 Before broad reading, read `docs/CURRENT_STATE.yaml`. It is the live handoff anchor for branch, current stage, latest experiment state, test count, ADR status, and next task.
 
-As of 2026-06-14, the live branch is `feat/g9-confidence-gated-policy`; `G10` is MET and `C3` is RED. The current execution stage is post-C3 route disposition: G11/C1 is parked by ADR-0027 until a second independent vs-cheap-baseline winning axis exists. Older P1/P2/P3/P4 notes in this file or memory are historical unless repeated in `docs/CURRENT_STATE.yaml`.
+As of 2026-06-22, the live branch is `main`. Current engineering stage is **P7.x bounded consequence-prior admission**: ADR-0036/G13 r-final completed **NOT MET**; the standing positive result remains G10/P0 (subject-side confidence-gated policy). Latest verified suite is **429 tests OK** (Codex, 2026-06-16). `G10` is MET and `C3` is RED; G11/C1 is parked by ADR-0027 until a second independent vs-cheap-baseline winning axis exists. **ADR-0037** (Self-Determination Depth SD0–SD4) is registered Proposed/docs-only, awaiting ratification. The live research *direction* — founder committed **Route C** on 2026-06-22 and froze the **G-Eco** preregistration — lives in the PARENT workspace `../docs/research/` and is **not yet scheduled into this repo as a core ADR**; until the founder queues it, this repo's engineering state legitimately remains P7.x. Always trust `docs/CURRENT_STATE.yaml` over this paragraph; older P1/P2/P3/P4 notes here or in memory are historical unless repeated there.
 
 Minimal read order for agent handoff:
 
