@@ -1,4 +1,4 @@
-updated: "2026-06-22"  # docs-only edits by Claude (spec/adjudication lane), awaiting Codex/CTO ratification: added open_questions (ADR-0037) + current_stage.route_c_status forward pointer. Engineering state (tests/gates/phase) UNCHANGED since 2026-06-16 Codex verification below.
+updated: "2026-06-22"  # docs-only. Founder approved D1 2026-06-22: G-Eco QUEUED as next core ADR (Codex single-writer mechanism lane opens). Gate-2 freeze co-sign + proposer-adjudicator max-hardening election + every R4/halt + r-final verdict remain FOUNDER-RESERVED. No experiment has run; engineering verdict (P7.x / ADR-0036·G13 NOT MET, 429 tests) UNCHANGED until G-Eco produces a gated result.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
@@ -14,7 +14,7 @@ current_stage:
   synthesis_artifact: "docs/P6-research-synthesis.md"
   immediate_next: "Record ADR-0036/G13 as NOT MET; do not rerun, retune, or rescue this candidate. Any new consequence-prior attempt requires a new ADR and fresh seeds."
   after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
-  route_c_status: "Forward pointer (do not read this anchor in isolation): founder COMMITTED Route C on 2026-06-22 (docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md). G-Eco preregistration is DRAFT v4, Gate-1 co-signed, Codex handoff packet ready. It is NOT yet scheduled into this core repo — per founder 2026-06-15 scheduling note (G-Eco-7a-baseline-audit-TEMPLATE.md), G-Eco implementation enters autonomous-agent-core only when founder explicitly queues it as the next core ADR. Until then this repo's engineering state legitimately remains P7.x / ADR-0036·G13 NOT MET; the live project direction lives in docs/research/ (Route C charter + G-Eco spec)."
+  route_c_status: "QUEUED (2026-06-22, founder approved D1): G-Eco is now scheduled as the NEXT core ADR (Route C committed 2026-06-22, docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md). Mechanism implementation THROUGH theta-lock is delegated to Codex single-writer per docs/research/G-Eco-codex-handoff.md (spec v4 Gate-1 co-signed); Claude adjudicates r-final ONLY per the frozen docs/research/G-Eco-rfinal-adjudication-protocol.md. FOUNDER-RESERVED, not delegated by D1: (1) Gate-2 freeze co-sign (region/rates/battery/seeds/criteria/thresholds hash-locked) BEFORE any r-final seed runs; (2) the proposer-adjudicator max-hardening election at Gate-2 (recommend ELECT: Codex mechanically emits the verdict row, Claude verify-and-narrate); (3) every R4/halt/inconclusive disposition — no variant/retune/re-seed without a NEW founder ADR + fresh seeds, halt report lands in messages.jsonl; (4) the r-final verdict and any 'autonomous' narrative unlock. A 'scheduled' status does NOT make the verdict delegable: this repo's engineering verdict legitimately remains P7.x / ADR-0036·G13 NOT MET until G-Eco produces a gated result. Codex must HALT at every armed exit and never cross Gate-2 autonomously."
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -301,6 +301,8 @@ handoff_read_order:
   - "../docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md"
   - "../docs/research/G-Eco-preregistration-spec.md"
   - "../docs/research/G-Eco-codex-handoff.md"
+  - "../docs/research/G-Eco-7a-baseline-audit.md"
+  - "../docs/research/G-Eco-rfinal-adjudication-protocol.md"
   - "docs/P6-research-synthesis.md"
   - "docs/PROJECT_PLAN.md"
   - "codebase_index.md"
