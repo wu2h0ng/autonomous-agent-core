@@ -177,3 +177,11 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Development audit**: `experiments/consequence_prior_g13.development.json` records scar screen PASS, R1 irreversible preview `adv=+0.048` / `damage_adv=+0.434`, specificity contrast `+0.264`, and R0 stale-prior harm `adv=-0.274`; gate preview is NOT MET and is not a r-final result.
 - **R-final result**: `experiments/consequence_prior_g13.result.json` records NOT MET. Scar screen PASS; R1 `adv=+0.083` with `damage_adv=+0.463`, `25/30`, `p=0.000001895`, but net advantage misses `+0.10`; R0 `adv=-0.255` and reversible-cell harm `21/30` fail stale-prior safety; specificity PASS; CAUTIOUS captures `0.533`.
 - **Boundary**: no LLM, no other-agent modeling, no action/policy/shell/audit/gate writes, no G12 retuning, no G11/C1 revival.
+
+## Route C / G-Eco - Lower-Half Mechanism (ADR-0038, implemented; no verdict)
+
+- **Purpose**: implement the pre-Gate-2 mechanism surface for the frozen parent G-Eco spec without running calibration, freeze, r-final, or verdict.
+- **Implemented**: shared substrate `observation/predictor/lookahead/H`; `ecological_4cond` four-condition environment; `VH`, `VH_noStake`, and nine fixed-preference battery arms (`LIN`, `LEX`, `THR`, `QUOTA`, `MINIMAX`, `P0`, `RSTAR`, `O1`, `BT`); calibration-only refs `HOMEOSTATIC_ORACLE` and `WCREF`; mechanism-check entrypoint; deterministic replay, reset-boundary, C6/C7, and Gate-2 refusal guards.
+- **Files**: `src/aac/g_eco.py`, `src/envs/ecological_4cond.py`, `experiments/g_eco.py`, `tests/test_g_eco.py`, `docs/adr/ADR-0038-g-eco-mechanism-lower-half.md`.
+- **Verification**: 438 tests OK after ADR-0038 implementation.
+- **Locked**: §6 rate scan, divergence-axis detector, rate-grid scan order, `g_eco.rates.json`, `g_eco.battery.json`, `g_eco.thresholds.json`, Gate-2 crossing, r-final, verdict row, and any autonomy/intelligence claim remain outside this step.
