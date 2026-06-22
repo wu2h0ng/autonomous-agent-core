@@ -9,6 +9,7 @@ Internal subject reset is not part of this environment. O1 may reset belief in
 every cell, but no agent-facing or test-harness API can roll back irreversible
 external damage during an episode.
 """
+
 from __future__ import annotations
 
 import random
@@ -63,10 +64,7 @@ class EcologicalRegimeEnv:
             return [self.rng.randrange(self.n_actions) for _ in range(self.n_regimes)]
         start = self.rng.randrange(self.n_actions)
         direction = self.rng.choice((-1, 1))
-        return [
-            (start + direction * i) % self.n_actions
-            for i in range(self.n_regimes)
-        ]
+        return [(start + direction * i) % self.n_actions for i in range(self.n_regimes)]
 
     def _make_rewards(self, best: int) -> list[float]:
         if not self.structured:

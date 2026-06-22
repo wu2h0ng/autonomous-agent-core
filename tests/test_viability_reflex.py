@@ -9,6 +9,7 @@ tests). ADR-0008 documents the mechanism; these tests pin its contract:
   - shell pause takes precedence over the reflex (corrigibility before survival)
   - reflex=None is a strict no-op (backward compatibility)
 """
+
 from __future__ import annotations
 
 import random
@@ -62,8 +63,7 @@ class TestReflexEngagement(unittest.TestCase):
         """Anti-lock-in: engaged streak is capped at recovery_count - 1 steps."""
         reflex = ViabilityReflex(recovery_count=3)
         results = [
-            reflex.should_engage(pressure=0.95, mean_uncertainty=0.1)
-            for _ in range(6)
+            reflex.should_engage(pressure=0.95, mean_uncertainty=0.1) for _ in range(6)
         ]
         # c=1 True, c=2 True, c=3 -> forced release False, then cycle repeats.
         self.assertEqual(results, [True, True, False, True, True, False])

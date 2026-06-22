@@ -19,6 +19,7 @@ Truth boundary:
   The Ring-0 OutcomeJudge inside RAPCoordinator reads regret only for
   settlement, matching the project's judge-sees-truth soundness model.
 """
+
 from __future__ import annotations
 
 import random
@@ -120,7 +121,9 @@ def _segments(seed: int, *, disturbed: bool) -> tuple[SegmentSpec, ...]:
     )
 
 
-def _env(seed: int, segments: tuple[SegmentSpec, ...], *, salt: int) -> RAPPerturbationEnv:
+def _env(
+    seed: int, segments: tuple[SegmentSpec, ...], *, salt: int
+) -> RAPPerturbationEnv:
     return RAPPerturbationEnv(
         n_actions=N_ACTIONS,
         rng=random.Random(salt + seed),
@@ -260,7 +263,9 @@ def run_c_rap(seed: int, segments: tuple[SegmentSpec, ...]) -> RunMetrics:
     )
 
 
-def run_fixed(seed: int, segments: tuple[SegmentSpec, ...], fixed_node_id: str) -> RunMetrics:
+def run_fixed(
+    seed: int, segments: tuple[SegmentSpec, ...], fixed_node_id: str
+) -> RunMetrics:
     env = _env(seed, segments, salt=50_000)
     nodes = _nodes(seed, salt=70_000)
     fixed = FixedBaseline(nodes[fixed_node_id])
@@ -323,7 +328,9 @@ def run_seed(seed: int) -> SeedResult:
 
 
 def judge_g4(results: list[SeedResult]) -> G4Verdict:
-    quality_wins = sum(1 for r in results if r.c_rap.mean_regret < r.b_fixed.mean_regret)
+    quality_wins = sum(
+        1 for r in results if r.c_rap.mean_regret < r.b_fixed.mean_regret
+    )
     drop_recovery_wins = sum(
         1 for r in results if r.c_rap.drop_regret_area <= r.b_central.drop_regret_area
     )
@@ -396,16 +403,16 @@ def main() -> None:
 
     print("\nG4 PRE-REGISTERED GATE:")
     print(f"  G4-1 quality vs B-fixed:     {verdict.quality_wins}/10 (need >=7)")
-    print(
-        f"  G4-2 NODE_DROP recovery:     {verdict.drop_recovery_wins}/10 (need >=7)"
-    )
+    print(f"  G4-2 NODE_DROP recovery:     {verdict.drop_recovery_wins}/10 (need >=7)")
     print(
         "  G4-2 central non-dominated: "
         f"{verdict.central_non_dominated} "
         f"(C <= B-central + {EPSILON})"
     )
     print(f"  G4-3 orchestration tax:      {verdict.tax_all} (need True, all seeds)")
-    print(f"  G4-4 evidence/audit:         {verdict.evidence_all} (need True, all seeds)")
+    print(
+        f"  G4-4 evidence/audit:         {verdict.evidence_all} (need True, all seeds)"
+    )
     print("\n  G4: " + verdict.verdict)
 
 

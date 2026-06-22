@@ -9,6 +9,7 @@ gate run needs it — not unvalidated mechanism here.)
 All other attributes (``force_regime_change``, ``best_action`` …) are
 delegated to the inner env so experiments can drive it through the wrapper.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -21,7 +22,9 @@ class IdleWindowEnv:
     steps. :attr:`idle` reflects the phase of the *next* ``act`` call.
     """
 
-    def __init__(self, inner: Any, work_period: int = 60, idle_period: int = 20) -> None:
+    def __init__(
+        self, inner: Any, work_period: int = 60, idle_period: int = 20
+    ) -> None:
         if work_period <= 0:
             raise ValueError("work_period must be positive")
         if idle_period < 0:

@@ -11,6 +11,7 @@ Pre-registered rule (ADR-0014 D2): success iff
 No evidence steps => failure (success must be earned). This is deterministic
 and stateful per bond: begin() -> observe()* -> verdict().
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

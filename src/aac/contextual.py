@@ -50,7 +50,9 @@ class ContextualActionModel:
         q = sorted(self._q_for(self._key(attended_values)))
         return (q[-1] - q[-2]) >= self.margin and q[-1] > 0.0
 
-    def update(self, attended_values: dict[int, int], action: int, reward: float) -> None:
+    def update(
+        self, attended_values: dict[int, int], action: int, reward: float
+    ) -> None:
         q = self._q_for(self._key(attended_values))
         q[action] += self.lr * (reward - q[action])
 

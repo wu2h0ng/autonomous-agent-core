@@ -1,4 +1,5 @@
 """Tests for RAP baseline nodes and B-fixed/B-central (T-P3.2, ADR-0014)."""
+
 from __future__ import annotations
 
 import random
@@ -82,7 +83,9 @@ class TestDecisionNodes(unittest.TestCase):
 
     def test_random_node_respects_forbidden(self) -> None:
         node = RandomNode(n_actions=4, rng=random.Random(1))
-        chosen = {node.select({"segment": "noisy"}, frozenset({0, 1})) for _ in range(20)}
+        chosen = {
+            node.select({"segment": "noisy"}, frozenset({0, 1})) for _ in range(20)
+        }
         self.assertLessEqual(chosen, {2, 3})
 
     def test_stale_revisit_wraps_idle_calibration(self) -> None:

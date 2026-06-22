@@ -1,4 +1,5 @@
 """B-fixed and B-central baselines for P3 RAP (T-P3.2, ADR-0014)."""
+
 from __future__ import annotations
 
 import random
@@ -152,7 +153,9 @@ def action_for_node(
     the EXACT same perturbation handling as B-fixed/B-central — fairness of
     the G4 comparison depends on identical NODE_DROP/NODE_LAG semantics.
     """
-    dropped = bool(hasattr(env, "node_available") and not env.node_available(node.node_id))
+    dropped = bool(
+        hasattr(env, "node_available") and not env.node_available(node.node_id)
+    )
     if dropped:
         return int(env.garbage_action()), True, False
 

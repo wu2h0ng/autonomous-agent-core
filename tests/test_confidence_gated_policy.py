@@ -3,6 +3,7 @@
 The gate is a SUBJECT-side mechanism: it reads the agent's own ActionOutcomeModel
 and never an organ surface (C6 preserved). It must still obey the shell (C7).
 """
+
 from __future__ import annotations
 
 import inspect
@@ -63,7 +64,10 @@ class TestGatedSelection(unittest.TestCase):
 
     def test_exploits_leader_when_confident(self) -> None:
         p = PolicySelector(
-            rng=random.Random(1), confidence_gate=True, gate_kappa=1.0, gate_temp_floor=0.05
+            rng=random.Random(1),
+            confidence_gate=True,
+            gate_kappa=1.0,
+            gate_temp_floor=0.05,
         )
         model = _model([5.0, 0.0, 0.0], [0.01, 0.8, 0.8])  # confident leader = 0
         picks = [p.select(model, 0.5, 0.0) for _ in range(200)]
@@ -71,7 +75,10 @@ class TestGatedSelection(unittest.TestCase):
 
     def test_explores_when_unconfident(self) -> None:
         p = PolicySelector(
-            rng=random.Random(1), confidence_gate=True, gate_kappa=1.0, gate_temp_floor=0.05
+            rng=random.Random(1),
+            confidence_gate=True,
+            gate_kappa=1.0,
+            gate_temp_floor=0.05,
         )
         model = _model([0.2, 0.1, 0.0], [1.0, 1.0, 1.0])  # uncertain, weak leader
         picks = [p.select(model, 0.7, 0.0) for _ in range(200)]

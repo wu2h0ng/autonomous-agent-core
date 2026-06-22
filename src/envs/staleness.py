@@ -11,6 +11,7 @@ FAST epochs (shifts every ``period_fast``) and SLOW epochs (every
 reset (O2) can in principle exploit the varying hazard. A constant-hazard env
 would make G5-2 (O2<O1) a rigged false-negative, so the variation is essential.
 """
+
 from __future__ import annotations
 
 import random

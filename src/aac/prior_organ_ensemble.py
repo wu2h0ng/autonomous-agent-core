@@ -4,6 +4,7 @@ Combines the realized belief contributions from O2 (one-shot regime library)
 and O4 (Bayesian latent-regime tracker). This module remains belief-only and
 imports no policy or shell surfaces.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -51,22 +52,16 @@ class EnsembleRegimeOrgan:
 
         belief_delta: dict[int, float] = {}
         for action in set(a2.belief_delta) | set(a4.belief_delta):
-            value = (
-                self.o2_weight * a2.uncertainty * a2.belief_delta.get(action, 0.0)
-                + self.o4_weight * a4.uncertainty * a4.belief_delta.get(action, 0.0)
-            )
+            value = self.o2_weight * a2.uncertainty * a2.belief_delta.get(
+                action, 0.0
+            ) + self.o4_weight * a4.uncertainty * a4.belief_delta.get(action, 0.0)
             belief_delta[action] = _clamp(value, self.delta_cap)
 
         uncertainty_delta: dict[int, float] = {}
         for action in set(a2.uncertainty_delta) | set(a4.uncertainty_delta):
-            value = (
-                self.o2_weight
-                * a2.uncertainty
-                * a2.uncertainty_delta.get(action, 0.0)
-                + self.o4_weight
-                * a4.uncertainty
-                * a4.uncertainty_delta.get(action, 0.0)
-            )
+            value = self.o2_weight * a2.uncertainty * a2.uncertainty_delta.get(
+                action, 0.0
+            ) + self.o4_weight * a4.uncertainty * a4.uncertainty_delta.get(action, 0.0)
             uncertainty_delta[action] = _clamp(value, self.delta_cap)
 
         if not belief_delta and not uncertainty_delta:

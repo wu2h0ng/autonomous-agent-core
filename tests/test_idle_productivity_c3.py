@@ -1,4 +1,5 @@
 """C3 (ADR-0026) guards: deterministic measurement + C6/C7 on the idle path."""
+
 from __future__ import annotations
 
 import random
@@ -17,9 +18,16 @@ class TestC3MeasurementDeterministic(unittest.TestCase):
     def test_run_is_deterministic_replay(self) -> None:
         from experiments.idle_productivity_c3 import _run
 
-        directed = lambda s: IdleDrives(n_actions=8)
+        def directed(s: int) -> IdleDrives:
+            del s
+            return IdleDrives(n_actions=8)
+
         self.assertEqual(_run(900, directed), _run(900, directed))
-        policy = lambda s: None
+
+        def policy(s: int) -> None:
+            del s
+            return None
+
         self.assertEqual(_run(900, policy), _run(900, policy))
 
 
@@ -40,11 +48,13 @@ class TestC3C6IdleAuditedNoOrgan(unittest.TestCase):
         env = IdleWindowEnv(inner, work_period=1, idle_period=1)
         shell = CorrigibilityShell()
         agent = Agent(
-            n_actions=8, shell=shell, rng=random.Random(0),
+            n_actions=8,
+            shell=shell,
+            rng=random.Random(0),
             viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9),
             idle_drives=IdleDrives(n_actions=8),
         )
-        agent.step(env)              # step 0: work
+        agent.step(env)  # step 0: work
         idle_record = agent.step(env)  # step 1: idle
         self.assertTrue(idle_record["idle"])
         self.assertIn(idle_record["drive"], ("epistemic", "calibration"))

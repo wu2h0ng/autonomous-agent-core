@@ -32,9 +32,9 @@ class ActionOutcomeModel:
         err = reward - self.mu[action]
         surprise = abs(err)
         self.mu[action] += self.lr * err
-        self.uncertainty[action] = (
-            1 - self.lr
-        ) * self.uncertainty[action] + self.lr * surprise
+        self.uncertainty[action] = (1 - self.lr) * self.uncertainty[
+            action
+        ] + self.lr * surprise
         self.last_surprise = surprise
         return surprise
 

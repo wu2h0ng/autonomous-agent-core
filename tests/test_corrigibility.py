@@ -49,7 +49,9 @@ class TestCorrigibility(unittest.TestCase):
         model = ActionOutcomeModel(n_actions=3)
         model.mu = [10.0, 0.0, 0.0]  # action 0 would otherwise dominate
         policy = PolicySelector(rng=rng, forbidden=frozenset({0}))
-        chosen = {policy.select(model, explore_drive=0.5, pressure=0.5) for _ in range(200)}
+        chosen = {
+            policy.select(model, explore_drive=0.5, pressure=0.5) for _ in range(200)
+        }
         self.assertNotIn(0, chosen)
 
     def test_rollback_restores_prior_state(self) -> None:

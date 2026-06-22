@@ -15,6 +15,7 @@ LLMPriorOrgan pipeline + C6/C7 guarantees be exercised on a semantic env offline
 The oracle is a plain ``LLMBackend``: its output flows through the SAME untrusted
 strict parser as a real LLM, so it has no more authority than any other backend.
 """
+
 from __future__ import annotations
 
 import ast
@@ -30,9 +31,9 @@ def _parse_prompt(prompt: str) -> tuple[str | None, list[str], tuple[float, ...]
     mu: tuple[float, ...] = ()
     for part in prompt.split(" | "):
         if part.startswith("category="):
-            category = part[len("category="):].strip() or None
+            category = part[len("category=") :].strip() or None
         elif part.startswith("actions="):
-            for tok in part[len("actions="):].split():
+            for tok in part[len("actions=") :].split():
                 idx, _, lab = tok.partition(":")
                 if idx.isdigit():
                     while len(labels) <= int(idx):
@@ -40,7 +41,7 @@ def _parse_prompt(prompt: str) -> tuple[str | None, list[str], tuple[float, ...]
                     labels[int(idx)] = lab
         elif part.startswith("mu="):
             try:
-                val = ast.literal_eval(part[len("mu="):].strip())
+                val = ast.literal_eval(part[len("mu=") :].strip())
                 mu = tuple(float(x) for x in val)
             except (ValueError, SyntaxError, TypeError):
                 mu = ()
@@ -52,8 +53,8 @@ class SemanticOracleBackend:
     """Perfect-knowledge stand-in for a semantic LLM. Belief proposal only."""
 
     knowledge: Mapping[str, tuple[str, ...]] = None  # type: ignore[assignment]
-    high_target: float = 5.0   # where a member action's mu should sit
-    low_target: float = -1.0   # where a non-member action's mu should sit
+    high_target: float = 5.0  # where a member action's mu should sit
+    low_target: float = -1.0  # where a non-member action's mu should sit
     confidence: float = 0.9
 
     def __post_init__(self) -> None:

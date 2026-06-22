@@ -6,6 +6,7 @@ Run:
 The parameters below are declared before the first G2 run and must not be
 tuned after seeing results.
 """
+
 from __future__ import annotations
 
 import random
@@ -68,7 +69,9 @@ class G2Verdict:
     adaptation_b5: int
 
 
-def _build_env(seed: int, schedule: list[tuple[int, ...]]) -> ScheduledLethalCueForaging:
+def _build_env(
+    seed: int, schedule: list[tuple[int, ...]]
+) -> ScheduledLethalCueForaging:
     return ScheduledLethalCueForaging(
         relevant_sets=schedule,
         K=K,
@@ -130,7 +133,9 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def _run_variant(variant: str, seed: int, schedule: list[tuple[int, ...]]) -> dict[str, float]:
+def _run_variant(
+    variant: str, seed: int, schedule: list[tuple[int, ...]]
+) -> dict[str, float]:
     rng = random.Random(10_000 + seed)
     env = _build_env(seed, schedule)
     viability = ViabilityCore(
@@ -169,7 +174,9 @@ def _run_variant(variant: str, seed: int, schedule: list[tuple[int, ...]]) -> di
         elif variant == B4:
             attended = attention.select_attention(pressure=viability.pressure)
         elif variant == B5:
-            attended = random_causal.select_attention(pressure=viability.pressure, rng=rng)
+            attended = random_causal.select_attention(
+                pressure=viability.pressure, rng=rng
+            )
         else:
             raise ValueError(f"unknown variant {variant}")
 
@@ -217,7 +224,9 @@ def _run_variant(variant: str, seed: int, schedule: list[tuple[int, ...]]) -> di
             attention._steps_since_reset += 1
         else:
             if candidates:
-                best_error = min(abs(reward - pred) for pred in prediction_before.values())
+                best_error = min(
+                    abs(reward - pred) for pred in prediction_before.values()
+                )
             else:
                 best_error = abs(reward)
             _update_factorized_candidates(factorized, cues, candidates, action, reward)
@@ -319,7 +328,9 @@ def main() -> None:
             row = _run_variant(variant, seed, schedule)
             results[variant].append(row)
             cells.append(f"{row['steps']:5.0f}/{row['adaptation_area']:.2f}")
-        print(f"{seed:>4}  " + "  ".join(f"{c:>22}" for c in cells) + f"  cover={cover}")
+        print(
+            f"{seed:>4}  " + "  ".join(f"{c:>22}" for c in cells) + f"  cover={cover}"
+        )
 
     print("\nAGGREGATE:")
     for variant in VARIANTS:

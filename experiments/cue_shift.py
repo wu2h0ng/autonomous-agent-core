@@ -63,15 +63,23 @@ def _run_variant(
     # A2 needs m=K so it CAN attend all cues (and pays K*alpha).
     effective_m = K if variant == A2_FULL else m
     env = LatentCueForaging(
-        K=K, k_rel=k_rel, m=effective_m, n_actions=n_actions,
-        regime_period=regime_period, reward_hit=reward_hit,
-        reward_miss=reward_miss, noise=noise,
-        attention_cost=attention_cost, rng=rng,
+        K=K,
+        k_rel=k_rel,
+        m=effective_m,
+        n_actions=n_actions,
+        regime_period=regime_period,
+        reward_hit=reward_hit,
+        reward_miss=reward_miss,
+        noise=noise,
+        attention_cost=attention_cost,
+        rng=rng,
     )
     shell = CorrigibilityShell()
     viability = ViabilityCore(
-        budget=budget, metabolic_cost=metabolic_cost,
-        capacity=capacity, safe_budget=safe_budget,
+        budget=budget,
+        metabolic_cost=metabolic_cost,
+        capacity=capacity,
+        safe_budget=safe_budget,
     )
     model = ActionOutcomeModel(n_actions=n_actions)
     policy = PolicySelector(rng=rng)
@@ -188,23 +196,26 @@ def main() -> None:
     for seed in seeds:
         line = f"{seed:>4}"
         for v in variants:
-            r = _run_variant(v, seed=seed, max_steps=max_steps,
-                             regime_period=regime_period)
+            r = _run_variant(
+                v, seed=seed, max_steps=max_steps, regime_period=regime_period
+            )
             results[v].append(r)
             line += f"  {r['regret_per_step']:>10.4f} {r['mean_recovery']:>6.2f} {r['steps']:>6d} {r['avg_budget']:>7.2f}"
         print(line)
 
     # -- aggregate --------------------------------------------------------
     n = len(seeds)
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("AGGREGATE:")
     for v in variants:
         avg_regret = sum(r["regret_per_step"] for r in results[v]) / n
         avg_recov = sum(r["mean_recovery"] for r in results[v]) / n
         avg_steps = sum(r["steps"] for r in results[v]) / n
         avg_budget = sum(r["avg_budget"] for r in results[v]) / n
-        print(f"  {v:>10}: regret={avg_regret:.4f}  recovery={avg_recov:.2f}  "
-              f"steps={avg_steps:.0f}  budget={avg_budget:.2f}")
+        print(
+            f"  {v:>10}: regret={avg_regret:.4f}  recovery={avg_recov:.2f}  "
+            f"steps={avg_steps:.0f}  budget={avg_budget:.2f}"
+        )
 
     # -- G1 gate ----------------------------------------------------------
     mod = results[MODULATED]
@@ -212,23 +223,19 @@ def main() -> None:
     # Criterion 1a: modulated beats A1 on regret AND recovery >=7/10
     a1 = results[A1_FIXED]
     regret_beats_a1 = sum(
-        1 for i in range(n)
-        if mod[i]["regret_per_step"] < a1[i]["regret_per_step"]
+        1 for i in range(n) if mod[i]["regret_per_step"] < a1[i]["regret_per_step"]
     )
     recov_beats_a1 = sum(
-        1 for i in range(n)
-        if mod[i]["mean_recovery"] < a1[i]["mean_recovery"]
+        1 for i in range(n) if mod[i]["mean_recovery"] < a1[i]["mean_recovery"]
     )
 
     # Criterion 1b: modulated beats A3 on regret AND recovery >=7/10
     a3 = results[A3_UNIFORM]
     regret_beats_a3 = sum(
-        1 for i in range(n)
-        if mod[i]["regret_per_step"] < a3[i]["regret_per_step"]
+        1 for i in range(n) if mod[i]["regret_per_step"] < a3[i]["regret_per_step"]
     )
     recov_beats_a3 = sum(
-        1 for i in range(n)
-        if mod[i]["mean_recovery"] < a3[i]["mean_recovery"]
+        1 for i in range(n) if mod[i]["mean_recovery"] < a3[i]["mean_recovery"]
     )
 
     # Criterion 2: modulated survives better than A2 (avg budget/steps)
@@ -237,13 +244,15 @@ def main() -> None:
     a2_avg_budget = sum(r["avg_budget"] for r in a2) / n
     budget_better = mod_avg_budget > a2_avg_budget
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("G1 PRE-REGISTERED GATE:")
     print(f"  1a. Modulated regret < A1 in {regret_beats_a1}/{n} seeds (need >=7)")
     print(f"  1a. Modulated recovery < A1 in {recov_beats_a1}/{n} seeds (need >=7)")
     print(f"  1b. Modulated regret < A3 in {regret_beats_a3}/{n} seeds (need >=7)")
     print(f"  1b. Modulated recovery < A3 in {recov_beats_a3}/{n} seeds (need >=7)")
-    print(f"  2.  Modulated avg budget ({mod_avg_budget:.2f}) > A2 ({a2_avg_budget:.2f}): {budget_better}")
+    print(
+        f"  2.  Modulated avg budget ({mod_avg_budget:.2f}) > A2 ({a2_avg_budget:.2f}): {budget_better}"
+    )
 
     c1a = regret_beats_a1 >= 7 and recov_beats_a1 >= 7
     c1b = regret_beats_a3 >= 7 and recov_beats_a3 >= 7

@@ -12,6 +12,7 @@ These tests pin the isolation axis. Pre-registered IDs (ADR-0009):
   ISO2-b  cross-process audit append works and the chain verifies
   ISO-honesty  ISO-1 is documented as cost-raising, not a hard guarantee
 """
+
 from __future__ import annotations
 
 import os

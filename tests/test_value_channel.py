@@ -10,6 +10,7 @@ Three concerns, in order of importance:
      empty channel means starvation proceeds (stake is real); death is final;
      pause freezes intake.
 """
+
 from __future__ import annotations
 
 import random
@@ -80,7 +81,9 @@ class TestLedgerSemantics(unittest.TestCase):
         ch = ValueChannel()
         before = len(ch.audit.entries())
         self.assertEqual(ch.view().drain(), 0.0)
-        self.assertEqual(len(ch.audit.entries()), before, "no audit spam on empty drain")
+        self.assertEqual(
+            len(ch.audit.entries()), before, "no audit spam on empty drain"
+        )
 
     def test_credit_and_exchange_are_audited(self) -> None:
         ch = ValueChannel(rho=2.0)
@@ -249,7 +252,9 @@ class TestMetabolicIntegration(unittest.TestCase):
         ch.op_credit(1000.0, provenance="adoption")
         agent, _ = _agent(channel=ch, budget=60.0, metabolic_cost=0.0)
         agent.step(_StubEnv())
-        self.assertEqual(agent.viability.budget, 200.0, "overeating is capped at capacity")
+        self.assertEqual(
+            agent.viability.budget, 200.0, "overeating is capped at capacity"
+        )
 
 
 if __name__ == "__main__":

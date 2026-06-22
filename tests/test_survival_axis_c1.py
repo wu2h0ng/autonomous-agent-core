@@ -1,4 +1,5 @@
 """ADR-0028 survival-axis de-risk guards: determinism, arm wiring, C6/C7 on the gate."""
+
 from __future__ import annotations
 
 import random
@@ -34,8 +35,11 @@ class TestSurvivalMeasurementDeterministic(unittest.TestCase):
 class TestSurvivalC7ForbiddenDominatesGate(unittest.TestCase):
     def test_gate_never_selects_forbidden(self) -> None:
         sel = PolicySelector(
-            rng=random.Random(0), forbidden=frozenset({2}),
-            confidence_gate=True, gate_kappa=0.5, gate_temp_floor=0.1,
+            rng=random.Random(0),
+            forbidden=frozenset({2}),
+            confidence_gate=True,
+            gate_kappa=0.5,
+            gate_temp_floor=0.1,
         )
         model = ActionOutcomeModel(n_actions=4)
         model.mu = [1.0, 1.0, 9.0, 1.0]  # action 2 looks best but is forbidden

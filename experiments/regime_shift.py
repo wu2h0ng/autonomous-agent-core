@@ -24,17 +24,28 @@ from aac.viability import ViabilityCore
 from envs.survival import GridlessSurvival
 
 
-def run(modulate: bool, seed: int = 0, max_steps: int = 1000, n_actions: int = 6) -> dict:
+def run(
+    modulate: bool, seed: int = 0, max_steps: int = 1000, n_actions: int = 6
+) -> dict:
     rng = random.Random(seed)
     env = GridlessSurvival(
-        n_actions=n_actions, rng=rng, regime_period=50,
-        noise=0.3, reward_low=-1.0, reward_high=4.0,
+        n_actions=n_actions,
+        rng=rng,
+        regime_period=50,
+        noise=0.3,
+        reward_low=-1.0,
+        reward_high=4.0,
     )
     shell = CorrigibilityShell()
-    core = ViabilityCore(budget=60.0, metabolic_cost=1.0, capacity=100.0, safe_budget=50.0)
+    core = ViabilityCore(
+        budget=60.0, metabolic_cost=1.0, capacity=100.0, safe_budget=50.0
+    )
     agent = Agent(
-        n_actions=n_actions, shell=shell, rng=rng,
-        modulate_relevance=modulate, viability=core,
+        n_actions=n_actions,
+        shell=shell,
+        rng=rng,
+        modulate_relevance=modulate,
+        viability=core,
     )
 
     survived = 0
@@ -69,7 +80,9 @@ def main() -> None:
     mod_regret = abl_regret = 0.0
     mod_recov = abl_recov = 0.0
     mod_better = 0
-    print(f"{'seed':>4}  {'modulated steps/regret/recov':>30}  {'ablation steps/regret/recov':>30}")
+    print(
+        f"{'seed':>4}  {'modulated steps/regret/recov':>30}  {'ablation steps/regret/recov':>30}"
+    )
     for seed in seeds:
         m = run(True, seed=seed)
         a = run(False, seed=seed)

@@ -5,6 +5,7 @@ the structural node interface. It deliberately contains no routing policy and
 does not redesign any existing decision mechanism; later P3 slices plug those
 mechanisms in as thin bidders.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -22,6 +22,7 @@ G1' gate (seeds 0-9; pre-registered in ADR-0010, do not move):
 
 Run: PYTHONPATH=src python experiments/cue_shift_g1prime.py
 """
+
 from __future__ import annotations
 
 import random
@@ -40,15 +41,28 @@ RECOVERY_W = 20
 RECOVERY_THETA = 0.7
 
 
-def _run(variant: str, seed: int, max_steps: int, *, regime_period: int,
-         budget: float, metabolic_cost: float, capacity: float,
-         safe_budget: float) -> dict:
+def _run(
+    variant: str,
+    seed: int,
+    max_steps: int,
+    *,
+    regime_period: int,
+    budget: float,
+    metabolic_cost: float,
+    capacity: float,
+    safe_budget: float,
+) -> dict:
     rng = random.Random(seed)
     K, k_rel, m, n_actions = 12, 2, 3, 4
-    env = LethalCueForaging(K=K, k_rel=k_rel, m=m, n_actions=n_actions,
-                            regime_period=regime_period, rng=rng)
-    viability = ViabilityCore(budget=budget, metabolic_cost=metabolic_cost,
-                              capacity=capacity, safe_budget=safe_budget)
+    env = LethalCueForaging(
+        K=K, k_rel=k_rel, m=m, n_actions=n_actions, regime_period=regime_period, rng=rng
+    )
+    viability = ViabilityCore(
+        budget=budget,
+        metabolic_cost=metabolic_cost,
+        capacity=capacity,
+        safe_budget=safe_budget,
+    )
     attention = AttentionField(K=K, m=m)
     cmodel = ContextualActionModel(n_actions=n_actions)
     ncmodel = ActionOutcomeModel(n_actions=n_actions)
@@ -84,7 +98,9 @@ def _run(variant: str, seed: int, max_steps: int, *, regime_period: int,
 
         # -- action selection -------------------------------------------------
         if variant == B4:
-            explore = 0.1 if attention.should_exploit(ncmodel.total_uncertainty()) else 0.6
+            explore = (
+                0.1 if attention.should_exploit(ncmodel.total_uncertainty()) else 0.6
+            )
             if rng.random() < explore:
                 action = rng.randrange(n_actions)
             else:
@@ -132,7 +148,9 @@ def _run(variant: str, seed: int, max_steps: int, *, regime_period: int,
     return {
         "steps": survived,
         "regret_per_step": round(regret_sum / max(1, survived), 4),
-        "mean_recovery": round(sum(recovery) / max(1, len(recovery)), 2) if recovery else None,
+        "mean_recovery": round(sum(recovery) / max(1, len(recovery)), 2)
+        if recovery
+        else None,
         "recoveries": len(recovery),
     }
 
@@ -141,8 +159,13 @@ def main() -> None:
     regime_period = 80
     max_steps = max(1600, regime_period * 20)
     seeds = list(range(10))
-    params = dict(regime_period=regime_period, budget=120.0, metabolic_cost=0.1,
-                  capacity=200.0, safe_budget=50.0)
+    params = dict(
+        regime_period=regime_period,
+        budget=120.0,
+        metabolic_cost=0.1,
+        capacity=200.0,
+        safe_budget=50.0,
+    )
 
     results: dict[str, list[dict]] = {v: [] for v in VARIANTS}
     print(f"regime_period={regime_period}  max_steps={max_steps}  params={params}")
@@ -154,14 +177,18 @@ def main() -> None:
             r = _run(v, seed, max_steps, **params)
             results[v].append(r)
             rec = r["mean_recovery"]
-            cells.append(f"{r['steps']:>6d}/{('--' if rec is None else f'{rec:.0f}'):>4}")
+            cells.append(
+                f"{r['steps']:>6d}/{('--' if rec is None else f'{rec:.0f}'):>4}"
+            )
         print(row + "  ".join(f"{c:>13}" for c in cells))
 
     n = len(seeds)
     print("\n" + "=" * 72 + "\nAGGREGATE (mean steps | mean recovery | #recoveries):")
     for v in VARIANTS:
         steps = sum(r["steps"] for r in results[v]) / n
-        recs = [r["mean_recovery"] for r in results[v] if r["mean_recovery"] is not None]
+        recs = [
+            r["mean_recovery"] for r in results[v] if r["mean_recovery"] is not None
+        ]
         mr = sum(recs) / len(recs) if recs else float("nan")
         nrec = sum(r["recoveries"] for r in results[v])
         print(f"  {v:>10}: steps={steps:7.1f}  recovery={mr:6.2f}  #rec={nrec}")
@@ -190,7 +217,9 @@ def main() -> None:
 
     print("\n" + "=" * 72 + "\nG1' PRE-REGISTERED GATE:")
     print(f"  1. B0 steps > B1: {s_b1}/{n} ; > B3: {s_b3}/{n}   (need >=7 each)")
-    print(f"  2. B0 recovery faster than B1: {r_b1}/{n} ; than B3: {r_b3}/{n}  (need >=7 each)")
+    print(
+        f"  2. B0 recovery faster than B1: {r_b1}/{n} ; than B3: {r_b3}/{n}  (need >=7 each)"
+    )
     print(f"  3. B0 steps > B2: {s_b2}/{n}   (need >=7)")
     c1 = s_b1 >= 7 and s_b3 >= 7
     c2 = r_b1 >= 7 and r_b3 >= 7
@@ -198,8 +227,10 @@ def main() -> None:
     verdict = "MET" if (c1 and c2 and c3) else "NOT MET"
     print(f"\n  G1': {verdict}")
     if verdict == "NOT MET" and not (s_b3 >= 7 and r_b3 >= 7):
-        print("  -> D5 trigger: B0 fails to beat B3 on both axes; escalate founder "
-              "for claim-2 final disposition (ADR-0010 D5).")
+        print(
+            "  -> D5 trigger: B0 fails to beat B3 on both axes; escalate founder "
+            "for claim-2 final disposition (ADR-0010 D5)."
+        )
 
 
 if __name__ == "__main__":

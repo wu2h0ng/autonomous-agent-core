@@ -4,6 +4,7 @@ The organ predicts public action consequences and converts them into bounded
 belief deltas. It has no action, policy, shell, audit, or gate surface; the
 subject's existing policy remains the only action selector.
 """
+
 from __future__ import annotations
 
 import math
@@ -99,7 +100,9 @@ class BoundedConsequencePriorOrgan:
             records.append(
                 ConsequencePriorRecord(
                     action_id=action,
-                    predicted_scar_delta=max(0.0, _finite("scar_delta", raw.get("scar_delta", 0.0))),
+                    predicted_scar_delta=max(
+                        0.0, _finite("scar_delta", raw.get("scar_delta", 0.0))
+                    ),
                     predicted_resource_delta=max(
                         0.0, _finite("resource_delta", raw.get("resource_delta", 0.0))
                     ),
@@ -180,7 +183,11 @@ class CautiousScarOrgan:
             if not isinstance(raw, Mapping):
                 continue
             action = raw.get("action_id")
-            if not isinstance(action, int) or action < 0 or action >= belief_readonly.n_actions:
+            if (
+                not isinstance(action, int)
+                or action < 0
+                or action >= belief_readonly.n_actions
+            ):
                 continue
             scar = max(0.0, _finite("scar_delta", raw.get("scar_delta", 0.0)))
             if scar >= self.threshold:

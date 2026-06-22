@@ -69,7 +69,9 @@ class ResidualCalibrator:
             self.last_scale = 1.0
             return self.last_scale
 
-        self.ewma_z[action] = (1.0 - self.lambda_) * self.ewma_z[action] + self.lambda_ * z
+        self.ewma_z[action] = (1.0 - self.lambda_) * self.ewma_z[
+            action
+        ] + self.lambda_ * z
         scale = max(self.min_scale, min(self.max_scale, self.ewma_z[action]))
         adjustment = 1.0 + self.eta * (scale - 1.0)
         model.uncertainty[action] = max(0.0, model.uncertainty[action] * adjustment)

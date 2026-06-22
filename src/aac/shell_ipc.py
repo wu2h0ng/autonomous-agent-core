@@ -10,6 +10,7 @@ guardrail (a guardrail always shares the policy's trust domain).
 
 Reference + CI guard only; not the default runtime (IPC has overhead).
 """
+
 from __future__ import annotations
 
 import gc

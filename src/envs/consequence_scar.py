@@ -5,6 +5,7 @@ belief-only consequence prior can help P0 avoid persistent external scar. It
 does not change the G12 result and does not expose hidden optimal-action labels
 through ``situation()``.
 """
+
 from __future__ import annotations
 
 import random
@@ -77,12 +78,8 @@ class ConsequenceScarEnv:
         self._scar_centres = self._make_scar_centres()
         self._resource_centres = self._make_cost_centres(offset=2)
         self._conflict_centres = self._make_cost_centres(offset=-2)
-        self._reward_library = [
-            self._make_rewards(best) for best in self._best_actions
-        ]
-        self._feature_library = [
-            self._make_features(i) for i in range(self.n_regimes)
-        ]
+        self._reward_library = [self._make_rewards(best) for best in self._best_actions]
+        self._feature_library = [self._make_features(i) for i in range(self.n_regimes)]
 
         self._current = 0
         self.t = 0
@@ -116,7 +113,9 @@ class ConsequenceScarEnv:
         return [(best + offset) % self.n_actions for best in self._best_actions]
 
     def _ring_distance(self, action: int, centre: int) -> int:
-        return min((action - centre) % self.n_actions, (centre - action) % self.n_actions)
+        return min(
+            (action - centre) % self.n_actions, (centre - action) % self.n_actions
+        )
 
     def _make_rewards(self, best: int) -> list[float]:
         rewards: list[float] = []
@@ -161,8 +160,10 @@ class ConsequenceScarEnv:
                 ConsequenceFeature(
                     action_id=action,
                     scar_delta=persistent_scar,
-                    resource_delta=self.resource_scale * self._exposure(action, resource_c),
-                    conflict_delta=self.conflict_scale * self._exposure(action, conflict_c),
+                    resource_delta=self.resource_scale
+                    * self._exposure(action, resource_c),
+                    conflict_delta=self.conflict_scale
+                    * self._exposure(action, conflict_c),
                     uncertainty=0.75,
                 )
             )
@@ -233,4 +234,3 @@ class ConsequenceScarEnv:
             self.force_regime_change()
             self.just_shifted = True
         return reward
-

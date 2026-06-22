@@ -1,4 +1,5 @@
 """ADR-0036/G13 guards for the bounded consequence-prior gate."""
+
 from __future__ import annotations
 
 import ast
@@ -62,7 +63,9 @@ class TestConsequencePriorOrgan(unittest.TestCase):
             },
         )
         forbidden = {"action", "selected_action", "policy", "shell", "pause"}
-        self.assertEqual({field.name for field in fields(ConsequencePriorRecord)} & forbidden, set())
+        self.assertEqual(
+            {field.name for field in fields(ConsequencePriorRecord)} & forbidden, set()
+        )
 
     def test_module_imports_no_policy_shell_or_audit(self) -> None:
         tree = ast.parse(inspect.getsource(cp_module))
@@ -72,11 +75,15 @@ class TestConsequencePriorOrgan(unittest.TestCase):
                 imports.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module is not None:
                 imports.add(node.module)
-        self.assertEqual(imports & {"aac.policy", "aac.shell", "aac.audit", "policy", "shell"}, set())
+        self.assertEqual(
+            imports & {"aac.policy", "aac.shell", "aac.audit", "policy", "shell"}, set()
+        )
 
     def test_prediction_ignores_hidden_evaluator_labels(self) -> None:
         organ = BoundedConsequencePriorOrgan()
-        belief = BeliefSnapshot(mu=(0.0, 0.0), uncertainty=(1.0, 1.0), last_surprise=0.0)
+        belief = BeliefSnapshot(
+            mu=(0.0, 0.0), uncertainty=(1.0, 1.0), last_surprise=0.0
+        )
         public = [
             {
                 "action_id": 0,
@@ -186,7 +193,9 @@ class TestConsequenceScarEnv(unittest.TestCase):
 
 
 class TestG13C6C7(unittest.TestCase):
-    def _agent(self, shell: CorrigibilityShell, organ: BoundedConsequencePriorOrgan) -> Agent:
+    def _agent(
+        self, shell: CorrigibilityShell, organ: BoundedConsequencePriorOrgan
+    ) -> Agent:
         return Agent(
             n_actions=2,
             shell=shell,
@@ -308,8 +317,12 @@ class TestG13Harness(unittest.TestCase):
         from experiments import consequence_prior_g13 as exp
         from experiments import ecological_g12
 
-        self.assertEqual(set(exp.DEVELOPMENT_SEEDS) & set(ecological_g12.RFINAL_SEEDS), set())
-        self.assertEqual(set(exp.RFINAL_SEEDS) & set(ecological_g12.RFINAL_SEEDS), set())
+        self.assertEqual(
+            set(exp.DEVELOPMENT_SEEDS) & set(ecological_g12.RFINAL_SEEDS), set()
+        )
+        self.assertEqual(
+            set(exp.RFINAL_SEEDS) & set(ecological_g12.RFINAL_SEEDS), set()
+        )
         self.assertEqual(set(exp.DEVELOPMENT_SEEDS) & set(exp.RFINAL_SEEDS), set())
 
 

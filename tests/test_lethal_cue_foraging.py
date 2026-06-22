@@ -1,4 +1,5 @@
 """Tests for LethalCueForaging (ADR-0010 D2). Mechanism correctness only."""
+
 from __future__ import annotations
 
 import random
@@ -21,7 +22,8 @@ class TestLethalCueForaging(unittest.TestCase):
         after_set = list(env._relevant_set)
         # The relevant set and/or mapping changed (S itself drifts).
         self.assertTrue(
-            after_set != before_set or env.best_action_for(cues) != before
+            after_set != before_set
+            or env.best_action_for(cues) != before
             or env._mapping != {},
             "regime change must resample S and g",
         )

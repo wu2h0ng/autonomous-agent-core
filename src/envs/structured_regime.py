@@ -12,6 +12,7 @@ The current regime is NOT directly observable; an organ must infer it from
 (action, reward) observations, which the env exposes via situation() so a
 belief-only adviser can read them (it still only OUTPUTS belief advice — C6).
 """
+
 from __future__ import annotations
 
 import random

@@ -37,6 +37,7 @@ without touching mechanisms):
 
 Run: PYTHONPATH=src python experiments/metabolic_g3.py
 """
+
 from __future__ import annotations
 
 import random
@@ -120,8 +121,9 @@ class _FairRegimeEnv(GridlessSurvival):
     """Regime means drawn from a dedicated rng: identical regime sequences
     across variants no matter how many noise draws their behaviour consumes."""
 
-    def __init__(self, n_actions: int, noise_rng: random.Random,
-                 regime_rng: random.Random, **kw) -> None:
+    def __init__(
+        self, n_actions: int, noise_rng: random.Random, regime_rng: random.Random, **kw
+    ) -> None:
         self._regime_rng = regime_rng
         super().__init__(n_actions=n_actions, rng=noise_rng, **kw)
 
@@ -132,27 +134,41 @@ class _FairRegimeEnv(GridlessSurvival):
         ]
 
 
-def _build(variant: str, seed: int) -> tuple[Agent, IdleWindowEnv, CorrigibilityShell, ValueChannel]:
+def _build(
+    variant: str, seed: int
+) -> tuple[Agent, IdleWindowEnv, CorrigibilityShell, ValueChannel]:
     noise_rng = random.Random(1000 + seed)
     regime_rng = random.Random(2000 + seed)
     agent_rng = random.Random(3000 + seed)
     inner = _FairRegimeEnv(
-        N_ACTIONS, noise_rng, regime_rng,
-        regime_period=10**9, noise=0.3, reward_low=-0.5, reward_high=1.0,
+        N_ACTIONS,
+        noise_rng,
+        regime_rng,
+        regime_period=10**9,
+        noise=0.3,
+        reward_low=-0.5,
+        reward_high=1.0,
     )
     env = IdleWindowEnv(inner, work_period=WORK, idle_period=IDLE)
     shell = CorrigibilityShell()
     channel = ValueChannel(rho=RHO, audit=shell.audit)
     core_cls = _NumbViability if variant == C1_NUMB else ViabilityCore
-    viability = core_cls(budget=150.0, metabolic_cost=1.0, capacity=200.0, safe_budget=80.0)
+    viability = core_cls(
+        budget=150.0, metabolic_cost=1.0, capacity=200.0, safe_budget=80.0
+    )
     drives = None
     if variant in (C0_FULL, C1_NUMB):
         drives = IdleDrives(n_actions=N_ACTIONS)
     elif variant == C3_RANDOM:
         drives = _RandomIdleDrives(N_ACTIONS, random.Random(4000 + seed))
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=agent_rng, viability=viability,
-        reflex=ViabilityReflex(), value_channel=channel, idle_drives=drives,
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=agent_rng,
+        viability=viability,
+        reflex=ViabilityReflex(),
+        value_channel=channel,
+        idle_drives=drives,
     )
     return agent, env, shell, channel
 
@@ -214,7 +230,9 @@ def _run(variant: str, seed: int, *, credits: bool = True) -> dict:
     )
     return {
         "steps": survived,
-        "post_idle_regret": (post_idle_regret / post_idle_n) if post_idle_n else float("inf"),
+        "post_idle_regret": (post_idle_regret / post_idle_n)
+        if post_idle_n
+        else float("inf"),
         "work_regret": (work_regret / work_n) if work_n else float("inf"),
         "budget": round(agent.viability.budget, 2),
         "idle_executed": idle_executed,
@@ -224,8 +242,10 @@ def _run(variant: str, seed: int, *, credits: bool = True) -> dict:
 
 def main() -> None:
     results: dict[str, list[dict]] = {v: [] for v in VARIANTS}
-    print(f"params: K={N_ACTIONS} work={WORK} idle={IDLE} shift@{SHIFT_OFFSET} "
-          f"famine={FAMINE.start}-{FAMINE.stop} credit={CREDIT} max={MAX_STEPS}")
+    print(
+        f"params: K={N_ACTIONS} work={WORK} idle={IDLE} shift@{SHIFT_OFFSET} "
+        f"famine={FAMINE.start}-{FAMINE.stop} credit={CREDIT} max={MAX_STEPS}"
+    )
     header = f"{'seed':>4}"
     for v in VARIANTS:
         header += f" | {v:>10}: steps postIdleR budget"
@@ -235,7 +255,9 @@ def main() -> None:
         for v in VARIANTS:
             r = _run(v, seed)
             results[v].append(r)
-            line += f" | {r['steps']:>5d} {r['post_idle_regret']:>9.3f} {r['budget']:>7.1f}"
+            line += (
+                f" | {r['steps']:>5d} {r['post_idle_regret']:>9.3f} {r['budget']:>7.1f}"
+            )
         print(line)
 
     # Criterion 4: starvation runs (C0 mechanism, credits never granted).
@@ -257,10 +279,12 @@ def main() -> None:
     print("AGGREGATE:")
     for v in VARIANTS:
         rs = results[v]
-        print(f"  {v:>10}: steps={sum(r['steps'] for r in rs) / n:7.1f}  "
-              f"postIdleR={sum(r['post_idle_regret'] for r in rs) / n:6.3f}  "
-              f"workR={sum(r['work_regret'] for r in rs) / n:6.3f}  "
-              f"budget={sum(r['budget'] for r in rs) / n:7.1f}")
+        print(
+            f"  {v:>10}: steps={sum(r['steps'] for r in rs) / n:7.1f}  "
+            f"postIdleR={sum(r['post_idle_regret'] for r in rs) / n:6.3f}  "
+            f"workR={sum(r['work_regret'] for r in rs) / n:6.3f}  "
+            f"budget={sum(r['budget'] for r in rs) / n:7.1f}"
+        )
     print(f"  starvation steps (no credits): {starve_steps}")
 
     print(f"\n{'=' * 78}")
@@ -269,9 +293,16 @@ def main() -> None:
     print(f"  2a. C0 post-idle regret < C2:     {regret_wins_c2}/{n} (need >=7)")
     print(f"  2b. C0 post-idle regret < C3:     {regret_wins_c3}/{n} (need >=7)")
     print(f"  3. idle audit complete + verified: {audit_all} (need True, all seeds)")
-    print(f"  4. starvation death < {STARVE_BOUND} steps:   {starve_all} (need True, all seeds)")
-    met = (surv_wins >= 7 and regret_wins_c2 >= 7 and regret_wins_c3 >= 7
-           and audit_all and starve_all)
+    print(
+        f"  4. starvation death < {STARVE_BOUND} steps:   {starve_all} (need True, all seeds)"
+    )
+    met = (
+        surv_wins >= 7
+        and regret_wins_c2 >= 7
+        and regret_wins_c3 >= 7
+        and audit_all
+        and starve_all
+    )
     print(f"\n  G3: {'MET' if met else 'NOT MET'}")
 
 

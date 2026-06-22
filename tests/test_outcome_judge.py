@@ -1,4 +1,5 @@
 """Tests for OutcomeJudge (T-P3.3, ADR-0014 D2)."""
+
 from __future__ import annotations
 
 import unittest

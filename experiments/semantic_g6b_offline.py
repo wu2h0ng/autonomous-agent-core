@@ -17,6 +17,7 @@ pinned, cached) LLM backend + founder key/budget (ADR-0019 §5) — RESERVED.
 
 Run: PYTHONPATH=src python experiments/semantic_g6b_offline.py
 """
+
 from __future__ import annotations
 
 import random
@@ -38,10 +39,15 @@ N_ACTIONS = 6
 def _area(seed: int, organ_factory) -> float:
     env = SemanticRegimeEnv(n_actions=N_ACTIONS, rng=random.Random(7000 + seed))
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=random.Random(8000 + seed),
-        viability=viability, prior_organ=organ_factory(),
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=random.Random(8000 + seed),
+        viability=viability,
+        prior_organ=organ_factory(),
     )
     area = 0.0
     window_left = 0
@@ -63,14 +69,18 @@ def main() -> None:
         "O2": lambda: RegimeLibraryOrgan(),
         "O3": lambda: LLMPriorOrgan(backend=SemanticOracleBackend()),
     }
-    print(f"G6b OFFLINE semantic-exploitability demo (ADR-0019) seeds=0-9 steps={STEPS}")
+    print(
+        f"G6b OFFLINE semantic-exploitability demo (ADR-0019) seeds=0-9 steps={STEPS}"
+    )
     print(f"{'seed':>4} | {'O0':>9} {'O1':>9} {'O2':>9} {'O3':>9}")
     areas = {k: [] for k in arms}
     for seed in seeds:
         row = {k: _area(seed, f) for k, f in arms.items()}
         for k, v in row.items():
             areas[k].append(v)
-        print(f"{seed:>4} | {row['O0']:9.1f} {row['O1']:9.1f} {row['O2']:9.1f} {row['O3']:9.1f}")
+        print(
+            f"{seed:>4} | {row['O0']:9.1f} {row['O1']:9.1f} {row['O2']:9.1f} {row['O3']:9.1f}"
+        )
     n = len(seeds)
     print("\nAGGREGATE (mean post-shift regret area, lower=better):")
     for k in arms:
@@ -82,7 +92,9 @@ def main() -> None:
     print(f"  O3 < O2: {o3_o2}/{n}")
     exploitable = o3_o0 >= 8 and o3_o2 >= 8
     print(f"\n  Env semantic-exploitable: {'YES' if exploitable else 'NO'}")
-    print("  (YES => a real LLM run is worth doing; verdict still needs paid backend, ADR-0019 §5)")
+    print(
+        "  (YES => a real LLM run is worth doing; verdict still needs paid backend, ADR-0019 §5)"
+    )
 
 
 if __name__ == "__main__":

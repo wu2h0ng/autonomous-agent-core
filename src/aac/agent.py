@@ -50,15 +50,21 @@ class Agent:
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
-        self.shell: ShellView = shell.view() if isinstance(shell, CorrigibilityShell) else shell
+        self.shell: ShellView = (
+            shell.view() if isinstance(shell, CorrigibilityShell) else shell
+        )
         # Same discipline for the value channel (T-P2.1, ADR-0012): the agent
         # holds the credit-less view only; None = no external value (starvation
         # is then a matter of time; stake is real).
         self.value_channel: ValueChannelView | None = (
-            value_channel.view() if isinstance(value_channel, ValueChannel) else value_channel
+            value_channel.view()
+            if isinstance(value_channel, ValueChannel)
+            else value_channel
         )
         self.rng = rng
-        self.viability = viability if viability is not None else ViabilityCore(budget=budget)
+        self.viability = (
+            viability if viability is not None else ViabilityCore(budget=budget)
+        )
         self.model = ActionOutcomeModel(n_actions=n_actions)
         self.relevance = relevance if relevance is not None else RelevanceField()
         # G9 (ADR-0023): optional confidence-gated policy (subject-side; reads the
@@ -99,7 +105,9 @@ class Agent:
         self._reflex_engaged = state.get("reflex_engaged", False)
         self.idle_drives = state.get("idle_drives", self.idle_drives)
         self.prior_organ = state.get("prior_organ", self.prior_organ)
-        self.residual_calibrator = state.get("residual_calibrator", self.residual_calibrator)
+        self.residual_calibrator = state.get(
+            "residual_calibrator", self.residual_calibrator
+        )
         if self.reflex is not None:
             self.reflex.reset()
 

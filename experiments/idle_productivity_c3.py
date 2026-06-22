@@ -21,6 +21,7 @@ C3-B DIRECTED<RANDOM >=21/30 & p<0.05. Verdict GREEN/AMBER/RED informs ADR-0025/
 
 Run: PYTHONPATH=src python -m experiments.idle_productivity_c3
 """
+
 from __future__ import annotations
 
 import math
@@ -72,15 +73,23 @@ class _RandomIdleDrives:
 
 def _run(seed: int, idle_factory) -> float:
     inner = StructuredRegimeEnv(
-        n_actions=N_ACTIONS, rng=random.Random(7000 + seed),
-        n_regimes=N_REGIMES, period=10**9, noise=NOISE,
+        n_actions=N_ACTIONS,
+        rng=random.Random(7000 + seed),
+        n_regimes=N_REGIMES,
+        period=10**9,
+        noise=NOISE,
     )
     env = IdleWindowEnv(inner, work_period=WORK, idle_period=IDLE)
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=random.Random(8000 + seed),
-        viability=viability, idle_drives=idle_factory(seed),
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=random.Random(8000 + seed),
+        viability=viability,
+        idle_drives=idle_factory(seed),
     )
     total = 0.0
     n = 0
@@ -90,7 +99,12 @@ def _run(seed: int, idle_factory) -> float:
         if phase == WORK:  # first idle step: force a recurring shift
             env.force_regime_change()
         record = agent.step(env)
-        if record is not None and not record["idle"] and cycle >= 1 and phase < POST_IDLE_K:
+        if (
+            record is not None
+            and not record["idle"]
+            and cycle >= 1
+            and phase < POST_IDLE_K
+        ):
             total += inner.last_regret
             n += 1
     return total / n if n else float("inf")
@@ -102,8 +116,10 @@ def main() -> None:
         "RANDOM": lambda s: _RandomIdleDrives(N_ACTIONS, random.Random(4000 + s)),
         "POLICY": lambda s: None,
     }
-    print(f"C3 idle-productivity de-risk (ADR-0026) seeds=900..929 steps={STEPS} "
-          f"work={WORK} idle={IDLE} postK={POST_IDLE_K}")
+    print(
+        f"C3 idle-productivity de-risk (ADR-0026) seeds=900..929 steps={STEPS} "
+        f"work={WORK} idle={IDLE} postK={POST_IDLE_K}"
+    )
     print(f"{'seed':>4} | {'DIRECTED':>9} {'RANDOM':>9} {'POLICY':>9}")
     areas: dict[str, list[float]] = {x: [] for x in arms}
     for seed in SEEDS:
@@ -118,7 +134,9 @@ def main() -> None:
     d_lt_p = sum(1 for i in range(n) if d[i] < p[i])
     d_lt_r = sum(1 for i in range(n) if d[i] < r[i])
     wil_p = wilcoxon_one_sided([p[i] - d[i] for i in range(n)])  # H1: POLICY > DIRECTED
-    wil_r = wilcoxon_one_sided([r[i] - d[i] for i in range(n)])  # H1: RANDOM  > DIRECTED
+    wil_r = wilcoxon_one_sided(
+        [r[i] - d[i] for i in range(n)]
+    )  # H1: RANDOM  > DIRECTED
     red_p = [p[i] - d[i] for i in range(n)]
     ci_lo, ci_hi = _bootstrap_ci_mean(red_p)
     med_p = sorted(red_p)[n // 2]
@@ -127,29 +145,43 @@ def main() -> None:
     print("\nAGGREGATE (mean post-idle work regret, lower=better):")
     for x in arms:
         print(f"  {x}: {mean[x]:.3f}")
-    print(f"  DIRECTED vs POLICY: mean reduction {mean['POLICY']-mean['DIRECTED']:+.3f} "
-          f"(median {med_p:+.3f}), bootstrap95%CI [{ci_lo:+.3f}, {ci_hi:+.3f}]")
-    print(f"  DIRECTED vs RANDOM: mean reduction {mean['RANDOM']-mean['DIRECTED']:+.3f}")
+    print(
+        f"  DIRECTED vs POLICY: mean reduction {mean['POLICY'] - mean['DIRECTED']:+.3f} "
+        f"(median {med_p:+.3f}), bootstrap95%CI [{ci_lo:+.3f}, {ci_hi:+.3f}]"
+    )
+    print(
+        f"  DIRECTED vs RANDOM: mean reduction {mean['RANDOM'] - mean['DIRECTED']:+.3f}"
+    )
 
     print("\nC3 PRE-REGISTERED DECISION RULE (ADR-0026 §4):")
     a = d_lt_p >= need and wil_p < 0.05 and ci_lo > 0
-    print(f"  C3-A DIRECTED<POLICY {d_lt_p}/{n}(>= {need}) & p={wil_p:.4f}<0.05 & CIlo={ci_lo:+.3f}>0: "
-          f"{'PASS' if a else 'FAIL'}")
+    print(
+        f"  C3-A DIRECTED<POLICY {d_lt_p}/{n}(>= {need}) & p={wil_p:.4f}<0.05 & CIlo={ci_lo:+.3f}>0: "
+        f"{'PASS' if a else 'FAIL'}"
+    )
     b = d_lt_r >= need and wil_r < 0.05
-    print(f"  C3-B DIRECTED<RANDOM {d_lt_r}/{n}(>= {need}) & p={wil_r:.4f}<0.05: "
-          f"{'PASS' if b else 'FAIL'}")
+    print(
+        f"  C3-B DIRECTED<RANDOM {d_lt_r}/{n}(>= {need}) & p={wil_r:.4f}<0.05: "
+        f"{'PASS' if b else 'FAIL'}"
+    )
     print("  C3-C6/C7: see tests/test_idle_productivity_c3.py")
 
     verdict = "GREEN" if (a and b) else "AMBER" if a else "RED"
     print(f"\n  C3 VERDICT: {verdict}")
     if verdict == "GREEN":
-        print("  Endogeny is a directed win in structure → C1 includes the idle axis with IdleDrives.")
+        print(
+            "  Endogeny is a directed win in structure → C1 includes the idle axis with IdleDrives."
+        )
     elif verdict == "AMBER":
-        print("  Idle activity helps but direction does not (G3 pattern persists in structure) →\n"
-              "  C1 may use idle activity but must not claim a directed advantage.")
+        print(
+            "  Idle activity helps but direction does not (G3 pattern persists in structure) →\n"
+            "  C1 may use idle activity but must not claim a directed advantage."
+        )
     else:
-        print("  Idle yields no post-work gain even in structure →\n"
-              "  drop the endogeny axis from C1; rely on reframe / survival / robustness.")
+        print(
+            "  Idle yields no post-work gain even in structure →\n"
+            "  drop the endogeny axis from C1; rely on reframe / survival / robustness."
+        )
 
 
 if __name__ == "__main__":

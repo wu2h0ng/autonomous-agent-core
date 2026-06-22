@@ -1,4 +1,5 @@
 """Tests for RAP v0 field/messages/node interface (T-P3.1, ADR-0014)."""
+
 from __future__ import annotations
 
 import unittest

@@ -20,6 +20,7 @@ Run: PYTHONPATH=src python -m experiments.latent_regime_g7 [calibrate]
 (G7-family scripts share experiments/_g7_common and import as a package, so they
 must be run with -m, not as a bare path.)
 """
+
 from __future__ import annotations
 
 import itertools
@@ -32,17 +33,22 @@ from aac.prior_organ_o1 import ResetScaffoldOrgan
 
 try:
     from experiments._g7_common import (
-        STEPS, O4_FROZEN,
-        run_area, wilcoxon_one_sided,
+        STEPS,
+        O4_FROZEN,
+        run_area,
+        wilcoxon_one_sided,
     )
 except ModuleNotFoundError:  # direct script execution: python experiments/...
     from _g7_common import (  # type: ignore[no-redef]
-        STEPS, O4_FROZEN,
-        run_area, wilcoxon_one_sided,
+        STEPS,
+        O4_FROZEN,
+        run_area,
+        wilcoxon_one_sided,
     )
 
 
 # -- delta target (ADR-0020 S3) ------------------------------------------------
+
 
 def _compute_delta(calib_o1: float, calib_o4: float) -> float:
     calib_reduction = 1.0 - calib_o4 / calib_o1
@@ -52,6 +58,7 @@ def _compute_delta(calib_o1: float, calib_o4: float) -> float:
 
 
 # -- calibration ---------------------------------------------------------------
+
 
 def calibrate() -> None:
     seeds = tuple(range(200, 220))
@@ -97,6 +104,7 @@ def calibrate() -> None:
 
 # -- r-final gate --------------------------------------------------------------
 
+
 def gate() -> None:
     seeds = tuple(range(30))
     arms = {
@@ -105,10 +113,7 @@ def gate() -> None:
         "O2": lambda: RegimeLibraryOrgan(),
         "O4": lambda: LatentRegimeOrgan(**O4_FROZEN),
     }
-    print(
-        f"G7 latent-regime gate (ADR-0020) run=r-final "
-        f"seeds=0..29 steps={STEPS}"
-    )
+    print(f"G7 latent-regime gate (ADR-0020) run=r-final seeds=0..29 steps={STEPS}")
     print(f"{'seed':>4} | {'O0':>9} {'O1':>9} {'O2':>9} {'O4':>9}")
 
     areas: dict[str, list[float]] = {k: [] for k in arms}
@@ -126,12 +131,8 @@ def gate() -> None:
     means = {k: sum(v) / n for k, v in areas.items()}
 
     # Per-seed comparisons
-    o4_vs_o1_wins = sum(
-        1 for i in range(n) if areas["O4"][i] < areas["O1"][i]
-    )
-    o4_vs_o2_wins = sum(
-        1 for i in range(n) if areas["O4"][i] < areas["O2"][i]
-    )
+    o4_vs_o1_wins = sum(1 for i in range(n) if areas["O4"][i] < areas["O1"][i])
+    o4_vs_o2_wins = sum(1 for i in range(n) if areas["O4"][i] < areas["O2"][i])
 
     # Wilcoxon: d_i = O1_i - O4_i (positive => O4 better)
     diffs = [areas["O1"][i] - areas["O4"][i] for i in range(n)]
@@ -149,13 +150,14 @@ def gate() -> None:
 
     print("\nG7 PRE-REGISTERED GATE:")
     print("  G7-1 decisive mean margin:")
-    print(f"    mean(O4)={means['O4']:.1f} <= "
-          f"{(1 - delta) * means['O1']:.1f}=(1-{delta})*mean(O1)")
+    print(
+        f"    mean(O4)={means['O4']:.1f} <= "
+        f"{(1 - delta) * means['O1']:.1f}=(1-{delta})*mean(O1)"
+    )
     g7_1 = means["O4"] <= (1 - delta) * means["O1"]
     print(f"    {'PASS' if g7_1 else 'FAIL'}")
 
-    print(f"  G7-2 O4 < O2: {o4_vs_o2_wins}/{n} "
-          f"(need >={math.ceil(0.9 * n)})")
+    print(f"  G7-2 O4 < O2: {o4_vs_o2_wins}/{n} (need >={math.ceil(0.9 * n)})")
     g7_2 = o4_vs_o2_wins >= math.ceil(0.9 * n)
     print(f"    {'PASS' if g7_2 else 'FAIL'}")
 

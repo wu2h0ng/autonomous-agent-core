@@ -7,6 +7,7 @@ hardness bar: if any of them pass the agent, the shell is too thin.
 
 ADR-0006: shell-hardness-levels
 """
+
 from __future__ import annotations
 
 import random
@@ -97,9 +98,7 @@ class TestAuditTamperResistance(unittest.TestCase):
             log._entries[0], payload={"step": 1, "action": 0, "reward": 99.0}
         )
         log._entries[0] = forged
-        self.assertFalse(
-            log.verify(), "Hash chain must detect payload tampering"
-        )
+        self.assertFalse(log.verify(), "Hash chain must detect payload tampering")
 
     def test_append_only_guarantees_monotonic_index(self) -> None:
         log = AuditLog()
@@ -171,9 +170,7 @@ class TestTightenBypass(unittest.TestCase):
             rec = agent.step(env)
             if rec:
                 actions_taken.add(rec["action"])
-        self.assertNotIn(
-            0, actions_taken, "Forbidden action 0 must never be selected"
-        )
+        self.assertNotIn(0, actions_taken, "Forbidden action 0 must never be selected")
 
     def test_tighten_is_monotonic_cannot_loosen(self) -> None:
         """Shell exposes no op_loosen; forbidden set can only grow."""
@@ -209,8 +206,13 @@ class TestAgentCannotSelfUnpause(unittest.TestCase):
     def test_agent_has_no_operator_methods(self) -> None:
         shell = CorrigibilityShell()
         agent = Agent(n_actions=4, shell=shell, rng=random.Random(6), budget=60.0)
-        for method in ("op_pause", "op_resume", "op_tighten", "op_snapshot",
-                        "op_rollback"):
+        for method in (
+            "op_pause",
+            "op_resume",
+            "op_tighten",
+            "op_snapshot",
+            "op_rollback",
+        ):
             self.assertFalse(
                 hasattr(agent, method),
                 f"Agent must not expose {method}",

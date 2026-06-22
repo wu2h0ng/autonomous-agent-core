@@ -15,6 +15,7 @@ spend on an LLM).
 
 Run: PYTHONPATH=src python experiments/structured_g6a.py [calibrate]
 """
+
 from __future__ import annotations
 
 import itertools
@@ -36,10 +37,15 @@ N_ACTIONS = 8
 def _area(seed: int, organ_factory) -> float:
     env = StructuredRegimeEnv(n_actions=N_ACTIONS, rng=random.Random(7000 + seed))
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=random.Random(8000 + seed),
-        viability=viability, prior_organ=organ_factory(),
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=random.Random(8000 + seed),
+        viability=viability,
+        prior_organ=organ_factory(),
     )
     area = 0.0
     window_left = 0
@@ -64,7 +70,9 @@ def calibrate() -> None:
     rows = []
     for combo in itertools.product(*(grid[k] for k in keys)):
         p = dict(zip(keys, combo))
-        m = sum(_area(s, lambda p=p: RegimeLibraryOrgan(**p)) for s in seeds) / len(seeds)
+        m = sum(_area(s, lambda p=p: RegimeLibraryOrgan(**p)) for s in seeds) / len(
+            seeds
+        )
         rows.append((m, p))
         print(f"  {p} -> {m:.1f}  ({'<O1' if m < o1 else '>=O1'})")
     rows.sort(key=lambda r: r[0])
@@ -73,8 +81,11 @@ def calibrate() -> None:
 
 def gate() -> None:
     seeds = tuple(range(10))
-    arms = {"O0": lambda: None, "O1": lambda: ResetScaffoldOrgan(),
-            "O2": lambda: RegimeLibraryOrgan()}
+    arms = {
+        "O0": lambda: None,
+        "O1": lambda: ResetScaffoldOrgan(),
+        "O2": lambda: RegimeLibraryOrgan(),
+    }
     print(f"G6a structured gate (ADR-0017) run=r-final seeds=0-9 steps={STEPS}")
     print(f"{'seed':>4} | {'O0':>9} {'O1':>9} {'O2':>9}")
     areas = {k: [] for k in arms}

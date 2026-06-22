@@ -14,6 +14,7 @@ Stake note (ADR-0014 D1): escrow/reputation is an internal coordination
 credit, NOT viability-grounded — stake-first holds here only as a traceable
 coordination-cost proxy.
 """
+
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -69,7 +70,9 @@ class RAPCoordinator:
         ttl: int = 10,
     ) -> None:
         if not isinstance(shell, ShellView):
-            raise TypeError("RAPCoordinator requires a ShellView, not the operator shell")
+            raise TypeError(
+                "RAPCoordinator requires a ShellView, not the operator shell"
+            )
         if not nodes:
             raise ValueError("nodes must be non-empty")
         self.field = field
@@ -103,7 +106,9 @@ class RAPCoordinator:
         need = Need(
             need_id=f"need:{self._step}",
             situation=dict(situation),
-            constraints=NeedConstraints(deadline=self.deadline, budget_cap=self.budget_cap),
+            constraints=NeedConstraints(
+                deadline=self.deadline, budget_cap=self.budget_cap
+            ),
             stake=self.stake,
             ttl=self.ttl,
         )

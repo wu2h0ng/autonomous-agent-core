@@ -1,4 +1,5 @@
 """Tests for P1-T1 spectrum scan experiment."""
+
 from __future__ import annotations
 
 import inspect
@@ -18,10 +19,15 @@ class TestScanCondition(unittest.TestCase):
     def test_returns_correct_keys(self) -> None:
         result = _scan_condition(2, 0.1, (0, 1))
         expected_keys = {
-            "n_regimes", "noise",
-            "o1_areas", "o4_areas",
-            "o1_mean", "o4_mean",
-            "advantage", "p_value", "significant",
+            "n_regimes",
+            "noise",
+            "o1_areas",
+            "o4_areas",
+            "o1_mean",
+            "o4_mean",
+            "advantage",
+            "p_value",
+            "significant",
         }
         self.assertEqual(set(result.keys()), expected_keys)
 

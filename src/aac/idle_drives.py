@@ -15,6 +15,7 @@ No hidden activity: drives only choose actions inside ``Agent.step``,
 whose record (carrying idle/drive flags) goes to the shell audit chain.
 Idle actions pay the normal metabolic cost — curiosity is stake-priced.
 """
+
 from __future__ import annotations
 
 from .world_model import ActionOutcomeModel

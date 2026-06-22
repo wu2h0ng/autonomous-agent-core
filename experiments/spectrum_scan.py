@@ -13,6 +13,7 @@ Pre-registered design:
 
 Run: PYTHONPATH=src python -m experiments.spectrum_scan
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -48,8 +49,7 @@ def _scan_condition(
     """Run one (n_regimes, noise) condition and return results."""
     env_kwargs = {"n_regimes": n_regimes, "noise": noise}
     o1_areas = [
-        run_area(s, lambda: ResetScaffoldOrgan(), env_kwargs=env_kwargs)
-        for s in seeds
+        run_area(s, lambda: ResetScaffoldOrgan(), env_kwargs=env_kwargs) for s in seeds
     ]
     o4_areas = [
         run_area(s, lambda: LatentRegimeOrgan(**O4_FROZEN), env_kwargs=env_kwargs)
@@ -105,15 +105,17 @@ def spectrum_scan() -> None:
     headers = ["n_regimes", "noise", "O1", "O4", "advantage", "p", "sig?"]
     rows = []
     for r in results:
-        rows.append([
-            str(r["n_regimes"]),
-            f"{r['noise']:.2f}",
-            f"{r['o1_mean']:.1f}",
-            f"{r['o4_mean']:.1f}",
-            f"{r['advantage']:.3f}",
-            f"{r['p_value']:.4f}",
-            "YES" if r["significant"] else "no",
-        ])
+        rows.append(
+            [
+                str(r["n_regimes"]),
+                f"{r['noise']:.2f}",
+                f"{r['o1_mean']:.1f}",
+                f"{r['o4_mean']:.1f}",
+                f"{r['advantage']:.3f}",
+                f"{r['p_value']:.4f}",
+                "YES" if r["significant"] else "no",
+            ]
+        )
     print()
     print(format_table(headers, rows, alignments=["r", "r", "r", "r", "r", "r", "l"]))
 

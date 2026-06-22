@@ -1,4 +1,5 @@
 """Tests for P1-T2 O4 ablation study and ablation flag behaviour."""
+
 from __future__ import annotations
 
 import inspect
@@ -56,7 +57,9 @@ class TestContinuousInjectFlag(unittest.TestCase):
         a3 = organ.advise(sit, _belief([0.0, 0.0, 0.0]))
 
         # First call should produce non-empty belief_delta
-        self.assertTrue(a1.belief_delta and any(v != 0 for v in a1.belief_delta.values()))
+        self.assertTrue(
+            a1.belief_delta and any(v != 0 for v in a1.belief_delta.values())
+        )
         # Subsequent calls should return empty OrganAdvice
         self.assertFalse(a2.belief_delta)
         self.assertFalse(a3.belief_delta)
@@ -72,7 +75,10 @@ class TestContinuousInjectFlag(unittest.TestCase):
 
         # All calls should produce non-empty belief_delta
         for advice in results:
-            self.assertTrue(advice.belief_delta and any(v != 0 for v in advice.belief_delta.values()))
+            self.assertTrue(
+                advice.belief_delta
+                and any(v != 0 for v in advice.belief_delta.values())
+            )
 
     def test_spike_resets_ablation_injected(self) -> None:
         organ = _make_organ_with_protos(continuous_inject=False, spike_k=0.0)
@@ -92,7 +98,10 @@ class TestContinuousInjectFlag(unittest.TestCase):
 
         # After spike, next call should inject again (ablation_injected was reset)
         post_spike = organ.advise(sit_normal, _belief([0.0, 0.0, 0.0]))
-        self.assertTrue(post_spike.belief_delta and any(v != 0 for v in post_spike.belief_delta.values()))
+        self.assertTrue(
+            post_spike.belief_delta
+            and any(v != 0 for v in post_spike.belief_delta.values())
+        )
 
 
 class TestBayesianUpdateFlag(unittest.TestCase):
@@ -117,8 +126,7 @@ class TestBayesianUpdateFlag(unittest.TestCase):
 
         # Posterior should have changed (reward=4.0 matches proto[0])
         changed = any(
-            abs(a - b) > 1e-9
-            for a, b in zip(initial_log_post, organ._log_post)
+            abs(a - b) > 1e-9 for a, b in zip(initial_log_post, organ._log_post)
         )
         self.assertTrue(changed)
 
@@ -162,7 +170,10 @@ class TestC6Guard(unittest.TestCase):
 
     def test_advice_fields_unchanged_for_all_variants(self) -> None:
         expected_fields = {
-            "belief_delta", "uncertainty", "counterfactual_hint", "uncertainty_delta"
+            "belief_delta",
+            "uncertainty",
+            "counterfactual_hint",
+            "uncertainty_delta",
         }
         for name, (_, params) in ARMS.items():
             organ = LatentRegimeOrgan(**params)
@@ -209,8 +220,11 @@ class TestAblationExperiment(unittest.TestCase):
 
     def test_ablation_names(self) -> None:
         expected = [
-            "O4-full", "O4-no-info", "O4-no-transition",
-            "O4-oneshot", "O4-no-posterior",
+            "O4-full",
+            "O4-no-info",
+            "O4-no-transition",
+            "O4-oneshot",
+            "O4-no-posterior",
         ]
         self.assertEqual(ABLATION_NAMES, expected)
 

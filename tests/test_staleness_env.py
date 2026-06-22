@@ -1,4 +1,5 @@
 """Tests for StalenessEnv non-stationary-hazard environment (T-P4.2)."""
+
 from __future__ import annotations
 
 import random
@@ -17,7 +18,9 @@ class TestStalenessEnv(unittest.TestCase):
 
     def test_non_stationary_hazard_fast_then_slow(self) -> None:
         """FAST epoch must shift more often than the following SLOW epoch."""
-        env = StalenessEnv(rng=random.Random(1), period_fast=20, period_slow=120, epoch_len=240)
+        env = StalenessEnv(
+            rng=random.Random(1), period_fast=20, period_slow=120, epoch_len=240
+        )
         fast_shifts = slow_shifts = 0
         for _ in range(240):  # epoch 0 = FAST
             env.act(0)
@@ -29,7 +32,9 @@ class TestStalenessEnv(unittest.TestCase):
         self.assertGreaterEqual(fast_shifts, 240 // 20 - 1)
 
     def test_shift_changes_regime_index_and_best_action_can_move(self) -> None:
-        env = StalenessEnv(rng=random.Random(3), period_fast=10, period_slow=10, epoch_len=10_000)
+        env = StalenessEnv(
+            rng=random.Random(3), period_fast=10, period_slow=10, epoch_len=10_000
+        )
         idx0 = env.regime_index
         moved = False
         prev_best = env.best_action

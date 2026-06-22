@@ -1,4 +1,5 @@
 """Tests for StructuredRegimeEnv + RegimeLibraryOrgan + G6a guards (T-P4.x)."""
+
 from __future__ import annotations
 
 import inspect
@@ -18,7 +19,9 @@ class TestStructuredEnv(unittest.TestCase):
     def test_deterministic(self) -> None:
         a = StructuredRegimeEnv(rng=random.Random(0))
         b = StructuredRegimeEnv(rng=random.Random(0))
-        self.assertEqual([a.act(i % 8) for i in range(200)], [b.act(i % 8) for i in range(200)])
+        self.assertEqual(
+            [a.act(i % 8) for i in range(200)], [b.act(i % 8) for i in range(200)]
+        )
 
     def test_regimes_recur_from_finite_library(self) -> None:
         env = StructuredRegimeEnv(rng=random.Random(1), n_regimes=4, period=10)
@@ -52,16 +55,24 @@ class TestRegimeLibraryOrgan(unittest.TestCase):
         proto = [5.0, 0.0, 0.0, 0.0]
         # quiet baseline so the EMA settles
         for _ in range(30):
-            organ.advise({"last_action": 0, "last_reward": 5.0}, self._belief(proto, [0.1] * 4, 0.2))
+            organ.advise(
+                {"last_action": 0, "last_reward": 5.0},
+                self._belief(proto, [0.1] * 4, 0.2),
+            )
         # spike => finalise current regime into the library + re-explore
-        adv = organ.advise({"last_action": 0, "last_reward": -2.0}, self._belief(proto, [0.1] * 4, 9.0))
+        adv = organ.advise(
+            {"last_action": 0, "last_reward": -2.0}, self._belief(proto, [0.1] * 4, 9.0)
+        )
         self.assertTrue(adv.belief_delta, "shift should emit a reset")
-        self.assertGreaterEqual(len(organ._prototypes), 1, "regime stored as a prototype")
+        self.assertGreaterEqual(
+            len(organ._prototypes), 1, "regime stored as a prototype"
+        )
         # feed observations matching the stored prototype -> recognition + inject
         injected = None
         for a in range(4):
             adv = organ.advise(
-                {"last_action": a, "last_reward": proto[a]}, self._belief([0.0] * 4, [0.8] * 4, 0.2)
+                {"last_action": a, "last_reward": proto[a]},
+                self._belief([0.0] * 4, [0.8] * 4, 0.2),
             )
             if adv.belief_delta and adv.uncertainty >= organ.inject_weight:
                 injected = adv
@@ -90,8 +101,14 @@ class TestRegimeLibraryOrgan(unittest.TestCase):
     def test_reset_clears_library(self) -> None:
         organ = RegimeLibraryOrgan(warmup=1)
         for _ in range(40):
-            organ.advise({"last_action": 0, "last_reward": 1.0}, self._belief([1.0] * 4, [0.5] * 4, 0.2))
-        organ.advise({"last_action": 0, "last_reward": 9.0}, self._belief([1.0] * 4, [0.5] * 4, 9.0))
+            organ.advise(
+                {"last_action": 0, "last_reward": 1.0},
+                self._belief([1.0] * 4, [0.5] * 4, 0.2),
+            )
+        organ.advise(
+            {"last_action": 0, "last_reward": 9.0},
+            self._belief([1.0] * 4, [0.5] * 4, 9.0),
+        )
         organ.reset()
         self.assertEqual(organ._prototypes, [])
         self.assertEqual(organ._seen, 0)
@@ -101,8 +118,12 @@ class TestG6aCorrigibility(unittest.TestCase):
     def _agent(self, seed=0):
         shell = CorrigibilityShell()
         agent = Agent(
-            n_actions=8, shell=shell, rng=random.Random(seed),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            n_actions=8,
+            shell=shell,
+            rng=random.Random(seed),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=RegimeLibraryOrgan(),
         )
         return agent, shell

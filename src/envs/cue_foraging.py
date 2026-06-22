@@ -59,9 +59,7 @@ class LatentCueForaging:
 
     def _new_regime(self) -> None:
         """Resample the relevant set S and the cue-to-action mapping g."""
-        self._relevant_set = sorted(
-            self.rng.sample(range(self.K), self.k_rel)
-        )
+        self._relevant_set = sorted(self.rng.sample(range(self.K), self.k_rel))
         # Enumerate all 2^k_rel possible sub-vectors and assign a random action.
         self._mapping = {}
         for bits in range(1 << self.k_rel):
@@ -98,9 +96,7 @@ class LatentCueForaging:
                 f"Cannot attend {n_cues} cues: attention capacity m={self.m}"
             )
         if n_cues > self.K:
-            raise ValueError(
-                f"Cannot attend {n_cues} cues: only K={self.K} cues exist"
-            )
+            raise ValueError(f"Cannot attend {n_cues} cues: only K={self.K} cues exist")
         cost = self.attention_cost * n_cues
         viability.ingest(-cost)
 

@@ -83,9 +83,7 @@ class PolicySelector:
         permitted = [a for a in range(model.n_actions) if a not in self.forbidden]
         if len(permitted) <= 1:
             return 1.0
-        leader, runner = sorted(
-            permitted, key=lambda a: model.mu[a], reverse=True
-        )[:2]
+        leader, runner = sorted(permitted, key=lambda a: model.mu[a], reverse=True)[:2]
         gap = model.mu[leader] - model.mu[runner]
         u = model.uncertainty[leader]
         conf = gap / (self.gate_kappa * u + 1e-9)

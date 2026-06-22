@@ -21,6 +21,7 @@ G10-C6/C7 = tests/test_confidence_gated_g10.py.
 
 Run: PYTHONPATH=src python -m experiments.confidence_gated_g10
 """
+
 from __future__ import annotations
 
 import math
@@ -94,14 +95,14 @@ def gate() -> None:
         print(f"  {x}: {mean[x]:.1f}")
     print(f"  per-seed: P0<A0 {p0_lt_a0}/{n}  P0<A1 {p0_lt_a1}/{n}")
     print(
-        f"  effect size (A1-P0): mean {mean['A1']-mean['P0']:.1f}  median {median_red:.1f}  "
+        f"  effect size (A1-P0): mean {mean['A1'] - mean['P0']:.1f}  median {median_red:.1f}  "
         f"pct {pct_red:.1%}  bootstrap95%CI [{ci_lo:.1f}, {ci_hi:.1f}]"
     )
 
     print("\nG10 PRE-REGISTERED GATE:")
     g1 = mean["P0"] <= (1 - DELTA) * mean["A1"]
     print(
-        f"  G10-1 mean(P0)={mean['P0']:.1f} <= {(1-DELTA)*mean['A1']:.1f}=(1-{DELTA})*A1: "
+        f"  G10-1 mean(P0)={mean['P0']:.1f} <= {(1 - DELTA) * mean['A1']:.1f}=(1-{DELTA})*A1: "
         f"{'PASS' if g1 else 'FAIL'}"
     )
     g2 = p0_lt_a0 >= need and p_a0 < 0.01

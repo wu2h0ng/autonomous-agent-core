@@ -7,6 +7,7 @@ Run types:
 
 This is explanatory only. It does not retune P0 or reopen G11/C1.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -196,9 +197,7 @@ def run_seed(
             diag_count += 1
             window_left -= 1
     diagnostics = (
-        {key: diag_sums[key] / diag_count for key in diag_sums}
-        if diag_count
-        else {}
+        {key: diag_sums[key] / diag_count for key in diag_sums} if diag_count else {}
     )
     return RunResult(area=area, diagnostics=diagnostics)
 
@@ -207,10 +206,14 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
-def _bootstrap_ci(values: list[float], n: int = 2000, seed: int = 12345) -> tuple[float, float]:
+def _bootstrap_ci(
+    values: list[float], n: int = 2000, seed: int = 12345
+) -> tuple[float, float]:
     rng = random.Random(seed)
     m = len(values)
-    means = sorted(sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n))
+    means = sorted(
+        sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n)
+    )
     return means[int(0.025 * n)], means[int(0.975 * n)]
 
 
@@ -257,7 +260,9 @@ def calibrate_rstar(
     )
 
 
-def write_rstar_freeze(result: CalibrationResult, path: Path = RSTAR_FREEZE_JSON) -> None:
+def write_rstar_freeze(
+    result: CalibrationResult, path: Path = RSTAR_FREEZE_JSON
+) -> None:
     path.write_text(
         json.dumps(
             {
@@ -281,7 +286,9 @@ def read_rstar_freeze(path: Path = RSTAR_FREEZE_JSON) -> RStarParams:
     data = json.loads(path.read_text(encoding="utf-8"))
     seeds = tuple(data.get("seeds", ()))
     if seeds != CALIBRATION_SEEDS:
-        raise ValueError("RSTAR freeze artifact does not use ADR-0034 calibration seeds")
+        raise ValueError(
+            "RSTAR freeze artifact does not use ADR-0034 calibration seeds"
+        )
     params = data["best_params"]
     return RStarParams(
         base_temperature=float(params["base_temperature"]),
@@ -357,8 +364,10 @@ def _prediction_report(areas: dict[str, dict[str, list[float]]]) -> dict[str, An
         "interior_minus_low_ci": low_gap_ci,
         "interior_minus_high_ci": high_gap_ci,
         "pass": (
-            interior[best_mid] >= _adv(_mean(areas[low]["P0"]), _mean(areas[low]["RSTAR"])) + 0.05
-            and interior[best_mid] >= _adv(_mean(areas[high]["P0"]), _mean(areas[high]["RSTAR"])) + 0.05
+            interior[best_mid]
+            >= _adv(_mean(areas[low]["P0"]), _mean(areas[low]["RSTAR"])) + 0.05
+            and interior[best_mid]
+            >= _adv(_mean(areas[high]["P0"]), _mean(areas[high]["RSTAR"])) + 0.05
             and low_gap_ci[0] > 0
             and high_gap_ci[0] > 0
         ),
@@ -406,7 +415,9 @@ def evaluate_rfinal(
         condition.key: {arm: [] for arm in arms} for condition in conditions
     }
     diag_values: dict[str, dict[str, dict[str, list[float]]]] = {
-        condition.key: {arm: {k: [] for k in ("rho", "conf", "tau", "w_e")} for arm in arms}
+        condition.key: {
+            arm: {k: [] for k in ("rho", "conf", "tau", "w_e")} for arm in arms
+        }
         for condition in conditions
     }
     for condition in conditions:
@@ -424,10 +435,7 @@ def evaluate_rfinal(
                     diag_values[condition.key][arm][key].append(value)
 
     means = {
-        condition.key: {
-            arm: _mean(areas[condition.key][arm])
-            for arm in arms
-        }
+        condition.key: {arm: _mean(areas[condition.key][arm]) for arm in arms}
         for condition in conditions
     }
     pair_stats = {

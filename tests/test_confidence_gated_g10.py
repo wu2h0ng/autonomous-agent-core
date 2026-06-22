@@ -5,6 +5,7 @@ The gate mechanism itself is exhaustively tested in test_confidence_gated_policy
 C6/C7-clean as used by the confirmation arms, the bootstrap CI is deterministic, and
 the per-seed area is a deterministic replay.
 """
+
 from __future__ import annotations
 
 import random
@@ -21,7 +22,10 @@ class TestG10C6GateReadsOnlyBelief(unittest.TestCase):
         model.mu = [5.0, 0.0, 0.0, 0.0]
         model.uncertainty = [0.01, 1.0, 1.0, 1.0]
         sel = PolicySelector(
-            rng=random.Random(0), confidence_gate=True, gate_kappa=0.5, gate_temp_floor=0.1
+            rng=random.Random(0),
+            confidence_gate=True,
+            gate_kappa=0.5,
+            gate_temp_floor=0.1,
         )
         self.assertGreater(sel._confidence(model), 0.9)
 
@@ -64,7 +68,11 @@ class TestG10MeasurementDeterministic(unittest.TestCase):
     def test_area_is_deterministic_replay(self) -> None:
         from experiments.confidence_gated_g9 import GATE_FROZEN, _area
 
-        kw = dict(gate=True, kappa=GATE_FROZEN["gate_kappa"], temp_floor=GATE_FROZEN["gate_temp_floor"])
+        kw = dict(
+            gate=True,
+            kappa=GATE_FROZEN["gate_kappa"],
+            temp_floor=GATE_FROZEN["gate_temp_floor"],
+        )
         a = _area(800, lambda: None, **kw)
         b = _area(800, lambda: None, **kw)
         self.assertEqual(a, b)

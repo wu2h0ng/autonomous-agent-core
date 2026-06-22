@@ -46,7 +46,9 @@ class CausalRelevanceField:
             tuple(c) for c in combinations(range(K), k_rel)
         ]
         self._log_weights: dict[Candidate, float] = {c: 0.0 for c in self.candidates}
-        self._error_ema: dict[Candidate, float] = {c: surprise_threshold for c in self.candidates}
+        self._error_ema: dict[Candidate, float] = {
+            c: surprise_threshold for c in self.candidates
+        }
         self._cue_counts: list[int] = [0] * K
         self._reframing_steps = 0
 
@@ -77,7 +79,9 @@ class CausalRelevanceField:
 
     # -- attention --------------------------------------------------------
 
-    def select_attention(self, pressure: float = 0.0, rng: random.Random | None = None) -> list[int]:
+    def select_attention(
+        self, pressure: float = 0.0, rng: random.Random | None = None
+    ) -> list[int]:
         if rng is None:
             rng = random.Random()
         effective_m = max(self.k_rel, int(self.m * (1.0 - pressure)))
@@ -137,7 +141,10 @@ class CausalRelevanceField:
         reward: float,
         prediction_before: Mapping[Candidate, float],
     ) -> None:
-        del cues, action  # prediction_before already carries model-conditioned evidence.
+        del (
+            cues,
+            action,
+        )  # prediction_before already carries model-conditioned evidence.
         if self.ablate_posterior:
             return
         attended_set = set(attended)

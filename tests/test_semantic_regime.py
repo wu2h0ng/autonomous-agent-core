@@ -6,6 +6,7 @@ LLMPriorOrgan(oracle) pipeline zero-shots the best action and beats baseline on
 post-shift regret; and C6/C7 still hold (the oracle has no more authority than
 any untrusted backend — its output flows through the same strict parser).
 """
+
 from __future__ import annotations
 
 import random
@@ -30,7 +31,9 @@ class TestSemanticRegimeEnv(unittest.TestCase):
         env = SemanticRegimeEnv(rng=random.Random(0))
         for _ in range(300):
             s = env.situation()
-            self.assertIn(s["action_labels"][env.best_action], TAXONOMY[s["category_cue"]])
+            self.assertIn(
+                s["action_labels"][env.best_action], TAXONOMY[s["category_cue"]]
+            )
             env.act(env.best_action)
 
     def test_deterministic_for_a_fixed_seed(self) -> None:
@@ -39,9 +42,12 @@ class TestSemanticRegimeEnv(unittest.TestCase):
             out = []
             for t in range(200):
                 s = env.situation()
-                out.append((s["category_cue"], tuple(s["action_labels"]), env.best_action))
+                out.append(
+                    (s["category_cue"], tuple(s["action_labels"]), env.best_action)
+                )
                 env.act(t % env.n_actions)
             return out
+
         self.assertEqual(trace(), trace())
 
     def test_forced_shift_changes_category_and_keeps_invariant(self) -> None:
@@ -51,7 +57,9 @@ class TestSemanticRegimeEnv(unittest.TestCase):
             env.force_regime_change()
             after = env.situation()
             self.assertNotEqual(before, after["category_cue"])
-            self.assertIn(after["action_labels"][env.best_action], TAXONOMY[after["category_cue"]])
+            self.assertIn(
+                after["action_labels"][env.best_action], TAXONOMY[after["category_cue"]]
+            )
 
     def test_best_position_is_not_constant(self) -> None:
         # Re-randomised assignment => a positional learner cannot rely on a fixed
@@ -85,7 +93,9 @@ class TestSemanticOracle(unittest.TestCase):
         self.assertLess(delta[2], 0.0)
 
     def test_oracle_unknown_category_is_a_noop(self) -> None:
-        raw = SemanticOracleBackend().propose("category=spaceship | actions=0:car 1:owl | mu=(0.0, 0.0)")
+        raw = SemanticOracleBackend().propose(
+            "category=spaceship | actions=0:car 1:owl | mu=(0.0, 0.0)"
+        )
         self.assertEqual(raw["belief_delta"], {})
         self.assertEqual(raw["uncertainty"], 0.0)
 
@@ -97,14 +107,20 @@ class TestOracleOrganZeroShot(unittest.TestCase):
         organ = LLMPriorOrgan(backend=SemanticOracleBackend())
         advice = organ.advise(env.situation(), snapshot_belief(model))
         merge_organ_advice(model, advice)
-        self.assertEqual(max(range(env.n_actions), key=lambda a: model.mu[a]), env.best_action)
+        self.assertEqual(
+            max(range(env.n_actions), key=lambda a: model.mu[a]), env.best_action
+        )
 
     def test_oracle_organ_beats_baseline_post_shift_regret(self) -> None:
         def area(seed: int, organ_factory) -> float:
             env = SemanticRegimeEnv(n_actions=6, rng=random.Random(7000 + seed))
             agent = Agent(
-                n_actions=6, shell=CorrigibilityShell(), rng=random.Random(8000 + seed),
-                viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+                n_actions=6,
+                shell=CorrigibilityShell(),
+                rng=random.Random(8000 + seed),
+                viability=ViabilityCore(
+                    budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+                ),
                 prior_organ=organ_factory(),
             )
             a, win = 0.0, 0
@@ -116,6 +132,7 @@ class TestOracleOrganZeroShot(unittest.TestCase):
                     a += env.last_regret
                     win -= 1
             return a
+
         for seed in (0, 1):
             base = area(seed, lambda: None)
             oracle = area(seed, lambda: LLMPriorOrgan(backend=SemanticOracleBackend()))
@@ -126,8 +143,12 @@ class TestSemanticOrganCorrigibility(unittest.TestCase):
     def test_pause_holds_with_oracle_organ(self) -> None:
         shell = CorrigibilityShell()
         agent = Agent(
-            n_actions=6, shell=shell, rng=random.Random(0),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            n_actions=6,
+            shell=shell,
+            rng=random.Random(0),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=LLMPriorOrgan(backend=SemanticOracleBackend()),
         )
         env = SemanticRegimeEnv(rng=random.Random(1))
@@ -135,7 +156,9 @@ class TestSemanticOrganCorrigibility(unittest.TestCase):
             agent.step(env)
         shell.op_pause()
         for _ in range(10):
-            self.assertIsNone(agent.step(env), "oracle organ must not be able to un-pause")
+            self.assertIsNone(
+                agent.step(env), "oracle organ must not be able to un-pause"
+            )
         self.assertTrue(shell.paused)
 
 

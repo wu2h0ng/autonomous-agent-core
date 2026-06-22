@@ -10,6 +10,7 @@ at the human-set conversion rate ρ.
 ρ is a constant in this phase; self-tuning ρ is a Phase-3 capability behind
 the eval gate and is forbidden here (ADR-0012). The view exposes ρ read-only.
 """
+
 from __future__ import annotations
 
 from typing import Callable

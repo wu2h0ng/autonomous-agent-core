@@ -1,4 +1,5 @@
 """Tests for RAP perturbation mixture environment (T-P3.2, ADR-0014)."""
+
 from __future__ import annotations
 
 import random

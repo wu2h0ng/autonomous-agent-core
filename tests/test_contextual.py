@@ -4,6 +4,7 @@ The organ that converts attended cues into actions. These verify the
 *mechanism is correct* — distinct from whether claim 2 clears G1' (it did
 not; that is a research result, not a code defect).
 """
+
 from __future__ import annotations
 
 import unittest

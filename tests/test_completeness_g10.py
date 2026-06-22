@@ -4,6 +4,7 @@ The C6/C7 and gate mechanism guards already live in test_confidence_gated_policy
 here we only cover the new additive wiring. End-to-end survival/area comparisons are
 experiment scripts (experiments/completeness_g10.py), not pass/fail unit tests.
 """
+
 from __future__ import annotations
 
 import random
@@ -35,6 +36,7 @@ class TestBaseTemperatureWiring(unittest.TestCase):
         # Same belief, no gate: a lower base temperature concentrates choice on the
         # mu/uncertainty argmax more than the default does.
         from aac.world_model import ActionOutcomeModel
+
         model = ActionOutcomeModel(n_actions=3)
         model.mu = [2.0, 0.0, 0.0]
         model.uncertainty = [0.3, 0.3, 0.3]

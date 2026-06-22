@@ -1,4 +1,5 @@
 """Thin decision-node wrappers for P3 RAP baselines (T-P3.2, ADR-0014)."""
+
 from __future__ import annotations
 
 import random
@@ -167,7 +168,9 @@ class StaleRevisitNode(_BaseDecisionNode):
     preferred_segments = (SHIFTING,)
 
     def __init__(self, *, n_actions: int, rng: random.Random) -> None:
-        super().__init__(node_id="stale_revisit", n_actions=n_actions, rng=rng, price=0.08)
+        super().__init__(
+            node_id="stale_revisit", n_actions=n_actions, rng=rng, price=0.08
+        )
         self.model = ActionOutcomeModel(n_actions=n_actions)
         self.drives = IdleDrives(n_actions=n_actions)
 

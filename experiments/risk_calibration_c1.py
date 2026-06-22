@@ -17,6 +17,7 @@ GREEN => independent risk axis; RED => 3rd single-lever confirmation.
 
 Run: PYTHONPATH=src python -m experiments.risk_calibration_c1 [calibrate]
 """
+
 from __future__ import annotations
 
 import itertools
@@ -49,15 +50,27 @@ class StationaryRiskEnv:
     """No regime shifts. One high-variance catastrophe trap among safe actions."""
 
     def __init__(
-        self, n_actions: int, rng: random.Random, p_cat: float,
-        safe_mean: float = 2.0, safe_sd: float = 0.3,
-        trap_mean: float = 2.6, trap_sd: float = 0.5, cat: float = -30.0, trap: int = 0,
+        self,
+        n_actions: int,
+        rng: random.Random,
+        p_cat: float,
+        safe_mean: float = 2.0,
+        safe_sd: float = 0.3,
+        trap_mean: float = 2.6,
+        trap_sd: float = 0.5,
+        cat: float = -30.0,
+        trap: int = 0,
     ) -> None:
         self.n_actions = n_actions
         self.rng = rng
         self.p_cat = p_cat
         self.safe_mean, self.safe_sd = safe_mean, safe_sd
-        self.trap_mean, self.trap_sd, self.cat, self.trap = trap_mean, trap_sd, cat, trap
+        self.trap_mean, self.trap_sd, self.cat, self.trap = (
+            trap_mean,
+            trap_sd,
+            cat,
+            trap,
+        )
         self.catastrophes = 0
 
     def act(self, action: int) -> float:
@@ -82,14 +95,23 @@ def _run(arm: str, seed: int, b0: float, m: float, p_cat: float) -> tuple[int, i
 
 
 def calibrate() -> None:
-    print(f"risk-calibration calibration (env-validity) seeds=1090..1099")
-    print(f"{'B0':>5} {'m':>5} {'pcat':>5} | {'EXPLORER sv/cat':>16} | {'EXPLOITER sv/cat':>16} | {'GATED sv/cat':>16}")
+    print("risk-calibration calibration (env-validity) seeds=1090..1099")
+    print(
+        f"{'B0':>5} {'m':>5} {'pcat':>5} | {'EXPLORER sv/cat':>16} | {'EXPLOITER sv/cat':>16} | {'GATED sv/cat':>16}"
+    )
     for b0, m, pc in itertools.product((40.0,), (1.5,), (0.03, 0.05, 0.08)):
         rows = {a: [_run(a, s, b0, m, pc) for s in CAL_SEEDS] for a in ARMS}
-        cells = {a: (sum(s for s, _ in rows[a]) / len(rows[a]),
-                     sum(c for _, c in rows[a]) / len(rows[a])) for a in ARMS}
-        print(f"{b0:>5.0f} {m:>5.1f} {pc:>5.2f} | "
-              + " | ".join(f"{cells[a][0]:8.0f} /{cells[a][1]:5.1f}" for a in ARMS))
+        cells = {
+            a: (
+                sum(s for s, _ in rows[a]) / len(rows[a]),
+                sum(c for _, c in rows[a]) / len(rows[a]),
+            )
+            for a in ARMS
+        }
+        print(
+            f"{b0:>5.0f} {m:>5.1f} {pc:>5.2f} | "
+            + " | ".join(f"{cells[a][0]:8.0f} /{cells[a][1]:5.1f}" for a in ARMS)
+        )
 
 
 def gate() -> None:
@@ -98,21 +120,27 @@ def gate() -> None:
     n = len(seeds)
     sv: dict[str, list[float]] = {a: [] for a in ARMS}
     cat: dict[str, list[float]] = {a: [] for a in ARMS}
-    print(f"risk-calibration de-risk r-final (ADR-0029) seeds=1100..1129 B0={b0} m={m} p_cat={pc}")
-    print(f"{'seed':>4} | " + " ".join(f"{a+' sv/cat':>16}" for a in ARMS))
+    print(
+        f"risk-calibration de-risk r-final (ADR-0029) seeds=1100..1129 B0={b0} m={m} p_cat={pc}"
+    )
+    print(f"{'seed':>4} | " + " ".join(f"{a + ' sv/cat':>16}" for a in ARMS))
     for s in seeds:
         row = {a: _run(a, s, b0, m, pc) for a in ARMS}
         for a in ARMS:
             sv[a].append(float(row[a][0]))
             cat[a].append(float(row[a][1]))
-        print(f"{s:>4} | " + " ".join(f"{row[a][0]:8d}/{row[a][1]:4d}    " for a in ARMS))
+        print(
+            f"{s:>4} | " + " ".join(f"{row[a][0]:8d}/{row[a][1]:4d}    " for a in ARMS)
+        )
 
     mean_sv = {a: sum(sv[a]) / n for a in ARMS}
     mean_cat = {a: sum(cat[a]) / n for a in ARMS}
     best_cheap = max(EXPLOITER, EXPLORER, key=lambda a: mean_sv[a])
     g_gt_best = sum(1 for i in range(n) if sv[GATED][i] > sv[best_cheap][i])
     p_r1 = wilcoxon_one_sided([sv[GATED][i] - sv[best_cheap][i] for i in range(n)])
-    ci_lo, ci_hi = _bootstrap_ci_mean([sv[GATED][i] - sv[best_cheap][i] for i in range(n)])
+    ci_lo, ci_hi = _bootstrap_ci_mean(
+        [sv[GATED][i] - sv[best_cheap][i] for i in range(n)]
+    )
     need = math.ceil(0.7 * n)
 
     print("\nAGGREGATE (survival higher=better, catastrophes lower=better):")
@@ -121,19 +149,27 @@ def gate() -> None:
     validity = mean_sv[EXPLOITER] < mean_sv[EXPLORER]  # greedy must suffer the trap
 
     print("\nADR-0029 §3 DECISION RULE:")
-    print(f"  validity (greedy suffers trap: EXPLOITER survival < EXPLORER): {'OK' if validity else 'FAIL'}")
+    print(
+        f"  validity (greedy suffers trap: EXPLOITER survival < EXPLORER): {'OK' if validity else 'FAIL'}"
+    )
     print(f"  best cheap arm on survival = {best_cheap} ({mean_sv[best_cheap]:.0f})")
     r1 = g_gt_best >= need and p_r1 < 0.05
-    print(f"  R-1 GATED.survival > {best_cheap} {g_gt_best}/{n}(>= {need}) & p={p_r1:.4f}<0.05 "
-          f"(gap CI [{ci_lo:+.0f},{ci_hi:+.0f}]): {'PASS' if r1 else 'FAIL'}")
+    print(
+        f"  R-1 GATED.survival > {best_cheap} {g_gt_best}/{n}(>= {need}) & p={p_r1:.4f}<0.05 "
+        f"(gap CI [{ci_lo:+.0f},{ci_hi:+.0f}]): {'PASS' if r1 else 'FAIL'}"
+    )
 
     verdict = "GREEN" if (validity and r1) else "RED"
     print(f"\n  RISK-CALIBRATION VERDICT: {verdict}")
     if verdict == "GREEN":
-        print("  Independent risk axis (no adaptation) → founder may reconsider a 2-axis G11.")
+        print(
+            "  Independent risk axis (no adaptation) → founder may reconsider a 2-axis G11."
+        )
     else:
-        print("  Gate has no independent risk-aversion; broad exploration already diversifies\n"
-              "  away from the trap. THIRD single-lever confirmation; G10 stands, close the hunt.")
+        print(
+            "  Gate has no independent risk-aversion; broad exploration already diversifies\n"
+            "  away from the trap. THIRD single-lever confirmation; G10 stands, close the hunt."
+        )
 
 
 if __name__ == "__main__":

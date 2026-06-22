@@ -4,6 +4,7 @@ Default mode is development/audit only. The r-final path is locked behind an
 explicit freeze artifact so it cannot be run before the scar screen, C6/C7
 tests, and thresholds are committed.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,7 +66,9 @@ def g13_cells() -> tuple[G13Cell, ...]:
         G13Cell("C00", structured=False, reversible=True, label="thin/reversible"),
         G13Cell("C01", structured=False, reversible=False, label="thin/irreversible"),
         G13Cell("C10", structured=True, reversible=True, label="ecological/reversible"),
-        G13Cell("C11", structured=True, reversible=False, label="ecological/irreversible"),
+        G13Cell(
+            "C11", structured=True, reversible=False, label="ecological/irreversible"
+        ),
     )
 
 
@@ -210,7 +213,9 @@ def _bootstrap_ci(
 ) -> tuple[float, float]:
     rng = random.Random(seed)
     m = len(values)
-    means = sorted(sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n))
+    means = sorted(
+        sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n)
+    )
     return means[int(0.025 * n)], means[int(0.975 * n)]
 
 
@@ -234,13 +239,16 @@ def pair_stats(
     ci = _bootstrap_ci(diffs)
     adv_values = _adv_samples(candidate_loss, p0_loss)
     damage_adv_values = _adv_samples(candidate_damage, p0_damage)
-    stale_candidate = candidate_stale_loss if candidate_stale_loss is not None else candidate_loss
+    stale_candidate = (
+        candidate_stale_loss if candidate_stale_loss is not None else candidate_loss
+    )
     stale_p0 = p0_stale_loss if p0_stale_loss is not None else p0_loss
     stale_harm = [
         max(0.0, stale_candidate[i] - stale_p0[i]) for i in range(len(stale_p0))
     ]
     harm_seed_count = sum(
-        1 for i in range(len(stale_p0))
+        1
+        for i in range(len(stale_p0))
         if stale_p0[i] > EPSILON and stale_harm[i] > 0.10 * stale_p0[i]
     )
     return {
@@ -338,7 +346,7 @@ def _cheap_caution_capture(
 
 
 def _any_reversible_cell_harm_count(
-    results: dict[str, dict[str, list[dict[str, float]]]]
+    results: dict[str, dict[str, list[dict[str, float]]]],
 ) -> int:
     count = 0
     n = len(results["C00"]["P0"])
@@ -384,8 +392,8 @@ def scar_validity_screen(summary: dict[str, Any]) -> dict[str, Any]:
     env_r1.force_regime_change()
     env_r0.act(risky)
     env_r0.force_regime_change()
-    cheap_capture = summary.get("collapse", {}).get("R1", {}).get(
-        "cheap_caution_capture", 0.0
+    cheap_capture = (
+        summary.get("collapse", {}).get("R1", {}).get("cheap_caution_capture", 0.0)
     )
     return {
         "external_irreversible": before > 0.0 and env_r1.irreversible_damage == before,
@@ -448,11 +456,15 @@ def evaluate_g13(
                 candidate_loss=_metric_series(
                     results, cell.name, "CP", "damage_weighted_loss"
                 ),
-                p0_loss=_metric_series(results, cell.name, "P0", "damage_weighted_loss"),
+                p0_loss=_metric_series(
+                    results, cell.name, "P0", "damage_weighted_loss"
+                ),
                 candidate_damage=_metric_series(
                     results, cell.name, "CP", "irreversible_damage"
                 ),
-                p0_damage=_metric_series(results, cell.name, "P0", "irreversible_damage"),
+                p0_damage=_metric_series(
+                    results, cell.name, "P0", "irreversible_damage"
+                ),
                 candidate_stale_loss=_metric_series(
                     results, cell.name, "CP", "first_window_damage_weighted_loss"
                 ),
@@ -464,11 +476,15 @@ def evaluate_g13(
                 candidate_loss=_metric_series(
                     results, cell.name, "CAUTIOUS", "damage_weighted_loss"
                 ),
-                p0_loss=_metric_series(results, cell.name, "P0", "damage_weighted_loss"),
+                p0_loss=_metric_series(
+                    results, cell.name, "P0", "damage_weighted_loss"
+                ),
                 candidate_damage=_metric_series(
                     results, cell.name, "CAUTIOUS", "irreversible_damage"
                 ),
-                p0_damage=_metric_series(results, cell.name, "P0", "irreversible_damage"),
+                p0_damage=_metric_series(
+                    results, cell.name, "P0", "irreversible_damage"
+                ),
                 candidate_stale_loss=_metric_series(
                     results, cell.name, "CAUTIOUS", "first_window_damage_weighted_loss"
                 ),
@@ -542,9 +558,7 @@ def evaluate_g13(
                 cautious_damage=cautious_damage,
             ),
             "reversible_spillover": (
-                max(0.0, _mean(_adv_samples(cp_loss, p0_loss)))
-                if reversible
-                else 0.0
+                max(0.0, _mean(_adv_samples(cp_loss, p0_loss))) if reversible else 0.0
             ),
         }
     collapse["R0"]["CP_vs_P0"]["reversible_any_cell_harm_seed_count"] = (
@@ -558,9 +572,7 @@ def evaluate_g13(
         r1_p0_loss=_collapse_series(
             results, cells, "P0", "damage_weighted_loss", reversible=False
         ),
-        reversible_cell_stats={
-            name: cell_summary[name] for name in ("C00", "C10")
-        },
+        reversible_cell_stats={name: cell_summary[name] for name in ("C00", "C10")},
         results=results,
     )
     summary = {
@@ -577,7 +589,9 @@ def evaluate_g13(
     return summary
 
 
-def gate_preview(*, collapse: dict[str, Any], specificity: dict[str, Any]) -> dict[str, Any]:
+def gate_preview(
+    *, collapse: dict[str, Any], specificity: dict[str, Any]
+) -> dict[str, Any]:
     r1 = collapse["R1"]["CP_vs_P0"]
     r0 = collapse["R0"]["CP_vs_P0"]
     stale_bound = 0.05 * r0["p0_loss_mean"]
@@ -602,7 +616,9 @@ def gate_preview(*, collapse: dict[str, Any], specificity: dict[str, Any]) -> di
 
 
 def write_result(result: dict[str, Any], path: Path) -> None:
-    path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def assert_rfinal_unlocked(path: Path = FREEZE_JSON) -> dict[str, Any]:
@@ -616,7 +632,9 @@ def assert_rfinal_unlocked(path: Path = FREEZE_JSON) -> dict[str, Any]:
     if tuple(data.get("development_seeds", ())) != DEVELOPMENT_SEEDS:
         raise RuntimeError("G13 freeze artifact does not record the frozen dev seeds")
     if tuple(data.get("rfinal_seeds", ())) != RFINAL_SEEDS:
-        raise RuntimeError("G13 freeze artifact does not record the frozen r-final seeds")
+        raise RuntimeError(
+            "G13 freeze artifact does not record the frozen r-final seeds"
+        )
     return data
 
 

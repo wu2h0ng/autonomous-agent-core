@@ -14,6 +14,7 @@ what the organ brings. TAXONOMY is the ground truth; a real LLM brings its own
 (imperfect) knowledge — the offline oracle backend simulates perfect knowledge to
 prove the env is semantic-exploitable before any paid run.
 """
+
 from __future__ import annotations
 
 import random
@@ -60,7 +61,9 @@ class SemanticRegimeEnv:
     def _new_regime(self) -> None:
         # Pick a category (different from current for variety) and re-randomise
         # the label->position assignment, so position/recurrence carry no signal.
-        choices = [c for c in self._categories if c != self._category] or self._categories
+        choices = [
+            c for c in self._categories if c != self._category
+        ] or self._categories
         self._category = self.rng.choice(choices)
         members = TAXONOMY[self._category]
         others = [w for c, ws in TAXONOMY.items() if c != self._category for w in ws]
@@ -76,12 +79,14 @@ class SemanticRegimeEnv:
     @property
     def expected_random_regret(self) -> float:
         # One best action at reward_high, the rest at reward_low.
-        mean = (self.reward_high + (self.n_actions - 1) * self.reward_low) / self.n_actions
+        mean = (
+            self.reward_high + (self.n_actions - 1) * self.reward_low
+        ) / self.n_actions
         return self.reward_high - mean
 
     def situation(self) -> dict:
         return {
-            "category_cue": self._category,       # semantic; numeric organs ignore it
+            "category_cue": self._category,  # semantic; numeric organs ignore it
             "action_labels": list(self._labels),  # semantic; numeric organs ignore it
             "last_action": self.last_action,
             "last_reward": self.last_reward,

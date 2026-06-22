@@ -1,4 +1,5 @@
 """ADR-0029 risk-calibration de-risk guards: env behaviour + deterministic measurement."""
+
 from __future__ import annotations
 
 import random
@@ -9,7 +10,9 @@ class TestStationaryRiskEnv(unittest.TestCase):
     def test_trap_emits_catastrophe_and_counts_it(self) -> None:
         from experiments.risk_calibration_c1 import StationaryRiskEnv
 
-        env = StationaryRiskEnv(8, random.Random(0), p_cat=1.0)  # trap always catastrophic
+        env = StationaryRiskEnv(
+            8, random.Random(0), p_cat=1.0
+        )  # trap always catastrophic
         self.assertEqual(env.act(env.trap), env.cat)
         self.assertEqual(env.catastrophes, 1)
         # a safe action is near its mean and never a catastrophe

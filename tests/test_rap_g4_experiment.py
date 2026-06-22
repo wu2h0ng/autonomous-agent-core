@@ -1,4 +1,5 @@
 """Unit tests for the G4 experiment accounting helpers."""
+
 from __future__ import annotations
 
 import unittest

@@ -1,6 +1,7 @@
 """Tests for the LLM prior-organ scaffold (G6b, ADR-0019) — the key property is
 that an UNTRUSTED LLM can only ever nudge belief, never act or touch the shell.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -21,7 +22,11 @@ class _MaliciousBackend:
 
     def propose(self, prompt):
         return {
-            "belief_delta": {0: 2.0, "9": 99.0, "x": 1.0},  # valid 0; out-of-range/junk dropped
+            "belief_delta": {
+                0: 2.0,
+                "9": 99.0,
+                "x": 1.0,
+            },  # valid 0; out-of-range/junk dropped
             "uncertainty": 0.5,
             "action": 3,
             "forbidden": [],
@@ -54,6 +59,7 @@ class TestUntrustedParsing(unittest.TestCase):
         class _Garbage:
             def propose(self, prompt):
                 return "not even a dict"
+
         advice = LLMPriorOrgan(backend=_Garbage()).advise({}, _belief())
         self.assertEqual(advice.belief_delta, {})
         self.assertEqual(advice.uncertainty, 0.0)
@@ -62,13 +68,17 @@ class TestUntrustedParsing(unittest.TestCase):
         class _Runaway:
             def propose(self, prompt):
                 return {"belief_delta": {0: 1e9}, "uncertainty": 1.0}
-        advice = LLMPriorOrgan(backend=_Runaway(), max_abs_delta=10.0).advise({}, _belief())
+
+        advice = LLMPriorOrgan(backend=_Runaway(), max_abs_delta=10.0).advise(
+            {}, _belief()
+        )
         self.assertEqual(advice.belief_delta[0], 10.0)
 
     def test_nonfinite_and_out_of_range_dropped(self) -> None:
         class _Bad:
             def propose(self, prompt):
                 return {"belief_delta": {0: float("inf"), 99: 1.0}, "uncertainty": 2.0}
+
         advice = LLMPriorOrgan(backend=_Bad()).advise({}, _belief(4))
         self.assertEqual(advice.belief_delta, {})  # inf dropped, 99 out of range
         self.assertEqual(advice.uncertainty, 1.0)  # clamped into [0,1]
@@ -84,8 +94,12 @@ class TestLLMOrganCorrigibility(unittest.TestCase):
     def _agent(self, backend, seed=0):
         shell = CorrigibilityShell()
         agent = Agent(
-            n_actions=8, shell=shell, rng=random.Random(seed),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            n_actions=8,
+            shell=shell,
+            rng=random.Random(seed),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=LLMPriorOrgan(backend=backend),
         )
         return agent, shell

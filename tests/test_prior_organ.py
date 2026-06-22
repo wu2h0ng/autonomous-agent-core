@@ -1,4 +1,5 @@
 """Tests for T-P4.1 prior-organ interface and belief merge hook."""
+
 from __future__ import annotations
 
 import ast

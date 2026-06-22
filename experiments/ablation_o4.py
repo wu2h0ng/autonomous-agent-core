@@ -17,6 +17,7 @@ Pre-registered design:
 
 Run: PYTHONPATH=src python -m experiments.ablation_o4
 """
+
 from __future__ import annotations
 
 from aac.prior_organ_latent import LatentRegimeOrgan
@@ -37,6 +38,7 @@ except ModuleNotFoundError:  # direct script execution: python experiments/...
     )
 
 SEEDS = tuple(range(30))
+
 
 def _with_overrides(**overrides: object) -> dict:
     p = dict(O4_FROZEN)
@@ -118,13 +120,15 @@ def ablation_study() -> None:
         p = wilcoxon_one_sided(diffs)
         sig = p < 0.05
 
-        rows.append([
-            name,
-            f"{m:.1f}",
-            f"{vs_full_pct:+.1f}%",
-            f"{p:.4f}",
-            "YES" if sig else "no",
-        ])
+        rows.append(
+            [
+                name,
+                f"{m:.1f}",
+                f"{vs_full_pct:+.1f}%",
+                f"{p:.4f}",
+                "YES" if sig else "no",
+            ]
+        )
         component_results.append((name, vs_full_pct, p, sig))
 
     print(format_table(headers, rows, alignments=["l", "r", "r", "r", "l"]))

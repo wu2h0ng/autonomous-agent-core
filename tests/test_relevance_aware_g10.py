@@ -3,6 +3,7 @@
 These are mechanism/instrumentation tests only. The empirical PRED-A'/B'/C'
 gate lives in experiments/relevance_aware_g10.py.
 """
+
 from __future__ import annotations
 
 import random

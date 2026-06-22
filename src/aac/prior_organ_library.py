@@ -19,6 +19,7 @@ OUTPUTS belief advice (C6) and never touches policy/shell (C7).
 Match params are FROZEN via experiments/structured_g6a_calibration.py on
 disjoint seeds; do not retune after seeing G6a.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -38,10 +39,10 @@ class RegimeLibraryOrgan:
     prior_uncertainty: float = 1.0
     reset_weight: float = 0.5
     # recognition / injection
-    min_obs: int = 4          # min distinct actions observed before matching
+    min_obs: int = 4  # min distinct actions observed before matching
     # FROZEN via experiments/structured_g6a.py calibrate (2026-06-13, seeds 200-204).
     match_threshold: float = 0.5  # max mean-sq distance (on overlap) to recognise
-    inject_weight: float = 0.85   # how hard to jump mu toward the prototype
+    inject_weight: float = 0.85  # how hard to jump mu toward the prototype
     merge_threshold: float = 1.0  # distance below which a finalised regime merges
 
     _mean: float = 0.0
@@ -120,16 +121,23 @@ class RegimeLibraryOrgan:
             self._injected = False
             # re-explore so we can observe the new regime
             return OrganAdvice(
-                belief_delta={a: -self.mu_decay * belief_readonly.mu[a] for a in range(n)},
+                belief_delta={
+                    a: -self.mu_decay * belief_readonly.mu[a] for a in range(n)
+                },
                 uncertainty_delta={
-                    a: self.reset_strength * (self.prior_uncertainty - belief_readonly.uncertainty[a])
+                    a: self.reset_strength
+                    * (self.prior_uncertainty - belief_readonly.uncertainty[a])
                     for a in range(n)
                 },
                 uncertainty=self.reset_weight,
             )
 
         # recognition + injection (once per regime)
-        if not self._injected and self._since_shift >= self.min_obs and self._prototypes:
+        if (
+            not self._injected
+            and self._since_shift >= self.min_obs
+            and self._prototypes
+        ):
             vec = self._current_vector()
             if len(vec) >= self.min_obs:
                 i, d = self._nearest(vec)
@@ -137,7 +145,9 @@ class RegimeLibraryOrgan:
                     proto = self._prototypes[i]
                     self._injected = True
                     return OrganAdvice(
-                        belief_delta={a: proto[a] - belief_readonly.mu[a] for a in range(n)},
+                        belief_delta={
+                            a: proto[a] - belief_readonly.mu[a] for a in range(n)
+                        },
                         uncertainty_delta={
                             a: -(belief_readonly.uncertainty[a]) * 0.7 for a in range(n)
                         },

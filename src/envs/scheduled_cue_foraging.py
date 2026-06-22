@@ -11,9 +11,7 @@ if TYPE_CHECKING:
 RelevantSet = tuple[int, ...]
 
 
-def max_fixed_subset_coverage(
-    relevant_sets: list[RelevantSet], K: int, m: int
-) -> int:
+def max_fixed_subset_coverage(relevant_sets: list[RelevantSet], K: int, m: int) -> int:
     """Largest number of regimes covered by any fixed m-cue subset."""
 
     best = 0

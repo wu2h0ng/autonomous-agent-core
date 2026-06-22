@@ -9,6 +9,7 @@ The candidate is PR = frozen G10 gate + residual calibrator. The incumbent is P0
 = frozen G10 gate without calibrator. A decisive PR win wounds RR-0019 Claim 1/3 and
 is founder-reserved; a powered null corroborates the channel-decomposition prediction.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -68,7 +69,9 @@ def _run(
 ) -> float:
     env = StructuredRegimeEnv(n_actions=N_ACTIONS, rng=random.Random(7000 + seed))
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
         n_actions=N_ACTIONS,
         shell=shell,
@@ -101,10 +104,14 @@ def _wins(a: list[float], b: list[float]) -> int:
     return sum(1 for i in range(len(a)) if a[i] < b[i])
 
 
-def _bootstrap_ci(values: list[float], n: int = 5000, seed: int = 12345) -> tuple[float, float]:
+def _bootstrap_ci(
+    values: list[float], n: int = 5000, seed: int = 12345
+) -> tuple[float, float]:
     rng = random.Random(seed)
     m = len(values)
-    means = sorted(sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n))
+    means = sorted(
+        sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n)
+    )
     return means[int(0.025 * n)], means[int(0.975 * n)]
 
 
@@ -121,7 +128,7 @@ def calibrate() -> None:
                     s,
                     organ_factory=_none,
                     gate=False,
-                    calibrator_factory=lambda l=lambda_, e=eta: _cal(l, e),
+                    calibrator_factory=lambda lam=lambda_, e=eta: _cal(lam, e),
                 )
                 for s in CAL_SEEDS
             ]
@@ -152,7 +159,11 @@ def prereg_hash() -> str:
     ):
         text = path.read_text(encoding="utf-8")
         if path == ADR:
-            text = re.sub(r"prereg lock hash\s*=.*", "prereg lock hash            = <LOCKED>", text)
+            text = re.sub(
+                r"prereg lock hash\s*=.*",
+                "prereg lock hash            = <LOCKED>",
+                text,
+            )
         parts.append((path.as_posix(), text))
     blob = "\n\n".join(f"--- {p} ---\n{t}" for p, t in parts)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -169,8 +180,12 @@ def rfinal() -> None:
         "A0": lambda s: _run(s, organ_factory=_none, gate=False),
         "A1": lambda s: _run(s, organ_factory=_o1, gate=False),
         "P0": lambda s: _run(s, organ_factory=_none, gate=True),
-        "PR": lambda s: _run(s, organ_factory=_none, gate=True, calibrator_factory=_cal),
-        "PR-B": lambda s: _run(s, organ_factory=_none, gate=False, calibrator_factory=_cal),
+        "PR": lambda s: _run(
+            s, organ_factory=_none, gate=True, calibrator_factory=_cal
+        ),
+        "PR-B": lambda s: _run(
+            s, organ_factory=_none, gate=False, calibrator_factory=_cal
+        ),
     }
     print(
         f"PREDICTION 1 r-final seeds {seeds[0]}..{seeds[-1]} "
@@ -212,8 +227,7 @@ def rfinal() -> None:
         f"p={pr_p:.6f}; CI=[{pr_ci[0]:.1f},{pr_ci[1]:.1f}]"
     )
     print(
-        f"  PR-B vs A1 margin={prb_margin:+.3f}; "
-        f"CI=[{prb_ci[0]:.1f},{prb_ci[1]:.1f}]"
+        f"  PR-B vs A1 margin={prb_margin:+.3f}; CI=[{prb_ci[0]:.1f},{prb_ci[1]:.1f}]"
     )
     print(f"  => {verdict}")
     if verdict == "PRED1-FALSIFIED":
@@ -255,4 +269,6 @@ if __name__ == "__main__":
     elif cmd in {"r-final", "rfinal"}:
         rfinal()
     else:
-        raise SystemExit("usage: python -m experiments.prediction1_residual_calibrator [calibrate|prereg|r-final]")
+        raise SystemExit(
+            "usage: python -m experiments.prediction1_residual_calibrator [calibrate|prereg|r-final]"
+        )

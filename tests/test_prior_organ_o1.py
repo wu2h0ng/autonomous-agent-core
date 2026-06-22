@@ -1,4 +1,5 @@
 """Tests for the O1 reset-scaffold organ + uncertainty channel (T-P4.2)."""
+
 from __future__ import annotations
 
 import inspect
@@ -28,13 +29,17 @@ class TestUncertaintyChannel(unittest.TestCase):
     def test_uncertainty_clamped_at_zero(self) -> None:
         model = ActionOutcomeModel(n_actions=2)
         model.uncertainty = [0.1, 0.1]
-        merge_organ_advice(model, OrganAdvice(uncertainty_delta={0: -5.0}, uncertainty=1.0))
+        merge_organ_advice(
+            model, OrganAdvice(uncertainty_delta={0: -5.0}, uncertainty=1.0)
+        )
         self.assertEqual(model.uncertainty[0], 0.0)
 
     def test_out_of_range_uncertainty_action_rejected(self) -> None:
         model = ActionOutcomeModel(n_actions=2)
         with self.assertRaises(ValueError):
-            merge_organ_advice(model, OrganAdvice(uncertainty_delta={9: 1.0}, uncertainty=1.0))
+            merge_organ_advice(
+                model, OrganAdvice(uncertainty_delta={9: 1.0}, uncertainty=1.0)
+            )
 
     def test_empty_both_channels_is_noop(self) -> None:
         model = ActionOutcomeModel(n_actions=2)
@@ -45,7 +50,10 @@ class TestUncertaintyChannel(unittest.TestCase):
         model.mu = [2.0, 0.0]
         model.uncertainty = [0.1, 0.1]
         applied = merge_organ_advice(
-            model, OrganAdvice(belief_delta={0: -1.0}, uncertainty_delta={0: 0.5}, uncertainty=1.0)
+            model,
+            OrganAdvice(
+                belief_delta={0: -1.0}, uncertainty_delta={0: 0.5}, uncertainty=1.0
+            ),
         )
         self.assertEqual(applied, 2)
         self.assertEqual(model.mu[0], 1.0)
@@ -54,7 +62,11 @@ class TestUncertaintyChannel(unittest.TestCase):
 
 class TestO1Mechanism(unittest.TestCase):
     def _belief(self, last_surprise: float) -> BeliefSnapshot:
-        return BeliefSnapshot(mu=(3.0, 0.0, 0.0), uncertainty=(0.05, 0.8, 0.8), last_surprise=last_surprise)
+        return BeliefSnapshot(
+            mu=(3.0, 0.0, 0.0),
+            uncertainty=(0.05, 0.8, 0.8),
+            last_surprise=last_surprise,
+        )
 
     def test_warmup_is_silent(self) -> None:
         organ = ResetScaffoldOrgan(warmup=5)
@@ -71,8 +83,13 @@ class TestO1Mechanism(unittest.TestCase):
         self.assertEqual(advice.uncertainty_delta, {})
 
     def test_spike_triggers_joint_reset(self) -> None:
-        organ = ResetScaffoldOrgan(warmup=3, spike_k=2.0, mu_decay=0.6,
-                                   reset_strength=1.0, prior_uncertainty=1.0)
+        organ = ResetScaffoldOrgan(
+            warmup=3,
+            spike_k=2.0,
+            mu_decay=0.6,
+            reset_strength=1.0,
+            prior_uncertainty=1.0,
+        )
         for _ in range(50):
             organ.advise({}, self._belief(0.3))  # build a low surprise baseline
         advice = organ.advise({}, self._belief(5.0))  # spike
@@ -100,7 +117,9 @@ class TestO1Mechanism(unittest.TestCase):
 
     def test_module_does_not_import_policy_or_shell(self) -> None:
         src = inspect.getsource(o1_module)
-        self.assertNotIn("policy", src.replace("# ", "").lower().split("import")[0] + "import")
+        self.assertNotIn(
+            "policy", src.replace("# ", "").lower().split("import")[0] + "import"
+        )
         self.assertNotIn("import aac.policy", src)
         self.assertNotIn("import aac.shell", src)
         self.assertNotIn("from .policy", src)
@@ -111,8 +130,12 @@ class TestO1CorrigibilityAndRegression(unittest.TestCase):
     def _agent(self, organ, seed=0):
         shell = CorrigibilityShell()
         agent = Agent(
-            n_actions=8, shell=shell, rng=random.Random(seed),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            n_actions=8,
+            shell=shell,
+            rng=random.Random(seed),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=organ,
         )
         return agent, shell

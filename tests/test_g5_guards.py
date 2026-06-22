@@ -4,6 +4,7 @@ These are the deterministic, non-statistical half of the G5 gate (ADR-0016 §4):
 the prior organ must never become the subject, and must never weaken
 corrigibility, under every arm O0/O1/O2.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -25,8 +26,12 @@ from envs.staleness import StalenessEnv
 def _arm(organ):
     shell = CorrigibilityShell()
     agent = Agent(
-        n_actions=8, shell=shell, rng=random.Random(0),
-        viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+        n_actions=8,
+        shell=shell,
+        rng=random.Random(0),
+        viability=ViabilityCore(
+            budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+        ),
         prior_organ=organ,
     )
     return agent, shell
@@ -55,7 +60,10 @@ class TestG5_3_OrganNotSubject(unittest.TestCase):
         model = ActionOutcomeModel(n_actions=3)
         before_n = model.n_actions
         merge_organ_advice(
-            model, OrganAdvice(belief_delta={0: 99.0}, uncertainty_delta={0: 99.0}, uncertainty=1.0)
+            model,
+            OrganAdvice(
+                belief_delta={0: 99.0}, uncertainty_delta={0: 99.0}, uncertainty=1.0
+            ),
         )
         self.assertEqual(model.n_actions, before_n)  # structure intact
         self.assertNotEqual(model.mu[0], 0.0)

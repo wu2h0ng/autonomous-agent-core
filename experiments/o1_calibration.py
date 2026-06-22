@@ -8,6 +8,7 @@ defaults; do not retune after seeing G5.
 
 Run: PYTHONPATH=src python experiments/o1_calibration.py
 """
+
 from __future__ import annotations
 
 import itertools
@@ -36,7 +37,9 @@ def _subject(seed: int, organ) -> tuple[Agent, StalenessEnv]:
     shell = CorrigibilityShell()
     # Survival is irrelevant here; we measure staleness regret, so the subject
     # never starves (metabolic_cost 0, huge budget).
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
         n_actions=N_ACTIONS,
         shell=shell,
@@ -78,12 +81,16 @@ def main() -> None:
         params = dict(zip(keys, combo))
         mean = _mean_area(lambda p=params: ResetScaffoldOrgan(**p))
         rows.append((mean, params))
-        print(f"  {params}  ->  {mean:.2f}  ({'beats O0' if mean < o0 else 'NOT < O0'})")
+        print(
+            f"  {params}  ->  {mean:.2f}  ({'beats O0' if mean < o0 else 'NOT < O0'})"
+        )
 
     rows.sort(key=lambda r: r[0])
     best_mean, best = rows[0]
-    print(f"\nFROZEN O1 params: {best}  (area {best_mean:.2f}, O0 {o0:.2f}, "
-          f"delta {o0 - best_mean:+.2f})")
+    print(
+        f"\nFROZEN O1 params: {best}  (area {best_mean:.2f}, O0 {o0:.2f}, "
+        f"delta {o0 - best_mean:+.2f})"
+    )
     print("Set these as ResetScaffoldOrgan defaults and record in ADR-0016.")
 
 

@@ -1,4 +1,5 @@
 """ADR-0035/G12 guards for the P7 ecological environment axis."""
+
 from __future__ import annotations
 
 import inspect

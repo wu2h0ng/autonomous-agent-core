@@ -20,6 +20,7 @@ The structural criteria G5-3 (organ-not-subject, C6) and G5-4 (corrigibility
 unweakened, C7) are deterministic unit tests in tests/test_g5_guards.py, not
 statistics; G5 MET requires all four.
 """
+
 from __future__ import annotations
 
 import random
@@ -41,10 +42,15 @@ N_ACTIONS = 8
 def _post_shift_area(seed: int, organ_factory) -> float:
     env = StalenessEnv(n_actions=N_ACTIONS, rng=random.Random(7000 + seed))
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=random.Random(8000 + seed),
-        viability=viability, prior_organ=organ_factory(),
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=random.Random(8000 + seed),
+        viability=viability,
+        prior_organ=organ_factory(),
     )
     area = 0.0
     window_left = 0
@@ -64,8 +70,10 @@ def main() -> None:
         "O1": lambda: ResetScaffoldOrgan(),
         "O2": lambda: AdaptiveHazardOrgan(),
     }
-    print(f"G5 prior-organ gate (ADR-0016, T-P4.4) run={RUN_LABEL} "
-          f"seeds={SEEDS[0]}-{SEEDS[-1]} steps={STEPS} window={WINDOW}")
+    print(
+        f"G5 prior-organ gate (ADR-0016, T-P4.4) run={RUN_LABEL} "
+        f"seeds={SEEDS[0]}-{SEEDS[-1]} steps={STEPS} window={WINDOW}"
+    )
     print(f"{'seed':>4} | {'O0':>9} {'O1':>9} {'O2':>9}")
     areas = {name: [] for name in arms}
     for seed in SEEDS:
@@ -90,8 +98,10 @@ def main() -> None:
     print("  G5-3 organ-not-subject (C6):          see tests/test_g5_guards.py")
     print("  G5-4 corrigibility unweakened (C7):   see tests/test_g5_guards.py")
     stat_met = o2_beats_o0 >= 7 and o2_beats_o1 >= 7
-    print(f"\n  G5 (statistical G5-1 & G5-2): {'MET' if stat_met else 'NOT MET'}"
-          " (final MET also requires G5-3 & G5-4 tests green)")
+    print(
+        f"\n  G5 (statistical G5-1 & G5-2): {'MET' if stat_met else 'NOT MET'}"
+        " (final MET also requires G5-3 & G5-4 tests green)"
+    )
 
 
 if __name__ == "__main__":

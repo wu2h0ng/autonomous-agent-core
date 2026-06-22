@@ -8,6 +8,7 @@ Contract pinned here:
   - integration: reflex > idle drives > policy precedence; idle steps are
     stake-priced and 100% audited with idle/drive flags (no dark activity)
 """
+
 from __future__ import annotations
 
 import random
@@ -32,7 +33,9 @@ class _StubEnv:
         return self.reward
 
 
-def _model(uncertainty: list[float], mu: list[float] | None = None) -> ActionOutcomeModel:
+def _model(
+    uncertainty: list[float], mu: list[float] | None = None
+) -> ActionOutcomeModel:
     model = ActionOutcomeModel(n_actions=len(uncertainty))
     model.uncertainty = list(uncertainty)
     if mu is not None:
@@ -154,7 +157,10 @@ class TestAgentIdleIntegration(unittest.TestCase):
     ) -> tuple[Agent, CorrigibilityShell]:
         shell = CorrigibilityShell()
         viability = ViabilityCore(
-            budget=budget, metabolic_cost=metabolic_cost, capacity=200.0, safe_budget=60.0
+            budget=budget,
+            metabolic_cost=metabolic_cost,
+            capacity=200.0,
+            safe_budget=60.0,
         )
         agent = Agent(
             n_actions=4,
@@ -200,7 +206,9 @@ class TestAgentIdleIntegration(unittest.TestCase):
         before = agent.viability.budget
         idle = agent.step(env)
         assert idle is not None and idle["idle"]
-        self.assertEqual(agent.viability.budget, before - 0.5, "curiosity pays metabolism")
+        self.assertEqual(
+            agent.viability.budget, before - 0.5, "curiosity pays metabolism"
+        )
 
     def test_idle_activity_is_fully_audited(self) -> None:
         """No dark activity: every idle step lands on the audit chain."""
@@ -218,7 +226,9 @@ class TestAgentIdleIntegration(unittest.TestCase):
 
     def test_reflex_outranks_idle_drives(self) -> None:
         agent, _ = self._agent(
-            drives=IdleDrives(n_actions=4), reflex=ViabilityReflex(), budget=1.0,
+            drives=IdleDrives(n_actions=4),
+            reflex=ViabilityReflex(),
+            budget=1.0,
             metabolic_cost=0.0,
         )
         agent.model.mu = [10.0, 0.0, 0.0, 0.0]

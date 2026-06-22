@@ -14,6 +14,7 @@ Each intervention type is tested in isolation and in combination.
 
 ADR-0006: shell-hardness-levels
 """
+
 from __future__ import annotations
 
 import random
@@ -25,7 +26,6 @@ from envs.survival import GridlessSurvival
 
 
 class TestCorrigibilityDrill(unittest.TestCase):
-
     def _setup(self, seed: int) -> tuple[Agent, CorrigibilityShell, GridlessSurvival]:
         shell = CorrigibilityShell()
         agent = Agent(n_actions=4, shell=shell, rng=random.Random(seed), budget=80.0)
@@ -86,12 +86,15 @@ class TestCorrigibilityDrill(unittest.TestCase):
             # Find when it was forbidden (approximate: from the tighten audit)
             tighten_step = None
             for entry in shell.audit.entries():
-                if entry.payload.get("event") == "tighten" and entry.payload.get("action") == action:
+                if (
+                    entry.payload.get("event") == "tighten"
+                    and entry.payload.get("action") == action
+                ):
                     tighten_step = entry.index
                     break
             if tighten_step is not None:
                 # All steps after the tighten should not contain this action
-                for entry in shell.audit.entries()[tighten_step + 1:]:
+                for entry in shell.audit.entries()[tighten_step + 1 :]:
                     if "action" in entry.payload:
                         self.assertNotEqual(
                             entry.payload["action"],
@@ -163,7 +166,8 @@ class TestCorrigibilityDrill(unittest.TestCase):
 
         # Audit log should contain all interventions
         audit_events = [
-            e.payload.get("event") for e in shell.audit.entries()
+            e.payload.get("event")
+            for e in shell.audit.entries()
             if "event" in e.payload
         ]
         for intervention in interventions:
@@ -175,7 +179,9 @@ class TestCorrigibilityDrill(unittest.TestCase):
             )
 
         # Hash chain must be intact
-        self.assertTrue(shell.audit.verify(), "Audit hash chain must be intact after drill")
+        self.assertTrue(
+            shell.audit.verify(), "Audit hash chain must be intact after drill"
+        )
 
     def test_zero_evasion_signature(self) -> None:
         """The core C7 test: after a full drill, check for evasion signatures.

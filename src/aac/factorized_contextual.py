@@ -7,7 +7,9 @@ from typing import Any, Iterable
 Candidate = tuple[int, ...]
 
 
-def candidate_sets_from_attended(attended: Iterable[int], k_rel: int) -> list[Candidate]:
+def candidate_sets_from_attended(
+    attended: Iterable[int], k_rel: int
+) -> list[Candidate]:
     """Return sorted candidate relevant sets fully visible in attended cues."""
 
     return [tuple(c) for c in combinations(sorted(attended), k_rel)]
@@ -34,7 +36,9 @@ class FactorizedContextualActionModel:
         self._counts: dict[tuple[Candidate, tuple[int, ...]], list[int]] = {}
 
     @staticmethod
-    def _key(cues: tuple[int, ...], hypothesis: Candidate) -> tuple[Candidate, tuple[int, ...]]:
+    def _key(
+        cues: tuple[int, ...], hypothesis: Candidate
+    ) -> tuple[Candidate, tuple[int, ...]]:
         hyp = tuple(sorted(hypothesis))
         return hyp, tuple(cues[i] for i in hyp)
 
@@ -67,7 +71,11 @@ class FactorizedContextualActionModel:
         counts = self._counts_for(cues, hypothesis)
         top = max(range(self.n_actions), key=lambda a: q[a])
         ranked = sorted(q)
-        return counts[top] > 0 and ranked[-1] > 0.0 and (ranked[-1] - ranked[-2]) >= self.margin
+        return (
+            counts[top] > 0
+            and ranked[-1] > 0.0
+            and (ranked[-1] - ranked[-2]) >= self.margin
+        )
 
     def best_hypothesis(
         self, cues: tuple[int, ...], candidates: Iterable[Candidate]
@@ -82,7 +90,9 @@ class FactorizedContextualActionModel:
                 best_score = score
         return best
 
-    def update(self, cues: tuple[int, ...], hypothesis: Candidate, action: int, reward: float) -> None:
+    def update(
+        self, cues: tuple[int, ...], hypothesis: Candidate, action: int, reward: float
+    ) -> None:
         q = self._q_for(cues, hypothesis)
         counts = self._counts_for(cues, hypothesis)
         counts[action] += 1

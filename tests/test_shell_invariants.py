@@ -12,6 +12,7 @@ Invariants:
   I3: forbidden set is monotonic (op_tighten only adds, never removes)
   I4: op_* methods are unreachable from Agent instances
 """
+
 from __future__ import annotations
 
 import inspect
@@ -108,7 +109,8 @@ class InvariantI2_AuditAppendOnly(unittest.TestCase):
     def test_no_public_mutation_methods(self) -> None:
         log = AuditLog()
         public_methods = {
-            name for name, _ in inspect.getmembers(log, predicate=inspect.ismethod)
+            name
+            for name, _ in inspect.getmembers(log, predicate=inspect.ismethod)
             if not name.startswith("_")
         }
         # Only 'append', 'entries', 'verify' should be public
@@ -165,12 +167,17 @@ class InvariantI3_ForbiddenMonotonic(unittest.TestCase):
     def test_no_removal_methods_exist(self) -> None:
         shell = CorrigibilityShell()
         all_methods = {
-            name for name, _ in inspect.getmembers(shell, predicate=inspect.ismethod)
+            name
+            for name, _ in inspect.getmembers(shell, predicate=inspect.ismethod)
             if not name.startswith("_")
         }
         removal_candidates = {
-            "op_loosen", "op_relax", "op_unforbid", "op_remove",
-            "op_clear_forbidden", "op_reset_forbidden",
+            "op_loosen",
+            "op_relax",
+            "op_unforbid",
+            "op_remove",
+            "op_clear_forbidden",
+            "op_reset_forbidden",
         }
         found = all_methods & removal_candidates
         self.assertEqual(

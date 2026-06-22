@@ -82,9 +82,7 @@ class AttentionField:
         for i in attended:
             if cue_values[i] == 1:
                 self._count_on[i] += 1
-                self._reward_when_on[i] += self.lr * (
-                    reward - self._reward_when_on[i]
-                )
+                self._reward_when_on[i] += self.lr * (reward - self._reward_when_on[i])
             else:
                 self._count_off[i] += 1
                 self._reward_when_off[i] += self.lr * (

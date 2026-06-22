@@ -13,6 +13,7 @@ is intentionally NOT bundled: core stays pure-stdlib and zero-spend. A
 offline. The real run requires a semantic environment + the founder's key/budget
 (ADR-0019 §5).
 """
+
 from __future__ import annotations
 
 import math
@@ -69,7 +70,9 @@ class LLMPriorOrgan:
         labels = situation.get("action_labels")
         if cue is not None and isinstance(labels, (list, tuple)):
             parts.append(f"category={cue}")
-            parts.append("actions=" + " ".join(f"{i}:{lab}" for i, lab in enumerate(labels)))
+            parts.append(
+                "actions=" + " ".join(f"{i}:{lab}" for i, lab in enumerate(labels))
+            )
         else:
             parts.append(f"situation={dict(situation)}")
         parts.append(f"mu={tuple(belief.mu)}")
@@ -87,8 +90,13 @@ class LLMPriorOrgan:
             raw.get("belief_delta") if isinstance(raw, Mapping) else None,
             belief_readonly.n_actions,
         )
-        clamped = {a: max(-self.max_abs_delta, min(self.max_abs_delta, d)) for a, d in delta.items()}
-        unc = _safe_uncertainty(raw.get("uncertainty") if isinstance(raw, Mapping) else None)
+        clamped = {
+            a: max(-self.max_abs_delta, min(self.max_abs_delta, d))
+            for a, d in delta.items()
+        }
+        unc = _safe_uncertainty(
+            raw.get("uncertainty") if isinstance(raw, Mapping) else None
+        )
         return OrganAdvice(belief_delta=clamped, uncertainty=unc)
 
 

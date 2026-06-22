@@ -94,6 +94,7 @@ class TestAttentionBudget(unittest.TestCase):
     def test_attention_cost_via_viability_ingest(self) -> None:
         """Paying attention costs budget (stake-first: cost flows via ingest)."""
         from aac.viability import ViabilityCore
+
         rng = random.Random(42)
         viability = ViabilityCore(budget=60.0)
         env = LatentCueForaging(K=12, m=3, attention_cost=0.2, rng=rng)
@@ -104,6 +105,7 @@ class TestAttentionBudget(unittest.TestCase):
 
     def test_attention_cost_fewer_cues(self) -> None:
         from aac.viability import ViabilityCore
+
         rng = random.Random(0)
         viability = ViabilityCore(budget=60.0)
         env = LatentCueForaging(K=12, m=5, attention_cost=0.3, rng=rng)
@@ -112,6 +114,7 @@ class TestAttentionBudget(unittest.TestCase):
 
     def test_cannot_attend_more_than_m(self) -> None:
         from aac.viability import ViabilityCore
+
         rng = random.Random(0)
         viability = ViabilityCore(budget=60.0)
         env = LatentCueForaging(K=12, m=3, attention_cost=0.2, rng=rng)
@@ -120,6 +123,7 @@ class TestAttentionBudget(unittest.TestCase):
 
     def test_cannot_exceed_attention_capacity(self) -> None:
         from aac.viability import ViabilityCore
+
         rng = random.Random(0)
         viability = ViabilityCore(budget=60.0)
         env = LatentCueForaging(K=12, m=3, attention_cost=0.2, rng=rng)
@@ -128,6 +132,7 @@ class TestAttentionBudget(unittest.TestCase):
 
     def test_can_attend_all_when_m_equals_K(self) -> None:
         from aac.viability import ViabilityCore
+
         rng = random.Random(1)
         viability = ViabilityCore(budget=60.0)
         env = LatentCueForaging(K=4, m=4, attention_cost=0.2, rng=rng)
@@ -140,8 +145,9 @@ class TestRewardStructure(unittest.TestCase):
 
     def test_hit_reward(self) -> None:
         rng = random.Random(42)
-        env = LatentCueForaging(K=8, k_rel=2, m=3, rng=rng, noise=0.0,
-                                reward_hit=3.0, reward_miss=-0.5)
+        env = LatentCueForaging(
+            K=8, k_rel=2, m=3, rng=rng, noise=0.0, reward_hit=3.0, reward_miss=-0.5
+        )
         cues = env.get_cue_vector()
         best = env.best_action_for(cues)
         reward = env.act(action=best, attended_indices=list(range(3)))
@@ -149,8 +155,16 @@ class TestRewardStructure(unittest.TestCase):
 
     def test_miss_reward(self) -> None:
         rng = random.Random(42)
-        env = LatentCueForaging(K=8, k_rel=2, m=3, rng=rng, noise=0.0,
-                                reward_hit=3.0, reward_miss=-0.5, n_actions=4)
+        env = LatentCueForaging(
+            K=8,
+            k_rel=2,
+            m=3,
+            rng=rng,
+            noise=0.0,
+            reward_hit=3.0,
+            reward_miss=-0.5,
+            n_actions=4,
+        )
         cues = env.get_cue_vector()
         best = env.best_action_for(cues)
         # pick a non-best action
@@ -172,8 +186,15 @@ class TestRegret(unittest.TestCase):
 
     def test_regret_positive_on_miss(self) -> None:
         rng = random.Random(42)
-        env = LatentCueForaging(K=8, k_rel=2, rng=rng, noise=0.0,
-                                reward_hit=3.0, reward_miss=-0.5, n_actions=4)
+        env = LatentCueForaging(
+            K=8,
+            k_rel=2,
+            rng=rng,
+            noise=0.0,
+            reward_hit=3.0,
+            reward_miss=-0.5,
+            n_actions=4,
+        )
         cues = env.get_cue_vector()
         best = env.best_action_for(cues)
         wrong = (best + 1) % env.n_actions

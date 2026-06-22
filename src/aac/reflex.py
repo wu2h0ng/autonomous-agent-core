@@ -14,6 +14,7 @@ survival benefit that independently supports stake-first (Claim 1).
 
 ADR-0008: viability-reflex-layer
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -71,7 +72,10 @@ class ViabilityReflex:
             return True
 
         # Not currently engaged: check entry conditions.
-        if pressure > self.pressure_threshold and mean_uncertainty < self.uncertainty_threshold:
+        if (
+            pressure > self.pressure_threshold
+            and mean_uncertainty < self.uncertainty_threshold
+        ):
             self._engaged = True
             self._consecutive = 1
             return True

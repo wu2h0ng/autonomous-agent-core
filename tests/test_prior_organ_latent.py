@@ -1,4 +1,5 @@
 """Tests for O4 LatentRegimeOrgan (G7, ADR-0020)."""
+
 from __future__ import annotations
 
 import inspect
@@ -40,7 +41,9 @@ class TestLatentRegimeMechanism(unittest.TestCase):
         organ._mean_sq = 0.01
 
         organ.advise({"last_action": 0, "last_reward": 0.0}, _belief([0.0, 0.0, 0.0]))
-        advice = organ.advise({"last_action": 1, "last_reward": 4.0}, _belief([0.0, 0.0, 0.0]))
+        advice = organ.advise(
+            {"last_action": 1, "last_reward": 4.0}, _belief([0.0, 0.0, 0.0])
+        )
 
         self.assertEqual(organ._last_best_proto, 1)
         self.assertGreater(organ._last_confidence, 0.9)
@@ -77,8 +80,14 @@ class TestLatentRegimeMechanism(unittest.TestCase):
             organ._mean = 0.1
             organ._mean_sq = 0.01
 
-        a = left.advise({"last_action": 1, "last_reward": 2.0, "regime_index": 0}, _belief([0.0, 0.0]))
-        b = right.advise({"last_action": 1, "last_reward": 2.0, "regime_index": 999}, _belief([0.0, 0.0]))
+        a = left.advise(
+            {"last_action": 1, "last_reward": 2.0, "regime_index": 0},
+            _belief([0.0, 0.0]),
+        )
+        b = right.advise(
+            {"last_action": 1, "last_reward": 2.0, "regime_index": 999},
+            _belief([0.0, 0.0]),
+        )
 
         self.assertEqual(a, b)
         self.assertEqual(left._last_best_proto, right._last_best_proto)
@@ -137,7 +146,9 @@ class TestLatentRegimeBoundaries(unittest.TestCase):
             n_actions=8,
             shell=shell,
             rng=random.Random(0),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=organ,
         )
         env = StructuredRegimeEnv(rng=random.Random(1))
@@ -159,7 +170,9 @@ class TestLatentRegimeBoundaries(unittest.TestCase):
             n_actions=3,
             shell=shell,
             rng=random.Random(2),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=BoostZeroLatent(),
         )
         env = StructuredRegimeEnv(n_actions=3, rng=random.Random(3))

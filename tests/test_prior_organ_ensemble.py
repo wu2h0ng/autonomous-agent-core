@@ -1,4 +1,5 @@
 """Tests for O5 EnsembleRegimeOrgan (G8, ADR-0022)."""
+
 from __future__ import annotations
 
 import inspect

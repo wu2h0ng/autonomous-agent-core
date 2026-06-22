@@ -87,7 +87,9 @@ class ShellView:
 
     __slots__ = ("_paused_getter", "_forbidden_getter", "_observe")
 
-    def __init__(self, *, paused_getter: Any, forbidden_getter: Any, observe: Any) -> None:
+    def __init__(
+        self, *, paused_getter: Any, forbidden_getter: Any, observe: Any
+    ) -> None:
         self._paused_getter = paused_getter
         self._forbidden_getter = forbidden_getter
         self._observe = observe

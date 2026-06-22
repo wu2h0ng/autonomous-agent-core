@@ -1,4 +1,5 @@
 """Tests for RAPCoordinator (T-P3.3, ADR-0014 D2/D3)."""
+
 from __future__ import annotations
 
 import random
@@ -34,7 +35,9 @@ class _ScriptedDecisionNode:
         self.observed: list[tuple[int, float]] = []
 
     def bid(self, need: Need) -> Bid:
-        return Bid(need.need_id, self.node_id, self.confidence, self.price, self.node_id)
+        return Bid(
+            need.need_id, self.node_id, self.confidence, self.price, self.node_id
+        )
 
     def select(self, situation, forbidden=frozenset()) -> int:
         if self.respect_forbidden and self.fixed_action in forbidden:
@@ -71,7 +74,9 @@ class _ValueEnv:
 
 def _coord(nodes, shell, **kw) -> RAPCoordinator:
     field = RAPField(shell=shell.view())
-    return RAPCoordinator(field=field, shell=shell.view(), judge=OutcomeJudge(), nodes=nodes, **kw)
+    return RAPCoordinator(
+        field=field, shell=shell.view(), judge=OutcomeJudge(), nodes=nodes, **kw
+    )
 
 
 class TestGroundedOutcome(unittest.TestCase):
@@ -182,7 +187,9 @@ class TestCorrigibilityBinding(unittest.TestCase):
 
     def test_double_guard_overrides_stubborn_node(self) -> None:
         """A misbehaving node ignoring forbidden must still never execute it."""
-        node = _ScriptedDecisionNode("stubborn", fixed_action=3, respect_forbidden=False)
+        node = _ScriptedDecisionNode(
+            "stubborn", fixed_action=3, respect_forbidden=False
+        )
         coord = _coord([node], self.shell)
         self.shell.op_tighten(3)
         result = coord.run_need(_ValueEnv([0.0, 0.0, 0.0, 3.0]))
@@ -201,12 +208,17 @@ class TestPerturbationSmoke(unittest.TestCase):
         segments = generate_segments(
             rng=random.Random(seed), total_steps=200, node_ids=node_ids
         )
-        env = RAPPerturbationEnv(n_actions=n, rng=random.Random(seed + 1), segments=segments)
+        env = RAPPerturbationEnv(
+            n_actions=n, rng=random.Random(seed + 1), segments=segments
+        )
         shell = CorrigibilityShell()
         field = RAPField(shell=shell.view())
         coord = RAPCoordinator(
-            field=field, shell=shell.view(), judge=OutcomeJudge(),
-            nodes=nodes, routing=ConfidenceReputationRouting(),
+            field=field,
+            shell=shell.view(),
+            judge=OutcomeJudge(),
+            nodes=nodes,
+            routing=ConfidenceReputationRouting(),
         )
         bonds = sum(1 for _ in range(150) if coord.run_need(env) is not None)
         self.assertGreater(bonds, 20, "coalitions should form across the run")

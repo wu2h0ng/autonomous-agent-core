@@ -1,4 +1,5 @@
 """Tests for the O2 adaptive hazard-estimator organ (T-P4.3, ADR-0016)."""
+
 from __future__ import annotations
 
 import inspect
@@ -15,7 +16,9 @@ import aac.prior_organ_o2 as o2_module
 
 
 def _belief(last_surprise: float) -> BeliefSnapshot:
-    return BeliefSnapshot(mu=(3.0, 0.0, 0.0), uncertainty=(0.05, 0.8, 0.8), last_surprise=last_surprise)
+    return BeliefSnapshot(
+        mu=(3.0, 0.0, 0.0), uncertainty=(0.05, 0.8, 0.8), last_surprise=last_surprise
+    )
 
 
 def _drive(organ: AdaptiveHazardOrgan, intervals: list[int]) -> list[OrganAdvice]:
@@ -32,12 +35,16 @@ class TestHazardEstimation(unittest.TestCase):
     def test_tau_hat_tracks_short_intervals(self) -> None:
         organ = AdaptiveHazardOrgan(warmup=5, tau_init=60.0)
         _drive(organ, [20] * 12)
-        self.assertLess(organ.tau_hat, 35.0, "tau_hat should fall toward the ~20 cadence")
+        self.assertLess(
+            organ.tau_hat, 35.0, "tau_hat should fall toward the ~20 cadence"
+        )
 
     def test_tau_hat_tracks_long_intervals(self) -> None:
         organ = AdaptiveHazardOrgan(warmup=5, tau_init=60.0)
         _drive(organ, [120] * 6)
-        self.assertGreater(organ.tau_hat, 90.0, "tau_hat should rise toward the ~120 cadence")
+        self.assertGreater(
+            organ.tau_hat, 90.0, "tau_hat should rise toward the ~120 cadence"
+        )
 
     def test_reset_strength_higher_for_frequent_shifts(self) -> None:
         fast = AdaptiveHazardOrgan(warmup=5)
@@ -67,7 +74,7 @@ class TestHazardEstimation(unittest.TestCase):
         # one spike with tau_hat still at init 60 (no prior shift to update it)
         advice = _drive(organ, [30])[0]
         self.assertAlmostEqual(organ._last_reset_strength, 0.5, places=6)  # O1 frozen
-        self.assertAlmostEqual(organ._last_spike_k, 1.5, places=6)          # O1 frozen
+        self.assertAlmostEqual(organ._last_spike_k, 1.5, places=6)  # O1 frozen
         self.assertTrue(advice.belief_delta and advice.uncertainty_delta)
 
 
@@ -91,8 +98,14 @@ class TestO2Mechanism(unittest.TestCase):
 
     def test_deterministic_reproducible(self) -> None:
         a, b = AdaptiveHazardOrgan(warmup=5), AdaptiveHazardOrgan(warmup=5)
-        ra = [(adv.belief_delta, adv.uncertainty_delta) for adv in _drive(a, [20, 20, 120, 20])]
-        rb = [(adv.belief_delta, adv.uncertainty_delta) for adv in _drive(b, [20, 20, 120, 20])]
+        ra = [
+            (adv.belief_delta, adv.uncertainty_delta)
+            for adv in _drive(a, [20, 20, 120, 20])
+        ]
+        rb = [
+            (adv.belief_delta, adv.uncertainty_delta)
+            for adv in _drive(b, [20, 20, 120, 20])
+        ]
         self.assertEqual(ra, rb)
 
     def test_reset_clears_state(self) -> None:
@@ -120,8 +133,12 @@ class TestO2CorrigibilityRegression(unittest.TestCase):
     def _agent(self, seed=0):
         shell = CorrigibilityShell()
         agent = Agent(
-            n_actions=8, shell=shell, rng=random.Random(seed),
-            viability=ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0),
+            n_actions=8,
+            shell=shell,
+            rng=random.Random(seed),
+            viability=ViabilityCore(
+                budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+            ),
             prior_organ=AdaptiveHazardOrgan(),
         )
         return agent, shell

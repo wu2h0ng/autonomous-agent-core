@@ -4,6 +4,7 @@ ADR-0016 makes the organ a constrained adviser, not a decision-maker. This
 module deliberately imports no policy or shell surfaces: advice can only be
 merged into the action-outcome belief held by ``ActionOutcomeModel``.
 """
+
 from __future__ import annotations
 
 import math

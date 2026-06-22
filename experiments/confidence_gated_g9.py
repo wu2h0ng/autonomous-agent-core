@@ -15,6 +15,7 @@ G9-3 P0<A0 >=90% & p<0.05; G9-4 Wilcoxon P4 vs A1 p<0.01; C6/C7 = unit tests.
 
 Run: PYTHONPATH=src python -m experiments.confidence_gated_g9 [calibrate]
 """
+
 from __future__ import annotations
 
 import itertools
@@ -43,15 +44,28 @@ CALIB_O1 = 1327.8
 CALIB_P4 = 899.0
 
 
-def _area(seed: int, organ_factory, *, gate: bool = False,
-          kappa: float = 1.0, temp_floor: float = 0.1) -> float:
+def _area(
+    seed: int,
+    organ_factory,
+    *,
+    gate: bool = False,
+    kappa: float = 1.0,
+    temp_floor: float = 0.1,
+) -> float:
     env = StructuredRegimeEnv(n_actions=N_ACTIONS, rng=random.Random(7000 + seed))
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=random.Random(8000 + seed),
-        viability=viability, prior_organ=organ_factory(),
-        policy_gate=gate, gate_kappa=kappa, gate_temp_floor=temp_floor,
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=random.Random(8000 + seed),
+        viability=viability,
+        prior_organ=organ_factory(),
+        policy_gate=gate,
+        gate_kappa=kappa,
+        gate_temp_floor=temp_floor,
     )
     area = 0.0
     window_left = 0
@@ -82,14 +96,20 @@ def calibrate() -> None:
     print(f"A1 (O1 cheap reset) mean: {o1:.1f}")
     rows: list[tuple[float, dict]] = []
     for k, tf in itertools.product(grid["gate_kappa"], grid["gate_temp_floor"]):
-        m = sum(_area(s, _o4, gate=True, kappa=k, temp_floor=tf) for s in seeds) / len(seeds)
+        m = sum(_area(s, _o4, gate=True, kappa=k, temp_floor=tf) for s in seeds) / len(
+            seeds
+        )
         rows.append((m, {"gate_kappa": k, "gate_temp_floor": tf}))
-        print(f"  kappa={k} temp_floor={tf} -> P4 {m:.1f}  ({'<A1' if m < o1 else '>=A1'})")
+        print(
+            f"  kappa={k} temp_floor={tf} -> P4 {m:.1f}  ({'<A1' if m < o1 else '>=A1'})"
+        )
     rows.sort(key=lambda r: (r[0], r[1]["gate_kappa"], r[1]["gate_temp_floor"]))
     best_area, best = rows[0]
     delta = _compute_delta(o1, best_area)
     print(f"\nFROZEN gate params: {best}")
-    print(f"  P4 area {best_area:.1f}  A1 {o1:.1f}  reduction {1-best_area/o1:.4f}  delta {delta}")
+    print(
+        f"  P4 area {best_area:.1f}  A1 {o1:.1f}  reduction {1 - best_area / o1:.4f}  delta {delta}"
+    )
     print(f"  (set GATE_FROZEN, CALIB_O1={o1:.1f}, CALIB_P4={best_area:.1f})")
 
 
@@ -126,18 +146,26 @@ def gate() -> None:
     print("\nAGGREGATE:")
     for x in arms:
         print(f"  {x}: {mean[x]:.1f}")
-    print(f"  per-seed: P4<A1 {p4_lt_a1}/{n}  P4<A4 {p4_lt_a4}/{n}  P0<A0 {p0_lt_a0}/{n}")
+    print(
+        f"  per-seed: P4<A1 {p4_lt_a1}/{n}  P4<A4 {p4_lt_a4}/{n}  P0<A0 {p0_lt_a0}/{n}"
+    )
 
     print("\nG9 PRE-REGISTERED GATE:")
     g1 = mean["P4"] <= (1 - delta) * mean["A1"]
-    print(f"  G9-1 mean(P4)={mean['P4']:.1f} <= {(1-delta)*mean['A1']:.1f}=(1-{delta})*A1: "
-          f"{'PASS' if g1 else 'FAIL'}")
+    print(
+        f"  G9-1 mean(P4)={mean['P4']:.1f} <= {(1 - delta) * mean['A1']:.1f}=(1-{delta})*A1: "
+        f"{'PASS' if g1 else 'FAIL'}"
+    )
     g2 = p4_lt_a4 >= need and p_a4 < 0.01
-    print(f"  G9-2 P4<A4 {p4_lt_a4}/{n}(>= {need}) & Wilcoxon p={p_a4:.6f}<0.01: "
-          f"{'PASS' if g2 else 'FAIL'}")
+    print(
+        f"  G9-2 P4<A4 {p4_lt_a4}/{n}(>= {need}) & Wilcoxon p={p_a4:.6f}<0.01: "
+        f"{'PASS' if g2 else 'FAIL'}"
+    )
     g3 = p0_lt_a0 >= need and p_a0 < 0.05
-    print(f"  G9-3 P0<A0 {p0_lt_a0}/{n}(>= {need}) & Wilcoxon p={p_a0:.6f}<0.05: "
-          f"{'PASS' if g3 else 'FAIL'}")
+    print(
+        f"  G9-3 P0<A0 {p0_lt_a0}/{n}(>= {need}) & Wilcoxon p={p_a0:.6f}<0.05: "
+        f"{'PASS' if g3 else 'FAIL'}"
+    )
     g4 = p_a1 < 0.01
     print(f"  G9-4 Wilcoxon P4 vs A1 p={p_a1:.6f}<0.01: {'PASS' if g4 else 'FAIL'}")
     print("  G9-C6/C7: see tests/test_confidence_gated_policy.py")
@@ -146,11 +174,15 @@ def gate() -> None:
     print(f"\n  G9: {'MET' if met else 'NOT MET'}")
     if not met:
         if not g3:
-            print("\n  Confidence-gating the policy temperature adds nothing over the "
-                  "relevance-field schedule (P0 ~= A0) — 6th bitter-lesson occurrence.")
+            print(
+                "\n  Confidence-gating the policy temperature adds nothing over the "
+                "relevance-field schedule (P0 ~= A0) — 6th bitter-lesson occurrence."
+            )
         elif not (g1 and g2):
-            print("\n  The post-shift ceiling is not removable by subject-side temperature "
-                  "control at this scale; genuine C6 relaxation stays founder-reserved (ADR-0023 S8).")
+            print(
+                "\n  The post-shift ceiling is not removable by subject-side temperature "
+                "control at this scale; genuine C6 relaxation stays founder-reserved (ADR-0023 S8)."
+            )
 
 
 if __name__ == "__main__":

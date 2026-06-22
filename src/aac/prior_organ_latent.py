@@ -21,6 +21,7 @@ exposes it for scoring/debug.
 Params marked FROZEN are set via experiments/latent_regime_g7.py calibrate on
 disjoint seeds 200..219. Do not retune after seeing G7 r-final.
 """
+
 from __future__ import annotations
 
 import math
@@ -99,14 +100,15 @@ class LatentRegimeOrgan:
 
     def _accumulate(self, s: float) -> None:
         self._mean = (1 - self.ema_lambda) * self._mean + self.ema_lambda * s
-        self._mean_sq = (
-            (1 - self.ema_lambda) * self._mean_sq + self.ema_lambda * s * s
-        )
+        self._mean_sq = (1 - self.ema_lambda) * self._mean_sq + self.ema_lambda * s * s
         self._seen += 1
 
     def _current_vector(self) -> dict[int, float]:
-        return {a: self._obs_sum[a] / self._obs_cnt[a]
-                for a in self._obs_cnt if self._obs_cnt[a] > 0}
+        return {
+            a: self._obs_sum[a] / self._obs_cnt[a]
+            for a in self._obs_cnt
+            if self._obs_cnt[a] > 0
+        }
 
     def _append_prototype(self, vec: dict[int, float], n_actions: int) -> None:
         mean_r = sum(vec.values()) / max(1, len(vec))
@@ -141,7 +143,7 @@ class LatentRegimeOrgan:
             return
         for k, proto in enumerate(self._prototypes):
             sigma = self.sigma if self._proto_known[k][action] else self.unknown_sigma
-            inv = 1.0 / (sigma ** 2)
+            inv = 1.0 / (sigma**2)
             diff = reward - proto[action]
             self._log_post[k] += -0.5 * diff * diff * inv
         self._normalise_posterior()
@@ -154,8 +156,7 @@ class LatentRegimeOrgan:
         known_mass: list[float] = []
         for a in range(n_actions):
             mass = sum(
-                w[k] for k in range(len(self._prototypes))
-                if self._proto_known[k][a]
+                w[k] for k in range(len(self._prototypes)) if self._proto_known[k][a]
             )
             known_mass.append(mass)
             if mass <= 0.0:
@@ -166,7 +167,8 @@ class LatentRegimeOrgan:
                         w[k] * self._prototypes[k][a]
                         for k in range(len(self._prototypes))
                         if self._proto_known[k][a]
-                    ) / mass
+                    )
+                    / mass
                 )
         return means, known_mass
 
@@ -181,18 +183,16 @@ class LatentRegimeOrgan:
         w = _softmax_weights(self._log_post)
         result = []
         for a in range(n_actions):
-            known = [k for k in range(len(self._prototypes))
-                     if self._proto_known[k][a]]
+            known = [k for k in range(len(self._prototypes)) if self._proto_known[k][a]]
             mass = sum(w[k] for k in known)
             if len(known) < 2 or mass <= 0.0:
                 result.append(0.0)
                 continue
             mean = sum(w[k] * self._prototypes[k][a] for k in known) / mass
             var = sum(
-                (w[k] / mass) * (self._prototypes[k][a] - mean) ** 2
-                for k in known
+                (w[k] / mass) * (self._prototypes[k][a] - mean) ** 2 for k in known
             )
-            result.append(var ** 0.5)
+            result.append(var**0.5)
         return result
 
     def _finalise_and_match(self, n_actions: int) -> int:
@@ -243,7 +243,7 @@ class LatentRegimeOrgan:
             return OrganAdvice()
 
         var = max(0.0, self._mean_sq - self._mean * self._mean)
-        spike = s > self._mean + self.spike_k * var ** 0.5
+        spike = s > self._mean + self.spike_k * var**0.5
         self._accumulate(s)
         self._since_shift += 1
 
@@ -253,9 +253,7 @@ class LatentRegimeOrgan:
             self._since_shift = 0
             self._ablation_injected = False
             self._reset_posterior(departed_index=departed)
-            belief_delta = {
-                a: -belief_readonly.mu[a] for a in range(n)
-            }
+            belief_delta = {a: -belief_readonly.mu[a] for a in range(n)}
             uncertainty_delta = {
                 a: 1.0 - belief_readonly.uncertainty[a] for a in range(n)
             }
@@ -265,7 +263,12 @@ class LatentRegimeOrgan:
                 uncertainty=0.5,
             )
 
-        if self.bayesian_update and isinstance(la, int) and lr is not None and self._log_post:
+        if (
+            self.bayesian_update
+            and isinstance(la, int)
+            and lr is not None
+            and self._log_post
+        ):
             self._update_likelihood(la, float(lr))
 
         if not self.continuous_inject:
@@ -276,8 +279,7 @@ class LatentRegimeOrgan:
         if not self._prototypes or not self._log_post:
             return OrganAdvice()
 
-        if (not self._posterior_active
-                and len(self._obs_cnt) < self.min_posterior_obs):
+        if not self._posterior_active and len(self._obs_cnt) < self.min_posterior_obs:
             return OrganAdvice()
 
         self._last_confidence = self._confidence()

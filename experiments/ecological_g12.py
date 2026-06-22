@@ -1,4 +1,5 @@
 """ADR-0035/G12: P7 transferable ecological-structure environment gate."""
+
 from __future__ import annotations
 
 import json
@@ -54,7 +55,9 @@ def g12_cells() -> tuple[G12Cell, ...]:
         G12Cell("C00", structured=False, reversible=True, label="thin/reversible"),
         G12Cell("C01", structured=False, reversible=False, label="thin/irreversible"),
         G12Cell("C10", structured=True, reversible=True, label="ecological/reversible"),
-        G12Cell("C11", structured=True, reversible=False, label="ecological/irreversible"),
+        G12Cell(
+            "C11", structured=True, reversible=False, label="ecological/irreversible"
+        ),
     )
 
 
@@ -193,10 +196,14 @@ def _mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
-def _bootstrap_ci(values: list[float], n: int = 2000, seed: int = 12345) -> tuple[float, float]:
+def _bootstrap_ci(
+    values: list[float], n: int = 2000, seed: int = 12345
+) -> tuple[float, float]:
     rng = random.Random(seed)
     m = len(values)
-    means = sorted(sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n))
+    means = sorted(
+        sum(values[rng.randrange(m)] for _ in range(m)) / m for _ in range(n)
+    )
     return means[int(0.025 * n)], means[int(0.975 * n)]
 
 
@@ -216,9 +223,7 @@ def cell_stats(
     damage_diffs = [cheap_damage[i] - p0_damage[i] for i in range(len(p0_damage))]
     damage_ci = _bootstrap_ci(damage_diffs)
     damage_adv = (
-        1.0 - _mean(p0_damage) / _mean(cheap_damage)
-        if _mean(cheap_damage)
-        else 0.0
+        1.0 - _mean(p0_damage) / _mean(cheap_damage) if _mean(cheap_damage) else 0.0
     )
     win = adv >= 0.20 and wins >= 24 and p < 0.01 and ci[0] > 0.0
     if irreversible:
@@ -277,15 +282,11 @@ def evaluate_g12(
             key=lambda arm: means[arm]["damage_weighted_loss"],
         )
         stats = cell_stats(
-            p0_loss=[
-                row["damage_weighted_loss"] for row in results[cell.name]["P0"]
-            ],
+            p0_loss=[row["damage_weighted_loss"] for row in results[cell.name]["P0"]],
             cheap_loss=[
                 row["damage_weighted_loss"] for row in results[cell.name][best_cheap]
             ],
-            p0_damage=[
-                row["irreversible_damage"] for row in results[cell.name]["P0"]
-            ],
+            p0_damage=[row["irreversible_damage"] for row in results[cell.name]["P0"]],
             cheap_damage=[
                 row["irreversible_damage"] for row in results[cell.name][best_cheap]
             ],
@@ -315,8 +316,12 @@ def evaluate_g12(
 
 
 def interpret_wins(summaries: dict[str, Any]) -> str:
-    wins = {cell: bool(s["stats_vs_best_cheap"]["win"]) for cell, s in summaries.items()}
-    adv = {cell: float(s["stats_vs_best_cheap"]["adv"]) for cell, s in summaries.items()}
+    wins = {
+        cell: bool(s["stats_vs_best_cheap"]["win"]) for cell, s in summaries.items()
+    }
+    adv = {
+        cell: float(s["stats_vs_best_cheap"]["adv"]) for cell, s in summaries.items()
+    }
     if wins["C11"] and (
         sum(wins.values()) == 1
         or all(adv["C11"] >= adv[cell] + 0.10 for cell in ("C00", "C01", "C10"))
@@ -334,7 +339,9 @@ def interpret_wins(summaries: dict[str, Any]) -> str:
 
 
 def write_result(result: dict[str, Any], path: Path = RESULT_JSON) -> None:
-    path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def _print_result(result: dict[str, Any]) -> None:

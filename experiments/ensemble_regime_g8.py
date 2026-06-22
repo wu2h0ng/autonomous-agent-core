@@ -20,6 +20,7 @@ Gate criteria (ADR-0022 S4):
 Run: PYTHONPATH=src python -m experiments.ensemble_regime_g8 [calibrate]
 (G8 shares experiments/_g7_common and imports as a package, so run with -m.)
 """
+
 from __future__ import annotations
 
 import itertools
@@ -133,22 +134,30 @@ def gate() -> None:
 
     print("\nG8 PRE-REGISTERED GATE:")
     g8_1 = means["O5"] <= (1 - delta) * means["O1"]
-    print(f"  G8-1 mean(O5)={means['O5']:.1f} <= "
-          f"{(1 - delta) * means['O1']:.1f}=(1-{delta})*mean(O1): "
-          f"{'PASS' if g8_1 else 'FAIL'}")
+    print(
+        f"  G8-1 mean(O5)={means['O5']:.1f} <= "
+        f"{(1 - delta) * means['O1']:.1f}=(1-{delta})*mean(O1): "
+        f"{'PASS' if g8_1 else 'FAIL'}"
+    )
 
     need = math.ceil(0.9 * n)
     g8_2 = o5_vs_o2_wins >= need
-    print(f"  G8-2 O5<O2 {o5_vs_o2_wins}/{n} (need >={need}): "
-          f"{'PASS' if g8_2 else 'FAIL'}")
+    print(
+        f"  G8-2 O5<O2 {o5_vs_o2_wins}/{n} (need >={need}): "
+        f"{'PASS' if g8_2 else 'FAIL'}"
+    )
 
     g8_3 = means["O5"] < means["O4"] and p_o4 < 0.05
-    print(f"  G8-3 mean(O5)<mean(O4) and Wilcoxon O5vsO4 p={p_o4:.6f}<0.05: "
-          f"{'PASS' if g8_3 else 'FAIL'}")
+    print(
+        f"  G8-3 mean(O5)<mean(O4) and Wilcoxon O5vsO4 p={p_o4:.6f}<0.05: "
+        f"{'PASS' if g8_3 else 'FAIL'}"
+    )
 
     g8_4 = p_o1 < 0.01 and p_o2 < 0.01
-    print(f"  G8-4 Wilcoxon O5vsO1 p={p_o1:.6f} and O5vsO2 p={p_o2:.6f} both<0.01: "
-          f"{'PASS' if g8_4 else 'FAIL'}")
+    print(
+        f"  G8-4 Wilcoxon O5vsO1 p={p_o1:.6f} and O5vsO2 p={p_o2:.6f} both<0.01: "
+        f"{'PASS' if g8_4 else 'FAIL'}"
+    )
 
     print("  G8-C6 organ-not-subject: see unit tests")
     print("  G8-C7 corrigibility: see unit tests")

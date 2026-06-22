@@ -20,6 +20,7 @@ Belief-only (imports no policy/shell). Constants here are design-set; they must
 be FROZEN via a disjoint-seed calibration scan before the G5 r-final (T-P4.4),
 mirroring O1 — do not retune after seeing G5.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -87,7 +88,9 @@ class AdaptiveHazardOrgan:
         var = max(0.0, self._mean_sq - self._mean * self._mean)
         std = var**0.5
         # Threshold adapts to hazard: rarer shifts -> higher k (more conservative).
-        spike_k = _clip(self.k_base * self._tau_hat / self.k_ref_tau, self.k_min, self.k_max)
+        spike_k = _clip(
+            self.k_base * self._tau_hat / self.k_ref_tau, self.k_min, self.k_max
+        )
         self._last_spike_k = spike_k
         spike = s > self._mean + spike_k * std
         self._accumulate(s)
@@ -96,7 +99,9 @@ class AdaptiveHazardOrgan:
         # Update the hazard estimate from the observed inter-shift interval.
         if self._last_shift_step is not None:
             interval = self._step - self._last_shift_step
-            self._tau_hat = (1 - self.tau_lambda) * self._tau_hat + self.tau_lambda * interval
+            self._tau_hat = (
+                1 - self.tau_lambda
+            ) * self._tau_hat + self.tau_lambda * interval
         self._last_shift_step = self._step
         # Reset aggressiveness adapts to hazard: frequent shifts -> stronger reset.
         reset_strength = _clip(self.rs_c / self._tau_hat, self.rs_min, self.rs_max)
@@ -104,7 +109,8 @@ class AdaptiveHazardOrgan:
         n = belief_readonly.n_actions
         belief_delta = {a: -self.mu_decay * belief_readonly.mu[a] for a in range(n)}
         uncertainty_delta = {
-            a: reset_strength * (self.prior_uncertainty - belief_readonly.uncertainty[a])
+            a: reset_strength
+            * (self.prior_uncertainty - belief_readonly.uncertainty[a])
             for a in range(n)
         }
         return OrganAdvice(

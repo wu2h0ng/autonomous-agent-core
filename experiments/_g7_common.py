@@ -3,6 +3,7 @@
 Extracted from experiments/latent_regime_g7.py to avoid duplication.
 All functions are pure stdlib; no external dependencies.
 """
+
 from __future__ import annotations
 
 import random
@@ -125,7 +126,7 @@ def wilcoxon_one_sided(ds: list[float]) -> float:
         dp = new_dp
 
     count_ge = sum(c for s, c in dp.items() if s >= w_obs)
-    return count_ge / (2 ** n)
+    return count_ge / (2**n)
 
 
 def format_table(

@@ -9,6 +9,7 @@ faster reconvergence).
 
 Run: PYTHONPATH=src python experiments/o2_calibration.py
 """
+
 from __future__ import annotations
 
 import random
@@ -29,10 +30,15 @@ TAU_LAMBDA_GRID = (0.15, 0.3, 0.45)
 def post_shift_regret_area(seed: int, organ) -> float:
     env = StalenessEnv(n_actions=N_ACTIONS, rng=random.Random(7000 + seed))
     shell = CorrigibilityShell()
-    viability = ViabilityCore(budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0)
+    viability = ViabilityCore(
+        budget=1e9, metabolic_cost=0.0, capacity=1e9, safe_budget=1.0
+    )
     agent = Agent(
-        n_actions=N_ACTIONS, shell=shell, rng=random.Random(8000 + seed),
-        viability=viability, prior_organ=organ,
+        n_actions=N_ACTIONS,
+        shell=shell,
+        rng=random.Random(8000 + seed),
+        viability=viability,
+        prior_organ=organ,
     )
     area = 0.0
     window_left = 0

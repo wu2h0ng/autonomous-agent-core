@@ -17,6 +17,7 @@ must clearly beat to justify learning (ADR-0016 §3). Its parameters are FROZEN
 from an offline calibration scan on disjoint seeds (experiments/o1_calibration.py);
 they are not retuned after seeing G5.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -66,7 +67,8 @@ class ResetScaffoldOrgan:
         n = belief_readonly.n_actions
         belief_delta = {a: -self.mu_decay * belief_readonly.mu[a] for a in range(n)}
         uncertainty_delta = {
-            a: self.reset_strength * (self.prior_uncertainty - belief_readonly.uncertainty[a])
+            a: self.reset_strength
+            * (self.prior_uncertainty - belief_readonly.uncertainty[a])
             for a in range(n)
         }
         return OrganAdvice(

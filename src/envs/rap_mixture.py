@@ -1,4 +1,5 @@
 """Perturbed task mixture for P3 RAP baselines (T-P3.2, ADR-0014)."""
+
 from __future__ import annotations
 
 import random
@@ -168,7 +169,9 @@ class RAPPerturbationEnv:
                 else None
             ),
             "lagged_node": (
-                segment.node_id if segment.disturbance is DisturbanceKind.NODE_LAG else None
+                segment.node_id
+                if segment.disturbance is DisturbanceKind.NODE_LAG
+                else None
             ),
             "step": self.t,
             "segment_elapsed": self._segment_elapsed,
@@ -211,7 +214,9 @@ class RAPPerturbationEnv:
             self._env.regime_period = max(self.base_regime_period, segment.length + 1)
             self._env.noise = self.base_noise
         elif segment.kind is SegmentKind.SHIFTING:
-            self._env.regime_period = max(5, min(self.base_regime_period, segment.length // 4))
+            self._env.regime_period = max(
+                5, min(self.base_regime_period, segment.length // 4)
+            )
             self._env.noise = self.base_noise
         elif segment.kind is SegmentKind.NOISY:
             self._env.regime_period = max(self.base_regime_period, segment.length + 1)
