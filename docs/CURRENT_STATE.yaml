@@ -1,4 +1,4 @@
-updated: "2026-06-15"
+updated: "2026-06-22"
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
@@ -7,6 +7,10 @@ status: "Stage 1 complete; P5 substrate harvest underway; critical-fix hygiene c
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
+  interpretation_boundary:
+    - "P5 is a necessary deployment projection of validated safety/governance substrate, not proof that true autonomous intelligence, RSI, AGI, or a complete Agent OS product has been achieved."
+    - "P5 harvests non-bypassable mediation, corrigibility, and organ-not-subject separation into the enterprise OS."
+    - "G10-style subject-side belief-to-action coupling remains a core research result; any enterprise analogue needs a fresh enterprise-domain preregistered validation gate before being claimed."
   completed:
     - "Stage 1 Trusted Business Loop MVP complete as of 2026-06-11"
     - "PR-01 through PR-06 merged to main"
@@ -15,12 +19,14 @@ current_stage:
     - "P5.2a corrigibility pause shell complete"
     - "Critical-fix cleanup complete: SQL LIMIT lower bound, CLI env-store parity, knowledge/index atomicity, atomic knowledge version bump"
   immediate_next:
-    id: "P5-decision-gated-next-slice"
-    description: "Select the next decision-gated slice: PR-07 frontend, ActionProposal routing, pgvector pushdown, OTel bridge, Stage 2, or P5.2b/c."
+    id: "ADR-0002-governed-action-outcome-loop-v0-gate"
+    description: "Review Proposed ADR-0002 and its SPEC before any governed-action outcome-loop implementation; fallback next-slice options remain PR-07 frontend, pgvector pushdown, OTel bridge, Stage 2, or P5.2b/c."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
     - "Automatic production R4/R5 action execution"
+    - "P5 as proof that autonomous intelligence productization is complete"
+    - "Directly transplanting or claiming G10 in the enterprise OS without a product-domain validation gate"
 
 last_verified_tests:
   command: "pytest unit + eval suites; OpenAPI contract check; ruff check + format check"
@@ -40,10 +46,15 @@ authoritative_records:
   current_decisions:
     - "docs/decisions/ADR-0001-p5-substrate-harvest.md"
     - "docs/decisions/ADR-0001-P5.1b-current-addendum.md"
+    - "docs/decisions/ADR-0001-P5.2a-current-addendum.md"
     - "docs/architecture_reviews/AR-20260614-p5.1b-adoption-driven-knowledge.md"
     - "docs/architecture_reviews/AR-20260614-p5.1b-ii-grounding-invariant.md"
     - "docs/architecture_reviews/AR-20260614-p5.2-corrigibility-shell.md"
     - "docs/architecture_reviews/AR-20260615-critical-fix-cleanup.md"
+  proposed_decisions:
+    - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md"
+    - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.goal-card.md"
+    - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.SPEC.md"
   archived_baseline:
     - "docs/project_baseline/"
 
@@ -54,11 +65,18 @@ scope:
     - "Deployment-layer projection of validated autonomous-core substrate"
   does_not_own:
     - "Autonomous-core falsification gates"
+    - "Proof of general autonomy, RSI, or AGI product completion"
     - "Meta-layer workflow automation runtime"
     - "LLM or open-source agent framework as Core runtime dependency"
     - "Customer-0 domain logic inside OS Core"
 
 open_items:
+  proposed_decisions_pending_gate:
+    - id: "ADR-0002-governed-action-outcome-loop-v0"
+      status: "Proposed"
+      gate: "CEO -> Product -> Architecture -> CTO before runtime implementation"
+      scope: "One reversible governed action loop with CLI adopt, causal attribution, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
+      freshness_note: "POST /adoptions already exists and is wired to AdoptionIngest; missing pieces are CLI adopt, causal attribution, dry-run/idempotency, approval-resume execution, and end-to-end eval."
   blocked_on_decision_or_environment:
     - "PR-07 Frontend F1 blueprint"
     - "ActionProposal routing to real write connector"
