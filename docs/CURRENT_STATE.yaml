@@ -3,7 +3,7 @@ project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half pushed to main; local dev/CI parity targets merged and CI-green; pending release authorization"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half pushed to main; explicit ActionProposal-to-action_record routing implemented locally and CI-green; pending release authorization"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -20,9 +20,10 @@ current_stage:
     - "Critical-fix cleanup complete: SQL LIMIT lower bound, CLI env-store parity, knowledge/index atomicity, atomic knowledge version bump"
     - "ADR-0002 lower-half contracts complete: causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring"
     - "ADR-0002 upper-half local implementation complete: CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and rollback demonstration"
+    - "Explicit action-record intent routing complete: grounded action-record/follow-up requests now route to the reversible action_record connector, halt for approval, and execute only through approval-resume"
   immediate_next:
-    id: "ADR-0002-push-and-release-gate"
-    description: "Decide whether to push/PR/release the local ADR-0002 upper-half implementation. Do not claim external release or automatic R4/R5 execution."
+    id: "release-gate-and-next-runtime-slice"
+    description: "Release authorization remains pending. Continue product runtime increments toward user-facing analysis/report/dashboard/action loops; do not claim external release or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -32,8 +33,8 @@ current_stage:
 
 last_verified_tests:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "353 unit tests OK, 4 skipped; OpenAPI drift target executes with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
-  source: "local verification after adding bootstrap-dev / ci-local-full parity targets on top of ADR-0002 upper-half implementation and Makefile PYTHONPATH parity"
+  result: "354 unit tests OK, 4 skipped; OpenAPI drift target executes with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
+  source: "local verification after adding explicit action-record intent routing on top of ADR-0002 upper-half implementation and Makefile PYTHONPATH parity"
   verified_at: "2026-06-23"
 
 last_verified_eval:
@@ -83,11 +84,10 @@ open_items:
     - id: "ADR-0002-governed-action-outcome-loop-v0"
       status: "Accepted; lower-half implemented in commit e802377; upper-half implemented locally on main"
       gate: "R3 runtime work is pushed to main and remains pending release authorization; no external release performed by this run"
-      scope: "One reversible governed action loop with CLI adopt, causal attribution, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
-      freshness_note: "Lower-half covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Upper-half covers CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and one rollback demonstration, with review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace."
+      scope: "One reversible governed action loop with CLI adopt, causal attribution, explicit action-record intent routing, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
+      freshness_note: "Lower-half covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Upper-half covers CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and one rollback demonstration, with review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace. Explicit grounded follow-up/action-record user intent now routes to action_record but remains approval-bound."
   blocked_on_decision_or_environment:
     - "PR-07 Frontend F1 blueprint"
-    - "ActionProposal routing to real write connector"
     - "pgvector pushdown + HNSW"
     - "OTel bridge"
     - "Stage 2 / Temporal / DataProduct Compiler v1"

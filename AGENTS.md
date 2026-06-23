@@ -1,8 +1,8 @@
 # AGENTS.md — ai-native-business-data-agent-os
 
-> Last updated: 2026-06-22  
+> Last updated: 2026-06-23
 > Role in workspace: **Deployment Layer** (enterprise OS, future downgrade projection of `autonomous-agent-core/`)
-> Current next decision: **ADR-0002 governed-action outcome-loop v0** is Proposed/gated (runtime not started); it is the next implementation plan. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
+> Current next decision: release authorization remains pending after ADR-0002 governed-action outcome-loop v0 implementation and explicit action-record intent routing. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
 
 ## Scope
 
@@ -14,7 +14,7 @@ For the three-repo role map, see the baseline workspace `.agent` file and `docs/
 
 PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: 315 unit tests passing, 2 eval tests passing, OpenAPI contract clean, ruff clean.
 
-Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
+Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), approval-bound action-record intent routing, P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
 
 ## Hard Boundaries
 
@@ -72,7 +72,6 @@ Before marking a task complete, state:
 ## Remaining Items (Blocked on User Decisions/Environment)
 
 - PR-07 Frontend F1 blueprint: pending CTO review
-- ActionProposal routing to real write connector: pending product decision
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval

@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current implementation slice (2026-06-23):** **ADR-0002 — governed-action outcome-loop v0** is **Accepted**. Lower-half contracts are implemented (causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring), and the scoped upper-half is pushed on `main`: CLI `adopt`, approval-resume governed execution, approval-bound operation/action/evidence checks, D6 red eval, and one rollback demonstration. This remains pending release authorization and does not add automatic R4/R5 execution. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
+**Current implementation slice (2026-06-23):** **ADR-0002 — governed-action outcome-loop v0** is **Accepted**. Lower-half contracts are implemented (causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring), and the scoped upper-half is pushed on `main`: CLI `adopt`, approval-resume governed execution, approval-bound operation/action/evidence checks, D6 red eval, and one rollback demonstration. Explicit grounded follow-up/action-record user intent now routes to the reversible `action_record` connector and remains approval-bound until approval-resume execution. This remains pending release authorization and does not add automatic R4/R5 execution. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
 
 ## Project Position (2026-06-12 repositioning)
 
@@ -25,7 +25,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local verification is 353 unit tests OK, 4 skipped, and 12 eval tests OK, with OpenAPI contract tests executing under installed FastAPI/httpx dependencies.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local verification is 354 unit tests OK, 4 skipped, and 12 eval tests OK, with OpenAPI contract tests executing under installed FastAPI/httpx dependencies.
 
 ### Delivered Capabilities
 
@@ -133,7 +133,6 @@ python -m agent_os_api.openapi_contract --check
 ## Remaining Items (Blocked on Decisions/Environment)
 
 - PR-07 Frontend F1 blueprint: pending CTO review
-- ActionProposal routing to real write connector: pending product decision
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval

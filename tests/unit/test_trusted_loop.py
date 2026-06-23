@@ -24,6 +24,7 @@ from agent_os_contracts import (  # noqa: E402
 from agent_os_core import ProviderRegistry, SemanticRegistry, TrustedLoopRuntime  # noqa: E402
 from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
+from action_record import ActionRecordConnector, ActionRecordStore  # noqa: E402
 from manual_review import ManualReviewConnector  # noqa: E402
 
 
@@ -83,6 +84,41 @@ def _build_spy_connector_registry(spy: _ExecutionSpyConnector) -> ActionConnecto
         owner="system",
     )
     registry.register(spy, contract)
+    return registry
+
+
+def _build_action_record_connector_registry(
+    store: ActionRecordStore,
+) -> ActionConnectorRegistry:
+    registry = ActionConnectorRegistry()
+    registry.register(
+        ManualReviewConnector(),
+        ActionConnectorContract(
+            connector_name="manual_review",
+            display_name="Manual Review",
+            supported_action_types=("propose", "execute"),
+            supports_snapshot=False,
+            supports_rollback=False,
+            compensating_action_description=None,
+            risk_ceiling="R5",
+            owner="system",
+        ),
+    )
+    registry.register(
+        ActionRecordConnector(store=store),
+        ActionConnectorContract(
+            connector_name="action_record",
+            display_name="Action Record",
+            supported_action_types=("execute",),
+            supports_snapshot=True,
+            supports_rollback=True,
+            compensating_action_description=(
+                "Restore the action record store to the pre-execution snapshot state"
+            ),
+            risk_ceiling="R3",
+            owner="system",
+        ),
+    )
     return registry
 
 
@@ -415,6 +451,50 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         trace_steps = [event.step for event in result.trace_events]
         self.assertIn("connector_execute", trace_steps)
         self.assertNotIn("awaiting_approval", trace_steps)
+
+    def test_explicit_action_record_intent_routes_to_real_connector_after_approval(self) -> None:
+        """A user-visible action request routes to a real reversible connector,
+        but remains approval-bound until the operator approves it."""
+        store = ActionRecordStore()
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_action_record_connector_registry(store),
+        )
+        result = runtime.run(
+            "记录行动：基于最近7天GMV创建一个跟进行动",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertEqual(result.action_proposal.connector_name, "action_record")
+        self.assertEqual(result.action_proposal.action_type, "execute")
+        self.assertEqual(result.action_proposal.risk_level, RiskLevel.R3)
+        self.assertTrue(result.action_proposal.approval_required)
+        self.assertEqual(result.action_proposal.action_parameters["metric_name"], "gmv")
+        self.assertEqual(result.operation_contract.connector_name, "action_record")
+        self.assertTrue(result.operation_contract.approval_required)
+        self.assertTrue(result.operation_contract.snapshot_required)
+        self.assertTrue(result.operation_contract.rollback_supported)
+        self.assertEqual(result.action_result["status"], "awaiting_approval")
+        self.assertEqual(store.records(), ())
+        self.assertNotIn("connector_execute", [event.step for event in result.trace_events])
+
+        self.assertIsNotNone(result.approval_record)
+        runtime.approval_runtime.approve(result.approval_record.approval_id, reason="approved")
+        operation_trace = runtime.execute_approved_operation(
+            approval_id=result.approval_record.approval_id,
+            operation=result.operation_contract,
+            action_parameters=result.action_proposal.action_parameters,
+            evidence_chain=result.evidence_chain,
+            proposal_id=result.action_proposal.proposal_id,
+        )
+
+        self.assertEqual(operation_trace.state, OperationState.EXECUTED)
+        self.assertEqual(len(store.records()), 1)
+        self.assertEqual(store.records()[0]["action_type"], "execute")
+        self.assertEqual(
+            store.records()[0]["parameters"]["evidence_chain_id"],
+            result.evidence_chain.evidence_chain_id,
+        )
 
     def test_nonexistent_connector_raises_keyerror(self) -> None:
         """Requesting a nonexistent connector should raise KeyError."""
