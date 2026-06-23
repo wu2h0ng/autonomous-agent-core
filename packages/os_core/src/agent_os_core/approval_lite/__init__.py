@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from agent_os_contracts import EvidenceChain, OperationContract
@@ -69,8 +70,19 @@ class ApprovalContextStorePort(ABC):
         ...
 
     @abstractmethod
-    def claim(self, approval_id: str) -> ApprovalOperationContext | None:
-        """Atomically mark a pending context as executing and return it."""
+    def claim(
+        self,
+        approval_id: str,
+        *,
+        reclaim_stale_after_seconds: float | None = None,
+    ) -> ApprovalOperationContext | None:
+        """Atomically mark a pending context as executing and return it.
+
+        When ``reclaim_stale_after_seconds`` is provided, durable stores may
+        reclaim an already-executing context only if its claim lease is older
+        than that age. This is crash recovery for abandoned claims, not a
+        distributed exactly-once guarantee.
+        """
         ...
 
     @abstractmethod
@@ -104,6 +116,7 @@ class InMemoryApprovalContextStore(ApprovalContextStorePort):
     def __init__(self) -> None:
         self._contexts: dict[str, ApprovalOperationContext] = {}
         self._statuses: dict[str, str] = {}
+        self._claimed_at: dict[str, datetime] = {}
 
     def save(self, context: ApprovalOperationContext) -> ApprovalOperationContext:
         self._contexts[context.approval_id] = context
@@ -113,22 +126,38 @@ class InMemoryApprovalContextStore(ApprovalContextStorePort):
     def get(self, approval_id: str) -> ApprovalOperationContext | None:
         return self._contexts.get(approval_id)
 
-    def claim(self, approval_id: str) -> ApprovalOperationContext | None:
-        if self._statuses.get(approval_id) != "pending":
+    def claim(
+        self,
+        approval_id: str,
+        *,
+        reclaim_stale_after_seconds: float | None = None,
+    ) -> ApprovalOperationContext | None:
+        status = self._statuses.get(approval_id)
+        if status == "executing" and reclaim_stale_after_seconds is not None:
+            claimed_at = self._claimed_at.get(approval_id)
+            if claimed_at is None:
+                return None
+            elapsed = (datetime.now(timezone.utc) - claimed_at).total_seconds()
+            if elapsed < reclaim_stale_after_seconds:
+                return None
+        elif status != "pending":
             return None
         context = self._contexts.get(approval_id)
         if context is None:
             return None
         self._statuses[approval_id] = "executing"
+        self._claimed_at[approval_id] = datetime.now(timezone.utc)
         return context
 
     def release_claim(self, approval_id: str) -> None:
         if self._statuses.get(approval_id) == "executing":
             self._statuses[approval_id] = "pending"
+            self._claimed_at.pop(approval_id, None)
 
     def delete(self, approval_id: str) -> None:
         self._contexts.pop(approval_id, None)
         self._statuses.pop(approval_id, None)
+        self._claimed_at.pop(approval_id, None)
 
 
 class ApprovalLiteRuntime:

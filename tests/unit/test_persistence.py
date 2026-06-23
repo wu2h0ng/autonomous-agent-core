@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -231,6 +232,32 @@ class PersistenceRepositoriesTest(unittest.TestCase):
 
         store.delete("approval-context-claim")
         self.assertIsNone(store.claim("approval-context-claim"))
+
+    def test_approval_context_claim_reclaims_only_stale_executing_context(self) -> None:
+        from agent_os_persistence import SqlApprovalContextStore
+
+        current_time = datetime(2026, 6, 23, 12, 0, tzinfo=timezone.utc)
+
+        def clock() -> datetime:
+            return current_time
+
+        store = SqlApprovalContextStore(self.engine, clock=clock)
+        context = self._approval_context("approval-context-stale", "proposal-context-stale")
+
+        store.save(context)
+        self.assertEqual(
+            store.claim("approval-context-stale", reclaim_stale_after_seconds=60),
+            context,
+        )
+
+        current_time += timedelta(seconds=59)
+        self.assertIsNone(store.claim("approval-context-stale", reclaim_stale_after_seconds=60))
+
+        current_time += timedelta(seconds=2)
+        self.assertEqual(
+            store.claim("approval-context-stale", reclaim_stale_after_seconds=60),
+            context,
+        )
 
     def test_snapshot_round_trip_and_rewrite(self) -> None:
         from agent_os_persistence import SqlSnapshotStore

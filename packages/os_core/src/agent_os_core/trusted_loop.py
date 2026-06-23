@@ -129,6 +129,7 @@ class TrustedLoopRuntime:
         adoption_ledger_view: AdoptionLedgerView | None = None,
         shell_view: ShellView | None = None,
         approval_context_store: ApprovalContextStorePort | None = None,
+        approval_context_reclaim_after_seconds: float | None = 300.0,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -208,6 +209,7 @@ class TrustedLoopRuntime:
         # replaying operation/evidence/action payloads. The default is in-memory;
         # durable deployments inject a persistence-backed store at composition time.
         self.approval_context_store = approval_context_store or InMemoryApprovalContextStore()
+        self.approval_context_reclaim_after_seconds = approval_context_reclaim_after_seconds
         self._pending_operation_lock = threading.RLock()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
@@ -661,7 +663,10 @@ class TrustedLoopRuntime:
         that could be incomplete or tampered with.
         """
         with self._pending_operation_lock:
-            context = self.approval_context_store.claim(approval_id)
+            context = self.approval_context_store.claim(
+                approval_id,
+                reclaim_stale_after_seconds=self.approval_context_reclaim_after_seconds,
+            )
             if context is None:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
             try:

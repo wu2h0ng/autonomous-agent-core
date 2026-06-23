@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -136,6 +137,54 @@ class FactoryPostgresStoreTest(unittest.TestCase):
             records[0]["parameters"]["evidence_chain_id"],
             result.evidence_chain.evidence_chain_id,
         )
+
+        runtime3 = ContentCommerceRuntimeFactory(config).build()
+        with self.assertRaises(KeyError):
+            runtime3.execute_pending_approved_operation(approval_id=approval_id)
+
+    def test_stale_approval_context_claim_recovers_across_runtime_instances(self) -> None:
+        from agent_os_contracts import OperationState
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+        from agent_os_persistence import approval_operation_contexts
+
+        engine = self._engine()
+        config = self._config(engine)
+
+        runtime1 = ContentCommerceRuntimeFactory(config).build()
+        result = runtime1.run("GMV 记录行动", dict(RUN_PARAMS))
+        approval_id = result.approval_record.approval_id
+        self.assertEqual(result.action_result["status"], "awaiting_approval")
+
+        # Simulate a process crash after claiming the durable context but before
+        # release/delete. A later runtime must reclaim only after the lease is stale.
+        self.assertIsNotNone(runtime1.approval_context_store.claim(approval_id))
+        with engine.begin() as conn:
+            row = conn.execute(
+                approval_operation_contexts.select().where(
+                    approval_operation_contexts.c.approval_id == approval_id
+                )
+            ).fetchone()
+            payload = dict(row.payload)
+            payload["_claim"] = {
+                "claimed_at": datetime(1970, 1, 1, tzinfo=timezone.utc).isoformat()
+            }
+            conn.execute(
+                approval_operation_contexts.update()
+                .where(approval_operation_contexts.c.approval_id == approval_id)
+                .values(payload=payload, status="executing")
+            )
+
+        runtime2 = ContentCommerceRuntimeFactory(config).build()
+        approval, operation_trace = runtime2.approve_and_execute_pending_operation(
+            approval_id=approval_id,
+            reason="approved after stale claim",
+            approved_by="ops@example.com",
+        )
+
+        self.assertEqual(approval.status, "approved")
+        self.assertEqual(operation_trace.state, OperationState.EXECUTED)
+        records = runtime2.connector_registry.get("action_record").store.records()
+        self.assertEqual(len(records), 1)
 
         runtime3 = ContentCommerceRuntimeFactory(config).build()
         with self.assertRaises(KeyError):

@@ -16,6 +16,7 @@ import json
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from agent_os_contracts import FeedbackEvent, KnowledgeAsset, RunTrace, StateSnapshot
@@ -45,6 +46,10 @@ def _conflict_summary(payload: dict[str, object]) -> dict[str, object]:
         "action_type": payload["action_type"],
         "parameters_fingerprint": _fingerprint(dict(payload["parameters"])),
     }
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class _SqlStoreBase:
@@ -375,6 +380,10 @@ class SqlApprovalStore(_SqlStoreBase, ApprovalStorePort):
 class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
     """Approval-resume context store backed by SQLAlchemy Core."""
 
+    def __init__(self, bind: Engine | Connection, *, clock: Callable[[], datetime] | None = None):
+        super().__init__(bind)
+        self._clock = clock or _utc_now
+
     def save(self, context: ApprovalOperationContext) -> ApprovalOperationContext:
         table = schema.approval_operation_contexts
         payload = mappers.approval_context_to_payload(context)
@@ -408,36 +417,85 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
             ).fetchone()
         return mappers.approval_context_from_payload(row[0]) if row is not None else None
 
-    def claim(self, approval_id: str) -> ApprovalOperationContext | None:
+    def claim(
+        self,
+        approval_id: str,
+        *,
+        reclaim_stale_after_seconds: float | None = None,
+    ) -> ApprovalOperationContext | None:
         table = schema.approval_operation_contexts
         with self._write() as conn:
+            row = conn.execute(
+                select(table.c.status, table.c.payload).where(table.c.approval_id == approval_id)
+            ).fetchone()
+            if row is None:
+                return None
+            status = row.status
+            payload = copy.deepcopy(dict(row.payload))
+            if status == "executing":
+                if not self._is_stale_claim(
+                    payload,
+                    reclaim_stale_after_seconds=reclaim_stale_after_seconds,
+                ):
+                    return None
+            elif status != "pending":
+                return None
+
+            claimed_payload = self._with_claim(payload)
             result = conn.execute(
                 table.update()
                 .where(table.c.approval_id == approval_id)
-                .where(table.c.status == "pending")
-                .values(status="executing")
+                .where(table.c.status == status)
+                .values(status="executing", payload=claimed_payload)
             )
             if result.rowcount != 1:
                 return None
-            row = conn.execute(
-                select(table.c.payload).where(table.c.approval_id == approval_id)
-            ).fetchone()
-        return mappers.approval_context_from_payload(row[0]) if row is not None else None
+        return mappers.approval_context_from_payload(claimed_payload)
 
     def release_claim(self, approval_id: str) -> None:
         table = schema.approval_operation_contexts
         with self._write() as conn:
+            row = conn.execute(
+                select(table.c.payload).where(table.c.approval_id == approval_id)
+            ).fetchone()
+            payload = copy.deepcopy(dict(row.payload)) if row is not None else {}
+            payload.pop("_claim", None)
             conn.execute(
                 table.update()
                 .where(table.c.approval_id == approval_id)
                 .where(table.c.status == "executing")
-                .values(status="pending")
+                .values(status="pending", payload=payload)
             )
 
     def delete(self, approval_id: str) -> None:
         table = schema.approval_operation_contexts
         with self._write() as conn:
             conn.execute(table.delete().where(table.c.approval_id == approval_id))
+
+    def _with_claim(self, payload: dict[str, object]) -> dict[str, object]:
+        updated = copy.deepcopy(payload)
+        updated["_claim"] = {"claimed_at": self._clock().astimezone(timezone.utc).isoformat()}
+        return updated
+
+    def _is_stale_claim(
+        self,
+        payload: dict[str, object],
+        *,
+        reclaim_stale_after_seconds: float | None,
+    ) -> bool:
+        if reclaim_stale_after_seconds is None:
+            return False
+        claim = payload.get("_claim")
+        if not isinstance(claim, dict):
+            return False
+        claimed_at_raw = claim.get("claimed_at")
+        if not isinstance(claimed_at_raw, str):
+            return False
+        claimed_at = datetime.fromisoformat(claimed_at_raw)
+        if claimed_at.tzinfo is None:
+            claimed_at = claimed_at.replace(tzinfo=timezone.utc)
+        elapsed = (self._clock().astimezone(timezone.utc) - claimed_at).total_seconds()
+        return elapsed >= reclaim_stale_after_seconds
 
 
 class SqlUnitOfWork:
