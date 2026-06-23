@@ -106,6 +106,9 @@ class ActionRecordConnectorTest(unittest.TestCase):
 
         self.assertEqual(first["record_id"], second["record_id"])
         self.assertEqual(second["status"], "idempotent_replay")
+        self.assertEqual(second["replay_status"], "idempotent_replay")
+        self.assertEqual(second["external_ack_status"], "not_applicable")
+        self.assertNotIn("last_replay_status", second)
         self.assertEqual(len(store.records()), 1)
 
     def test_idempotent_replay_updates_retry_audit_without_double_write(self) -> None:
@@ -140,8 +143,11 @@ class ActionRecordConnectorTest(unittest.TestCase):
         replay = connector.execute(operation, {"amount": 100, "secret": "raw-ack-token"})
 
         self.assertEqual(replay["status"], "idempotent_replay")
+        self.assertEqual(replay["replay_status"], "idempotent_replay_after_uncertain")
+        self.assertEqual(replay["external_ack_status"], "unknown")
         self.assertEqual(replay["execution_certainty"], "uncertain_recovered")
         self.assertEqual(replay["ack_status"], "lost_after_write_recovered_by_idempotency")
+        self.assertNotIn("last_replay_status", replay)
         self.assertEqual(len(store.records()), 1)
         record = store.records()[0]
         self.assertEqual(record["uncertain_execution_count"], 1)
