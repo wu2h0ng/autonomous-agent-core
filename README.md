@@ -54,11 +54,10 @@ BusinessIntent → SemanticObject → MetricContract → ProviderContract
 - TraceStorePort (InMemory default / SqlTraceStore + Alembic 0005)
 - `run()` dual-exit persistence (answers AND refusals equally auditable)
 - `GET /traces/{trace_id}` audit surface + CLI `trace` subcommand
-- Observability gate test (required trace steps and telemetry dimensions)
+- Runtime trace events include required governance steps and telemetry dimensions
 
-**API Contract** (OpenAPI snapshot gate):
+**API Contract / HTTP Surface**:
 - `apps/api_server/openapi.json` = typed API contract
-- Drift-gated by unit test + CI `--check` step
 - 422 block contract declared in schema
 - `POST /runs`, `POST /outcomes`, `GET /knowledge/search`, `GET /traces/{id}`
 - `POST /runs` returns typed `user_result` for direct client rendering: analysis, report with strongly typed evidence/source cards, chart-ready dashboard, audience-aware read-side redaction, decision, and approval-bound business action; the minimal HTTP principal/scope contract caps `external_report` to external projection and blocks non-run management surfaces with 403
@@ -82,6 +81,13 @@ BusinessIntent → SemanticObject → MetricContract → ProviderContract
 
 `BlockCode` / `TrustedLoopBlock` / `TrustedLoopOutcome` / `TrustedLoopBlocked`:
 distinguishes "expected business block" from "wiring error". `evaluate()` returns unified outcome without throwing.
+
+### Engineering Verification Gates
+
+- OpenAPI snapshot drift gate is enforced by unit test and CI `--check`.
+- Observability gate tests verify required trace steps and telemetry dimensions.
+- `make ci` runs ruff, format check, unittest discovery, eval subset, and OpenAPI drift check.
+- `ci-local-full` covers the disposable PostgreSQL parity path.
 
 ## Layout
 
