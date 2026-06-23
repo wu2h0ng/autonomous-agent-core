@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from aac.g_eco import (
+    GEcoHalt,
     GEcoMetrics,
     assert_no_calibration_refs_in_rfinal,
     build_baseline_audit,
@@ -23,6 +24,7 @@ from aac.g_eco import (
     build_g_eco_arms,
     rfinal_arm_names,
     scan_rate_grid,
+    verify_content_hash,
 )
 from envs.ecological_4cond import Ecological4CondEnv
 
@@ -30,6 +32,19 @@ RATE_SEEDS = tuple(range(1800, 1810))
 CALIBRATION_SEEDS = tuple(range(1810, 1830))
 RFINAL_SEEDS = tuple(range(1900, 1930))
 GATE2_FILES = ("g_eco.rates.json", "g_eco.battery.json", "g_eco.thresholds.json")
+PREGATE2_CANDIDATE_FILES = {
+    "g_eco.rates.json": "g_eco.rates",
+    "g_eco.battery.json": "g_eco.battery",
+    "g_eco.thresholds.json": "g_eco.thresholds",
+    "g_eco.baseline_audit.json": "g_eco.baseline_audit",
+}
+AUDIT_LEAK_TOKENS = (
+    "arm_enter_rates",
+    "enter_rate",
+    "full_region_delta",
+    "action_overlap",
+    "margin",
+)
 
 
 def assert_gate2_unlocked(freeze_dir: Path) -> dict[str, Any]:
@@ -41,6 +56,166 @@ def assert_gate2_unlocked(freeze_dir: Path) -> dict[str, Any]:
     raise RuntimeError(
         "G-Eco Gate-2 freeze verifier is not implemented in lower-half scope"
     )
+
+
+def _load_candidate_payload(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise GEcoHalt("PREGATE2_MISSING_FILE", f"missing pre-Gate-2 file: {path.name}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise GEcoHalt(
+            "PREGATE2_INVALID_JSON",
+            f"invalid pre-Gate-2 JSON in {path.name}: {exc}",
+        ) from exc
+    if not isinstance(payload, dict):
+        raise GEcoHalt("PREGATE2_INVALID_JSON", f"{path.name} must contain a JSON object")
+    return payload
+
+
+def _require(condition: bool, code: str, message: str) -> None:
+    if not condition:
+        raise GEcoHalt(code, message)
+
+
+def _verify_rates_payload(payload: dict[str, Any]) -> None:
+    firewall = payload.get("firewall", {})
+    _require(isinstance(firewall, dict), "PREGATE2_FIREWALL_INVALID", "rates firewall missing")
+    _require(
+        firewall.get("no_battery_outputs_used") is True,
+        "PREGATE2_FIREWALL_INVALID",
+        "rates freeze must not use battery outputs",
+    )
+    _require(
+        set(firewall.get("used_refs", ())) == {"naive_uniform", "HOMEOSTATIC_ORACLE", "WCREF"},
+        "PREGATE2_FIREWALL_INVALID",
+        "rates freeze must use only tri-border calibration references",
+    )
+    tri_border = payload.get("tri_border", {})
+    _require(isinstance(tri_border, dict), "PREGATE2_RATES_INVALID", "tri-border rates missing")
+    _require(
+        set(tri_border)
+        == {
+            "naive_uniform_full_region_rate",
+            "homeostatic_oracle_full_region_rate",
+            "wcref_full_region_rate",
+        },
+        "PREGATE2_RATES_INVALID",
+        "rates freeze must expose only tri-border rates",
+    )
+
+
+def _verify_battery_payload(payload: dict[str, Any]) -> None:
+    _require(
+        tuple(payload.get("rfinal_arm_names", ())) == rfinal_arm_names(),
+        "PREGATE2_BATTERY_INVALID",
+        "battery freeze must enumerate the frozen r-final arms",
+    )
+    _require(
+        payload.get("performance_fields_withheld") is True,
+        "PREGATE2_BATTERY_INVALID",
+        "battery freeze must withhold performance fields",
+    )
+    serialized = json.dumps(payload, sort_keys=True)
+    _require("enter_rate" not in serialized, "PREGATE2_BATTERY_LEAK", "battery leaked enter_rate")
+
+
+def _verify_threshold_payload(payload: dict[str, Any]) -> None:
+    _require(
+        set(payload.get("formula_inputs", ())) == {"naive_er", "oracle_er", "seed_count", "K"},
+        "PREGATE2_THRESHOLDS_INVALID",
+        "threshold formula inputs must stay blind to candidate/battery arms",
+    )
+    firewall = payload.get("firewall", {})
+    _require(
+        isinstance(firewall, dict) and firewall.get("uses_only_naive_and_oracle") is True,
+        "PREGATE2_THRESHOLDS_INVALID",
+        "threshold freeze must use only naive/oracle inputs",
+    )
+    _require(
+        firewall.get("opponent_arm_level_inputs_withheld") is True,
+        "PREGATE2_THRESHOLDS_INVALID",
+        "threshold freeze must withhold opponent arm-level inputs",
+    )
+
+
+def _verify_audit_payload(payload: dict[str, Any]) -> None:
+    firewall = payload.get("firewall", {})
+    _require(
+        isinstance(firewall, dict)
+        and firewall.get("withheld_arm_level_enter_rates") is True
+        and firewall.get("theta_locked_before_arm_distribution_release") is True,
+        "PREGATE2_AUDIT_INVALID",
+        "baseline audit firewall flags are not armed",
+    )
+    halt_booleans = payload.get("halt_booleans", {})
+    _require(isinstance(halt_booleans, dict), "PREGATE2_AUDIT_INVALID", "halt booleans missing")
+    _require(
+        all(isinstance(value, bool) for value in halt_booleans.values()),
+        "PREGATE2_AUDIT_INVALID",
+        "halt outputs must remain boolean only",
+    )
+    mechanical_outputs = payload.get("mechanical_outputs", {})
+    _require(
+        isinstance(mechanical_outputs, dict)
+        and mechanical_outputs.get("predicate_values_withheld") is True,
+        "PREGATE2_AUDIT_INVALID",
+        "audit predicate values must remain withheld",
+    )
+    serialized_outputs = json.dumps(mechanical_outputs, sort_keys=True)
+    leaked = [token for token in AUDIT_LEAK_TOKENS if token in serialized_outputs]
+    _require(
+        not leaked,
+        "PREGATE2_AUDIT_LEAK",
+        "baseline audit leaked sealed predicate values: " + ", ".join(leaked),
+    )
+
+
+def verify_pregate2_candidate_bundle(out_dir: Path) -> dict[str, Any]:
+    """Verify pre-Gate-2 candidates without unlocking Gate-2.
+
+    This is a mechanical integrity/firewall check for founder/CTO review. A
+    passing result is explicitly not a Gate-2 co-sign, not a freeze, not
+    r-final authorization, and not a verdict.
+    """
+    payloads: dict[str, dict[str, Any]] = {}
+    for filename, expected_kind in PREGATE2_CANDIDATE_FILES.items():
+        payload = _load_candidate_payload(out_dir / filename)
+        _require(
+            payload.get("kind") == expected_kind,
+            "PREGATE2_KIND_MISMATCH",
+            f"{filename} kind mismatch",
+        )
+        _require(
+            payload.get("status") in {"frozen_candidate", "pregate2_mechanical_audit"},
+            "PREGATE2_STATUS_INVALID",
+            f"{filename} has invalid pre-Gate-2 status",
+        )
+        _require(
+            verify_content_hash(payload),
+            "PREGATE2_HASH_MISMATCH",
+            f"{filename} content_hash does not match payload",
+        )
+        payloads[filename] = payload
+
+    _verify_rates_payload(payloads["g_eco.rates.json"])
+    _verify_battery_payload(payloads["g_eco.battery.json"])
+    _verify_threshold_payload(payloads["g_eco.thresholds.json"])
+    _verify_audit_payload(payloads["g_eco.baseline_audit.json"])
+
+    return {
+        "kind": "G-Eco pre-Gate-2 candidate verification",
+        "gate2_locked": True,
+        "verified_candidate_bundle": True,
+        "files": sorted(PREGATE2_CANDIDATE_FILES),
+        "content_hashes": {
+            filename: payload["content_hash"] for filename, payload in sorted(payloads.items())
+        },
+        "note": (
+            "Mechanical candidate integrity/firewall verification only; still no "
+            "founder/CTO Gate-2 co-sign, no r-final, no verdict."
+        ),
+    }
 
 
 def run_seed(seed: int, arm_name: str, *, steps: int) -> dict[str, object]:
@@ -161,10 +336,14 @@ def main(argv: list[str] | None = None) -> None:
         out_dir = Path(args[1]) if len(args) > 1 else Path(".")
         _print_result(write_pregate2_candidate(out_dir))
         return
+    if args and args[0] == "pregate2-verify":
+        out_dir = Path(args[1]) if len(args) > 1 else Path(".")
+        _print_result(verify_pregate2_candidate_bundle(out_dir))
+        return
     if args and args[0] not in {"smoke", "mechanism-check"}:
         raise SystemExit(
             "usage: python -m experiments.g_eco "
-            "[smoke|mechanism-check|pregate2-candidates OUT_DIR]"
+            "[smoke|mechanism-check|pregate2-candidates OUT_DIR|pregate2-verify OUT_DIR]"
         )
     _print_result(mechanism_check())
 

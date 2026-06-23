@@ -12,6 +12,7 @@ import random
 import tempfile
 import unittest
 import json
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 
@@ -354,6 +355,14 @@ class TestGEcoC6C7AndGate2(unittest.TestCase):
 
 
 class TestGEcoPreGate2Freeze(unittest.TestCase):
+    def _rehash_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        comparable = dict(payload)
+        comparable.pop("content_hash", None)
+        comparable["content_hash"] = hashlib.sha256(
+            json.dumps(comparable, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return comparable
+
     def test_rate_scan_freezes_only_tri_border_witness(self) -> None:
         from aac.g_eco import scan_rate_grid
 
@@ -459,6 +468,67 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "verifier is not implemented"):
                 g_eco.assert_gate2_unlocked(Path(tmp))
+
+    def test_pregate2_candidate_verifier_accepts_intact_candidate_but_keeps_gate_locked(self) -> None:
+        from experiments import g_eco
+
+        with tempfile.TemporaryDirectory() as tmp:
+            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            report = g_eco.verify_pregate2_candidate_bundle(Path(tmp))
+
+            self.assertEqual(report["kind"], "G-Eco pre-Gate-2 candidate verification")
+            self.assertEqual(report["gate2_locked"], True)
+            self.assertEqual(report["verified_candidate_bundle"], True)
+            self.assertIn("g_eco.baseline_audit.json", report["files"])
+            self.assertNotIn("verdict", report)
+
+            with self.assertRaisesRegex(RuntimeError, "verifier is not implemented"):
+                g_eco.assert_gate2_unlocked(Path(tmp))
+
+    def test_pregate2_candidate_verifier_rejects_tampered_hash(self) -> None:
+        from aac.g_eco import GEcoHalt
+        from experiments import g_eco
+
+        with tempfile.TemporaryDirectory() as tmp:
+            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            path = Path(tmp) / "g_eco.thresholds.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["theta_lo"] = 0.49
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+            with self.assertRaises(GEcoHalt) as ctx:
+                g_eco.verify_pregate2_candidate_bundle(Path(tmp))
+            self.assertEqual(ctx.exception.code, "PREGATE2_HASH_MISMATCH")
+
+    def test_pregate2_candidate_verifier_rejects_missing_file(self) -> None:
+        from aac.g_eco import GEcoHalt
+        from experiments import g_eco
+
+        with tempfile.TemporaryDirectory() as tmp:
+            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            (Path(tmp) / "g_eco.battery.json").unlink()
+
+            with self.assertRaises(GEcoHalt) as ctx:
+                g_eco.verify_pregate2_candidate_bundle(Path(tmp))
+            self.assertEqual(ctx.exception.code, "PREGATE2_MISSING_FILE")
+
+    def test_pregate2_candidate_verifier_rejects_audit_value_leak_even_with_valid_hash(self) -> None:
+        from aac.g_eco import GEcoHalt
+        from experiments import g_eco
+
+        with tempfile.TemporaryDirectory() as tmp:
+            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            path = Path(tmp) / "g_eco.baseline_audit.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["mechanical_outputs"]["full_region_delta"] = 0.02
+            path.write_text(
+                json.dumps(self._rehash_payload(payload), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(GEcoHalt) as ctx:
+                g_eco.verify_pregate2_candidate_bundle(Path(tmp))
+            self.assertEqual(ctx.exception.code, "PREGATE2_AUDIT_LEAK")
 
 
 if __name__ == "__main__":

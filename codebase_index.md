@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-06-22
+> Last updated: 2026-06-23
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
@@ -8,9 +8,9 @@
 
 ```yaml
 branch: main
-stage: P7.x verdict unchanged; Route C / G-Eco lower-half mechanism plus pre-Gate-2 freeze-candidate writer implemented
-immediate_next: G-Eco Gate-2 co-sign and r-final remain locked; candidate JSON existence is not unlock
-tests: 450 OK
+stage: P7.x verdict unchanged; Route C / G-Eco lower-half mechanism plus pre-Gate-2 freeze-candidate writer/verifier implemented
+immediate_next: G-Eco Gate-2 co-sign and r-final remain locked; candidate JSON existence/verifier pass is not unlock
+tests: 454 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -51,7 +51,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0035-p7-ecological-environment-axis.md` | Completed, inconclusive | P7/G12 mixed pattern; C01/C10/C11 win, C00 misses threshold, so no distinct ecological-irreversible axis isolated |
 | `ADR-0036-bounded-consequence-prior-gate.md` | Completed, NOT MET | G13 tested a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 | `ADR-0037-self-determination-depth-vs-corrigibility.md` | Proposed, docs-only | Registers SD0-SD4 and the open SD4-separability question |
-| `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + pre-Gate-2 candidate writer | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer; no co-signed freeze, no r-final, no verdict |
+| `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer and integrity/firewall verifier; no co-signed freeze, no r-final, no verdict |
 
 ## Current Code Map
 
@@ -71,7 +71,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/aac/prior_organ_ensemble.py` | Ensemble regime organ, G8/O5 | `EnsembleRegimeOrgan` |
 | `src/aac/prior_organ_llm.py` | LLM organ scaffold, no live key/control path | `LLMPriorOrgan`, `DeterministicStubBackend` |
 | `src/aac/consequence_prior.py` | ADR-0036 bounded consequence-prior organ and cheap CAUTIOUS control | `ConsequencePriorRecord`, `BoundedConsequencePriorOrgan`, `CautiousScarOrgan` |
-| `src/aac/g_eco.py` | ADR-0038 G-Eco lower-half shared substrate, value aggregators, frozen-source battery adapters, truth-privileged cheat refs, metrics, pre-Gate-2 candidate freezes, audit guards, Gate-2 guards | `GEcoSharedSubstrate`, `GEcoArm`, `GEcoArmSource`, `build_g_eco_arms`, `scan_rate_grid`, `freeze_battery_parameters`, `derive_threshold_freeze`, `build_baseline_audit`, `assert_no_calibration_refs_in_rfinal`, `GEcoMetrics` |
+| `src/aac/g_eco.py` | ADR-0038 G-Eco lower-half shared substrate, value aggregators, frozen-source battery adapters, truth-privileged cheat refs, metrics, pre-Gate-2 candidate freezes, content-hash verifier, audit guards, Gate-2 guards | `GEcoSharedSubstrate`, `GEcoArm`, `GEcoArmSource`, `build_g_eco_arms`, `scan_rate_grid`, `freeze_battery_parameters`, `derive_threshold_freeze`, `build_baseline_audit`, `verify_content_hash`, `assert_no_calibration_refs_in_rfinal`, `GEcoMetrics` |
 | `src/aac/rap.py` | RAP field/messages, archived after G4 | `Need`, `Bid`, `Bond`, `Trace`, `Dissolve`, `RAPField` |
 | `src/aac/rap_coordinator.py` | RAP coordinator, archived after G4 | `RAPCoordinator` |
 | `src/aac/outcome_judge.py` | Grounded RAP outcome judge | `OutcomeJudge` |
@@ -105,8 +105,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/consequence_prior_g13.freeze.json` | ADR-0036/G13 | Founder unlock artifact for the one r-final |
 | `experiments/consequence_prior_g13.result.json` | ADR-0036/G13 | R-final artifact; G13 NOT MET |
 | `tests/test_consequence_prior_g13.py` | ADR-0036/G13 | CP interface, C6/C7, scar env, collapse, denominator, r-final guard tests |
-| `experiments/g_eco.py` | ADR-0038/G-Eco | Lower-half smoke/mechanism-check plus `pregate2-candidates` writer; freeze/r-final/verdict modes refuse while Gate-2 locked |
-| `tests/test_g_eco.py` | ADR-0038/G-Eco | Shared substrate, r-final cheat-ref firewall, truth-state separation, frozen-source battery adapters, de-complete observation, active lookahead, VH_noStake, deterministic replay, reset boundary, pre-Gate-2 candidate writer/audit guards, C6/C7, Gate-2 refusal guards |
+| `experiments/g_eco.py` | ADR-0038/G-Eco | Lower-half smoke/mechanism-check plus `pregate2-candidates` writer and `pregate2-verify` integrity/firewall verifier; freeze/r-final/verdict modes refuse while Gate-2 locked |
+| `tests/test_g_eco.py` | ADR-0038/G-Eco | Shared substrate, r-final cheat-ref firewall, truth-state separation, frozen-source battery adapters, de-complete observation, active lookahead, VH_noStake, deterministic replay, reset boundary, pre-Gate-2 candidate writer/verifier/audit guards, C6/C7, Gate-2 refusal guards |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
@@ -127,7 +127,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-450 tests OK
+454 tests OK
 ```
 
 Important current test files:
@@ -141,7 +141,7 @@ Important current test files:
 | `tests/test_relevance_aware_g10.py` | ADR-0034 severity env, policy diagnostics, RSTAR calibration/r-final guards |
 | `tests/test_idle_productivity_c3.py` | C3 idle-productivity de-risk guards |
 | `tests/test_consequence_prior_g13.py` | ADR-0036 bounded consequence-prior organ, scar env, r-final lock, collapse/denominator guards |
-| `tests/test_g_eco.py` | ADR-0038 lower-half G-Eco mechanism and Gate-2 refusal guards |
+| `tests/test_g_eco.py` | ADR-0038 lower-half G-Eco mechanism, pre-Gate-2 verifier, and Gate-2 refusal guards |
 | `tests/test_survival_axis_c1.py` | ADR-0028 survival-axis de-risk guards |
 | `tests/test_risk_calibration_c1.py` | ADR-0029 stationary risk-axis de-risk guards |
 | `tests/test_prior_organ_ensemble.py` | G8 ensemble organ |
@@ -234,7 +234,7 @@ G9 verdict:
   - EXPLORER survival 1814 / EXPLOITER survival 1335 / GATED survival 1313.
   - GATED beats the best cheap arm in only 2/30 seeds, p=0.97, gap CI [-570, -321].
   - Stationary risk calibration is not an independent gate advantage.
-- Next: do not rerun or retune G13. G-Eco lower-half plus F1-F6 discipline fixes and pre-Gate-2 candidate writer exist, but founder/CTO co-signed freeze, Gate-2, r-final, and verdict remain locked behind the parent Route C protocol and founder-reserved gates.
+- Next: do not rerun or retune G13. G-Eco lower-half plus F1-F6 discipline fixes and pre-Gate-2 candidate writer/verifier exist, but founder/CTO co-signed freeze, Gate-2, r-final, and verdict remain locked behind the parent Route C protocol and founder-reserved gates.
 
 ## Drift Prevention
 

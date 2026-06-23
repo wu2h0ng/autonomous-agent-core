@@ -634,6 +634,16 @@ def _with_hash(payload: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def verify_content_hash(payload: Mapping[str, Any]) -> bool:
+    """Verify the mechanical content hash on a freeze/audit payload."""
+    recorded = payload.get("content_hash")
+    if not isinstance(recorded, str):
+        return False
+    comparable = dict(payload)
+    comparable.pop("content_hash", None)
+    return recorded == _canonical_hash(comparable)
+
+
 @dataclass(frozen=True, slots=True)
 class GEcoRatesFreeze:
     rates: GEcoRates
