@@ -12,6 +12,7 @@ they contain no domain- or transport-specific logic.
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 from typing import Any
 
@@ -37,6 +38,34 @@ REDACTED_RESULT_FIELDS = [
     "chart_fields",
     "metric_values",
 ]
+
+
+class InMemoryReportSnapshotStore:
+    """Run-local report snapshot store for side-effect-free read projections.
+
+    The Trusted Loop remains the only path that builds evidence. This store only
+    keeps already-built user-facing report artifacts so HTTP clients can fetch an
+    existing result without re-running SQL, creating approvals, or touching action
+    connectors. It is deliberately same-process memory; durable cross-restart
+    report storage needs a separate persistence ADR/schema.
+    """
+
+    def __init__(self) -> None:
+        self._by_trace: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def save(self, trace_id: str, snapshots_by_audience: dict[str, dict[str, Any]]) -> None:
+        self._by_trace[trace_id] = {
+            audience: deepcopy(snapshot)
+            for audience, snapshot in snapshots_by_audience.items()
+            if audience in REPORT_AUDIENCES
+        }
+
+    def get(self, trace_id: str, audience: str) -> dict[str, Any] | None:
+        snapshots = self._by_trace.get(trace_id)
+        if snapshots is None:
+            return None
+        snapshot = snapshots.get(audience)
+        return deepcopy(snapshot) if snapshot is not None else None
 
 
 def _preview_rows(rows: tuple[dict[str, Any], ...], *, limit: int = 20) -> list[dict[str, Any]]:
@@ -425,6 +454,7 @@ def run_service(
     question: str,
     parameters: dict[str, Any],
     audience: str = "internal",
+    report_store: Any | None = None,
 ) -> dict[str, Any]:
     """Run the Trusted Loop for ``question`` and return a JSON-able summary.
 
@@ -453,6 +483,26 @@ def run_service(
     result = outcome.result
     trace_id = result.evidence_chain.trace_id
     asset = runtime.knowledge_store.get_by_trace(trace_id)
+    internal_user_result = _build_user_result_artifact(result, audience="internal")
+    external_user_result = _build_user_result_artifact(result, audience="external")
+    audience = _normalize_report_audience(audience)
+    selected_user_result = external_user_result if audience == "external" else internal_user_result
+    if report_store is not None:
+        report_store.save(
+            trace_id,
+            {
+                "internal": {
+                    "trace_id": trace_id,
+                    "audience": "internal",
+                    "user_result": internal_user_result,
+                },
+                "external": {
+                    "trace_id": trace_id,
+                    "audience": "external",
+                    "user_result": external_user_result,
+                },
+            },
+        )
 
     return {
         "status": "ok",
@@ -471,8 +521,19 @@ def run_service(
             {"asset_id": r.asset.asset_id, "title": r.asset.title, "score": r.score}
             for r in result.related_knowledge
         ],
-        "user_result": _build_user_result_artifact(result, audience=audience),
+        "user_result": selected_user_result,
     }
+
+
+def report_snapshot_service(
+    report_store: Any,
+    *,
+    trace_id: str,
+    audience: str = "internal",
+) -> dict[str, Any] | None:
+    """Return an already-built report projection without re-entering the loop."""
+    audience = _normalize_report_audience(audience)
+    return report_store.get(trace_id, audience)
 
 
 def trace_service(trace_store: Any, *, trace_id: str) -> dict[str, Any] | None:

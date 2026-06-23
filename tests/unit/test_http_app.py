@@ -232,6 +232,55 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("order_date", rendered)
         self.assertNotIn("sha256:", rendered)
 
+    def test_external_report_key_reads_existing_report_without_reexecuting_run(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+                "audience": "internal",
+            },
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        def fail_if_reexecuted(*_args, **_kwargs):
+            raise AssertionError("report read must not call runtime.evaluate")
+
+        client.app.state.runtime.evaluate = fail_if_reexecuted
+
+        report_resp = client.get(
+            f"/runs/{trace_id}/report",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(report_resp.status_code, 200, report_resp.text)
+        payload = report_resp.json()
+        self.assertEqual(payload["trace_id"], trace_id)
+        self.assertEqual(payload["audience"], "external")
+        artifact = payload["user_result"]
+        self.assertEqual(artifact["trace_id"], trace_id)
+        self.assertEqual(artifact["audience"], "external")
+        self.assertTrue(artifact["redaction"]["applied"])
+        rendered = report_resp.text
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+
+    def test_report_read_unknown_snapshot_is_404_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        missing_key = client.get("/runs/trace-missing/report")
+        missing_snapshot = client.get(
+            "/runs/trace-missing/report",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(missing_key.status_code, 401)
+        self.assertEqual(missing_snapshot.status_code, 404)
+
     def test_external_api_key_blocked_run_omits_trace_details(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
 
@@ -447,6 +496,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             "API_SCOPE_ADOPTION_WRITE",
             "API_SCOPE_KNOWLEDGE_SEARCH",
             "API_SCOPE_TRACE_READ",
+            "API_SCOPE_REPORT_READ",
             "API_SCOPE_APPROVAL_EXECUTE",
         ]
         for name in required_names:
@@ -469,6 +519,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertTrue(internal.allows(http_app.API_SCOPE_ADOPTION_WRITE))
         self.assertTrue(internal.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
         self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_REPORT_READ))
         self.assertFalse(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
@@ -477,6 +528,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertFalse(external.allows(http_app.API_SCOPE_ADOPTION_WRITE))
         self.assertFalse(external.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
         self.assertFalse(external.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertTrue(external.allows(http_app.API_SCOPE_REPORT_READ))
         self.assertFalse(external.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertEqual(operator.scopes, frozenset({http_app.API_SCOPE_APPROVAL_EXECUTE}))
