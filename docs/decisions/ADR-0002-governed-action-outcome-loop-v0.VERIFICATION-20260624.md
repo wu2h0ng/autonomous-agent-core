@@ -2,6 +2,13 @@
 
 Branch: `codex/durable-action-ledger`
 
+Freshness note: this is the historical verification record for the H1/M1/M2 remediation
+slice. It is not the current test-count source. Later connector execution-audit and
+connector-declared execution-semantics hardening raised the current verified count to
+414 tests OK; use `docs/CURRENT_STATE.yaml` and
+`docs/decisions/ADR-0002-connector-execution-audit-contract-v0.VERIFICATION-20260624.md`
+for the current live count.
+
 ## RED Checks Observed
 
 - M1 public-external redaction test failed before implementation because `redaction.applied` was `False` for public external metrics.
@@ -60,4 +67,3 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:15432/age
 Result: Full local CI parity checks passed.
 
 Environment note: host `127.0.0.1:5432` was a Homebrew PostgreSQL instance, not the existing `multica-postgres-1` container. A separate disposable test container named `agent-os-test-postgres` was started on host port `15432` for `ci-local-full`.
-

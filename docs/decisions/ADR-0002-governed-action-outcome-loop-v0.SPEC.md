@@ -14,9 +14,9 @@
 
 - ADR: `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`
 - ADR status: Accepted; gate recorded 2026-06-22
-- This SPEC status: Implemented locally on main; pending push and release authorization
-- Runtime implementation status: Complete for scoped v0 locally
-- Required before push/release: founder/CTO push/release gate
+- This SPEC status: Implemented on local feature branch `codex/durable-action-ledger`; not merged to `main`
+- Runtime implementation status: Complete for scoped v0 on the feature branch
+- Required before merge/push/release: AR-20260624 CTO gate acceptance plus founder merge/push/release authorization
 - Red eval policy: The eval was written before runtime completion and now passes; future widening still requires fresh red-first tests.
 
 ## Freshness Corrections

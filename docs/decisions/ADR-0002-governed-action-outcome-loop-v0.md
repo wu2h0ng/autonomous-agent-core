@@ -93,4 +93,4 @@ P5.1a/P5.1b/P5.2a 已合入 main（315 单测 + 2 eval 通过，验证于 2026-0
 - "lite" = 功能受限但真实（边界 #16）：v0 必须有真实入口、负路径、能因绕过 gate 而失败的测试、trace 产物——禁止 skeleton/stub。
 
 ---
-*本 ADR 为 Accepted（gate recorded 2026-06-22）。本地 main 已实现 scoped v0，仍须经 push / release gate；不得据此宣称自动 R4/R5 执行、外部发布或 G-Eco/autonomy 结论。*
+*本 ADR 为 Accepted（gate recorded 2026-06-22）。scoped v0 当前实现位于本地 feature branch `codex/durable-action-ledger`，尚未合入 `main`；仍须经 AR-20260624 CTO gate 与 founder merge / push / release gate；不得据此宣称自动 R4/R5 执行、外部发布或 G-Eco/autonomy 结论。*
