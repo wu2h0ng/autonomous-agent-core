@@ -48,6 +48,28 @@ def _conflict_summary(payload: dict[str, object]) -> dict[str, object]:
     }
 
 
+def _uncertain_execution_summary(
+    *,
+    operation_id: str,
+    action_type: str,
+    parameters: dict[str, object],
+    idempotency_key: str | None,
+    reason_code: str,
+    error_type: str,
+) -> dict[str, object]:
+    return {
+        "operation_id": operation_id,
+        "action_type": action_type,
+        "idempotency_key": idempotency_key,
+        "reason_code": reason_code,
+        "error_type": error_type,
+        "parameters_fingerprint": _fingerprint(parameters),
+        "ack_status": "lost_after_write",
+        "execution_certainty": "uncertain",
+        "recorded_at": _utc_now().isoformat(),
+    }
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -275,12 +297,21 @@ class SqlActionRecordStore(_SqlStoreBase):
                             int(original_record.get("replay_count", 0)) + 1
                         )
                         original_record["last_replay_status"] = "idempotent_replay"
+                        if int(original_record.get("uncertain_execution_count", 0)) > 0:
+                            original_record["last_replay_status"] = (
+                                "idempotent_replay_after_uncertain"
+                            )
                         conn.execute(
                             table.update()
                             .where(table.c.id == row_id)
                             .values(payload=copy.deepcopy(original_record))
                         )
                         original_record["status"] = "idempotent_replay"
+                        if int(original_record.get("uncertain_execution_count", 0)) > 0:
+                            original_record["execution_certainty"] = "uncertain_recovered"
+                            original_record["ack_status"] = (
+                                "lost_after_write_recovered_by_idempotency"
+                            )
                         return original_record
 
             if conflict_error is None:
@@ -289,6 +320,7 @@ class SqlActionRecordStore(_SqlStoreBase):
                     **request_payload,
                     "replay_count": 0,
                     "conflict_count": 0,
+                    "uncertain_execution_count": 0,
                 }
                 if idempotency_key is not None:
                     record["idempotency_key"] = idempotency_key
@@ -310,6 +342,42 @@ class SqlActionRecordStore(_SqlStoreBase):
         with self._read() as conn:
             rows = conn.execute(select(table.c.payload).order_by(table.c.id)).fetchall()
         return tuple(copy.deepcopy(dict(row[0])) for row in rows)
+
+    def mark_execution_uncertain(
+        self,
+        *,
+        record_id: str,
+        operation_id: str,
+        action_type: str,
+        idempotency_key: str | None,
+        parameters: dict[str, object],
+        reason_code: str,
+        error_type: str,
+    ) -> dict[str, object]:
+        table = schema.action_records
+        with self._write() as conn:
+            row = conn.execute(
+                select(table.c.id, table.c.payload).where(table.c.record_id == record_id)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"record_id '{record_id}' is not present in the store")
+            row_id = row[0]
+            record = copy.deepcopy(dict(row[1]))
+            record["uncertain_execution_count"] = (
+                int(record.get("uncertain_execution_count", 0)) + 1
+            )
+            record["last_uncertain_execution"] = _uncertain_execution_summary(
+                operation_id=operation_id,
+                action_type=action_type,
+                parameters=parameters,
+                idempotency_key=idempotency_key,
+                reason_code=reason_code,
+                error_type=error_type,
+            )
+            conn.execute(
+                table.update().where(table.c.id == row_id).values(payload=copy.deepcopy(record))
+            )
+        return copy.deepcopy(record)
 
     def snapshot_state(self) -> dict[str, object]:
         return {"records": [copy.deepcopy(record) for record in self.records()]}

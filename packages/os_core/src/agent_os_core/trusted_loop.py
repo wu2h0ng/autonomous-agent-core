@@ -772,14 +772,31 @@ class TrustedLoopRuntime:
             OperationState.APPROVED,
             {"step": "approved", "approval_id": approval_id},
         )
-        _operation, operation_trace, _snapshot, _result = self._execute_governed_operation(
-            operation=operation,
-            action_parameters=action_parameters,
-            evidence_chain=evidence_chain,
-            proposal_id=proposal_id,
-            operation_trace=operation_trace,
-            trace=None,
-        )
+        try:
+            _operation, operation_trace, _snapshot, _result = self._execute_governed_operation(
+                operation=operation,
+                action_parameters=action_parameters,
+                evidence_chain=evidence_chain,
+                proposal_id=proposal_id,
+                operation_trace=operation_trace,
+                trace=None,
+            )
+        except Exception as exc:
+            audit_event = self._connector_uncertain_audit_event(exc)
+            if audit_event is not None:
+                failed_trace = getattr(exc, "_operation_trace", None)
+                if not isinstance(failed_trace, OperationTrace):
+                    failed_trace = self.operation_trace_builder.update_trace(
+                        operation_trace,
+                        OperationState.FAILED,
+                        audit_event,
+                    )
+                self._persist_approved_operation_trace(
+                    run_trace_id=evidence_chain.trace_id,
+                    approval_id=approval_id,
+                    operation_trace=failed_trace,
+                )
+            raise
         self._persist_approved_operation_trace(
             run_trace_id=evidence_chain.trace_id,
             approval_id=approval_id,
@@ -1017,29 +1034,96 @@ class TrustedLoopRuntime:
                 )
 
         self.state_machine.transition(current_state, OperationState.EXECUTED)
-        action_result = connector.execute(operation, action_parameters)
+        try:
+            action_result = connector.execute(operation, action_parameters)
+        except Exception as exc:
+            audit_event = self._connector_uncertain_audit_event(exc)
+            if audit_event is not None and trace is not None:
+                trace.record(
+                    audit_event["step"],
+                    {key: value for key, value in audit_event.items() if key != "step"},
+                )
+            if audit_event is not None:
+                setattr(
+                    exc,
+                    "_operation_trace",
+                    self.operation_trace_builder.update_trace(
+                        operation_trace,
+                        OperationState.FAILED,
+                        audit_event,
+                    ),
+                )
+            raise
+        execute_event: dict[str, Any] = {
+            "step": "connector_executed",
+            "connector_name": operation.connector_name,
+            "action_type": operation.action_type,
+            "status": action_result.get("status"),
+            "idempotency_key": operation.idempotency_key,
+        }
+        for safe_field in (
+            "record_id",
+            "execution_certainty",
+            "ack_status",
+            "uncertain_execution_count",
+        ):
+            if safe_field in action_result:
+                execute_event[safe_field] = action_result[safe_field]
+        if operation.connector_name == "action_record":
+            execute_event["durability_scope"] = "connector_local_ledger"
+            if action_result.get("status") == "idempotent_replay":
+                execute_event["replay_status"] = action_result.get(
+                    "last_replay_status",
+                    "idempotent_replay",
+                )
+                execute_event["external_ack_status"] = (
+                    "unknown"
+                    if action_result.get("execution_certainty") == "uncertain_recovered"
+                    else "not_applicable"
+                )
+            else:
+                execute_event["replay_status"] = "not_replayed"
+                execute_event["external_ack_status"] = "not_applicable"
         if trace is not None:
             trace.record(
                 "connector_execute",
-                {
-                    "connector_name": operation.connector_name,
-                    "action_type": operation.action_type,
-                    "status": action_result.get("status"),
-                    "idempotency_key": operation.idempotency_key,
-                },
+                {key: value for key, value in execute_event.items() if key != "step"},
             )
         operation_trace = self.operation_trace_builder.update_trace(
             operation_trace,
             OperationState.EXECUTED,
-            {
-                "step": "connector_executed",
-                "connector_name": operation.connector_name,
-                "action_type": operation.action_type,
-                "status": action_result.get("status"),
-                "idempotency_key": operation.idempotency_key,
-            },
+            execute_event,
         )
         return operation, operation_trace, state_snapshot, action_result
+
+    @staticmethod
+    def _connector_uncertain_audit_event(exc: Exception) -> dict[str, Any] | None:
+        audit_event = getattr(exc, "audit_event", None)
+        if not callable(audit_event):
+            return None
+        event = audit_event()
+        if not isinstance(event, dict):
+            return None
+        if event.get("step") != "connector_execution_uncertain":
+            return None
+        return {
+            key: value
+            for key, value in event.items()
+            if key
+            in {
+                "step",
+                "connector_name",
+                "action_type",
+                "status",
+                "record_id",
+                "operation_id",
+                "idempotency_key",
+                "reason_code",
+                "error_type",
+                "ack_status",
+                "execution_certainty",
+            }
+        }
 
     @staticmethod
     def _with_idempotency_key(

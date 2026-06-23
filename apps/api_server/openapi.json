@@ -242,6 +242,11 @@
             "title": "Evidence Chain Id",
             "type": "string"
           },
+          "execution_audit": {
+            "additionalProperties": true,
+            "title": "Execution Audit",
+            "type": "object"
+          },
           "idempotency_key": {
             "anyOf": [
               {

@@ -113,6 +113,24 @@ def _business_action_status(proposal: Any, action_result: dict[str, Any]) -> str
     return status or "proposed"
 
 
+def _execution_audit_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Project connector execution semantics without claiming external exactly-once."""
+    status = event.get("status")
+    replay_status = event.get("replay_status")
+    if replay_status is None:
+        replay_status = "idempotent_replay" if status == "idempotent_replay" else "not_replayed"
+    return {
+        "durability_scope": event.get("durability_scope", "connector_response"),
+        "execution_outcome": status,
+        "replay_status": replay_status,
+        "external_ack_status": event.get("external_ack_status", "unknown"),
+        "ledger_status": "recorded" if event.get("record_id") else "not_reported",
+        "record_id": event.get("record_id"),
+        "execution_certainty": event.get("execution_certainty"),
+        "ack_status": event.get("ack_status"),
+    }
+
+
 def _sql_fingerprint(sql: str) -> str:
     return "sha256:" + hashlib.sha256(sql.encode("utf-8")).hexdigest()
 
@@ -532,6 +550,7 @@ def approve_and_execute_service(
         "action_type": final_event.get("action_type"),
         "action_result_status": final_event.get("status"),
         "idempotency_key": final_event.get("idempotency_key"),
+        "execution_audit": _execution_audit_from_event(dict(final_event)),
         "events": [dict(event) for event in operation_trace.events],
     }
 

@@ -11,7 +11,11 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 
 from agent_os_contracts import OperationContract, StateSnapshot  # noqa: E402
 
-from action_record import ActionRecordConnector, ActionRecordStore  # noqa: E402
+from action_record import (  # noqa: E402
+    ActionRecordConnector,
+    ActionRecordExecutionUncertain,
+    ActionRecordStore,
+)
 
 
 def _operation(
@@ -115,6 +119,54 @@ class ActionRecordConnectorTest(unittest.TestCase):
         self.assertEqual(len(store.records()), 1)
         self.assertEqual(store.records()[0]["replay_count"], 1)
         self.assertEqual(store.records()[0]["last_replay_status"], "idempotent_replay")
+
+    def test_replay_after_uncertain_execution_preserves_audit_without_raw_parameters(
+        self,
+    ) -> None:
+        store = ActionRecordStore()
+        connector = ActionRecordConnector(store=store)
+        operation = _operation(idempotency_key="trace-1:proposal-1")
+
+        first = connector.execute(operation, {"amount": 100, "secret": "raw-ack-token"})
+        store.mark_execution_uncertain(
+            record_id=first["record_id"],
+            operation_id=operation.operation_id,
+            action_type=operation.action_type,
+            idempotency_key=operation.idempotency_key,
+            parameters={"amount": 100, "secret": "raw-ack-token"},
+            reason_code="lost_ack_after_write",
+            error_type="TimeoutError",
+        )
+        replay = connector.execute(operation, {"amount": 100, "secret": "raw-ack-token"})
+
+        self.assertEqual(replay["status"], "idempotent_replay")
+        self.assertEqual(replay["execution_certainty"], "uncertain_recovered")
+        self.assertEqual(replay["ack_status"], "lost_after_write_recovered_by_idempotency")
+        self.assertEqual(len(store.records()), 1)
+        record = store.records()[0]
+        self.assertEqual(record["uncertain_execution_count"], 1)
+        self.assertEqual(record["last_uncertain_execution"]["reason_code"], "lost_ack_after_write")
+        self.assertIn("parameters_fingerprint", record["last_uncertain_execution"])
+        self.assertNotIn("parameters", record["last_uncertain_execution"])
+        self.assertNotIn("raw-ack-token", repr(record["last_uncertain_execution"]))
+
+    def test_uncertain_execution_exception_carries_safe_audit_event(self) -> None:
+        exc = ActionRecordExecutionUncertain(
+            record_id="record-1",
+            operation_id="operation-1",
+            action_type="execute",
+            idempotency_key="trace-1:proposal-1",
+            reason_code="lost_ack_after_write",
+            error_type="TimeoutError",
+        )
+
+        event = exc.audit_event()
+
+        self.assertEqual(event["step"], "connector_execution_uncertain")
+        self.assertEqual(event["record_id"], "record-1")
+        self.assertEqual(event["execution_certainty"], "uncertain")
+        self.assertEqual(event["ack_status"], "lost_after_write")
+        self.assertNotIn("parameters", event)
 
     def test_reusing_idempotency_key_with_different_payload_fails(self) -> None:
         connector = ActionRecordConnector(store=ActionRecordStore())

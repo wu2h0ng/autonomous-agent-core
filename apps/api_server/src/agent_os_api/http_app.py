@@ -417,6 +417,7 @@ class ApprovalExecuteResponse(BaseModel):
     action_type: str | None = None
     action_result_status: str | None = None
     idempotency_key: str | None = None
+    execution_audit: dict[str, Any] = Field(default_factory=dict)
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 

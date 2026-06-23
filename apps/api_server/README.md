@@ -97,7 +97,9 @@ Minimal principal/scope contract:
 
 Approval execution on the postgres backend resumes the approval-bound context and writes through
 the `action_record` connector ledger. That ledger audits idempotent replays and conflicts
-connector-locally, including conflict fingerprints without raw conflicting payloads. This is not
-external-system exactly-once. The runtime can reclaim stale approval contexts that were left
-`executing` after the configured lease, but this does not prove post-write external
-acknowledgement recovery or durable execution for arbitrary external connectors.
+connector-locally, including conflict fingerprints without raw conflicting payloads. It also
+audits connector-local post-write ACK-uncertain attempts and surfaces recovered idempotent replays
+through the approval execute response's `execution_audit`. This is not external-system
+exactly-once. The runtime can reclaim stale approval contexts that were left `executing` after the
+configured lease, but this does not prove external ACK confirmation or durable execution for
+arbitrary external connectors.

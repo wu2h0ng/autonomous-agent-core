@@ -279,6 +279,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             payload["operation_id"],
             run_payload["user_result"]["business_action"]["operation_id"],
         )
+        self.assertEqual(payload["execution_audit"]["durability_scope"], "connector_local_ledger")
+        self.assertEqual(payload["execution_audit"]["execution_outcome"], "executed")
+        self.assertEqual(payload["execution_audit"]["replay_status"], "not_replayed")
+        self.assertEqual(payload["execution_audit"]["external_ack_status"], "not_applicable")
         self.assertIn("connector_executed", [event["step"] for event in payload["events"]])
 
     def test_approval_execute_uses_approval_bound_context_without_cross_pollution(self) -> None:

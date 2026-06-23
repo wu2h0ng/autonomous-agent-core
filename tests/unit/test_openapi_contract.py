@@ -73,6 +73,7 @@ class OpenApiContractTest(unittest.TestCase):
         request_schema = spec["components"]["schemas"]["ApprovalExecuteRequest"]
         self.assertEqual(set(request_schema["required"]), {"reason", "approved_by"})
         response_schema = spec["components"]["schemas"]["ApprovalExecuteResponse"]
+        self.assertIn("execution_audit", response_schema["properties"])
         self.assertEqual(
             set(response_schema["required"]),
             {
