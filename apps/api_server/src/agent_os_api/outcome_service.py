@@ -145,7 +145,9 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
             "status": action_result.get("status", "proposed"),
             "operation_id": action_result.get("operation_id"),
             "approval_id": action_result.get("approval_id"),
-            "action_parameters": dict(proposal.action_parameters),
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": trace_id,
+            "row_count": evidence.query_result.row_count,
         },
     }
 
@@ -257,6 +259,44 @@ def trace_service(trace_store: Any, *, trace_id: str) -> dict[str, Any] | None:
             }
             for t in run_trace.telemetry_events
         ],
+    }
+
+
+def approve_and_execute_service(
+    runtime: Any,
+    *,
+    approval_id: str,
+    reason: str | None = None,
+    approved_by: str | None = None,
+) -> dict[str, Any]:
+    """Approve and execute an approval-bound operation by approval id.
+
+    This is the user-facing action execution surface for same-process runtimes:
+    the caller supplies only the approval id and an optional reason. The runtime
+    owns the pending operation context and still enforces approval status,
+    operation fingerprint, SQL Safety, and EvidenceChain completeness before any
+    connector write.
+    """
+    approval, operation_trace = runtime.approve_and_execute_pending_operation(
+        approval_id=approval_id,
+        reason=reason,
+        approved_by=approved_by,
+    )
+    final_event = operation_trace.events[-1] if operation_trace.events else {}
+    return {
+        "approval_id": approval.approval_id,
+        "approval_status": approval.status,
+        "approved_by": approval.approved_by,
+        "proposal_id": operation_trace.proposal_id,
+        "operation_trace_id": operation_trace.trace_id,
+        "operation_id": operation_trace.operation_id,
+        "state": operation_trace.state.value,
+        "evidence_chain_id": operation_trace.evidence_chain_id,
+        "connector_name": final_event.get("connector_name"),
+        "action_type": final_event.get("action_type"),
+        "action_result_status": final_event.get("status"),
+        "idempotency_key": final_event.get("idempotency_key"),
+        "events": [dict(event) for event in operation_trace.events],
     }
 
 

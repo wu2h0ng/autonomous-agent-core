@@ -15,6 +15,7 @@ class DevCiBootstrapTest(unittest.TestCase):
         self.assertRegex(makefile, r"(?m)^ci-local-full:")
         self.assertIn('".[dev,http,postgres]"', makefile)
         self.assertIn("agent_os_api.openapi_contract --check", makefile)
+        self.assertRegex(makefile, r"(?m)^ci: .*openapi-contract")
         self.assertIn("importlib.util.find_spec", makefile)
         self.assertNotIn("raise SystemExit", makefile)
 

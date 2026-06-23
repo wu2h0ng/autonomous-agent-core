@@ -45,8 +45,40 @@ class OpenApiContractTest(unittest.TestCase):
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         self.assertEqual(
             sorted(spec["paths"]),
-            ["/adoptions", "/knowledge/search", "/outcomes", "/runs", "/traces/{trace_id}"],
+            [
+                "/adoptions",
+                "/approvals/{approval_id}/execute",
+                "/knowledge/search",
+                "/outcomes",
+                "/runs",
+                "/traces/{trace_id}",
+            ],
         )
+
+    def test_approval_execution_contract_is_declared(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        approval_execute = spec["paths"]["/approvals/{approval_id}/execute"]["post"]
+        rendered_route = json.dumps(approval_execute)
+        self.assertIn("X-Operator-Key", rendered_route)
+        self.assertNotIn("X-API-Key", rendered_route)
+        self.assertIn("404", approval_execute["responses"])
+        self.assertIn("409", approval_execute["responses"])
+        request_schema = spec["components"]["schemas"]["ApprovalExecuteRequest"]
+        self.assertEqual(set(request_schema["required"]), {"reason", "approved_by"})
+        response_schema = spec["components"]["schemas"]["ApprovalExecuteResponse"]
+        self.assertEqual(
+            set(response_schema["required"]),
+            {
+                "approval_id",
+                "approval_status",
+                "proposal_id",
+                "operation_trace_id",
+                "state",
+                "evidence_chain_id",
+            },
+        )
+        error_schema = spec["components"]["schemas"]["ApprovalExecuteErrorResponse"]
+        self.assertEqual(set(error_schema["required"]), {"detail"})
 
     def test_adoption_contract_declares_causal_attribution_request_field(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))

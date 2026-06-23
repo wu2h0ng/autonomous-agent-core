@@ -138,6 +138,7 @@ def approval_to_payload(record: ApprovalRecord) -> dict[str, Any]:
         "approver_role": record.approver_role,
         "reason": record.reason,
         "operation_fingerprint": record.operation_fingerprint,
+        "approved_by": record.approved_by,
     }
 
 
@@ -149,6 +150,7 @@ def approval_from_payload(payload: dict[str, Any]) -> ApprovalRecord:
         approver_role=payload.get("approver_role"),
         reason=payload.get("reason"),
         operation_fingerprint=payload.get("operation_fingerprint"),
+        approved_by=payload.get("approved_by"),
     )
 
 

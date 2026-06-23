@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
+import threading
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -36,7 +37,7 @@ from .action_connectors.registry import ActionConnectorRegistry
 from .action_governance import ActionGovernance
 from .adoption import AdoptionLedgerView
 from .action_proposal import ActionProposalBuilder
-from .approval_lite import ApprovalLiteRuntime
+from .approval_lite import ApprovalLiteRuntime, ApprovalRecord
 from .corrigibility import ShellView
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
@@ -78,6 +79,14 @@ class GroundingInvariantViolation(Exception):
     data/evidence path was bypassed by a wiring/refactor bug. Fail loudly; never
     emit an ungrounded answer or action.
     """
+
+
+@dataclass(frozen=True)
+class _PendingApprovedOperationContext:
+    operation: OperationContract
+    action_parameters: dict[str, Any]
+    evidence_chain: EvidenceChain
+    proposal_id: str
 
 
 class TrustedLoopRuntime:
@@ -196,6 +205,11 @@ class TrustedLoopRuntime:
         # Observability v1 (AR-20260611): every run persists its RunTrace here,
         # on success AND on block, so runs are auditable by trace_id after the fact.
         self.trace_store = trace_store or InMemoryTraceStore()
+        # In-process approval-resume context: API/CLI callers approve by
+        # approval_id without replaying operation/evidence/action payloads. Durable
+        # cross-process resume will need a dedicated store in a later slice.
+        self._pending_approved_operation_contexts: dict[str, _PendingApprovedOperationContext] = {}
+        self._pending_operation_lock = threading.RLock()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
         """Run the loop and persist its trace on BOTH exits (AR-20260611).
@@ -508,6 +522,15 @@ class TrustedLoopRuntime:
                     evidence_chain_id=proposal.evidence_chain_id,
                 ),
             )
+            with self._pending_operation_lock:
+                self._pending_approved_operation_contexts[approval_id] = (
+                    _PendingApprovedOperationContext(
+                        operation=operation,
+                        action_parameters=dict(proposal.action_parameters),
+                        evidence_chain=evidence,
+                        proposal_id=proposal.proposal_id,
+                    )
+                )
             action_result: dict[str, object] = {
                 "status": "awaiting_approval",
                 "operation_id": operation.operation_id,
@@ -629,6 +652,53 @@ class TrustedLoopRuntime:
             return TrustedLoopOutcome(status="blocked", block=blocked.block)
         return TrustedLoopOutcome(status="ok", result=result)
 
+    def execute_pending_approved_operation(self, *, approval_id: str) -> OperationTrace:
+        """Execute an in-process pending operation after its approval is approved.
+
+        This is the user-surface-friendly approval-resume path: callers pass only
+        the ``approval_id``. The runtime reuses the exact operation/evidence/action
+        context created during ``run()``, so clients do not need to replay payloads
+        that could be incomplete or tampered with.
+        """
+        with self._pending_operation_lock:
+            context = self._pending_approved_operation_contexts.get(approval_id)
+            if context is None:
+                raise KeyError(f"No pending operation context found for approval '{approval_id}'")
+            operation_trace = self.execute_approved_operation(
+                approval_id=approval_id,
+                operation=context.operation,
+                action_parameters=context.action_parameters,
+                evidence_chain=context.evidence_chain,
+                proposal_id=context.proposal_id,
+            )
+            del self._pending_approved_operation_contexts[approval_id]
+            return operation_trace
+
+    def approve_and_execute_pending_operation(
+        self,
+        *,
+        approval_id: str,
+        reason: str | None = None,
+        approved_by: str | None = None,
+    ) -> tuple[ApprovalRecord, OperationTrace]:
+        """Approve and execute a pending operation without creating orphan approvals."""
+        with self._pending_operation_lock:
+            if approval_id not in self._pending_approved_operation_contexts:
+                raise KeyError(f"No pending operation context found for approval '{approval_id}'")
+            approval = self.approval_runtime.get(approval_id)
+            if approval.status == "pending":
+                approval = self.approval_runtime.approve(
+                    approval_id,
+                    reason=reason,
+                    approved_by=approved_by,
+                )
+            elif approval.status != "approved":
+                raise ValueError(
+                    f"Approval '{approval_id}' is '{approval.status}', expected pending or approved."
+                )
+            operation_trace = self.execute_pending_approved_operation(approval_id=approval_id)
+            return approval, operation_trace
+
     def execute_approved_operation(
         self,
         *,
@@ -675,6 +745,10 @@ class TrustedLoopRuntime:
             )
         if not operation.approval_required:
             raise ValueError("execute_approved_operation requires an approval-required operation.")
+        if operation.risk_level in {"R4", "R5"}:
+            raise ValueError(
+                "R4/R5 business actions are proposal-only in MVP and cannot be executed."
+            )
 
         self._assert_grounded(evidence_chain.sql_safety, evidence_chain)
         self.state_machine.transition(OperationState.AWAITING_APPROVAL, OperationState.APPROVED)

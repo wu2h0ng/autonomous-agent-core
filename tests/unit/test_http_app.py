@@ -15,9 +15,10 @@ RUN_BODY = {
     "parameters": {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
 }
 API_KEY = "secret-test-key"
+OPERATOR_KEY = "secret-operator-key"
 
 
-def _make_client(api_key: str | None):
+def _make_client(api_key: str | None, operator_api_key: str | None = OPERATOR_KEY):
     from starlette.testclient import TestClient
 
     from agent_os_api.http_app import create_app
@@ -25,7 +26,12 @@ def _make_client(api_key: str | None):
 
     factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
     runtime = factory.build()
-    app = create_app(runtime, api_key=api_key, adoption_ingest=factory.adoption_ingest())
+    app = create_app(
+        runtime,
+        api_key=api_key,
+        operator_api_key=operator_api_key,
+        adoption_ingest=factory.adoption_ingest(),
+    )
     return TestClient(app)
 
 
@@ -129,6 +135,171 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(artifact["business_action"]["connector_name"], "action_record")
         self.assertEqual(artifact["business_action"]["status"], "awaiting_approval")
+        self.assertNotIn("action_parameters", artifact["business_action"])
+
+    def test_approval_execute_endpoint_runs_approval_bound_action(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        run_payload = run_resp.json()
+        approval_id = run_payload["user_result"]["business_action"]["approval_id"]
+
+        execute_resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+
+        self.assertEqual(execute_resp.status_code, 200, execute_resp.text)
+        payload = execute_resp.json()
+        self.assertEqual(payload["approval_id"], approval_id)
+        self.assertEqual(payload["approval_status"], "approved")
+        self.assertEqual(payload["approved_by"], "ops@example.com")
+        self.assertEqual(payload["state"], "executed")
+        self.assertEqual(
+            payload["operation_id"],
+            run_payload["user_result"]["business_action"]["operation_id"],
+        )
+        self.assertIn("connector_executed", [event["step"] for event in payload["events"]])
+
+    def test_approval_execute_uses_approval_bound_context_without_cross_pollution(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        first_run = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动 first",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        ).json()
+        second_run = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动 second",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        ).json()
+        first_action = first_run["user_result"]["business_action"]
+        second_action = second_run["user_result"]["business_action"]
+
+        execute_resp = client.post(
+            f"/approvals/{first_action['approval_id']}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+
+        self.assertEqual(execute_resp.status_code, 200, execute_resp.text)
+        payload = execute_resp.json()
+        self.assertEqual(payload["operation_id"], first_action["operation_id"])
+        self.assertNotEqual(payload["operation_id"], second_action["operation_id"])
+        self.assertEqual(payload["evidence_chain_id"], first_action["evidence_chain_id"])
+        self.assertNotEqual(payload["evidence_chain_id"], second_action["evidence_chain_id"])
+        action_record_connector = client.app.state.runtime.connector_registry.get("action_record")
+        records = action_record_connector.store.records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            records[0]["parameters"]["evidence_chain_id"],
+            first_action["evidence_chain_id"],
+        )
+        self.assertNotEqual(
+            records[0]["parameters"]["evidence_chain_id"],
+            second_action["evidence_chain_id"],
+        )
+
+    def test_approval_execute_requires_operator_key_not_run_api_key(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        execute_resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers=headers,
+        )
+
+        self.assertEqual(execute_resp.status_code, 401)
+
+    def test_approval_execute_second_call_is_rejected(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        first = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+        second = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 404, second.text)
+        self.assertEqual(second.json()["detail"]["code"], "approval_context_not_found")
+
+    def test_approval_execute_rejected_approval_is_409(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+        client.app.state.runtime.approval_runtime.reject(approval_id, reason="not acceptable")
+
+        resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+
+        self.assertEqual(resp.status_code, 409, resp.text)
+        self.assertEqual(resp.json()["detail"]["code"], "approval_execution_conflict")
+
+    def test_approval_execute_unknown_approval_is_404(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post(
+            "/approvals/approval-does-not-exist/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()["detail"]["code"], "approval_context_not_found")
 
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
@@ -169,6 +340,23 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         resp = client.post(
             "/outcomes",
             json={"trace_id": "trace-x", "outcome": "adopted"},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_approval_execute_route_also_guarded(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_approval_execute_wrong_operator_key_is_rejected(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": "nope"},
         )
         self.assertEqual(resp.status_code, 401)
 

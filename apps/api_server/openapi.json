@@ -115,6 +115,179 @@
         "title": "AdoptionResponse",
         "type": "object"
       },
+      "ApprovalExecuteError": {
+        "properties": {
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ApprovalExecuteError",
+        "type": "object"
+      },
+      "ApprovalExecuteErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ApprovalExecuteError"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ApprovalExecuteErrorResponse",
+        "type": "object"
+      },
+      "ApprovalExecuteRequest": {
+        "properties": {
+          "approved_by": {
+            "minLength": 1,
+            "title": "Approved By",
+            "type": "string"
+          },
+          "reason": {
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "approved_by"
+        ],
+        "title": "ApprovalExecuteRequest",
+        "type": "object"
+      },
+      "ApprovalExecuteResponse": {
+        "properties": {
+          "action_result_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Result Status"
+          },
+          "action_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Type"
+          },
+          "approval_id": {
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "approval_status": {
+            "title": "Approval Status",
+            "type": "string"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "connector_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Name"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "operation_trace_id": {
+            "title": "Operation Trace Id",
+            "type": "string"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "approval_status",
+          "proposal_id",
+          "operation_trace_id",
+          "state",
+          "evidence_chain_id"
+        ],
+        "title": "ApprovalExecuteResponse",
+        "type": "object"
+      },
       "BlockDetail": {
         "description": "The unified business-block contract (AR-20260606-unified-block-outcome).\n\nReturned as the 422 ``detail`` when the Trusted Loop refuses to answer\n(unsafe SQL, unknown metric, no template, no provider, ...). ``trace_id``\nreferences the persisted RunTrace of the refusal (AR-20260611).",
         "properties": {
@@ -718,11 +891,6 @@
       },
       "UserResultBusinessAction": {
         "properties": {
-          "action_parameters": {
-            "additionalProperties": true,
-            "title": "Action Parameters",
-            "type": "object"
-          },
           "action_type": {
             "title": "Action Type",
             "type": "string"
@@ -757,6 +925,10 @@
             "title": "Connector Name",
             "type": "string"
           },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
           "operation_id": {
             "anyOf": [
               {
@@ -772,8 +944,16 @@
             "title": "Risk Level",
             "type": "string"
           },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
             "type": "string"
           }
         },
@@ -782,7 +962,10 @@
           "action_type",
           "risk_level",
           "approval_required",
-          "status"
+          "status",
+          "evidence_chain_id",
+          "trace_id",
+          "row_count"
         ],
         "title": "UserResultBusinessAction",
         "type": "object"
@@ -1088,6 +1271,91 @@
           }
         },
         "summary": "Post Adoption"
+      }
+    },
+    "/approvals/{approval_id}/execute": {
+      "post": {
+        "operationId": "post_approval_execute_approvals__approval_id__execute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Operator-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Operator-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalExecuteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalExecuteErrorResponse"
+                }
+              }
+            },
+            "description": "Approval context not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalExecuteErrorResponse"
+                }
+              }
+            },
+            "description": "Approval execution conflict."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Approval Execute"
       }
     },
     "/knowledge/search": {

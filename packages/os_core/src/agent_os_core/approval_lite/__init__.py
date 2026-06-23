@@ -14,6 +14,7 @@ class ApprovalRecord:
     approver_role: str | None
     reason: str | None = None
     operation_fingerprint: str | None = None
+    approved_by: str | None = None
 
 
 class ApprovalStorePort(ABC):
@@ -89,12 +90,18 @@ class ApprovalLiteRuntime:
         )
         return self._store.save(record)
 
-    def approve(self, approval_id: str, reason: str | None = None) -> ApprovalRecord:
+    def approve(
+        self,
+        approval_id: str,
+        reason: str | None = None,
+        approved_by: str | None = None,
+    ) -> ApprovalRecord:
         """Approve a pending approval record.
 
         Args:
             approval_id: The ID of the approval to approve.
             reason: Optional reason for the approval.
+            approved_by: Optional operator/user identifier for audit.
 
         Returns:
             A new ApprovalRecord with status "approved".
@@ -118,6 +125,7 @@ class ApprovalLiteRuntime:
             approver_role=existing.approver_role,
             reason=reason,
             operation_fingerprint=existing.operation_fingerprint,
+            approved_by=approved_by,
         )
         return self._store.save(updated)
 

@@ -93,6 +93,27 @@ class _R4ActionRecordProposalBuilder:
         )
 
 
+class _R3ApprovalActionRecordProposalBuilder:
+    """Routes every proposal to action_record as an approval-required R3 action."""
+
+    def build(self, *, proposal_id: str, evidence: EvidenceChain) -> ActionProposal:
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action="write_r3_action_record",
+            reason=evidence.conclusion,
+            risk_level=RiskLevel.R3,
+            expected_impact="record persisted after approval",
+            approval_required=True,
+            approver_role="Business Owner",
+            connector_name="action_record",
+            action_type="execute",
+            action_parameters={"amount": 100},
+            idempotency_key="idem-r3-demo",
+        )
+
+
 def _build_action_record_registry(
     store: ActionRecordStore,
     *,
@@ -170,6 +191,12 @@ def _build_runtime(
 def _build_r4_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
     runtime = _build_runtime(store, risk_ceiling="R4")
     runtime.action_builder = _R4ActionRecordProposalBuilder()  # type: ignore[assignment]
+    return runtime
+
+
+def _build_approval_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
+    runtime = _build_runtime(store, risk_ceiling="R3")
+    runtime.action_builder = _R3ApprovalActionRecordProposalBuilder()  # type: ignore[assignment]
     return runtime
 
 
@@ -259,7 +286,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approval_resume_executes_only_after_approval(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
 
         self.assertIsNotNone(result.approval_record)
@@ -288,9 +315,26 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
             ],
         )
 
-    def test_approval_resume_rejects_pending_rejected_and_mismatched_approval(self) -> None:
+    def test_approval_resume_rejects_r4_r5_business_actions_in_mvp(self) -> None:
         record_store = ActionRecordStore()
         runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id, reason="approved")
+
+        with self.assertRaisesRegex(ValueError, "R4/R5 business actions are proposal-only"):
+            runtime.execute_approved_operation(
+                approval_id=result.approval_record.approval_id,
+                operation=result.operation_contract,
+                action_parameters=result.action_proposal.action_parameters,
+                evidence_chain=result.evidence_chain,
+                proposal_id=result.action_proposal.proposal_id,
+            )
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_rejects_pending_rejected_and_mismatched_approval(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_approval_runtime(record_store)
         pending = runtime.run("最近7天GMV是多少？", _run_params())
 
         with self.assertRaises(ValueError):
@@ -327,7 +371,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approval_resume_rejects_operation_not_bound_to_proposal(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
         runtime.approval_runtime.approve(result.approval_record.approval_id)
         tampered_operation = replace(
@@ -348,7 +392,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approval_resume_rejects_action_parameters_not_bound_to_approval(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
         runtime.approval_runtime.approve(result.approval_record.approval_id)
 
@@ -365,7 +409,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approval_resume_rejects_missing_approval_fingerprint(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
         legacy_approval = runtime.approval_runtime.create_pending(
             approval_id="approval-legacy",
@@ -387,7 +431,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approval_resume_rejects_evidence_not_bound_to_approval(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
         runtime.approval_runtime.approve(result.approval_record.approval_id)
         tampered_evidence = replace(
@@ -408,7 +452,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approval_resume_updates_persisted_run_trace(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
         runtime.approval_runtime.approve(result.approval_record.approval_id)
 
@@ -429,7 +473,7 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
 
     def test_approved_action_rollback_demo_restores_store(self) -> None:
         record_store = ActionRecordStore()
-        runtime = _build_r4_runtime(record_store)
+        runtime = _build_approval_runtime(record_store)
         result = runtime.run("最近7天GMV是多少？", _run_params())
         runtime.approval_runtime.approve(result.approval_record.approval_id)
 

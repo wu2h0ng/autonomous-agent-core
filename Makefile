@@ -29,8 +29,8 @@ test: unit eval
 openapi-contract:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m agent_os_api.openapi_contract --check
 
-ci: lint format-check unit eval
+ci: lint format-check unit eval openapi-contract
 	@echo "=== All CI checks passed ==="
 
-ci-local-full: check-dev-env ci openapi-contract
+ci-local-full: check-dev-env ci
 	@echo "=== Full local CI parity checks passed ==="

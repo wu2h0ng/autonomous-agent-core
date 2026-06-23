@@ -126,9 +126,15 @@ class PersistenceRepositoriesTest(unittest.TestCase):
 
         # Lifecycle persists: a SEPARATE runtime on the same store approves it.
         runtime2 = ApprovalLiteRuntime(store=SqlApprovalStore(self.engine))
-        approved = runtime2.approve("approval-1", reason="looks good")
+        approved = runtime2.approve(
+            "approval-1",
+            reason="looks good",
+            approved_by="ops@example.com",
+        )
         self.assertEqual(approved.status, "approved")
+        self.assertEqual(approved.approved_by, "ops@example.com")
         self.assertEqual(store.get("approval-1").status, "approved")
+        self.assertEqual(store.get("approval-1").approved_by, "ops@example.com")
 
     def test_snapshot_round_trip_and_rewrite(self) -> None:
         from agent_os_persistence import SqlSnapshotStore

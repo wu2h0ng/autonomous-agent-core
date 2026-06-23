@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 
 from .outcome_service import (
+    approve_and_execute_service,
     attest_adoption_service,
     record_outcome_service,
     run_service,
@@ -34,7 +35,9 @@ from .outcome_service import (
 from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
+OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 API_KEY_HEADER = "X-API-Key"
+OPERATOR_API_KEY_HEADER = "X-Operator-Key"
 
 
 class RunRequest(BaseModel):
@@ -106,7 +109,9 @@ class UserResultBusinessAction(BaseModel):
     status: str
     operation_id: str | None = None
     approval_id: str | None = None
-    action_parameters: dict[str, Any] = Field(default_factory=dict)
+    evidence_chain_id: str
+    trace_id: str
+    row_count: int
 
 
 class UserResultArtifact(BaseModel):
@@ -202,6 +207,37 @@ class AdoptionResponse(BaseModel):
     result_weight: float | None = None
 
 
+class ApprovalExecuteRequest(BaseModel):
+    reason: str = Field(..., min_length=1)
+    approved_by: str = Field(..., min_length=1)
+
+
+class ApprovalExecuteResponse(BaseModel):
+    approval_id: str
+    approval_status: str
+    approved_by: str | None = None
+    proposal_id: str
+    operation_trace_id: str
+    operation_id: str | None = None
+    state: str
+    evidence_chain_id: str
+    connector_name: str | None = None
+    action_type: str | None = None
+    action_result_status: str | None = None
+    idempotency_key: str | None = None
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ApprovalExecuteError(BaseModel):
+    code: str
+    message: str
+    approval_id: str | None = None
+
+
+class ApprovalExecuteErrorResponse(BaseModel):
+    detail: ApprovalExecuteError
+
+
 class SearchResultItem(BaseModel):
     asset_id: str
     title: str
@@ -266,6 +302,7 @@ def create_app(
     *,
     retriever: Any | None = None,
     api_key: str | None = None,
+    operator_api_key: str | None = None,
     adoption_ingest: Any | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to a single shared runtime.
@@ -298,11 +335,15 @@ def create_app(
         shared_retriever = retriever
         shared_adoption_ingest = adoption_ingest
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
+    configured_operator_key = (
+        operator_api_key if operator_api_key is not None else os.environ.get(OPERATOR_API_KEY_ENV)
+    )
 
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
+    app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
 
     def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
@@ -316,6 +357,21 @@ def create_app(
             )
         if x_api_key != app.state.api_key:
             raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    def require_operator_api_key(
+        x_operator_key: str | None = Header(default=None, alias=OPERATOR_API_KEY_HEADER),
+    ) -> None:
+        if not app.state.operator_api_key:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Operator API key is not configured. Set the "
+                    "AGENT_OS_OPERATOR_API_KEY environment variable (or pass "
+                    "operator_api_key to create_app) to enable approval execution."
+                ),
+            )
+        if x_operator_key != app.state.operator_api_key:
+            raise HTTPException(status_code=401, detail="Invalid or missing operator key.")
 
     @app.post(
         "/runs",
@@ -378,6 +434,53 @@ def create_app(
                 else None
             ),
         )
+
+    @app.post(
+        "/approvals/{approval_id}/execute",
+        response_model=ApprovalExecuteResponse,
+        responses={
+            404: {
+                "model": ApprovalExecuteErrorResponse,
+                "description": "Approval context not found.",
+            },
+            409: {
+                "model": ApprovalExecuteErrorResponse,
+                "description": "Approval execution conflict.",
+            },
+        },
+    )
+    def post_approval_execute(
+        approval_id: str,
+        body: ApprovalExecuteRequest,
+        _: None = Depends(require_operator_api_key),
+    ) -> dict[str, Any]:
+        # Approval-bound action execution: approve then execute the exact pending
+        # context captured by the prior /runs call. No automatic R4/R5 execution.
+        try:
+            return approve_and_execute_service(
+                app.state.runtime,
+                approval_id=approval_id,
+                reason=body.reason,
+                approved_by=body.approved_by,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "approval_context_not_found",
+                    "message": str(exc).strip("'"),
+                    "approval_id": approval_id,
+                },
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "approval_execution_conflict",
+                    "message": str(exc),
+                    "approval_id": approval_id,
+                },
+            ) from exc
 
     @app.get("/knowledge/search", response_model=SearchResponse)
     def get_knowledge_search(

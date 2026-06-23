@@ -59,6 +59,25 @@ class _NoSnapshotActionRecordConnector(ActionRecordConnector):
         return None
 
 
+class _R3ActionRecordProposalBuilder:
+    def build(self, *, proposal_id: str, evidence: EvidenceChain) -> ActionProposal:
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action="write_r3_action_record",
+            reason=evidence.conclusion,
+            risk_level=RiskLevel.R3,
+            expected_impact="record persisted after approval",
+            approval_required=True,
+            approver_role="Business Owner",
+            connector_name="action_record",
+            action_type="execute",
+            action_parameters={"amount": 100},
+            idempotency_key="idem-d6-r3-loop",
+        )
+
+
 class _R4ActionRecordProposalBuilder:
     def build(self, *, proposal_id: str, evidence: EvidenceChain) -> ActionProposal:
         return ActionProposal(
@@ -68,29 +87,29 @@ class _R4ActionRecordProposalBuilder:
             recommended_action="write_r4_action_record",
             reason=evidence.conclusion,
             risk_level=RiskLevel.R4,
-            expected_impact="record persisted after approval",
+            expected_impact="proposal only in MVP",
             approval_required=True,
             approver_role="Business Owner",
             connector_name="action_record",
             action_type="execute",
             action_parameters={"amount": 100},
-            idempotency_key="idem-d6-loop",
+            idempotency_key="idem-d6-r4-loop",
         )
 
 
-def _build_runtime_with_action_record_r4() -> tuple[
+def _build_runtime_with_action_record_r3() -> tuple[
     TrustedLoopRuntime, ActionRecordStore, AdoptionLedger
 ]:
     return _build_runtime_with_action_record(
         connector_cls=ActionRecordConnector,
-        risk_ceiling="R4",
+        risk_ceiling="R3",
     )
 
 
 def _build_runtime_with_action_record(
     *,
     connector_cls=ActionRecordConnector,
-    risk_ceiling: str = "R4",
+    risk_ceiling: str = "R3",
 ) -> tuple[TrustedLoopRuntime, ActionRecordStore, AdoptionLedger]:
     store = ActionRecordStore()
     ledger = AdoptionLedger()
@@ -147,7 +166,7 @@ def _build_runtime_with_action_record(
         connector_registry=registry,
         adoption_ledger_view=ledger.view(),
     )
-    runtime.action_builder = _R4ActionRecordProposalBuilder()  # type: ignore[assignment]
+    runtime.action_builder = _R3ActionRecordProposalBuilder()  # type: ignore[assignment]
     return runtime, store, ledger
 
 
@@ -167,7 +186,7 @@ def _operation(idempotency_key: str = "idem-d6-manual") -> OperationContract:
         operation_id="operation-proposal-d6",
         name="d6",
         target_connector="action_record",
-        risk_level="R4",
+        risk_level="R3",
         approval_required=True,
         dry_run_required=True,
         rollback_supported=True,
@@ -228,6 +247,7 @@ def _snapshot_id(operation_trace) -> str:
 class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
     def test_connector_risk_ceiling_cannot_be_exceeded(self) -> None:
         runtime, store, _ledger = _build_runtime_with_action_record(risk_ceiling="R3")
+        runtime.action_builder = _R4ActionRecordProposalBuilder()  # type: ignore[assignment]
 
         with self.assertRaisesRegex(ValueError, "risk ceiling"):
             runtime.run("最近7天GMV是多少？", dict(RUN_PARAMS))
@@ -271,7 +291,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(store.records(), ())
 
     def test_incomplete_evidence_chain_cannot_execute_approved_action(self) -> None:
-        runtime, store, _ledger = _build_runtime_with_action_record_r4()
+        runtime, store, _ledger = _build_runtime_with_action_record_r3()
         runtime.approval_runtime.create_pending(
             approval_id="approval-d6",
             proposal_id="proposal-d6",
@@ -295,7 +315,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(store.records(), ())
 
     def test_mismatched_evidence_chain_cannot_execute_approved_action(self) -> None:
-        runtime, store, _ledger = _build_runtime_with_action_record_r4()
+        runtime, store, _ledger = _build_runtime_with_action_record_r3()
         result = runtime.run("最近7天GMV是多少？", dict(RUN_PARAMS))
         runtime.approval_runtime.approve(result.approval_record.approval_id, reason="approved")
         mismatched_evidence = replace(
@@ -314,7 +334,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(store.records(), ())
 
     def test_runtime_self_report_does_not_promote_knowledge_or_external_adoption(self) -> None:
-        runtime, _store, ledger = _build_runtime_with_action_record_r4()
+        runtime, _store, ledger = _build_runtime_with_action_record_r3()
         result = runtime.run("最近7天GMV是多少？", dict(RUN_PARAMS))
         trace_id = result.evidence_chain.trace_id
 
@@ -331,7 +351,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(ledger.all_events(), ())
 
     def test_rollback_restores_approved_action_snapshot(self) -> None:
-        runtime, store, _ledger = _build_runtime_with_action_record_r4()
+        runtime, store, _ledger = _build_runtime_with_action_record_r3()
         _result, operation_trace = _approve_and_execute(runtime)
         self.assertEqual(len(store.records()), 1)
 
@@ -341,7 +361,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(store.records(), ())
 
     def test_missing_adoption_event_cannot_promote_knowledge(self) -> None:
-        runtime, _store, _ledger = _build_runtime_with_action_record_r4()
+        runtime, _store, _ledger = _build_runtime_with_action_record_r3()
         result = runtime.run("最近7天GMV是多少？", dict(RUN_PARAMS))
         trace_id = result.evidence_chain.trace_id
 
@@ -349,7 +369,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
 
     def test_repeated_idempotency_key_does_not_double_write(self) -> None:
-        runtime, store, _ledger = _build_runtime_with_action_record_r4()
+        runtime, store, _ledger = _build_runtime_with_action_record_r3()
         result, first_trace = _approve_and_execute(runtime)
         second_trace = runtime.execute_approved_operation(
             approval_id=result.approval_record.approval_id,
@@ -364,7 +384,7 @@ class GovernedActionOutcomeLoopD6Eval(unittest.TestCase):
         self.assertEqual(second_trace.events[-1]["status"], "idempotent_replay")
 
     def test_unapproved_action_cannot_execute(self) -> None:
-        runtime, store, _ledger = _build_runtime_with_action_record_r4()
+        runtime, store, _ledger = _build_runtime_with_action_record_r3()
         result = runtime.run("最近7天GMV是多少？", dict(RUN_PARAMS))
 
         with self.assertRaises(ValueError):

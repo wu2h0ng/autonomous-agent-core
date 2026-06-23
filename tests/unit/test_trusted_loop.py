@@ -70,6 +70,25 @@ class _ExecutionSpyConnector(ManualReviewConnector):
         return super().execute(operation, parameters)
 
 
+class _FlakyDryRunActionRecordConnector(ActionRecordConnector):
+    """Fails the first dry-run, then behaves like the real action_record connector."""
+
+    def __init__(self, *, store: ActionRecordStore) -> None:
+        super().__init__(store=store)
+        self._failures_remaining = 1
+
+    def dry_run(self, operation, parameters):  # type: ignore[override]
+        if self._failures_remaining > 0:
+            self._failures_remaining -= 1
+            return {
+                "status": "failed",
+                "connector_name": self.connector_name,
+                "operation_id": operation.operation_id,
+                "reason": "simulated transient dry-run failure",
+            }
+        return super().dry_run(operation, parameters)
+
+
 def _build_spy_connector_registry(spy: _ExecutionSpyConnector) -> ActionConnectorRegistry:
     """Register the spy under the ``manual_review`` routing name."""
     registry = ActionConnectorRegistry()
@@ -89,6 +108,8 @@ def _build_spy_connector_registry(spy: _ExecutionSpyConnector) -> ActionConnecto
 
 def _build_action_record_connector_registry(
     store: ActionRecordStore,
+    *,
+    connector: ActionRecordConnector | None = None,
 ) -> ActionConnectorRegistry:
     registry = ActionConnectorRegistry()
     registry.register(
@@ -105,7 +126,7 @@ def _build_action_record_connector_registry(
         ),
     )
     registry.register(
-        ActionRecordConnector(store=store),
+        connector or ActionRecordConnector(store=store),
         ActionConnectorContract(
             connector_name="action_record",
             display_name="Action Record",
@@ -495,6 +516,74 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
             store.records()[0]["parameters"]["evidence_chain_id"],
             result.evidence_chain.evidence_chain_id,
         )
+
+    def test_pending_action_context_executes_after_approval_without_client_replay(self) -> None:
+        """Approval resume should not require clients to replay operation/evidence payloads."""
+        store = ActionRecordStore()
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_action_record_connector_registry(store),
+        )
+        result = runtime.run(
+            "记录行动：基于最近7天GMV创建一个跟进行动",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        approval_id = result.approval_record.approval_id
+
+        runtime.approval_runtime.approve(approval_id, reason="approved")
+        operation_trace = runtime.execute_pending_approved_operation(approval_id=approval_id)
+
+        self.assertEqual(operation_trace.state, OperationState.EXECUTED)
+        self.assertEqual(len(store.records()), 1)
+        self.assertEqual(
+            store.records()[0]["parameters"]["evidence_chain_id"],
+            result.evidence_chain.evidence_chain_id,
+        )
+        with self.assertRaises(KeyError):
+            runtime.execute_pending_approved_operation(approval_id=approval_id)
+
+    def test_approved_pending_action_remains_retryable_after_dry_run_failure(self) -> None:
+        """A connector failure after approval must not consume the pending context."""
+        store = ActionRecordStore()
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_action_record_connector_registry(
+                store,
+                connector=_FlakyDryRunActionRecordConnector(store=store),
+            ),
+        )
+        result = runtime.run(
+            "记录行动：基于最近7天GMV创建一个跟进行动",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        approval_id = result.approval_record.approval_id
+
+        with self.assertRaisesRegex(ValueError, "dry-run failed"):
+            runtime.approve_and_execute_pending_operation(
+                approval_id=approval_id,
+                reason="approved by operator",
+                approved_by="ops@example.com",
+            )
+
+        approval = runtime.approval_runtime.get(approval_id)
+        self.assertEqual(approval.status, "approved")
+        self.assertEqual(approval.approved_by, "ops@example.com")
+        self.assertEqual(store.records(), ())
+
+        _approval, operation_trace = runtime.approve_and_execute_pending_operation(
+            approval_id=approval_id,
+            reason="retry after connector recovery",
+            approved_by="ops@example.com",
+        )
+
+        self.assertEqual(operation_trace.state, OperationState.EXECUTED)
+        self.assertEqual(len(store.records()), 1)
+        self.assertEqual(
+            store.records()[0]["parameters"]["evidence_chain_id"],
+            result.evidence_chain.evidence_chain_id,
+        )
+        with self.assertRaises(KeyError):
+            runtime.execute_pending_approved_operation(approval_id=approval_id)
 
     def test_nonexistent_connector_raises_keyerror(self) -> None:
         """Requesting a nonexistent connector should raise KeyError."""

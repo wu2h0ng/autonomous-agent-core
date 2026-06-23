@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 from agent_os_api.outcome_service import (
+    approve_and_execute_service,
     attest_adoption_service,
     record_outcome_service,
     run_service,
@@ -66,10 +67,8 @@ class RunServiceTest(unittest.TestCase):
         self.assertEqual(business_action["action_type"], "execute")
         self.assertEqual(business_action["status"], "awaiting_approval")
         self.assertTrue(business_action["approval_id"].startswith("approval-"))
-        self.assertEqual(
-            business_action["action_parameters"]["evidence_chain_id"],
-            summary["evidence_chain_id"],
-        )
+        self.assertEqual(business_action["evidence_chain_id"], summary["evidence_chain_id"])
+        self.assertEqual(business_action["trace_id"], summary["trace_id"])
 
     def test_run_service_blocked_returns_structured_block(self) -> None:
         # 'revenue' parses to a metric the pack does not define -> UNKNOWN_METRIC.
@@ -80,6 +79,66 @@ class RunServiceTest(unittest.TestCase):
         self.assertNotIn("trace_id", summary)
         self.assertEqual(summary["block"]["code"], "unknown_metric")
         self.assertEqual(summary["block"]["stage"], "metric_resolution")
+
+
+class ApprovalExecutionServiceTest(unittest.TestCase):
+    def test_approve_and_execute_service_runs_approval_bound_action(self) -> None:
+        runtime = _build_runtime()
+        summary = run_service(runtime, question="GMV 记录行动", parameters=RUN_PARAMS)
+        approval_id = summary["user_result"]["business_action"]["approval_id"]
+
+        result = approve_and_execute_service(
+            runtime,
+            approval_id=approval_id,
+            reason="approved by operator",
+            approved_by="ops@example.com",
+        )
+
+        self.assertEqual(result["approval_id"], approval_id)
+        self.assertEqual(result["approval_status"], "approved")
+        self.assertEqual(result["approved_by"], "ops@example.com")
+        self.assertEqual(result["state"], "executed")
+        self.assertTrue(result["operation_trace_id"].startswith("optrace-"))
+        self.assertEqual(
+            result["operation_id"],
+            summary["user_result"]["business_action"]["operation_id"],
+        )
+        self.assertIn("connector_executed", [event["step"] for event in result["events"]])
+
+    def test_approve_and_execute_service_does_not_approve_without_pending_context(self) -> None:
+        runtime = _build_runtime()
+        runtime.approval_runtime.create_pending(
+            approval_id="approval-orphan",
+            proposal_id="proposal-orphan",
+            approver_role="Business Owner",
+            operation_fingerprint="digest-orphan",
+        )
+
+        with self.assertRaises(KeyError):
+            approve_and_execute_service(
+                runtime,
+                approval_id="approval-orphan",
+                reason="approved by operator",
+                approved_by="ops@example.com",
+            )
+
+        self.assertEqual(runtime.approval_runtime.get("approval-orphan").status, "pending")
+
+    def test_approve_and_execute_service_rejected_approval_stays_rejected(self) -> None:
+        runtime = _build_runtime()
+        summary = run_service(runtime, question="GMV 记录行动", parameters=RUN_PARAMS)
+        approval_id = summary["user_result"]["business_action"]["approval_id"]
+        runtime.approval_runtime.reject(approval_id, reason="not acceptable")
+
+        with self.assertRaises(ValueError):
+            approve_and_execute_service(
+                runtime,
+                approval_id=approval_id,
+                reason="approved by operator",
+                approved_by="ops@example.com",
+            )
+
+        self.assertEqual(runtime.approval_runtime.get(approval_id).status, "rejected")
 
 
 class RecordOutcomeServiceTest(unittest.TestCase):
