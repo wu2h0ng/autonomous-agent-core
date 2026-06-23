@@ -12,6 +12,23 @@ Branch: `codex/durable-action-ledger`
 Result before implementation: failed to import `ConnectorExecutionAudit`.
 
 ```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:action_connectors \
+  python -m unittest \
+  tests.unit.test_architecture_contracts.ArchitectureContractsTest.test_action_connector_contract_declares_execution_semantics \
+  tests.unit.test_trusted_loop.TrustedLoopGovernanceTest.test_connector_contract_execution_semantics_supply_audit_defaults
+```
+
+Result before connector-semantics implementation: failed to import `ConnectorExecutionSemantics`, then failed with missing `durability_scope` when a minimal external connector returned only `status` and `external_request_id`.
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \
+  python -m unittest \
+  tests.unit.test_factory_recall_wiring.MemoryBackendRecallWiringTest.test_action_record_connector_declares_ledger_execution_semantics
+```
+
+Result before factory wiring: failed because `action_record` still exposed default `connector_response` semantics instead of `connector_local_ledger`.
+
+```bash
 .venv/bin/python -m unittest \
   tests.unit.test_trusted_loop.TrustedLoopGovernanceTest.test_external_connector_execution_audit_uses_safe_reported_fields_only -v
 ```
@@ -42,6 +59,28 @@ Result before uncertain-audit whitelist hardening: failed with missing `external
 Result: 18 tests OK.
 
 ```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \
+  python -m unittest \
+  tests.unit.test_architecture_contracts.ArchitectureContractsTest.test_action_connector_contract_declares_execution_semantics \
+  tests.unit.test_trusted_loop.TrustedLoopGovernanceTest.test_connector_contract_execution_semantics_supply_audit_defaults \
+  tests.unit.test_factory_recall_wiring.MemoryBackendRecallWiringTest.test_action_record_connector_declares_ledger_execution_semantics
+```
+
+Result: 3 tests OK.
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \
+  python -m unittest \
+  tests.unit.test_action_connector \
+  tests.unit.test_architecture_contracts \
+  tests.unit.test_trusted_loop \
+  tests.unit.test_factory_recall_wiring \
+  tests.eval.test_governed_action_outcome_loop_v0
+```
+
+Result: 49 tests OK, 1 skipped.
+
+```bash
 PYTHONPATH=apps/api_server/src:packages/contracts/src:packages/os_core/src:packages/persistence/src:action_connectors \
   .venv/bin/python -m unittest \
   tests.unit.test_openapi_contract \
@@ -66,7 +105,7 @@ Result:
 
 - ruff check clean.
 - ruff format check clean.
-- primary unittest discover: 410 tests OK, 4 skipped.
+- primary unittest discover: 414 tests OK, 4 skipped.
 - eval suite: 12 tests OK.
 - OpenAPI contract check up to date.
 
@@ -78,4 +117,3 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:15432/age
 Result: full local CI parity checks passed.
 
 Environment note: used the disposable local PostgreSQL test database on `127.0.0.1:15432/agent_os_test`.
-

@@ -10,6 +10,7 @@ from typing import Any
 
 from agent_os_contracts import (
     ActionConnectorContract,
+    ConnectorExecutionSemantics,
     MetricContract,
     ProviderContract,
     ProviderKind,
@@ -426,6 +427,13 @@ class ContentCommerceRuntimeFactory:
                 ),
                 risk_ceiling="R3",
                 owner="system",
+                execution_semantics=ConnectorExecutionSemantics(
+                    durability_scope="connector_local_ledger",
+                    external_ack_status="not_applicable",
+                    ledger_status="recorded",
+                    supports_idempotency=True,
+                    supports_reconciliation=True,
+                ),
             ),
         )
         return registry

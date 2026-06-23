@@ -101,8 +101,10 @@ connector-locally, including conflict fingerprints without raw conflicting paylo
 audits connector-local post-write ACK-uncertain attempts and surfaces recovered idempotent replays
 through the approval execute response's typed `execution_audit`.
 
-`execution_audit` is a conservative projection over connector-reported execution semantics. It can
-show safe fields such as `durability_scope`, `execution_outcome`, `replay_status`,
+`execution_audit` is a conservative projection over connector-declared defaults plus whitelisted
+connector-reported execution fields. The runtime fills defaults from the registered
+`ActionConnectorContract.execution_semantics` before copying any safe connector payload fields. It
+can show safe fields such as `durability_scope`, `execution_outcome`, `replay_status`,
 `external_ack_status`, `ledger_status`, `record_id`, `external_request_id`,
 `execution_certainty`, and `ack_status`. Raw action parameters, secrets, raw request/response
 bodies, and connector payloads are not copied into this projection. `external_ack_status` defaults

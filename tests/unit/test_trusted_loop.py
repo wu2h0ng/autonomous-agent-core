@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
     ActionProposal,
+    ConnectorExecutionSemantics,
     LifecycleState,
     MetricContract,
     OperationContract,
@@ -107,6 +108,19 @@ class _ExternalWebhookConnector(ManualReviewConnector):
         }
 
 
+class _MinimalExternalWebhookConnector(ManualReviewConnector):
+    @property
+    def connector_name(self) -> str:  # type: ignore[override]
+        return "external_webhook"
+
+    def execute(self, operation, parameters):  # type: ignore[override]
+        return {
+            "status": "accepted",
+            "external_request_id": "ext-req-minimal",
+            "secret_token": parameters.get("secret_token"),
+        }
+
+
 class _ExternalWebhookActionBuilder:
     def build(self, *, proposal_id: str, evidence):  # type: ignore[no-untyped-def]
         return ActionProposal(
@@ -177,6 +191,13 @@ def _build_action_record_connector_registry(
             ),
             risk_ceiling="R3",
             owner="system",
+            execution_semantics=ConnectorExecutionSemantics(
+                durability_scope="connector_local_ledger",
+                external_ack_status="not_applicable",
+                ledger_status="recorded",
+                supports_idempotency=True,
+                supports_reconciliation=True,
+            ),
         ),
     )
     return registry
@@ -195,6 +216,30 @@ def _build_external_webhook_connector_registry() -> ActionConnectorRegistry:
             compensating_action_description=None,
             risk_ceiling="R3",
             owner="system",
+        ),
+    )
+    return registry
+
+
+def _build_minimal_external_webhook_connector_registry() -> ActionConnectorRegistry:
+    registry = ActionConnectorRegistry()
+    registry.register(
+        _MinimalExternalWebhookConnector(),
+        ActionConnectorContract(
+            connector_name="external_webhook",
+            display_name="External Webhook",
+            supported_action_types=("execute",),
+            supports_snapshot=False,
+            supports_rollback=False,
+            compensating_action_description=None,
+            risk_ceiling="R3",
+            owner="system",
+            execution_semantics=ConnectorExecutionSemantics(
+                durability_scope="external_connector",
+                external_ack_status="unknown",
+                ledger_status="connector_reported",
+                supports_idempotency=True,
+            ),
         ),
     )
     return registry
@@ -557,6 +602,31 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         self.assertEqual(execute_event["ledger_status"], "connector_reported")
         self.assertNotIn("secret_token", execute_event)
         self.assertNotIn("raw_parameters", execute_event)
+
+    def test_connector_contract_execution_semantics_supply_audit_defaults(self) -> None:
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_minimal_external_webhook_connector_registry(),
+        )
+        runtime.action_builder = _ExternalWebhookActionBuilder()
+
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        execute_event = next(
+            event
+            for event in result.operation_trace.events
+            if event["step"] == "connector_executed"
+        )
+        self.assertEqual(execute_event["status"], "accepted")
+        self.assertEqual(execute_event["external_request_id"], "ext-req-minimal")
+        self.assertEqual(execute_event["durability_scope"], "external_connector")
+        self.assertEqual(execute_event["external_ack_status"], "unknown")
+        self.assertEqual(execute_event["replay_status"], "not_replayed")
+        self.assertEqual(execute_event["ledger_status"], "connector_reported")
+        self.assertNotIn("secret_token", execute_event)
 
     def test_explicit_action_record_intent_routes_to_real_connector_after_approval(self) -> None:
         """A user-visible action request routes to a real reversible connector,

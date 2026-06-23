@@ -17,6 +17,7 @@ from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
     ActionProposal,
     BusinessIntent,
+    ConnectorExecutionSemantics,
     EvidenceChain,
     FeedbackSource,
     MetricContract,
@@ -145,6 +146,13 @@ def _build_runtime_with_action_record(
             compensating_action_description="Restore store to snapshot",
             risk_ceiling=risk_ceiling,
             owner="system",
+            execution_semantics=ConnectorExecutionSemantics(
+                durability_scope="connector_local_ledger",
+                external_ack_status="not_applicable",
+                ledger_status="recorded",
+                supports_idempotency=True,
+                supports_reconciliation=True,
+            ),
         ),
     )
     runtime = TrustedLoopRuntime(

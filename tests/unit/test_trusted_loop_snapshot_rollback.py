@@ -13,11 +13,12 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
     ActionProposal,
+    ConnectorExecutionSemantics,
     EvidenceChain,
     MetricContract,
+    OperationState,
     ProviderContract,
     ProviderKind,
-    OperationState,
     RiskLevel,
     SQLTemplate,
 )
@@ -198,6 +199,13 @@ def _build_action_record_registry(
         compensating_action_description="Restore the action record store to the snapshot state",
         risk_ceiling=risk_ceiling,
         owner="system",
+        execution_semantics=ConnectorExecutionSemantics(
+            durability_scope="connector_local_ledger",
+            external_ack_status="not_applicable",
+            ledger_status="recorded",
+            supports_idempotency=True,
+            supports_reconciliation=True,
+        ),
     )
     registry.register(connector, contract)
     return registry

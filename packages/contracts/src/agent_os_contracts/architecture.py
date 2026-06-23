@@ -235,6 +235,31 @@ class StateSnapshot:
 
 
 @dataclass(frozen=True)
+class ConnectorExecutionSemantics:
+    """Declared execution-audit semantics for a connector.
+
+    These are contract-level defaults, not proof of external success. They let
+    the runtime project connector execution consistently without inferring ACKs
+    or copying raw connector payloads.
+    """
+
+    durability_scope: str = "connector_response"
+    replay_status: str = "not_replayed"
+    external_ack_status: str = "unknown"
+    ledger_status: str = "not_reported"
+    supports_idempotency: bool = False
+    supports_reconciliation: bool = False
+
+    def audit_defaults(self) -> dict[str, str]:
+        return {
+            "durability_scope": self.durability_scope,
+            "replay_status": self.replay_status,
+            "external_ack_status": self.external_ack_status,
+            "ledger_status": self.ledger_status,
+        }
+
+
+@dataclass(frozen=True)
 class ActionConnectorContract:
     connector_name: str
     display_name: str
@@ -244,6 +269,9 @@ class ActionConnectorContract:
     compensating_action_description: str | None
     risk_ceiling: str
     owner: str
+    execution_semantics: ConnectorExecutionSemantics = field(
+        default_factory=ConnectorExecutionSemantics
+    )
 
 
 @dataclass(frozen=True)

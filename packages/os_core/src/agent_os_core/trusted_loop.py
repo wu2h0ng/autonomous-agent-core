@@ -1074,6 +1074,11 @@ class TrustedLoopRuntime:
         ):
             if safe_field in action_result:
                 execute_event[safe_field] = action_result[safe_field]
+        execution_semantics = self.connector_registry.get_execution_semantics(
+            operation.connector_name
+        )
+        for key, value in execution_semantics.audit_defaults().items():
+            execute_event.setdefault(key, value)
         if "external_ack_status" not in execute_event and (
             execute_event.get("durability_scope") == "external_connector"
             or "external_request_id" in execute_event
