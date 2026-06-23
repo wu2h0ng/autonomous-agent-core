@@ -298,6 +298,18 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(internal_report.json()["user_result"]["audience"], "internal")
         self.assertEqual(external_forced_report.json()["audience"], "external")
         self.assertEqual(external_forced_report.json()["user_result"]["audience"], "external")
+        self.assertEqual(
+            internal_report.json()["user_result"]["artifact_id"],
+            f"artifact-{trace_id}-internal",
+        )
+        self.assertEqual(
+            external_forced_report.json()["user_result"]["artifact_id"],
+            f"artifact-{trace_id}-external",
+        )
+        self.assertNotEqual(
+            internal_report.json()["user_result"]["artifact_id"],
+            external_forced_report.json()["user_result"]["artifact_id"],
+        )
         self.assertIn("sha256:", internal_report.text)
         self.assertNotIn("sha256:", external_forced_report.text)
 

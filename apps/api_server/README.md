@@ -74,9 +74,10 @@ Endpoints (protected by `X-API-Key` unless noted):
   from the app's same-process report store. This read path does not call
   `runtime.evaluate`, does not re-run SQL, does not create approvals, and does not touch
   action connectors. `AGENT_OS_EXTERNAL_API_KEY` may call this endpoint only through the
-  external projection, even when `?audience=internal` is requested. Unknown or
-  cross-process/restarted snapshots return `404`; durable report storage requires a
-  separate persistence ADR/schema.
+  external projection, even when `?audience=internal` is requested. Internal and external
+  report projections have distinct `artifact_id` values, so clients cannot cache or audit
+  two redaction views as the same rendered artifact. Unknown or cross-process/restarted
+  snapshots return `404`; durable report storage requires a separate persistence ADR/schema.
 - `POST /outcomes` — body `{trace_id, outcome, reviewer?, metric_deltas?}` ->
   `record_outcome_service` result.
 

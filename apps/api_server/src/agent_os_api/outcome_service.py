@@ -341,7 +341,7 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
     )
 
     return {
-        "artifact_id": f"artifact-{trace_id}",
+        "artifact_id": f"artifact-{trace_id}-{audience}",
         "kind": "data_agent_result",
         "title": f"{metric.display_name} analysis result",
         "trace_id": trace_id,
