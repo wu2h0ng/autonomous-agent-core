@@ -19,6 +19,16 @@ from pathlib import Path
 from aac.shell import CorrigibilityShell
 
 
+def _bad_static_firewall_callee() -> bool:
+    battery_outputs = {"MINIMAX": 1.0}
+    return bool(battery_outputs)
+
+
+def _bad_static_firewall_wrapper(state: object) -> bool:
+    del state
+    return _bad_static_firewall_callee()
+
+
 class TestGEcoSharedSubstrate(unittest.TestCase):
     def test_substrate_prediction_is_bit_identical_across_arms(self) -> None:
         from aac.g_eco import build_g_eco_arms
@@ -491,6 +501,16 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
                 bad_region,
                 forbidden_identifiers={"MINIMAX_enter_rate", "enter_rate"},
                 context="negative-control",
+            )
+
+    def test_static_firewall_follows_same_module_callees(self) -> None:
+        from aac.g_eco import assert_static_firewall
+
+        with self.assertRaises(AssertionError):
+            assert_static_firewall(
+                _bad_static_firewall_wrapper,
+                forbidden_identifiers={"battery_outputs"},
+                context="recursive-negative-control",
             )
 
     def test_audit_firewall_exposes_halt_booleans_not_arm_rates(self) -> None:

@@ -81,13 +81,15 @@ KEEP/CHECKPOINT status of `c1363fa` is unchanged; the remediation tightens pre-�
 An adversarial freeze-candidate review found two remaining pre-freeze risks and one under-specified Gate-2 leaf:
 
 - VH aggregation constants were still hand-coded without calibration provenance.
-- §9 firewalls for region/rate/threshold logic relied on self-reported JSON booleans rather than static source guards.
+- §9 firewalls for region/rate/threshold logic relied on self-reported JSON booleans rather than static source guards; a follow-on review required those guards to follow same-module callees so forbidden reads cannot be moved one helper deeper.
 - Gate-2 max-hardening condition C3 required G-Eco-4 bootstrap, battery-best tie-break, and comparison epsilon/rounding to be fixed into the hash-locked threshold object before activation.
 
 Codex implemented the pre-Gate-2 hardening without unlocking Gate-2:
 
 - `GEcoVHParams` and `select_vh_parameters()` select VH parameters from a finite calibration grid on calibration seeds, record grid hash/selected label/objective/provenance in `g_eco.battery.json`, and keep performance values withheld.
-- `assert_g_eco_static_firewalls()` adds AST source checks for the region predicate, rate witness, and threshold formula. `pregate2-verify` now runs these checks in addition to content-hash and leak checks.
+- `assert_g_eco_static_firewalls()` adds recursive AST source checks for the region predicate, rate witness, and threshold formula. `pregate2-verify` now runs these checks in addition to content-hash and leak checks. The rate witness now uses a calibration-ref-only runner rather than the generic arm runner, so recursive source checks can prove it does not reach VH or battery arms through a helper.
 - `g_eco.thresholds.json` now records the C3 verdict-mechanics leaves: percentile bootstrap with `B=10000` and seed `611038`, deterministic battery-best tie-break order, and comparison `epsilon=1e-12` with no rounding.
 
 This remains candidate-material hardening only. A passing `pregate2-verify` is not founder/CTO Gate-2 co-sign, not r-final authorization, not a halt/R4 disposition, and not a G-Eco verdict.
+
+2026-06-24 verification after recursive-firewall hardening: `PYTHONPATH=src python -m unittest discover -s tests -v` ran 457 tests OK; `pregate2-candidates` followed by `pregate2-verify` returned `gate2_locked=true`, `verified_candidate_bundle=true`, and `static_firewalls_verified=true`.

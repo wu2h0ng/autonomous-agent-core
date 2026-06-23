@@ -782,7 +782,7 @@ def verify_content_hash(payload: Mapping[str, Any]) -> bool:
 
 
 def _source_identifiers(fn: Callable[..., Any]) -> set[str]:
-    source = textwrap.dedent(inspect.getsource(fn))
+    source = textwrap.dedent(inspect.getsource(inspect.unwrap(fn)))
     tree = ast.parse(source)
     identifiers: set[str] = set()
     for node in ast.walk(tree):
@@ -795,6 +795,40 @@ def _source_identifiers(fn: Callable[..., Any]) -> set[str]:
     return identifiers
 
 
+def _called_function_names(fn: Callable[..., Any]) -> set[str]:
+    source = textwrap.dedent(inspect.getsource(inspect.unwrap(fn)))
+    tree = ast.parse(source)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            names.add(node.func.id)
+    return names
+
+
+def _static_firewall_functions(fn: Callable[..., Any]) -> tuple[Callable[..., Any], ...]:
+    """Return same-module Python functions reachable from ``fn`` by direct calls."""
+    module = getattr(inspect.unwrap(fn), "__module__", None)
+    pending = [fn]
+    seen: set[int] = set()
+    ordered: list[Callable[..., Any]] = []
+    while pending:
+        current = pending.pop()
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        ordered.append(current)
+        unwrapped = inspect.unwrap(current)
+        for name in _called_function_names(unwrapped):
+            candidate = unwrapped.__globals__.get(name)
+            if (
+                inspect.isfunction(candidate)
+                and getattr(candidate, "__module__", None) == module
+            ):
+                pending.append(candidate)
+    return tuple(ordered)
+
+
 def assert_static_firewall(
     fn: Callable[..., Any],
     *,
@@ -802,19 +836,23 @@ def assert_static_firewall(
     context: str,
 ) -> None:
     """AST-level guard against freeze logic reading opponent-arm outputs."""
-    observed = _source_identifiers(fn)
-    leaks = sorted(
-        forbidden
-        for forbidden in forbidden_identifiers
-        if forbidden in observed
-        or any(
-            forbidden in identifier
-            for identifier in observed
-            if isinstance(identifier, str)
+    for current in _static_firewall_functions(fn):
+        observed = _source_identifiers(current)
+        leaks = sorted(
+            forbidden
+            for forbidden in forbidden_identifiers
+            if forbidden in observed
+            or any(
+                forbidden in identifier
+                for identifier in observed
+                if isinstance(identifier, str)
+            )
         )
-    )
-    if leaks:
-        raise AssertionError(f"{context} static firewall leaked identifiers: {leaks}")
+        if leaks:
+            raise AssertionError(
+                f"{context} static firewall leaked identifiers in "
+                f"{current.__name__}: {leaks}"
+            )
 
 
 def assert_g_eco_static_firewalls() -> bool:
@@ -1070,6 +1108,31 @@ def _run_full_region(
     return full_region
 
 
+def _run_calibration_ref_full_region(
+    seed: int,
+    ref_name: str,
+    *,
+    rates: GEcoRates,
+    steps: int,
+) -> bool:
+    refs = {ref.name: ref for ref in build_calibration_refs()}
+    if ref_name not in refs:
+        raise ValueError(f"unknown G-Eco calibration reference: {ref_name}")
+    arm = refs[ref_name]
+    env = _env_for(seed, rates)
+    full_region = True
+    for _ in range(steps):
+        observation = arm.substrate.observe(env)
+        action = arm.select(observation)
+        if action is None:
+            return False
+        env.act(action)
+        full_region = full_region and entered_viable_region(env.state)
+        if not env.alive:
+            return False
+    return full_region
+
+
 def _run_naive_full_region(seed: int, *, rates: GEcoRates, steps: int) -> bool:
     env = _env_for(seed, rates)
     full_region = True
@@ -1191,13 +1254,15 @@ def scan_rate_grid(
         )
         oracle = _full_region_rate(
             seeds,
-            lambda seed, r=rates: _run_full_region(
+            lambda seed, r=rates: _run_calibration_ref_full_region(
                 seed, "HOMEOSTATIC_ORACLE", rates=r, steps=steps
             ),
         )
         wcref = _full_region_rate(
             seeds,
-            lambda seed, r=rates: _run_full_region(seed, "WCREF", rates=r, steps=steps),
+            lambda seed, r=rates: _run_calibration_ref_full_region(
+                seed, "WCREF", rates=r, steps=steps
+            ),
         )
         if naive == 0.0 and oracle > 0.0 and wcref > 0.0:
             return GEcoRatesFreeze(
