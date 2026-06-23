@@ -25,7 +25,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest feature-branch verification is 350 unit tests OK, 4 skipped, and 12 eval tests OK, with OpenAPI contract tests executing under installed FastAPI/httpx dependencies.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest feature-branch verification is 353 unit tests OK, 4 skipped, and 12 eval tests OK, with OpenAPI contract tests executing under installed FastAPI/httpx dependencies.
 
 ### Delivered Capabilities
 
@@ -101,11 +101,20 @@ scripts/                agent runner scripts
 ## Commands
 
 ```bash
-# Full test suite
+# Install local development dependencies used by CI.
+make bootstrap-dev
+
+# Fast local suite: lint, format, unit, and eval.
 make ci
 
+# Full local CI parity: also requires Postgres-backed integration tests and
+# the OpenAPI contract drift gate. Use a disposable test database; this
+# does not publish, release, or push anything.
+export AGENT_OS_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/agent_os_test"
+make ci-local-full
+
 # Or directly:
-PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:apps/api_server/src \
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \
   python -m unittest discover -s tests -v
 
 # CLI query

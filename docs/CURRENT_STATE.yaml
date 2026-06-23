@@ -3,7 +3,7 @@ project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half implemented locally on main, pending push/release authorization"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half implemented locally on main, pending push/release authorization; local dev/CI parity targets added on codex/dev-ci-bootstrap"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -32,14 +32,14 @@ current_stage:
 
 last_verified_tests:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "350 unit tests OK, 4 skipped; OpenAPI drift tests execute with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
-  source: "local verification after ADR-0002 upper-half implementation, review hardening for risk ceiling/dry-run/snapshot/approval binding/approved-execution audit trace, and Makefile PYTHONPATH parity for API/CLI tests"
+  result: "353 unit tests OK, 4 skipped; OpenAPI drift target executes with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
+  source: "local verification after adding bootstrap-dev / ci-local-full parity targets on top of ADR-0002 upper-half implementation and Makefile PYTHONPATH parity"
   verified_at: "2026-06-23"
 
 last_verified_eval:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
   result: "12 eval tests OK, including 10 governed-action D6 eval tests"
-  source: "local verification after ADR-0002 upper-half implementation, review hardening for risk ceiling/dry-run/snapshot/approval binding/approved-execution audit trace, and Makefile PYTHONPATH parity for API/CLI tests"
+  source: "local verification after adding bootstrap-dev / ci-local-full parity targets on top of ADR-0002 upper-half implementation and Makefile PYTHONPATH parity"
   verified_at: "2026-06-23"
 
 authoritative_records:
