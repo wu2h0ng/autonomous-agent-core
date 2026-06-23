@@ -92,15 +92,17 @@ Verified locally on 2026-06-24:
 
 ```bash
 make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+AGENT_OS_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:15432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 ```
 
 Result:
 
 - ruff check passed;
 - ruff format check passed;
-- 389 tests OK, 4 skipped in primary unittest discover;
+- 429 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
 - 12 eval tests OK;
 - OpenAPI contract drift check passed.
+- full local CI parity passed against the disposable PostgreSQL URL above.
 
 ## 7. Non-Claims
 

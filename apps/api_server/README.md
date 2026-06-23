@@ -18,8 +18,10 @@ Trusted Loop without importing domain logic into OS Core.
 `outcome_service.py` is framework-agnostic (no FastAPI import). It is the single source of
 truth shared by both the CLI and the HTTP app:
 
-- `run_service(runtime, *, question, parameters) -> dict` — runs the loop and returns a
-  summary keyed by `trace_id` (`result.evidence_chain.trace_id`).
+- `run_service(runtime, *, question, parameters, audience="internal") -> dict` — runs
+  the loop and returns a summary keyed by `trace_id` (`result.evidence_chain.trace_id`).
+  `audience` selects the read-side `user_result` projection only; it is not an
+  identity-bound authorization check.
 - `record_outcome_service(runtime, *, trace_id, outcome, reviewer=None, metric_deltas=None)
   -> dict` — records an outcome via `runtime.record_outcome(...)` and reports the resulting
   `knowledge_asset_id` / `knowledge_version`.
@@ -53,12 +55,21 @@ Run the server with a configured API key (one shared runtime persists across req
 
 ```bash
 AGENT_OS_API_KEY=your-secret \
+  AGENT_OS_EXTERNAL_API_KEY=optional-external-report-secret \
   uvicorn --factory agent_os_api.http_app:create_app --host 127.0.0.1 --port 8000
 ```
 
-Endpoints (all require the `X-API-Key` header):
+Endpoints (protected by `X-API-Key` unless noted):
 
-- `POST /runs` — body `{question, parameters}` -> `run_service` summary.
+- `POST /runs` — body `{question, parameters, audience?}` -> `run_service` summary.
+  `audience` is `internal` by default; `external` redacts non-public result details in
+  `user_result` without changing the underlying Trusted Loop evidence. External public
+  projections may show public metric data, but still strip physical schema/table names,
+  bound parameter names, limit metadata, and SQL fingerprints. The optional
+  `AGENT_OS_EXTERNAL_API_KEY` is projection-only for this endpoint: it may call `/runs`, but
+  the response is always capped to the external projection even when the request body asks
+  for `audience=internal`. That projection also omits top-level provider, trace-step, and
+  related-knowledge metadata from the HTTP response.
 - `POST /outcomes` — body `{trace_id, outcome, reviewer?, metric_deltas?}` ->
   `record_outcome_service` result.
 
@@ -67,3 +78,37 @@ Auth boundary:
 - No key configured (neither `create_app(api_key=...)` nor `AGENT_OS_API_KEY`) -> protected
   routes reject with `503` so the operator configures a key rather than running open.
 - Missing or wrong `X-API-Key` -> `401`.
+- Recognized principal without the required scope -> `403`.
+- `AGENT_OS_EXTERNAL_API_KEY` is not a general API key; non-run management surfaces such as
+  `/outcomes`, `/adoptions`, `/knowledge/search`, and `/traces/{id}` still require the
+  internal API key. It still triggers a new `/runs` execution, so it is not a side-effect-free
+  read-only key. This is a narrow HTTP principal/scope and report projection cap, not full
+  RBAC or DLP.
+- Configured internal, external-report, and operator keys must be distinct; duplicate key
+  values fail closed during app creation.
+
+Minimal principal/scope contract:
+
+| Principal | Credential channel | Scopes | Notes |
+|---|---|---|---|
+| `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read` | Can request either internal or external run projection; cannot execute approvals. |
+| `external_report` | `X-API-Key == AGENT_OS_EXTERNAL_API_KEY` | `runs:external` | Forced to external projection; cannot use management surfaces. |
+| `operator` | `X-Operator-Key == AGENT_OS_OPERATOR_API_KEY` | `approvals:execute` | Header channel is separate from `X-API-Key`; approval execution remains operator-only. |
+
+Approval execution on the postgres backend resumes the approval-bound context and writes through
+the `action_record` connector ledger. That ledger audits idempotent replays and conflicts
+connector-locally, including conflict fingerprints without raw conflicting payloads. It also
+audits connector-local post-write ACK-uncertain attempts and surfaces recovered idempotent replays
+through the approval execute response's typed `execution_audit`.
+
+`execution_audit` is a conservative projection over connector-declared defaults plus whitelisted
+connector-reported execution fields. The runtime fills defaults from the registered
+`ActionConnectorContract.execution_semantics` before copying any safe connector payload fields. It
+can show safe fields such as `durability_scope`, `execution_outcome`, `replay_status`,
+`external_ack_status`, `ledger_status`, `record_id`, `external_request_id`,
+`execution_certainty`, and `ack_status`. Raw action parameters, secrets, raw request/response
+bodies, and connector payloads are not copied into this projection. `external_ack_status` defaults
+to `unknown` for external connector semantics unless a connector explicitly reports otherwise.
+This is not external-system exactly-once. The runtime can reclaim stale approval contexts that were
+left `executing` after the configured lease, but this does not prove external ACK confirmation or
+durable execution for arbitrary external connectors.

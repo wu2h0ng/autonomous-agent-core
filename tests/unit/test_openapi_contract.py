@@ -61,11 +61,38 @@ class OpenApiContractTest(unittest.TestCase):
         rendered_route = json.dumps(approval_execute)
         self.assertIn("X-Operator-Key", rendered_route)
         self.assertNotIn("X-API-Key", rendered_route)
+        operator_key = next(
+            parameter
+            for parameter in approval_execute["parameters"]
+            if parameter["in"] == "header" and parameter["name"] == "X-Operator-Key"
+        )
+        self.assertIs(operator_key["required"], True)
+        self.assertEqual(operator_key["schema"]["type"], "string")
         self.assertIn("404", approval_execute["responses"])
         self.assertIn("409", approval_execute["responses"])
         request_schema = spec["components"]["schemas"]["ApprovalExecuteRequest"]
         self.assertEqual(set(request_schema["required"]), {"reason", "approved_by"})
         response_schema = spec["components"]["schemas"]["ApprovalExecuteResponse"]
+        self.assertIn("execution_audit", response_schema["properties"])
+        self.assertEqual(
+            response_schema["properties"]["execution_audit"],
+            {"$ref": "#/components/schemas/ApprovalExecutionAudit"},
+        )
+        execution_audit_schema = spec["components"]["schemas"]["ApprovalExecutionAudit"]
+        self.assertEqual(
+            set(execution_audit_schema["properties"]),
+            {
+                "durability_scope",
+                "execution_outcome",
+                "replay_status",
+                "external_ack_status",
+                "ledger_status",
+                "record_id",
+                "external_request_id",
+                "execution_certainty",
+                "ack_status",
+            },
+        )
         self.assertEqual(
             set(response_schema["required"]),
             {
@@ -112,6 +139,86 @@ class OpenApiContractTest(unittest.TestCase):
             # trace_id: refusals reference their persisted RunTrace (AR-20260611).
             {"code", "message", "stage", "details", "trace_id"},
         )
+
+    def test_user_result_evidence_cards_are_strongly_typed(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        run_request = spec["components"]["schemas"]["RunRequest"]
+        self.assertEqual(run_request["properties"]["audience"]["default"], "internal")
+        self.assertEqual(
+            run_request["properties"]["audience"]["enum"],
+            ["internal", "external"],
+        )
+
+        artifact = spec["components"]["schemas"]["UserResultArtifact"]
+        self.assertIn("audience", artifact["required"])
+        self.assertIn("redaction", artifact["required"])
+        redaction = spec["components"]["schemas"]["UserResultRedaction"]
+        self.assertGreaterEqual(
+            set(redaction["required"]),
+            {"audience", "applied", "data_classification", "redacted_fields"},
+        )
+
+        report = spec["components"]["schemas"]["UserResultReport"]
+        self.assertIn("evidence_cards", report["required"])
+        evidence_items = report["properties"]["evidence_cards"]["items"]
+        self.assertEqual(evidence_items["discriminator"]["propertyName"], "type")
+        self.assertEqual(len(evidence_items["oneOf"]), 3)
+
+        schemas = spec["components"]["schemas"]
+        metric_card = schemas["MetricContractEvidenceCard"]
+        self.assertGreaterEqual(
+            set(metric_card["required"]),
+            {
+                "card_id",
+                "type",
+                "title",
+                "evidence_chain_id",
+                "trace_id",
+                "derived_from",
+                "metric_name",
+                "metric_version",
+                "display_name",
+                "owner",
+                "unit",
+                "dimensions",
+                "data_classification",
+            },
+        )
+        sql_card = schemas["SQLSafetyEvidenceCard"]
+        self.assertGreaterEqual(
+            set(sql_card["required"]),
+            {
+                "card_id",
+                "type",
+                "title",
+                "evidence_chain_id",
+                "trace_id",
+                "derived_from",
+                "query_metric_name",
+                "sql_safety_allowed",
+                "checked_schemas",
+                "checked_tables",
+                "bound_parameter_names",
+                "sql_fingerprint",
+            },
+        )
+        query_card = schemas["QueryResultEvidenceCard"]
+        self.assertGreaterEqual(
+            set(query_card["required"]),
+            {
+                "card_id",
+                "type",
+                "title",
+                "evidence_chain_id",
+                "trace_id",
+                "derived_from",
+                "row_count",
+                "columns",
+                "preview_row_count",
+            },
+        )
+        widget = spec["components"]["schemas"]["UserResultDashboardWidget"]
+        self.assertIn("redacted_fields", widget["properties"])
 
     def test_check_mode_detects_drift(self) -> None:
         # Negative path: --check must exit 1 when the snapshot disagrees.

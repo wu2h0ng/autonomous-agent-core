@@ -8,7 +8,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "packages" / "contracts" / "src"))
 sys.path.insert(0, str(ROOT / "packages" / "os_core" / "src"))
 
-from agent_os_contracts import ActionConnectorContract, OperationContract  # noqa: E402
+from agent_os_contracts import (  # noqa: E402
+    ActionConnectorContract,
+    ConnectorExecutionSemantics,
+    OperationContract,
+)
 
 from agent_os_core.action_connectors import (  # noqa: E402
     ActionConnector,
@@ -100,6 +104,11 @@ class ActionConnectorRegistryTest(unittest.TestCase):
         self.assertEqual(contract.connector_name, "stub")
         self.assertEqual(contract.display_name, "Stub Connector")
 
+    def test_get_execution_semantics(self) -> None:
+        semantics = self.registry.get_execution_semantics("stub")
+        self.assertEqual(semantics.durability_scope, "connector_response")
+        self.assertEqual(semantics.external_ack_status, "unknown")
+
     def test_list_connectors(self) -> None:
         contracts = self.registry.list_connectors()
         self.assertEqual(len(contracts), 1)
@@ -137,11 +146,19 @@ class ActionConnectorRegistryTest(unittest.TestCase):
             compensating_action_description=None,
             risk_ceiling="R1",
             owner="test_updated",
+            execution_semantics=ConnectorExecutionSemantics(
+                durability_scope="external_connector",
+                ledger_status="connector_reported",
+                supports_idempotency=True,
+            ),
         )
         self.registry.register(self.connector, new_contract)
         contract = self.registry.get_contract("stub")
         self.assertEqual(contract.display_name, "Updated Stub")
         self.assertTrue(contract.supports_snapshot)
+        semantics = self.registry.get_execution_semantics("stub")
+        self.assertEqual(semantics.durability_scope, "external_connector")
+        self.assertTrue(semantics.supports_idempotency)
 
     def test_multiple_connectors(self) -> None:
         class _OtherConnector(ActionConnector):

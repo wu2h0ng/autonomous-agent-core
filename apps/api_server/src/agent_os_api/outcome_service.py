@@ -12,9 +12,31 @@ they contain no domain- or transport-specific logic.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
-from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
+from agent_os_contracts import CausalOutcomeAttribution, ConnectorExecutionAudit, KnowledgeQuery
+
+REPORT_AUDIENCES = {"internal", "external"}
+REDACTED_INFRA_FIELDS = [
+    "checked_schemas",
+    "checked_tables",
+    "bound_parameter_names",
+    "limit_value",
+    "sql_fingerprint",
+]
+REDACTED_RESULT_FIELDS = [
+    "checked_schemas",
+    "checked_tables",
+    "metric_dimensions",
+    "bound_parameter_names",
+    "limit_value",
+    "sql_fingerprint",
+    "columns",
+    "preview_rows",
+    "chart_fields",
+    "metric_values",
+]
 
 
 def _preview_rows(rows: tuple[dict[str, Any], ...], *, limit: int = 20) -> list[dict[str, Any]]:
@@ -36,13 +58,180 @@ def _primary_metric_value(rows: tuple[dict[str, Any], ...], metric_name: str) ->
     first = rows[0]
     if metric_name in first:
         return first[metric_name]
+    if (
+        "value" in first
+        and isinstance(first["value"], (int, float))
+        and not isinstance(first["value"], bool)
+    ):
+        return first["value"]
     for value in first.values():
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return value
     return None
 
 
-def _build_user_result_artifact(result: Any) -> dict[str, Any]:
+def _chart_fields(
+    rows: tuple[dict[str, Any], ...],
+    columns: list[str],
+    dimensions: tuple[str, ...],
+    metric_name: str,
+) -> tuple[str, str] | None:
+    if not rows:
+        return None
+    sample = rows[0]
+    x_field = next((dimension for dimension in dimensions if dimension in columns), None)
+    if x_field is None:
+        x_field = next(
+            (
+                column
+                for column in columns
+                if not isinstance(sample.get(column), (int, float))
+                or isinstance(sample.get(column), bool)
+            ),
+            None,
+        )
+    numeric_fields = [
+        column
+        for column in columns
+        if isinstance(sample.get(column), (int, float)) and not isinstance(sample.get(column), bool)
+    ]
+    if not x_field or not numeric_fields:
+        return None
+    if metric_name in numeric_fields:
+        y_field = metric_name
+    elif "value" in numeric_fields:
+        y_field = "value"
+    else:
+        y_field = numeric_fields[0]
+    return x_field, y_field
+
+
+def _business_action_status(proposal: Any, action_result: dict[str, Any]) -> str:
+    status = action_result.get("status")
+    if not proposal.approval_required and status in {"pending_approval", "awaiting_approval", None}:
+        return "proposed"
+    return status or "proposed"
+
+
+def _execution_audit_from_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Project connector execution semantics without claiming external exactly-once."""
+    return ConnectorExecutionAudit.from_event(event).to_dict()
+
+
+def _sql_fingerprint(sql: str) -> str:
+    return "sha256:" + hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+def _normalize_report_audience(audience: str) -> str:
+    if audience not in REPORT_AUDIENCES:
+        raise ValueError(f"Unsupported report audience: {audience}")
+    return audience
+
+
+def _redaction_summary(metric: Any, audience: str) -> dict[str, Any]:
+    """Return the audience projection policy for a grounded result.
+
+    ``audience`` is the primary gate. ``data_classification`` only controls how
+    much metric data remains visible after the audience ceiling is applied.
+    External public projections may show public metric values, dimensions, and
+    previews, but still strip physical source/SQL infrastructure.
+    """
+    data_classification = metric.data_classification.value
+    if audience != "external":
+        redacted_fields: list[str] = []
+        reason = None
+    elif data_classification == "public":
+        redacted_fields = list(REDACTED_INFRA_FIELDS)
+        reason = "external audience cannot view source or SQL infrastructure"
+    else:
+        redacted_fields = list(REDACTED_RESULT_FIELDS)
+        reason = "external audience cannot view non-public result details"
+    return {
+        "audience": audience,
+        "applied": bool(redacted_fields),
+        "data_classification": data_classification,
+        "redacted_fields": redacted_fields,
+        "reason": reason,
+    }
+
+
+def _redacts(redaction: dict[str, Any], field: str) -> bool:
+    return field in set(redaction["redacted_fields"])
+
+
+def _report_evidence_cards(
+    evidence: Any,
+    columns: list[str],
+    *,
+    preview_row_count: int,
+    redaction: dict[str, Any],
+) -> list[dict[str, Any]]:
+    metric = evidence.metric_contract
+    safety = evidence.sql_safety
+    hide_dimensions = _redacts(redaction, "metric_dimensions")
+    hide_columns = _redacts(redaction, "columns")
+    hide_preview_rows = _redacts(redaction, "preview_rows")
+    hide_checked_schemas = _redacts(redaction, "checked_schemas")
+    hide_checked_tables = _redacts(redaction, "checked_tables")
+    hide_bound_parameter_names = _redacts(redaction, "bound_parameter_names")
+    hide_limit_value = _redacts(redaction, "limit_value")
+    hide_sql_fingerprint = _redacts(redaction, "sql_fingerprint")
+    sql_redacted_fields = [field for field in REDACTED_INFRA_FIELDS if _redacts(redaction, field)]
+    return [
+        {
+            "card_id": "metric_contract",
+            "type": "metric_contract",
+            "title": f"{metric.display_name} metric contract",
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": evidence.trace_id,
+            "derived_from": ["EvidenceChain.metric_contract"],
+            "redacted_fields": ["dimensions"] if hide_dimensions else [],
+            "metric_name": metric.metric_name,
+            "metric_version": metric.version,
+            "display_name": metric.display_name,
+            "owner": metric.owner,
+            "unit": metric.unit,
+            "dimensions": [] if hide_dimensions else list(metric.dimensions),
+            "data_classification": metric.data_classification.value,
+        },
+        {
+            "card_id": "sql_safety",
+            "type": "sql_safety",
+            "title": "SQL safety and source boundary",
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": evidence.trace_id,
+            "derived_from": ["EvidenceChain.query_plan", "EvidenceChain.sql_safety"],
+            "redacted_fields": sql_redacted_fields,
+            "query_metric_name": evidence.query_plan.metric_name,
+            "sql_safety_allowed": safety.allowed,
+            "checked_schemas": [] if hide_checked_schemas else list(safety.checked_schemas),
+            "checked_tables": [] if hide_checked_tables else list(safety.checked_tables),
+            "bound_parameter_names": (
+                [] if hide_bound_parameter_names else list(safety.bound_parameters)
+            ),
+            "limit_value": None if hide_limit_value else safety.limit_value,
+            "sql_fingerprint": (
+                None if hide_sql_fingerprint else _sql_fingerprint(evidence.query_plan.sql)
+            ),
+        },
+        {
+            "card_id": "query_result",
+            "type": "query_result",
+            "title": "Grounded query result",
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": evidence.trace_id,
+            "derived_from": ["EvidenceChain.query_result"],
+            "redacted_fields": [
+                field for field in ["columns", "preview_rows"] if _redacts(redaction, field)
+            ],
+            "row_count": evidence.query_result.row_count,
+            "columns": [] if hide_columns else columns,
+            "preview_row_count": 0 if hide_preview_rows else preview_row_count,
+        },
+    ]
+
+
+def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> dict[str, Any]:
     """Build the user-facing data-agent result bundle from grounded runtime output.
 
     This is deliberately a read-side projection over ``TrustedLoopResult``: it
@@ -57,9 +246,70 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
     rows = evidence.query_result.rows
     trace_id = evidence.trace_id
     metric = evidence.metric_contract
+    audience = _normalize_report_audience(audience)
+    redaction = _redaction_summary(metric, audience)
+    hide_columns = _redacts(redaction, "columns")
+    hide_preview_rows = _redacts(redaction, "preview_rows")
+    hide_chart_fields = _redacts(redaction, "chart_fields")
+    hide_metric_values = _redacts(redaction, "metric_values")
     preview = _preview_rows(rows)
     columns = _columns(rows)
-    metric_value = _primary_metric_value(rows, metric.metric_name)
+    visible_preview = [] if hide_preview_rows else preview
+    visible_columns = [] if hide_columns else columns
+    metric_value = None if hide_metric_values else _primary_metric_value(rows, metric.metric_name)
+    chart_fields = (
+        None
+        if hide_chart_fields
+        else _chart_fields(rows, columns, metric.dimensions, metric.metric_name)
+    )
+    widgets = [
+        {
+            "widget_id": "primary_metric",
+            "type": "kpi",
+            "title": metric.display_name,
+            "value": metric_value,
+            "unit": metric.unit,
+            "row_count": None,
+            "columns": [],
+            "preview_rows": [],
+            "x_field": None,
+            "y_field": None,
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "redacted_fields": ["value"] if hide_metric_values else [],
+        },
+    ]
+    if chart_fields is not None:
+        x_field, y_field = chart_fields
+        widgets.append(
+            {
+                "widget_id": "metric_trend",
+                "type": "line_chart",
+                "title": f"{metric.display_name} trend",
+                "row_count": evidence.query_result.row_count,
+                "columns": visible_columns,
+                "preview_rows": visible_preview,
+                "x_field": x_field,
+                "y_field": y_field,
+                "evidence_chain_id": evidence.evidence_chain_id,
+                "redacted_fields": [],
+            }
+        )
+    widgets.append(
+        {
+            "widget_id": "result_rows",
+            "type": "table",
+            "title": "Result rows",
+            "row_count": evidence.query_result.row_count,
+            "columns": visible_columns,
+            "preview_rows": visible_preview,
+            "x_field": None,
+            "y_field": None,
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "redacted_fields": [
+                field for field in ["columns", "preview_rows"] if _redacts(redaction, field)
+            ],
+        }
+    )
 
     return {
         "artifact_id": f"artifact-{trace_id}",
@@ -70,6 +320,8 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
         "action_proposal_id": proposal.proposal_id,
         "question": evidence.intent.question,
         "metric_name": metric.metric_name,
+        "audience": audience,
+        "redaction": redaction,
         "analysis": {
             "summary": evidence.conclusion,
             "confidence": evidence.confidence,
@@ -79,6 +331,12 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
         },
         "report": {
             "title": f"{metric.display_name} evidence-backed report",
+            "evidence_cards": _report_evidence_cards(
+                evidence,
+                columns,
+                preview_row_count=len(preview),
+                redaction=redaction,
+            ),
             "sections": [
                 {
                     "heading": "Finding",
@@ -106,25 +364,7 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
         },
         "dashboard": {
             "title": f"{metric.display_name} dashboard",
-            "widgets": [
-                {
-                    "widget_id": "primary_metric",
-                    "type": "kpi",
-                    "title": metric.display_name,
-                    "value": metric_value,
-                    "unit": metric.unit,
-                    "evidence_chain_id": evidence.evidence_chain_id,
-                },
-                {
-                    "widget_id": "result_rows",
-                    "type": "table",
-                    "title": "Result rows",
-                    "row_count": evidence.query_result.row_count,
-                    "columns": columns,
-                    "preview_rows": preview,
-                    "evidence_chain_id": evidence.evidence_chain_id,
-                },
-            ],
+            "widgets": widgets,
         },
         "decision": {
             "recommendation": proposal.recommended_action,
@@ -142,7 +382,7 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
             "risk_level": proposal.risk_level.value,
             "approval_required": proposal.approval_required,
             "approver_role": proposal.approver_role,
-            "status": action_result.get("status", "proposed"),
+            "status": _business_action_status(proposal, action_result),
             "operation_id": action_result.get("operation_id"),
             "approval_id": action_result.get("approval_id"),
             "evidence_chain_id": evidence.evidence_chain_id,
@@ -184,6 +424,7 @@ def run_service(
     *,
     question: str,
     parameters: dict[str, Any],
+    audience: str = "internal",
 ) -> dict[str, Any]:
     """Run the Trusted Loop for ``question`` and return a JSON-able summary.
 
@@ -230,7 +471,7 @@ def run_service(
             {"asset_id": r.asset.asset_id, "title": r.asset.title, "score": r.score}
             for r in result.related_knowledge
         ],
-        "user_result": _build_user_result_artifact(result),
+        "user_result": _build_user_result_artifact(result, audience=audience),
     }
 
 
@@ -296,6 +537,7 @@ def approve_and_execute_service(
         "action_type": final_event.get("action_type"),
         "action_result_status": final_event.get("status"),
         "idempotency_key": final_event.get("idempotency_key"),
+        "execution_audit": _execution_audit_from_event(dict(final_event)),
         "events": [dict(event) for event in operation_trace.events],
     }
 

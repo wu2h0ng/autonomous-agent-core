@@ -235,6 +235,31 @@ class StateSnapshot:
 
 
 @dataclass(frozen=True)
+class ConnectorExecutionSemantics:
+    """Declared execution-audit semantics for a connector.
+
+    These are contract-level defaults, not proof of external success. They let
+    the runtime project connector execution consistently without inferring ACKs
+    or copying raw connector payloads.
+    """
+
+    durability_scope: str = "connector_response"
+    replay_status: str = "not_replayed"
+    external_ack_status: str = "unknown"
+    ledger_status: str = "not_reported"
+    supports_idempotency: bool = False
+    supports_reconciliation: bool = False
+
+    def audit_defaults(self) -> dict[str, str]:
+        return {
+            "durability_scope": self.durability_scope,
+            "replay_status": self.replay_status,
+            "external_ack_status": self.external_ack_status,
+            "ledger_status": self.ledger_status,
+        }
+
+
+@dataclass(frozen=True)
 class ActionConnectorContract:
     connector_name: str
     display_name: str
@@ -244,3 +269,60 @@ class ActionConnectorContract:
     compensating_action_description: str | None
     risk_ceiling: str
     owner: str
+    execution_semantics: ConnectorExecutionSemantics = field(
+        default_factory=ConnectorExecutionSemantics
+    )
+
+
+@dataclass(frozen=True)
+class ConnectorExecutionAudit:
+    """Safe connector execution projection for traces and operator APIs.
+
+    This contract records connector-reported execution semantics without
+    claiming external exactly-once or copying raw action parameters.
+    """
+
+    durability_scope: str = "connector_response"
+    execution_outcome: str | None = None
+    replay_status: str = "not_replayed"
+    external_ack_status: str = "unknown"
+    ledger_status: str = "not_reported"
+    record_id: str | None = None
+    external_request_id: str | None = None
+    execution_certainty: str | None = None
+    ack_status: str | None = None
+
+    @classmethod
+    def from_event(cls, event: dict[str, Any]) -> "ConnectorExecutionAudit":
+        status = event.get("status")
+        replay_status = event.get("replay_status")
+        if replay_status is None:
+            replay_status = "idempotent_replay" if status == "idempotent_replay" else "not_replayed"
+        record_id = event.get("record_id")
+        ledger_status = event.get("ledger_status")
+        if ledger_status is None:
+            ledger_status = "recorded" if record_id else "not_reported"
+        return cls(
+            durability_scope=event.get("durability_scope", "connector_response"),
+            execution_outcome=status,
+            replay_status=replay_status,
+            external_ack_status=event.get("external_ack_status", "unknown"),
+            ledger_status=ledger_status,
+            record_id=record_id,
+            external_request_id=event.get("external_request_id"),
+            execution_certainty=event.get("execution_certainty"),
+            ack_status=event.get("ack_status"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "durability_scope": self.durability_scope,
+            "execution_outcome": self.execution_outcome,
+            "replay_status": self.replay_status,
+            "external_ack_status": self.external_ack_status,
+            "ledger_status": self.ledger_status,
+            "record_id": self.record_id,
+            "external_request_id": self.external_request_id,
+            "execution_certainty": self.execution_certainty,
+            "ack_status": self.ack_status,
+        }

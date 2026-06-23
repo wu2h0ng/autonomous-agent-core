@@ -10,6 +10,7 @@ from typing import Any
 
 from agent_os_contracts import (
     ActionConnectorContract,
+    ConnectorExecutionSemantics,
     MetricContract,
     ProviderContract,
     ProviderKind,
@@ -368,8 +369,7 @@ class ContentCommerceRuntimeFactory:
         connection.commit()
         return connection
 
-    @staticmethod
-    def _build_default_connector_registry() -> ActionConnectorRegistry:
+    def _build_default_connector_registry(self) -> ActionConnectorRegistry:
         """Build a default connector registry.
 
         This lives in the API layer, not in OS Core, to enforce the boundary
@@ -384,6 +384,21 @@ class ContentCommerceRuntimeFactory:
         """
         from action_record import ActionRecordConnector, ActionRecordStore
         from manual_review import ManualReviewConnector
+
+        action_record_store: Any
+        if self.config.store_backend == STORE_MEMORY:
+            action_record_store = ActionRecordStore()
+        elif self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlActionRecordStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            action_record_store = SqlActionRecordStore(engine)
+        else:
+            raise ValueError(
+                f"Unknown store_backend {self.config.store_backend!r}; expected "
+                f"{STORE_MEMORY!r} or {STORE_POSTGRES!r}."
+            )
 
         registry = ActionConnectorRegistry()
         registry.register(
@@ -400,7 +415,7 @@ class ContentCommerceRuntimeFactory:
             ),
         )
         registry.register(
-            ActionRecordConnector(store=ActionRecordStore()),
+            ActionRecordConnector(store=action_record_store),
             ActionConnectorContract(
                 connector_name="action_record",
                 display_name="Action Record",
@@ -412,6 +427,13 @@ class ContentCommerceRuntimeFactory:
                 ),
                 risk_ceiling="R3",
                 owner="system",
+                execution_semantics=ConnectorExecutionSemantics(
+                    durability_scope="connector_local_ledger",
+                    external_ack_status="not_applicable",
+                    ledger_status="recorded",
+                    supports_idempotency=True,
+                    supports_reconciliation=True,
+                ),
             ),
         )
         return registry

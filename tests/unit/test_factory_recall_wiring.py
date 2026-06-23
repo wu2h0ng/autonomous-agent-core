@@ -40,6 +40,18 @@ RUN_PARAMS = {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100
 
 
 class MemoryBackendRecallWiringTest(unittest.TestCase):
+    def test_action_record_connector_declares_ledger_execution_semantics(self) -> None:
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+
+        contract = runtime.connector_registry.get_contract("action_record")
+
+        self.assertEqual(contract.execution_semantics.durability_scope, "connector_local_ledger")
+        self.assertEqual(contract.execution_semantics.external_ack_status, "not_applicable")
+        self.assertEqual(contract.execution_semantics.ledger_status, "recorded")
+        self.assertTrue(contract.execution_semantics.supports_idempotency)
+        self.assertTrue(contract.execution_semantics.supports_reconciliation)
+
     def test_runtime_and_search_share_one_retriever(self) -> None:
         factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
         runtime = factory.build()

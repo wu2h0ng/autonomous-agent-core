@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
+import threading
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -232,6 +235,96 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         store.delete("approval-context-claim")
         self.assertIsNone(store.claim("approval-context-claim"))
 
+    def test_approval_context_claim_reclaims_only_stale_executing_context(self) -> None:
+        from agent_os_persistence import SqlApprovalContextStore
+
+        current_time = datetime(2026, 6, 23, 12, 0, tzinfo=timezone.utc)
+
+        def clock() -> datetime:
+            return current_time
+
+        store = SqlApprovalContextStore(self.engine, clock=clock)
+        context = self._approval_context("approval-context-stale", "proposal-context-stale")
+
+        store.save(context)
+        self.assertEqual(
+            store.claim("approval-context-stale", reclaim_stale_after_seconds=60),
+            context,
+        )
+
+        current_time += timedelta(seconds=59)
+        self.assertIsNone(store.claim("approval-context-stale", reclaim_stale_after_seconds=60))
+
+        current_time += timedelta(seconds=2)
+        self.assertEqual(
+            store.claim("approval-context-stale", reclaim_stale_after_seconds=60),
+            context,
+        )
+
+    def test_approval_context_stale_reclaim_allows_only_one_cross_process_winner(self) -> None:
+        from sqlalchemy import create_engine
+
+        from agent_os_persistence import SqlApprovalContextStore, create_all
+
+        current_time = datetime(2026, 6, 23, 12, 0, tzinfo=timezone.utc)
+
+        def clock() -> datetime:
+            return current_time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_engine(
+                f"sqlite:///{Path(tmp) / 'claim-race.db'}",
+                connect_args={"check_same_thread": False},
+            )
+            create_all(engine)
+            setup_store = SqlApprovalContextStore(engine, clock=clock)
+            context = self._approval_context(
+                "approval-context-race",
+                "proposal-context-race",
+            )
+
+            setup_store.save(context)
+            self.assertEqual(
+                setup_store.claim("approval-context-race", reclaim_stale_after_seconds=60),
+                context,
+            )
+
+            current_time += timedelta(seconds=61)
+            read_barrier = threading.Barrier(2)
+
+            class RacingSqlApprovalContextStore(SqlApprovalContextStore):
+                def _with_claim(self, payload: dict[str, object]) -> dict[str, object]:
+                    read_barrier.wait(timeout=5)
+                    return super()._with_claim(payload)
+
+            winners: list[str] = []
+            errors: list[BaseException] = []
+
+            def try_reclaim(label: str) -> None:
+                store = RacingSqlApprovalContextStore(engine, clock=clock)
+                try:
+                    claimed = store.claim(
+                        "approval-context-race",
+                        reclaim_stale_after_seconds=60,
+                    )
+                    if claimed is not None:
+                        winners.append(label)
+                except BaseException as exc:  # pragma: no cover - surfaced below
+                    errors.append(exc)
+
+            threads = [
+                threading.Thread(target=try_reclaim, args=("reclaimer-1",)),
+                threading.Thread(target=try_reclaim, args=("reclaimer-2",)),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=5)
+
+            self.assertEqual(errors, [])
+            self.assertEqual(len(winners), 1, winners)
+            self.assertIn(winners[0], {"reclaimer-1", "reclaimer-2"})
+
     def test_snapshot_round_trip_and_rewrite(self) -> None:
         from agent_os_persistence import SqlSnapshotStore
 
@@ -248,6 +341,37 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         snap2 = self._snapshot("snap-1", "op-1")
         store.save(snap2)
         self.assertEqual(store.list_for_operation("op-1"), (snap2,))
+
+    def test_action_record_store_round_trip_and_idempotency_over_sql_store(self) -> None:
+        from agent_os_persistence import SqlActionRecordStore
+
+        store = SqlActionRecordStore(self.engine)
+        first = store.add(
+            operation_id="operation-action-1",
+            action_type="execute",
+            parameters={"amount": 100},
+            idempotency_key="idem-action-1",
+        )
+        replay = store.add(
+            operation_id="operation-action-1",
+            action_type="execute",
+            parameters={"amount": 100},
+            idempotency_key="idem-action-1",
+        )
+
+        self.assertEqual(first["record_id"], replay["record_id"])
+        self.assertEqual(replay["status"], "idempotent_replay")
+        self.assertEqual(len(store.records()), 1)
+
+        store2 = SqlActionRecordStore(self.engine)
+        self.assertEqual(store2.records()[0]["record_id"], first["record_id"])
+        with self.assertRaises(ValueError):
+            store2.add(
+                operation_id="operation-action-1",
+                action_type="execute",
+                parameters={"amount": 200},
+                idempotency_key="idem-action-1",
+            )
 
     def test_unit_of_work_commits_both_stores(self) -> None:
         from agent_os_persistence import SqlFeedbackStore, SqlKnowledgeStore, SqlUnitOfWork

@@ -1,13 +1,122 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from agent_os_contracts import OperationContract, StateSnapshot
 
 from agent_os_core.action_connectors.base import ActionConnector
+
+
+def _fingerprint(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _conflict_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "operation_id": payload["operation_id"],
+        "action_type": payload["action_type"],
+        "parameters_fingerprint": _fingerprint(payload["parameters"]),
+    }
+
+
+def _uncertain_execution_summary(
+    *,
+    operation_id: str,
+    action_type: str,
+    parameters: dict[str, Any],
+    idempotency_key: str | None,
+    reason_code: str,
+    error_type: str,
+) -> dict[str, Any]:
+    return {
+        "operation_id": operation_id,
+        "action_type": action_type,
+        "idempotency_key": idempotency_key,
+        "reason_code": reason_code,
+        "error_type": error_type,
+        "parameters_fingerprint": _fingerprint(parameters),
+        "ack_status": "lost_after_write",
+        "execution_certainty": "uncertain",
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+class ActionRecordExecutionUncertain(RuntimeError):
+    """Connector write reached the ledger, but the execution ACK was not observed."""
+
+    def __init__(
+        self,
+        *,
+        record_id: str,
+        operation_id: str,
+        action_type: str,
+        idempotency_key: str | None,
+        reason_code: str,
+        error_type: str,
+    ) -> None:
+        super().__init__(
+            "action_record execution is uncertain: connector write happened, "
+            "but acknowledgement was not observed"
+        )
+        self.record_id = record_id
+        self.operation_id = operation_id
+        self.action_type = action_type
+        self.idempotency_key = idempotency_key
+        self.reason_code = reason_code
+        self.error_type = error_type
+
+    def audit_event(self) -> dict[str, Any]:
+        """Return a safe audit event without raw parameters or exception details."""
+        return {
+            "step": "connector_execution_uncertain",
+            "connector_name": "action_record",
+            "action_type": self.action_type,
+            "status": "execution_uncertain",
+            "record_id": self.record_id,
+            "operation_id": self.operation_id,
+            "idempotency_key": self.idempotency_key,
+            "reason_code": self.reason_code,
+            "error_type": self.error_type,
+            "ack_status": "lost_after_write",
+            "execution_certainty": "uncertain",
+        }
+
+
+class ActionRecordStoreLike(Protocol):
+    """Store interface required by the action_record connector."""
+
+    def add(
+        self,
+        *,
+        operation_id: str,
+        action_type: str,
+        parameters: dict[str, Any],
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    def records(self) -> tuple[dict[str, Any], ...]: ...
+
+    def mark_execution_uncertain(
+        self,
+        *,
+        record_id: str,
+        operation_id: str,
+        action_type: str,
+        idempotency_key: str | None,
+        parameters: dict[str, Any],
+        reason_code: str,
+        error_type: str,
+    ) -> dict[str, Any]: ...
+
+    def snapshot_state(self) -> dict[str, Any]: ...
+
+    def restore(self, state_payload: dict[str, Any]) -> None: ...
 
 
 class ActionRecordStore:
@@ -22,6 +131,13 @@ class ActionRecordStore:
     def __init__(self) -> None:
         self._records: list[dict[str, Any]] = []
         self._idempotency: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+
+    def _replace_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        for index, existing in enumerate(self._records):
+            if existing["record_id"] == record["record_id"]:
+                self._records[index] = copy.deepcopy(record)
+                return copy.deepcopy(self._records[index])
+        raise KeyError(f"record_id '{record['record_id']}' is not present in the store")
 
     def add(
         self,
@@ -40,11 +156,26 @@ class ActionRecordStore:
         if idempotency_key is not None and idempotency_key in self._idempotency:
             original_payload, original_record = self._idempotency[idempotency_key]
             if original_payload != payload:
+                original_record["conflict_count"] = (
+                    int(original_record.get("conflict_count", 0)) + 1
+                )
+                original_record["last_conflict"] = _conflict_summary(payload)
+                updated = self._replace_record(original_record)
+                self._idempotency[idempotency_key] = (original_payload, updated)
                 raise ValueError(
                     "idempotency_key was reused with a different operation/action payload"
                 )
+            original_record["replay_count"] = int(original_record.get("replay_count", 0)) + 1
+            original_record["last_replay_status"] = "idempotent_replay"
+            if int(original_record.get("uncertain_execution_count", 0)) > 0:
+                original_record["last_replay_status"] = "idempotent_replay_after_uncertain"
+            original_record = self._replace_record(original_record)
+            self._idempotency[idempotency_key] = (original_payload, original_record)
             replay = copy.deepcopy(original_record)
             replay["status"] = "idempotent_replay"
+            if int(replay.get("uncertain_execution_count", 0)) > 0:
+                replay["execution_certainty"] = "uncertain_recovered"
+                replay["ack_status"] = "lost_after_write_recovered_by_idempotency"
             return replay
 
         record = {
@@ -52,6 +183,9 @@ class ActionRecordStore:
             "operation_id": operation_id,
             "action_type": action_type,
             "parameters": copy.deepcopy(parameters),
+            "replay_count": 0,
+            "conflict_count": 0,
+            "uncertain_execution_count": 0,
         }
         if idempotency_key is not None:
             record["idempotency_key"] = idempotency_key
@@ -59,6 +193,39 @@ class ActionRecordStore:
         if idempotency_key is not None:
             self._idempotency[idempotency_key] = (payload, copy.deepcopy(record))
         return copy.deepcopy(record)
+
+    def mark_execution_uncertain(
+        self,
+        *,
+        record_id: str,
+        operation_id: str,
+        action_type: str,
+        idempotency_key: str | None,
+        parameters: dict[str, Any],
+        reason_code: str,
+        error_type: str,
+    ) -> dict[str, Any]:
+        """Mark a committed connector write as ACK-uncertain without raw parameters."""
+        for record in self._records:
+            if record["record_id"] != record_id:
+                continue
+            record["uncertain_execution_count"] = (
+                int(record.get("uncertain_execution_count", 0)) + 1
+            )
+            record["last_uncertain_execution"] = _uncertain_execution_summary(
+                operation_id=operation_id,
+                action_type=action_type,
+                parameters=parameters,
+                idempotency_key=idempotency_key,
+                reason_code=reason_code,
+                error_type=error_type,
+            )
+            updated = self._replace_record(record)
+            if idempotency_key is not None and idempotency_key in self._idempotency:
+                original_payload, _original_record = self._idempotency[idempotency_key]
+                self._idempotency[idempotency_key] = (original_payload, updated)
+            return updated
+        raise KeyError(f"record_id '{record_id}' is not present in the store")
 
     def records(self) -> tuple[dict[str, Any], ...]:
         """Return the live records as a tuple (the dicts themselves are live)."""
@@ -87,11 +254,11 @@ class ActionRecordConnector(ActionConnector):
     and rollback machinery for real.
     """
 
-    def __init__(self, *, store: ActionRecordStore) -> None:
+    def __init__(self, *, store: ActionRecordStoreLike) -> None:
         self._store = store
 
     @property
-    def store(self) -> ActionRecordStore:
+    def store(self) -> ActionRecordStoreLike:
         """Return the backing store (exposed for inspection/testing)."""
         return self._store
 
@@ -101,12 +268,14 @@ class ActionRecordConnector(ActionConnector):
 
     def take_snapshot(self, operation: OperationContract) -> StateSnapshot | None:
         """Capture the store's current state into a restorable StateSnapshot."""
+        state_payload = self._store.snapshot_state()
+        state_payload["rollback_operation_id"] = operation.operation_id
         return StateSnapshot(
             snapshot_id=f"snapshot-{uuid4().hex[:12]}",
             operation_id=operation.operation_id,
             connector_name=self.connector_name,
             snapshot_type="full",
-            state_payload=self._store.snapshot_state(),
+            state_payload=state_payload,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 
@@ -131,11 +300,20 @@ class ActionRecordConnector(ActionConnector):
             idempotency_key=operation.idempotency_key,
         )
         if record.get("status") == "idempotent_replay":
-            return {
+            result: dict[str, Any] = {
                 "status": "idempotent_replay",
                 "record_id": record["record_id"],
                 "idempotency_key": operation.idempotency_key,
             }
+            for field in (
+                "execution_certainty",
+                "ack_status",
+                "uncertain_execution_count",
+                "last_replay_status",
+            ):
+                if field in record:
+                    result[field] = record[field]
+            return result
         return {"status": "executed", "record_id": record["record_id"]}
 
     def rollback(self, snapshot: StateSnapshot) -> dict[str, Any]:

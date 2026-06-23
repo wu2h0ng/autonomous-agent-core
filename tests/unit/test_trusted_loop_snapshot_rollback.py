@@ -13,11 +13,12 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
     ActionProposal,
+    ConnectorExecutionSemantics,
     EvidenceChain,
     MetricContract,
+    OperationState,
     ProviderContract,
     ProviderKind,
-    OperationState,
     RiskLevel,
     SQLTemplate,
 )
@@ -114,6 +115,73 @@ class _R3ApprovalActionRecordProposalBuilder:
         )
 
 
+class _ExternalWebhookAckLost(RuntimeError):
+    def audit_event(self) -> dict[str, object]:
+        return {
+            "step": "connector_execution_uncertain",
+            "connector_name": "external_webhook",
+            "action_type": "execute",
+            "status": "uncertain",
+            "external_request_id": "ext-req-uncertain",
+            "durability_scope": "external_connector",
+            "replay_status": "not_replayed",
+            "ledger_status": "connector_reported",
+            "reason_code": "lost_after_submit",
+            "error_type": self.__class__.__name__,
+            "execution_certainty": "submitted_unconfirmed",
+            "ack_status": "lost_after_submit",
+            "secret_token": "must-not-leak",
+            "raw_parameters": {"customer_id": "cust-1"},
+        }
+
+
+class _UncertainExternalWebhookConnector:
+    @property
+    def connector_name(self) -> str:
+        return "external_webhook"
+
+    def take_snapshot(self, operation):
+        return None
+
+    def dry_run(self, operation, parameters):
+        return {
+            "status": "dry_run",
+            "connector_name": self.connector_name,
+            "operation_id": operation.operation_id,
+        }
+
+    def execute(self, operation, parameters):
+        raise _ExternalWebhookAckLost("external webhook submitted but ACK was not observed")
+
+    def rollback(self, snapshot):
+        return {"status": "not_supported"}
+
+    def can_rollback(self) -> bool:
+        return False
+
+    def compensating_action(self) -> str | None:
+        return None
+
+
+class _R3ApprovalExternalWebhookProposalBuilder:
+    def build(self, *, proposal_id: str, evidence: EvidenceChain) -> ActionProposal:
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action="submit_external_webhook",
+            reason=evidence.conclusion,
+            risk_level=RiskLevel.R3,
+            expected_impact="submit an approval-bound external connector request",
+            approval_required=True,
+            approver_role="Business Owner",
+            connector_name="external_webhook",
+            action_type="execute",
+            action_parameters={"customer_id": "cust-1", "secret_token": "must-not-leak"},
+            idempotency_key="idem-external-webhook",
+        )
+
+
 def _build_action_record_registry(
     store: ActionRecordStore,
     *,
@@ -131,8 +199,33 @@ def _build_action_record_registry(
         compensating_action_description="Restore the action record store to the snapshot state",
         risk_ceiling=risk_ceiling,
         owner="system",
+        execution_semantics=ConnectorExecutionSemantics(
+            durability_scope="connector_local_ledger",
+            external_ack_status="not_applicable",
+            ledger_status="recorded",
+            supports_idempotency=True,
+            supports_reconciliation=True,
+        ),
     )
     registry.register(connector, contract)
+    return registry
+
+
+def _build_external_webhook_registry() -> ActionConnectorRegistry:
+    registry = ActionConnectorRegistry()
+    registry.register(
+        _UncertainExternalWebhookConnector(),
+        ActionConnectorContract(
+            connector_name="external_webhook",
+            display_name="External Webhook",
+            supported_action_types=("execute",),
+            supports_snapshot=False,
+            supports_rollback=False,
+            compensating_action_description=None,
+            risk_ceiling="R3",
+            owner="system",
+        ),
+    )
     return registry
 
 
@@ -197,6 +290,16 @@ def _build_r4_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
 def _build_approval_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
     runtime = _build_runtime(store, risk_ceiling="R3")
     runtime.action_builder = _R3ApprovalActionRecordProposalBuilder()  # type: ignore[assignment]
+    return runtime
+
+
+def _build_external_approval_runtime() -> TrustedLoopRuntime:
+    runtime = _build_runtime(ActionRecordStore(), risk_ceiling="R3")
+    runtime.connector_registry = _build_external_webhook_registry()
+    runtime.action_governance = runtime.action_governance.__class__(
+        connector_registry=runtime.connector_registry
+    )
+    runtime.action_builder = _R3ApprovalExternalWebhookProposalBuilder()  # type: ignore[assignment]
     return runtime
 
 
@@ -470,6 +573,37 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
             "approved_operation_trace",
             [event.step for event in stored.events],
         )
+
+    def test_approval_resume_persists_external_uncertain_audit_without_raw_payloads(self) -> None:
+        runtime = _build_external_approval_runtime()
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id)
+
+        with self.assertRaises(_ExternalWebhookAckLost):
+            runtime.execute_approved_operation(
+                approval_id=result.approval_record.approval_id,
+                operation=result.operation_contract,
+                action_parameters=result.action_proposal.action_parameters,
+                evidence_chain=result.evidence_chain,
+                proposal_id=result.action_proposal.proposal_id,
+            )
+
+        stored = runtime.trace_store.get(result.evidence_chain.trace_id)
+        self.assertIsNotNone(stored)
+        uncertain = next(
+            event.payload["operation_event"]
+            for event in stored.events
+            if event.step == "approved_operation_trace"
+            and event.payload["operation_event"]["step"] == "connector_execution_uncertain"
+        )
+        self.assertEqual(uncertain["connector_name"], "external_webhook")
+        self.assertEqual(uncertain["external_request_id"], "ext-req-uncertain")
+        self.assertEqual(uncertain["durability_scope"], "external_connector")
+        self.assertEqual(uncertain["external_ack_status"], "unknown")
+        self.assertEqual(uncertain["replay_status"], "not_replayed")
+        self.assertEqual(uncertain["ledger_status"], "connector_reported")
+        self.assertNotIn("secret_token", uncertain)
+        self.assertNotIn("raw_parameters", uncertain)
 
     def test_approved_action_rollback_demo_restores_store(self) -> None:
         record_store = ActionRecordStore()

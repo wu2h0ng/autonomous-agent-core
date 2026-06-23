@@ -9,15 +9,20 @@ in-memory knowledge/feedback stores persist across requests: a ``POST /runs``
 and a later ``POST /outcomes`` for the same trace see the same state.
 
 Auth boundary: every protected route requires an ``X-API-Key`` header matching
-the configured key (``create_app(api_key=...)`` or env ``AGENT_OS_API_KEY``).
-If no key is configured the protected routes reject with 503 rather than
-silently allowing access; a wrong/missing key returns 401.
+the configured internal key (``create_app(api_key=...)`` or env
+``AGENT_OS_API_KEY``). ``POST /runs`` may also accept a report-only external key,
+but that key is capped to the external ``user_result`` projection and cannot use
+the management surfaces. If no internal key is configured the protected routes
+reject with 503 rather than silently allowing access; a wrong/missing key returns
+401.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
-from typing import Any
+import secrets
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -35,14 +40,134 @@ from .outcome_service import (
 from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
+EXTERNAL_API_KEY_ENV = "AGENT_OS_EXTERNAL_API_KEY"
 OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 API_KEY_HEADER = "X-API-Key"
 OPERATOR_API_KEY_HEADER = "X-Operator-Key"
+APPROVAL_EXECUTE_PATH = "/approvals/{approval_id}/execute"
+API_SCOPE_RUN_INTERNAL = "runs:internal"
+API_SCOPE_RUN_EXTERNAL = "runs:external"
+API_SCOPE_OUTCOME_WRITE = "outcomes:write"
+API_SCOPE_ADOPTION_WRITE = "adoptions:write"
+API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
+API_SCOPE_TRACE_READ = "traces:read"
+API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
+
+
+@dataclass(frozen=True)
+class ApiPrincipal:
+    kind: Literal["internal", "external_report", "operator"]
+    scopes: frozenset[str]
+    audience_ceiling: Literal["internal", "external"] | None = None
+
+    def allows(self, scope: str) -> bool:
+        return scope in self.scopes
+
+
+API_PRINCIPAL_INTERNAL = ApiPrincipal(
+    kind="internal",
+    scopes=frozenset(
+        {
+            API_SCOPE_RUN_INTERNAL,
+            API_SCOPE_RUN_EXTERNAL,
+            API_SCOPE_OUTCOME_WRITE,
+            API_SCOPE_ADOPTION_WRITE,
+            API_SCOPE_KNOWLEDGE_SEARCH,
+            API_SCOPE_TRACE_READ,
+        }
+    ),
+    audience_ceiling="internal",
+)
+API_PRINCIPAL_EXTERNAL_REPORT = ApiPrincipal(
+    kind="external_report",
+    scopes=frozenset({API_SCOPE_RUN_EXTERNAL}),
+    audience_ceiling="external",
+)
+API_PRINCIPAL_OPERATOR = ApiPrincipal(
+    kind="operator",
+    scopes=frozenset({API_SCOPE_APPROVAL_EXECUTE}),
+)
+
+
+def authorize_principal_scope(principal: ApiPrincipal, required_scope: str) -> None:
+    if not principal.allows(required_scope):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Principal {principal.kind} lacks required scope {required_scope}.",
+        )
+
+
+def _key_matches(candidate: str | None, configured: str | None) -> bool:
+    return bool(candidate and configured and secrets.compare_digest(candidate, configured))
+
+
+def _validate_distinct_configured_keys(
+    *,
+    api_key: str | None,
+    external_api_key: str | None,
+    operator_api_key: str | None,
+) -> None:
+    configured = [
+        ("api_key", api_key),
+        ("external_api_key", external_api_key),
+        ("operator_api_key", operator_api_key),
+    ]
+    seen: dict[str, str] = {}
+    for name, value in configured:
+        if not value:
+            continue
+        prior = seen.get(value)
+        if prior is not None:
+            raise ValueError(f"Configured auth keys must be distinct: {prior} equals {name}.")
+        seen[value] = name
+
+
+def _external_run_response_projection(result: dict[str, Any]) -> dict[str, Any]:
+    projected = dict(result)
+    projected["provider_id"] = None
+    projected["trace_steps"] = []
+    projected["knowledge_asset_id"] = None
+    projected["related_knowledge"] = []
+    return projected
+
+
+def _external_block_projection(block: dict[str, Any]) -> dict[str, Any]:
+    projected = dict(block)
+    projected["details"] = []
+    projected["trace_id"] = None
+    return projected
+
+
+def _require_operator_key_in_openapi(openapi_schema: dict[str, Any]) -> None:
+    """Advertise the operator key as required without changing 401 auth behavior."""
+    try:
+        parameters = openapi_schema["paths"][APPROVAL_EXECUTE_PATH]["post"]["parameters"]
+    except KeyError as exc:
+        raise RuntimeError("Approval execution route missing from OpenAPI schema.") from exc
+
+    for parameter in parameters:
+        if parameter.get("in") == "header" and parameter.get("name") == OPERATOR_API_KEY_HEADER:
+            parameter["required"] = True
+            parameter["schema"] = {"title": OPERATOR_API_KEY_HEADER, "type": "string"}
+            return
+    raise RuntimeError("Operator key header missing from approval execution OpenAPI schema.")
+
+
+def _install_openapi_contract_hardening(app: FastAPI) -> None:
+    default_openapi = app.openapi
+
+    def hardened_openapi() -> dict[str, Any]:
+        schema = default_openapi()
+        _require_operator_key_in_openapi(schema)
+        return schema
+
+    app.openapi = hardened_openapi  # type: ignore[method-assign]
 
 
 class RunRequest(BaseModel):
     question: str = Field(..., min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
+    audience: Literal["internal", "external"] = "internal"
 
 
 class RelatedKnowledgeItem(BaseModel):
@@ -67,8 +192,62 @@ class UserResultReportSection(BaseModel):
     items: list[str] = Field(default_factory=list)
 
 
+class MetricContractEvidenceCard(BaseModel):
+    card_id: Literal["metric_contract"]
+    type: Literal["metric_contract"]
+    title: str
+    evidence_chain_id: str
+    trace_id: str
+    derived_from: list[str]
+    redacted_fields: list[str] = Field(default_factory=list)
+    metric_name: str
+    metric_version: str
+    display_name: str
+    owner: str
+    unit: str
+    dimensions: list[str]
+    data_classification: str
+
+
+class SQLSafetyEvidenceCard(BaseModel):
+    card_id: Literal["sql_safety"]
+    type: Literal["sql_safety"]
+    title: str
+    evidence_chain_id: str
+    trace_id: str
+    derived_from: list[str]
+    redacted_fields: list[str] = Field(default_factory=list)
+    query_metric_name: str
+    sql_safety_allowed: bool
+    checked_schemas: list[str]
+    checked_tables: list[str]
+    bound_parameter_names: list[str]
+    limit_value: int | None
+    sql_fingerprint: str | None
+
+
+class QueryResultEvidenceCard(BaseModel):
+    card_id: Literal["query_result"]
+    type: Literal["query_result"]
+    title: str
+    evidence_chain_id: str
+    trace_id: str
+    derived_from: list[str]
+    redacted_fields: list[str] = Field(default_factory=list)
+    row_count: int
+    columns: list[str]
+    preview_row_count: int
+
+
+UserResultEvidenceCard = Annotated[
+    MetricContractEvidenceCard | SQLSafetyEvidenceCard | QueryResultEvidenceCard,
+    Field(discriminator="type"),
+]
+
+
 class UserResultReport(BaseModel):
     title: str
+    evidence_cards: list[UserResultEvidenceCard]
     sections: list[UserResultReportSection] = Field(default_factory=list)
 
 
@@ -82,11 +261,22 @@ class UserResultDashboardWidget(BaseModel):
     row_count: int | None = None
     columns: list[str] = Field(default_factory=list)
     preview_rows: list[dict[str, Any]] = Field(default_factory=list)
+    x_field: str | None = None
+    y_field: str | None = None
+    redacted_fields: list[str] = Field(default_factory=list)
 
 
 class UserResultDashboard(BaseModel):
     title: str
     widgets: list[UserResultDashboardWidget] = Field(default_factory=list)
+
+
+class UserResultRedaction(BaseModel):
+    audience: Literal["internal", "external"]
+    applied: bool
+    data_classification: str
+    redacted_fields: list[str]
+    reason: str | None = None
 
 
 class UserResultDecision(BaseModel):
@@ -123,6 +313,8 @@ class UserResultArtifact(BaseModel):
     action_proposal_id: str
     question: str
     metric_name: str
+    audience: Literal["internal", "external"]
+    redaction: UserResultRedaction
     analysis: UserResultAnalysis
     report: UserResultReport
     dashboard: UserResultDashboard
@@ -212,6 +404,18 @@ class ApprovalExecuteRequest(BaseModel):
     approved_by: str = Field(..., min_length=1)
 
 
+class ApprovalExecutionAudit(BaseModel):
+    durability_scope: str = "connector_response"
+    execution_outcome: str | None = None
+    replay_status: str = "not_replayed"
+    external_ack_status: str = "unknown"
+    ledger_status: str = "not_reported"
+    record_id: str | None = None
+    external_request_id: str | None = None
+    execution_certainty: str | None = None
+    ack_status: str | None = None
+
+
 class ApprovalExecuteResponse(BaseModel):
     approval_id: str
     approval_status: str
@@ -225,6 +429,7 @@ class ApprovalExecuteResponse(BaseModel):
     action_type: str | None = None
     action_result_status: str | None = None
     idempotency_key: str | None = None
+    execution_audit: ApprovalExecutionAudit = Field(default_factory=ApprovalExecutionAudit)
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -302,6 +507,7 @@ def create_app(
     *,
     retriever: Any | None = None,
     api_key: str | None = None,
+    external_api_key: str | None = None,
     operator_api_key: str | None = None,
     adoption_ingest: Any | None = None,
 ) -> FastAPI:
@@ -318,6 +524,9 @@ def create_app(
         api_key: The required ``X-API-Key`` value. Falls back to the
             ``AGENT_OS_API_KEY`` environment variable. If neither is set, the
             protected routes reject with 503.
+        external_api_key: Optional report-only ``X-API-Key`` value for
+            ``POST /runs``. Falls back to ``AGENT_OS_EXTERNAL_API_KEY``. It can
+            only receive the external read-side projection.
     """
     if runtime is None:
         factory = _build_default_factory()
@@ -335,18 +544,29 @@ def create_app(
         shared_retriever = retriever
         shared_adoption_ingest = adoption_ingest
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
+    configured_external_key = (
+        external_api_key if external_api_key is not None else os.environ.get(EXTERNAL_API_KEY_ENV)
+    )
     configured_operator_key = (
         operator_api_key if operator_api_key is not None else os.environ.get(OPERATOR_API_KEY_ENV)
+    )
+    _validate_distinct_configured_keys(
+        api_key=configured_key,
+        external_api_key=configured_external_key,
+        operator_api_key=configured_operator_key,
     )
 
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
+    app.state.external_api_key = configured_external_key
     app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
 
-    def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
+    def authenticate_api_key(
+        x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
+    ) -> ApiPrincipal:
         if not app.state.api_key:
             raise HTTPException(
                 status_code=503,
@@ -355,12 +575,22 @@ def create_app(
                     "variable (or pass api_key to create_app) to enable this endpoint."
                 ),
             )
-        if x_api_key != app.state.api_key:
-            raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+        if _key_matches(x_api_key, app.state.api_key):
+            return API_PRINCIPAL_INTERNAL
+        if _key_matches(x_api_key, app.state.external_api_key):
+            return API_PRINCIPAL_EXTERNAL_REPORT
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    def require_api_scope(required_scope: str):
+        def dependency(principal: ApiPrincipal = Depends(authenticate_api_key)) -> ApiPrincipal:
+            authorize_principal_scope(principal, required_scope)
+            return principal
+
+        return dependency
 
     def require_operator_api_key(
         x_operator_key: str | None = Header(default=None, alias=OPERATOR_API_KEY_HEADER),
-    ) -> None:
+    ) -> ApiPrincipal:
         if not app.state.operator_api_key:
             raise HTTPException(
                 status_code=503,
@@ -370,8 +600,10 @@ def create_app(
                     "operator_api_key to create_app) to enable approval execution."
                 ),
             )
-        if x_operator_key != app.state.operator_api_key:
+        if not _key_matches(x_operator_key, app.state.operator_api_key):
             raise HTTPException(status_code=401, detail="Invalid or missing operator key.")
+        authorize_principal_scope(API_PRINCIPAL_OPERATOR, API_SCOPE_APPROVAL_EXECUTE)
+        return API_PRINCIPAL_OPERATOR
 
     @app.post(
         "/runs",
@@ -386,20 +618,39 @@ def create_app(
             }
         },
     )
-    def post_run(body: RunRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def post_run(
+        body: RunRequest,
+        principal: ApiPrincipal = Depends(authenticate_api_key),
+    ) -> dict[str, Any]:
+        audience = "external" if principal.audience_ceiling == "external" else body.audience
+        required_scope = (
+            API_SCOPE_RUN_INTERNAL if audience == "internal" else API_SCOPE_RUN_EXTERNAL
+        )
+        authorize_principal_scope(principal, required_scope)
         result = run_service(
             app.state.runtime,
             question=body.question,
             parameters=body.parameters,
+            audience=audience,
         )
         if result.get("status") == "blocked":
+            block = (
+                _external_block_projection(result["block"])
+                if principal.audience_ceiling == "external"
+                else result["block"]
+            )
             # Expected business block (unsafe SQL, unknown metric, ...) -> 422,
             # not a 500: the request was understood but the loop refused to answer.
-            raise HTTPException(status_code=422, detail=result["block"])
+            raise HTTPException(status_code=422, detail=block)
+        if principal.audience_ceiling == "external":
+            return _external_run_response_projection(result)
         return result
 
     @app.post("/outcomes", response_model=OutcomeResponse)
-    def post_outcome(body: OutcomeRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def post_outcome(
+        body: OutcomeRequest,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_OUTCOME_WRITE)),
+    ) -> dict[str, Any]:
         # Self-report only (P5.1b): records feedback, does NOT promote knowledge.
         return record_outcome_service(
             app.state.runtime,
@@ -410,7 +661,10 @@ def create_app(
         )
 
     @app.post("/adoptions", response_model=AdoptionResponse)
-    def post_adoption(body: AdoptionRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def post_adoption(
+        body: AdoptionRequest,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_ADOPTION_WRITE)),
+    ) -> dict[str, Any]:
         # The operator value channel (P5.1b): attest realized external value and
         # promote the trace's knowledge. The only surface that drives promotion.
         if app.state.adoption_ingest is None:
@@ -452,7 +706,7 @@ def create_app(
     def post_approval_execute(
         approval_id: str,
         body: ApprovalExecuteRequest,
-        _: None = Depends(require_operator_api_key),
+        _: ApiPrincipal = Depends(require_operator_api_key),
     ) -> dict[str, Any]:
         # Approval-bound action execution: approve then execute the exact pending
         # context captured by the prior /runs call. No automatic R4/R5 execution.
@@ -488,7 +742,7 @@ def create_app(
         metric: str | None = Query(default=None, description="filter: exact metric name"),
         owner: str | None = Query(default=None, description="filter: exact owner"),
         k: int = Query(default=5, ge=1, le=50),
-        _: None = Depends(require_api_key),
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_SEARCH)),
     ) -> dict[str, Any]:
         if app.state.retriever is None:
             raise HTTPException(
@@ -501,10 +755,14 @@ def create_app(
         return search_service(app.state.retriever, text=q, metric_name=metric, owner=owner, k=k)
 
     @app.get("/traces/{trace_id}", response_model=TraceResponse)
-    def get_trace(trace_id: str, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def get_trace(
+        trace_id: str,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TRACE_READ)),
+    ) -> dict[str, Any]:
         payload = trace_service(app.state.runtime.trace_store, trace_id=trace_id)
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No run trace for {trace_id!r}.")
         return payload
 
+    _install_openapi_contract_hardening(app)
     return app

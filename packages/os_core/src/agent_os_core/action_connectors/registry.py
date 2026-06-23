@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_os_contracts import ActionConnectorContract
+from agent_os_contracts import ActionConnectorContract, ConnectorExecutionSemantics
 
 from .base import ActionConnector
 
@@ -79,6 +79,10 @@ class ActionConnectorRegistry:
                 f"Available: {list(self._contracts.keys())}"
             )
         return self._contracts[connector_name]
+
+    def get_execution_semantics(self, connector_name: str) -> ConnectorExecutionSemantics:
+        """Retrieve a connector's declared execution-audit semantics."""
+        return self.get_contract(connector_name).execution_semantics
 
     def list_connectors(self) -> tuple[ActionConnectorContract, ...]:
         """List all registered connector contracts.

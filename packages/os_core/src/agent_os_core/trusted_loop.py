@@ -129,6 +129,7 @@ class TrustedLoopRuntime:
         adoption_ledger_view: AdoptionLedgerView | None = None,
         shell_view: ShellView | None = None,
         approval_context_store: ApprovalContextStorePort | None = None,
+        approval_context_reclaim_after_seconds: float | None = 300.0,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -208,6 +209,7 @@ class TrustedLoopRuntime:
         # replaying operation/evidence/action payloads. The default is in-memory;
         # durable deployments inject a persistence-backed store at composition time.
         self.approval_context_store = approval_context_store or InMemoryApprovalContextStore()
+        self.approval_context_reclaim_after_seconds = approval_context_reclaim_after_seconds
         self._pending_operation_lock = threading.RLock()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
@@ -661,7 +663,10 @@ class TrustedLoopRuntime:
         that could be incomplete or tampered with.
         """
         with self._pending_operation_lock:
-            context = self.approval_context_store.claim(approval_id)
+            context = self.approval_context_store.claim(
+                approval_id,
+                reclaim_stale_after_seconds=self.approval_context_reclaim_after_seconds,
+            )
             if context is None:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
             try:
@@ -767,14 +772,31 @@ class TrustedLoopRuntime:
             OperationState.APPROVED,
             {"step": "approved", "approval_id": approval_id},
         )
-        _operation, operation_trace, _snapshot, _result = self._execute_governed_operation(
-            operation=operation,
-            action_parameters=action_parameters,
-            evidence_chain=evidence_chain,
-            proposal_id=proposal_id,
-            operation_trace=operation_trace,
-            trace=None,
-        )
+        try:
+            _operation, operation_trace, _snapshot, _result = self._execute_governed_operation(
+                operation=operation,
+                action_parameters=action_parameters,
+                evidence_chain=evidence_chain,
+                proposal_id=proposal_id,
+                operation_trace=operation_trace,
+                trace=None,
+            )
+        except Exception as exc:
+            audit_event = self._connector_uncertain_audit_event(exc)
+            if audit_event is not None:
+                failed_trace = getattr(exc, "_operation_trace", None)
+                if not isinstance(failed_trace, OperationTrace):
+                    failed_trace = self.operation_trace_builder.update_trace(
+                        operation_trace,
+                        OperationState.FAILED,
+                        audit_event,
+                    )
+                self._persist_approved_operation_trace(
+                    run_trace_id=evidence_chain.trace_id,
+                    approval_id=approval_id,
+                    operation_trace=failed_trace,
+                )
+            raise
         self._persist_approved_operation_trace(
             run_trace_id=evidence_chain.trace_id,
             approval_id=approval_id,
@@ -1012,29 +1034,122 @@ class TrustedLoopRuntime:
                 )
 
         self.state_machine.transition(current_state, OperationState.EXECUTED)
-        action_result = connector.execute(operation, action_parameters)
+        try:
+            action_result = connector.execute(operation, action_parameters)
+        except Exception as exc:
+            audit_event = self._connector_uncertain_audit_event(exc)
+            if audit_event is not None and trace is not None:
+                trace.record(
+                    audit_event["step"],
+                    {key: value for key, value in audit_event.items() if key != "step"},
+                )
+            if audit_event is not None:
+                setattr(
+                    exc,
+                    "_operation_trace",
+                    self.operation_trace_builder.update_trace(
+                        operation_trace,
+                        OperationState.FAILED,
+                        audit_event,
+                    ),
+                )
+            raise
+        execute_event: dict[str, Any] = {
+            "step": "connector_executed",
+            "connector_name": operation.connector_name,
+            "action_type": operation.action_type,
+            "status": action_result.get("status"),
+            "idempotency_key": operation.idempotency_key,
+        }
+        for safe_field in (
+            "record_id",
+            "external_request_id",
+            "durability_scope",
+            "replay_status",
+            "external_ack_status",
+            "ledger_status",
+            "execution_certainty",
+            "ack_status",
+            "uncertain_execution_count",
+        ):
+            if safe_field in action_result:
+                execute_event[safe_field] = action_result[safe_field]
+        execution_semantics = self.connector_registry.get_execution_semantics(
+            operation.connector_name
+        )
+        for key, value in execution_semantics.audit_defaults().items():
+            execute_event.setdefault(key, value)
+        if "external_ack_status" not in execute_event and (
+            execute_event.get("durability_scope") == "external_connector"
+            or "external_request_id" in execute_event
+        ):
+            execute_event["external_ack_status"] = "unknown"
+        if operation.connector_name == "action_record":
+            execute_event["durability_scope"] = "connector_local_ledger"
+            if action_result.get("status") == "idempotent_replay":
+                execute_event["replay_status"] = action_result.get(
+                    "last_replay_status",
+                    "idempotent_replay",
+                )
+                execute_event["external_ack_status"] = (
+                    "unknown"
+                    if action_result.get("execution_certainty") == "uncertain_recovered"
+                    else "not_applicable"
+                )
+            else:
+                execute_event["replay_status"] = "not_replayed"
+                execute_event["external_ack_status"] = "not_applicable"
         if trace is not None:
             trace.record(
                 "connector_execute",
-                {
-                    "connector_name": operation.connector_name,
-                    "action_type": operation.action_type,
-                    "status": action_result.get("status"),
-                    "idempotency_key": operation.idempotency_key,
-                },
+                {key: value for key, value in execute_event.items() if key != "step"},
             )
         operation_trace = self.operation_trace_builder.update_trace(
             operation_trace,
             OperationState.EXECUTED,
-            {
-                "step": "connector_executed",
-                "connector_name": operation.connector_name,
-                "action_type": operation.action_type,
-                "status": action_result.get("status"),
-                "idempotency_key": operation.idempotency_key,
-            },
+            execute_event,
         )
         return operation, operation_trace, state_snapshot, action_result
+
+    @staticmethod
+    def _connector_uncertain_audit_event(exc: Exception) -> dict[str, Any] | None:
+        audit_event = getattr(exc, "audit_event", None)
+        if not callable(audit_event):
+            return None
+        event = audit_event()
+        if not isinstance(event, dict):
+            return None
+        if event.get("step") != "connector_execution_uncertain":
+            return None
+        safe_event = {
+            key: value
+            for key, value in event.items()
+            if key
+            in {
+                "step",
+                "connector_name",
+                "action_type",
+                "status",
+                "record_id",
+                "external_request_id",
+                "durability_scope",
+                "replay_status",
+                "external_ack_status",
+                "ledger_status",
+                "operation_id",
+                "idempotency_key",
+                "reason_code",
+                "error_type",
+                "ack_status",
+                "execution_certainty",
+            }
+        }
+        if "external_ack_status" not in safe_event and (
+            safe_event.get("durability_scope") == "external_connector"
+            or "external_request_id" in safe_event
+        ):
+            safe_event["external_ack_status"] = "unknown"
+        return safe_event
 
     @staticmethod
     def _with_idempotency_key(

@@ -15,10 +15,15 @@ RUN_BODY = {
     "parameters": {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
 }
 API_KEY = "secret-test-key"
+EXTERNAL_API_KEY = "secret-external-key"
 OPERATOR_KEY = "secret-operator-key"
 
 
-def _make_client(api_key: str | None, operator_api_key: str | None = OPERATOR_KEY):
+def _make_client(
+    api_key: str | None,
+    operator_api_key: str | None = OPERATOR_KEY,
+    external_api_key: str | None = None,
+):
     from starlette.testclient import TestClient
 
     from agent_os_api.http_app import create_app
@@ -29,6 +34,7 @@ def _make_client(api_key: str | None, operator_api_key: str | None = OPERATOR_KE
     app = create_app(
         runtime,
         api_key=api_key,
+        external_api_key=external_api_key,
         operator_api_key=operator_api_key,
         adoption_ingest=factory.adoption_ingest(),
     )
@@ -129,13 +135,117 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(artifact["trace_id"], payload["trace_id"])
         self.assertEqual(artifact["evidence_chain_id"], payload["evidence_chain_id"])
         self.assertEqual(artifact["decision"]["action_proposal_id"], payload["action_proposal_id"])
+        report = artifact["report"]
+        self.assertIn("evidence_cards", report)
+        cards = {card["card_id"]: card for card in report["evidence_cards"]}
+        self.assertEqual(cards["metric_contract"]["metric_name"], "gmv")
+        self.assertEqual(
+            cards["metric_contract"]["derived_from"], ["EvidenceChain.metric_contract"]
+        )
+        self.assertEqual(cards["sql_safety"]["checked_tables"], ["sales.orders"])
+        self.assertEqual(
+            cards["sql_safety"]["bound_parameter_names"],
+            ["end_date", "limit", "start_date"],
+        )
+        self.assertTrue(cards["sql_safety"]["sql_fingerprint"].startswith("sha256:"))
+        self.assertEqual(cards["query_result"]["columns"], ["order_date", "value"])
+        self.assertEqual(cards["query_result"]["preview_row_count"], 1)
         self.assertIn(
             "table",
             {widget["type"] for widget in artifact["dashboard"]["widgets"]},
         )
+        chart = next(
+            (
+                widget
+                for widget in artifact["dashboard"]["widgets"]
+                if widget["type"] == "line_chart"
+            ),
+            None,
+        )
+        self.assertIsNotNone(chart)
+        self.assertEqual(chart["x_field"], "order_date")
+        self.assertEqual(chart["y_field"], "value")
+        self.assertEqual(chart["preview_rows"], [{"order_date": "2026-05-31", "value": 128800.0}])
         self.assertEqual(artifact["business_action"]["connector_name"], "action_record")
         self.assertEqual(artifact["business_action"]["status"], "awaiting_approval")
         self.assertNotIn("action_parameters", artifact["business_action"])
+
+    def test_run_response_redacts_external_audience_result_details(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+                "audience": "external",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        artifact = run_resp.json()["user_result"]
+        self.assertEqual(artifact["audience"], "external")
+        self.assertTrue(artifact["redaction"]["applied"])
+        cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
+        self.assertEqual(cards["sql_safety"]["checked_tables"], [])
+        self.assertEqual(cards["sql_safety"]["bound_parameter_names"], [])
+        self.assertIsNone(cards["sql_safety"]["limit_value"])
+        self.assertIsNone(cards["sql_safety"]["sql_fingerprint"])
+        self.assertEqual(cards["query_result"]["columns"], [])
+        for widget in artifact["dashboard"]["widgets"]:
+            self.assertEqual(widget["columns"], [])
+            self.assertEqual(widget["preview_rows"], [])
+            self.assertIsNone(widget["x_field"])
+            self.assertIsNone(widget["y_field"])
+        rendered = run_resp.text
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+        self.assertNotIn("start_date", rendered)
+        self.assertNotIn("2026-05-31", rendered)
+
+    def test_external_api_key_forces_external_user_result_projection(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+                "audience": "internal",
+            },
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        artifact = run_resp.json()["user_result"]
+        self.assertEqual(artifact["audience"], "external")
+        self.assertTrue(artifact["redaction"]["applied"])
+        self.assertIsNone(run_resp.json()["provider_id"])
+        self.assertIsNone(run_resp.json()["knowledge_asset_id"])
+        self.assertEqual(run_resp.json()["trace_steps"], [])
+        self.assertEqual(run_resp.json()["related_knowledge"], [])
+        rendered = run_resp.text
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+
+    def test_external_api_key_blocked_run_omits_trace_details(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        resp = client.post(
+            "/runs",
+            json={"question": "revenue", "parameters": RUN_BODY["parameters"]},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(resp.status_code, 422, resp.text)
+        detail = resp.json()["detail"]
+        self.assertEqual(detail["code"], "unknown_metric")
+        self.assertEqual(detail["details"], [])
+        self.assertIsNone(detail["trace_id"])
 
     def test_approval_execute_endpoint_runs_approval_bound_action(self) -> None:
         client = _make_client(API_KEY)
@@ -169,6 +279,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             payload["operation_id"],
             run_payload["user_result"]["business_action"]["operation_id"],
         )
+        self.assertEqual(payload["execution_audit"]["durability_scope"], "connector_local_ledger")
+        self.assertEqual(payload["execution_audit"]["execution_outcome"], "executed")
+        self.assertEqual(payload["execution_audit"]["replay_status"], "not_replayed")
+        self.assertEqual(payload["execution_audit"]["external_ack_status"], "not_applicable")
         self.assertIn("connector_executed", [event["step"] for event in payload["events"]])
 
     def test_approval_execute_uses_approval_bound_context_without_cross_pollution(self) -> None:
@@ -320,6 +434,67 @@ class HttpAppBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpAppAuthBoundaryTest(unittest.TestCase):
+    def test_api_principal_scope_contract_is_explicit(self) -> None:
+        import agent_os_api.http_app as http_app
+
+        required_names = [
+            "API_PRINCIPAL_INTERNAL",
+            "API_PRINCIPAL_EXTERNAL_REPORT",
+            "API_PRINCIPAL_OPERATOR",
+            "API_SCOPE_RUN_INTERNAL",
+            "API_SCOPE_RUN_EXTERNAL",
+            "API_SCOPE_OUTCOME_WRITE",
+            "API_SCOPE_ADOPTION_WRITE",
+            "API_SCOPE_KNOWLEDGE_SEARCH",
+            "API_SCOPE_TRACE_READ",
+            "API_SCOPE_APPROVAL_EXECUTE",
+        ]
+        for name in required_names:
+            self.assertTrue(hasattr(http_app, name), f"{name} is missing")
+
+        internal = http_app.API_PRINCIPAL_INTERNAL
+        external = http_app.API_PRINCIPAL_EXTERNAL_REPORT
+        operator = http_app.API_PRINCIPAL_OPERATOR
+
+        self.assertEqual(internal.kind, "internal")
+        self.assertEqual(external.kind, "external_report")
+        self.assertEqual(operator.kind, "operator")
+        self.assertEqual(internal.audience_ceiling, "internal")
+        self.assertEqual(external.audience_ceiling, "external")
+        self.assertIsNone(operator.audience_ceiling)
+
+        self.assertTrue(internal.allows(http_app.API_SCOPE_RUN_INTERNAL))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_RUN_EXTERNAL))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_OUTCOME_WRITE))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_ADOPTION_WRITE))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertFalse(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
+
+        self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
+        self.assertTrue(external.allows(http_app.API_SCOPE_RUN_EXTERNAL))
+        self.assertFalse(external.allows(http_app.API_SCOPE_OUTCOME_WRITE))
+        self.assertFalse(external.allows(http_app.API_SCOPE_ADOPTION_WRITE))
+        self.assertFalse(external.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
+        self.assertFalse(external.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertFalse(external.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
+
+        self.assertEqual(operator.scopes, frozenset({http_app.API_SCOPE_APPROVAL_EXECUTE}))
+
+    def test_authorize_principal_scope_returns_403_for_recognized_wrong_role(self) -> None:
+        import agent_os_api.http_app as http_app
+
+        self.assertTrue(hasattr(http_app, "authorize_principal_scope"))
+
+        with self.assertRaises(Exception) as captured:
+            http_app.authorize_principal_scope(
+                http_app.API_PRINCIPAL_EXTERNAL_REPORT,
+                http_app.API_SCOPE_OUTCOME_WRITE,
+            )
+        self.assertEqual(captured.exception.status_code, 403)
+        self.assertIn("external_report", captured.exception.detail)
+        self.assertIn(http_app.API_SCOPE_OUTCOME_WRITE, captured.exception.detail)
+
     def test_missing_api_key_is_rejected(self) -> None:
         client = _make_client(API_KEY)
         resp = client.post("/runs", json=RUN_BODY)
@@ -343,6 +518,52 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 401)
 
+    def test_external_report_key_cannot_use_outcomes_route(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        resp = client.post(
+            "/outcomes",
+            json={"trace_id": "trace-x", "outcome": "adopted"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_external_report_key_cannot_use_management_surfaces(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": EXTERNAL_API_KEY}
+
+        adoption_resp = client.post(
+            "/adoptions",
+            json={"trace_id": "trace-x", "outcome": "adopted"},
+            headers=headers,
+        )
+        search_resp = client.get("/knowledge/search", params={"q": "GMV"}, headers=headers)
+        trace_resp = client.get("/traces/trace-x", headers=headers)
+
+        self.assertEqual(adoption_resp.status_code, 403)
+        self.assertEqual(search_resp.status_code, 403)
+        self.assertEqual(trace_resp.status_code, 403)
+
+    def test_external_report_key_cannot_execute_approval_as_operator(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_auth_keys_must_be_distinct(self) -> None:
+        with self.assertRaises(ValueError):
+            _make_client(API_KEY, external_api_key=API_KEY)
+
+        with self.assertRaises(ValueError):
+            _make_client(API_KEY, operator_api_key=API_KEY)
+
+        with self.assertRaises(ValueError):
+            _make_client(
+                API_KEY, operator_api_key=EXTERNAL_API_KEY, external_api_key=EXTERNAL_API_KEY
+            )
+
     def test_approval_execute_route_also_guarded(self) -> None:
         client = _make_client(API_KEY)
         resp = client.post(
@@ -351,12 +572,36 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 401)
 
+    def test_unconfigured_operator_key_returns_503(self) -> None:
+        client = _make_client(API_KEY, operator_api_key=None)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": "anything"},
+        )
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("Operator API key is not configured", resp.json()["detail"])
+
     def test_approval_execute_wrong_operator_key_is_rejected(self) -> None:
         client = _make_client(API_KEY)
         resp = client.post(
             "/approvals/approval-x/execute",
             json={"reason": "approved by operator", "approved_by": "ops@example.com"},
             headers={"X-Operator-Key": "nope"},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_operator_key_is_not_valid_on_run_api_key_channel(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post("/runs", json=RUN_BODY, headers={"X-API-Key": OPERATOR_KEY})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_internal_key_is_not_valid_on_operator_key_channel(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": API_KEY},
         )
         self.assertEqual(resp.status_code, 401)
 
