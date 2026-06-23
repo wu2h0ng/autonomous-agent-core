@@ -32,6 +32,45 @@ class RunServiceTest(unittest.TestCase):
         self.assertIsNotNone(summary["knowledge_asset_id"])
         self.assertEqual(runtime.knowledge_store.version_of(summary["trace_id"]), 1)
 
+    def test_run_service_returns_user_facing_result_artifact(self) -> None:
+        runtime = _build_runtime()
+        summary = run_service(runtime, question="GMV 记录行动", parameters=RUN_PARAMS)
+
+        artifact = summary["user_result"]
+        self.assertEqual(artifact["kind"], "data_agent_result")
+        self.assertEqual(artifact["trace_id"], summary["trace_id"])
+        self.assertEqual(artifact["evidence_chain_id"], summary["evidence_chain_id"])
+        self.assertEqual(
+            artifact["analysis"]["evidence_chain_id"],
+            summary["evidence_chain_id"],
+        )
+        self.assertGreater(artifact["analysis"]["confidence"], 0)
+        self.assertTrue(artifact["report"]["sections"])
+
+        dashboard = artifact["dashboard"]
+        widget_types = {widget["type"] for widget in dashboard["widgets"]}
+        self.assertIn("kpi", widget_types)
+        self.assertIn("table", widget_types)
+        table = next(widget for widget in dashboard["widgets"] if widget["type"] == "table")
+        self.assertEqual(table["row_count"], summary["row_count"])
+        self.assertEqual(table["evidence_chain_id"], summary["evidence_chain_id"])
+        self.assertTrue(table["preview_rows"])
+
+        decision = artifact["decision"]
+        self.assertEqual(decision["action_proposal_id"], summary["action_proposal_id"])
+        self.assertEqual(decision["risk_level"], "R3")
+        self.assertTrue(decision["approval_required"])
+
+        business_action = artifact["business_action"]
+        self.assertEqual(business_action["connector_name"], "action_record")
+        self.assertEqual(business_action["action_type"], "execute")
+        self.assertEqual(business_action["status"], "awaiting_approval")
+        self.assertTrue(business_action["approval_id"].startswith("approval-"))
+        self.assertEqual(
+            business_action["action_parameters"]["evidence_chain_id"],
+            summary["evidence_chain_id"],
+        )
+
     def test_run_service_blocked_returns_structured_block(self) -> None:
         # 'revenue' parses to a metric the pack does not define -> UNKNOWN_METRIC.
         runtime = _build_runtime()

@@ -50,6 +50,81 @@ class RelatedKnowledgeItem(BaseModel):
     score: float
 
 
+class UserResultAnalysis(BaseModel):
+    summary: str
+    confidence: float
+    limitations: list[str] = Field(default_factory=list)
+    row_count: int
+    evidence_chain_id: str
+
+
+class UserResultReportSection(BaseModel):
+    heading: str
+    body: str | None = None
+    items: list[str] = Field(default_factory=list)
+
+
+class UserResultReport(BaseModel):
+    title: str
+    sections: list[UserResultReportSection] = Field(default_factory=list)
+
+
+class UserResultDashboardWidget(BaseModel):
+    widget_id: str
+    type: str
+    title: str
+    evidence_chain_id: str
+    value: Any | None = None
+    unit: str | None = None
+    row_count: int | None = None
+    columns: list[str] = Field(default_factory=list)
+    preview_rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class UserResultDashboard(BaseModel):
+    title: str
+    widgets: list[UserResultDashboardWidget] = Field(default_factory=list)
+
+
+class UserResultDecision(BaseModel):
+    recommendation: str
+    reason: str
+    expected_impact: str
+    risk_level: str
+    approval_required: bool
+    approver_role: str | None = None
+    action_proposal_id: str
+    confidence: float
+
+
+class UserResultBusinessAction(BaseModel):
+    connector_name: str
+    action_type: str
+    risk_level: str
+    approval_required: bool
+    approver_role: str | None = None
+    status: str
+    operation_id: str | None = None
+    approval_id: str | None = None
+    action_parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class UserResultArtifact(BaseModel):
+    artifact_id: str
+    kind: str
+    title: str
+    trace_id: str
+    evidence_chain_id: str
+    action_proposal_id: str
+    question: str
+    metric_name: str
+    analysis: UserResultAnalysis
+    report: UserResultReport
+    dashboard: UserResultDashboard
+    decision: UserResultDecision
+    business_action: UserResultBusinessAction
+
+
 class RunResponse(BaseModel):
     trace_id: str
     intent: str
@@ -61,6 +136,7 @@ class RunResponse(BaseModel):
     knowledge_asset_id: str | None = None
     knowledge_version: int
     related_knowledge: list[RelatedKnowledgeItem] = Field(default_factory=list)
+    user_result: UserResultArtifact
 
 
 class OutcomeRequest(BaseModel):

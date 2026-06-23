@@ -103,6 +103,33 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["knowledge_version"], 2)
         self.assertEqual(payload["result_weight"], 0.8)
 
+    def test_run_response_carries_user_facing_result_artifact(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        payload = run_resp.json()
+
+        artifact = payload["user_result"]
+        self.assertEqual(artifact["kind"], "data_agent_result")
+        self.assertEqual(artifact["trace_id"], payload["trace_id"])
+        self.assertEqual(artifact["evidence_chain_id"], payload["evidence_chain_id"])
+        self.assertEqual(artifact["decision"]["action_proposal_id"], payload["action_proposal_id"])
+        self.assertIn(
+            "table",
+            {widget["type"] for widget in artifact["dashboard"]["widgets"]},
+        )
+        self.assertEqual(artifact["business_action"]["connector_name"], "action_record")
+        self.assertEqual(artifact["business_action"]["status"], "awaiting_approval")
+
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpAppBlockTest(unittest.TestCase):

@@ -2,7 +2,7 @@
 
 > Last updated: 2026-06-23
 > Role in workspace: **Deployment Layer** (enterprise OS, future downgrade projection of `autonomous-agent-core/`)
-> Current next decision: release authorization remains pending after ADR-0002 governed-action outcome-loop v0 implementation and explicit action-record intent routing. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
+> Current next decision: release authorization remains pending after ADR-0002 governed-action outcome-loop v0 implementation, explicit action-record intent routing, and typed user-facing data-agent result artifacts. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
 
 ## Scope
 
@@ -12,9 +12,9 @@ For the three-repo role map, see the baseline workspace `.agent` file and `docs/
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: 315 unit tests passing, 2 eval tests passing, OpenAPI contract clean, ruff clean.
+PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: latest local verification is 356 unit tests OK, 4 skipped, 12 eval tests OK, OpenAPI contract clean, ruff clean.
 
-Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), approval-bound action-record intent routing, P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
+Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), approval-bound action-record intent routing, typed user-facing data-agent result artifact, P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
 
 ## Hard Boundaries
 
@@ -64,7 +64,7 @@ Before marking a task complete, state:
 | Contracts | `packages/contracts/` | BusinessIntent, MetricContract, EvidenceChain, ActionProposal, OperationContract, KnowledgeAsset, RunTrace, BlockCode, etc. |
 | OS Core | `packages/os_core/` | Trusted Loop, Intent Parser, Semantic Runtime, Data Access Plane, Data Product Compiler, SQL Safety, Query Runtime, EvidenceChain, ActionProposal, Action Governance, Approval Lite, Operation Trace, Feedback, Knowledge Memory, Snapshot Store, Trace/Telemetry, Eval Hub, Agent Runtime shell, Model Gateway, Embedding, Knowledge Retrieval |
 | Persistence | `packages/persistence/` | SQLAlchemy Core sync adapters for all 5 store ports + Alembic migrations (0001–0005) |
-| API Server | `apps/api_server/` | FastAPI app + OpenAPI contract gate + CLI (query, record-outcome, trace, search) + 12-factor env wiring |
+| API Server | `apps/api_server/` | FastAPI app + OpenAPI contract gate + CLI (query, record-outcome, trace, search) + 12-factor env wiring + typed `user_result` artifact in `/runs` |
 | Workspace | `apps/workspace/` | Static prototype (F0 V2 approved); React/Next.js pending CTO review |
 | Domain Packs | `domain_packs/` | content_commerce: 4 metrics (gmv, spend, roi, conversion_rate), SQL templates, seed data |
 | Action Connectors | `action_connectors/` | manual_review (safe no-op default), action_record (reversible write + snapshot/rollback) |

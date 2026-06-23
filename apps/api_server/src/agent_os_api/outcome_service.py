@@ -17,6 +17,139 @@ from typing import Any
 from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
 
 
+def _preview_rows(rows: tuple[dict[str, Any], ...], *, limit: int = 20) -> list[dict[str, Any]]:
+    return [dict(row) for row in rows[:limit]]
+
+
+def _columns(rows: tuple[dict[str, Any], ...]) -> list[str]:
+    columns: list[str] = []
+    for row in rows:
+        for name in row:
+            if name not in columns:
+                columns.append(name)
+    return columns
+
+
+def _primary_metric_value(rows: tuple[dict[str, Any], ...], metric_name: str) -> Any | None:
+    if not rows:
+        return None
+    first = rows[0]
+    if metric_name in first:
+        return first[metric_name]
+    for value in first.values():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value
+    return None
+
+
+def _build_user_result_artifact(result: Any) -> dict[str, Any]:
+    """Build the user-facing data-agent result bundle from grounded runtime output.
+
+    This is deliberately a read-side projection over ``TrustedLoopResult``: it
+    does not query data, choose actions, or execute connectors. The data path and
+    governance decisions remain owned by the Trusted Loop; this layer only
+    packages them into analysis/report/dashboard/action surfaces a client can
+    render directly.
+    """
+    evidence = result.evidence_chain
+    proposal = result.action_proposal
+    action_result = result.action_result or {}
+    rows = evidence.query_result.rows
+    trace_id = evidence.trace_id
+    metric = evidence.metric_contract
+    preview = _preview_rows(rows)
+    columns = _columns(rows)
+    metric_value = _primary_metric_value(rows, metric.metric_name)
+
+    return {
+        "artifact_id": f"artifact-{trace_id}",
+        "kind": "data_agent_result",
+        "title": f"{metric.display_name} analysis result",
+        "trace_id": trace_id,
+        "evidence_chain_id": evidence.evidence_chain_id,
+        "action_proposal_id": proposal.proposal_id,
+        "question": evidence.intent.question,
+        "metric_name": metric.metric_name,
+        "analysis": {
+            "summary": evidence.conclusion,
+            "confidence": evidence.confidence,
+            "limitations": list(evidence.limitations),
+            "row_count": evidence.query_result.row_count,
+            "evidence_chain_id": evidence.evidence_chain_id,
+        },
+        "report": {
+            "title": f"{metric.display_name} evidence-backed report",
+            "sections": [
+                {
+                    "heading": "Finding",
+                    "body": evidence.conclusion,
+                    "items": [],
+                },
+                {
+                    "heading": "Evidence",
+                    "body": (
+                        f"Metric contract {metric.metric_name} "
+                        f"({metric.version}) produced {evidence.query_result.row_count} row(s)."
+                    ),
+                    "items": [
+                        f"trace_id={trace_id}",
+                        f"evidence_chain_id={evidence.evidence_chain_id}",
+                        f"provider_sql_safety_allowed={evidence.sql_safety.allowed}",
+                    ],
+                },
+                {
+                    "heading": "Limitations",
+                    "body": None,
+                    "items": list(evidence.limitations),
+                },
+            ],
+        },
+        "dashboard": {
+            "title": f"{metric.display_name} dashboard",
+            "widgets": [
+                {
+                    "widget_id": "primary_metric",
+                    "type": "kpi",
+                    "title": metric.display_name,
+                    "value": metric_value,
+                    "unit": metric.unit,
+                    "evidence_chain_id": evidence.evidence_chain_id,
+                },
+                {
+                    "widget_id": "result_rows",
+                    "type": "table",
+                    "title": "Result rows",
+                    "row_count": evidence.query_result.row_count,
+                    "columns": columns,
+                    "preview_rows": preview,
+                    "evidence_chain_id": evidence.evidence_chain_id,
+                },
+            ],
+        },
+        "decision": {
+            "recommendation": proposal.recommended_action,
+            "reason": proposal.reason,
+            "expected_impact": proposal.expected_impact,
+            "risk_level": proposal.risk_level.value,
+            "approval_required": proposal.approval_required,
+            "approver_role": proposal.approver_role,
+            "action_proposal_id": proposal.proposal_id,
+            "confidence": evidence.confidence,
+        },
+        "business_action": {
+            "connector_name": proposal.connector_name,
+            "action_type": proposal.action_type,
+            "risk_level": proposal.risk_level.value,
+            "approval_required": proposal.approval_required,
+            "approver_role": proposal.approver_role,
+            "status": action_result.get("status", "proposed"),
+            "operation_id": action_result.get("operation_id"),
+            "approval_id": action_result.get("approval_id"),
+            "action_parameters": dict(proposal.action_parameters),
+        },
+    }
+
+
 def search_service(
     retriever: Any,
     *,
@@ -95,6 +228,7 @@ def run_service(
             {"asset_id": r.asset.asset_id, "title": r.asset.title, "score": r.score}
             for r in result.related_knowledge
         ],
+        "user_result": _build_user_result_artifact(result),
     }
 
 

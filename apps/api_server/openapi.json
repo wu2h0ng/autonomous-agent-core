@@ -467,6 +467,9 @@
             },
             "title": "Trace Steps",
             "type": "array"
+          },
+          "user_result": {
+            "$ref": "#/components/schemas/UserResultArtifact"
           }
         },
         "required": [
@@ -475,7 +478,8 @@
           "evidence_chain_id",
           "action_proposal_id",
           "row_count",
-          "knowledge_version"
+          "knowledge_version",
+          "user_result"
         ],
         "title": "RunResponse",
         "type": "object"
@@ -607,6 +611,379 @@
           "status"
         ],
         "title": "TraceResponse",
+        "type": "object"
+      },
+      "UserResultAnalysis": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "confidence",
+          "row_count",
+          "evidence_chain_id"
+        ],
+        "title": "UserResultAnalysis",
+        "type": "object"
+      },
+      "UserResultArtifact": {
+        "properties": {
+          "action_proposal_id": {
+            "title": "Action Proposal Id",
+            "type": "string"
+          },
+          "analysis": {
+            "$ref": "#/components/schemas/UserResultAnalysis"
+          },
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "business_action": {
+            "$ref": "#/components/schemas/UserResultBusinessAction"
+          },
+          "dashboard": {
+            "$ref": "#/components/schemas/UserResultDashboard"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/UserResultDecision"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "metric_name": {
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/UserResultReport"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "kind",
+          "title",
+          "trace_id",
+          "evidence_chain_id",
+          "action_proposal_id",
+          "question",
+          "metric_name",
+          "analysis",
+          "report",
+          "dashboard",
+          "decision",
+          "business_action"
+        ],
+        "title": "UserResultArtifact",
+        "type": "object"
+      },
+      "UserResultBusinessAction": {
+        "properties": {
+          "action_parameters": {
+            "additionalProperties": true,
+            "title": "Action Parameters",
+            "type": "object"
+          },
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "approval_required": {
+            "title": "Approval Required",
+            "type": "boolean"
+          },
+          "approver_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Role"
+          },
+          "connector_name": {
+            "title": "Connector Name",
+            "type": "string"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "risk_level": {
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connector_name",
+          "action_type",
+          "risk_level",
+          "approval_required",
+          "status"
+        ],
+        "title": "UserResultBusinessAction",
+        "type": "object"
+      },
+      "UserResultDashboard": {
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "widgets": {
+            "items": {
+              "$ref": "#/components/schemas/UserResultDashboardWidget"
+            },
+            "title": "Widgets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "UserResultDashboard",
+        "type": "object"
+      },
+      "UserResultDashboardWidget": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "preview_rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Preview Rows",
+            "type": "array"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "widget_id": {
+            "title": "Widget Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "widget_id",
+          "type",
+          "title",
+          "evidence_chain_id"
+        ],
+        "title": "UserResultDashboardWidget",
+        "type": "object"
+      },
+      "UserResultDecision": {
+        "properties": {
+          "action_proposal_id": {
+            "title": "Action Proposal Id",
+            "type": "string"
+          },
+          "approval_required": {
+            "title": "Approval Required",
+            "type": "boolean"
+          },
+          "approver_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Role"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "expected_impact": {
+            "title": "Expected Impact",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "recommendation": {
+            "title": "Recommendation",
+            "type": "string"
+          },
+          "risk_level": {
+            "title": "Risk Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recommendation",
+          "reason",
+          "expected_impact",
+          "risk_level",
+          "approval_required",
+          "action_proposal_id",
+          "confidence"
+        ],
+        "title": "UserResultDecision",
+        "type": "object"
+      },
+      "UserResultReport": {
+        "properties": {
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/UserResultReportSection"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "UserResultReport",
+        "type": "object"
+      },
+      "UserResultReportSection": {
+        "properties": {
+          "body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body"
+          },
+          "heading": {
+            "title": "Heading",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "heading"
+        ],
+        "title": "UserResultReportSection",
         "type": "object"
       },
       "ValidationError": {
