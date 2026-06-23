@@ -37,8 +37,8 @@ current_stage:
     - "Typed connector execution-audit projection complete on main: ConnectorExecutionAudit/ApprovalExecutionAudit project safe connector-reported execution fields into OperationTrace, RunTrace, and OpenAPI while excluding raw parameters, raw connector payloads, and secret-like fields; external ACK defaults to unknown unless explicitly reported"
     - "Connector-declared execution semantics generalized on feature branch: ActionConnectorContract now carries ConnectorExecutionSemantics defaults, ActionConnectorRegistry exposes get_execution_semantics, TrustedLoopRuntime fills audit defaults from the registered contract, action_record declares connector_local_ledger/idempotency/reconciliation semantics, action_record idempotent replay now reports safe replay_status/external_ack_status fields itself, and the residual TrustedLoopRuntime action_record connector-name execution-audit branch has been retired behind a static regression guard."
   immediate_next:
-    id: "adr-0002-branch-review-remediation-then-release-gate"
-    description: "ADR-0002 branch hardening is merged to main and pushed to origin/main after AR-20260624 acceptance. External release remains a separate explicit decision. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, or automatic R4/R5 execution."
+    id: "enterprise-integration-readiness-merge-decision"
+    description: "codex/enterprise-integration-readiness is locally verified and merge-ready as an integration branch, but it is not merged, pushed, released, or deployed. Next explicit decision is whether to merge/push this branch after review. External release remains a separate explicit decision. Do not claim external release, durable cross-restart report storage, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
