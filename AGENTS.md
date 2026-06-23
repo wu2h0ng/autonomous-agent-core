@@ -2,7 +2,7 @@
 
 > Last updated: 2026-06-23
 > Role in workspace: **Deployment Layer** (enterprise OS, future downgrade projection of `autonomous-agent-core/`)
-> Current next decision: push/release authorization remains pending after ADR-0002 governed-action outcome-loop v0 implementation, explicit action-record intent routing, typed user-facing data-agent result artifacts, and operator-only approval execution hardening. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
+> Current next decision: push/release authorization remains pending after ADR-0002 governed-action outcome-loop v0 implementation, explicit action-record intent routing, typed user-facing data-agent result artifacts, operator-only approval execution hardening, and durable approval-context resume. The Stage 1 Status below is historical context — trust `docs/CURRENT_STATE.yaml` for live state.
 
 ## Scope
 
@@ -12,9 +12,9 @@ For the three-repo role map, see the baseline workspace `.agent` file and `docs/
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: latest local verification is 371 unit/integration tests OK, 4 skipped, 12 eval tests OK, OpenAPI contract clean, ruff clean.
+PR-01 through PR-06 all merged to `main` (commit `9d2d8d6`). P5 substrate harvest is underway: latest local verification is 374 unit/integration tests OK, 4 skipped, 12 eval tests OK, OpenAPI contract clean, ruff clean.
 
-Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 4 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate in `make ci`, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), approval-bound action-record intent routing, operator-only approval execution (`X-Operator-Key`, no run-key execution, exact pending context binding, retry after connector dry-run failure), typed user-facing data-agent result artifact, P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
+Delivered: Trusted Loop (full chain), persistence (SQLAlchemy Core + Alembic, 6 store ports), knowledge retrieval (hybrid scoring + pgvector-ready), observability (RunTrace + trace store + audit surface + gate), OpenAPI contract gate in `make ci`, unified block contract, SQL Safety hardening, grounding invariant (P5.1b-ii), critical fix hygiene for SQL LIMIT lower bound / CLI env-store parity / knowledge-index atomicity, eval hub, 12-factor env wiring, action governance (state machine + snapshot/rollback), approval-bound action-record intent routing, operator-only approval execution (`X-Operator-Key`, no run-key execution, exact approval context binding, durable postgres-backed approval-context resume, claim/release double-consume guard, retry after connector dry-run failure), typed user-facing data-agent result artifact, P5.2a corrigibility pause shell (operator shell + runtime view + hash-chain audit + PAUSED refusal).
 
 ## Hard Boundaries
 
@@ -63,7 +63,7 @@ Before marking a task complete, state:
 |---|---|---|
 | Contracts | `packages/contracts/` | BusinessIntent, MetricContract, EvidenceChain, ActionProposal, OperationContract, KnowledgeAsset, RunTrace, BlockCode, etc. |
 | OS Core | `packages/os_core/` | Trusted Loop, Intent Parser, Semantic Runtime, Data Access Plane, Data Product Compiler, SQL Safety, Query Runtime, EvidenceChain, ActionProposal, Action Governance, Approval Lite, Operation Trace, Feedback, Knowledge Memory, Snapshot Store, Trace/Telemetry, Eval Hub, Agent Runtime shell, Model Gateway, Embedding, Knowledge Retrieval |
-| Persistence | `packages/persistence/` | SQLAlchemy Core sync adapters for all 5 store ports + Alembic migrations (0001–0005) |
+| Persistence | `packages/persistence/` | SQLAlchemy Core sync adapters for all 6 store ports + Alembic migrations (0001–0006) |
 | API Server | `apps/api_server/` | FastAPI app + OpenAPI contract gate + CLI (query, record-outcome, trace, search) + 12-factor env wiring + typed `user_result` artifact in `/runs` + operator-only approval execution at `/approvals/{approval_id}/execute` |
 | Workspace | `apps/workspace/` | Static prototype (F0 V2 approved); React/Next.js pending CTO review |
 | Domain Packs | `domain_packs/` | content_commerce: 4 metrics (gmv, spend, roi, conversion_rate), SQL templates, seed data |
@@ -75,4 +75,3 @@ Before marking a task complete, state:
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval
-- Durable cross-process approval-context persistence: current approval execution uses same-process pending context and must not be presented as multi-process durable resume yet

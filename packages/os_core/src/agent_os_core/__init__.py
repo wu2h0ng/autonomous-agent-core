@@ -7,9 +7,12 @@ from .adoption import (
     AdoptionLedgerView,
 )
 from .approval_lite import (
+    ApprovalContextStorePort,
     ApprovalLiteRuntime,
+    ApprovalOperationContext,
     ApprovalRecord,
     ApprovalStorePort,
+    InMemoryApprovalContextStore,
     InMemoryApprovalStore,
 )
 from .corrigibility import AuditEntry, AuditLog, CorrigibilityShell, ShellView
@@ -51,7 +54,9 @@ __all__ = [
     "AdoptionLedger",
     "AdoptionLedgerPort",
     "AdoptionLedgerView",
+    "ApprovalContextStorePort",
     "ApprovalLiteRuntime",
+    "ApprovalOperationContext",
     "ApprovalRecord",
     "ApprovalStorePort",
     "AuditEntry",
@@ -70,6 +75,7 @@ __all__ = [
     "HashingEmbedder",
     "IndexingKnowledgeStore",
     "InMemoryApprovalStore",
+    "InMemoryApprovalContextStore",
     "InMemoryKnowledgeRetriever",
     "InMemorySnapshotStore",
     "InMemoryTraceStore",

@@ -105,6 +105,42 @@ class FactoryPostgresStoreTest(unittest.TestCase):
         self.assertEqual(match.asset.outcome, "adopted")
         self.assertGreater(match.score_breakdown["outcome_boost"], 0.0)
 
+    def test_approval_context_persists_across_runtime_instances(self) -> None:
+        from agent_os_contracts import OperationState
+
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+
+        engine = self._engine()
+        config = self._config(engine)
+
+        runtime1 = ContentCommerceRuntimeFactory(config).build()
+        result = runtime1.run("GMV 记录行动", dict(RUN_PARAMS))
+        approval_id = result.approval_record.approval_id
+        self.assertEqual(result.action_result["status"], "awaiting_approval")
+
+        runtime2 = ContentCommerceRuntimeFactory(config).build()
+        approval, operation_trace = runtime2.approve_and_execute_pending_operation(
+            approval_id=approval_id,
+            reason="approved after restart",
+            approved_by="ops@example.com",
+        )
+
+        self.assertEqual(approval.status, "approved")
+        self.assertEqual(approval.approved_by, "ops@example.com")
+        self.assertEqual(operation_trace.state, OperationState.EXECUTED)
+        self.assertEqual(operation_trace.evidence_chain_id, result.evidence_chain.evidence_chain_id)
+        action_record_connector = runtime2.connector_registry.get("action_record")
+        records = action_record_connector.store.records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            records[0]["parameters"]["evidence_chain_id"],
+            result.evidence_chain.evidence_chain_id,
+        )
+
+        runtime3 = ContentCommerceRuntimeFactory(config).build()
+        with self.assertRaises(KeyError):
+            runtime3.execute_pending_approved_operation(approval_id=approval_id)
+
     def test_unknown_store_backend_raises(self) -> None:
         from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 

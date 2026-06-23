@@ -56,6 +56,20 @@ approval_records = Table(
     Column("payload", JSON, nullable=False),
 )
 
+# Approval-bound operation contexts: one row per approval_id. This is the
+# cross-process resume payload for approval execution; approval_records remains
+# the decision lifecycle store.
+approval_operation_contexts = Table(
+    "approval_operation_contexts",
+    metadata,
+    Column("approval_id", String, primary_key=True),
+    Column("proposal_id", String, index=True, nullable=False),
+    Column("operation_id", String, index=True, nullable=False),
+    Column("trace_id", String, index=True, nullable=False),
+    Column("status", String, index=True, nullable=False, default="pending"),
+    Column("payload", JSON, nullable=False),
+)
+
 # Knowledge retrieval index: projected, indexed columns for structured filtering
 # (never JSON scans) + a stored embedding and content for hybrid ranking. Maintained
 # by the EmbeddingKnowledgeStore decorator. `id` (autoincrement) doubles as the recency

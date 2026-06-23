@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
+
+from agent_os_contracts import EvidenceChain, OperationContract
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,17 @@ class ApprovalRecord:
     reason: str | None = None
     operation_fingerprint: str | None = None
     approved_by: str | None = None
+
+
+@dataclass(frozen=True)
+class ApprovalOperationContext:
+    """Frozen operation context needed to resume an approved action by approval id."""
+
+    approval_id: str
+    proposal_id: str
+    operation: OperationContract
+    action_parameters: dict[str, Any]
+    evidence_chain: EvidenceChain
 
 
 class ApprovalStorePort(ABC):
@@ -36,6 +50,40 @@ class ApprovalStorePort(ABC):
         ...
 
 
+class ApprovalContextStorePort(ABC):
+    """Persistence port for approval-bound operation contexts.
+
+    The approval record stores the decision lifecycle; this context stores the
+    exact operation/evidence/action payload captured at proposal time, so a
+    later process can execute by approval_id without client replay.
+    """
+
+    @abstractmethod
+    def save(self, context: ApprovalOperationContext) -> ApprovalOperationContext:
+        """Persist or replace a context by ``approval_id`` and return it."""
+        ...
+
+    @abstractmethod
+    def get(self, approval_id: str) -> ApprovalOperationContext | None:
+        """Return the context for ``approval_id``, or ``None`` if absent."""
+        ...
+
+    @abstractmethod
+    def claim(self, approval_id: str) -> ApprovalOperationContext | None:
+        """Atomically mark a pending context as executing and return it."""
+        ...
+
+    @abstractmethod
+    def release_claim(self, approval_id: str) -> None:
+        """Return an executing context to pending so the approval can be retried."""
+        ...
+
+    @abstractmethod
+    def delete(self, approval_id: str) -> None:
+        """Remove the context for ``approval_id`` if present."""
+        ...
+
+
 class InMemoryApprovalStore(ApprovalStorePort):
     """In-memory :class:`ApprovalStorePort` backed by a dict keyed on approval_id."""
 
@@ -48,6 +96,39 @@ class InMemoryApprovalStore(ApprovalStorePort):
 
     def get(self, approval_id: str) -> ApprovalRecord | None:
         return self._records.get(approval_id)
+
+
+class InMemoryApprovalContextStore(ApprovalContextStorePort):
+    """In-memory approval-context store keyed by approval_id."""
+
+    def __init__(self) -> None:
+        self._contexts: dict[str, ApprovalOperationContext] = {}
+        self._statuses: dict[str, str] = {}
+
+    def save(self, context: ApprovalOperationContext) -> ApprovalOperationContext:
+        self._contexts[context.approval_id] = context
+        self._statuses[context.approval_id] = "pending"
+        return context
+
+    def get(self, approval_id: str) -> ApprovalOperationContext | None:
+        return self._contexts.get(approval_id)
+
+    def claim(self, approval_id: str) -> ApprovalOperationContext | None:
+        if self._statuses.get(approval_id) != "pending":
+            return None
+        context = self._contexts.get(approval_id)
+        if context is None:
+            return None
+        self._statuses[approval_id] = "executing"
+        return context
+
+    def release_claim(self, approval_id: str) -> None:
+        if self._statuses.get(approval_id) == "executing":
+            self._statuses[approval_id] = "pending"
+
+    def delete(self, approval_id: str) -> None:
+        self._contexts.pop(approval_id, None)
+        self._statuses.pop(approval_id, None)
 
 
 class ApprovalLiteRuntime:

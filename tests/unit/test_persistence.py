@@ -72,6 +72,73 @@ class PersistenceRepositoriesTest(unittest.TestCase):
             metadata={"note": "pre-exec"},
         )
 
+    def _approval_context(self, approval_id: str, proposal_id: str):
+        from agent_os_contracts import (
+            BusinessIntent,
+            EvidenceChain,
+            MetricContract,
+            OperationContract,
+            QueryPlan,
+            QueryResult,
+            SQLSafetyResult,
+        )
+        from agent_os_core import ApprovalOperationContext
+
+        metric = MetricContract(
+            metric_name="gmv",
+            display_name="GMV",
+            definition="Gross merchandise value.",
+            owner="revenue_ops",
+            unit="CNY",
+            allowed_schemas=("sales",),
+        )
+        evidence = EvidenceChain(
+            evidence_chain_id=f"evidence-{approval_id}",
+            intent=BusinessIntent(
+                intent_id=f"intent-{approval_id}",
+                question="GMV 记录行动",
+                metric_name="gmv",
+            ),
+            metric_contract=metric,
+            query_plan=QueryPlan(
+                metric_name="gmv",
+                sql="select sum(paid_amount) as gmv from sales.orders limit :limit",
+                parameters={"limit": 100},
+            ),
+            sql_safety=SQLSafetyResult(
+                allowed=True,
+                reasons=(),
+                checked_schemas=("sales",),
+                checked_tables=("sales.orders",),
+                bound_parameters=("limit",),
+                limit_value=100,
+            ),
+            query_result=QueryResult(rows=({"gmv": 128800.0},), row_count=1),
+            conclusion="GMV is 128800.0.",
+            confidence=0.9,
+            limitations=(),
+            trace_id=f"trace-{approval_id}",
+        )
+        operation = OperationContract(
+            operation_id=f"operation-{proposal_id}",
+            name="operation_for_gmv",
+            target_connector="action_record",
+            risk_level="R3",
+            approval_required=True,
+            rollback_supported=True,
+            snapshot_required=True,
+            connector_name="action_record",
+            action_type="execute",
+            idempotency_key=f"idem-{approval_id}",
+        )
+        return ApprovalOperationContext(
+            approval_id=approval_id,
+            proposal_id=proposal_id,
+            operation=operation,
+            action_parameters={"evidence_chain_id": evidence.evidence_chain_id, "amount": 100},
+            evidence_chain=evidence,
+        )
+
     def test_feedback_round_trip_and_append(self) -> None:
         from agent_os_persistence import SqlFeedbackStore
 
@@ -135,6 +202,35 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         self.assertEqual(approved.approved_by, "ops@example.com")
         self.assertEqual(store.get("approval-1").status, "approved")
         self.assertEqual(store.get("approval-1").approved_by, "ops@example.com")
+
+    def test_approval_context_round_trip_and_delete_over_sql_store(self) -> None:
+        from agent_os_persistence import SqlApprovalContextStore
+
+        store = SqlApprovalContextStore(self.engine)
+        context = self._approval_context("approval-context-1", "proposal-context-1")
+
+        store.save(context)
+        self.assertEqual(store.get("approval-context-1"), context)
+        self.assertIsNone(store.get("approval-context-missing"))
+
+        store.delete("approval-context-1")
+        self.assertIsNone(store.get("approval-context-1"))
+
+    def test_approval_context_claim_blocks_double_consume_and_allows_retry(self) -> None:
+        from agent_os_persistence import SqlApprovalContextStore
+
+        store = SqlApprovalContextStore(self.engine)
+        context = self._approval_context("approval-context-claim", "proposal-context-claim")
+
+        store.save(context)
+        self.assertEqual(store.claim("approval-context-claim"), context)
+        self.assertIsNone(store.claim("approval-context-claim"))
+
+        store.release_claim("approval-context-claim")
+        self.assertEqual(store.claim("approval-context-claim"), context)
+
+        store.delete("approval-context-claim")
+        self.assertIsNone(store.claim("approval-context-claim"))
 
     def test_snapshot_round_trip_and_rewrite(self) -> None:
         from agent_os_persistence import SqlSnapshotStore

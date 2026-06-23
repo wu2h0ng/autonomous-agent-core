@@ -12,6 +12,7 @@ from __future__ import annotations
 from sqlalchemy import Engine
 
 from .repositories import (
+    SqlApprovalContextStore,
     SqlApprovalStore,
     SqlFeedbackStore,
     SqlKnowledgeStore,
@@ -21,6 +22,7 @@ from .repositories import (
 )
 from .retrieval import EmbeddingKnowledgeStore, SqlKnowledgeRetriever, default_projector
 from .schema import (
+    approval_operation_contexts,
     approval_records,
     feedback_events,
     knowledge_assets,
@@ -33,12 +35,14 @@ from .schema import (
 __all__ = [
     "EmbeddingKnowledgeStore",
     "SqlApprovalStore",
+    "SqlApprovalContextStore",
     "SqlFeedbackStore",
     "SqlKnowledgeRetriever",
     "SqlKnowledgeStore",
     "SqlSnapshotStore",
     "SqlTraceStore",
     "SqlUnitOfWork",
+    "approval_operation_contexts",
     "approval_records",
     "create_all",
     "default_projector",

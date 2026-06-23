@@ -16,6 +16,8 @@ from contextlib import contextmanager
 
 from agent_os_contracts import FeedbackEvent, KnowledgeAsset, RunTrace, StateSnapshot
 from agent_os_core import (
+    ApprovalContextStorePort,
+    ApprovalOperationContext,
     ApprovalRecord,
     ApprovalStorePort,
     FeedbackStorePort,
@@ -227,6 +229,74 @@ class SqlApprovalStore(_SqlStoreBase, ApprovalStorePort):
                 select(table.c.payload).where(table.c.approval_id == approval_id)
             ).fetchone()
         return mappers.approval_from_payload(row[0]) if row is not None else None
+
+
+class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
+    """Approval-resume context store backed by SQLAlchemy Core."""
+
+    def save(self, context: ApprovalOperationContext) -> ApprovalOperationContext:
+        table = schema.approval_operation_contexts
+        payload = mappers.approval_context_to_payload(context)
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.approval_id).where(table.c.approval_id == context.approval_id)
+            ).fetchone()
+            values = {
+                "approval_id": context.approval_id,
+                "proposal_id": context.proposal_id,
+                "operation_id": context.operation.operation_id,
+                "trace_id": context.evidence_chain.trace_id,
+                "status": "pending",
+                "payload": payload,
+            }
+            if exists is None:
+                conn.execute(table.insert().values(**values))
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.approval_id == context.approval_id)
+                    .values(**values)
+                )
+        return context
+
+    def get(self, approval_id: str) -> ApprovalOperationContext | None:
+        table = schema.approval_operation_contexts
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload).where(table.c.approval_id == approval_id)
+            ).fetchone()
+        return mappers.approval_context_from_payload(row[0]) if row is not None else None
+
+    def claim(self, approval_id: str) -> ApprovalOperationContext | None:
+        table = schema.approval_operation_contexts
+        with self._write() as conn:
+            result = conn.execute(
+                table.update()
+                .where(table.c.approval_id == approval_id)
+                .where(table.c.status == "pending")
+                .values(status="executing")
+            )
+            if result.rowcount != 1:
+                return None
+            row = conn.execute(
+                select(table.c.payload).where(table.c.approval_id == approval_id)
+            ).fetchone()
+        return mappers.approval_context_from_payload(row[0]) if row is not None else None
+
+    def release_claim(self, approval_id: str) -> None:
+        table = schema.approval_operation_contexts
+        with self._write() as conn:
+            conn.execute(
+                table.update()
+                .where(table.c.approval_id == approval_id)
+                .where(table.c.status == "executing")
+                .values(status="pending")
+            )
+
+    def delete(self, approval_id: str) -> None:
+        table = schema.approval_operation_contexts
+        with self._write() as conn:
+            conn.execute(table.delete().where(table.c.approval_id == approval_id))
 
 
 class SqlUnitOfWork:

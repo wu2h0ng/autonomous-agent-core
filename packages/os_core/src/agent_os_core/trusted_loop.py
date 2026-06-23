@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import replace
 import json
 import threading
 from time import perf_counter
@@ -37,7 +37,13 @@ from .action_connectors.registry import ActionConnectorRegistry
 from .action_governance import ActionGovernance
 from .adoption import AdoptionLedgerView
 from .action_proposal import ActionProposalBuilder
-from .approval_lite import ApprovalLiteRuntime, ApprovalRecord
+from .approval_lite import (
+    ApprovalContextStorePort,
+    ApprovalLiteRuntime,
+    ApprovalOperationContext,
+    ApprovalRecord,
+    InMemoryApprovalContextStore,
+)
 from .corrigibility import ShellView
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
@@ -81,14 +87,6 @@ class GroundingInvariantViolation(Exception):
     """
 
 
-@dataclass(frozen=True)
-class _PendingApprovedOperationContext:
-    operation: OperationContract
-    action_parameters: dict[str, Any]
-    evidence_chain: EvidenceChain
-    proposal_id: str
-
-
 class TrustedLoopRuntime:
     """Orchestrates the Trusted Loop: from business question to action execution.
 
@@ -130,6 +128,7 @@ class TrustedLoopRuntime:
         trace_store: TraceStorePort | None = None,
         adoption_ledger_view: AdoptionLedgerView | None = None,
         shell_view: ShellView | None = None,
+        approval_context_store: ApprovalContextStorePort | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -205,10 +204,10 @@ class TrustedLoopRuntime:
         # Observability v1 (AR-20260611): every run persists its RunTrace here,
         # on success AND on block, so runs are auditable by trace_id after the fact.
         self.trace_store = trace_store or InMemoryTraceStore()
-        # In-process approval-resume context: API/CLI callers approve by
-        # approval_id without replaying operation/evidence/action payloads. Durable
-        # cross-process resume will need a dedicated store in a later slice.
-        self._pending_approved_operation_contexts: dict[str, _PendingApprovedOperationContext] = {}
+        # Approval-resume context: API/CLI callers approve by approval_id without
+        # replaying operation/evidence/action payloads. The default is in-memory;
+        # durable deployments inject a persistence-backed store at composition time.
+        self.approval_context_store = approval_context_store or InMemoryApprovalContextStore()
         self._pending_operation_lock = threading.RLock()
 
     def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
@@ -523,12 +522,13 @@ class TrustedLoopRuntime:
                 ),
             )
             with self._pending_operation_lock:
-                self._pending_approved_operation_contexts[approval_id] = (
-                    _PendingApprovedOperationContext(
+                self.approval_context_store.save(
+                    ApprovalOperationContext(
+                        approval_id=approval_id,
+                        proposal_id=proposal.proposal_id,
                         operation=operation,
                         action_parameters=dict(proposal.action_parameters),
                         evidence_chain=evidence,
-                        proposal_id=proposal.proposal_id,
                     )
                 )
             action_result: dict[str, object] = {
@@ -661,17 +661,21 @@ class TrustedLoopRuntime:
         that could be incomplete or tampered with.
         """
         with self._pending_operation_lock:
-            context = self._pending_approved_operation_contexts.get(approval_id)
+            context = self.approval_context_store.claim(approval_id)
             if context is None:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
-            operation_trace = self.execute_approved_operation(
-                approval_id=approval_id,
-                operation=context.operation,
-                action_parameters=context.action_parameters,
-                evidence_chain=context.evidence_chain,
-                proposal_id=context.proposal_id,
-            )
-            del self._pending_approved_operation_contexts[approval_id]
+            try:
+                operation_trace = self.execute_approved_operation(
+                    approval_id=approval_id,
+                    operation=context.operation,
+                    action_parameters=context.action_parameters,
+                    evidence_chain=context.evidence_chain,
+                    proposal_id=context.proposal_id,
+                )
+            except Exception:
+                self.approval_context_store.release_claim(approval_id)
+                raise
+            self.approval_context_store.delete(approval_id)
             return operation_trace
 
     def approve_and_execute_pending_operation(
@@ -683,7 +687,7 @@ class TrustedLoopRuntime:
     ) -> tuple[ApprovalRecord, OperationTrace]:
         """Approve and execute a pending operation without creating orphan approvals."""
         with self._pending_operation_lock:
-            if approval_id not in self._pending_approved_operation_contexts:
+            if self.approval_context_store.get(approval_id) is None:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
             approval = self.approval_runtime.get(approval_id)
             if approval.status == "pending":

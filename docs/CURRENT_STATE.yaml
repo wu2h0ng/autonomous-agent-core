@@ -3,7 +3,7 @@ project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact, and operator-only approval execution implemented on local main and CI-green; pending push/release authorization"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact, operator-only approval execution, and durable approval-context resume implemented on local main and CI-green; pending push/release authorization"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -23,9 +23,10 @@ current_stage:
     - "Explicit action-record intent routing complete: grounded action-record/follow-up requests now route to the reversible action_record connector, halt for approval, and execute only through approval-resume"
     - "User-facing data-agent result artifact complete: POST /runs and run_service now return an evidence-bound analysis/report/dashboard/decision/business_action bundle for direct client rendering"
     - "Operator-only approval execution hardening complete: POST /approvals/{approval_id}/execute requires X-Operator-Key, rejects run API keys, binds execution to the original approval context, keeps R4/R5 proposal-only in MVP, supports retry after connector dry-run failure, and exposes OpenAPI 404/409 error contracts"
+    - "Durable approval-context resume complete: postgres store_backend persists approval-bound operation/evidence/action context in approval_operation_contexts, supports cross-runtime approval execution by approval_id without client replay, and uses claim/release to block double-consume while preserving retry after connector dry-run failure"
   immediate_next:
     id: "release-gate-and-next-runtime-slice"
-    description: "Release authorization remains pending. Continue product runtime increments toward durable approval-context persistence and richer user-facing analysis/report/dashboard/action loops; do not claim external release or automatic R4/R5 execution."
+    description: "Release authorization remains pending. Continue product runtime increments toward richer user-facing analysis/report/dashboard/action loops and stronger production connector durability; do not claim external release, connector-side exactly-once, or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -35,8 +36,8 @@ current_stage:
 
 last_verified_tests:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "371 unit/integration tests OK, 4 skipped; ruff clean; OpenAPI contract drift check included in make ci. Starlette TestClient/httpx deprecation warning remains non-blocking."
-  source: "local verification after operator-only approval execution hardening on top of user-facing data-agent result artifact and explicit action-record intent routing"
+  result: "374 unit/integration tests OK, 4 skipped; ruff clean; OpenAPI contract drift check included in make ci. Starlette TestClient/httpx deprecation warning remains non-blocking."
+  source: "local verification after durable approval-context resume and atomic claim/release on top of operator-only approval execution hardening"
   verified_at: "2026-06-23"
 
 last_verified_eval:
@@ -84,10 +85,10 @@ scope:
 open_items:
   active_decisions_remaining_work:
     - id: "ADR-0002-governed-action-outcome-loop-v0"
-      status: "Accepted; lower-half implemented in commit e802377; upper-half and latest approval-execution hardening implemented locally on main"
+      status: "Accepted; lower-half implemented in commit e802377; upper-half, approval-execution hardening, and durable approval-context resume implemented locally on main"
       gate: "R3 runtime work remains pending push/release authorization; no external release performed by this run"
-      scope: "One reversible governed action loop with CLI adopt, causal attribution, explicit action-record intent routing, user-facing data-agent result artifact, operator-only approval execution, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
-      freshness_note: "Lower-half covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Upper-half covers CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and one rollback demonstration, with review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace. Explicit grounded follow-up/action-record user intent now routes to action_record but remains approval-bound. POST /runs/run_service now also return a typed user_result artifact bundling analysis, report sections, dashboard widgets, decision recommendation, and approval-bound business_action metadata. POST /approvals/{approval_id}/execute is operator-key-only, binds to the exact in-process pending approval context, rejects rejected/unknown/replayed approvals, and keeps R4/R5 proposal-only. Durable cross-process approval-context persistence is not yet implemented."
+      scope: "One reversible governed action loop with CLI adopt, causal attribution, explicit action-record intent routing, user-facing data-agent result artifact, operator-only approval execution, durable approval-context resume, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
+      freshness_note: "Lower-half covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Upper-half covers CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and one rollback demonstration, with review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace. Explicit grounded follow-up/action-record user intent now routes to action_record but remains approval-bound. POST /runs/run_service now also return a typed user_result artifact bundling analysis, report sections, dashboard widgets, decision recommendation, and approval-bound business_action metadata. POST /approvals/{approval_id}/execute is operator-key-only, binds to the exact approval context, rejects rejected/unknown/replayed approvals, and keeps R4/R5 proposal-only. Postgres store_backend now persists approval-bound operation/evidence/action context in approval_operation_contexts and uses claim/release to block double-consume while preserving dry-run-failure retry. This does not claim production connector-side exactly-once or external release."
   blocked_on_decision_or_environment:
     - "PR-07 Frontend F1 blueprint"
     - "pgvector pushdown + HNSW"
