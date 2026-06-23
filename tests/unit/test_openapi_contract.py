@@ -61,6 +61,13 @@ class OpenApiContractTest(unittest.TestCase):
         rendered_route = json.dumps(approval_execute)
         self.assertIn("X-Operator-Key", rendered_route)
         self.assertNotIn("X-API-Key", rendered_route)
+        operator_key = next(
+            parameter
+            for parameter in approval_execute["parameters"]
+            if parameter["in"] == "header" and parameter["name"] == "X-Operator-Key"
+        )
+        self.assertIs(operator_key["required"], True)
+        self.assertEqual(operator_key["schema"]["type"], "string")
         self.assertIn("404", approval_execute["responses"])
         self.assertIn("409", approval_execute["responses"])
         request_schema = spec["components"]["schemas"]["ApprovalExecuteRequest"]

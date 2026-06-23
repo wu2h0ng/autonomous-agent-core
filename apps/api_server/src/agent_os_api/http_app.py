@@ -38,6 +38,33 @@ API_KEY_ENV = "AGENT_OS_API_KEY"
 OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 API_KEY_HEADER = "X-API-Key"
 OPERATOR_API_KEY_HEADER = "X-Operator-Key"
+APPROVAL_EXECUTE_PATH = "/approvals/{approval_id}/execute"
+
+
+def _require_operator_key_in_openapi(openapi_schema: dict[str, Any]) -> None:
+    """Advertise the operator key as required without changing 401 auth behavior."""
+    try:
+        parameters = openapi_schema["paths"][APPROVAL_EXECUTE_PATH]["post"]["parameters"]
+    except KeyError as exc:
+        raise RuntimeError("Approval execution route missing from OpenAPI schema.") from exc
+
+    for parameter in parameters:
+        if parameter.get("in") == "header" and parameter.get("name") == OPERATOR_API_KEY_HEADER:
+            parameter["required"] = True
+            parameter["schema"] = {"title": OPERATOR_API_KEY_HEADER, "type": "string"}
+            return
+    raise RuntimeError("Operator key header missing from approval execution OpenAPI schema.")
+
+
+def _install_openapi_contract_hardening(app: FastAPI) -> None:
+    default_openapi = app.openapi
+
+    def hardened_openapi() -> dict[str, Any]:
+        schema = default_openapi()
+        _require_operator_key_in_openapi(schema)
+        return schema
+
+    app.openapi = hardened_openapi  # type: ignore[method-assign]
 
 
 class RunRequest(BaseModel):
@@ -507,4 +534,5 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"No run trace for {trace_id!r}.")
         return payload
 
+    _install_openapi_contract_hardening(app)
     return app

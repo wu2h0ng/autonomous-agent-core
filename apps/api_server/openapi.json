@@ -1289,17 +1289,10 @@
           {
             "in": "header",
             "name": "X-Operator-Key",
-            "required": false,
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Operator-Key"
+              "title": "X-Operator-Key",
+              "type": "string"
             }
           }
         ],
