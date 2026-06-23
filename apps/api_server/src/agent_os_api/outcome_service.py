@@ -12,6 +12,7 @@ they contain no domain- or transport-specific logic.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
@@ -91,6 +92,63 @@ def _business_action_status(proposal: Any, action_result: dict[str, Any]) -> str
     return status or "proposed"
 
 
+def _sql_fingerprint(sql: str) -> str:
+    return "sha256:" + hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+def _report_evidence_cards(
+    evidence: Any,
+    columns: list[str],
+    *,
+    preview_row_count: int,
+) -> list[dict[str, Any]]:
+    metric = evidence.metric_contract
+    safety = evidence.sql_safety
+    return [
+        {
+            "card_id": "metric_contract",
+            "type": "metric_contract",
+            "title": f"{metric.display_name} metric contract",
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": evidence.trace_id,
+            "derived_from": ["EvidenceChain.metric_contract"],
+            "metric_name": metric.metric_name,
+            "metric_version": metric.version,
+            "display_name": metric.display_name,
+            "owner": metric.owner,
+            "unit": metric.unit,
+            "dimensions": list(metric.dimensions),
+            "data_classification": metric.data_classification.value,
+        },
+        {
+            "card_id": "sql_safety",
+            "type": "sql_safety",
+            "title": "SQL safety and source boundary",
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": evidence.trace_id,
+            "derived_from": ["EvidenceChain.query_plan", "EvidenceChain.sql_safety"],
+            "query_metric_name": evidence.query_plan.metric_name,
+            "sql_safety_allowed": safety.allowed,
+            "checked_schemas": list(safety.checked_schemas),
+            "checked_tables": list(safety.checked_tables),
+            "bound_parameter_names": list(safety.bound_parameters),
+            "limit_value": safety.limit_value,
+            "sql_fingerprint": _sql_fingerprint(evidence.query_plan.sql),
+        },
+        {
+            "card_id": "query_result",
+            "type": "query_result",
+            "title": "Grounded query result",
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "trace_id": evidence.trace_id,
+            "derived_from": ["EvidenceChain.query_result"],
+            "row_count": evidence.query_result.row_count,
+            "columns": columns,
+            "preview_row_count": preview_row_count,
+        },
+    ]
+
+
 def _build_user_result_artifact(result: Any) -> dict[str, Any]:
     """Build the user-facing data-agent result bundle from grounded runtime output.
 
@@ -165,6 +223,11 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
         },
         "report": {
             "title": f"{metric.display_name} evidence-backed report",
+            "evidence_cards": _report_evidence_cards(
+                evidence,
+                columns,
+                preview_row_count=len(preview),
+            ),
             "sections": [
                 {
                     "heading": "Finding",

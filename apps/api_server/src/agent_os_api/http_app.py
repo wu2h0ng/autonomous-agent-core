@@ -17,7 +17,7 @@ silently allowing access; a wrong/missing key returns 401.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -94,8 +94,59 @@ class UserResultReportSection(BaseModel):
     items: list[str] = Field(default_factory=list)
 
 
+class MetricContractEvidenceCard(BaseModel):
+    card_id: Literal["metric_contract"]
+    type: Literal["metric_contract"]
+    title: str
+    evidence_chain_id: str
+    trace_id: str
+    derived_from: list[str]
+    metric_name: str
+    metric_version: str
+    display_name: str
+    owner: str
+    unit: str
+    dimensions: list[str]
+    data_classification: str
+
+
+class SQLSafetyEvidenceCard(BaseModel):
+    card_id: Literal["sql_safety"]
+    type: Literal["sql_safety"]
+    title: str
+    evidence_chain_id: str
+    trace_id: str
+    derived_from: list[str]
+    query_metric_name: str
+    sql_safety_allowed: bool
+    checked_schemas: list[str]
+    checked_tables: list[str]
+    bound_parameter_names: list[str]
+    limit_value: int | None
+    sql_fingerprint: str
+
+
+class QueryResultEvidenceCard(BaseModel):
+    card_id: Literal["query_result"]
+    type: Literal["query_result"]
+    title: str
+    evidence_chain_id: str
+    trace_id: str
+    derived_from: list[str]
+    row_count: int
+    columns: list[str]
+    preview_row_count: int
+
+
+UserResultEvidenceCard = Annotated[
+    MetricContractEvidenceCard | SQLSafetyEvidenceCard | QueryResultEvidenceCard,
+    Field(discriminator="type"),
+]
+
+
 class UserResultReport(BaseModel):
     title: str
+    evidence_cards: list[UserResultEvidenceCard]
     sections: list[UserResultReportSection] = Field(default_factory=list)
 
 

@@ -129,6 +129,21 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(artifact["trace_id"], payload["trace_id"])
         self.assertEqual(artifact["evidence_chain_id"], payload["evidence_chain_id"])
         self.assertEqual(artifact["decision"]["action_proposal_id"], payload["action_proposal_id"])
+        report = artifact["report"]
+        self.assertIn("evidence_cards", report)
+        cards = {card["card_id"]: card for card in report["evidence_cards"]}
+        self.assertEqual(cards["metric_contract"]["metric_name"], "gmv")
+        self.assertEqual(
+            cards["metric_contract"]["derived_from"], ["EvidenceChain.metric_contract"]
+        )
+        self.assertEqual(cards["sql_safety"]["checked_tables"], ["sales.orders"])
+        self.assertEqual(
+            cards["sql_safety"]["bound_parameter_names"],
+            ["end_date", "limit", "start_date"],
+        )
+        self.assertTrue(cards["sql_safety"]["sql_fingerprint"].startswith("sha256:"))
+        self.assertEqual(cards["query_result"]["columns"], ["order_date", "value"])
+        self.assertEqual(cards["query_result"]["preview_row_count"], 1)
         self.assertIn(
             "table",
             {widget["type"] for widget in artifact["dashboard"]["widgets"]},

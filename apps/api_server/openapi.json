@@ -443,6 +443,87 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "MetricContractEvidenceCard": {
+        "properties": {
+          "card_id": {
+            "const": "metric_contract",
+            "title": "Card Id",
+            "type": "string"
+          },
+          "data_classification": {
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "derived_from": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Derived From",
+            "type": "array"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "metric_name": {
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "metric_version": {
+            "title": "Metric Version",
+            "type": "string"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "metric_contract",
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id",
+          "type",
+          "title",
+          "evidence_chain_id",
+          "trace_id",
+          "derived_from",
+          "metric_name",
+          "metric_version",
+          "display_name",
+          "owner",
+          "unit",
+          "dimensions",
+          "data_classification"
+        ],
+        "title": "MetricContractEvidenceCard",
+        "type": "object"
+      },
       "OutcomeRequest": {
         "properties": {
           "metric_deltas": {
@@ -534,6 +615,67 @@
           "knowledge_version"
         ],
         "title": "OutcomeResponse",
+        "type": "object"
+      },
+      "QueryResultEvidenceCard": {
+        "properties": {
+          "card_id": {
+            "const": "query_result",
+            "title": "Card Id",
+            "type": "string"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "derived_from": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Derived From",
+            "type": "array"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "preview_row_count": {
+            "title": "Preview Row Count",
+            "type": "integer"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "query_result",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id",
+          "type",
+          "title",
+          "evidence_chain_id",
+          "trace_id",
+          "derived_from",
+          "row_count",
+          "columns",
+          "preview_row_count"
+        ],
+        "title": "QueryResultEvidenceCard",
         "type": "object"
       },
       "RelatedKnowledgeItem": {
@@ -655,6 +797,100 @@
           "user_result"
         ],
         "title": "RunResponse",
+        "type": "object"
+      },
+      "SQLSafetyEvidenceCard": {
+        "properties": {
+          "bound_parameter_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Bound Parameter Names",
+            "type": "array"
+          },
+          "card_id": {
+            "const": "sql_safety",
+            "title": "Card Id",
+            "type": "string"
+          },
+          "checked_schemas": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checked Schemas",
+            "type": "array"
+          },
+          "checked_tables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checked Tables",
+            "type": "array"
+          },
+          "derived_from": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Derived From",
+            "type": "array"
+          },
+          "evidence_chain_id": {
+            "title": "Evidence Chain Id",
+            "type": "string"
+          },
+          "limit_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Value"
+          },
+          "query_metric_name": {
+            "title": "Query Metric Name",
+            "type": "string"
+          },
+          "sql_fingerprint": {
+            "title": "Sql Fingerprint",
+            "type": "string"
+          },
+          "sql_safety_allowed": {
+            "title": "Sql Safety Allowed",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "type": {
+            "const": "sql_safety",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "card_id",
+          "type",
+          "title",
+          "evidence_chain_id",
+          "trace_id",
+          "derived_from",
+          "query_metric_name",
+          "sql_safety_allowed",
+          "checked_schemas",
+          "checked_tables",
+          "bound_parameter_names",
+          "limit_value",
+          "sql_fingerprint"
+        ],
+        "title": "SQLSafetyEvidenceCard",
         "type": "object"
       },
       "SearchResponse": {
@@ -1142,6 +1378,31 @@
       },
       "UserResultReport": {
         "properties": {
+          "evidence_cards": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "metric_contract": "#/components/schemas/MetricContractEvidenceCard",
+                  "query_result": "#/components/schemas/QueryResultEvidenceCard",
+                  "sql_safety": "#/components/schemas/SQLSafetyEvidenceCard"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MetricContractEvidenceCard"
+                },
+                {
+                  "$ref": "#/components/schemas/SQLSafetyEvidenceCard"
+                },
+                {
+                  "$ref": "#/components/schemas/QueryResultEvidenceCard"
+                }
+              ]
+            },
+            "title": "Evidence Cards",
+            "type": "array"
+          },
           "sections": {
             "items": {
               "$ref": "#/components/schemas/UserResultReportSection"
@@ -1155,7 +1416,8 @@
           }
         },
         "required": [
-          "title"
+          "title",
+          "evidence_cards"
         ],
         "title": "UserResultReport",
         "type": "object"

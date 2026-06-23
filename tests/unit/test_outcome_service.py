@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import replace
+import json
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 
-from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
+from agent_os_contracts import (
+    ActionProposal,
+    BusinessIntent,
+    CausalAttributionMethod,
+    CausalOutcomeAttribution,
+    DataClassification,
+    EvidenceChain,
+    MetricContract,
+    QueryPlan,
+    QueryResult,
+    RiskLevel,
+    SQLSafetyResult,
+)
 from agent_os_api.outcome_service import (
+    _build_user_result_artifact,
     approve_and_execute_service,
     attest_adoption_service,
     record_outcome_service,
@@ -48,6 +64,42 @@ class RunServiceTest(unittest.TestCase):
         self.assertGreater(artifact["analysis"]["confidence"], 0)
         self.assertTrue(artifact["report"]["sections"])
 
+        report = artifact["report"]
+        self.assertIn("evidence_cards", report)
+        cards = {card["card_id"]: card for card in report["evidence_cards"]}
+        self.assertEqual(set(cards), {"metric_contract", "sql_safety", "query_result"})
+        self.assertEqual(cards["metric_contract"]["metric_name"], "gmv")
+        self.assertEqual(cards["metric_contract"]["metric_version"], "v1")
+        self.assertEqual(cards["metric_contract"]["display_name"], "GMV")
+        self.assertEqual(
+            cards["metric_contract"]["derived_from"], ["EvidenceChain.metric_contract"]
+        )
+        self.assertEqual(
+            cards["metric_contract"]["evidence_chain_id"], summary["evidence_chain_id"]
+        )
+        self.assertEqual(cards["sql_safety"]["sql_safety_allowed"], True)
+        self.assertEqual(cards["sql_safety"]["query_metric_name"], "gmv")
+        self.assertEqual(cards["sql_safety"]["checked_schemas"], ["sales"])
+        self.assertEqual(cards["sql_safety"]["checked_tables"], ["sales.orders"])
+        self.assertEqual(
+            cards["sql_safety"]["bound_parameter_names"],
+            ["end_date", "limit", "start_date"],
+        )
+        self.assertEqual(cards["sql_safety"]["limit_value"], 100)
+        self.assertTrue(cards["sql_safety"]["sql_fingerprint"].startswith("sha256:"))
+        self.assertEqual(
+            cards["sql_safety"]["derived_from"],
+            ["EvidenceChain.query_plan", "EvidenceChain.sql_safety"],
+        )
+        self.assertEqual(cards["query_result"]["row_count"], summary["row_count"])
+        self.assertEqual(cards["query_result"]["columns"], ["order_date", "value"])
+        self.assertEqual(cards["query_result"]["preview_row_count"], 1)
+        self.assertEqual(cards["query_result"]["derived_from"], ["EvidenceChain.query_result"])
+        rendered_cards = json.dumps(report["evidence_cards"], sort_keys=True)
+        self.assertNotIn("select order_date", rendered_cards.lower())
+        self.assertNotIn("2026-05-25", rendered_cards)
+        self.assertNotIn("2026-06-01", rendered_cards)
+
         dashboard = artifact["dashboard"]
         widget_types = {widget["type"] for widget in dashboard["widgets"]}
         self.assertIn("kpi", widget_types)
@@ -76,6 +128,114 @@ class RunServiceTest(unittest.TestCase):
         self.assertTrue(business_action["approval_id"].startswith("approval-"))
         self.assertEqual(business_action["evidence_chain_id"], summary["evidence_chain_id"])
         self.assertEqual(business_action["trace_id"], summary["trace_id"])
+
+    def test_report_evidence_cards_are_derived_from_runtime_contracts(self) -> None:
+        intent = BusinessIntent(
+            intent_id="intent-orders",
+            question="orders by channel",
+            metric_name="orders",
+        )
+        metric = MetricContract(
+            metric_name="orders",
+            display_name="Orders",
+            definition="Count of completed orders",
+            owner="RevOps",
+            unit="orders",
+            allowed_schemas=("ops",),
+            version="v9",
+            dimensions=("channel",),
+            data_classification=DataClassification.CONFIDENTIAL,
+        )
+        query_plan = QueryPlan(
+            metric_name="orders",
+            sql=(
+                "SELECT channel, COUNT(*) AS orders FROM ops.daily_orders "
+                "WHERE day >= :start_date AND secret = :secret_token LIMIT :limit"
+            ),
+            parameters={
+                "start_date": "2026-06-01",
+                "secret_token": "do-not-leak",
+                "limit": 7,
+            },
+        )
+        evidence = EvidenceChain(
+            evidence_chain_id="evidence-orders",
+            intent=intent,
+            metric_contract=metric,
+            query_plan=query_plan,
+            sql_safety=SQLSafetyResult(
+                allowed=True,
+                reasons=("ok",),
+                checked_schemas=("ops",),
+                checked_tables=("ops.daily_orders",),
+                bound_parameters=("limit", "secret_token", "start_date"),
+                limit_value=7,
+            ),
+            query_result=QueryResult(rows=({"channel": "email", "orders": 5},), row_count=1),
+            conclusion="Orders are 5.",
+            confidence=0.74,
+            limitations=("sample data",),
+            trace_id="trace-orders",
+        )
+        proposal = ActionProposal(
+            proposal_id="proposal-orders",
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object="orders",
+            recommended_action="review orders",
+            reason="needs review",
+            risk_level=RiskLevel.R2,
+            expected_impact="better visibility",
+            approval_required=False,
+            approver_role=None,
+        )
+        result = SimpleNamespace(
+            evidence_chain=evidence,
+            action_proposal=proposal,
+            action_result={},
+        )
+
+        artifact = _build_user_result_artifact(result)
+        cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
+
+        self.assertEqual(cards["metric_contract"]["metric_name"], "orders")
+        self.assertEqual(cards["metric_contract"]["display_name"], "Orders")
+        self.assertEqual(cards["metric_contract"]["owner"], "RevOps")
+        self.assertEqual(cards["metric_contract"]["data_classification"], "confidential")
+        self.assertEqual(cards["sql_safety"]["query_metric_name"], "orders")
+        self.assertEqual(cards["sql_safety"]["checked_tables"], ["ops.daily_orders"])
+        self.assertEqual(
+            cards["sql_safety"]["bound_parameter_names"],
+            ["limit", "secret_token", "start_date"],
+        )
+        self.assertEqual(cards["sql_safety"]["limit_value"], 7)
+        self.assertEqual(cards["query_result"]["columns"], ["channel", "orders"])
+        self.assertEqual(cards["query_result"]["preview_row_count"], 1)
+
+        second_evidence = replace(
+            evidence,
+            query_plan=replace(
+                evidence.query_plan,
+                sql="SELECT channel, COUNT(*) AS orders FROM ops.other_orders LIMIT :limit",
+            ),
+        )
+        second_artifact = _build_user_result_artifact(
+            SimpleNamespace(
+                evidence_chain=second_evidence,
+                action_proposal=proposal,
+                action_result={},
+            )
+        )
+        second_cards = {
+            card["card_id"]: card for card in second_artifact["report"]["evidence_cards"]
+        }
+        self.assertNotEqual(
+            cards["sql_safety"]["sql_fingerprint"],
+            second_cards["sql_safety"]["sql_fingerprint"],
+        )
+
+        rendered_cards = json.dumps(artifact["report"]["evidence_cards"], sort_keys=True)
+        self.assertNotIn(query_plan.sql, rendered_cards)
+        self.assertNotIn("do-not-leak", rendered_cards)
 
     def test_dashboard_chart_fields_are_derived_from_rows_and_metric_contract(self) -> None:
         runtime = ContentCommerceRuntimeFactory(
@@ -145,6 +305,7 @@ class RunServiceTest(unittest.TestCase):
 
         self.assertEqual(summary["status"], "blocked")
         self.assertNotIn("trace_id", summary)
+        self.assertNotIn("user_result", summary)
         self.assertEqual(summary["block"]["code"], "unknown_metric")
         self.assertEqual(summary["block"]["stage"], "metric_resolution")
 
