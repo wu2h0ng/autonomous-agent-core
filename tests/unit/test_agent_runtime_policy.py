@@ -144,6 +144,80 @@ class AgentRuntimePolicyTest(unittest.TestCase):
         self.assertEqual(result.status, "denied")
         self.assertEqual(result.error_code, "DENY_REQUIRES_APPROVAL")
 
+    def test_r4_tool_is_denied_without_approval_even_without_tool_opt_in(self) -> None:
+        called: list[str] = []
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="action.r4",
+                description="High-risk action.",
+                required_keys=("value",),
+                risk_level="R4",
+                required_permissions=("tool:write",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(call_id="call-r4", tool_name="action.r4", args={"value": "x"}),
+            _context(policy_scope=frozenset({"tool:write"})),
+        )
+
+        self.assertEqual(result.status, "denied")
+        self.assertEqual(result.error_code, "DENY_REQUIRES_APPROVAL")
+        self.assertEqual(called, [])
+
+    def test_side_effecting_tool_is_denied_without_approval_even_at_lower_risk(self) -> None:
+        called: list[str] = []
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="action.write",
+                description="Side-effecting action.",
+                required_keys=("value",),
+                risk_level="R2",
+                side_effect_class="external_write",
+                required_permissions=("tool:write",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(
+                call_id="call-side-effect", tool_name="action.write", args={"value": "x"}
+            ),
+            _context(policy_scope=frozenset({"tool:write"})),
+        )
+
+        self.assertEqual(result.status, "denied")
+        self.assertEqual(result.error_code, "DENY_REQUIRES_APPROVAL")
+        self.assertEqual(called, [])
+
+    def test_r5_side_effecting_tool_can_run_with_approval_id(self) -> None:
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="action.r5",
+                description="Approved high-risk action.",
+                required_keys=("value",),
+                risk_level="R5",
+                side_effect_class="external_write",
+                required_permissions=("tool:write",),
+            ),
+            lambda *, value, context: {"value": value, "approval_id": context.approval_id},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(call_id="call-r5", tool_name="action.r5", args={"value": "x"}),
+            _context(policy_scope=frozenset({"tool:write"}), approval_id="approval-1"),
+        )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.output, {"value": "x", "approval_id": "approval-1"})
+
 
 if __name__ == "__main__":
     unittest.main()

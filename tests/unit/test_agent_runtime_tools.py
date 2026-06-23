@@ -15,6 +15,7 @@ from agent_os_core.agent_runtime import (  # noqa: E402
     AgentRunContext,
     AgentRuntime,
     AgentToolCall,
+    AgentToolResult,
     RuntimePolicyGate,
     ToolRegistry,
     ToolSpec,
@@ -88,6 +89,27 @@ class AgentRuntimeToolsTest(unittest.TestCase):
         self.assertEqual(result.output, {"value": "ok", "trace": "trace-1"})
         self.assertEqual(result.call_id, "call-ok")
         self.assertEqual(result.tool_name, "safe.echo")
+
+    def test_compat_run_tool_uses_policy_gate_instead_of_direct_call(self) -> None:
+        called: list[str] = []
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="admin.write",
+                description="Admin write.",
+                required_keys=("value",),
+                required_permissions=("tool:admin",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.run_tool("admin.write", _context(), value="x")
+
+        self.assertIsInstance(result, AgentToolResult)
+        self.assertEqual(result.status, "denied")
+        self.assertEqual(result.error_code, "DENY_MISSING_PERMISSION")
+        self.assertEqual(called, [])
 
 
 if __name__ == "__main__":

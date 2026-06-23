@@ -71,12 +71,30 @@ class AgentRuntimeTraceTest(unittest.TestCase):
         self.assertIn("agent_runtime.tool_failed", steps)
         self.assertIn("agent_runtime.invocation_finished", steps)
 
-    def test_trace_payload_redacts_sensitive_keys(self) -> None:
+    def test_trace_writer_redacts_sensitive_keys_in_explicit_events(self) -> None:
         trace_writer = AgentTraceWriter(sensitive_keys=frozenset({"api_key", "password"}))
+        trace_writer.write(
+            "custom",
+            {
+                "api_key": "sk",
+                "nested": {"password": "p", "safe": "ok"},
+            },
+        )
+
+        self.assertNotIn("sk", repr(trace_writer.events))
+        self.assertNotIn("'p'", repr(trace_writer.events))
+        self.assertIn("[REDACTED]", repr(trace_writer.events))
+
+    def test_runtime_trace_does_not_record_raw_args_or_outputs_by_default(self) -> None:
+        trace_writer = AgentTraceWriter()
         registry = ToolRegistry()
         registry.register_tool(
-            ToolSpec(name="safe.echo", description="Echo.", required_keys=("api_key",)),
-            lambda *, api_key, context: {"api_key": api_key, "nested": {"password": "p"}},
+            ToolSpec(name="safe.echo", description="Echo.", required_keys=("secret_token",)),
+            lambda *, secret_token, business_payload, context: {
+                "result": "ok",
+                "secret_token": "sk-output",
+                "business_payload": business_payload,
+            },
         )
         runtime = AgentRuntime(
             tools=registry,
@@ -85,16 +103,26 @@ class AgentRuntimeTraceTest(unittest.TestCase):
         )
 
         result = runtime.invoke_tool(
-            AgentToolCall(call_id="call-secret", tool_name="safe.echo", args={"api_key": "sk"}),
+            AgentToolCall(
+                call_id="call-secret",
+                tool_name="safe.echo",
+                args={
+                    "secret_token": "sk-input",
+                    "business_payload": {"customer": "private-customer"},
+                },
+            ),
             _context(),
         )
 
         self.assertEqual(result.status, "ok")
         self.assertTrue(trace_writer.events)
+        trace_blob = repr(trace_writer.events)
+        self.assertNotIn("sk-input", trace_blob)
+        self.assertNotIn("sk-output", trace_blob)
+        self.assertNotIn("private-customer", trace_blob)
         for event in trace_writer.events:
-            self.assertNotIn("sk", repr(event))
-            self.assertNotIn("'p'", repr(event))
-        self.assertIn("[REDACTED]", repr(trace_writer.events))
+            self.assertNotIn("args", event["payload"])
+            self.assertNotIn("output", event["payload"])
 
 
 if __name__ == "__main__":

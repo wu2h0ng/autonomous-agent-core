@@ -5,7 +5,8 @@
 - Reviewed commit: `58f3a5f`
 - Base: enterprise `main` `ad87efa`
 - Scope: merge-readiness review for ADR-0003 before merging to `main`
-- Approval status: **NOT APPROVED FOR MERGE**
+- Approval status: **NOT APPROVED FOR MERGE at reviewed commit; H1-H3 remediated later and pending second review**
+- Remediation record: `ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`
 
 ## Findings
 

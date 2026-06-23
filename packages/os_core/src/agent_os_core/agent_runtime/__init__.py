@@ -6,6 +6,24 @@ from typing import Any
 
 from ..corrigibility import ShellView
 
+_DEFAULT_SENSITIVE_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "authorization",
+        "client_secret",
+        "cookie",
+        "password",
+        "private_key",
+        "refresh_token",
+        "secret",
+        "secret_token",
+        "token",
+    }
+)
+_APPROVAL_REQUIRED_RISK_LEVELS = frozenset({"R4", "R5"})
+_NO_APPROVAL_SIDE_EFFECT_CLASSES = frozenset({"", "none", "read", "read_only", "readonly"})
+
 __all__ = [
     "AgentRunContext",
     "AgentRuntime",
@@ -143,7 +161,7 @@ class StructuredOutputValidator:
 @dataclass
 class AgentTraceWriter:
     events: list[dict[str, Any]] = field(default_factory=list)
-    sensitive_keys: frozenset[str] = field(default_factory=frozenset)
+    sensitive_keys: frozenset[str] = field(default_factory=lambda: _DEFAULT_SENSITIVE_KEYS)
 
     def write(self, step: str, payload: dict[str, Any]) -> None:
         self.events.append({"step": step, "payload": self._redact(payload)})
@@ -229,7 +247,12 @@ class RuntimePolicyGate:
                 reason=f"missing permissions: {', '.join(sorted(missing_permissions))}",
             )
 
-        if tool_spec.requires_approval and not context.approval_id:
+        requires_runtime_approval = (
+            tool_spec.requires_approval
+            or tool_spec.risk_level in _APPROVAL_REQUIRED_RISK_LEVELS
+            or tool_spec.side_effect_class.lower() not in _NO_APPROVAL_SIDE_EFFECT_CLASSES
+        )
+        if requires_runtime_approval and not context.approval_id:
             return PolicyDecision(
                 allowed=False,
                 code="DENY_REQUIRES_APPROVAL",
@@ -257,9 +280,16 @@ class AgentRuntime:
         self.checkpoint_store = checkpoint_store
         self.validator = validator or StructuredOutputValidator()
 
-    def run_tool(self, name: str, context: AgentRunContext, **kwargs: Any) -> Any:
-        """Backward-compatible direct call. New governed code should use invoke_tool."""
-        return self.tools.call(name, context=context, **kwargs)
+    def run_tool(self, name: str, context: AgentRunContext, **kwargs: Any) -> AgentToolResult:
+        """Compatibility wrapper over the governed invocation path."""
+        return self.invoke_tool(
+            AgentToolCall(
+                call_id=f"compat:{name}:{context.run_id or context.trace_id or 'unknown'}",
+                tool_name=name,
+                args=kwargs,
+            ),
+            context,
+        )
 
     def invoke_tool(self, call: AgentToolCall, context: AgentRunContext) -> AgentToolResult:
         self.trace_writer.write(
@@ -269,7 +299,6 @@ class AgentRuntime:
                 "tool_name": call.tool_name,
                 "run_id": context.run_id,
                 "trace_id": context.trace_id,
-                "args": dict(call.args),
             },
         )
 
@@ -280,6 +309,7 @@ class AgentRuntime:
                 "call_id": call.call_id,
                 "tool_name": call.tool_name,
                 "trace_id": context.trace_id,
+                "run_id": context.run_id,
                 "status": result.status,
                 "error_code": result.error_code,
             },
@@ -305,7 +335,6 @@ class AgentRuntime:
                     "call_id": call.call_id,
                     "tool_name": call.tool_name,
                     "error_code": result.error_code,
-                    "unreplayable_inputs": result.metadata["unreplayable_inputs"],
                 },
             )
             return result
@@ -347,7 +376,6 @@ class AgentRuntime:
                     "call_id": call.call_id,
                     "tool_name": call.tool_name,
                     "error_code": policy.code,
-                    "reason": policy.reason,
                 },
             )
             return result
@@ -374,14 +402,13 @@ class AgentRuntime:
                     "call_id": call.call_id,
                     "tool_name": call.tool_name,
                     "error_code": result.error_code,
-                    "message": result.error_message,
                 },
             )
             return result
 
         self.trace_writer.write(
             "agent_runtime.tool_started",
-            {"call_id": call.call_id, "tool_name": call.tool_name, "args": dict(call.args)},
+            {"call_id": call.call_id, "tool_name": call.tool_name},
         )
         try:
             output = self.tools.call(call.tool_name, context=context, **dict(call.args))
@@ -400,7 +427,6 @@ class AgentRuntime:
                     "call_id": call.call_id,
                     "tool_name": call.tool_name,
                     "error_code": result.error_code,
-                    "message": result.error_message,
                 },
             )
             return result
@@ -414,11 +440,7 @@ class AgentRuntime:
         )
         self.trace_writer.write(
             "agent_runtime.tool_succeeded",
-            {
-                "call_id": call.call_id,
-                "tool_name": call.tool_name,
-                "output": output,
-            },
+            {"call_id": call.call_id, "tool_name": call.tool_name},
         )
         return result
 
