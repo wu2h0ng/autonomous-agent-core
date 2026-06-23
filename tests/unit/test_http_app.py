@@ -269,6 +269,38 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("order_date", rendered)
         self.assertNotIn("sha256:", rendered)
 
+    def test_report_read_respects_internal_access_and_external_ceiling(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": RUN_BODY["question"],
+                "parameters": RUN_BODY["parameters"],
+                "audience": "internal",
+            },
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        internal_report = client.get(
+            f"/runs/{trace_id}/report",
+            headers={"X-API-Key": API_KEY},
+        )
+        external_forced_report = client.get(
+            f"/runs/{trace_id}/report?audience=internal",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(internal_report.status_code, 200, internal_report.text)
+        self.assertEqual(external_forced_report.status_code, 200, external_forced_report.text)
+        self.assertEqual(internal_report.json()["audience"], "internal")
+        self.assertEqual(internal_report.json()["user_result"]["audience"], "internal")
+        self.assertEqual(external_forced_report.json()["audience"], "external")
+        self.assertEqual(external_forced_report.json()["user_result"]["audience"], "external")
+        self.assertIn("sha256:", internal_report.text)
+        self.assertNotIn("sha256:", external_forced_report.text)
+
     def test_report_read_unknown_snapshot_is_404_and_guarded(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
 
