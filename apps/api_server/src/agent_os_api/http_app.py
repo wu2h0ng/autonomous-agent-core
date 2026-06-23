@@ -30,9 +30,11 @@ from pydantic import BaseModel, Field
 from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 
 from .outcome_service import (
+    InMemoryReportSnapshotStore,
     approve_and_execute_service,
     attest_adoption_service,
     record_outcome_service,
+    report_snapshot_service,
     run_service,
     search_service,
     trace_service,
@@ -51,6 +53,7 @@ API_SCOPE_OUTCOME_WRITE = "outcomes:write"
 API_SCOPE_ADOPTION_WRITE = "adoptions:write"
 API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
 API_SCOPE_TRACE_READ = "traces:read"
+API_SCOPE_REPORT_READ = "reports:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
 
 
@@ -74,13 +77,14 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
             API_SCOPE_ADOPTION_WRITE,
             API_SCOPE_KNOWLEDGE_SEARCH,
             API_SCOPE_TRACE_READ,
+            API_SCOPE_REPORT_READ,
         }
     ),
     audience_ceiling="internal",
 )
 API_PRINCIPAL_EXTERNAL_REPORT = ApiPrincipal(
     kind="external_report",
-    scopes=frozenset({API_SCOPE_RUN_EXTERNAL}),
+    scopes=frozenset({API_SCOPE_RUN_EXTERNAL, API_SCOPE_REPORT_READ}),
     audience_ceiling="external",
 )
 API_PRINCIPAL_OPERATOR = ApiPrincipal(
@@ -336,6 +340,12 @@ class RunResponse(BaseModel):
     user_result: UserResultArtifact
 
 
+class RunReportResponse(BaseModel):
+    trace_id: str
+    audience: Literal["internal", "external"]
+    user_result: UserResultArtifact
+
+
 class OutcomeRequest(BaseModel):
     trace_id: str = Field(..., min_length=1)
     outcome: str = Field(..., min_length=1)
@@ -510,6 +520,7 @@ def create_app(
     external_api_key: str | None = None,
     operator_api_key: str | None = None,
     adoption_ingest: Any | None = None,
+    report_store: Any | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to a single shared runtime.
 
@@ -563,6 +574,9 @@ def create_app(
     app.state.external_api_key = configured_external_key
     app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
+    app.state.report_store = (
+        report_store if report_store is not None else InMemoryReportSnapshotStore()
+    )
 
     def authenticate_api_key(
         x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
@@ -632,6 +646,7 @@ def create_app(
             question=body.question,
             parameters=body.parameters,
             audience=audience,
+            report_store=app.state.report_store,
         )
         if result.get("status") == "blocked":
             block = (
@@ -645,6 +660,22 @@ def create_app(
         if principal.audience_ceiling == "external":
             return _external_run_response_projection(result)
         return result
+
+    @app.get("/runs/{trace_id}/report", response_model=RunReportResponse)
+    def get_run_report(
+        trace_id: str,
+        audience: Literal["internal", "external"] = Query(default="internal"),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_REPORT_READ)),
+    ) -> dict[str, Any]:
+        projected_audience = "external" if principal.audience_ceiling == "external" else audience
+        payload = report_snapshot_service(
+            app.state.report_store,
+            trace_id=trace_id,
+            audience=projected_audience,
+        )
+        if payload is None:
+            raise HTTPException(status_code=404, detail=f"No report snapshot for {trace_id!r}.")
+        return payload
 
     @app.post("/outcomes", response_model=OutcomeResponse)
     def post_outcome(
