@@ -1,3 +1,11 @@
 # Decisions
 
-Project-local ADRs may be copied or linked from the package-level `docs/decisions/` once this directory becomes a standalone repository.
+Implementation-local ADRs for the Enterprise OS deployment layer.
+
+Current active ADRs:
+
+- `ADR-0001-p5-substrate-harvest.md`
+- `ADR-0002-governed-action-outcome-loop-v0.md`
+- `ADR-0003-agent-runtime-v0-trusted-substrate.md`
+
+Read `docs/CURRENT_STATE.yaml` first for live status and verification state.

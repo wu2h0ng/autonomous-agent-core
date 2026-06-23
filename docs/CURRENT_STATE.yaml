@@ -1,9 +1,9 @@
-updated: "2026-06-23"
+updated: "2026-06-24"
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
-branch: "main"
+branch: "codex/agent-runtime-v0-trusted-substrate"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact, operator-only approval execution, and durable approval-context resume implemented on local main and CI-green; pending push/release authorization"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact, operator-only approval execution, and durable approval-context resume implemented on local main and CI-green; ADR-0003 Agent Runtime v0 trusted substrate implemented on isolated feature branch and CI-green; pending review/merge/release authorization"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -24,9 +24,10 @@ current_stage:
     - "User-facing data-agent result artifact complete: POST /runs and run_service now return an evidence-bound analysis/report/dashboard/decision/business_action bundle for direct client rendering"
     - "Operator-only approval execution hardening complete: POST /approvals/{approval_id}/execute requires X-Operator-Key, rejects run API keys, binds execution to the original approval context, keeps R4/R5 proposal-only in MVP, supports retry after connector dry-run failure, and exposes OpenAPI 404/409 error contracts"
     - "Durable approval-context resume complete: postgres store_backend persists approval-bound operation/evidence/action context in approval_operation_contexts, supports cross-runtime approval execution by approval_id without client replay, and uses claim/release to block double-consume while preserving retry after connector dry-run failure"
+    - "ADR-0003 Agent Runtime v0 trusted substrate implemented on branch codex/agent-runtime-v0-trusted-substrate: typed run/tool/result/policy contracts, pre-execution RuntimePolicyGate, trace-visible failure paths with redaction, pause-shell denial, minimal checkpoint/replay boundary, TrustedLoopRuntime.evaluate adapter, and external agent-framework import-boundary tests"
   immediate_next:
-    id: "release-gate-and-next-runtime-slice"
-    description: "Release authorization remains pending. Continue product runtime increments toward richer user-facing analysis/report/dashboard/action loops and stronger production connector durability; do not claim external release, connector-side exactly-once, or automatic R4/R5 execution."
+    id: "agent-runtime-v0-trusted-substrate-gate"
+    description: "Review ADR-0003 implementation diff for merge/release authorization. External agent frameworks remain reference-only; factory/API exposure, durable checkpointing, concurrency, workflow replacement, and autonomous-core adoption require later ADRs/gates."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -36,15 +37,15 @@ current_stage:
 
 last_verified_tests:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "374 unit/integration tests OK, 4 skipped; ruff clean; OpenAPI contract drift check included in make ci. Starlette TestClient/httpx deprecation warning remains non-blocking."
-  source: "local verification after durable approval-context resume and atomic claim/release on top of operator-only approval execution hardening"
-  verified_at: "2026-06-23"
+  result: "389 tests OK, 4 skipped in primary unittest discover; ruff clean; format clean; OpenAPI contract drift check passed. Starlette TestClient/httpx deprecation warning remains non-blocking."
+  source: "local verification after ADR-0003 Agent Runtime v0 trusted substrate implementation"
+  verified_at: "2026-06-24"
 
 last_verified_eval:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
   result: "12 eval tests OK, including 10 governed-action D6 eval tests"
-  source: "local verification after adding bootstrap-dev / ci-local-full parity targets on top of ADR-0002 upper-half implementation and Makefile PYTHONPATH parity"
-  verified_at: "2026-06-23"
+  source: "local verification after ADR-0003 Agent Runtime v0 trusted substrate implementation"
+  verified_at: "2026-06-24"
 
 authoritative_records:
   primary_read_order:
@@ -67,6 +68,9 @@ authoritative_records:
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md"
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.goal-card.md"
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.SPEC.md"
+    - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md"
+    - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.goal-card.md"
+    - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SPEC.md"
   archived_baseline:
     - "docs/project_baseline/"
 
@@ -84,6 +88,11 @@ scope:
 
 open_items:
   active_decisions_remaining_work:
+    - id: "ADR-0003-agent-runtime-v0-trusted-substrate"
+      status: "Accepted and implemented on branch codex/agent-runtime-v0-trusted-substrate; pending review/merge/release authorization"
+      gate: "Factory/API exposure, durable checkpointing, concurrency/async graph behavior, workflow replacement, and autonomous-core adoption require later ADRs/gates"
+      scope: "Self-developed Agent Runtime v0 trusted substrate: run context, typed tool registry/calls/results, runtime policy gate, trace-visible failure paths, pause pre-check, minimal checkpoint/replay boundary, later Trusted Loop adapter, and cross-layer research mapping to autonomous-core/Enterprise OS/workflow"
+      freshness_note: "Implemented TDD-first in packages/os_core/src/agent_os_core/agent_runtime/__init__.py with tests under tests/unit/test_agent_runtime_*.py and tests/integration/test_trusted_loop_agent_runtime_adapter.py. Source review snapshots: LangGraph 711b31550286585b3793857b2a99c8dafd98b785; CrewAI 2eb4e3a236bada5432290654b8d442345eafb19e; LangChain 57c83d44bc8ae89a189ad521b9756cfac996039c. Frontier research intake added with primary-source papers/benchmarks including ReAct, Reflexion, Voyager, Generative Agents, Toolformer, Tree of Thoughts, AIOS, MemGPT, AI Agents That Matter, AgentBench, WebArena, VisualWebArena, OSWorld, TheAgentCompany, DGM, open-endedness/safety, corrigibility, active inference, and empowerment. Engineering review added explicit gates for runtime/policy boundary collapse, deterministic replay gaps, state consistency races, self-modification pressure, rollback illusion, observer confirmation bias, approval capture, and resource exhaustion. All external systems are reference-only and not product dependencies."
     - id: "ADR-0002-governed-action-outcome-loop-v0"
       status: "Accepted; lower-half implemented in commit e802377; upper-half, approval-execution hardening, and durable approval-context resume implemented locally on main"
       gate: "R3 runtime work remains pending push/release authorization; no external release performed by this run"
