@@ -191,6 +191,37 @@ class FactoryPostgresStoreTest(unittest.TestCase):
         self.assertEqual(operation_trace.events[-1]["status"], "idempotent_replay")
         records = runtime2.connector_registry.get("action_record").store.records()
         self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["replay_count"], 1)
+        self.assertEqual(records[0]["last_replay_status"], "idempotent_replay")
+
+    def test_action_record_sql_store_persists_conflict_audit_without_raw_payload(self) -> None:
+        from agent_os_persistence import SqlActionRecordStore, create_all
+
+        engine = self._engine()
+        create_all(engine)
+        store = SqlActionRecordStore(engine)
+        store.add(
+            operation_id="operation-1",
+            action_type="execute",
+            parameters={"amount": 100},
+            idempotency_key="trace-1:proposal-1",
+        )
+
+        with self.assertRaises(ValueError):
+            store.add(
+                operation_id="operation-1",
+                action_type="execute",
+                parameters={"amount": 200, "secret": "raw-conflict-value"},
+                idempotency_key="trace-1:proposal-1",
+            )
+
+        records = SqlActionRecordStore(engine).records()
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["conflict_count"], 1)
+        self.assertEqual(records[0]["last_conflict"]["operation_id"], "operation-1")
+        self.assertIn("parameters_fingerprint", records[0]["last_conflict"])
+        self.assertNotIn("parameters", records[0]["last_conflict"])
+        self.assertNotIn("raw-conflict-value", repr(records[0]))
 
     def test_action_record_rollback_snapshot_survives_restart_without_deleting_later_records(
         self,

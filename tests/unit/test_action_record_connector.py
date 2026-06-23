@@ -104,6 +104,18 @@ class ActionRecordConnectorTest(unittest.TestCase):
         self.assertEqual(second["status"], "idempotent_replay")
         self.assertEqual(len(store.records()), 1)
 
+    def test_idempotent_replay_updates_retry_audit_without_double_write(self) -> None:
+        store = ActionRecordStore()
+        connector = ActionRecordConnector(store=store)
+        operation = _operation(idempotency_key="trace-1:proposal-1")
+
+        connector.execute(operation, {"amount": 100})
+        connector.execute(operation, {"amount": 100})
+
+        self.assertEqual(len(store.records()), 1)
+        self.assertEqual(store.records()[0]["replay_count"], 1)
+        self.assertEqual(store.records()[0]["last_replay_status"], "idempotent_replay")
+
     def test_reusing_idempotency_key_with_different_payload_fails(self) -> None:
         connector = ActionRecordConnector(store=ActionRecordStore())
         operation = _operation(idempotency_key="trace-1:proposal-1")
@@ -111,6 +123,23 @@ class ActionRecordConnectorTest(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             connector.execute(operation, {"amount": 200})
+
+    def test_idempotency_conflict_is_audited_without_raw_conflicting_payload(self) -> None:
+        store = ActionRecordStore()
+        connector = ActionRecordConnector(store=store)
+        operation = _operation(idempotency_key="trace-1:proposal-1")
+        connector.execute(operation, {"amount": 100})
+
+        with self.assertRaises(ValueError):
+            connector.execute(operation, {"amount": 200, "secret": "raw-conflict-value"})
+
+        record = store.records()[0]
+        self.assertEqual(record["conflict_count"], 1)
+        self.assertEqual(record["last_conflict"]["operation_id"], "operation-1")
+        self.assertEqual(record["last_conflict"]["action_type"], "execute")
+        self.assertIn("parameters_fingerprint", record["last_conflict"])
+        self.assertNotIn("parameters", record["last_conflict"])
+        self.assertNotIn("raw-conflict-value", repr(record))
 
     def test_take_snapshot_returns_state_snapshot(self) -> None:
         store = ActionRecordStore()

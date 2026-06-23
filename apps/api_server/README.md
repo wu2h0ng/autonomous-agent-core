@@ -92,3 +92,9 @@ Minimal principal/scope contract:
 | `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read` | Can request either internal or external run projection; cannot execute approvals. |
 | `external_report` | `X-API-Key == AGENT_OS_EXTERNAL_API_KEY` | `runs:external` | Forced to external projection; cannot use management surfaces. |
 | `operator` | `X-Operator-Key == AGENT_OS_OPERATOR_API_KEY` | `approvals:execute` | Header channel is separate from `X-API-Key`; approval execution remains operator-only. |
+
+Approval execution on the postgres backend resumes the approval-bound context and writes through
+the `action_record` connector ledger. That ledger audits idempotent replays and conflicts
+connector-locally, including conflict fingerprints without raw conflicting payloads. This is not
+external-system exactly-once and does not make approval execution crash-proof after a process dies
+while a context is already claimed as `executing`.

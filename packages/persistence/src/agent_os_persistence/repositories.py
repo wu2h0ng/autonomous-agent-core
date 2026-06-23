@@ -11,6 +11,8 @@ production wires a PostgreSQL engine.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -30,6 +32,19 @@ from agent_os_core import (
 from sqlalchemy import Connection, Engine, select
 
 from . import mappers, schema
+
+
+def _fingerprint(payload: dict[str, object]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _conflict_summary(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "operation_id": payload["operation_id"],
+        "action_type": payload["action_type"],
+        "parameters_fingerprint": _fingerprint(dict(payload["parameters"])),
+    }
 
 
 class _SqlStoreBase:
@@ -220,41 +235,69 @@ class SqlActionRecordStore(_SqlStoreBase):
             "action_type": action_type,
             "parameters": copy.deepcopy(parameters),
         }
+        conflict_error: ValueError | None = None
 
         with self._write() as conn:
             if idempotency_key is not None:
                 existing = conn.execute(
-                    select(table.c.payload).where(table.c.idempotency_key == idempotency_key)
+                    select(table.c.id, table.c.payload).where(
+                        table.c.idempotency_key == idempotency_key
+                    )
                 ).fetchone()
                 if existing is not None:
-                    original_record = copy.deepcopy(dict(existing[0]))
+                    row_id = existing[0]
+                    original_record = copy.deepcopy(dict(existing[1]))
                     original_payload = {
                         "operation_id": original_record["operation_id"],
                         "action_type": original_record["action_type"],
                         "parameters": copy.deepcopy(original_record["parameters"]),
                     }
                     if original_payload != request_payload:
-                        raise ValueError(
+                        original_record["conflict_count"] = (
+                            int(original_record.get("conflict_count", 0)) + 1
+                        )
+                        original_record["last_conflict"] = _conflict_summary(request_payload)
+                        conn.execute(
+                            table.update()
+                            .where(table.c.id == row_id)
+                            .values(payload=copy.deepcopy(original_record))
+                        )
+                        conflict_error = ValueError(
                             "idempotency_key was reused with a different operation/action payload"
                         )
-                    original_record["status"] = "idempotent_replay"
-                    return original_record
+                    else:
+                        original_record["replay_count"] = (
+                            int(original_record.get("replay_count", 0)) + 1
+                        )
+                        original_record["last_replay_status"] = "idempotent_replay"
+                        conn.execute(
+                            table.update()
+                            .where(table.c.id == row_id)
+                            .values(payload=copy.deepcopy(original_record))
+                        )
+                        original_record["status"] = "idempotent_replay"
+                        return original_record
 
-            record: dict[str, object] = {
-                "record_id": f"record-{uuid4().hex[:12]}",
-                **request_payload,
-            }
-            if idempotency_key is not None:
-                record["idempotency_key"] = idempotency_key
-            conn.execute(
-                table.insert().values(
-                    record_id=record["record_id"],
-                    operation_id=operation_id,
-                    action_type=action_type,
-                    idempotency_key=idempotency_key,
-                    payload=copy.deepcopy(record),
+            if conflict_error is None:
+                record: dict[str, object] = {
+                    "record_id": f"record-{uuid4().hex[:12]}",
+                    **request_payload,
+                    "replay_count": 0,
+                    "conflict_count": 0,
+                }
+                if idempotency_key is not None:
+                    record["idempotency_key"] = idempotency_key
+                conn.execute(
+                    table.insert().values(
+                        record_id=record["record_id"],
+                        operation_id=operation_id,
+                        action_type=action_type,
+                        idempotency_key=idempotency_key,
+                        payload=copy.deepcopy(record),
+                    )
                 )
-            )
+        if conflict_error is not None:
+            raise conflict_error
         return copy.deepcopy(record)
 
     def records(self) -> tuple[dict[str, object], ...]:

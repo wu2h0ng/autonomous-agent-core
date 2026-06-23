@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any, Protocol
 from uuid import uuid4
@@ -8,6 +10,19 @@ from uuid import uuid4
 from agent_os_contracts import OperationContract, StateSnapshot
 
 from agent_os_core.action_connectors.base import ActionConnector
+
+
+def _fingerprint(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _conflict_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "operation_id": payload["operation_id"],
+        "action_type": payload["action_type"],
+        "parameters_fingerprint": _fingerprint(payload["parameters"]),
+    }
 
 
 class ActionRecordStoreLike(Protocol):
@@ -42,6 +57,13 @@ class ActionRecordStore:
         self._records: list[dict[str, Any]] = []
         self._idempotency: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
 
+    def _replace_record(self, record: dict[str, Any]) -> dict[str, Any]:
+        for index, existing in enumerate(self._records):
+            if existing["record_id"] == record["record_id"]:
+                self._records[index] = copy.deepcopy(record)
+                return copy.deepcopy(self._records[index])
+        raise KeyError(f"record_id '{record['record_id']}' is not present in the store")
+
     def add(
         self,
         *,
@@ -59,9 +81,19 @@ class ActionRecordStore:
         if idempotency_key is not None and idempotency_key in self._idempotency:
             original_payload, original_record = self._idempotency[idempotency_key]
             if original_payload != payload:
+                original_record["conflict_count"] = (
+                    int(original_record.get("conflict_count", 0)) + 1
+                )
+                original_record["last_conflict"] = _conflict_summary(payload)
+                updated = self._replace_record(original_record)
+                self._idempotency[idempotency_key] = (original_payload, updated)
                 raise ValueError(
                     "idempotency_key was reused with a different operation/action payload"
                 )
+            original_record["replay_count"] = int(original_record.get("replay_count", 0)) + 1
+            original_record["last_replay_status"] = "idempotent_replay"
+            original_record = self._replace_record(original_record)
+            self._idempotency[idempotency_key] = (original_payload, original_record)
             replay = copy.deepcopy(original_record)
             replay["status"] = "idempotent_replay"
             return replay
@@ -71,6 +103,8 @@ class ActionRecordStore:
             "operation_id": operation_id,
             "action_type": action_type,
             "parameters": copy.deepcopy(parameters),
+            "replay_count": 0,
+            "conflict_count": 0,
         }
         if idempotency_key is not None:
             record["idempotency_key"] = idempotency_key
