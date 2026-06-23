@@ -3,7 +3,7 @@ project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half implemented locally on main, pending push/release authorization; local dev/CI parity targets merged locally on main"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half pushed to main; local dev/CI parity targets merged and CI-green; pending release authorization"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -82,7 +82,7 @@ open_items:
   active_decisions_remaining_work:
     - id: "ADR-0002-governed-action-outcome-loop-v0"
       status: "Accepted; lower-half implemented in commit e802377; upper-half implemented locally on main"
-      gate: "R3 runtime work remains pending push/release authorization; no external release performed by this run"
+      gate: "R3 runtime work is pushed to main and remains pending release authorization; no external release performed by this run"
       scope: "One reversible governed action loop with CLI adopt, causal attribution, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
       freshness_note: "Lower-half covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Upper-half covers CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and one rollback demonstration, with review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace."
   blocked_on_decision_or_environment:
