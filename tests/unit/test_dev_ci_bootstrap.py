@@ -15,6 +15,8 @@ class DevCiBootstrapTest(unittest.TestCase):
         self.assertRegex(makefile, r"(?m)^ci-local-full:")
         self.assertIn('".[dev,http,postgres]"', makefile)
         self.assertIn("agent_os_api.openapi_contract --check", makefile)
+        self.assertIn("importlib.util.find_spec", makefile)
+        self.assertNotIn("raise SystemExit", makefile)
 
     def test_project_extras_keep_runtime_core_dependency_free(self) -> None:
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

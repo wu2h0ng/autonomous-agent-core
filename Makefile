@@ -10,7 +10,7 @@ bootstrap-dev:
 	$(PYTHON) -m pip install -e ".[dev,http,postgres]"
 
 check-dev-env:
-	$(PYTHON) -c "import os; missing=[m for m in ('fastapi','httpx','sqlalchemy','psycopg','alembic','ruff') if __import__(m) is None]; dsn=os.environ.get('AGENT_OS_DATABASE_URL'); raise SystemExit('AGENT_OS_DATABASE_URL is required for ci-local-full; use a disposable test database') if not dsn else None"
+	$(PYTHON) -c "import importlib.util, os, sys; missing=[m for m in ('fastapi','httpx','sqlalchemy','psycopg','alembic','ruff') if importlib.util.find_spec(m) is None]; sys.exit('missing dev dependencies: '+', '.join(missing)) if missing else None; sys.exit('AGENT_OS_DATABASE_URL is required for ci-local-full; use a disposable test database') if not os.environ.get('AGENT_OS_DATABASE_URL') else None"
 
 lint:
 	$(PYTHON) -m ruff check .
