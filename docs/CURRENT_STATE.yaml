@@ -1,20 +1,20 @@
-updated: "2026-06-22"  # Codex implemented ADR-0038 G-Eco lower-half mechanism only. Gate-2 freeze co-sign + every R4/halt + r-final verdict remain FOUNDER-RESERVED. No calibration/freeze/r-final has run; engineering verdict (P7.x / ADR-0036·G13 NOT MET, 438 tests) UNCHANGED until G-Eco produces a gated result.
+updated: "2026-06-23"  # Codex tightened ADR-0038 lower-half discipline fixes F1-F6. Gate-2 freeze co-sign + every R4/halt + r-final verdict remain FOUNDER-RESERVED. No calibration/freeze/r-final has run; engineering verdict (P7.x / ADR-0036·G13 NOT MET, 445 tests) UNCHANGED until G-Eco produces a gated result.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
 status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 438
+  count: 445
   result: "OK"
-  source: "Full suite verified by Codex on 2026-06-22 after ADR-0038 G-Eco lower-half mechanism implementation"
+  source: "Full suite verified by Codex on 2026-06-23 after ADR-0038 G-Eco lower-half discipline fixes F1-F6"
 
 current_stage:
   label: "P7.x bounded consequence-prior admission: test one scar-specific B-channel candidate over P0"
   synthesis_artifact: "docs/P6-research-synthesis.md"
   immediate_next: "Record ADR-0036/G13 as NOT MET; do not rerun, retune, or rescue this candidate. Any new consequence-prior attempt requires a new ADR and fresh seeds."
   after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
-  route_c_status: "QUEUED (2026-06-22, founder approved D1): G-Eco is now scheduled as the NEXT core ADR (Route C committed 2026-06-22, docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md). ADR-0038 lower-half mechanism is implemented in this repo (shared substrate, ecological_4cond env, VH/VH_noStake/battery, calibration-only refs, mechanism-check entrypoint, guards). Mechanism implementation THROUGH theta-lock is delegated to Codex single-writer per docs/research/G-Eco-codex-handoff.md (spec v4 Gate-1 co-signed); Claude adjudicates r-final ONLY per the frozen docs/research/G-Eco-rfinal-adjudication-protocol.md. FOUNDER-RESERVED, not delegated by D1: (1) Gate-2 freeze co-sign (region/rates/battery/seeds/criteria/thresholds hash-locked) BEFORE any r-final seed runs; (2) proposer-adjudicator max-hardening activation at real Gate-2 — ELECTED 2026-06-22 by founder, Codex mechanically emits the verdict row and Claude verify-and-narrate, conditional on C1-C7 per docs/research/founder-decision-2026-06-22-geco-gate2-maxhardening-election.md; (3) every R4/halt/inconclusive disposition — no variant/retune/re-seed without a NEW founder ADR + fresh seeds, halt report lands in messages.jsonl; (4) the r-final verdict and any 'autonomous' narrative unlock. A 'scheduled' status and lower-half code do NOT make the verdict delegable: this repo's engineering verdict legitimately remains P7.x / ADR-0036·G13 NOT MET until G-Eco produces a gated result. Codex must HALT at every armed exit and never cross Gate-2 autonomously."
+  route_c_status: "QUEUED (2026-06-22, founder approved D1): G-Eco is now scheduled as the NEXT core ADR (Route C committed 2026-06-22, docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md). ADR-0038 lower-half mechanism is implemented in this repo and F1-F6 discipline fixes landed on 2026-06-23 (real r-final cheat-ref firewall, truth-privileged oracle/WCREF, frozen-source P0/RSTAR/O1/BT adapters, de-complete observation, active lookahead_depth + VH trajectory pressure, non-vacuous C7 test). Mechanism implementation THROUGH theta-lock is delegated to Codex single-writer per docs/research/G-Eco-codex-handoff.md (spec v4 Gate-1 co-signed); Claude adjudicates r-final ONLY per the frozen docs/research/G-Eco-rfinal-adjudication-protocol.md. FOUNDER-RESERVED, not delegated by D1: (1) Gate-2 freeze co-sign (region/rates/battery/seeds/criteria/thresholds hash-locked) BEFORE any r-final seed runs; (2) proposer-adjudicator max-hardening activation at real Gate-2 — ELECTED 2026-06-22 by founder, Codex mechanically emits the verdict row and Claude verify-and-narrate, conditional on C1-C7 per docs/research/founder-decision-2026-06-22-geco-gate2-maxhardening-election.md; (3) every R4/halt/inconclusive disposition — no variant/retune/re-seed without a NEW founder ADR + fresh seeds, halt report lands in messages.jsonl; (4) the r-final verdict and any 'autonomous' narrative unlock. A 'scheduled' status and lower-half code do NOT make the verdict delegable: this repo's engineering verdict legitimately remains P7.x / ADR-0036·G13 NOT MET until G-Eco produces a gated result. Codex must HALT at every armed exit and never cross Gate-2 autonomously."
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -50,7 +50,7 @@ authoritative_adrs:
     - "ADR-0034 r-final completed: PRED-A severity threshold PASS, PRED-B difficulty-band/inverted-U FAIL, PRED-C relevance-aware share PASS; G10 empirical result is preserved, but the trajectory account is weakened to B/R/K with a decisive K residue."
     - "ADR-0035/G12 completed inconclusive: P0 wins C01/C10/C11 but not C00, so the 2x2 does not isolate a distinct ecological-irreversible axis."
     - "ADR-0036/G13 r-final completed NOT MET: scar validity passes and CP reduces irreversible damage, but net R1 advantage misses the +0.10 threshold and R0 stale-prior harm fails."
-    - "ADR-0038 G-Eco lower-half implemented: mechanism substrate/env/arms/refs/guards only; no calibration, no freeze JSON, no Gate-2 crossing, no r-final, no verdict."
+    - "ADR-0038 G-Eco lower-half implemented and F1-F6 discipline fixes landed: mechanism substrate/env/arms/refs/guards only; no calibration, no freeze JSON, no Gate-2 crossing, no r-final, no verdict."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"

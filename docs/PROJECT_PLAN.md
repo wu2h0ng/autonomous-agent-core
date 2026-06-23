@@ -25,7 +25,7 @@ P6 consolidated
   -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
   -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
   -> ADR-0036: bounded consequence-prior G13 r-final complete, NOT MET; not a G12 rescue
-  -> ADR-0038: Route C / G-Eco lower-half mechanism implemented; no calibration/freeze/Gate-2/r-final/verdict has run
+  -> ADR-0038: Route C / G-Eco lower-half mechanism implemented; F1-F6 discipline fixes landed; no calibration/freeze/Gate-2/r-final/verdict has run
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
@@ -40,10 +40,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-438 tests OK
+445 tests OK
 ```
 
-The 438-test result was verified by Codex on 2026-06-22 after implementing the ADR-0038 G-Eco lower-half mechanism. Re-run before code submission if you change code.
+The 445-test result was verified by Codex on 2026-06-23 after implementing the ADR-0038 G-Eco lower-half discipline fixes. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -399,7 +399,7 @@ Interpretation:
 | P6 / ADR-0034 | Completed | Relevance-aware full-Agent theory test: PRED-A/C pass, PRED-B fail; B/R/K account stands with weakened trajectory story and decisive K residue |
 | P7 / ADR-0035 | Completed, inconclusive | G12 mixed pattern: C01/C10/C11 win, C00 does not; distinct ecological-irreversible axis not established |
 | P7.x / ADR-0036 | Completed, NOT MET | CP reduces irreversible damage but fails net R1 advantage and stale-prior guard |
-| Route C / ADR-0038 | Lower-half implemented, no verdict | G-Eco mechanism substrate/env/arms/refs/guards only; calibration/freeze/Gate-2/r-final locked |
+| Route C / ADR-0038 | Lower-half implemented + discipline fixes, no verdict | G-Eco mechanism substrate/env/arms/refs/guards only; calibration/freeze/Gate-2/r-final locked |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |

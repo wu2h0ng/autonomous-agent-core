@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from aac.shell import CorrigibilityShell
@@ -59,6 +60,19 @@ class TestGEcoSharedSubstrate(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_shared_substrate(tuple(arms))
 
+    def test_lookahead_depth_changes_prediction(self) -> None:
+        from aac.g_eco import GEcoSharedSubstrate
+        from envs.ecological_4cond import Ecological4CondEnv
+
+        env = Ecological4CondEnv(rng=random.Random(41))
+        obs = env.observation()
+
+        one_step = GEcoSharedSubstrate(lookahead_depth=1).lookahead(obs, "shield")
+        three_step = GEcoSharedSubstrate(lookahead_depth=3).lookahead(obs, "shield")
+
+        self.assertNotEqual(one_step.next_state, three_step.next_state)
+        self.assertNotEqual(one_step.risk, three_step.risk)
+
 
 class TestGEcoArmsAndRefs(unittest.TestCase):
     def test_battery_has_nine_arms_and_cheats_never_enter_rfinal(self) -> None:
@@ -76,6 +90,146 @@ class TestGEcoArmsAndRefs(unittest.TestCase):
             tuple(ref.name for ref in refs), ("HOMEOSTATIC_ORACLE", "WCREF")
         )
         self.assertTrue(all(ref.calibration_only for ref in refs))
+
+    def test_rfinal_filter_rejects_calibration_refs_by_real_builder(self) -> None:
+        from aac.g_eco import (
+            assert_no_calibration_refs_in_rfinal,
+            build_g_eco_arms,
+            rfinal_arm_names,
+        )
+
+        arms = build_g_eco_arms(include_cheats=True)
+        allowed = assert_no_calibration_refs_in_rfinal(arms, rfinal_arm_names())
+        refs = {arm.name for arm in arms if arm.calibration_only}
+
+        self.assertTrue(refs)
+        self.assertTrue(set(allowed).isdisjoint(refs))
+
+        with self.assertRaises(AssertionError):
+            assert_no_calibration_refs_in_rfinal(
+                arms, (*rfinal_arm_names(), "HOMEOSTATIC_ORACLE")
+            )
+
+    def test_oracle_and_wcref_are_privileged_not_runtime_aliases(self) -> None:
+        from aac.g_eco import build_g_eco_arms
+        from envs.ecological_4cond import Ecological4CondEnv, GEcoState
+
+        env = Ecological4CondEnv(rng=random.Random(13))
+        env.state = GEcoState(
+            energy=58.0,
+            integrity=48.0,
+            need_a=61.0,
+            need_b=39.0,
+            shield=0.0,
+        )
+        arms = {arm.name: arm for arm in build_g_eco_arms(include_cheats=True)}
+        obs = arms["VH"].substrate.observe(env)
+        preds = arms["VH"].substrate.predict_all(obs)
+
+        self.assertNotEqual(
+            arms["HOMEOSTATIC_ORACLE"].score_actions(obs, preds),
+            arms["VH"].score_actions(obs, preds),
+        )
+        self.assertNotEqual(
+            arms["WCREF"].score_actions(obs, preds),
+            arms["MINIMAX"].score_actions(obs, preds),
+        )
+
+    def test_runtime_arms_ignore_truth_state_but_cheats_use_it(self) -> None:
+        from aac.g_eco import build_g_eco_arms
+        from envs.ecological_4cond import Ecological4CondEnv, GEcoState
+
+        env = Ecological4CondEnv(rng=random.Random(17))
+        arms = {arm.name: arm for arm in build_g_eco_arms(include_cheats=True)}
+        obs = arms["VH"].substrate.observe(env)
+        altered_truth = replace(
+            obs,
+            truth_state=GEcoState(
+                energy=12.0,
+                integrity=90.0,
+                need_a=10.0,
+                need_b=85.0,
+                shield=0.0,
+            ),
+        )
+
+        for name in ("VH", "MINIMAX", "P0", "RSTAR", "O1", "BT"):
+            self.assertEqual(
+                arms[name].score_actions(obs),
+                arms[name].score_actions(altered_truth),
+                name,
+            )
+
+        self.assertNotEqual(
+            arms["HOMEOSTATIC_ORACLE"].score_actions(obs),
+            arms["HOMEOSTATIC_ORACLE"].score_actions(altered_truth),
+        )
+        self.assertNotEqual(
+            arms["WCREF"].score_actions(obs),
+            arms["WCREF"].score_actions(altered_truth),
+        )
+
+    def test_wcref_enter_rate_is_not_below_runtime_minimax(self) -> None:
+        from aac.g_eco import GEcoMetrics, build_g_eco_arms
+        from envs.ecological_4cond import Ecological4CondEnv
+
+        def enter_rate(arm_name: str) -> float:
+            entered = 0
+            seeds = tuple(range(1810, 1815))
+            for seed in seeds:
+                env = Ecological4CondEnv(rng=random.Random(20_000 + seed))
+                arms = {arm.name: arm for arm in build_g_eco_arms(include_cheats=True)}
+                arm = arms[arm_name]
+                metrics = GEcoMetrics()
+                for _ in range(30):
+                    obs = arm.substrate.observe(env)
+                    action = arm.select(obs)
+                    if action is None:
+                        break
+                    env.act(action)
+                    metrics.observe(
+                        step=env.t, state=env.state, action=action, alive=env.alive
+                    )
+                    if not env.alive:
+                        break
+                entered += int(bool(metrics.summary()["entered_region"]))
+            return entered / len(seeds)
+
+        self.assertGreaterEqual(enter_rate("WCREF"), enter_rate("MINIMAX"))
+
+    def test_frozen_battery_arms_expose_real_source_metadata(self) -> None:
+        from aac.g_eco import build_g_eco_battery
+        from aac.prior_organ_o1 import ResetScaffoldOrgan
+        from experiments.confidence_gated_g9 import GATE_FROZEN
+        from experiments.ecological_g12 import BTEMP, load_rstar_params
+
+        arms = {arm.name: arm for arm in build_g_eco_battery()}
+
+        self.assertEqual(
+            arms["P0"].source.params["gate_kappa"], GATE_FROZEN["gate_kappa"]
+        )
+        self.assertEqual(
+            arms["P0"].source.params["gate_temp_floor"],
+            GATE_FROZEN["gate_temp_floor"],
+        )
+
+        rstar = load_rstar_params()
+        self.assertEqual(
+            arms["RSTAR"].source.params["base_temperature"], rstar.base_temperature
+        )
+        self.assertEqual(arms["RSTAR"].source.params["inertia"], rstar.inertia)
+        self.assertEqual(
+            arms["RSTAR"].source.params["surprise_gain"], rstar.surprise_gain
+        )
+
+        self.assertEqual(
+            arms["O1"].source.params["spike_k"], ResetScaffoldOrgan().spike_k
+        )
+        self.assertEqual(
+            arms["O1"].source.params["reset_strength"],
+            ResetScaffoldOrgan().reset_strength,
+        )
+        self.assertEqual(arms["BT"].source.params["base_temperature"], BTEMP)
 
     def test_vh_and_no_stake_share_substrate_but_not_value_order(self) -> None:
         from aac.g_eco import build_g_eco_arms
@@ -105,6 +259,23 @@ class TestGEcoArmsAndRefs(unittest.TestCase):
 
 
 class TestGEcoEnvAndMetrics(unittest.TestCase):
+    def test_observation_is_partial_lagged_noisy_and_truth_separated(self) -> None:
+        from envs.ecological_4cond import Ecological4CondEnv
+
+        env = Ecological4CondEnv(rng=random.Random(31))
+        env.act("feed")
+        env.act("repair")
+        obs = env.observation()
+
+        self.assertEqual(obs.truth_state, env.state)
+        self.assertNotEqual(obs.state, env.state)
+        self.assertLess(len(obs.observed_channels), 4)
+        self.assertTrue(
+            set(obs.observed_channels).issubset(
+                {"energy", "integrity", "need_a", "need_b"}
+            )
+        )
+
     def test_deterministic_replay_and_no_external_rollback(self) -> None:
         from envs.ecological_4cond import Ecological4CondEnv
 
@@ -153,9 +324,13 @@ class TestGEcoC6C7AndGate2(unittest.TestCase):
         self.assertIsNone(vh.select(vh.substrate.observe(env), shell=shell.view()))
 
         shell = CorrigibilityShell()
-        shell.op_tighten(0)
+        obs = vh.substrate.observe(env)
+        original_action = vh.select(obs)
+        self.assertIsNotNone(original_action)
+        forbidden_idx = env.actions.index(original_action)
+        shell.op_tighten(forbidden_idx)
         action = vh.select(vh.substrate.observe(env), shell=shell.view())
-        self.assertNotEqual(action, env.actions[0])
+        self.assertNotEqual(action, original_action)
         self.assertTrue(shell.audit.verify())
 
     def test_rfinal_refuses_without_gate2_freeze_bundle(self) -> None:

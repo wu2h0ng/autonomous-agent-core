@@ -51,12 +51,14 @@ class GEcoLimits:
 @dataclass(frozen=True, slots=True)
 class GEcoObservation:
     state: GEcoState
+    truth_state: GEcoState
     rates: GEcoRates
     step: int
     regime_index: int
     actions: tuple[str, ...]
     effects: GEcoActionEffects
     limits: GEcoLimits
+    observed_channels: tuple[str, ...]
 
 
 def transition_state(
@@ -109,11 +111,14 @@ class Ecological4CondEnv:
 
     The four simultaneous conditions are: persistent viability pressure,
     irreversible integrity loss, incompatible A/B needs under one action budget,
-    and drifting regimes. The regime schedule is deterministic for a seed and
-    is not selected by baseline performance.
+    and de-complete observation. Observations expose a partial, lagged, noisy
+    state estimate; the true state is retained only for calibration-only cheat
+    references and tests that prove runtime arms ignore it. The regime schedule
+    is deterministic for a seed and is not selected by baseline performance.
     """
 
     actions = ("feed", "repair", "serve_a", "serve_b", "shield")
+    observable_channels = ("energy", "integrity", "need_a", "need_b")
 
     def __init__(
         self,
@@ -125,11 +130,17 @@ class Ecological4CondEnv:
         effects: GEcoActionEffects | None = None,
         limits: GEcoLimits | None = None,
         rates: tuple[GEcoRates, ...] | None = None,
+        observation_lag: int = 1,
+        observation_noise: float = 0.75,
     ) -> None:
         if period <= 0 or n_regimes <= 0:
             raise ValueError("period>0 and n_regimes>0 required")
+        if observation_lag < 0 or observation_noise < 0.0:
+            raise ValueError("observation_lag>=0 and observation_noise>=0 required")
         self.rng = rng if rng is not None else random.Random()
         self.period = period
+        self.observation_lag = observation_lag
+        self.observation_noise = observation_noise
         self.effects = effects if effects is not None else GEcoActionEffects()
         self.limits = limits if limits is not None else GEcoLimits()
         self._rates = rates if rates is not None else self._make_rates(n_regimes)
@@ -153,6 +164,7 @@ class Ecological4CondEnv:
         self.just_shifted = False
         self.entered_region = False
         self.enter_step: int | None = None
+        self._state_history = [self.state]
 
     def _make_rates(self, n_regimes: int) -> tuple[GEcoRates, ...]:
         base = [
@@ -197,15 +209,71 @@ class Ecological4CondEnv:
             and self.state.need_b < self.limits.need_death
         )
 
+    def _lagged_state(self) -> GEcoState:
+        idx = max(0, len(self._state_history) - 1 - self.observation_lag)
+        return self._state_history[idx]
+
+    def _noise(self, channel_index: int) -> float:
+        if self.observation_noise == 0.0:
+            return 0.0
+        raw = ((self.t + 1) * (channel_index + 3) * (self.regime_index + 5)) % 17
+        centered = (raw - 8) / 8.0
+        return centered * self.observation_noise
+
+    def _bounded_observed_state(
+        self, *, observed_channel_index: int, lagged: GEcoState
+    ) -> GEcoState:
+        values = {
+            "energy": lagged.energy,
+            "integrity": lagged.integrity,
+            "need_a": lagged.need_a,
+            "need_b": lagged.need_b,
+        }
+        current_name = self.observable_channels[observed_channel_index]
+        values[current_name] = getattr(self.state, current_name)
+
+        for idx, name in enumerate(self.observable_channels):
+            values[name] = getattr(self, f"_clip_{name}")(
+                values[name] + self._noise(idx)
+            )
+
+        return GEcoState(
+            energy=values["energy"],
+            integrity=values["integrity"],
+            need_a=values["need_a"],
+            need_b=values["need_b"],
+            shield=lagged.shield,
+        )
+
+    def _clip_energy(self, value: float) -> float:
+        return max(self.limits.energy_death, min(self.limits.energy_capacity, value))
+
+    def _clip_integrity(self, value: float) -> float:
+        return max(
+            self.limits.integrity_death, min(self.limits.integrity_capacity, value)
+        )
+
+    def _clip_need_a(self, value: float) -> float:
+        return max(0.0, min(self.limits.need_death, value))
+
+    def _clip_need_b(self, value: float) -> float:
+        return max(0.0, min(self.limits.need_death, value))
+
     def observation(self) -> GEcoObservation:
+        observed_idx = self.t % len(self.observable_channels)
+        observed_channel = self.observable_channels[observed_idx]
         return GEcoObservation(
-            state=self.state,
+            state=self._bounded_observed_state(
+                observed_channel_index=observed_idx, lagged=self._lagged_state()
+            ),
+            truth_state=self.state,
             rates=self.current_rates,
             step=self.t,
             regime_index=self.regime_index,
             actions=self.actions,
             effects=self.effects,
             limits=self.limits,
+            observed_channels=(observed_channel,),
         )
 
     def situation(self) -> dict:
@@ -234,6 +302,7 @@ class Ecological4CondEnv:
             limits=self.limits,
         )
         self.t += 1
+        self._state_history.append(self.state)
         self.just_shifted = False
         if self.t % self.period == 0:
             self.regime_index = (self.regime_index + 1) % len(self._rates)

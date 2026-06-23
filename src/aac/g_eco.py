@@ -41,6 +41,14 @@ class GEcoPrediction:
     delta_risk: tuple[float, float, float, float]
 
 
+@dataclass(frozen=True, slots=True)
+class GEcoArmSource:
+    adr: str
+    symbol: str
+    params: Mapping[str, float]
+    adapter_note: str = ""
+
+
 def _clip01(value: float) -> float:
     return max(0.0, min(1.0, value))
 
@@ -90,13 +98,15 @@ class GEcoSharedSubstrate:
 
     def lookahead(self, observation: GEcoObservation, action: str) -> GEcoPrediction:
         current = self.H(observation)
-        next_state = transition_state(
-            observation.state,
-            action,
-            rates=observation.rates,
-            effects=observation.effects,
-            limits=observation.limits,
-        )
+        next_state = observation.state
+        for _ in range(self.lookahead_depth):
+            next_state = transition_state(
+                next_state,
+                action,
+                rates=observation.rates,
+                effects=observation.effects,
+                limits=observation.limits,
+            )
         future = _risk_vector(next_state)
         return GEcoPrediction(
             action=action,
@@ -122,6 +132,7 @@ class GEcoArm:
     substrate: GEcoSharedSubstrate
     aggregator: Aggregator
     calibration_only: bool = False
+    source: GEcoArmSource | None = None
 
     def score_actions(
         self,
@@ -160,11 +171,20 @@ def _improvement(prediction: GEcoPrediction) -> tuple[float, float, float, float
     return tuple(-v for v in prediction.delta_risk)
 
 
-def _homeostatic_weights(risk: tuple[float, float, float, float]) -> tuple[float, ...]:
+def _trajectory_pressure(observation: GEcoObservation) -> float:
+    integrity_margin = max(1.0, observation.state.integrity)
+    return _clip01(observation.rates.integrity_drain / integrity_margin * 20.0)
+
+
+def _homeostatic_weights(
+    risk: tuple[float, float, float, float],
+    *,
+    trajectory_pressure: float = 0.0,
+) -> tuple[float, ...]:
     energy, integrity, need_a, need_b = risk
     return (
         0.50 + 1.50 * energy + 4.00 * energy * energy,
-        0.25 + integrity + 2.50 * integrity * integrity,
+        0.25 + integrity + 2.50 * integrity * integrity + 2.00 * trajectory_pressure,
         0.25 + need_a + 2.50 * need_a * need_a,
         0.25 + need_b + 2.50 * need_b * need_b,
     )
@@ -186,7 +206,11 @@ def _vh(
     predictions: Mapping[str, GEcoPrediction],
 ) -> dict[str, float]:
     return _score_weighted(
-        _homeostatic_weights(_risk_vector(observation.state)), predictions
+        _homeostatic_weights(
+            _risk_vector(observation.state),
+            trajectory_pressure=_trajectory_pressure(observation),
+        ),
+        predictions,
     )
 
 
@@ -248,65 +272,160 @@ def _minimax(
     return {action: -max(prediction.risk) for action, prediction in predictions.items()}
 
 
-def _p0(
-    observation: GEcoObservation,
+def _confidence_from_scores(scores: Mapping[str, float], kappa: float) -> float:
+    ordered = sorted(scores.values(), reverse=True)
+    if len(ordered) < 2:
+        return 1.0
+    gap = ordered[0] - ordered[1]
+    scale = max(1e-9, abs(ordered[0]) + abs(ordered[1]) + 1.0)
+    return _clip01(gap / (max(kappa, 1e-9) * scale))
+
+
+def _p0_adapter(params: Mapping[str, float]) -> Aggregator:
+    def aggregate(
+        observation: GEcoObservation,
+        predictions: Mapping[str, GEcoPrediction],
+    ) -> dict[str, float]:
+        risks = _risk_vector(observation.state)
+        pressure = max(risks)
+        base = _score_weighted((0.35 + pressure, 0.25, 0.20, 0.20), predictions)
+        confidence = _confidence_from_scores(base, params["gate_kappa"])
+        best = max(base, key=base.get)
+        gate_bonus = confidence * (1.0 - params["gate_temp_floor"])
+        return {
+            action: score + (gate_bonus if action == best else 0.0)
+            for action, score in base.items()
+        }
+
+    return aggregate
+
+
+def _rstar_adapter(params: Mapping[str, float]) -> Aggregator:
+    def aggregate(
+        observation: GEcoObservation,
+        predictions: Mapping[str, GEcoPrediction],
+    ) -> dict[str, float]:
+        risks = _risk_vector(observation.state)
+        surprise = _clip01(
+            abs(observation.rates.need_a_growth - observation.rates.need_b_growth) / 8.0
+        )
+        relevance = _clip01(
+            params["inertia"] * max(risks) + params["surprise_gain"] * surprise
+        )
+        weights = (
+            0.20 + risks[0] + 0.25 * relevance,
+            0.20 + risks[1] + 0.25 * relevance,
+            0.20 + risks[2] + 0.10 * relevance,
+            0.20 + risks[3] + 0.10 * relevance,
+        )
+        scores = _score_weighted(weights, predictions)
+        best = max(scores, key=scores.get)
+        temp_bonus = max(0.0, 0.30 - params["base_temperature"])
+        return {
+            action: score + (temp_bonus if action == best else 0.0)
+            for action, score in scores.items()
+        }
+
+    return aggregate
+
+
+def _o1_adapter(params: Mapping[str, float]) -> Aggregator:
+    def aggregate(
+        observation: GEcoObservation,
+        predictions: Mapping[str, GEcoPrediction],
+    ) -> dict[str, float]:
+        reset_period = max(
+            1, int(round(params["spike_k"] + params["reset_strength"] * 5))
+        )
+        if observation.step % reset_period == 0 or observation.regime_index:
+            return _lex(observation, predictions)
+        return _lin(observation, predictions)
+
+    return aggregate
+
+
+def _bt_adapter(params: Mapping[str, float]) -> Aggregator:
+    def aggregate(
+        observation: GEcoObservation,
+        predictions: Mapping[str, GEcoPrediction],
+    ) -> dict[str, float]:
+        del observation
+        scores = _lin_observation_free(predictions)
+        best = max(scores, key=scores.get)
+        cold_bonus = 1.0 / max(1e-6, params["base_temperature"])
+        return {
+            action: score + (cold_bonus if action == best else 0.0)
+            for action, score in scores.items()
+        }
+
+    return aggregate
+
+
+def _lin_observation_free(
     predictions: Mapping[str, GEcoPrediction],
 ) -> dict[str, float]:
-    risks = _risk_vector(observation.state)
-    pressure = max(risks)
-    weights = (0.35 + pressure, 0.25, 0.20, 0.20)
-    return _score_weighted(weights, predictions)
+    return _score_weighted((0.35, 0.25, 0.20, 0.20), predictions)
 
 
-def _rstar(
+def _truth_rollout(
     observation: GEcoObservation,
-    predictions: Mapping[str, GEcoPrediction],
-) -> dict[str, float]:
-    risks = _risk_vector(observation.state)
-    weights = (0.20 + risks[0], 0.20 + risks[1], 0.20 + risks[2], 0.20 + risks[3])
-    return _score_weighted(weights, predictions)
+    action: str,
+    *,
+    depth: int,
+) -> GEcoState:
+    state = observation.truth_state
+    for _ in range(depth):
+        state = transition_state(
+            state,
+            action,
+            rates=observation.rates,
+            effects=observation.effects,
+            limits=observation.limits,
+        )
+    return state
 
 
-def _o1(
-    observation: GEcoObservation,
-    predictions: Mapping[str, GEcoPrediction],
-) -> dict[str, float]:
-    # O1-like reset scaffold control: fixed priority after regime shifts, with
-    # no private predictor and no authority to reset the external environment.
-    if observation.step % max(1, 4) == 0:
-        return _lex(observation, predictions)
-    return _lin(observation, predictions)
-
-
-def _bt(
-    observation: GEcoObservation,
-    predictions: Mapping[str, GEcoPrediction],
-) -> dict[str, float]:
-    scores = _lin(observation, predictions)
-    best = max(scores, key=scores.get)
-    return {action: (10.0 if action == best else scores[action]) for action in scores}
+def _truth_value(state: GEcoState) -> float:
+    risk = _risk_vector(state)
+    irreversible_loss = _clip01((100.0 - state.integrity) / 100.0)
+    return -sum(risk) - 0.75 * irreversible_loss
 
 
 def _oracle(
     observation: GEcoObservation,
     predictions: Mapping[str, GEcoPrediction],
 ) -> dict[str, float]:
-    # Calibration-only upper reference. It uses the same prediction objects
-    # generated by the shared substrate in this lower-half implementation.
-    return _vh(observation, predictions)
+    del predictions
+    return {
+        action: _truth_value(_truth_rollout(observation, action, depth=3))
+        for action in observation.actions
+    }
 
 
 def _wcref(
     observation: GEcoObservation,
     predictions: Mapping[str, GEcoPrediction],
 ) -> dict[str, float]:
-    # Calibration-only fixed worst-channel ideal reference; never r-final.
-    return _minimax(observation, predictions)
+    del predictions
+    return {
+        action: -max(_risk_vector(_truth_rollout(observation, action, depth=3)))
+        for action in observation.actions
+    }
 
 
-def _arm(name: str, substrate: GEcoSharedSubstrate, aggregator: Aggregator) -> GEcoArm:
+def _arm(
+    name: str,
+    substrate: GEcoSharedSubstrate,
+    aggregator: Aggregator,
+    *,
+    source: GEcoArmSource | None = None,
+) -> GEcoArm:
     return GEcoArm(
-        name=name, family="battery", substrate=substrate, aggregator=aggregator
+        name=name,
+        family="battery",
+        substrate=substrate,
+        aggregator=aggregator,
+        source=source,
     )
 
 
@@ -314,20 +433,81 @@ def _shared_substrate() -> GEcoSharedSubstrate:
     return GEcoSharedSubstrate()
 
 
+def _frozen_p0_source() -> GEcoArmSource:
+    from experiments.confidence_gated_g9 import GATE_FROZEN
+
+    return GEcoArmSource(
+        adr="ADR-0024",
+        symbol="experiments.confidence_gated_g9.GATE_FROZEN",
+        params={
+            "gate_kappa": float(GATE_FROZEN["gate_kappa"]),
+            "gate_temp_floor": float(GATE_FROZEN["gate_temp_floor"]),
+        },
+        adapter_note="G-Eco deterministic adapter preserves frozen confidence gate parameters.",
+    )
+
+
+def _frozen_rstar_source() -> GEcoArmSource:
+    from experiments.ecological_g12 import load_rstar_params
+
+    params = load_rstar_params()
+    return GEcoArmSource(
+        adr="ADR-0034",
+        symbol="experiments.ecological_g12.load_rstar_params",
+        params={
+            "base_temperature": float(params.base_temperature),
+            "inertia": float(params.inertia),
+            "surprise_gain": float(params.surprise_gain),
+        },
+        adapter_note="G-Eco adapter preserves frozen RSTAR triple.",
+    )
+
+
+def _frozen_o1_source() -> GEcoArmSource:
+    from aac.prior_organ_o1 import ResetScaffoldOrgan
+
+    organ = ResetScaffoldOrgan()
+    return GEcoArmSource(
+        adr="ADR-0016/ADR-0024 cheap reset baseline",
+        symbol="aac.prior_organ_o1.ResetScaffoldOrgan",
+        params={
+            "spike_k": float(organ.spike_k),
+            "reset_strength": float(organ.reset_strength),
+            "mu_decay": float(organ.mu_decay),
+        },
+        adapter_note="G-Eco adapter preserves frozen O1 reset scaffold parameters.",
+    )
+
+
+def _frozen_bt_source() -> GEcoArmSource:
+    from experiments.ecological_g12 import BTEMP
+
+    return GEcoArmSource(
+        adr="ADR-0030",
+        symbol="experiments.ecological_g12.BTEMP",
+        params={"base_temperature": float(BTEMP)},
+        adapter_note="G-Eco adapter preserves frozen fixed-low-temperature value.",
+    )
+
+
 def build_g_eco_battery(
     *, substrate: GEcoSharedSubstrate | None = None
 ) -> tuple[GEcoArm, ...]:
     shared = substrate if substrate is not None else _shared_substrate()
+    p0 = _frozen_p0_source()
+    rstar = _frozen_rstar_source()
+    o1 = _frozen_o1_source()
+    bt = _frozen_bt_source()
     return (
         _arm("LIN", shared, _lin),
         _arm("LEX", shared, _lex),
         _arm("THR", shared, _thr),
         _arm("QUOTA", shared, _quota),
         _arm("MINIMAX", shared, _minimax),
-        _arm("P0", shared, _p0),
-        _arm("RSTAR", shared, _rstar),
-        _arm("O1", shared, _o1),
-        _arm("BT", shared, _bt),
+        _arm("P0", shared, _p0_adapter(p0.params), source=p0),
+        _arm("RSTAR", shared, _rstar_adapter(rstar.params), source=rstar),
+        _arm("O1", shared, _o1_adapter(o1.params), source=o1),
+        _arm("BT", shared, _bt_adapter(bt.params), source=bt),
     )
 
 
@@ -374,6 +554,21 @@ def build_calibration_refs(
 def rfinal_arm_names() -> tuple[str, ...]:
     """Return the only arms allowed to appear in a future r-final result."""
     return GECO_RFINAL_ARM_NAMES
+
+
+def assert_no_calibration_refs_in_rfinal(
+    arms: tuple[GEcoArm, ...],
+    names: tuple[str, ...],
+) -> tuple[str, ...]:
+    by_name = {arm.name: arm for arm in arms}
+    unknown = [name for name in names if name not in by_name]
+    if unknown:
+        raise AssertionError(f"unknown r-final arm names: {unknown}")
+    calibration_refs = {arm.name for arm in arms if arm.calibration_only}
+    overlap = tuple(name for name in names if name in calibration_refs)
+    if overlap:
+        raise AssertionError(f"calibration-only refs entered r-final: {overlap}")
+    return names
 
 
 def assert_shared_substrate(arms: tuple[GEcoArm, ...]) -> None:

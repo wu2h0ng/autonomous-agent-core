@@ -15,6 +15,7 @@ from typing import Any
 
 from aac.g_eco import (
     GEcoMetrics,
+    assert_no_calibration_refs_in_rfinal,
     build_calibration_refs,
     build_g_eco_arms,
     rfinal_arm_names,
@@ -62,7 +63,10 @@ def mechanism_check(
     seeds: tuple[int, ...] = RATE_SEEDS[:2],
     steps: int = 48,
 ) -> dict[str, Any]:
-    arms = build_g_eco_arms()
+    all_arms = build_g_eco_arms(include_cheats=True)
+    allowed_names = assert_no_calibration_refs_in_rfinal(all_arms, rfinal_arm_names())
+    allowed = set(allowed_names)
+    arms = tuple(arm for arm in all_arms if arm.name in allowed)
     refs = build_calibration_refs()
     results: dict[str, list[dict[str, object]]] = {
         arm.name: [] for arm in arms if not arm.calibration_only
@@ -76,7 +80,7 @@ def mechanism_check(
         "seeds": list(seeds),
         "steps": steps,
         "gate2_locked": True,
-        "allowed_rfinal_arms_future": list(rfinal_arm_names()),
+        "allowed_rfinal_arms_future": list(allowed_names),
         "calibration_only_refs": [ref.name for ref in refs],
         "arms": results,
         "note": (

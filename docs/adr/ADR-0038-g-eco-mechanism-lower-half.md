@@ -41,9 +41,9 @@ Disposition: rejected.
 
 Implement the G-Eco lower-half only:
 
-- `src/envs/ecological_4cond.py` defines a deterministic four-condition ecological environment with energy pressure, irreversible integrity loss, incompatible A/B needs under one-action budget, and drifting regimes. It does not implement rate-grid scan order or a divergence-axis detector.
-- `src/aac/g_eco.py` defines one shared substrate (`observation`, `predictor`, `lookahead`, `H`) used by VH, `VH_noStake`, and the nine-arm fixed-preference battery: `LIN`, `LEX`, `THR`, `QUOTA`, `MINIMAX`, `P0`, `RSTAR`, `O1`, `BT`.
-- `src/aac/g_eco.py` also defines two calibration-only references, `HOMEOSTATIC_ORACLE` and `WCREF`, with `calibration_only=True`; they are not included in future r-final arm names.
+- `src/envs/ecological_4cond.py` defines a deterministic four-condition ecological environment with energy pressure, irreversible integrity loss, incompatible A/B needs under one-action budget, and de-complete observation (partial, lagged, noisy state estimate). It does not implement rate-grid scan order or a divergence-axis detector.
+- `src/aac/g_eco.py` defines one shared substrate (`observation`, `predictor`, `lookahead`, `H`) used by VH, `VH_noStake`, and the nine-arm fixed-preference battery: `LIN`, `LEX`, `THR`, `QUOTA`, `MINIMAX`, `P0`, `RSTAR`, `O1`, `BT`. `lookahead_depth` is active.
+- `src/aac/g_eco.py` also defines two calibration-only references, `HOMEOSTATIC_ORACLE` and `WCREF`, with `calibration_only=True`; they are not included in future r-final arm names. These references are truth-state privileged and are not runtime aliases of VH/MINIMAX.
 - `experiments/g_eco.py` exposes only `smoke` / `mechanism-check`. `freeze`, `r-final`, and `verdict` modes refuse to run while Gate-2 is locked.
 - `tests/test_g_eco.py` guards shared-substrate identity, arm inventory, `VH_noStake` ablation surface, deterministic replay, no external rollback, pure environment region metrics, C6/C7 pause/tighten dominance, and Gate-2 refusal.
 
@@ -63,14 +63,15 @@ Implement the G-Eco lower-half only:
 - The current engineering verdict remains ADR-0036/G13 NOT MET until a future frozen G-Eco r-final exists and is adjudicated under the parent protocol.
 - The next permissible implementation step is §6 calibration/freeze machinery only after the still-held Gate-2 leaves are explicitly resolved in the parent governance records.
 
-## Disclosed Stubs & §6 Blockers (2026-06-23)
+## Discipline Fixes & Remaining Boundary (2026-06-23)
 
-An adversarial discipline review (workflow `w4tinneni`) confirmed no falsification gate is moved in executed code, but found that several deferred-gate INPUTS are currently stubbed/proxied in a direction that favors VH, and were not disclosed above. Recording them honestly; remediation spec is `../docs/research/G-Eco-lowerhalf-discipline-fixes-2026-06-23.md` (must land before §6 calibration):
+An adversarial discipline review (workflow `w4tinneni`) confirmed no falsification gate was moved in executed code, but found that several deferred-gate inputs were stubbed/proxied in a direction that favored VH. The disclosure commit recorded them honestly; Codex then implemented the remediation spec `../docs/research/G-Eco-lowerhalf-discipline-fixes-2026-06-23.md` before any §6 calibration:
 
-- **Cheat references are alias stubs, not idealized controllers.** `HOMEOSTATIC_ORACLE` returns the runtime VH value and `WCREF` returns the runtime MINIMAX value — they are EQUAL to, not privileged over, the runtime arms. Spec §6/§4/§10.5 require a true-value oracle and an idealized worst-channel WCREF (info ≥ runtime MINIMAX). As stubs they would pre-open red-team seam ① (oracle ∈ VH family) if wired into §6 unchanged. **§6-blocker (F2).**
-- **Battery P0/RSTAR/O1/BT are fresh proxies, not the frozen ADR values.** Spec §2 + handoff §0 name P0=ADR-0024, RSTAR=ADR-0034, O1=existing frozen, BT=ADR-0030 as non-negotiable reuse; the implementation invents local heuristics that may be weaker comparators. **§6-blocker (F3).**
-- **The "four conditions" enumeration above (line 44) is inaccurate.** It lists "drifting regimes" as the fourth condition; spec §3's fourth condition is **de-completeness** (partial+lagged+noisy observation). The env currently returns full observable state. De-completeness is absent. **Fix-or-defer (F4).**
-- **VH has no trajectory/irreversibility term and `lookahead_depth` is a dead parameter** (always one transition step). The divergence axis (instantaneous-worst ≠ trajectory-worst) is therefore not exploitable by the mechanism. **Fix-or-defer (F5).**
-- **Two test-validity gaps:** the "cheats never enter r-final" test only checks `calibration_only` flags (does not assert disjointness from r-final arms — F1, the central firewall), and the C7-tighten test is vacuous at its seed (F6).
+- **F1 fixed:** r-final eligibility is guarded through the real arm builder. Tests assert r-final names are disjoint from calibration-only refs and include a negative-control path that turns RED if `HOMEOSTATIC_ORACLE`/`WCREF` are admitted.
+- **F2 fixed:** `HOMEOSTATIC_ORACLE` and `WCREF` are truth-state privileged calibration-only controllers. Runtime arms ignore `truth_state`; tests prove cheat refs differ from VH/MINIMAX and `WCREF` is not below runtime `MINIMAX` on calibration-seed enter-rate smoke coverage.
+- **F3 fixed with documented adapters:** `P0`, `RSTAR`, `O1`, and `BT` expose source metadata and import their frozen ADR parameters (`GATE_FROZEN`, frozen RSTAR triple, `ResetScaffoldOrgan`, `BTEMP`). They are adapted to the G-Eco shared substrate without silent retuning.
+- **F4 fixed:** observations are partial, lagged, and noisy; `truth_state` is separated for cheat refs and tests. The fourth condition is now de-completeness, not drifting regimes.
+- **F5 fixed:** `lookahead_depth` performs real multi-step rollout, and VH carries a trajectory/irreversibility pressure term.
+- **F6 fixed:** the C7-tighten test now forbids the action VH would otherwise select and asserts the selected action changes.
 
-KEEP/CHECKPOINT status of `c1363fa` is unchanged; these are pre-§6 remediation items, not a retraction.
+KEEP/CHECKPOINT status of `c1363fa` is unchanged; the remediation tightens pre-§6 discipline and still does not implement §6 rate scan, freeze JSON, Gate-2 crossing, r-final, or verdict.
