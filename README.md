@@ -25,7 +25,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local integration-branch verification is 418 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with OpenAPI contract drift check included in `make ci`; the most recent full local PostgreSQL parity run remains recorded in `docs/CURRENT_STATE.yaml`.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local integration-branch verification is 418 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`; the most recent full local PostgreSQL parity runs remain recorded in `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.VERIFICATION-20260624.md` and `docs/decisions/ADR-0002-connector-execution-audit-contract-v0.VERIFICATION-20260624.md`.
 
 ### Delivered Capabilities
 
@@ -86,7 +86,7 @@ distinguishes "expected business block" from "wiring error". `evaluate()` return
 
 - OpenAPI snapshot drift gate is enforced by unit test and CI `--check`.
 - Observability gate tests verify required trace steps and telemetry dimensions.
-- `make ci` runs ruff, format check, unittest discovery, eval subset, and OpenAPI drift check.
+- `make ci` first checks that the selected `PYTHON` has the dev/http/postgres extras, then runs ruff, format check, unittest discovery, eval subset, and OpenAPI drift check.
 - `ci-local-full` covers the disposable PostgreSQL parity path.
 
 ## Layout

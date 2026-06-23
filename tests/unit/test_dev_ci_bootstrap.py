@@ -12,11 +12,15 @@ class DevCiBootstrapTest(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
         self.assertRegex(makefile, r"(?m)^bootstrap-dev:")
+        self.assertRegex(makefile, r"(?m)^check-ci-env:")
         self.assertRegex(makefile, r"(?m)^ci-local-full:")
         self.assertIn('".[dev,http,postgres]"', makefile)
         self.assertIn("agent_os_api.openapi_contract --check", makefile)
-        self.assertRegex(makefile, r"(?m)^ci: .*openapi-contract")
+        self.assertRegex(makefile, r"(?m)^ci: check-ci-env .*openapi-contract")
         self.assertIn("importlib.util.find_spec", makefile)
+        self.assertIn("make bootstrap-dev", makefile)
+        check_ci_env = makefile.split("check-ci-env:", 1)[1].split("\n\n", 1)[0]
+        self.assertNotIn("AGENT_OS_DATABASE_URL is required", check_ci_env)
         self.assertNotIn("raise SystemExit", makefile)
 
     def test_project_extras_keep_runtime_core_dependency_free(self) -> None:

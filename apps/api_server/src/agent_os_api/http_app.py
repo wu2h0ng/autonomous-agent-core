@@ -1,8 +1,10 @@
 """FastAPI HTTP surface for the Trusted Loop.
 
 This is the only module in the package that imports FastAPI. ``__init__.py`` and
-``cli.py`` deliberately do NOT import it, so non-HTTP users (and the canonical
-bare-env ``make ci``) never need fastapi installed.
+``cli.py`` deliberately do NOT import it, so non-HTTP users do not need fastapi
+installed. Local ``make ci`` includes the OpenAPI contract drift gate and therefore
+requires the dev/http/postgres extras from ``make bootstrap-dev`` or an equivalent
+``PYTHON=...`` environment.
 
 The app holds ONE shared ``TrustedLoopRuntime`` for its lifetime so the
 in-memory knowledge/feedback stores persist across requests: a ``POST /runs``
