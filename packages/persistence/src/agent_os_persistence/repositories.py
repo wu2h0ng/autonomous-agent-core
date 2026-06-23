@@ -10,9 +10,11 @@ production wires a PostgreSQL engine.
 
 from __future__ import annotations
 
+import copy
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from uuid import uuid4
 
 from agent_os_contracts import FeedbackEvent, KnowledgeAsset, RunTrace, StateSnapshot
 from agent_os_core import (
@@ -194,6 +196,102 @@ class SqlSnapshotStore(_SqlStoreBase, SnapshotStore):
         with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.snapshot_from_payload(row[0]) for row in rows)
+
+
+class SqlActionRecordStore(_SqlStoreBase):
+    """Durable side-effect ledger for the action_record connector.
+
+    This class intentionally implements the connector store interface
+    (``add/records/snapshot_state/restore``) rather than an OS Core Port: the
+    ledger is connector-specific state and OS Core must stay unaware of it.
+    """
+
+    def add(
+        self,
+        *,
+        operation_id: str,
+        action_type: str,
+        parameters: dict[str, object],
+        idempotency_key: str | None = None,
+    ) -> dict[str, object]:
+        table = schema.action_records
+        request_payload: dict[str, object] = {
+            "operation_id": operation_id,
+            "action_type": action_type,
+            "parameters": copy.deepcopy(parameters),
+        }
+
+        with self._write() as conn:
+            if idempotency_key is not None:
+                existing = conn.execute(
+                    select(table.c.payload).where(table.c.idempotency_key == idempotency_key)
+                ).fetchone()
+                if existing is not None:
+                    original_record = copy.deepcopy(dict(existing[0]))
+                    original_payload = {
+                        "operation_id": original_record["operation_id"],
+                        "action_type": original_record["action_type"],
+                        "parameters": copy.deepcopy(original_record["parameters"]),
+                    }
+                    if original_payload != request_payload:
+                        raise ValueError(
+                            "idempotency_key was reused with a different operation/action payload"
+                        )
+                    original_record["status"] = "idempotent_replay"
+                    return original_record
+
+            record: dict[str, object] = {
+                "record_id": f"record-{uuid4().hex[:12]}",
+                **request_payload,
+            }
+            if idempotency_key is not None:
+                record["idempotency_key"] = idempotency_key
+            conn.execute(
+                table.insert().values(
+                    record_id=record["record_id"],
+                    operation_id=operation_id,
+                    action_type=action_type,
+                    idempotency_key=idempotency_key,
+                    payload=copy.deepcopy(record),
+                )
+            )
+        return copy.deepcopy(record)
+
+    def records(self) -> tuple[dict[str, object], ...]:
+        table = schema.action_records
+        with self._read() as conn:
+            rows = conn.execute(select(table.c.payload).order_by(table.c.id)).fetchall()
+        return tuple(copy.deepcopy(dict(row[0])) for row in rows)
+
+    def snapshot_state(self) -> dict[str, object]:
+        return {"records": [copy.deepcopy(record) for record in self.records()]}
+
+    def restore(self, state_payload: dict[str, object]) -> None:
+        table = schema.action_records
+        raw_records = state_payload.get("records") or []
+        records = [copy.deepcopy(dict(record)) for record in raw_records]
+        rollback_operation_id = state_payload.get("rollback_operation_id")
+        with self._write() as conn:
+            if rollback_operation_id is None:
+                conn.execute(table.delete())
+            else:
+                snapshot_record_ids = {record["record_id"] for record in records}
+                conn.execute(
+                    table.delete()
+                    .where(table.c.operation_id == rollback_operation_id)
+                    .where(table.c.record_id.not_in(snapshot_record_ids))
+                )
+                return
+            for record in records:
+                conn.execute(
+                    table.insert().values(
+                        record_id=record["record_id"],
+                        operation_id=record["operation_id"],
+                        action_type=record["action_type"],
+                        idempotency_key=record.get("idempotency_key"),
+                        payload=copy.deepcopy(record),
+                    )
+                )
 
 
 class SqlApprovalStore(_SqlStoreBase, ApprovalStorePort):

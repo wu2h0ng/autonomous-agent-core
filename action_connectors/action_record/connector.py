@@ -2,12 +2,31 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from agent_os_contracts import OperationContract, StateSnapshot
 
 from agent_os_core.action_connectors.base import ActionConnector
+
+
+class ActionRecordStoreLike(Protocol):
+    """Store interface required by the action_record connector."""
+
+    def add(
+        self,
+        *,
+        operation_id: str,
+        action_type: str,
+        parameters: dict[str, Any],
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    def records(self) -> tuple[dict[str, Any], ...]: ...
+
+    def snapshot_state(self) -> dict[str, Any]: ...
+
+    def restore(self, state_payload: dict[str, Any]) -> None: ...
 
 
 class ActionRecordStore:
@@ -87,11 +106,11 @@ class ActionRecordConnector(ActionConnector):
     and rollback machinery for real.
     """
 
-    def __init__(self, *, store: ActionRecordStore) -> None:
+    def __init__(self, *, store: ActionRecordStoreLike) -> None:
         self._store = store
 
     @property
-    def store(self) -> ActionRecordStore:
+    def store(self) -> ActionRecordStoreLike:
         """Return the backing store (exposed for inspection/testing)."""
         return self._store
 
@@ -101,12 +120,14 @@ class ActionRecordConnector(ActionConnector):
 
     def take_snapshot(self, operation: OperationContract) -> StateSnapshot | None:
         """Capture the store's current state into a restorable StateSnapshot."""
+        state_payload = self._store.snapshot_state()
+        state_payload["rollback_operation_id"] = operation.operation_id
         return StateSnapshot(
             snapshot_id=f"snapshot-{uuid4().hex[:12]}",
             operation_id=operation.operation_id,
             connector_name=self.connector_name,
             snapshot_type="full",
-            state_payload=self._store.snapshot_state(),
+            state_payload=state_payload,
             created_at=datetime.now(timezone.utc).isoformat(),
         )
 

@@ -141,6 +141,109 @@ class FactoryPostgresStoreTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             runtime3.execute_pending_approved_operation(approval_id=approval_id)
 
+    def test_action_record_store_persists_across_runtime_instances(self) -> None:
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+
+        engine = self._engine()
+        config = self._config(engine)
+
+        runtime1 = ContentCommerceRuntimeFactory(config).build()
+        result = runtime1.run("GMV 记录行动", dict(RUN_PARAMS))
+        runtime1.approve_and_execute_pending_operation(
+            approval_id=result.approval_record.approval_id,
+            reason="approved after restart",
+            approved_by="ops@example.com",
+        )
+
+        runtime2 = ContentCommerceRuntimeFactory(config).build()
+        action_record_connector = runtime2.connector_registry.get("action_record")
+        records = action_record_connector.store.records()
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            records[0]["parameters"]["evidence_chain_id"],
+            result.evidence_chain.evidence_chain_id,
+        )
+
+    def test_action_record_replay_after_runtime_restart_does_not_double_write(self) -> None:
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+
+        engine = self._engine()
+        config = self._config(engine)
+
+        runtime1 = ContentCommerceRuntimeFactory(config).build()
+        result = runtime1.run("GMV 记录行动", dict(RUN_PARAMS))
+        runtime1.approve_and_execute_pending_operation(
+            approval_id=result.approval_record.approval_id,
+            reason="approved before restart",
+            approved_by="ops@example.com",
+        )
+
+        runtime2 = ContentCommerceRuntimeFactory(config).build()
+        operation_trace = runtime2.execute_approved_operation(
+            approval_id=result.approval_record.approval_id,
+            operation=result.operation_contract,
+            action_parameters=result.action_proposal.action_parameters,
+            evidence_chain=result.evidence_chain,
+            proposal_id=result.action_proposal.proposal_id,
+        )
+
+        self.assertEqual(operation_trace.events[-1]["status"], "idempotent_replay")
+        records = runtime2.connector_registry.get("action_record").store.records()
+        self.assertEqual(len(records), 1)
+
+    def test_action_record_rollback_snapshot_survives_restart_without_deleting_later_records(
+        self,
+    ) -> None:
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+
+        engine = self._engine()
+        config = self._config(engine)
+
+        runtime1 = ContentCommerceRuntimeFactory(config).build()
+        first = runtime1.run("GMV 记录行动", dict(RUN_PARAMS))
+        runtime1.approve_and_execute_pending_operation(
+            approval_id=first.approval_record.approval_id,
+            reason="approved first action",
+            approved_by="ops@example.com",
+        )
+
+        runtime2 = ContentCommerceRuntimeFactory(config).build()
+        second = runtime2.run("GMV 记录行动", {**RUN_PARAMS, "limit": 50})
+        _approval, second_trace = runtime2.approve_and_execute_pending_operation(
+            approval_id=second.approval_record.approval_id,
+            reason="approved second action",
+            approved_by="ops@example.com",
+        )
+        snapshot_event = next(
+            event for event in second_trace.events if event.get("step") == "state_snapshot"
+        )
+        snapshot_id = snapshot_event["snapshot_id"]
+
+        runtime_extra = ContentCommerceRuntimeFactory(config).build()
+        later = runtime_extra.run("GMV 记录行动", {**RUN_PARAMS, "limit": 75})
+        runtime_extra.approve_and_execute_pending_operation(
+            approval_id=later.approval_record.approval_id,
+            reason="approved later action",
+            approved_by="ops@example.com",
+        )
+
+        runtime3 = ContentCommerceRuntimeFactory(config).build()
+        rollback = runtime3.rollback(snapshot_id)
+        self.assertEqual(rollback["status"], "rolled_back")
+
+        runtime4 = ContentCommerceRuntimeFactory(config).build()
+        records = runtime4.connector_registry.get("action_record").store.records()
+        evidence_ids = {record["parameters"]["evidence_chain_id"] for record in records}
+        self.assertEqual(len(records), 2)
+        self.assertEqual(
+            evidence_ids,
+            {
+                first.evidence_chain.evidence_chain_id,
+                later.evidence_chain.evidence_chain_id,
+            },
+        )
+
     def test_unknown_store_backend_raises(self) -> None:
         from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 

@@ -47,6 +47,21 @@ state_snapshots = Table(
     Column("payload", JSON, nullable=False),
 )
 
+# Connector-side action records: the durable side-effect ledger for the
+# action_record connector. Approval context persistence proves command recovery;
+# this table proves the connector write target and idempotency map survive a
+# later runtime instance.
+action_records = Table(
+    "action_records",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("record_id", String, unique=True, nullable=False),
+    Column("operation_id", String, index=True, nullable=False),
+    Column("action_type", String, nullable=False),
+    Column("idempotency_key", String, unique=True, index=True),
+    Column("payload", JSON, nullable=False),
+)
+
 # Approval records: one row per approval_id (upserted as the lifecycle advances).
 approval_records = Table(
     "approval_records",

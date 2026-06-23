@@ -249,6 +249,37 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         store.save(snap2)
         self.assertEqual(store.list_for_operation("op-1"), (snap2,))
 
+    def test_action_record_store_round_trip_and_idempotency_over_sql_store(self) -> None:
+        from agent_os_persistence import SqlActionRecordStore
+
+        store = SqlActionRecordStore(self.engine)
+        first = store.add(
+            operation_id="operation-action-1",
+            action_type="execute",
+            parameters={"amount": 100},
+            idempotency_key="idem-action-1",
+        )
+        replay = store.add(
+            operation_id="operation-action-1",
+            action_type="execute",
+            parameters={"amount": 100},
+            idempotency_key="idem-action-1",
+        )
+
+        self.assertEqual(first["record_id"], replay["record_id"])
+        self.assertEqual(replay["status"], "idempotent_replay")
+        self.assertEqual(len(store.records()), 1)
+
+        store2 = SqlActionRecordStore(self.engine)
+        self.assertEqual(store2.records()[0]["record_id"], first["record_id"])
+        with self.assertRaises(ValueError):
+            store2.add(
+                operation_id="operation-action-1",
+                action_type="execute",
+                parameters={"amount": 200},
+                idempotency_key="idem-action-1",
+            )
+
     def test_unit_of_work_commits_both_stores(self) -> None:
         from agent_os_persistence import SqlFeedbackStore, SqlKnowledgeStore, SqlUnitOfWork
 
