@@ -1,17 +1,21 @@
 """G-Eco lower-half mechanism substrate and arms.
 
-This module deliberately contains no calibration scan, freeze writer, Gate-2
-unlock, r-final runner, or verdict emitter. It only defines the shared
-substrate, value aggregators, calibration-only references, metrics, and guards
-needed before those later gates can exist.
+This module deliberately contains no Gate-2 unlock, r-final runner, or verdict
+emitter. It defines the shared substrate, value aggregators, calibration-only
+references, metrics, guards, and pre-Gate-2 candidate freeze material needed for
+founder/CTO review before those later gates can exist.
 """
 
 from __future__ import annotations
 
 import hashlib
+import ast
+import inspect
 import json
 import random
+import textwrap
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from typing import Any, Callable, Mapping
 
 from .shell import ShellView
@@ -62,6 +66,113 @@ class GEcoArmSource:
     symbol: str
     params: Mapping[str, float]
     adapter_note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GEcoVHParams:
+    energy_base: float
+    energy_linear: float
+    energy_quadratic: float
+    integrity_base: float
+    integrity_linear: float
+    integrity_quadratic: float
+    need_base: float
+    need_linear: float
+    need_quadratic: float
+    trajectory_scale: float
+    trajectory_weight: float
+
+    def to_dict(self) -> dict[str, float]:
+        return asdict(self)
+
+
+DEFAULT_VH_PARAMS = GEcoVHParams(
+    energy_base=0.50,
+    energy_linear=1.50,
+    energy_quadratic=4.00,
+    integrity_base=0.25,
+    integrity_linear=1.00,
+    integrity_quadratic=2.50,
+    need_base=0.25,
+    need_linear=1.00,
+    need_quadratic=2.50,
+    trajectory_scale=20.0,
+    trajectory_weight=2.00,
+)
+VH_PARAMETER_GRID: tuple[tuple[str, GEcoVHParams], ...] = (
+    ("balanced_v0", DEFAULT_VH_PARAMS),
+    (
+        "energy_guard",
+        GEcoVHParams(
+            energy_base=0.55,
+            energy_linear=1.75,
+            energy_quadratic=4.75,
+            integrity_base=0.25,
+            integrity_linear=1.00,
+            integrity_quadratic=2.25,
+            need_base=0.25,
+            need_linear=1.00,
+            need_quadratic=2.25,
+            trajectory_scale=20.0,
+            trajectory_weight=1.75,
+        ),
+    ),
+    (
+        "integrity_guard",
+        GEcoVHParams(
+            energy_base=0.45,
+            energy_linear=1.25,
+            energy_quadratic=3.50,
+            integrity_base=0.30,
+            integrity_linear=1.25,
+            integrity_quadratic=3.50,
+            need_base=0.25,
+            need_linear=1.00,
+            need_quadratic=2.25,
+            trajectory_scale=18.0,
+            trajectory_weight=2.75,
+        ),
+    ),
+    (
+        "need_guard",
+        GEcoVHParams(
+            energy_base=0.45,
+            energy_linear=1.25,
+            energy_quadratic=3.50,
+            integrity_base=0.25,
+            integrity_linear=1.00,
+            integrity_quadratic=2.25,
+            need_base=0.30,
+            need_linear=1.25,
+            need_quadratic=3.25,
+            trajectory_scale=20.0,
+            trajectory_weight=1.75,
+        ),
+    ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class GEcoVHParameterFreeze:
+    selected_label: str
+    params: GEcoVHParams
+    seeds: tuple[int, ...]
+    steps: int
+    parameter_grid_hash: str
+
+    def source_dict(self) -> dict[str, Any]:
+        return {
+            "kind": "calibration_grid",
+            "seed_range": [min(self.seeds), max(self.seeds)],
+            "seed_count": len(self.seeds),
+            "steps": self.steps,
+            "objective": (
+                "maximize VH full-region count on calibration seeds, then survival "
+                "steps, then minimize irreversible loss; performance values withheld"
+            ),
+            "selected_label": self.selected_label,
+            "parameter_grid_hash": self.parameter_grid_hash,
+        }
 
 
 def _clip01(value: float) -> float:
@@ -186,22 +297,34 @@ def _improvement(prediction: GEcoPrediction) -> tuple[float, float, float, float
     return tuple(-v for v in prediction.delta_risk)
 
 
-def _trajectory_pressure(observation: GEcoObservation) -> float:
+def _trajectory_pressure(observation: GEcoObservation, params: GEcoVHParams) -> float:
     integrity_margin = max(1.0, observation.state.integrity)
-    return _clip01(observation.rates.integrity_drain / integrity_margin * 20.0)
+    return _clip01(
+        observation.rates.integrity_drain / integrity_margin * params.trajectory_scale
+    )
 
 
 def _homeostatic_weights(
     risk: tuple[float, float, float, float],
     *,
     trajectory_pressure: float = 0.0,
+    params: GEcoVHParams = DEFAULT_VH_PARAMS,
 ) -> tuple[float, ...]:
     energy, integrity, need_a, need_b = risk
     return (
-        0.50 + 1.50 * energy + 4.00 * energy * energy,
-        0.25 + integrity + 2.50 * integrity * integrity + 2.00 * trajectory_pressure,
-        0.25 + need_a + 2.50 * need_a * need_a,
-        0.25 + need_b + 2.50 * need_b * need_b,
+        params.energy_base
+        + params.energy_linear * energy
+        + params.energy_quadratic * energy * energy,
+        params.integrity_base
+        + params.integrity_linear * integrity
+        + params.integrity_quadratic * integrity * integrity
+        + params.trajectory_weight * trajectory_pressure,
+        params.need_base
+        + params.need_linear * need_a
+        + params.need_quadratic * need_a * need_a,
+        params.need_base
+        + params.need_linear * need_b
+        + params.need_quadratic * need_b * need_b,
     )
 
 
@@ -216,17 +339,21 @@ def _score_weighted(
     return out
 
 
-def _vh(
-    observation: GEcoObservation,
-    predictions: Mapping[str, GEcoPrediction],
-) -> dict[str, float]:
-    return _score_weighted(
-        _homeostatic_weights(
-            _risk_vector(observation.state),
-            trajectory_pressure=_trajectory_pressure(observation),
-        ),
-        predictions,
-    )
+def _vh_adapter(params: GEcoVHParams) -> Aggregator:
+    def aggregate(
+        observation: GEcoObservation,
+        predictions: Mapping[str, GEcoPrediction],
+    ) -> dict[str, float]:
+        return _score_weighted(
+            _homeostatic_weights(
+                _risk_vector(observation.state),
+                trajectory_pressure=_trajectory_pressure(observation, params),
+                params=params,
+            ),
+            predictions,
+        )
+
+    return aggregate
 
 
 def _vh_no_stake(
@@ -526,10 +653,20 @@ def build_g_eco_battery(
     )
 
 
-def build_g_eco_arms(*, include_cheats: bool = False) -> tuple[GEcoArm, ...]:
+def build_g_eco_arms(
+    *,
+    include_cheats: bool = False,
+    vh_params: GEcoVHParams | None = None,
+) -> tuple[GEcoArm, ...]:
     shared = _shared_substrate()
+    candidate_params = vh_params if vh_params is not None else DEFAULT_VH_PARAMS
     arms = (
-        GEcoArm(name="VH", family="candidate", substrate=shared, aggregator=_vh),
+        GEcoArm(
+            name="VH",
+            family="candidate",
+            substrate=shared,
+            aggregator=_vh_adapter(candidate_params),
+        ),
         GEcoArm(
             name="VH_noStake",
             family="ablation",
@@ -644,6 +781,74 @@ def verify_content_hash(payload: Mapping[str, Any]) -> bool:
     return recorded == _canonical_hash(comparable)
 
 
+def _source_identifiers(fn: Callable[..., Any]) -> set[str]:
+    source = textwrap.dedent(inspect.getsource(fn))
+    tree = ast.parse(source)
+    identifiers: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            identifiers.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            identifiers.add(node.attr)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            identifiers.add(node.value)
+    return identifiers
+
+
+def assert_static_firewall(
+    fn: Callable[..., Any],
+    *,
+    forbidden_identifiers: set[str],
+    context: str,
+) -> None:
+    """AST-level guard against freeze logic reading opponent-arm outputs."""
+    observed = _source_identifiers(fn)
+    leaks = sorted(
+        forbidden
+        for forbidden in forbidden_identifiers
+        if forbidden in observed
+        or any(
+            forbidden in identifier
+            for identifier in observed
+            if isinstance(identifier, str)
+        )
+    )
+    if leaks:
+        raise AssertionError(f"{context} static firewall leaked identifiers: {leaks}")
+
+
+def assert_g_eco_static_firewalls() -> bool:
+    opponent_names = set(GECO_RFINAL_ARM_NAMES) | {"VH_noStake"}
+    battery_names = set(GECO_BATTERY_NAMES)
+    performance_terms = {
+        "arm_enter_rates",
+        "enter_rate",
+        "full_region_delta",
+        "action_overlap",
+        "margin",
+        "strongest_battery_rate",
+        "battery_outputs",
+    }
+    assert_static_firewall(
+        entered_viable_region,
+        forbidden_identifiers=opponent_names | battery_names | performance_terms,
+        context="region predicate",
+    )
+    assert_static_firewall(
+        scan_rate_grid,
+        forbidden_identifiers=opponent_names
+        | battery_names
+        | {"build_g_eco_battery", "freeze_battery_parameters", "build_baseline_audit"},
+        context="rate witness",
+    )
+    assert_static_firewall(
+        derive_threshold_freeze,
+        forbidden_identifiers=opponent_names | battery_names | performance_terms,
+        context="threshold formula",
+    )
+    return True
+
+
 @dataclass(frozen=True, slots=True)
 class GEcoRatesFreeze:
     rates: GEcoRates
@@ -685,6 +890,7 @@ class GEcoBatteryFreeze:
     rfinal_arm_names_value: tuple[str, ...]
     sources: Mapping[str, Mapping[str, Any]]
     fixed_aggregators: Mapping[str, str]
+    vh_parameter_freeze: GEcoVHParameterFreeze
 
     def to_dict(self) -> dict[str, Any]:
         return _with_hash(
@@ -700,6 +906,22 @@ class GEcoBatteryFreeze:
                     "HOMEOSTATIC_ORACLE",
                     "WCREF",
                 ],
+                "candidate_parameters": {
+                    "VH": {
+                        "source": self.vh_parameter_freeze.source_dict(),
+                        "params": self.vh_parameter_freeze.params.to_dict(),
+                    },
+                    "VH_noStake": {
+                        "source": {
+                            "kind": "mechanical_ablation_constant_urgency",
+                            "note": (
+                                "Spec §1a ablation: urgency_k is degenerated to "
+                                "constant weights, not selected by calibration."
+                            ),
+                        },
+                        "params": {"constant_urgency": [1.0, 1.0, 1.0, 1.0]},
+                    },
+                },
                 "performance_fields_withheld": True,
             }
         )
@@ -747,6 +969,23 @@ class GEcoThresholdFreeze:
                 "firewall": {
                     "uses_only_naive_and_oracle": True,
                     "opponent_arm_level_inputs_withheld": True,
+                },
+                "verdict_mechanics": {
+                    "bootstrap": {
+                        "B": 10000,
+                        "resample_seed": 611038,
+                        "ci_method": "percentile",
+                    },
+                    "battery_best_tie_break": [
+                        "enter_rate_desc",
+                        "survival_steps_desc",
+                        "irreversible_loss_asc",
+                        "arm_name_asc",
+                    ],
+                    "comparison": {
+                        "epsilon": 1e-12,
+                        "rounding": "none",
+                    },
                 },
             }
         )
@@ -808,8 +1047,12 @@ def _run_full_region(
     *,
     rates: GEcoRates,
     steps: int,
+    vh_params: GEcoVHParams | None = None,
 ) -> bool:
-    arms = {arm.name: arm for arm in build_g_eco_arms(include_cheats=True)}
+    arms = {
+        arm.name: arm
+        for arm in build_g_eco_arms(include_cheats=True, vh_params=vh_params)
+    }
     if arm_name not in arms:
         raise ValueError(f"unknown G-Eco arm: {arm_name}")
     arm = arms[arm_name]
@@ -845,6 +1088,94 @@ def _full_region_rate(
     return sum(1 for seed in seeds if runner(seed)) / len(seeds)
 
 
+def _run_arm_candidate_summary(
+    seed: int,
+    arm_name: str,
+    *,
+    rates: GEcoRates,
+    steps: int,
+    vh_params: GEcoVHParams,
+) -> dict[str, float | bool]:
+    arms = {arm.name: arm for arm in build_g_eco_arms(vh_params=vh_params)}
+    arm = arms[arm_name]
+    env = _env_for(seed, rates)
+    full_region = True
+    survival_steps = 0
+    irreversible_loss = 0.0
+    for _ in range(steps):
+        observation = arm.substrate.observe(env)
+        action = arm.select(observation)
+        if action is None:
+            break
+        env.act(action)
+        survival_steps += int(env.alive)
+        irreversible_loss = max(irreversible_loss, 100.0 - env.state.integrity)
+        full_region = full_region and entered_viable_region(env.state)
+        if not env.alive:
+            full_region = False
+            break
+    return {
+        "full_region": full_region,
+        "survival_steps": float(survival_steps),
+        "irreversible_loss": irreversible_loss,
+    }
+
+
+def _vh_parameter_grid_hash() -> str:
+    payload = {
+        label: params.to_dict()
+        for label, params in sorted(VH_PARAMETER_GRID, key=lambda item: item[0])
+    }
+    return _canonical_hash(payload)
+
+
+def select_vh_parameters(
+    rates_freeze: GEcoRatesFreeze,
+    *,
+    seeds: tuple[int, ...] = CALIBRATION_SEEDS,
+    steps: int = 36,
+) -> GEcoVHParameterFreeze:
+    """Select VH params on calibration seeds and expose no performance values."""
+    if not seeds:
+        raise ValueError("seeds must be non-empty")
+    best_score: tuple[float, float, float] | None = None
+    best_label = ""
+    best_params: GEcoVHParams | None = None
+    for label, params in VH_PARAMETER_GRID:
+        full_region_count = 0.0
+        survival_total = 0.0
+        irreversible_total = 0.0
+        for seed in seeds:
+            summary = _run_arm_candidate_summary(
+                seed,
+                "VH",
+                rates=rates_freeze.rates,
+                steps=steps,
+                vh_params=params,
+            )
+            full_region_count += float(bool(summary["full_region"]))
+            survival_total += float(summary["survival_steps"])
+            irreversible_total += float(summary["irreversible_loss"])
+        score = (
+            full_region_count,
+            survival_total,
+            -irreversible_total,
+        )
+        if best_score is None or score > best_score:
+            best_score = score
+            best_label = label
+            best_params = params
+    assert best_params is not None
+    return GEcoVHParameterFreeze(
+        selected_label=best_label,
+        params=best_params,
+        seeds=seeds,
+        steps=steps,
+        parameter_grid_hash=_vh_parameter_grid_hash(),
+    )
+
+
+@lru_cache(maxsize=16)
 def scan_rate_grid(
     *,
     seeds: tuple[int, ...] = RATE_SEEDS,
@@ -855,17 +1186,18 @@ def scan_rate_grid(
         raise ValueError("seeds must be non-empty")
     for rates in _rate_grid():
         naive = _full_region_rate(
-            seeds, lambda seed, r=rates: _run_naive_full_region(seed, rates=r, steps=steps)
+            seeds,
+            lambda seed, r=rates: _run_naive_full_region(seed, rates=r, steps=steps),
         )
         oracle = _full_region_rate(
-            seeds, lambda seed, r=rates: _run_full_region(
+            seeds,
+            lambda seed, r=rates: _run_full_region(
                 seed, "HOMEOSTATIC_ORACLE", rates=r, steps=steps
-            )
+            ),
         )
         wcref = _full_region_rate(
-            seeds, lambda seed, r=rates: _run_full_region(
-                seed, "WCREF", rates=r, steps=steps
-            )
+            seeds,
+            lambda seed, r=rates: _run_full_region(seed, "WCREF", rates=r, steps=steps),
         )
         if naive == 0.0 and oracle > 0.0 and wcref > 0.0:
             return GEcoRatesFreeze(
@@ -882,7 +1214,14 @@ def scan_rate_grid(
     )
 
 
-def freeze_battery_parameters() -> GEcoBatteryFreeze:
+def freeze_battery_parameters(
+    rates_freeze: GEcoRatesFreeze | None = None,
+    *,
+    seeds: tuple[int, ...] = CALIBRATION_SEEDS,
+    steps: int = 36,
+) -> GEcoBatteryFreeze:
+    rates = rates_freeze if rates_freeze is not None else scan_rate_grid()
+    vh_parameter_freeze = select_vh_parameters(rates, seeds=seeds, steps=steps)
     arms = {arm.name: arm for arm in build_g_eco_battery()}
     sources: dict[str, Mapping[str, Any]] = {}
     for name, arm in arms.items():
@@ -905,6 +1244,7 @@ def freeze_battery_parameters() -> GEcoBatteryFreeze:
             "VH": "candidate state-dependent homeostatic aggregation",
             "VH_noStake": "ablation constant urgency aggregation",
         },
+        vh_parameter_freeze=vh_parameter_freeze,
     )
 
 
@@ -939,14 +1279,19 @@ def _action_overlap(
     rates: GEcoRates,
     seeds: tuple[int, ...],
     steps: int,
+    vh_params: GEcoVHParams | None = None,
 ) -> float:
     equal = 0
     total = 0
     for seed in seeds:
         left_env = _env_for(seed, rates)
         right_env = _env_for(seed, rates)
-        left_arm = {arm.name: arm for arm in build_g_eco_arms()}[left_name]
-        right_arm = {arm.name: arm for arm in build_g_eco_arms()}[right_name]
+        left_arm = {arm.name: arm for arm in build_g_eco_arms(vh_params=vh_params)}[
+            left_name
+        ]
+        right_arm = {arm.name: arm for arm in build_g_eco_arms(vh_params=vh_params)}[
+            right_name
+        ]
         for _ in range(steps):
             left_action = left_arm.select(left_arm.substrate.observe(left_env))
             right_action = right_arm.select(right_arm.substrate.observe(right_env))
@@ -968,14 +1313,19 @@ def build_baseline_audit(
     seeds: tuple[int, ...] = CALIBRATION_SEEDS,
     steps: int = 36,
 ) -> GEcoBaselineAudit:
-    del battery_freeze
     rates = rates_freeze.rates
+    vh_params = battery_freeze.vh_parameter_freeze.params
     vh_rate = _full_region_rate(
-        seeds, lambda seed: _run_full_region(seed, "VH", rates=rates, steps=steps)
+        seeds,
+        lambda seed: _run_full_region(
+            seed, "VH", rates=rates, steps=steps, vh_params=vh_params
+        ),
     )
     no_stake_rate = _full_region_rate(
         seeds,
-        lambda seed: _run_full_region(seed, "VH_noStake", rates=rates, steps=steps),
+        lambda seed: _run_full_region(
+            seed, "VH_noStake", rates=rates, steps=steps, vh_params=vh_params
+        ),
     )
     minimax_rate = _full_region_rate(
         seeds,
@@ -985,17 +1335,27 @@ def build_baseline_audit(
         _full_region_rate(
             seeds,
             lambda seed, arm_name=arm_name: _run_full_region(
-                seed, arm_name, rates=rates, steps=steps
+                seed, arm_name, rates=rates, steps=steps, vh_params=vh_params
             ),
         )
         for arm_name in GECO_BATTERY_NAMES
     )
 
     overlap_vh_no_stake = _action_overlap(
-        "VH", "VH_noStake", rates=rates, seeds=seeds, steps=steps
+        "VH",
+        "VH_noStake",
+        rates=rates,
+        seeds=seeds,
+        steps=steps,
+        vh_params=vh_params,
     )
     overlap_vh_minimax = _action_overlap(
-        "VH", "MINIMAX", rates=rates, seeds=seeds, steps=steps
+        "VH",
+        "MINIMAX",
+        rates=rates,
+        seeds=seeds,
+        steps=steps,
+        vh_params=vh_params,
     )
     sep_vh = vh_rate - strongest_battery_rate
     sep_no_stake = no_stake_rate - strongest_battery_rate
@@ -1004,8 +1364,7 @@ def build_baseline_audit(
 
     halt_booleans = {
         "ablation_invalid": overlap_vh_no_stake > 0.90,
-        "ablation_hitchhiking": sep_no_stake >= 0.5 * sep_vh
-        or ablation_delta <= 0.05,
+        "ablation_hitchhiking": sep_no_stake >= 0.5 * sep_vh or ablation_delta <= 0.05,
         "vh_minimax_indistinguishable": overlap_vh_minimax >= 0.90
         or indist_delta <= 0.05,
         "theta_degenerate": 0.5 * rates_freeze.oracle_full_region_rate

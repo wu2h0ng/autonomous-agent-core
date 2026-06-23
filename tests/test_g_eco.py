@@ -373,7 +373,9 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
         self.assertEqual(payload["status"], "frozen_candidate")
         self.assertEqual(payload["seed_range"], [1800, 1809])
         self.assertEqual(payload["tri_border"]["naive_uniform_full_region_rate"], 0.0)
-        self.assertGreater(payload["tri_border"]["homeostatic_oracle_full_region_rate"], 0.0)
+        self.assertGreater(
+            payload["tri_border"]["homeostatic_oracle_full_region_rate"], 0.0
+        )
         self.assertGreater(payload["tri_border"]["wcref_full_region_rate"], 0.0)
         self.assertTrue(payload["firewall"]["no_battery_outputs_used"])
 
@@ -395,6 +397,30 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
         self.assertIn("RSTAR", payload["sources"])
         self.assertNotIn("enter_rate", json.dumps(payload, sort_keys=True))
 
+    def test_vh_parameter_freeze_is_calibration_selected_and_pinned(self) -> None:
+        from aac.g_eco import freeze_battery_parameters, scan_rate_grid
+
+        rates = scan_rate_grid(seeds=tuple(range(1800, 1810)), steps=36)
+        payload = freeze_battery_parameters(
+            rates, seeds=tuple(range(1810, 1815)), steps=24
+        ).to_dict()
+        repeat = freeze_battery_parameters(
+            rates, seeds=tuple(range(1810, 1815)), steps=24
+        ).to_dict()
+
+        self.assertEqual(payload["content_hash"], repeat["content_hash"])
+        self.assertIn("candidate_parameters", payload)
+        vh = payload["candidate_parameters"]["VH"]
+        self.assertEqual(vh["source"]["kind"], "calibration_grid")
+        self.assertEqual(vh["source"]["seed_range"], [1810, 1814])
+        self.assertEqual(vh["source"]["steps"], 24)
+        self.assertIn("selected_label", vh["source"])
+        self.assertIn("parameter_grid_hash", vh["source"])
+        self.assertIn("params", vh)
+        serialized = json.dumps(payload, sort_keys=True)
+        self.assertNotIn("enter_rate", serialized)
+        self.assertNotIn("full_region_rate", serialized)
+
     def test_theta_lock_formula_uses_only_naive_oracle_inputs(self) -> None:
         from aac.g_eco import GEcoHalt, derive_threshold_freeze
 
@@ -409,21 +435,63 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
         self.assertEqual(payload["kind"], "g_eco.thresholds")
         self.assertEqual(payload["theta_lo"], 0.05)
         self.assertEqual(payload["theta_hi"], 0.5)
-        self.assertEqual(set(payload["formula_inputs"]), {"naive_er", "oracle_er", "seed_count", "K"})
-        self.assertEqual(payload["content_hash"], derive_threshold_freeze(
-            naive_er=0.0,
-            oracle_er=1.0,
-            seed_count=10,
-            K=4,
-        ).to_dict()["content_hash"])
+        self.assertEqual(
+            set(payload["formula_inputs"]), {"naive_er", "oracle_er", "seed_count", "K"}
+        )
+        self.assertEqual(
+            payload["content_hash"],
+            derive_threshold_freeze(
+                naive_er=0.0,
+                oracle_er=1.0,
+                seed_count=10,
+                K=4,
+            ).to_dict()["content_hash"],
+        )
 
         serialized = json.dumps(payload, sort_keys=True)
         self.assertNotIn("VH", serialized)
         self.assertNotIn("MINIMAX", serialized)
+        self.assertEqual(
+            payload["verdict_mechanics"],
+            {
+                "bootstrap": {
+                    "B": 10000,
+                    "resample_seed": 611038,
+                    "ci_method": "percentile",
+                },
+                "battery_best_tie_break": [
+                    "enter_rate_desc",
+                    "survival_steps_desc",
+                    "irreversible_loss_asc",
+                    "arm_name_asc",
+                ],
+                "comparison": {
+                    "epsilon": 1e-12,
+                    "rounding": "none",
+                },
+            },
+        )
 
         with self.assertRaises(GEcoHalt) as ctx:
             derive_threshold_freeze(naive_er=0.90, oracle_er=1.0, seed_count=10, K=4)
         self.assertEqual(ctx.exception.code, "R4_THETA_DEGENERATE")
+
+    def test_static_firewalls_are_ast_guards_not_self_report_only(self) -> None:
+        from aac.g_eco import assert_g_eco_static_firewalls, assert_static_firewall
+
+        assert_g_eco_static_firewalls()
+
+        def bad_region(state: object) -> bool:
+            del state
+            MINIMAX_enter_rate = 1.0
+            return MINIMAX_enter_rate > 0.0
+
+        with self.assertRaises(AssertionError):
+            assert_static_firewall(
+                bad_region,
+                forbidden_identifiers={"MINIMAX_enter_rate", "enter_rate"},
+                context="negative-control",
+            )
 
     def test_audit_firewall_exposes_halt_booleans_not_arm_rates(self) -> None:
         from aac.g_eco import (
@@ -458,7 +526,9 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
         from experiments import g_eco
 
         with tempfile.TemporaryDirectory() as tmp:
-            out = g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            out = g_eco.write_pregate2_candidate(
+                Path(tmp), audit_seeds=tuple(range(1810, 1815))
+            )
             self.assertTrue((Path(tmp) / "g_eco.rates.json").exists())
             self.assertTrue((Path(tmp) / "g_eco.battery.json").exists())
             self.assertTrue((Path(tmp) / "g_eco.thresholds.json").exists())
@@ -469,16 +539,21 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "verifier is not implemented"):
                 g_eco.assert_gate2_unlocked(Path(tmp))
 
-    def test_pregate2_candidate_verifier_accepts_intact_candidate_but_keeps_gate_locked(self) -> None:
+    def test_pregate2_candidate_verifier_accepts_intact_candidate_but_keeps_gate_locked(
+        self,
+    ) -> None:
         from experiments import g_eco
 
         with tempfile.TemporaryDirectory() as tmp:
-            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            g_eco.write_pregate2_candidate(
+                Path(tmp), audit_seeds=tuple(range(1810, 1815))
+            )
             report = g_eco.verify_pregate2_candidate_bundle(Path(tmp))
 
             self.assertEqual(report["kind"], "G-Eco pre-Gate-2 candidate verification")
             self.assertEqual(report["gate2_locked"], True)
             self.assertEqual(report["verified_candidate_bundle"], True)
+            self.assertEqual(report["static_firewalls_verified"], True)
             self.assertIn("g_eco.baseline_audit.json", report["files"])
             self.assertNotIn("verdict", report)
 
@@ -490,11 +565,15 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
         from experiments import g_eco
 
         with tempfile.TemporaryDirectory() as tmp:
-            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            g_eco.write_pregate2_candidate(
+                Path(tmp), audit_seeds=tuple(range(1810, 1815))
+            )
             path = Path(tmp) / "g_eco.thresholds.json"
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["theta_lo"] = 0.49
-            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
 
             with self.assertRaises(GEcoHalt) as ctx:
                 g_eco.verify_pregate2_candidate_bundle(Path(tmp))
@@ -505,24 +584,31 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
         from experiments import g_eco
 
         with tempfile.TemporaryDirectory() as tmp:
-            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            g_eco.write_pregate2_candidate(
+                Path(tmp), audit_seeds=tuple(range(1810, 1815))
+            )
             (Path(tmp) / "g_eco.battery.json").unlink()
 
             with self.assertRaises(GEcoHalt) as ctx:
                 g_eco.verify_pregate2_candidate_bundle(Path(tmp))
             self.assertEqual(ctx.exception.code, "PREGATE2_MISSING_FILE")
 
-    def test_pregate2_candidate_verifier_rejects_audit_value_leak_even_with_valid_hash(self) -> None:
+    def test_pregate2_candidate_verifier_rejects_audit_value_leak_even_with_valid_hash(
+        self,
+    ) -> None:
         from aac.g_eco import GEcoHalt
         from experiments import g_eco
 
         with tempfile.TemporaryDirectory() as tmp:
-            g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            g_eco.write_pregate2_candidate(
+                Path(tmp), audit_seeds=tuple(range(1810, 1815))
+            )
             path = Path(tmp) / "g_eco.baseline_audit.json"
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["mechanical_outputs"]["full_region_delta"] = 0.02
             path.write_text(
-                json.dumps(self._rehash_payload(payload), indent=2, sort_keys=True) + "\n",
+                json.dumps(self._rehash_payload(payload), indent=2, sort_keys=True)
+                + "\n",
                 encoding="utf-8",
             )
 
