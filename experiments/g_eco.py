@@ -16,9 +16,13 @@ from typing import Any
 from aac.g_eco import (
     GEcoMetrics,
     assert_no_calibration_refs_in_rfinal,
+    build_baseline_audit,
     build_calibration_refs,
+    derive_threshold_freeze,
+    freeze_battery_parameters,
     build_g_eco_arms,
     rfinal_arm_names,
+    scan_rate_grid,
 )
 from envs.ecological_4cond import Ecological4CondEnv
 
@@ -90,6 +94,58 @@ def mechanism_check(
     }
 
 
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def write_pregate2_candidate(
+    out_dir: Path,
+    *,
+    rate_seeds: tuple[int, ...] = RATE_SEEDS,
+    audit_seeds: tuple[int, ...] = CALIBRATION_SEEDS,
+    steps: int = 36,
+) -> dict[str, Any]:
+    """Write pre-Gate-2 freeze candidates without unlocking Gate-2.
+
+    These files are mechanical candidates for founder/CTO review. Their
+    existence is deliberately insufficient for r-final: ``assert_gate2_unlocked``
+    still hard-fails until a real Gate-2 verifier exists and is co-signed.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rates = scan_rate_grid(seeds=rate_seeds, steps=steps)
+    battery = freeze_battery_parameters()
+    thresholds = derive_threshold_freeze(
+        naive_er=rates.naive_full_region_rate,
+        oracle_er=rates.oracle_full_region_rate,
+        seed_count=len(rate_seeds),
+        K=4,
+    )
+    audit = build_baseline_audit(
+        rates,
+        battery,
+        seeds=audit_seeds,
+        steps=steps,
+    )
+
+    payloads = {
+        "g_eco.rates.json": rates.to_dict(),
+        "g_eco.battery.json": battery.to_dict(),
+        "g_eco.thresholds.json": thresholds.to_dict(),
+        "g_eco.baseline_audit.json": audit.to_dict(),
+    }
+    for filename, payload in payloads.items():
+        _write_json(out_dir / filename, payload)
+    return {
+        "kind": "G-Eco pre-Gate-2 freeze candidates",
+        "gate2_locked": True,
+        "files": sorted(payloads),
+        "note": (
+            "Candidate freeze artifacts only; no founder/CTO Gate-2 co-sign, "
+            "no r-final, no verdict."
+        ),
+    }
+
+
 def _print_result(result: dict[str, Any]) -> None:
     print(json.dumps(result, indent=2, sort_keys=True))
 
@@ -101,8 +157,15 @@ def main(argv: list[str] | None = None) -> None:
             "G-Eco Gate-2 locked: lower-half entrypoint cannot run "
             "freeze/r-final/verdict"
         )
+    if args and args[0] == "pregate2-candidates":
+        out_dir = Path(args[1]) if len(args) > 1 else Path(".")
+        _print_result(write_pregate2_candidate(out_dir))
+        return
     if args and args[0] not in {"smoke", "mechanism-check"}:
-        raise SystemExit("usage: python -m experiments.g_eco [smoke|mechanism-check]")
+        raise SystemExit(
+            "usage: python -m experiments.g_eco "
+            "[smoke|mechanism-check|pregate2-candidates OUT_DIR]"
+        )
     _print_result(mechanism_check())
 
 
