@@ -25,7 +25,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local verification is 414 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with OpenAPI contract drift check included in `make ci`; `ci-local-full` also passed against a disposable local PostgreSQL test container.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local feature-branch verification is 415 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with OpenAPI contract drift check included in `make ci`; the most recent full local PostgreSQL parity run remains recorded in `docs/CURRENT_STATE.yaml`.
 
 ### Delivered Capabilities
 
