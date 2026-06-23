@@ -1053,6 +1053,28 @@
           "widget_id": {
             "title": "Widget Id",
             "type": "string"
+          },
+          "x_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X Field"
+          },
+          "y_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y Field"
           }
         },
         "required": [

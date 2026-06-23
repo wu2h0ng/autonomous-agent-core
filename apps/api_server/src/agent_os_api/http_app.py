@@ -109,6 +109,8 @@ class UserResultDashboardWidget(BaseModel):
     row_count: int | None = None
     columns: list[str] = Field(default_factory=list)
     preview_rows: list[dict[str, Any]] = Field(default_factory=list)
+    x_field: str | None = None
+    y_field: str | None = None
 
 
 class UserResultDashboard(BaseModel):

@@ -51,7 +51,14 @@ class RunServiceTest(unittest.TestCase):
         dashboard = artifact["dashboard"]
         widget_types = {widget["type"] for widget in dashboard["widgets"]}
         self.assertIn("kpi", widget_types)
+        self.assertIn("line_chart", widget_types)
         self.assertIn("table", widget_types)
+        chart = next(widget for widget in dashboard["widgets"] if widget["type"] == "line_chart")
+        self.assertEqual(chart["x_field"], "order_date")
+        self.assertEqual(chart["y_field"], "value")
+        self.assertEqual(chart["row_count"], summary["row_count"])
+        self.assertEqual(chart["preview_rows"], [{"order_date": "2026-05-31", "value": 128800.0}])
+        self.assertEqual(chart["evidence_chain_id"], summary["evidence_chain_id"])
         table = next(widget for widget in dashboard["widgets"] if widget["type"] == "table")
         self.assertEqual(table["row_count"], summary["row_count"])
         self.assertEqual(table["evidence_chain_id"], summary["evidence_chain_id"])
@@ -69,6 +76,67 @@ class RunServiceTest(unittest.TestCase):
         self.assertTrue(business_action["approval_id"].startswith("approval-"))
         self.assertEqual(business_action["evidence_chain_id"], summary["evidence_chain_id"])
         self.assertEqual(business_action["trace_id"], summary["trace_id"])
+
+    def test_dashboard_chart_fields_are_derived_from_rows_and_metric_contract(self) -> None:
+        runtime = ContentCommerceRuntimeFactory(
+            RuntimeFactoryConfig(
+                domain_pack_path=DOMAIN_PACK,
+                sample_rows=(
+                    {"campaign": "search", "gmv": 10.0},
+                    {"campaign": "social", "gmv": 20.0},
+                ),
+            )
+        ).build()
+
+        summary = run_service(runtime, question="GMV", parameters=RUN_PARAMS)
+
+        widgets = summary["user_result"]["dashboard"]["widgets"]
+        chart = next(widget for widget in widgets if widget["type"] == "line_chart")
+        self.assertEqual(chart["x_field"], "campaign")
+        self.assertEqual(chart["y_field"], "gmv")
+        self.assertEqual(
+            chart["preview_rows"],
+            [{"campaign": "search", "gmv": 10.0}, {"campaign": "social", "gmv": 20.0}],
+        )
+        kpi = next(widget for widget in widgets if widget["type"] == "kpi")
+        self.assertEqual(kpi["value"], 10.0)
+
+    def test_dashboard_does_not_fabricate_chart_without_numeric_measure(self) -> None:
+        runtime = ContentCommerceRuntimeFactory(
+            RuntimeFactoryConfig(
+                domain_pack_path=DOMAIN_PACK,
+                sample_rows=({"campaign": "search", "segment": "new"},),
+            )
+        ).build()
+
+        summary = run_service(runtime, question="GMV", parameters=RUN_PARAMS)
+
+        widget_types = {widget["type"] for widget in summary["user_result"]["dashboard"]["widgets"]}
+        self.assertIn("kpi", widget_types)
+        self.assertIn("table", widget_types)
+        self.assertNotIn("line_chart", widget_types)
+
+    def test_business_action_status_distinguishes_proposal_from_approval_wait(self) -> None:
+        runtime = _build_runtime()
+
+        proposal_summary = run_service(runtime, question="GMV", parameters=RUN_PARAMS)
+        governed_action_summary = run_service(
+            runtime, question="GMV 记录行动", parameters=RUN_PARAMS
+        )
+
+        proposal = proposal_summary["user_result"]["business_action"]
+        self.assertEqual(proposal["connector_name"], "manual_review")
+        self.assertEqual(proposal["action_type"], "propose")
+        self.assertFalse(proposal["approval_required"])
+        self.assertIsNone(proposal["approval_id"])
+        self.assertEqual(proposal["status"], "proposed")
+
+        governed_action = governed_action_summary["user_result"]["business_action"]
+        self.assertEqual(governed_action["connector_name"], "action_record")
+        self.assertEqual(governed_action["action_type"], "execute")
+        self.assertTrue(governed_action["approval_required"])
+        self.assertTrue(governed_action["approval_id"].startswith("approval-"))
+        self.assertEqual(governed_action["status"], "awaiting_approval")
 
     def test_run_service_blocked_returns_structured_block(self) -> None:
         # 'revenue' parses to a metric the pack does not define -> UNKNOWN_METRIC.

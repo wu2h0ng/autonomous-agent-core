@@ -133,6 +133,18 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             "table",
             {widget["type"] for widget in artifact["dashboard"]["widgets"]},
         )
+        chart = next(
+            (
+                widget
+                for widget in artifact["dashboard"]["widgets"]
+                if widget["type"] == "line_chart"
+            ),
+            None,
+        )
+        self.assertIsNotNone(chart)
+        self.assertEqual(chart["x_field"], "order_date")
+        self.assertEqual(chart["y_field"], "value")
+        self.assertEqual(chart["preview_rows"], [{"order_date": "2026-05-31", "value": 128800.0}])
         self.assertEqual(artifact["business_action"]["connector_name"], "action_record")
         self.assertEqual(artifact["business_action"]["status"], "awaiting_approval")
         self.assertNotIn("action_parameters", artifact["business_action"])

@@ -36,10 +36,59 @@ def _primary_metric_value(rows: tuple[dict[str, Any], ...], metric_name: str) ->
     first = rows[0]
     if metric_name in first:
         return first[metric_name]
+    if (
+        "value" in first
+        and isinstance(first["value"], (int, float))
+        and not isinstance(first["value"], bool)
+    ):
+        return first["value"]
     for value in first.values():
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return value
     return None
+
+
+def _chart_fields(
+    rows: tuple[dict[str, Any], ...],
+    columns: list[str],
+    dimensions: tuple[str, ...],
+    metric_name: str,
+) -> tuple[str, str] | None:
+    if not rows:
+        return None
+    sample = rows[0]
+    x_field = next((dimension for dimension in dimensions if dimension in columns), None)
+    if x_field is None:
+        x_field = next(
+            (
+                column
+                for column in columns
+                if not isinstance(sample.get(column), (int, float))
+                or isinstance(sample.get(column), bool)
+            ),
+            None,
+        )
+    numeric_fields = [
+        column
+        for column in columns
+        if isinstance(sample.get(column), (int, float)) and not isinstance(sample.get(column), bool)
+    ]
+    if not x_field or not numeric_fields:
+        return None
+    if metric_name in numeric_fields:
+        y_field = metric_name
+    elif "value" in numeric_fields:
+        y_field = "value"
+    else:
+        y_field = numeric_fields[0]
+    return x_field, y_field
+
+
+def _business_action_status(proposal: Any, action_result: dict[str, Any]) -> str:
+    status = action_result.get("status")
+    if not proposal.approval_required and status in {"pending_approval", "awaiting_approval", None}:
+        return "proposed"
+    return status or "proposed"
 
 
 def _build_user_result_artifact(result: Any) -> dict[str, Any]:
@@ -60,6 +109,43 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
     preview = _preview_rows(rows)
     columns = _columns(rows)
     metric_value = _primary_metric_value(rows, metric.metric_name)
+    chart_fields = _chart_fields(rows, columns, metric.dimensions, metric.metric_name)
+    widgets = [
+        {
+            "widget_id": "primary_metric",
+            "type": "kpi",
+            "title": metric.display_name,
+            "value": metric_value,
+            "unit": metric.unit,
+            "evidence_chain_id": evidence.evidence_chain_id,
+        },
+    ]
+    if chart_fields is not None:
+        x_field, y_field = chart_fields
+        widgets.append(
+            {
+                "widget_id": "metric_trend",
+                "type": "line_chart",
+                "title": f"{metric.display_name} trend",
+                "row_count": evidence.query_result.row_count,
+                "columns": columns,
+                "preview_rows": preview,
+                "x_field": x_field,
+                "y_field": y_field,
+                "evidence_chain_id": evidence.evidence_chain_id,
+            }
+        )
+    widgets.append(
+        {
+            "widget_id": "result_rows",
+            "type": "table",
+            "title": "Result rows",
+            "row_count": evidence.query_result.row_count,
+            "columns": columns,
+            "preview_rows": preview,
+            "evidence_chain_id": evidence.evidence_chain_id,
+        }
+    )
 
     return {
         "artifact_id": f"artifact-{trace_id}",
@@ -106,25 +192,7 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
         },
         "dashboard": {
             "title": f"{metric.display_name} dashboard",
-            "widgets": [
-                {
-                    "widget_id": "primary_metric",
-                    "type": "kpi",
-                    "title": metric.display_name,
-                    "value": metric_value,
-                    "unit": metric.unit,
-                    "evidence_chain_id": evidence.evidence_chain_id,
-                },
-                {
-                    "widget_id": "result_rows",
-                    "type": "table",
-                    "title": "Result rows",
-                    "row_count": evidence.query_result.row_count,
-                    "columns": columns,
-                    "preview_rows": preview,
-                    "evidence_chain_id": evidence.evidence_chain_id,
-                },
-            ],
+            "widgets": widgets,
         },
         "decision": {
             "recommendation": proposal.recommended_action,
@@ -142,7 +210,7 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
             "risk_level": proposal.risk_level.value,
             "approval_required": proposal.approval_required,
             "approver_role": proposal.approver_role,
-            "status": action_result.get("status", "proposed"),
+            "status": _business_action_status(proposal, action_result),
             "operation_id": action_result.get("operation_id"),
             "approval_id": action_result.get("approval_id"),
             "evidence_chain_id": evidence.evidence_chain_id,
