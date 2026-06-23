@@ -62,3 +62,15 @@ Implement the G-Eco lower-half only:
 - Codex can now iterate on the G-Eco mechanism surface under tests without touching founder-reserved freeze and verdict gates.
 - The current engineering verdict remains ADR-0036/G13 NOT MET until a future frozen G-Eco r-final exists and is adjudicated under the parent protocol.
 - The next permissible implementation step is §6 calibration/freeze machinery only after the still-held Gate-2 leaves are explicitly resolved in the parent governance records.
+
+## Disclosed Stubs & §6 Blockers (2026-06-23)
+
+An adversarial discipline review (workflow `w4tinneni`) confirmed no falsification gate is moved in executed code, but found that several deferred-gate INPUTS are currently stubbed/proxied in a direction that favors VH, and were not disclosed above. Recording them honestly; remediation spec is `../docs/research/G-Eco-lowerhalf-discipline-fixes-2026-06-23.md` (must land before §6 calibration):
+
+- **Cheat references are alias stubs, not idealized controllers.** `HOMEOSTATIC_ORACLE` returns the runtime VH value and `WCREF` returns the runtime MINIMAX value — they are EQUAL to, not privileged over, the runtime arms. Spec §6/§4/§10.5 require a true-value oracle and an idealized worst-channel WCREF (info ≥ runtime MINIMAX). As stubs they would pre-open red-team seam ① (oracle ∈ VH family) if wired into §6 unchanged. **§6-blocker (F2).**
+- **Battery P0/RSTAR/O1/BT are fresh proxies, not the frozen ADR values.** Spec §2 + handoff §0 name P0=ADR-0024, RSTAR=ADR-0034, O1=existing frozen, BT=ADR-0030 as non-negotiable reuse; the implementation invents local heuristics that may be weaker comparators. **§6-blocker (F3).**
+- **The "four conditions" enumeration above (line 44) is inaccurate.** It lists "drifting regimes" as the fourth condition; spec §3's fourth condition is **de-completeness** (partial+lagged+noisy observation). The env currently returns full observable state. De-completeness is absent. **Fix-or-defer (F4).**
+- **VH has no trajectory/irreversibility term and `lookahead_depth` is a dead parameter** (always one transition step). The divergence axis (instantaneous-worst ≠ trajectory-worst) is therefore not exploitable by the mechanism. **Fix-or-defer (F5).**
+- **Two test-validity gaps:** the "cheats never enter r-final" test only checks `calibration_only` flags (does not assert disjointness from r-final arms — F1, the central firewall), and the C7-tighten test is vacuous at its seed (F6).
+
+KEEP/CHECKPOINT status of `c1363fa` is unchanged; these are pre-§6 remediation items, not a retraction.
