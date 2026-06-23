@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current implementation slice (2026-06-23):** **ADR-0002 — governed-action outcome-loop v0** is **Accepted**. Lower-half contracts are implemented (causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring), and the scoped upper-half is implemented on local branch `codex/adr-0002-upper-half`: CLI `adopt`, approval-resume governed execution, approval-bound operation/action payload checks, D6 red eval, and one rollback demonstration. This is still pending review/merge/release and does not add automatic R4/R5 execution. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
+**Current implementation slice (2026-06-23):** **ADR-0002 — governed-action outcome-loop v0** is **Accepted**. Lower-half contracts are implemented (causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring), and the scoped upper-half is implemented locally: CLI `adopt`, approval-resume governed execution, approval-bound operation/action/evidence checks, D6 red eval, and one rollback demonstration. This remains pending push/release authorization and does not add automatic R4/R5 execution. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
 
 ## Project Position (2026-06-12 repositioning)
 

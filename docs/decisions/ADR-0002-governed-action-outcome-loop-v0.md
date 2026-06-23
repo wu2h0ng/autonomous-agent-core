@@ -2,7 +2,7 @@
 
 - Status: **Accepted — gate recorded 2026-06-22**（founder 批准 D2；CEO→Product→Architecture→CTO gate 签批已记录，可按 SPEC 起 Codex 实现：T1→T7，8 RED eval 红先行，T3/T4 走 claude-diff-review，T5 回滚演示需 CTO 验收）。**边界不变（见 §5）**：仅宣称 P5 治理 + 受治理可逆动作，**不**宣称 G-Eco 自主；`execute_approved_operation` **不得**新建任何 R4/R5 自动执行路径（proposal→approval→governed-execute 全程人审）。**保留 founder 门**：merge-to-main / 对外发布不随实现自动放行。
 - Date: 2026-06-22
-- Implementation status: local feature branch `codex/adr-0002-upper-half` implements the scoped lower-half and upper-half, including review hardening for connector risk ceilings, dry-run/snapshot fail-fast behavior, approved operation/action/evidence binding, and approved-execution audit trace persistence. Pending review, merge, and release authorization; no automatic R4/R5 execution claim.
+- Implementation status: local main implements the scoped lower-half and upper-half, including review hardening for connector risk ceilings, dry-run/snapshot fail-fast behavior, approved operation/action/evidence binding, and approved-execution audit trace persistence. Pending push and release authorization; no automatic R4/R5 execution claim.
 - 对侧 ADR: ADR-0001（P5 substrate harvest）—— 本 ADR 构建在 P5.1a / P5.1b / P5.2a 已落地的底座之上，不重建。
 - 边界: 仅宣称 **P5 治理 / 可审计 + 受治理动作（可验证回滚 + operator 独占结果通道）**；**不**宣称 G-Eco 自主（参见 `docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md`）。
 - Risk class: R3（工程变更中高风险；范围内演示的业务动作为 R4 级，但**可逆**且**proposal→approval→governed-execute**全程受治理，MVP 不做 R4/R5 自动执行）。
@@ -93,4 +93,4 @@ P5.1a/P5.1b/P5.2a 已合入 main（315 单测 + 2 eval 通过，验证于 2026-0
 - "lite" = 功能受限但真实（边界 #16）：v0 必须有真实入口、负路径、能因绕过 gate 而失败的测试、trace 产物——禁止 skeleton/stub。
 
 ---
-*本 ADR 为 Accepted（gate recorded 2026-06-22）。本地 feature branch 已实现 scoped v0，仍须经 review / merge / release gate；不得据此宣称自动 R4/R5 执行、外部发布或 G-Eco/autonomy 结论。*
+*本 ADR 为 Accepted（gate recorded 2026-06-22）。本地 main 已实现 scoped v0，仍须经 push / release gate；不得据此宣称自动 R4/R5 执行、外部发布或 G-Eco/autonomy 结论。*
