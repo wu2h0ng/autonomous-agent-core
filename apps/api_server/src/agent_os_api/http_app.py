@@ -19,6 +19,7 @@ reject with 503 rather than silently allowing access; a wrong/missing key return
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 import secrets
 from typing import Annotated, Any, Literal
@@ -44,6 +45,56 @@ OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 API_KEY_HEADER = "X-API-Key"
 OPERATOR_API_KEY_HEADER = "X-Operator-Key"
 APPROVAL_EXECUTE_PATH = "/approvals/{approval_id}/execute"
+API_SCOPE_RUN_INTERNAL = "runs:internal"
+API_SCOPE_RUN_EXTERNAL = "runs:external"
+API_SCOPE_OUTCOME_WRITE = "outcomes:write"
+API_SCOPE_ADOPTION_WRITE = "adoptions:write"
+API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
+API_SCOPE_TRACE_READ = "traces:read"
+API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
+
+
+@dataclass(frozen=True)
+class ApiPrincipal:
+    kind: Literal["internal", "external_report", "operator"]
+    scopes: frozenset[str]
+    audience_ceiling: Literal["internal", "external"] | None = None
+
+    def allows(self, scope: str) -> bool:
+        return scope in self.scopes
+
+
+API_PRINCIPAL_INTERNAL = ApiPrincipal(
+    kind="internal",
+    scopes=frozenset(
+        {
+            API_SCOPE_RUN_INTERNAL,
+            API_SCOPE_RUN_EXTERNAL,
+            API_SCOPE_OUTCOME_WRITE,
+            API_SCOPE_ADOPTION_WRITE,
+            API_SCOPE_KNOWLEDGE_SEARCH,
+            API_SCOPE_TRACE_READ,
+        }
+    ),
+    audience_ceiling="internal",
+)
+API_PRINCIPAL_EXTERNAL_REPORT = ApiPrincipal(
+    kind="external_report",
+    scopes=frozenset({API_SCOPE_RUN_EXTERNAL}),
+    audience_ceiling="external",
+)
+API_PRINCIPAL_OPERATOR = ApiPrincipal(
+    kind="operator",
+    scopes=frozenset({API_SCOPE_APPROVAL_EXECUTE}),
+)
+
+
+def authorize_principal_scope(principal: ApiPrincipal, required_scope: str) -> None:
+    if not principal.allows(required_scope):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Principal {principal.kind} lacks required scope {required_scope}.",
+        )
 
 
 def _key_matches(candidate: str | None, configured: str | None) -> bool:
@@ -500,21 +551,9 @@ def create_app(
     app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
 
-    def require_api_key(x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER)) -> None:
-        if not app.state.api_key:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    "API key is not configured. Set the AGENT_OS_API_KEY environment "
-                    "variable (or pass api_key to create_app) to enable this endpoint."
-                ),
-            )
-        if not _key_matches(x_api_key, app.state.api_key):
-            raise HTTPException(status_code=401, detail="Invalid or missing API key.")
-
-    def require_run_api_key(
+    def authenticate_api_key(
         x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
-    ) -> Literal["internal", "external"]:
+    ) -> ApiPrincipal:
         if not app.state.api_key:
             raise HTTPException(
                 status_code=503,
@@ -524,14 +563,21 @@ def create_app(
                 ),
             )
         if _key_matches(x_api_key, app.state.api_key):
-            return "internal"
+            return API_PRINCIPAL_INTERNAL
         if _key_matches(x_api_key, app.state.external_api_key):
-            return "external"
+            return API_PRINCIPAL_EXTERNAL_REPORT
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    def require_api_scope(required_scope: str):
+        def dependency(principal: ApiPrincipal = Depends(authenticate_api_key)) -> ApiPrincipal:
+            authorize_principal_scope(principal, required_scope)
+            return principal
+
+        return dependency
 
     def require_operator_api_key(
         x_operator_key: str | None = Header(default=None, alias=OPERATOR_API_KEY_HEADER),
-    ) -> None:
+    ) -> ApiPrincipal:
         if not app.state.operator_api_key:
             raise HTTPException(
                 status_code=503,
@@ -543,6 +589,8 @@ def create_app(
             )
         if not _key_matches(x_operator_key, app.state.operator_api_key):
             raise HTTPException(status_code=401, detail="Invalid or missing operator key.")
+        authorize_principal_scope(API_PRINCIPAL_OPERATOR, API_SCOPE_APPROVAL_EXECUTE)
+        return API_PRINCIPAL_OPERATOR
 
     @app.post(
         "/runs",
@@ -559,9 +607,13 @@ def create_app(
     )
     def post_run(
         body: RunRequest,
-        principal_audience: Literal["internal", "external"] = Depends(require_run_api_key),
+        principal: ApiPrincipal = Depends(authenticate_api_key),
     ) -> dict[str, Any]:
-        audience = "external" if principal_audience == "external" else body.audience
+        audience = "external" if principal.audience_ceiling == "external" else body.audience
+        required_scope = (
+            API_SCOPE_RUN_INTERNAL if audience == "internal" else API_SCOPE_RUN_EXTERNAL
+        )
+        authorize_principal_scope(principal, required_scope)
         result = run_service(
             app.state.runtime,
             question=body.question,
@@ -571,18 +623,21 @@ def create_app(
         if result.get("status") == "blocked":
             block = (
                 _external_block_projection(result["block"])
-                if principal_audience == "external"
+                if principal.audience_ceiling == "external"
                 else result["block"]
             )
             # Expected business block (unsafe SQL, unknown metric, ...) -> 422,
             # not a 500: the request was understood but the loop refused to answer.
             raise HTTPException(status_code=422, detail=block)
-        if principal_audience == "external":
+        if principal.audience_ceiling == "external":
             return _external_run_response_projection(result)
         return result
 
     @app.post("/outcomes", response_model=OutcomeResponse)
-    def post_outcome(body: OutcomeRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def post_outcome(
+        body: OutcomeRequest,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_OUTCOME_WRITE)),
+    ) -> dict[str, Any]:
         # Self-report only (P5.1b): records feedback, does NOT promote knowledge.
         return record_outcome_service(
             app.state.runtime,
@@ -593,7 +648,10 @@ def create_app(
         )
 
     @app.post("/adoptions", response_model=AdoptionResponse)
-    def post_adoption(body: AdoptionRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def post_adoption(
+        body: AdoptionRequest,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_ADOPTION_WRITE)),
+    ) -> dict[str, Any]:
         # The operator value channel (P5.1b): attest realized external value and
         # promote the trace's knowledge. The only surface that drives promotion.
         if app.state.adoption_ingest is None:
@@ -635,7 +693,7 @@ def create_app(
     def post_approval_execute(
         approval_id: str,
         body: ApprovalExecuteRequest,
-        _: None = Depends(require_operator_api_key),
+        _: ApiPrincipal = Depends(require_operator_api_key),
     ) -> dict[str, Any]:
         # Approval-bound action execution: approve then execute the exact pending
         # context captured by the prior /runs call. No automatic R4/R5 execution.
@@ -671,7 +729,7 @@ def create_app(
         metric: str | None = Query(default=None, description="filter: exact metric name"),
         owner: str | None = Query(default=None, description="filter: exact owner"),
         k: int = Query(default=5, ge=1, le=50),
-        _: None = Depends(require_api_key),
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_SEARCH)),
     ) -> dict[str, Any]:
         if app.state.retriever is None:
             raise HTTPException(
@@ -684,7 +742,10 @@ def create_app(
         return search_service(app.state.retriever, text=q, metric_name=metric, owner=owner, k=k)
 
     @app.get("/traces/{trace_id}", response_model=TraceResponse)
-    def get_trace(trace_id: str, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def get_trace(
+        trace_id: str,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TRACE_READ)),
+    ) -> dict[str, Any]:
         payload = trace_service(app.state.runtime.trace_store, trace_id=trace_id)
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No run trace for {trace_id!r}.")

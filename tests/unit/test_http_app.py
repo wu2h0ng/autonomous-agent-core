@@ -430,6 +430,67 @@ class HttpAppBlockTest(unittest.TestCase):
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpAppAuthBoundaryTest(unittest.TestCase):
+    def test_api_principal_scope_contract_is_explicit(self) -> None:
+        import agent_os_api.http_app as http_app
+
+        required_names = [
+            "API_PRINCIPAL_INTERNAL",
+            "API_PRINCIPAL_EXTERNAL_REPORT",
+            "API_PRINCIPAL_OPERATOR",
+            "API_SCOPE_RUN_INTERNAL",
+            "API_SCOPE_RUN_EXTERNAL",
+            "API_SCOPE_OUTCOME_WRITE",
+            "API_SCOPE_ADOPTION_WRITE",
+            "API_SCOPE_KNOWLEDGE_SEARCH",
+            "API_SCOPE_TRACE_READ",
+            "API_SCOPE_APPROVAL_EXECUTE",
+        ]
+        for name in required_names:
+            self.assertTrue(hasattr(http_app, name), f"{name} is missing")
+
+        internal = http_app.API_PRINCIPAL_INTERNAL
+        external = http_app.API_PRINCIPAL_EXTERNAL_REPORT
+        operator = http_app.API_PRINCIPAL_OPERATOR
+
+        self.assertEqual(internal.kind, "internal")
+        self.assertEqual(external.kind, "external_report")
+        self.assertEqual(operator.kind, "operator")
+        self.assertEqual(internal.audience_ceiling, "internal")
+        self.assertEqual(external.audience_ceiling, "external")
+        self.assertIsNone(operator.audience_ceiling)
+
+        self.assertTrue(internal.allows(http_app.API_SCOPE_RUN_INTERNAL))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_RUN_EXTERNAL))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_OUTCOME_WRITE))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_ADOPTION_WRITE))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertFalse(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
+
+        self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
+        self.assertTrue(external.allows(http_app.API_SCOPE_RUN_EXTERNAL))
+        self.assertFalse(external.allows(http_app.API_SCOPE_OUTCOME_WRITE))
+        self.assertFalse(external.allows(http_app.API_SCOPE_ADOPTION_WRITE))
+        self.assertFalse(external.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
+        self.assertFalse(external.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertFalse(external.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
+
+        self.assertEqual(operator.scopes, frozenset({http_app.API_SCOPE_APPROVAL_EXECUTE}))
+
+    def test_authorize_principal_scope_returns_403_for_recognized_wrong_role(self) -> None:
+        import agent_os_api.http_app as http_app
+
+        self.assertTrue(hasattr(http_app, "authorize_principal_scope"))
+
+        with self.assertRaises(Exception) as captured:
+            http_app.authorize_principal_scope(
+                http_app.API_PRINCIPAL_EXTERNAL_REPORT,
+                http_app.API_SCOPE_OUTCOME_WRITE,
+            )
+        self.assertEqual(captured.exception.status_code, 403)
+        self.assertIn("external_report", captured.exception.detail)
+        self.assertIn(http_app.API_SCOPE_OUTCOME_WRITE, captured.exception.detail)
+
     def test_missing_api_key_is_rejected(self) -> None:
         client = _make_client(API_KEY)
         resp = client.post("/runs", json=RUN_BODY)
@@ -460,7 +521,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             json={"trace_id": "trace-x", "outcome": "adopted"},
             headers={"X-API-Key": EXTERNAL_API_KEY},
         )
-        self.assertEqual(resp.status_code, 401)
+        self.assertEqual(resp.status_code, 403)
 
     def test_external_report_key_cannot_use_management_surfaces(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
@@ -474,9 +535,9 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         search_resp = client.get("/knowledge/search", params={"q": "GMV"}, headers=headers)
         trace_resp = client.get("/traces/trace-x", headers=headers)
 
-        self.assertEqual(adoption_resp.status_code, 401)
-        self.assertEqual(search_resp.status_code, 401)
-        self.assertEqual(trace_resp.status_code, 401)
+        self.assertEqual(adoption_resp.status_code, 403)
+        self.assertEqual(search_resp.status_code, 403)
+        self.assertEqual(trace_resp.status_code, 403)
 
     def test_external_report_key_cannot_execute_approval_as_operator(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
@@ -513,6 +574,20 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             "/approvals/approval-x/execute",
             json={"reason": "approved by operator", "approved_by": "ops@example.com"},
             headers={"X-Operator-Key": "nope"},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_operator_key_is_not_valid_on_run_api_key_channel(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post("/runs", json=RUN_BODY, headers={"X-API-Key": OPERATOR_KEY})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_internal_key_is_not_valid_on_operator_key_channel(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": API_KEY},
         )
         self.assertEqual(resp.status_code, 401)
 

@@ -64,7 +64,7 @@ Endpoints (protected by `X-API-Key` unless noted):
 - `POST /runs` — body `{question, parameters, audience?}` -> `run_service` summary.
   `audience` is `internal` by default; `external` redacts non-public result details in
   `user_result` without changing the underlying Trusted Loop evidence. The optional
-  `AGENT_OS_EXTERNAL_API_KEY` is report-only for this endpoint: it may call `/runs`, but
+  `AGENT_OS_EXTERNAL_API_KEY` is projection-only for this endpoint: it may call `/runs`, but
   the response is always capped to the external projection even when the request body asks
   for `audience=internal`. That projection also omits top-level provider, trace-step, and
   related-knowledge metadata from the HTTP response.
@@ -76,8 +76,19 @@ Auth boundary:
 - No key configured (neither `create_app(api_key=...)` nor `AGENT_OS_API_KEY`) -> protected
   routes reject with `503` so the operator configures a key rather than running open.
 - Missing or wrong `X-API-Key` -> `401`.
+- Recognized principal without the required scope -> `403`.
 - `AGENT_OS_EXTERNAL_API_KEY` is not a general API key; non-run management surfaces such as
   `/outcomes`, `/adoptions`, `/knowledge/search`, and `/traces/{id}` still require the
-  internal API key. This is a narrow report projection cap, not full RBAC or DLP.
+  internal API key. It still triggers a new `/runs` execution, so it is not a side-effect-free
+  read-only key. This is a narrow HTTP principal/scope and report projection cap, not full
+  RBAC or DLP.
 - Configured internal, external-report, and operator keys must be distinct; duplicate key
   values fail closed during app creation.
+
+Minimal principal/scope contract:
+
+| Principal | Credential channel | Scopes | Notes |
+|---|---|---|---|
+| `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read` | Can request either internal or external run projection; cannot execute approvals. |
+| `external_report` | `X-API-Key == AGENT_OS_EXTERNAL_API_KEY` | `runs:external` | Forced to external projection; cannot use management surfaces. |
+| `operator` | `X-Operator-Key == AGENT_OS_OPERATOR_API_KEY` | `approvals:execute` | Header channel is separate from `X-API-Key`; approval execution remains operator-only. |
