@@ -3,7 +3,7 @@
 > Independent product implementation — the **deployment layer** of the three-repo project.  
 > Future role: downgrade projection of the general autonomous core (`autonomous-agent-core/`)  
 > with `autonomy→0` + business domain pack + strong evidence governance.  
-> Git: branch `main`, remote `origin` at `git@github.com:wu2h0ng/data-agent-os.git`.
+> Git: canonical branch `main`, remote `origin` at `git@github.com:wu2h0ng/data-agent-os.git`; read `docs/CURRENT_STATE.yaml` for the active local branch and gate status.
 
 ## Current State
 
