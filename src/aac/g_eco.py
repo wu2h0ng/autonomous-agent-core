@@ -8,12 +8,16 @@ needed before those later gates can exist.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Callable, Mapping
+import hashlib
+import json
+import random
+from dataclasses import asdict, dataclass
+from typing import Any, Callable, Mapping
 
 from .shell import ShellView
 from envs.ecological_4cond import (
     Ecological4CondEnv,
+    GEcoRates,
     GEcoObservation,
     GEcoState,
     transition_state,
@@ -31,6 +35,17 @@ GECO_BATTERY_NAMES = (
     "BT",
 )
 GECO_RFINAL_ARM_NAMES = ("VH",) + GECO_BATTERY_NAMES
+RATE_SEEDS = tuple(range(1800, 1810))
+CALIBRATION_SEEDS = tuple(range(1810, 1830))
+RFINAL_SEEDS = tuple(range(1900, 1930))
+
+
+class GEcoHalt(RuntimeError):
+    """Mechanical pre-r-final halt, not a verdict."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True, slots=True)
@@ -606,3 +621,398 @@ class GEcoMetrics:
             "irreversible_loss": self.irreversible_loss,
             "action_counts": dict(self.action_counts or {}),
         }
+
+
+def _canonical_hash(payload: Mapping[str, Any]) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _with_hash(payload: dict[str, Any]) -> dict[str, Any]:
+    out = dict(payload)
+    out["content_hash"] = _canonical_hash(out)
+    return out
+
+
+@dataclass(frozen=True, slots=True)
+class GEcoRatesFreeze:
+    rates: GEcoRates
+    steps: int
+    seeds: tuple[int, ...]
+    naive_full_region_rate: float
+    oracle_full_region_rate: float
+    wcref_full_region_rate: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return _with_hash(
+            {
+                "kind": "g_eco.rates",
+                "status": "frozen_candidate",
+                "seed_range": [min(self.seeds), max(self.seeds)],
+                "seed_count": len(self.seeds),
+                "steps": self.steps,
+                "rates": asdict(self.rates),
+                "tri_border": {
+                    "naive_uniform_full_region_rate": self.naive_full_region_rate,
+                    "homeostatic_oracle_full_region_rate": self.oracle_full_region_rate,
+                    "wcref_full_region_rate": self.wcref_full_region_rate,
+                },
+                "firewall": {
+                    "no_battery_outputs_used": True,
+                    "used_refs": [
+                        "naive_uniform",
+                        "HOMEOSTATIC_ORACLE",
+                        "WCREF",
+                    ],
+                    "excluded_arm_outputs": "candidate and finite-baseline arm-level outputs",
+                },
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GEcoBatteryFreeze:
+    rfinal_arm_names_value: tuple[str, ...]
+    sources: Mapping[str, Mapping[str, Any]]
+    fixed_aggregators: Mapping[str, str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return _with_hash(
+            {
+                "kind": "g_eco.battery",
+                "status": "frozen_candidate",
+                "rfinal_arm_names": list(self.rfinal_arm_names_value),
+                "fixed_aggregators": dict(self.fixed_aggregators),
+                "sources": {
+                    key: dict(value) for key, value in sorted(self.sources.items())
+                },
+                "calibration_only_refs_excluded": [
+                    "HOMEOSTATIC_ORACLE",
+                    "WCREF",
+                ],
+                "performance_fields_withheld": True,
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GEcoThresholdFreeze:
+    naive_er: float
+    oracle_er: float
+    seed_count: int
+    K: int
+    theta_lo: float
+    theta_hi: float
+
+    def to_dict(self) -> dict[str, Any]:
+        return _with_hash(
+            {
+                "kind": "g_eco.thresholds",
+                "status": "frozen_candidate",
+                "theta_lo": self.theta_lo,
+                "theta_hi": self.theta_hi,
+                "m": "22/30",
+                "alpha": 0.05,
+                "omega_indist": 0.90,
+                "delta_indist": 0.05,
+                "omega_abl": 0.90,
+                "rho_abl": 0.5,
+                "delta_abl": 0.05,
+                "formula": {
+                    "theta_lo": "naive_er + 0.05",
+                    "theta_hi": "0.5 * oracle_er",
+                },
+                "formula_inputs": [
+                    "naive_er",
+                    "oracle_er",
+                    "seed_count",
+                    "K",
+                ],
+                "input_values": {
+                    "naive_er": self.naive_er,
+                    "oracle_er": self.oracle_er,
+                    "seed_count": self.seed_count,
+                    "K": self.K,
+                },
+                "firewall": {
+                    "uses_only_naive_and_oracle": True,
+                    "opponent_arm_level_inputs_withheld": True,
+                },
+            }
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class GEcoBaselineAudit:
+    halt_booleans: Mapping[str, bool]
+    mechanical_outputs: Mapping[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return _with_hash(
+            {
+                "kind": "g_eco.baseline_audit",
+                "status": "pregate2_mechanical_audit",
+                "firewall": {
+                    "withheld_arm_level_enter_rates": True,
+                    "theta_locked_before_arm_distribution_release": True,
+                },
+                "halt_booleans": dict(self.halt_booleans),
+                "mechanical_outputs": dict(self.mechanical_outputs),
+            }
+        )
+
+
+def _default_initial_state() -> GEcoState:
+    return GEcoState(energy=66.0, integrity=92.0, need_a=28.0, need_b=30.0)
+
+
+def _rate_grid() -> tuple[GEcoRates, ...]:
+    out: list[GEcoRates] = []
+    for energy_drain in (3.0, 4.0, 5.0, 6.0, 7.0):
+        for integrity_drain in (0.8, 1.2, 1.6, 2.0, 2.5):
+            for need_a_growth in (1.5, 2.0, 2.5, 3.0, 3.5):
+                for need_b_growth in (1.5, 2.0, 2.5, 3.0, 3.5):
+                    out.append(
+                        GEcoRates(
+                            energy_drain=energy_drain,
+                            integrity_drain=integrity_drain,
+                            need_a_growth=need_a_growth,
+                            need_b_growth=need_b_growth,
+                        )
+                    )
+    return tuple(out)
+
+
+def _env_for(seed: int, rates: GEcoRates) -> Ecological4CondEnv:
+    return Ecological4CondEnv(
+        rng=random.Random(20_000 + seed),
+        rates=(rates,),
+        initial_state=_default_initial_state(),
+        observation_noise=0.5,
+    )
+
+
+def _run_full_region(
+    seed: int,
+    arm_name: str,
+    *,
+    rates: GEcoRates,
+    steps: int,
+) -> bool:
+    arms = {arm.name: arm for arm in build_g_eco_arms(include_cheats=True)}
+    if arm_name not in arms:
+        raise ValueError(f"unknown G-Eco arm: {arm_name}")
+    arm = arms[arm_name]
+    env = _env_for(seed, rates)
+    full_region = True
+    for _ in range(steps):
+        observation = arm.substrate.observe(env)
+        action = arm.select(observation)
+        if action is None:
+            return False
+        env.act(action)
+        full_region = full_region and entered_viable_region(env.state)
+        if not env.alive:
+            return False
+    return full_region
+
+
+def _run_naive_full_region(seed: int, *, rates: GEcoRates, steps: int) -> bool:
+    env = _env_for(seed, rates)
+    full_region = True
+    for idx in range(steps):
+        env.act(env.actions[idx % len(env.actions)])
+        full_region = full_region and entered_viable_region(env.state)
+        if not env.alive:
+            return False
+    return full_region
+
+
+def _full_region_rate(
+    seeds: tuple[int, ...],
+    runner: Callable[[int], bool],
+) -> float:
+    return sum(1 for seed in seeds if runner(seed)) / len(seeds)
+
+
+def scan_rate_grid(
+    *,
+    seeds: tuple[int, ...] = RATE_SEEDS,
+    steps: int = 36,
+) -> GEcoRatesFreeze:
+    """Find the first tri-border rate witness without observing battery outputs."""
+    if not seeds:
+        raise ValueError("seeds must be non-empty")
+    for rates in _rate_grid():
+        naive = _full_region_rate(
+            seeds, lambda seed, r=rates: _run_naive_full_region(seed, rates=r, steps=steps)
+        )
+        oracle = _full_region_rate(
+            seeds, lambda seed, r=rates: _run_full_region(
+                seed, "HOMEOSTATIC_ORACLE", rates=r, steps=steps
+            )
+        )
+        wcref = _full_region_rate(
+            seeds, lambda seed, r=rates: _run_full_region(
+                seed, "WCREF", rates=r, steps=steps
+            )
+        )
+        if naive == 0.0 and oracle > 0.0 and wcref > 0.0:
+            return GEcoRatesFreeze(
+                rates=rates,
+                steps=steps,
+                seeds=seeds,
+                naive_full_region_rate=naive,
+                oracle_full_region_rate=oracle,
+                wcref_full_region_rate=wcref,
+            )
+    raise GEcoHalt(
+        "R4_TRI_BORDER_EMPTY",
+        "G-Eco rate grid has no naive-dead/oracle-live/WCREF-live witness.",
+    )
+
+
+def freeze_battery_parameters() -> GEcoBatteryFreeze:
+    arms = {arm.name: arm for arm in build_g_eco_battery()}
+    sources: dict[str, Mapping[str, Any]] = {}
+    for name, arm in arms.items():
+        if arm.source is not None:
+            sources[name] = {
+                "adr": arm.source.adr,
+                "symbol": arm.source.symbol,
+                "params": dict(arm.source.params),
+                "adapter_note": arm.source.adapter_note,
+            }
+    return GEcoBatteryFreeze(
+        rfinal_arm_names_value=rfinal_arm_names(),
+        sources=sources,
+        fixed_aggregators={
+            "LIN": "fixed linear weights",
+            "LEX": "fixed priority channel",
+            "THR": "fixed threshold satisfice",
+            "QUOTA": "fixed round-robin quota",
+            "MINIMAX": "fixed worst-channel aggregation",
+            "VH": "candidate state-dependent homeostatic aggregation",
+            "VH_noStake": "ablation constant urgency aggregation",
+        },
+    )
+
+
+def derive_threshold_freeze(
+    *,
+    naive_er: float,
+    oracle_er: float,
+    seed_count: int,
+    K: int,
+) -> GEcoThresholdFreeze:
+    theta_lo = naive_er + 0.05
+    theta_hi = 0.5 * oracle_er
+    if theta_hi <= theta_lo:
+        raise GEcoHalt(
+            "R4_THETA_DEGENERATE",
+            "G-Eco theta anchors do not define a non-trivial band.",
+        )
+    return GEcoThresholdFreeze(
+        naive_er=naive_er,
+        oracle_er=oracle_er,
+        seed_count=seed_count,
+        K=K,
+        theta_lo=theta_lo,
+        theta_hi=theta_hi,
+    )
+
+
+def _action_overlap(
+    left_name: str,
+    right_name: str,
+    *,
+    rates: GEcoRates,
+    seeds: tuple[int, ...],
+    steps: int,
+) -> float:
+    equal = 0
+    total = 0
+    for seed in seeds:
+        left_env = _env_for(seed, rates)
+        right_env = _env_for(seed, rates)
+        left_arm = {arm.name: arm for arm in build_g_eco_arms()}[left_name]
+        right_arm = {arm.name: arm for arm in build_g_eco_arms()}[right_name]
+        for _ in range(steps):
+            left_action = left_arm.select(left_arm.substrate.observe(left_env))
+            right_action = right_arm.select(right_arm.substrate.observe(right_env))
+            equal += int(left_action == right_action)
+            total += 1
+            if left_action is None or right_action is None:
+                break
+            left_env.act(left_action)
+            right_env.act(right_action)
+            if not left_env.alive or not right_env.alive:
+                break
+    return equal / max(1, total)
+
+
+def build_baseline_audit(
+    rates_freeze: GEcoRatesFreeze,
+    battery_freeze: GEcoBatteryFreeze,
+    *,
+    seeds: tuple[int, ...] = CALIBRATION_SEEDS,
+    steps: int = 36,
+) -> GEcoBaselineAudit:
+    del battery_freeze
+    rates = rates_freeze.rates
+    vh_rate = _full_region_rate(
+        seeds, lambda seed: _run_full_region(seed, "VH", rates=rates, steps=steps)
+    )
+    no_stake_rate = _full_region_rate(
+        seeds,
+        lambda seed: _run_full_region(seed, "VH_noStake", rates=rates, steps=steps),
+    )
+    minimax_rate = _full_region_rate(
+        seeds,
+        lambda seed: _run_full_region(seed, "MINIMAX", rates=rates, steps=steps),
+    )
+    strongest_battery_rate = max(
+        _full_region_rate(
+            seeds,
+            lambda seed, arm_name=arm_name: _run_full_region(
+                seed, arm_name, rates=rates, steps=steps
+            ),
+        )
+        for arm_name in GECO_BATTERY_NAMES
+    )
+
+    overlap_vh_no_stake = _action_overlap(
+        "VH", "VH_noStake", rates=rates, seeds=seeds, steps=steps
+    )
+    overlap_vh_minimax = _action_overlap(
+        "VH", "MINIMAX", rates=rates, seeds=seeds, steps=steps
+    )
+    sep_vh = vh_rate - strongest_battery_rate
+    sep_no_stake = no_stake_rate - strongest_battery_rate
+    ablation_delta = abs(vh_rate - no_stake_rate)
+    indist_delta = abs(vh_rate - minimax_rate)
+
+    halt_booleans = {
+        "ablation_invalid": overlap_vh_no_stake > 0.90,
+        "ablation_hitchhiking": sep_no_stake >= 0.5 * sep_vh
+        or ablation_delta <= 0.05,
+        "vh_minimax_indistinguishable": overlap_vh_minimax >= 0.90
+        or indist_delta <= 0.05,
+        "theta_degenerate": 0.5 * rates_freeze.oracle_full_region_rate
+        <= rates_freeze.naive_full_region_rate + 0.05,
+        "tri_border_empty": False,
+    }
+    mechanical_outputs = {
+        "predicate_values_withheld": True,
+        "sealed_predicates": [
+            "ablation_invalid",
+            "ablation_hitchhiking",
+            "vh_minimax_indistinguishable",
+        ],
+        "wcref_not_weaker_than_runtime_minimax": rates_freeze.wcref_full_region_rate
+        >= minimax_rate,
+    }
+    return GEcoBaselineAudit(
+        halt_booleans=halt_booleans,
+        mechanical_outputs=mechanical_outputs,
+    )

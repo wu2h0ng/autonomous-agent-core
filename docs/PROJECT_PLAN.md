@@ -25,7 +25,7 @@ P6 consolidated
   -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
   -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
   -> ADR-0036: bounded consequence-prior G13 r-final complete, NOT MET; not a G12 rescue
-  -> ADR-0038: Route C / G-Eco lower-half mechanism implemented; F1-F6 discipline fixes landed; no calibration/freeze/Gate-2/r-final/verdict has run
+  -> ADR-0038: Route C / G-Eco lower-half mechanism implemented; F1-F6 discipline fixes landed; pre-Gate-2 candidate writer exists; no co-signed freeze/Gate-2/r-final/verdict has run
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
@@ -40,10 +40,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-445 tests OK
+450 tests OK
 ```
 
-The 445-test result was verified by Codex on 2026-06-23 after implementing the ADR-0038 G-Eco lower-half discipline fixes. Re-run before code submission if you change code.
+The 450-test result was verified by Codex on 2026-06-23 after implementing the ADR-0038 G-Eco lower-half discipline fixes plus pre-Gate-2 freeze-candidate writer/audit guards. Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -306,7 +306,7 @@ Do not:
 - Reopen IdleDrives, RAP, or G7/G8 organ tuning to rescue a gate.
 - Claim G11 is ready while it would collapse to G10 plus weak or non-independent side metrics.
 
-### T-RouteC.1 - G-Eco Lower-Half Mechanism (Completed, No Verdict)
+### T-RouteC.1 - G-Eco Lower-Half + Pre-Gate-2 Candidate Writer (Completed, No Verdict)
 
 Authority:
 
@@ -317,7 +317,7 @@ Authority:
 
 Goal:
 
-Implement only the G-Eco mechanism surface that is safe before Gate-2:
+Implement only the G-Eco mechanism and pre-Gate-2 candidate surface that is safe before Gate-2:
 
 ```text
 shared substrate observation/predictor/lookahead/H
@@ -325,6 +325,7 @@ ecological_4cond environment
 VH + VH_noStake + 9-arm fixed-preference battery
 HOMEOSTATIC_ORACLE + WCREF calibration-only refs
 mechanism-check entrypoint
+pregate2-candidates writer for candidate JSON only
 deterministic replay, reset-boundary, C6/C7, and Gate-2 refusal guards
 ```
 
@@ -341,9 +342,9 @@ docs/adr/ADR-0038-g-eco-mechanism-lower-half.md
 Boundary:
 
 ```text
-No §6 rate scan.
-No divergence-axis detector or rate-grid scan order change.
-No g_eco.rates.json / g_eco.battery.json / g_eco.thresholds.json writer.
+Candidate `g_eco.rates.json` / `g_eco.battery.json` / `g_eco.thresholds.json` / `g_eco.baseline_audit.json` can be written only to an operator-selected output directory.
+Candidate JSON existence is not Gate-2 unlock.
+No founder/CTO co-signed freeze.
 No Gate-2 crossing.
 No r-final run.
 No verdict row or autonomy/intelligence claim.
@@ -399,7 +400,7 @@ Interpretation:
 | P6 / ADR-0034 | Completed | Relevance-aware full-Agent theory test: PRED-A/C pass, PRED-B fail; B/R/K account stands with weakened trajectory story and decisive K residue |
 | P7 / ADR-0035 | Completed, inconclusive | G12 mixed pattern: C01/C10/C11 win, C00 does not; distinct ecological-irreversible axis not established |
 | P7.x / ADR-0036 | Completed, NOT MET | CP reduces irreversible damage but fails net R1 advantage and stale-prior guard |
-| Route C / ADR-0038 | Lower-half implemented + discipline fixes, no verdict | G-Eco mechanism substrate/env/arms/refs/guards only; calibration/freeze/Gate-2/r-final locked |
+| Route C / ADR-0038 | Lower-half implemented + discipline fixes + pre-Gate-2 candidate writer, no verdict | G-Eco mechanism substrate/env/arms/refs/guards plus candidate freeze/audit writer; founder/CTO co-signed freeze/Gate-2/r-final locked |
 | P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
 | P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
 | P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
@@ -427,7 +428,7 @@ Recent authoritative ADRs:
 - `ADR-0035-p7-ecological-environment-axis.md` - P7 transferable ecological-structure environment axis and G12 2x2 gate; completed inconclusive.
 - `ADR-0036-bounded-consequence-prior-gate.md` - G13 bounded consequence-prior gate; r-final complete, NOT MET.
 - `ADR-0037-self-determination-depth-vs-corrigibility.md` - proposed docs-only SD0-SD4 vocabulary and SD4-separability question.
-- `ADR-0038-g-eco-mechanism-lower-half.md` - G-Eco lower-half mechanism implemented; no calibration/freeze/r-final/verdict.
+- `ADR-0038-g-eco-mechanism-lower-half.md` - G-Eco lower-half mechanism plus pre-Gate-2 candidate writer implemented; no co-signed freeze/r-final/verdict.
 
 G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035/G12, ADR-0036/G13 r-final, ADR-0038 lower-half, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035/0036/0038 do not exist, ADR-0034 is pending, ADR-0035/G12 is pending, ADR-0036/G13 is pending/locked instead of NOT MET, ADR-0038 implies a G-Eco verdict, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
 

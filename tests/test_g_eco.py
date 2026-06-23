@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import tempfile
 import unittest
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -350,6 +351,114 @@ class TestGEcoC6C7AndGate2(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             g_eco.main(["r-final"])
+
+
+class TestGEcoPreGate2Freeze(unittest.TestCase):
+    def test_rate_scan_freezes_only_tri_border_witness(self) -> None:
+        from aac.g_eco import scan_rate_grid
+
+        freeze = scan_rate_grid(seeds=tuple(range(1800, 1810)), steps=36)
+        payload = freeze.to_dict()
+
+        self.assertEqual(payload["kind"], "g_eco.rates")
+        self.assertEqual(payload["status"], "frozen_candidate")
+        self.assertEqual(payload["seed_range"], [1800, 1809])
+        self.assertEqual(payload["tri_border"]["naive_uniform_full_region_rate"], 0.0)
+        self.assertGreater(payload["tri_border"]["homeostatic_oracle_full_region_rate"], 0.0)
+        self.assertGreater(payload["tri_border"]["wcref_full_region_rate"], 0.0)
+        self.assertTrue(payload["firewall"]["no_battery_outputs_used"])
+
+        serialized = json.dumps(payload, sort_keys=True)
+        self.assertNotIn("VH", serialized)
+        self.assertNotIn("MINIMAX", serialized)
+
+    def test_battery_freeze_records_parameters_without_performance(self) -> None:
+        from aac.g_eco import freeze_battery_parameters
+
+        payload = freeze_battery_parameters().to_dict()
+
+        self.assertEqual(payload["kind"], "g_eco.battery")
+        self.assertEqual(
+            tuple(payload["rfinal_arm_names"]),
+            ("VH", "LIN", "LEX", "THR", "QUOTA", "MINIMAX", "P0", "RSTAR", "O1", "BT"),
+        )
+        self.assertIn("P0", payload["sources"])
+        self.assertIn("RSTAR", payload["sources"])
+        self.assertNotIn("enter_rate", json.dumps(payload, sort_keys=True))
+
+    def test_theta_lock_formula_uses_only_naive_oracle_inputs(self) -> None:
+        from aac.g_eco import GEcoHalt, derive_threshold_freeze
+
+        freeze = derive_threshold_freeze(
+            naive_er=0.0,
+            oracle_er=1.0,
+            seed_count=10,
+            K=4,
+        )
+        payload = freeze.to_dict()
+
+        self.assertEqual(payload["kind"], "g_eco.thresholds")
+        self.assertEqual(payload["theta_lo"], 0.05)
+        self.assertEqual(payload["theta_hi"], 0.5)
+        self.assertEqual(set(payload["formula_inputs"]), {"naive_er", "oracle_er", "seed_count", "K"})
+        self.assertEqual(payload["content_hash"], derive_threshold_freeze(
+            naive_er=0.0,
+            oracle_er=1.0,
+            seed_count=10,
+            K=4,
+        ).to_dict()["content_hash"])
+
+        serialized = json.dumps(payload, sort_keys=True)
+        self.assertNotIn("VH", serialized)
+        self.assertNotIn("MINIMAX", serialized)
+
+        with self.assertRaises(GEcoHalt) as ctx:
+            derive_threshold_freeze(naive_er=0.90, oracle_er=1.0, seed_count=10, K=4)
+        self.assertEqual(ctx.exception.code, "R4_THETA_DEGENERATE")
+
+    def test_audit_firewall_exposes_halt_booleans_not_arm_rates(self) -> None:
+        from aac.g_eco import (
+            build_baseline_audit,
+            freeze_battery_parameters,
+            scan_rate_grid,
+        )
+
+        rates = scan_rate_grid(seeds=tuple(range(1800, 1810)), steps=36)
+        battery = freeze_battery_parameters()
+        audit = build_baseline_audit(
+            rates,
+            battery,
+            seeds=tuple(range(1810, 1815)),
+            steps=36,
+        ).to_dict()
+
+        self.assertEqual(audit["kind"], "g_eco.baseline_audit")
+        self.assertTrue(audit["firewall"]["withheld_arm_level_enter_rates"])
+        self.assertIn("ablation_invalid", audit["halt_booleans"])
+        self.assertIn("ablation_hitchhiking", audit["halt_booleans"])
+        self.assertIn("vh_minimax_indistinguishable", audit["halt_booleans"])
+        self.assertNotIn("arm_enter_rates", audit)
+        serialized_outputs = json.dumps(audit["mechanical_outputs"], sort_keys=True)
+        self.assertTrue(audit["mechanical_outputs"]["predicate_values_withheld"])
+        self.assertNotIn("enter_rate", serialized_outputs)
+        self.assertNotIn("full_region_delta", serialized_outputs)
+        self.assertNotIn("action_overlap", serialized_outputs)
+        self.assertNotIn("margin", serialized_outputs)
+
+    def test_pregate2_candidate_writer_keeps_rfinal_locked(self) -> None:
+        from experiments import g_eco
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = g_eco.write_pregate2_candidate(Path(tmp), audit_seeds=tuple(range(1810, 1815)))
+            self.assertTrue((Path(tmp) / "g_eco.rates.json").exists())
+            self.assertTrue((Path(tmp) / "g_eco.battery.json").exists())
+            self.assertTrue((Path(tmp) / "g_eco.thresholds.json").exists())
+            self.assertTrue((Path(tmp) / "g_eco.baseline_audit.json").exists())
+            self.assertEqual(out["gate2_locked"], True)
+            self.assertNotIn("verdict", out)
+
+            with self.assertRaisesRegex(RuntimeError, "verifier is not implemented"):
+                g_eco.assert_gate2_unlocked(Path(tmp))
 
 
 if __name__ == "__main__":
