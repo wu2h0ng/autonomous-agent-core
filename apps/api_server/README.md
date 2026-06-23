@@ -63,7 +63,9 @@ Endpoints (protected by `X-API-Key` unless noted):
 
 - `POST /runs` — body `{question, parameters, audience?}` -> `run_service` summary.
   `audience` is `internal` by default; `external` redacts non-public result details in
-  `user_result` without changing the underlying Trusted Loop evidence. The optional
+  `user_result` without changing the underlying Trusted Loop evidence. External public
+  projections may show public metric data, but still strip physical schema/table names,
+  bound parameter names, limit metadata, and SQL fingerprints. The optional
   `AGENT_OS_EXTERNAL_API_KEY` is projection-only for this endpoint: it may call `/runs`, but
   the response is always capped to the external projection even when the request body asks
   for `audience=internal`. That projection also omits top-level provider, trace-step, and

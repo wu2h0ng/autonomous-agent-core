@@ -442,12 +442,17 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
                 return None
 
             claimed_payload = self._with_claim(payload)
-            result = conn.execute(
+            update = (
                 table.update()
                 .where(table.c.approval_id == approval_id)
                 .where(table.c.status == status)
-                .values(status="executing", payload=claimed_payload)
             )
+            if status == "executing":
+                update = update.where(
+                    table.c.payload["_claim"]["claimed_at"].as_string()
+                    == self._claim_token(payload)
+                )
+            result = conn.execute(update.values(status="executing", payload=claimed_payload))
             if result.rowcount != 1:
                 return None
         return mappers.approval_context_from_payload(claimed_payload)
@@ -476,6 +481,13 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
         updated = copy.deepcopy(payload)
         updated["_claim"] = {"claimed_at": self._clock().astimezone(timezone.utc).isoformat()}
         return updated
+
+    def _claim_token(self, payload: dict[str, object]) -> str | None:
+        claim = payload.get("_claim")
+        if not isinstance(claim, dict):
+            return None
+        claimed_at = claim.get("claimed_at")
+        return claimed_at if isinstance(claimed_at, str) else None
 
     def _is_stale_claim(
         self,

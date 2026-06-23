@@ -568,6 +568,16 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 401)
 
+    def test_unconfigured_operator_key_returns_503(self) -> None:
+        client = _make_client(API_KEY, operator_api_key=None)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": "anything"},
+        )
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("Operator API key is not configured", resp.json()["detail"])
+
     def test_approval_execute_wrong_operator_key_is_rejected(self) -> None:
         client = _make_client(API_KEY)
         resp = client.post(

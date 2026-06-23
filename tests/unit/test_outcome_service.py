@@ -270,20 +270,44 @@ class RunServiceTest(unittest.TestCase):
         )
 
         self.assertEqual(artifact["audience"], "external")
-        self.assertFalse(artifact["redaction"]["applied"])
+        self.assertEqual(
+            artifact["redaction"],
+            {
+                "audience": "external",
+                "applied": True,
+                "data_classification": "public",
+                "redacted_fields": [
+                    "checked_schemas",
+                    "checked_tables",
+                    "bound_parameter_names",
+                    "limit_value",
+                    "sql_fingerprint",
+                ],
+                "reason": "external audience cannot view source or SQL infrastructure",
+            },
+        )
         cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
         self.assertEqual(cards["metric_contract"]["dimensions"], ["channel"])
-        self.assertEqual(cards["sql_safety"]["checked_tables"], ["ops.daily_orders"])
-        self.assertEqual(
-            cards["sql_safety"]["bound_parameter_names"],
-            ["limit", "secret_token", "start_date"],
-        )
-        self.assertTrue(cards["sql_safety"]["sql_fingerprint"].startswith("sha256:"))
+        self.assertEqual(cards["sql_safety"]["checked_schemas"], [])
+        self.assertEqual(cards["sql_safety"]["checked_tables"], [])
+        self.assertEqual(cards["sql_safety"]["bound_parameter_names"], [])
+        self.assertIsNone(cards["sql_safety"]["limit_value"])
+        self.assertIsNone(cards["sql_safety"]["sql_fingerprint"])
         self.assertEqual(cards["query_result"]["columns"], ["channel", "orders"])
         table = next(
             widget for widget in artifact["dashboard"]["widgets"] if widget["type"] == "table"
         )
         self.assertEqual(table["preview_rows"], [{"channel": "email", "orders": 5}])
+        chart = next(
+            widget for widget in artifact["dashboard"]["widgets"] if widget["type"] == "line_chart"
+        )
+        self.assertEqual(chart["x_field"], "channel")
+        self.assertEqual(chart["y_field"], "orders")
+
+        rendered = json.dumps(artifact, sort_keys=True)
+        self.assertNotIn("ops.daily_orders", rendered)
+        self.assertNotIn("secret_token", rendered)
+        self.assertNotIn("sha256:", rendered)
 
     def test_run_service_rejects_unknown_report_audience(self) -> None:
         runtime = _build_runtime()

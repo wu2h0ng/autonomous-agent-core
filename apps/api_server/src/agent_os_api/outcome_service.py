@@ -18,6 +18,13 @@ from typing import Any
 from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
 
 REPORT_AUDIENCES = {"internal", "external"}
+REDACTED_INFRA_FIELDS = [
+    "checked_schemas",
+    "checked_tables",
+    "bound_parameter_names",
+    "limit_value",
+    "sql_fingerprint",
+]
 REDACTED_RESULT_FIELDS = [
     "checked_schemas",
     "checked_tables",
@@ -117,15 +124,34 @@ def _normalize_report_audience(audience: str) -> str:
 
 
 def _redaction_summary(metric: Any, audience: str) -> dict[str, Any]:
+    """Return the audience projection policy for a grounded result.
+
+    ``audience`` is the primary gate. ``data_classification`` only controls how
+    much metric data remains visible after the audience ceiling is applied.
+    External public projections may show public metric values, dimensions, and
+    previews, but still strip physical source/SQL infrastructure.
+    """
     data_classification = metric.data_classification.value
-    applied = audience == "external" and data_classification != "public"
+    if audience != "external":
+        redacted_fields: list[str] = []
+        reason = None
+    elif data_classification == "public":
+        redacted_fields = list(REDACTED_INFRA_FIELDS)
+        reason = "external audience cannot view source or SQL infrastructure"
+    else:
+        redacted_fields = list(REDACTED_RESULT_FIELDS)
+        reason = "external audience cannot view non-public result details"
     return {
         "audience": audience,
-        "applied": applied,
+        "applied": bool(redacted_fields),
         "data_classification": data_classification,
-        "redacted_fields": list(REDACTED_RESULT_FIELDS) if applied else [],
-        "reason": ("external audience cannot view non-public result details" if applied else None),
+        "redacted_fields": redacted_fields,
+        "reason": reason,
     }
+
+
+def _redacts(redaction: dict[str, Any], field: str) -> bool:
+    return field in set(redaction["redacted_fields"])
 
 
 def _report_evidence_cards(
@@ -137,7 +163,15 @@ def _report_evidence_cards(
 ) -> list[dict[str, Any]]:
     metric = evidence.metric_contract
     safety = evidence.sql_safety
-    redact = redaction["applied"]
+    hide_dimensions = _redacts(redaction, "metric_dimensions")
+    hide_columns = _redacts(redaction, "columns")
+    hide_preview_rows = _redacts(redaction, "preview_rows")
+    hide_checked_schemas = _redacts(redaction, "checked_schemas")
+    hide_checked_tables = _redacts(redaction, "checked_tables")
+    hide_bound_parameter_names = _redacts(redaction, "bound_parameter_names")
+    hide_limit_value = _redacts(redaction, "limit_value")
+    hide_sql_fingerprint = _redacts(redaction, "sql_fingerprint")
+    sql_redacted_fields = [field for field in REDACTED_INFRA_FIELDS if _redacts(redaction, field)]
     return [
         {
             "card_id": "metric_contract",
@@ -146,13 +180,13 @@ def _report_evidence_cards(
             "evidence_chain_id": evidence.evidence_chain_id,
             "trace_id": evidence.trace_id,
             "derived_from": ["EvidenceChain.metric_contract"],
-            "redacted_fields": ["dimensions"] if redact else [],
+            "redacted_fields": ["dimensions"] if hide_dimensions else [],
             "metric_name": metric.metric_name,
             "metric_version": metric.version,
             "display_name": metric.display_name,
             "owner": metric.owner,
             "unit": metric.unit,
-            "dimensions": [] if redact else list(metric.dimensions),
+            "dimensions": [] if hide_dimensions else list(metric.dimensions),
             "data_classification": metric.data_classification.value,
         },
         {
@@ -162,24 +196,18 @@ def _report_evidence_cards(
             "evidence_chain_id": evidence.evidence_chain_id,
             "trace_id": evidence.trace_id,
             "derived_from": ["EvidenceChain.query_plan", "EvidenceChain.sql_safety"],
-            "redacted_fields": (
-                [
-                    "checked_schemas",
-                    "checked_tables",
-                    "bound_parameter_names",
-                    "limit_value",
-                    "sql_fingerprint",
-                ]
-                if redact
-                else []
-            ),
+            "redacted_fields": sql_redacted_fields,
             "query_metric_name": evidence.query_plan.metric_name,
             "sql_safety_allowed": safety.allowed,
-            "checked_schemas": [] if redact else list(safety.checked_schemas),
-            "checked_tables": [] if redact else list(safety.checked_tables),
-            "bound_parameter_names": [] if redact else list(safety.bound_parameters),
-            "limit_value": None if redact else safety.limit_value,
-            "sql_fingerprint": None if redact else _sql_fingerprint(evidence.query_plan.sql),
+            "checked_schemas": [] if hide_checked_schemas else list(safety.checked_schemas),
+            "checked_tables": [] if hide_checked_tables else list(safety.checked_tables),
+            "bound_parameter_names": (
+                [] if hide_bound_parameter_names else list(safety.bound_parameters)
+            ),
+            "limit_value": None if hide_limit_value else safety.limit_value,
+            "sql_fingerprint": (
+                None if hide_sql_fingerprint else _sql_fingerprint(evidence.query_plan.sql)
+            ),
         },
         {
             "card_id": "query_result",
@@ -188,10 +216,12 @@ def _report_evidence_cards(
             "evidence_chain_id": evidence.evidence_chain_id,
             "trace_id": evidence.trace_id,
             "derived_from": ["EvidenceChain.query_result"],
-            "redacted_fields": ["columns", "preview_rows"] if redact else [],
+            "redacted_fields": [
+                field for field in ["columns", "preview_rows"] if _redacts(redaction, field)
+            ],
             "row_count": evidence.query_result.row_count,
-            "columns": [] if redact else columns,
-            "preview_row_count": 0 if redact else preview_row_count,
+            "columns": [] if hide_columns else columns,
+            "preview_row_count": 0 if hide_preview_rows else preview_row_count,
         },
     ]
 
@@ -213,14 +243,19 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
     metric = evidence.metric_contract
     audience = _normalize_report_audience(audience)
     redaction = _redaction_summary(metric, audience)
-    redact = redaction["applied"]
+    hide_columns = _redacts(redaction, "columns")
+    hide_preview_rows = _redacts(redaction, "preview_rows")
+    hide_chart_fields = _redacts(redaction, "chart_fields")
+    hide_metric_values = _redacts(redaction, "metric_values")
     preview = _preview_rows(rows)
     columns = _columns(rows)
-    visible_preview = [] if redact else preview
-    visible_columns = [] if redact else columns
-    metric_value = None if redact else _primary_metric_value(rows, metric.metric_name)
+    visible_preview = [] if hide_preview_rows else preview
+    visible_columns = [] if hide_columns else columns
+    metric_value = None if hide_metric_values else _primary_metric_value(rows, metric.metric_name)
     chart_fields = (
-        None if redact else _chart_fields(rows, columns, metric.dimensions, metric.metric_name)
+        None
+        if hide_chart_fields
+        else _chart_fields(rows, columns, metric.dimensions, metric.metric_name)
     )
     widgets = [
         {
@@ -235,7 +270,7 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
             "x_field": None,
             "y_field": None,
             "evidence_chain_id": evidence.evidence_chain_id,
-            "redacted_fields": ["value"] if redact else [],
+            "redacted_fields": ["value"] if hide_metric_values else [],
         },
     ]
     if chart_fields is not None:
@@ -265,7 +300,9 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
             "x_field": None,
             "y_field": None,
             "evidence_chain_id": evidence.evidence_chain_id,
-            "redacted_fields": ["columns", "preview_rows"] if redact else [],
+            "redacted_fields": [
+                field for field in ["columns", "preview_rows"] if _redacts(redaction, field)
+            ],
         }
     )
 
