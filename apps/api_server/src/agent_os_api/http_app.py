@@ -22,6 +22,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
+
 from .outcome_service import (
     attest_adoption_service,
     record_outcome_service,
@@ -77,11 +79,41 @@ class OutcomeResponse(BaseModel):
     knowledge_version: int
 
 
+class CausalAttributionRequest(BaseModel):
+    metric_name: str = Field(..., min_length=1)
+    observed_value: float
+    counterfactual_value: float
+    delta_absolute: float
+    delta_percent: float | None = None
+    method: CausalAttributionMethod
+    comparison_ref: str = Field(..., min_length=1)
+    window_start: str = Field(..., min_length=1)
+    window_end: str = Field(..., min_length=1)
+    confidence: float
+    notes: str | None = None
+
+    def to_contract(self) -> CausalOutcomeAttribution:
+        return CausalOutcomeAttribution(
+            metric_name=self.metric_name,
+            observed_value=self.observed_value,
+            counterfactual_value=self.counterfactual_value,
+            delta_absolute=self.delta_absolute,
+            delta_percent=self.delta_percent,
+            method=self.method,
+            comparison_ref=self.comparison_ref,
+            window_start=self.window_start,
+            window_end=self.window_end,
+            confidence=self.confidence,
+            notes=self.notes,
+        )
+
+
 class AdoptionRequest(BaseModel):
     trace_id: str = Field(..., min_length=1)
     outcome: str = Field(..., min_length=1)
     reviewer: str | None = None
     metric_deltas: dict[str, Any] | None = None
+    causal_attribution: CausalAttributionRequest | None = None
 
 
 class AdoptionResponse(BaseModel):
@@ -264,6 +296,11 @@ def create_app(
             outcome=body.outcome,
             reviewer=body.reviewer,
             metric_deltas=body.metric_deltas,
+            causal_attribution=(
+                body.causal_attribution.to_contract()
+                if body.causal_attribution is not None
+                else None
+            ),
         )
 
     @app.get("/knowledge/search", response_model=SearchResponse)

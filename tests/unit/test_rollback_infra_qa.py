@@ -33,7 +33,11 @@ from agent_os_contracts import (  # noqa: E402
 )
 from agent_os_core.action_connectors.base import ActionConnector  # noqa: E402
 from agent_os_core.action_connectors.registry import ActionConnectorRegistry  # noqa: E402
-from agent_os_core.action_governance import ActionGovernance  # noqa: E402
+from agent_os_core.action_governance import (  # noqa: E402
+    ActionGovernance,
+    RiskCeilingExceeded,
+    UnsupportedActionType,
+)
 from agent_os_core.approval_lite import ApprovalLiteRuntime  # noqa: E402
 from agent_os_core.operation_state_machine import (  # noqa: E402
     InvalidStateTransition,
@@ -331,6 +335,8 @@ class ActionGovernanceDynamicFillTest(unittest.TestCase):
         supports_snapshot: bool = True,
         supports_rollback: bool = True,
         compensating_description: str | None = "Undo it",
+        risk_ceiling: str = "R5",
+        supported_action_types: tuple[str, ...] = ("propose", "execute"),
     ) -> ActionConnectorRegistry:
         """Build a registry with a 'test_conn' connector."""
 
@@ -359,11 +365,11 @@ class ActionGovernanceDynamicFillTest(unittest.TestCase):
         contract = ActionConnectorContract(
             connector_name="test_conn",
             display_name="Test Connector",
-            supported_action_types=("propose", "execute"),
+            supported_action_types=supported_action_types,
             supports_snapshot=supports_snapshot,
             supports_rollback=supports_rollback,
             compensating_action_description=compensating_description,
-            risk_ceiling="R5",
+            risk_ceiling=risk_ceiling,
             owner="test",
         )
         registry.register(connector, contract)
@@ -392,6 +398,27 @@ class ActionGovernanceDynamicFillTest(unittest.TestCase):
         proposal = self._make_proposal(connector_name="test_conn")
         contract = gov.build_operation_contract(proposal)
         self.assertEqual(contract.compensating_action, "Rollback data")
+
+    def test_with_registry_risk_above_connector_ceiling_raises(self) -> None:
+        registry = self._make_registry_with_connector(risk_ceiling="R3")
+        gov = ActionGovernance(connector_registry=registry)
+        proposal = self._make_proposal(
+            connector_name="test_conn",
+            risk_level=RiskLevel.R4,
+            action_type="execute",
+            approval_required=True,
+        )
+
+        with self.assertRaises(RiskCeilingExceeded):
+            gov.build_operation_contract(proposal)
+
+    def test_with_registry_unsupported_action_type_raises(self) -> None:
+        registry = self._make_registry_with_connector(supported_action_types=("propose",))
+        gov = ActionGovernance(connector_registry=registry)
+        proposal = self._make_proposal(connector_name="test_conn", action_type="execute")
+
+        with self.assertRaises(UnsupportedActionType):
+            gov.build_operation_contract(proposal)
 
     def test_without_registry_uses_defaults(self) -> None:
         """Without a registry, snapshot_required and rollback_supported should default to False."""

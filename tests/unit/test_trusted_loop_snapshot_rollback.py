@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import sys
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ from agent_os_contracts import (  # noqa: E402
     MetricContract,
     ProviderContract,
     ProviderKind,
+    OperationState,
     RiskLevel,
     SQLTemplate,
 )
@@ -29,6 +31,21 @@ from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E40
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
 
 from action_record import ActionRecordConnector, ActionRecordStore  # noqa: E402
+
+
+class _FailingDryRunActionRecordConnector(ActionRecordConnector):
+    def dry_run(self, operation, parameters):
+        return {
+            "status": "failed",
+            "connector_name": self.connector_name,
+            "operation_id": operation.operation_id,
+            "reason": "simulated dry-run failure",
+        }
+
+
+class _NoSnapshotActionRecordConnector(ActionRecordConnector):
+    def take_snapshot(self, operation):
+        return None
 
 
 class _ActionRecordProposalBuilder:
@@ -55,9 +72,35 @@ class _ActionRecordProposalBuilder:
         )
 
 
-def _build_action_record_registry(store: ActionRecordStore) -> ActionConnectorRegistry:
+class _R4ActionRecordProposalBuilder:
+    """Routes every proposal to action_record as an approval-required R4 action."""
+
+    def build(self, *, proposal_id: str, evidence: EvidenceChain) -> ActionProposal:
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action="write_r4_action_record",
+            reason=evidence.conclusion,
+            risk_level=RiskLevel.R4,
+            expected_impact="record persisted after approval",
+            approval_required=True,
+            approver_role="Business Owner",
+            connector_name="action_record",
+            action_type="execute",
+            action_parameters={"amount": 100},
+            idempotency_key="idem-r4-demo",
+        )
+
+
+def _build_action_record_registry(
+    store: ActionRecordStore,
+    *,
+    risk_ceiling: str = "R3",
+    connector: ActionRecordConnector | None = None,
+) -> ActionConnectorRegistry:
     registry = ActionConnectorRegistry()
-    connector = ActionRecordConnector(store=store)
+    connector = connector or ActionRecordConnector(store=store)
     contract = ActionConnectorContract(
         connector_name="action_record",
         display_name="Action Record",
@@ -65,14 +108,19 @@ def _build_action_record_registry(store: ActionRecordStore) -> ActionConnectorRe
         supports_snapshot=True,
         supports_rollback=True,
         compensating_action_description="Restore the action record store to the snapshot state",
-        risk_ceiling="R3",
+        risk_ceiling=risk_ceiling,
         owner="system",
     )
     registry.register(connector, contract)
     return registry
 
 
-def _build_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
+def _build_runtime(
+    store: ActionRecordStore,
+    *,
+    risk_ceiling: str = "R3",
+    connector: ActionRecordConnector | None = None,
+) -> TrustedLoopRuntime:
     metric = MetricContract(
         metric_name="gmv",
         display_name="GMV",
@@ -109,10 +157,33 @@ def _build_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
                 ),
             )
         ),
-        connector_registry=_build_action_record_registry(store),
+        connector_registry=_build_action_record_registry(
+            store,
+            risk_ceiling=risk_ceiling,
+            connector=connector,
+        ),
     )
     runtime.action_builder = _ActionRecordProposalBuilder()  # type: ignore[assignment]
     return runtime
+
+
+def _build_r4_runtime(store: ActionRecordStore) -> TrustedLoopRuntime:
+    runtime = _build_runtime(store, risk_ceiling="R4")
+    runtime.action_builder = _R4ActionRecordProposalBuilder()  # type: ignore[assignment]
+    return runtime
+
+
+def _run_params() -> dict[str, object]:
+    return {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100}
+
+
+def _snapshot_id_from_trace_events(events: tuple[dict[str, object], ...]) -> str:
+    for event in events:
+        if event.get("step") == "state_snapshot":
+            snapshot_id = event.get("snapshot_id")
+            if isinstance(snapshot_id, str):
+                return snapshot_id
+    raise AssertionError("operation trace did not include a state_snapshot event")
 
 
 class TrustedLoopSnapshotTest(unittest.TestCase):
@@ -161,6 +232,219 @@ class TrustedLoopSnapshotTest(unittest.TestCase):
         runtime = _build_runtime(ActionRecordStore())
         with self.assertRaises(KeyError):
             runtime.rollback("snapshot-does-not-exist")
+
+    def test_governed_path_blocks_when_dry_run_fails(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_runtime(
+            record_store,
+            connector=_FailingDryRunActionRecordConnector(store=record_store),
+        )
+
+        with self.assertRaisesRegex(ValueError, "dry-run failed"):
+            runtime.run("最近7天GMV是多少？", _run_params())
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_governed_path_blocks_when_required_snapshot_missing(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_runtime(
+            record_store,
+            connector=_NoSnapshotActionRecordConnector(store=record_store),
+        )
+
+        with self.assertRaisesRegex(ValueError, "required snapshot"):
+            runtime.run("最近7天GMV是多少？", _run_params())
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_executes_only_after_approval(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+
+        self.assertIsNotNone(result.approval_record)
+        self.assertEqual(result.approval_record.status, "pending")
+        self.assertEqual(record_store.records(), ())
+
+        runtime.approval_runtime.approve(result.approval_record.approval_id, reason="approved test")
+        operation_trace = runtime.execute_approved_operation(
+            approval_id=result.approval_record.approval_id,
+            operation=result.operation_contract,
+            action_parameters=result.action_proposal.action_parameters,
+            evidence_chain=result.evidence_chain,
+            proposal_id=result.action_proposal.proposal_id,
+        )
+
+        self.assertEqual(len(record_store.records()), 1)
+        self.assertEqual(operation_trace.state, OperationState.EXECUTED)
+        self.assertEqual(
+            [event["step"] for event in operation_trace.events],
+            [
+                "proposed",
+                "approved",
+                "connector_dry_run",
+                "state_snapshot",
+                "connector_executed",
+            ],
+        )
+
+    def test_approval_resume_rejects_pending_rejected_and_mismatched_approval(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        pending = runtime.run("最近7天GMV是多少？", _run_params())
+
+        with self.assertRaises(ValueError):
+            runtime.execute_approved_operation(
+                approval_id=pending.approval_record.approval_id,
+                operation=pending.operation_contract,
+                action_parameters=pending.action_proposal.action_parameters,
+                evidence_chain=pending.evidence_chain,
+                proposal_id=pending.action_proposal.proposal_id,
+            )
+
+        rejected = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.reject(rejected.approval_record.approval_id, reason="no")
+        with self.assertRaises(ValueError):
+            runtime.execute_approved_operation(
+                approval_id=rejected.approval_record.approval_id,
+                operation=rejected.operation_contract,
+                action_parameters=rejected.action_proposal.action_parameters,
+                evidence_chain=rejected.evidence_chain,
+                proposal_id=rejected.action_proposal.proposal_id,
+            )
+
+        approved = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(approved.approval_record.approval_id)
+        with self.assertRaises(ValueError):
+            runtime.execute_approved_operation(
+                approval_id=approved.approval_record.approval_id,
+                operation=approved.operation_contract,
+                action_parameters=approved.action_proposal.action_parameters,
+                evidence_chain=approved.evidence_chain,
+                proposal_id="proposal-mismatch",
+            )
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_rejects_operation_not_bound_to_proposal(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id)
+        tampered_operation = replace(
+            result.operation_contract,
+            operation_id="operation-other-proposal",
+        )
+
+        with self.assertRaisesRegex(ValueError, "operation-proposal mismatch"):
+            runtime.execute_approved_operation(
+                approval_id=result.approval_record.approval_id,
+                operation=tampered_operation,
+                action_parameters=result.action_proposal.action_parameters,
+                evidence_chain=result.evidence_chain,
+                proposal_id=result.action_proposal.proposal_id,
+            )
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_rejects_action_parameters_not_bound_to_approval(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id)
+
+        with self.assertRaisesRegex(ValueError, "operation-approval mismatch"):
+            runtime.execute_approved_operation(
+                approval_id=result.approval_record.approval_id,
+                operation=result.operation_contract,
+                action_parameters={"amount": 999999},
+                evidence_chain=result.evidence_chain,
+                proposal_id=result.action_proposal.proposal_id,
+            )
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_rejects_missing_approval_fingerprint(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        legacy_approval = runtime.approval_runtime.create_pending(
+            approval_id="approval-legacy",
+            proposal_id=result.action_proposal.proposal_id,
+            approver_role="Business Owner",
+        )
+        runtime.approval_runtime.approve(legacy_approval.approval_id)
+
+        with self.assertRaisesRegex(ValueError, "operation approval fingerprint is missing"):
+            runtime.execute_approved_operation(
+                approval_id=legacy_approval.approval_id,
+                operation=result.operation_contract,
+                action_parameters=result.action_proposal.action_parameters,
+                evidence_chain=result.evidence_chain,
+                proposal_id=result.action_proposal.proposal_id,
+            )
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_rejects_evidence_not_bound_to_approval(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id)
+        tampered_evidence = replace(
+            result.evidence_chain,
+            evidence_chain_id="evidence-other-proposal",
+        )
+
+        with self.assertRaisesRegex(ValueError, "operation-approval mismatch"):
+            runtime.execute_approved_operation(
+                approval_id=result.approval_record.approval_id,
+                operation=result.operation_contract,
+                action_parameters=result.action_proposal.action_parameters,
+                evidence_chain=tampered_evidence,
+                proposal_id=result.action_proposal.proposal_id,
+            )
+
+        self.assertEqual(record_store.records(), ())
+
+    def test_approval_resume_updates_persisted_run_trace(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id)
+
+        runtime.execute_approved_operation(
+            approval_id=result.approval_record.approval_id,
+            operation=result.operation_contract,
+            action_parameters=result.action_proposal.action_parameters,
+            evidence_chain=result.evidence_chain,
+            proposal_id=result.action_proposal.proposal_id,
+        )
+
+        stored = runtime.trace_store.get(result.evidence_chain.trace_id)
+        self.assertIsNotNone(stored)
+        self.assertIn(
+            "approved_operation_trace",
+            [event.step for event in stored.events],
+        )
+
+    def test_approved_action_rollback_demo_restores_store(self) -> None:
+        record_store = ActionRecordStore()
+        runtime = _build_r4_runtime(record_store)
+        result = runtime.run("最近7天GMV是多少？", _run_params())
+        runtime.approval_runtime.approve(result.approval_record.approval_id)
+
+        operation_trace = runtime.execute_approved_operation(
+            approval_id=result.approval_record.approval_id,
+            operation=result.operation_contract,
+            action_parameters=result.action_proposal.action_parameters,
+            evidence_chain=result.evidence_chain,
+            proposal_id=result.action_proposal.proposal_id,
+        )
+        self.assertEqual(len(record_store.records()), 1)
+
+        rollback_result = runtime.rollback(_snapshot_id_from_trace_events(operation_trace.events))
+        self.assertEqual(rollback_result["status"], "rolled_back")
+        self.assertEqual(record_store.records(), ())
 
 
 if __name__ == "__main__":

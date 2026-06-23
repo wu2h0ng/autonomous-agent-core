@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import replace
+import json
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -13,7 +14,9 @@ from agent_os_contracts import (
     FeedbackEvent,
     KnowledgeQuery,
     MetricContract,
+    OperationContract,
     OperationState,
+    OperationTrace,
     ProviderContract,
     ProviderKind,
     QueryPlan,
@@ -23,6 +26,7 @@ from agent_os_contracts import (
     SQLTemplate,
     StateSnapshot,
     TelemetryDimension,
+    TraceEvent,
     TrustedLoopBlock,
     TrustedLoopOutcome,
     TrustedLoopResult,
@@ -498,6 +502,11 @@ class TrustedLoopRuntime:
                 approval_id=approval_id,
                 proposal_id=proposal.proposal_id,
                 approver_role=proposal.approver_role,
+                operation_fingerprint=self._approval_fingerprint(
+                    operation=operation,
+                    action_parameters=proposal.action_parameters,
+                    evidence_chain_id=proposal.evidence_chain_id,
+                ),
             )
             action_result: dict[str, object] = {
                 "status": "awaiting_approval",
@@ -521,40 +530,20 @@ class TrustedLoopRuntime:
         else:
             # Governed execution path for non-approval operations.
             self.state_machine.transition(OperationState.PROPOSED, OperationState.APPROVED)
-            if self.action_governance.should_snapshot(operation):
-                self.state_machine.transition(OperationState.APPROVED, OperationState.SNAPSHOTTING)
-                connector = self.connector_registry.get(proposal.connector_name)
-                state_snapshot = connector.take_snapshot(operation)
-                if state_snapshot is not None:
-                    self.snapshot_store.save(state_snapshot)
-                trace.record(
-                    "state_snapshot",
-                    {
-                        "connector_name": proposal.connector_name,
-                        "has_snapshot": state_snapshot is not None,
-                        "snapshot_id": state_snapshot.snapshot_id
-                        if state_snapshot is not None
-                        else None,
-                    },
-                )
-                self.state_machine.transition(OperationState.SNAPSHOTTING, OperationState.EXECUTED)
-            else:
-                self.state_machine.transition(OperationState.APPROVED, OperationState.EXECUTED)
-
-            connector = self.connector_registry.get(proposal.connector_name)
-            action_result = connector.execute(operation, proposal.action_parameters)
-            trace.record(
-                "connector_execute",
-                {
-                    "connector_name": proposal.connector_name,
-                    "action_type": proposal.action_type,
-                    "status": action_result.get("status"),
-                },
-            )
             operation_trace = self.operation_trace_builder.update_trace(
                 operation_trace,
-                OperationState.EXECUTED,
-                {"step": "connector_executed", "connector_name": proposal.connector_name},
+                OperationState.APPROVED,
+                {"step": "approved", "approval_id": None},
+            )
+            operation, operation_trace, state_snapshot, action_result = (
+                self._execute_governed_operation(
+                    operation=operation,
+                    action_parameters=proposal.action_parameters,
+                    evidence_chain=evidence,
+                    proposal_id=proposal.proposal_id,
+                    operation_trace=operation_trace,
+                    trace=trace,
+                )
             )
 
         # ====== Back half: sediment a reusable KnowledgeAsset candidate ======
@@ -639,6 +628,81 @@ class TrustedLoopRuntime:
         except TrustedLoopBlocked as blocked:
             return TrustedLoopOutcome(status="blocked", block=blocked.block)
         return TrustedLoopOutcome(status="ok", result=result)
+
+    def execute_approved_operation(
+        self,
+        *,
+        approval_id: str,
+        operation: OperationContract,
+        action_parameters: dict[str, Any],
+        evidence_chain: EvidenceChain,
+        proposal_id: str,
+    ) -> OperationTrace:
+        """Resume an approval-required operation after human approval.
+
+        This is deliberately not an auto-execution path: it reads the approval
+        store and refuses anything other than an approved record for the exact
+        proposal before touching a connector.
+        """
+        approval = self.approval_runtime.get(approval_id)
+        if approval.status != "approved":
+            raise ValueError(
+                f"Approval '{approval_id}' is '{approval.status}', expected 'approved'."
+            )
+        if approval.proposal_id != proposal_id:
+            raise ValueError(
+                f"Approval '{approval_id}' belongs to proposal "
+                f"'{approval.proposal_id}', not '{proposal_id}'."
+            )
+        expected_operation_id = f"operation-{proposal_id}"
+        if operation.operation_id != expected_operation_id:
+            raise ValueError(
+                "operation-proposal mismatch: "
+                f"operation '{operation.operation_id}' does not belong to proposal "
+                f"'{proposal_id}'."
+            )
+        if approval.operation_fingerprint is None:
+            raise ValueError("operation approval fingerprint is missing.")
+        actual_fingerprint = self._approval_fingerprint(
+            operation=operation,
+            action_parameters=action_parameters,
+            evidence_chain_id=evidence_chain.evidence_chain_id,
+        )
+        if actual_fingerprint != approval.operation_fingerprint:
+            raise ValueError(
+                "operation-approval mismatch: operation contract, action "
+                "parameters, or evidence chain do not match the approved payload."
+            )
+        if not operation.approval_required:
+            raise ValueError("execute_approved_operation requires an approval-required operation.")
+
+        self._assert_grounded(evidence_chain.sql_safety, evidence_chain)
+        self.state_machine.transition(OperationState.AWAITING_APPROVAL, OperationState.APPROVED)
+        operation_trace = self.operation_trace_builder.open_trace(
+            trace_id=f"optrace-{uuid4().hex[:12]}",
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence_chain.evidence_chain_id,
+            operation_id=operation.operation_id,
+        )
+        operation_trace = self.operation_trace_builder.update_trace(
+            operation_trace,
+            OperationState.APPROVED,
+            {"step": "approved", "approval_id": approval_id},
+        )
+        _operation, operation_trace, _snapshot, _result = self._execute_governed_operation(
+            operation=operation,
+            action_parameters=action_parameters,
+            evidence_chain=evidence_chain,
+            proposal_id=proposal_id,
+            operation_trace=operation_trace,
+            trace=None,
+        )
+        self._persist_approved_operation_trace(
+            run_trace_id=evidence_chain.trace_id,
+            approval_id=approval_id,
+            operation_trace=operation_trace,
+        )
+        return operation_trace
 
     def record_outcome(
         self,
@@ -781,3 +845,182 @@ class TrustedLoopRuntime:
             raise GroundingInvariantViolation(
                 "refused to ground a formal answer/action: EvidenceChain is incomplete"
             )
+
+    def _execute_governed_operation(
+        self,
+        *,
+        operation: OperationContract,
+        action_parameters: dict[str, Any],
+        evidence_chain: EvidenceChain,
+        proposal_id: str,
+        operation_trace: OperationTrace,
+        trace: Any | None,
+    ) -> tuple[OperationContract, OperationTrace, StateSnapshot | None, dict[str, object]]:
+        """Run the shared governed branch: dry-run, snapshot, connector execute."""
+        self._assert_grounded(evidence_chain.sql_safety, evidence_chain)
+        operation = self._with_idempotency_key(
+            operation=operation,
+            evidence_chain=evidence_chain,
+            proposal_id=proposal_id,
+        )
+        connector = self.connector_registry.get(operation.connector_name)
+
+        if operation.dry_run_required:
+            dry_run = connector.dry_run(operation, action_parameters)
+            if trace is not None:
+                trace.record(
+                    "connector_dry_run",
+                    {
+                        "connector_name": operation.connector_name,
+                        "action_type": operation.action_type,
+                        "status": dry_run.get("status"),
+                        "idempotency_key": operation.idempotency_key,
+                    },
+                )
+            operation_trace = self.operation_trace_builder.update_trace(
+                operation_trace,
+                OperationState.APPROVED,
+                {
+                    "step": "connector_dry_run",
+                    "connector_name": operation.connector_name,
+                    "action_type": operation.action_type,
+                    "status": dry_run.get("status"),
+                    "idempotency_key": operation.idempotency_key,
+                },
+            )
+            if dry_run.get("status") != "dry_run":
+                raise ValueError(
+                    "dry-run failed: "
+                    f"connector '{operation.connector_name}' returned status "
+                    f"'{dry_run.get('status')}'"
+                )
+
+        state_snapshot: StateSnapshot | None = None
+        current_state = OperationState.APPROVED
+        if self.action_governance.should_snapshot(operation):
+            self.state_machine.transition(OperationState.APPROVED, OperationState.SNAPSHOTTING)
+            current_state = OperationState.SNAPSHOTTING
+            state_snapshot = connector.take_snapshot(operation)
+            if state_snapshot is not None:
+                self.snapshot_store.save(state_snapshot)
+            if trace is not None:
+                trace.record(
+                    "state_snapshot",
+                    {
+                        "connector_name": operation.connector_name,
+                        "has_snapshot": state_snapshot is not None,
+                        "snapshot_id": state_snapshot.snapshot_id
+                        if state_snapshot is not None
+                        else None,
+                    },
+                )
+            operation_trace = self.operation_trace_builder.update_trace(
+                operation_trace,
+                OperationState.SNAPSHOTTING,
+                {
+                    "step": "state_snapshot",
+                    "connector_name": operation.connector_name,
+                    "has_snapshot": state_snapshot is not None,
+                    "snapshot_id": (
+                        state_snapshot.snapshot_id if state_snapshot is not None else None
+                    ),
+                },
+            )
+            if state_snapshot is None:
+                raise ValueError(
+                    "required snapshot missing: "
+                    f"connector '{operation.connector_name}' returned no snapshot "
+                    f"for operation '{operation.operation_id}'"
+                )
+
+        self.state_machine.transition(current_state, OperationState.EXECUTED)
+        action_result = connector.execute(operation, action_parameters)
+        if trace is not None:
+            trace.record(
+                "connector_execute",
+                {
+                    "connector_name": operation.connector_name,
+                    "action_type": operation.action_type,
+                    "status": action_result.get("status"),
+                    "idempotency_key": operation.idempotency_key,
+                },
+            )
+        operation_trace = self.operation_trace_builder.update_trace(
+            operation_trace,
+            OperationState.EXECUTED,
+            {
+                "step": "connector_executed",
+                "connector_name": operation.connector_name,
+                "action_type": operation.action_type,
+                "status": action_result.get("status"),
+                "idempotency_key": operation.idempotency_key,
+            },
+        )
+        return operation, operation_trace, state_snapshot, action_result
+
+    @staticmethod
+    def _with_idempotency_key(
+        *,
+        operation: OperationContract,
+        evidence_chain: EvidenceChain,
+        proposal_id: str,
+    ) -> OperationContract:
+        if operation.idempotency_key:
+            return operation
+        return replace(
+            operation,
+            idempotency_key=(
+                f"{evidence_chain.trace_id}:{evidence_chain.evidence_chain_id}:"
+                f"{proposal_id}:{operation.connector_name}:{operation.action_type}"
+            ),
+        )
+
+    @staticmethod
+    def _approval_fingerprint(
+        *,
+        operation: OperationContract,
+        action_parameters: dict[str, Any],
+        evidence_chain_id: str,
+    ) -> str:
+        payload = {
+            "evidence_chain_id": evidence_chain_id,
+            "operation_id": operation.operation_id,
+            "name": operation.name,
+            "target_connector": operation.target_connector,
+            "connector_name": operation.connector_name,
+            "action_type": operation.action_type,
+            "risk_level": operation.risk_level,
+            "approval_required": operation.approval_required,
+            "dry_run_required": operation.dry_run_required,
+            "rollback_supported": operation.rollback_supported,
+            "snapshot_required": operation.snapshot_required,
+            "compensating_action": operation.compensating_action,
+            "idempotency_key": operation.idempotency_key,
+            "action_parameters": action_parameters,
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
+    def _persist_approved_operation_trace(
+        self,
+        *,
+        run_trace_id: str,
+        approval_id: str,
+        operation_trace: OperationTrace,
+    ) -> None:
+        existing = self.trace_store.get(run_trace_id)
+        if existing is None:
+            return
+        appended_events = tuple(
+            TraceEvent(
+                trace_id=run_trace_id,
+                step="approved_operation_trace",
+                payload={
+                    "approval_id": approval_id,
+                    "operation_trace_id": operation_trace.trace_id,
+                    "operation_state": operation_trace.state.value,
+                    "operation_event": event,
+                },
+            )
+            for event in operation_trace.events
+        )
+        self.trace_store.save(replace(existing, events=existing.events + appended_events))

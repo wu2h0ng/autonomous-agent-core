@@ -6,7 +6,10 @@ import os
 from pathlib import Path
 from typing import TextIO
 
+from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
+
 from .outcome_service import (
+    attest_adoption_service,
     record_outcome_service,
     run_service,
     search_service,
@@ -107,6 +110,40 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_domain_pack_args(outcome)
     _add_store_backend_args(outcome)
 
+    adopt = subparsers.add_parser(
+        "adopt",
+        help=(
+            "Operator-only adoption attestation for a prior trace. Unlike "
+            "record-outcome, this uses the external adoption channel and may "
+            "promote knowledge."
+        ),
+    )
+    adopt.add_argument("--trace-id", required=True)
+    adopt.add_argument("--outcome", required=True)
+    adopt.add_argument("--reviewer", default=None)
+    adopt.add_argument(
+        "--metric",
+        action="append",
+        default=[],
+        metavar="name=value",
+        help="Observed metric delta as name=value. Repeatable.",
+    )
+    adopt.add_argument("--causal-metric", default=None)
+    adopt.add_argument("--observed-value", type=float, default=None)
+    adopt.add_argument("--counterfactual-value", type=float, default=None)
+    adopt.add_argument(
+        "--method",
+        choices=tuple(method.value for method in CausalAttributionMethod),
+        default=None,
+    )
+    adopt.add_argument("--comparison-ref", default=None)
+    adopt.add_argument("--window-start", default=None)
+    adopt.add_argument("--window-end", default=None)
+    adopt.add_argument("--confidence", type=float, default=None)
+    adopt.add_argument("--notes", default=None)
+    _add_domain_pack_args(adopt)
+    _add_store_backend_args(adopt)
+
     search = subparsers.add_parser(
         "search",
         help=(
@@ -181,7 +218,7 @@ def _emit(payload: dict[str, object], stdout: TextIO | None) -> None:
     output.write("\n")
 
 
-SUBCOMMANDS = ("query", "record-outcome", "search", "trace")
+SUBCOMMANDS = ("query", "record-outcome", "adopt", "search", "trace")
 
 
 def _normalize_argv(argv: list[str] | None) -> list[str] | None:
@@ -199,6 +236,42 @@ def _normalize_argv(argv: list[str] | None) -> list[str] | None:
     if argv and argv[0] not in SUBCOMMANDS and argv[0] not in ("-h", "--help"):
         return ["query", *argv]
     return argv
+
+
+def _build_causal_attribution(args: argparse.Namespace) -> CausalOutcomeAttribution | None:
+    causal_fields = {
+        "causal_metric": args.causal_metric,
+        "observed_value": args.observed_value,
+        "counterfactual_value": args.counterfactual_value,
+        "method": args.method,
+        "comparison_ref": args.comparison_ref,
+        "window_start": args.window_start,
+        "window_end": args.window_end,
+        "confidence": args.confidence,
+    }
+    if all(value is None for value in causal_fields.values()):
+        return None
+    missing = [name.replace("_", "-") for name, value in causal_fields.items() if value is None]
+    if missing:
+        raise SystemExit(f"Missing causal attribution option(s): {', '.join(missing)}.")
+
+    observed = float(args.observed_value)
+    counterfactual = float(args.counterfactual_value)
+    delta_absolute = observed - counterfactual
+    delta_percent = None if counterfactual == 0 else delta_absolute / counterfactual
+    return CausalOutcomeAttribution(
+        metric_name=args.causal_metric,
+        observed_value=observed,
+        counterfactual_value=counterfactual,
+        delta_absolute=delta_absolute,
+        delta_percent=delta_percent,
+        method=CausalAttributionMethod(args.method),
+        comparison_ref=args.comparison_ref,
+        window_start=args.window_start,
+        window_end=args.window_end,
+        confidence=float(args.confidence),
+        notes=args.notes,
+    )
 
 
 def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> int:
@@ -258,6 +331,20 @@ def run_cli(argv: list[str] | None = None, *, stdout: TextIO | None = None) -> i
             outcome=args.outcome,
             reviewer=args.reviewer,
             metric_deltas=metric_deltas or None,
+        )
+        _emit(payload, stdout)
+        return 0
+
+    if args.command == "adopt":
+        metric_deltas = _parse_metric_deltas(args.metric)
+        payload = attest_adoption_service(
+            runtime,
+            factory.adoption_ingest(),
+            trace_id=args.trace_id,
+            outcome=args.outcome,
+            reviewer=args.reviewer,
+            metric_deltas=metric_deltas or None,
+            causal_attribution=_build_causal_attribution(args),
         )
         _emit(payload, stdout)
         return 0

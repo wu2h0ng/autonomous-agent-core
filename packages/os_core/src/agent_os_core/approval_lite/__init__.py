@@ -13,6 +13,7 @@ class ApprovalRecord:
     status: str  # "pending" | "approved" | "rejected"
     approver_role: str | None
     reason: str | None = None
+    operation_fingerprint: str | None = None
 
 
 class ApprovalStorePort(ABC):
@@ -65,6 +66,7 @@ class ApprovalLiteRuntime:
         approval_id: str,
         proposal_id: str,
         approver_role: str | None,
+        operation_fingerprint: str | None = None,
     ) -> ApprovalRecord:
         """Create a new pending approval record.
 
@@ -72,6 +74,8 @@ class ApprovalLiteRuntime:
             approval_id: Unique identifier for this approval.
             proposal_id: The proposal this approval relates to.
             approver_role: The role required to approve (may be None).
+            operation_fingerprint: Optional frozen digest of the approved operation
+                contract and action parameters.
 
         Returns:
             The newly created ApprovalRecord with status "pending".
@@ -81,6 +85,7 @@ class ApprovalLiteRuntime:
             proposal_id=proposal_id,
             status="pending",
             approver_role=approver_role,
+            operation_fingerprint=operation_fingerprint,
         )
         return self._store.save(record)
 
@@ -112,6 +117,7 @@ class ApprovalLiteRuntime:
             status="approved",
             approver_role=existing.approver_role,
             reason=reason,
+            operation_fingerprint=existing.operation_fingerprint,
         )
         return self._store.save(updated)
 
@@ -143,6 +149,7 @@ class ApprovalLiteRuntime:
             status="rejected",
             approver_role=existing.approver_role,
             reason=reason,
+            operation_fingerprint=existing.operation_fingerprint,
         )
         return self._store.save(updated)
 

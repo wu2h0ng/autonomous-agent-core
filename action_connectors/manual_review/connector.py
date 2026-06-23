@@ -25,6 +25,17 @@ class ManualReviewConnector(ActionConnector):
         """Manual review has no side effects to snapshot, so returns None."""
         return None
 
+    def dry_run(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
+        """Preview the manual-review operation without side effects."""
+        return {
+            "status": "dry_run",
+            "connector_name": self.connector_name,
+            "operation_id": operation.operation_id,
+            "action_type": operation.action_type,
+            "parameters": dict(parameters),
+            "idempotency_key": operation.idempotency_key,
+        }
+
     def execute(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
         """Record the operation as pending manual approval.
 

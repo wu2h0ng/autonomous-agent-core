@@ -48,6 +48,26 @@ class OpenApiContractTest(unittest.TestCase):
             ["/adoptions", "/knowledge/search", "/outcomes", "/runs", "/traces/{trace_id}"],
         )
 
+    def test_adoption_contract_declares_causal_attribution_request_field(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        adoption = spec["components"]["schemas"]["AdoptionRequest"]
+        self.assertIn("causal_attribution", adoption["properties"])
+        causal = spec["components"]["schemas"]["CausalAttributionRequest"]
+        self.assertEqual(
+            set(causal["required"]),
+            {
+                "metric_name",
+                "observed_value",
+                "counterfactual_value",
+                "delta_absolute",
+                "method",
+                "comparison_ref",
+                "window_start",
+                "window_end",
+                "confidence",
+            },
+        )
+
     def test_unified_block_contract_is_declared_on_runs(self) -> None:
         # AR-20260606-unified-block-outcome: the 422 business-block shape must be
         # part of the published schema, not folklore.

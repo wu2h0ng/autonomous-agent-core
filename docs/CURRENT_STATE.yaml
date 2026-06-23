@@ -1,9 +1,9 @@
 updated: "2026-06-23"
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
-branch: "main"
+branch: "codex/adr-0002-upper-half"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop lower-half contracts implemented"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half implemented on local feature branch, pending review/merge/release"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -19,9 +19,10 @@ current_stage:
     - "P5.2a corrigibility pause shell complete"
     - "Critical-fix cleanup complete: SQL LIMIT lower bound, CLI env-store parity, knowledge/index atomicity, atomic knowledge version bump"
     - "ADR-0002 lower-half contracts complete: causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring"
+    - "ADR-0002 upper-half local implementation complete: CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and rollback demonstration"
   immediate_next:
-    id: "ADR-0002-governed-action-outcome-loop-v0-upper-half"
-    description: "Continue ADR-0002 only through a scoped upper-half task: CLI adopt/operator causal attribution surface completion, approval-resume governed execution, D6 red eval, and one rollback demonstration. Do not claim full governed-action loop until those pass."
+    id: "ADR-0002-review-and-merge-gate"
+    description: "Review the local ADR-0002 upper-half feature branch and decide merge/release. Do not claim external release or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -30,9 +31,15 @@ current_stage:
     - "Directly transplanting or claiming G10 in the enterprise OS without a product-domain validation gate"
 
 last_verified_tests:
-  command: "PYTHONPATH=apps/api_server/src:packages/contracts/src:packages/os_core/src:action_connectors:packages/persistence/src .venv/bin/python -m unittest discover -s tests/unit"
-  result: "323 unit tests OK, 4 skipped; OpenAPI drift tests execute with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
-  source: "local verification after ADR-0002 lower-half contract implementation"
+  command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
+  result: "350 unit tests OK, 4 skipped; OpenAPI drift tests execute with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
+  source: "local verification after ADR-0002 upper-half implementation and review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace"
+  verified_at: "2026-06-23"
+
+last_verified_eval:
+  command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
+  result: "12 eval tests OK, including 10 governed-action D6 eval tests"
+  source: "local verification after ADR-0002 upper-half implementation and review hardening for risk ceiling, dry-run/snapshot fail-fast, approval binding, and approved-execution audit trace"
   verified_at: "2026-06-23"
 
 authoritative_records:
@@ -74,10 +81,10 @@ scope:
 open_items:
   active_decisions_remaining_work:
     - id: "ADR-0002-governed-action-outcome-loop-v0"
-      status: "Accepted; lower-half implemented in commit e802377"
-      gate: "Upper-half remains R3 runtime work; prefer scoped task packet and review before merge/release"
+      status: "Accepted; lower-half implemented in commit e802377; upper-half implemented on local branch codex/adr-0002-upper-half"
+      gate: "R3 runtime work remains pending review/merge/release; no push or merge performed by this run"
       scope: "One reversible governed action loop with CLI adopt, causal attribution, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
-      freshness_note: "Lower-half now covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Remaining missing pieces are CLI adopt/operator causal attribution surface completion, approval-resume governed execution, D6 red eval, and one rollback demonstration."
+      freshness_note: "Lower-half covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Upper-half now covers CLI adopt/operator causal attribution surface, approval-resume governed execution, D6 red eval, and one rollback demonstration on the feature branch."
   blocked_on_decision_or_environment:
     - "PR-07 Frontend F1 blueprint"
     - "ActionProposal routing to real write connector"

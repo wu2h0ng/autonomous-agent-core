@@ -3,6 +3,16 @@
     "schemas": {
       "AdoptionRequest": {
         "properties": {
+          "causal_attribution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CausalAttributionRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "metric_deltas": {
             "anyOf": [
               {
@@ -157,6 +167,94 @@
           "detail"
         ],
         "title": "BlockedResponse",
+        "type": "object"
+      },
+      "CausalAttributionMethod": {
+        "enum": [
+          "holdout",
+          "counterfactual",
+          "before_after",
+          "operator_attested"
+        ],
+        "title": "CausalAttributionMethod",
+        "type": "string"
+      },
+      "CausalAttributionRequest": {
+        "properties": {
+          "comparison_ref": {
+            "minLength": 1,
+            "title": "Comparison Ref",
+            "type": "string"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "counterfactual_value": {
+            "title": "Counterfactual Value",
+            "type": "number"
+          },
+          "delta_absolute": {
+            "title": "Delta Absolute",
+            "type": "number"
+          },
+          "delta_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Percent"
+          },
+          "method": {
+            "$ref": "#/components/schemas/CausalAttributionMethod"
+          },
+          "metric_name": {
+            "minLength": 1,
+            "title": "Metric Name",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "observed_value": {
+            "title": "Observed Value",
+            "type": "number"
+          },
+          "window_end": {
+            "minLength": 1,
+            "title": "Window End",
+            "type": "string"
+          },
+          "window_start": {
+            "minLength": 1,
+            "title": "Window Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric_name",
+          "observed_value",
+          "counterfactual_value",
+          "delta_absolute",
+          "method",
+          "comparison_ref",
+          "window_start",
+          "window_end",
+          "confidence"
+        ],
+        "title": "CausalAttributionRequest",
         "type": "object"
       },
       "HTTPValidationError": {

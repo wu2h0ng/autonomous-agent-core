@@ -69,6 +69,40 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(adopt_payload["knowledge_version"], 2)
         self.assertIsNotNone(adopt_payload["knowledge_asset_id"])
 
+    def test_adoptions_accepts_causal_attribution_and_surfaces_result_weight(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        adopt_resp = client.post(
+            "/adoptions",
+            json={
+                "trace_id": trace_id,
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+                "causal_attribution": {
+                    "metric_name": "gmv",
+                    "observed_value": 11200.0,
+                    "counterfactual_value": 10000.0,
+                    "delta_absolute": 1200.0,
+                    "delta_percent": 0.12,
+                    "method": "holdout",
+                    "comparison_ref": "holdout:campaign-42",
+                    "window_start": "2026-06-01",
+                    "window_end": "2026-06-07",
+                    "confidence": 0.8,
+                },
+            },
+            headers=headers,
+        )
+        self.assertEqual(adopt_resp.status_code, 200, adopt_resp.text)
+        payload = adopt_resp.json()
+        self.assertEqual(payload["knowledge_version"], 2)
+        self.assertEqual(payload["result_weight"], 0.8)
+
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpAppBlockTest(unittest.TestCase):

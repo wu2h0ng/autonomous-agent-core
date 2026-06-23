@@ -5,6 +5,33 @@ from agent_os_contracts import ActionProposal, OperationContract, RiskLevel
 from ..action_connectors.registry import ActionConnectorRegistry
 
 
+_RISK_ORDER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3, "R4": 4, "R5": 5}
+
+
+class ActionGovernanceError(ValueError):
+    """Base class for action-governance contract violations."""
+
+
+class RiskCeilingExceeded(ActionGovernanceError):
+    """Raised when a proposal exceeds the routed connector's risk ceiling."""
+
+
+class UnsupportedActionType(ActionGovernanceError):
+    """Raised when a proposal requests an action type the connector does not support."""
+
+
+def _risk_value(risk: RiskLevel | str) -> str:
+    return risk.value if isinstance(risk, RiskLevel) else risk
+
+
+def _risk_order(risk: RiskLevel | str) -> int:
+    value = _risk_value(risk)
+    try:
+        return _RISK_ORDER[value]
+    except KeyError as exc:
+        raise ActionGovernanceError(f"unknown risk level '{value}'") from exc
+
+
 class ActionGovernance:
     """Determines governance rules for operation execution.
 
@@ -42,6 +69,18 @@ class ActionGovernance:
         if self._registry is not None:
             try:
                 connector_contract = self._registry.get_contract(proposal.connector_name)
+                if proposal.action_type not in connector_contract.supported_action_types:
+                    raise UnsupportedActionType(
+                        f"unsupported action type '{proposal.action_type}' for connector "
+                        f"'{proposal.connector_name}'"
+                    )
+                if _risk_order(proposal.risk_level) > _risk_order(connector_contract.risk_ceiling):
+                    raise RiskCeilingExceeded(
+                        "risk ceiling exceeded: "
+                        f"proposal risk '{proposal.risk_level.value}' exceeds connector "
+                        f"'{proposal.connector_name}' ceiling "
+                        f"'{connector_contract.risk_ceiling}'"
+                    )
                 snapshot_required = connector_contract.supports_snapshot
                 rollback_supported = connector_contract.supports_rollback
                 compensating_action = connector_contract.compensating_action_description

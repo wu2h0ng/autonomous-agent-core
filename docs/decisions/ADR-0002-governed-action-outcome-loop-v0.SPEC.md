@@ -13,11 +13,11 @@
 ## Status and Gate
 
 - ADR: `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`
-- ADR status: Proposed
-- This SPEC status: Draft execution packet for Product/Architecture/CTO review
-- Runtime implementation status: Not started in this packet
-- Required before runtime code: CEO -> Product -> Architecture -> CTO Gate
-- Red eval policy: Write and run the failing eval first in T2; do not add production code until the intended RED failures are observed.
+- ADR status: Accepted; gate recorded 2026-06-22
+- This SPEC status: Implemented on local feature branch `codex/adr-0002-upper-half`; pending review, merge, and release authorization
+- Runtime implementation status: Complete for scoped v0 on the feature branch
+- Required before merge/release: review + founder/CTO merge/release gate
+- Red eval policy: The eval was written before runtime completion and now passes; future widening still requires fresh red-first tests.
 
 ## Freshness Corrections
 
@@ -217,6 +217,8 @@ Rules:
 
 - It must read `ApprovalLiteRuntime.get(approval_id)`.
 - It must reject missing, pending, rejected, or mismatched approval records.
+- It must reject an operation whose `operation_id` is not bound to `proposal_id`.
+- For approvals created by the runtime, the pending approval record must freeze an operation/action payload fingerprint; `execute_approved_operation(...)` must recompute it and reject any changed operation contract or action parameters before connector execution.
 - It must call `_assert_grounded(operation evidence)` before connector execution.
 - It must execute the same governed branch as non-approval execution: dry-run, snapshot if required, connector execute, trace update.
 - It must not create a path for R4/R5 auto-execution. Approval is required first.
@@ -453,15 +455,15 @@ Expected RED today: approval-required path does not execute, so it does not prod
 - Create: `tests/eval/test_governed_action_outcome_loop_v0.py`
 - Modify only if import helpers are needed: `tests/eval/__init__.py`
 
-- [ ] Write the eight cases in the Red Eval Plan.
-- [ ] Run:
+- [x] Write the eight cases in the Red Eval Plan.
+- [x] Run:
 
 ```bash
 PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:apps/api_server/src:action_connectors \
   python -m unittest tests.eval.test_governed_action_outcome_loop_v0 -v
 ```
 
-- [ ] Expected: failures match the listed RED reasons, not syntax/import mistakes.
+- [x] Expected: failures match the listed RED reasons, not syntax/import mistakes.
 
 ### Task 2: Contract Delta
 
@@ -471,9 +473,9 @@ PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:
 - Modify: `packages/contracts/src/agent_os_contracts/__init__.py`
 - Test: `tests/unit/test_contracts.py`
 
-- [ ] Add `CausalAttributionMethod`, `CausalOutcomeAttribution`, `idempotency_key`, and `result_weight`.
-- [ ] Run the red eval again.
-- [ ] Expected: RED failures move from missing types/fields to missing behavior.
+- [x] Add `CausalAttributionMethod`, `CausalOutcomeAttribution`, `idempotency_key`, and `result_weight`.
+- [x] Run the red eval again.
+- [x] Expected: RED failures move from missing types/fields to missing behavior.
 
 ### Task 3: Connector Dry-Run and Idempotency
 
@@ -483,16 +485,16 @@ PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:
 - Modify: `action_connectors/action_record/connector.py`
 - Test: `tests/unit/test_action_record_connector.py`
 
-- [ ] Add dry-run behavior.
-- [ ] Add idempotency state inside `ActionRecordStore`.
-- [ ] Run:
+- [x] Add dry-run behavior.
+- [x] Add idempotency state inside `ActionRecordStore`.
+- [x] Run:
 
 ```bash
 PYTHONPATH=packages/os_core/src:packages/contracts/src:action_connectors \
   python -m unittest tests.unit.test_action_record_connector -v
 ```
 
-- [ ] Expected: dry-run/idempotency unit tests pass; red eval still fails on runtime/API gaps.
+- [x] Expected: dry-run/idempotency unit tests pass; red eval still fails on runtime/API gaps.
 
 ### Task 4: Approval-Resume Governed Execution
 
@@ -502,17 +504,17 @@ PYTHONPATH=packages/os_core/src:packages/contracts/src:action_connectors \
 - Test: `tests/unit/test_trusted_loop.py`
 - Test: `tests/unit/test_trusted_loop_snapshot_rollback.py`
 
-- [ ] Extract current non-approval execution branch into a helper that both paths use.
-- [ ] Add `execute_approved_operation(...)`.
-- [ ] Enforce approved status, proposal match, grounding, dry-run, snapshot, execution, and trace updates.
-- [ ] Run:
+- [x] Extract current non-approval execution branch into a helper that both paths use.
+- [x] Add `execute_approved_operation(...)`.
+- [x] Enforce approved status, proposal match, operation/action payload match, grounding, dry-run, snapshot, execution, and trace updates.
+- [x] Run:
 
 ```bash
 PYTHONPATH=packages/os_core/src:packages/contracts/src:action_connectors \
   python -m unittest tests.unit.test_trusted_loop tests.unit.test_trusted_loop_snapshot_rollback -v
 ```
 
-- [ ] Expected: existing approval-halt tests still pass; new approved-resume tests pass.
+- [x] Expected: existing approval-halt tests still pass; new approved-resume tests pass.
 
 ### Task 5: Causal Adoption and Weighted Knowledge
 
@@ -523,17 +525,17 @@ PYTHONPATH=packages/os_core/src:packages/contracts/src:action_connectors \
 - Test: `tests/unit/test_adoption_channel.py`
 - Test: `tests/unit/test_knowledge_memory.py`
 
-- [ ] Allow causal attribution only through operator adoption.
-- [ ] Keep self-report separate.
-- [ ] Register weighted knowledge revisions from external adoption.
-- [ ] Run:
+- [x] Allow causal attribution only through operator adoption.
+- [x] Keep self-report separate.
+- [x] Register weighted knowledge revisions from external adoption.
+- [x] Run:
 
 ```bash
 PYTHONPATH=packages/os_core/src:packages/contracts/src:action_connectors \
   python -m unittest tests.unit.test_adoption_channel tests.unit.test_knowledge_memory -v
 ```
 
-- [ ] Expected: wirehead guard remains green; causal attribution promotion test passes.
+- [x] Expected: wirehead guard remains green; causal attribution promotion test passes.
 
 ### Task 6: API and CLI
 
@@ -546,18 +548,18 @@ PYTHONPATH=packages/os_core/src:packages/contracts/src:action_connectors \
 - Test: `tests/unit/test_cli_record_outcome.py`
 - Test: `tests/unit/test_openapi_contract.py`
 
-- [ ] Add causal attribution request/response fields to `/adoptions`.
-- [ ] Add CLI `adopt` and wire it to `attest_adoption_service(...)`.
-- [ ] Keep `record-outcome` wired to `record_outcome_service(...)`.
-- [ ] Regenerate OpenAPI snapshot.
-- [ ] Run:
+- [x] Add causal attribution request/response fields to `/adoptions`.
+- [x] Add CLI `adopt` and wire it to `attest_adoption_service(...)`.
+- [x] Keep `record-outcome` wired to `record_outcome_service(...)`.
+- [x] Regenerate OpenAPI snapshot.
+- [x] Run:
 
 ```bash
 PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:apps/api_server/src:action_connectors \
   python -m unittest tests.unit.test_http_app tests.unit.test_cli_record_outcome tests.unit.test_openapi_contract -v
 ```
 
-- [ ] Expected: adoption API/CLI tests pass and OpenAPI drift gate is clean.
+- [x] Expected: adoption API/CLI tests pass and OpenAPI drift gate is clean.
 
 ### Task 7: End-to-End Eval Green
 
@@ -565,21 +567,21 @@ PYTHONPATH=packages/os_core/src:packages/contracts/src:packages/persistence/src:
 - Test: `tests/eval/test_governed_action_outcome_loop_v0.py`
 - Modify docs after implementation: `docs/CURRENT_STATE.yaml`, root `../code_index.md`
 
-- [ ] Run the red eval command again.
-- [ ] Expected: all D6 cases pass.
-- [ ] Run broader verification:
+- [x] Run the red eval command again.
+- [x] Expected: all D6 cases pass.
+- [x] Run broader verification:
 
 ```bash
 make ci
 ```
 
-- [ ] Expected: unit, eval, OpenAPI, ruff, and format checks pass.
+- [x] Expected: unit, eval, OpenAPI, ruff, and format checks pass.
 
 ## Completion Gate Answers
 
 - Entry point: `TrustedLoopRuntime.run(...)`, new `TrustedLoopRuntime.execute_approved_operation(...)`, `POST /adoptions`, and CLI `adopt`.
 - Contract: `OperationContract`, `ActionProposal`, `FeedbackEvent`, `CausalOutcomeAttribution`, `KnowledgeAsset`, `OperationTrace`.
-- Failure mode: unsafe SQL/incomplete evidence, missing approval, rejected approval, failed dry-run, duplicate idempotency conflict, missing adoption, and rollback failure.
+- Failure mode: unsafe SQL/incomplete evidence, missing approval, rejected approval, mismatched approval/proposal/operation/action payload, failed dry-run, duplicate idempotency conflict, missing adoption, and rollback failure.
 - Test validity: D6 red eval fails if grounding, adoption-only promotion, rollback, idempotency, or approval gates are bypassed.
 - Integration: Trusted Loop, adoption ledger, action connector registry, action_record connector, knowledge store, HTTP, CLI, eval harness.
 - Boundary: OS Core remains domain-independent; FaSoLa-specific fixtures stay outside OS Core.

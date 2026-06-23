@@ -159,6 +159,7 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
                 "evidence_chain",
                 "action_proposal",
                 "operation_contract",
+                "connector_dry_run",
                 "connector_execute",
                 "knowledge_asset_candidate",
             ],

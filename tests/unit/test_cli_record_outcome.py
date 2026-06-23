@@ -6,6 +6,7 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 
+from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 from agent_os_api.cli import run_cli
 from agent_os_api.runtime_factory import EXECUTOR_SQLITE, STORE_POSTGRES, RuntimeFactoryConfig
 
@@ -78,6 +79,77 @@ class CliRecordOutcomeTest(unittest.TestCase):
                 ],
                 stdout=out,
             )
+
+
+class CliAdoptTest(unittest.TestCase):
+    def test_adopt_subcommand_uses_operator_attestation_service_with_causal_payload(self) -> None:
+        out = io.StringIO()
+        runtime = object()
+        adoption_ingest = object()
+        factory = MagicMock()
+        factory.build.return_value = runtime
+        factory.adoption_ingest.return_value = adoption_ingest
+
+        with patch("agent_os_api.cli.ContentCommerceRuntimeFactory", return_value=factory):
+            with patch(
+                "agent_os_api.cli.attest_adoption_service",
+                return_value={
+                    "adoption_id": "feedback-1",
+                    "trace_id": "trace-1",
+                    "outcome": "adopted",
+                    "reviewer": "ops@example.com",
+                    "knowledge_asset_id": "knowledge-1",
+                    "knowledge_version": 2,
+                    "result_weight": 0.8,
+                },
+            ) as service:
+                rc = run_cli(
+                    [
+                        "adopt",
+                        "--trace-id",
+                        "trace-1",
+                        "--outcome",
+                        "adopted",
+                        "--reviewer",
+                        "ops@example.com",
+                        "--metric",
+                        "gmv=1200",
+                        "--causal-metric",
+                        "gmv",
+                        "--observed-value",
+                        "11200",
+                        "--counterfactual-value",
+                        "10000",
+                        "--method",
+                        "holdout",
+                        "--comparison-ref",
+                        "holdout:campaign-42",
+                        "--window-start",
+                        "2026-06-01",
+                        "--window-end",
+                        "2026-06-07",
+                        "--confidence",
+                        "0.8",
+                    ],
+                    stdout=out,
+                )
+
+        self.assertEqual(rc, 0)
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["result_weight"], 0.8)
+        service.assert_called_once()
+        args, kwargs = service.call_args
+        self.assertIs(args[0], runtime)
+        self.assertIs(args[1], adoption_ingest)
+        self.assertEqual(kwargs["trace_id"], "trace-1")
+        self.assertEqual(kwargs["outcome"], "adopted")
+        self.assertEqual(kwargs["reviewer"], "ops@example.com")
+        self.assertEqual(kwargs["metric_deltas"], {"gmv": 1200})
+        attribution = kwargs["causal_attribution"]
+        self.assertIsInstance(attribution, CausalOutcomeAttribution)
+        self.assertEqual(attribution.method, CausalAttributionMethod.HOLDOUT)
+        self.assertEqual(attribution.delta_absolute, 1200.0)
+        self.assertEqual(attribution.delta_percent, 0.12)
 
 
 class CliEnvWiringTest(unittest.TestCase):
