@@ -15,10 +15,15 @@ RUN_BODY = {
     "parameters": {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
 }
 API_KEY = "secret-test-key"
+EXTERNAL_API_KEY = "secret-external-key"
 OPERATOR_KEY = "secret-operator-key"
 
 
-def _make_client(api_key: str | None, operator_api_key: str | None = OPERATOR_KEY):
+def _make_client(
+    api_key: str | None,
+    operator_api_key: str | None = OPERATOR_KEY,
+    external_api_key: str | None = None,
+):
     from starlette.testclient import TestClient
 
     from agent_os_api.http_app import create_app
@@ -29,6 +34,7 @@ def _make_client(api_key: str | None, operator_api_key: str | None = OPERATOR_KE
     app = create_app(
         runtime,
         api_key=api_key,
+        external_api_key=external_api_key,
         operator_api_key=operator_api_key,
         adoption_ingest=factory.adoption_ingest(),
     )
@@ -199,6 +205,47 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("sha256:", rendered)
         self.assertNotIn("start_date", rendered)
         self.assertNotIn("2026-05-31", rendered)
+
+    def test_external_api_key_forces_external_user_result_projection(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+                "audience": "internal",
+            },
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        artifact = run_resp.json()["user_result"]
+        self.assertEqual(artifact["audience"], "external")
+        self.assertTrue(artifact["redaction"]["applied"])
+        self.assertIsNone(run_resp.json()["provider_id"])
+        self.assertIsNone(run_resp.json()["knowledge_asset_id"])
+        self.assertEqual(run_resp.json()["trace_steps"], [])
+        self.assertEqual(run_resp.json()["related_knowledge"], [])
+        rendered = run_resp.text
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+
+    def test_external_api_key_blocked_run_omits_trace_details(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        resp = client.post(
+            "/runs",
+            json={"question": "revenue", "parameters": RUN_BODY["parameters"]},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(resp.status_code, 422, resp.text)
+        detail = resp.json()["detail"]
+        self.assertEqual(detail["code"], "unknown_metric")
+        self.assertEqual(detail["details"], [])
+        self.assertIsNone(detail["trace_id"])
 
     def test_approval_execute_endpoint_runs_approval_bound_action(self) -> None:
         client = _make_client(API_KEY)
@@ -405,6 +452,52 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             json={"trace_id": "trace-x", "outcome": "adopted"},
         )
         self.assertEqual(resp.status_code, 401)
+
+    def test_external_report_key_cannot_use_outcomes_route(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        resp = client.post(
+            "/outcomes",
+            json={"trace_id": "trace-x", "outcome": "adopted"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_external_report_key_cannot_use_management_surfaces(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": EXTERNAL_API_KEY}
+
+        adoption_resp = client.post(
+            "/adoptions",
+            json={"trace_id": "trace-x", "outcome": "adopted"},
+            headers=headers,
+        )
+        search_resp = client.get("/knowledge/search", params={"q": "GMV"}, headers=headers)
+        trace_resp = client.get("/traces/trace-x", headers=headers)
+
+        self.assertEqual(adoption_resp.status_code, 401)
+        self.assertEqual(search_resp.status_code, 401)
+        self.assertEqual(trace_resp.status_code, 401)
+
+    def test_external_report_key_cannot_execute_approval_as_operator(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        resp = client.post(
+            "/approvals/approval-x/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(resp.status_code, 401)
+
+    def test_auth_keys_must_be_distinct(self) -> None:
+        with self.assertRaises(ValueError):
+            _make_client(API_KEY, external_api_key=API_KEY)
+
+        with self.assertRaises(ValueError):
+            _make_client(API_KEY, operator_api_key=API_KEY)
+
+        with self.assertRaises(ValueError):
+            _make_client(
+                API_KEY, operator_api_key=EXTERNAL_API_KEY, external_api_key=EXTERNAL_API_KEY
+            )
 
     def test_approval_execute_route_also_guarded(self) -> None:
         client = _make_client(API_KEY)

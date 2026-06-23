@@ -55,14 +55,19 @@ Run the server with a configured API key (one shared runtime persists across req
 
 ```bash
 AGENT_OS_API_KEY=your-secret \
+  AGENT_OS_EXTERNAL_API_KEY=optional-external-report-secret \
   uvicorn --factory agent_os_api.http_app:create_app --host 127.0.0.1 --port 8000
 ```
 
-Endpoints (all require the `X-API-Key` header):
+Endpoints (protected by `X-API-Key` unless noted):
 
 - `POST /runs` — body `{question, parameters, audience?}` -> `run_service` summary.
   `audience` is `internal` by default; `external` redacts non-public result details in
-  `user_result` without changing the underlying Trusted Loop evidence.
+  `user_result` without changing the underlying Trusted Loop evidence. The optional
+  `AGENT_OS_EXTERNAL_API_KEY` is report-only for this endpoint: it may call `/runs`, but
+  the response is always capped to the external projection even when the request body asks
+  for `audience=internal`. That projection also omits top-level provider, trace-step, and
+  related-knowledge metadata from the HTTP response.
 - `POST /outcomes` — body `{trace_id, outcome, reviewer?, metric_deltas?}` ->
   `record_outcome_service` result.
 
@@ -71,3 +76,8 @@ Auth boundary:
 - No key configured (neither `create_app(api_key=...)` nor `AGENT_OS_API_KEY`) -> protected
   routes reject with `503` so the operator configures a key rather than running open.
 - Missing or wrong `X-API-Key` -> `401`.
+- `AGENT_OS_EXTERNAL_API_KEY` is not a general API key; non-run management surfaces such as
+  `/outcomes`, `/adoptions`, `/knowledge/search`, and `/traces/{id}` still require the
+  internal API key. This is a narrow report projection cap, not full RBAC or DLP.
+- Configured internal, external-report, and operator keys must be distinct; duplicate key
+  values fail closed during app creation.

@@ -9,14 +9,18 @@ in-memory knowledge/feedback stores persist across requests: a ``POST /runs``
 and a later ``POST /outcomes`` for the same trace see the same state.
 
 Auth boundary: every protected route requires an ``X-API-Key`` header matching
-the configured key (``create_app(api_key=...)`` or env ``AGENT_OS_API_KEY``).
-If no key is configured the protected routes reject with 503 rather than
-silently allowing access; a wrong/missing key returns 401.
+the configured internal key (``create_app(api_key=...)`` or env
+``AGENT_OS_API_KEY``). ``POST /runs`` may also accept a report-only external key,
+but that key is capped to the external ``user_result`` projection and cannot use
+the management surfaces. If no internal key is configured the protected routes
+reject with 503 rather than silently allowing access; a wrong/missing key returns
+401.
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -35,10 +39,52 @@ from .outcome_service import (
 from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
+EXTERNAL_API_KEY_ENV = "AGENT_OS_EXTERNAL_API_KEY"
 OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 API_KEY_HEADER = "X-API-Key"
 OPERATOR_API_KEY_HEADER = "X-Operator-Key"
 APPROVAL_EXECUTE_PATH = "/approvals/{approval_id}/execute"
+
+
+def _key_matches(candidate: str | None, configured: str | None) -> bool:
+    return bool(candidate and configured and secrets.compare_digest(candidate, configured))
+
+
+def _validate_distinct_configured_keys(
+    *,
+    api_key: str | None,
+    external_api_key: str | None,
+    operator_api_key: str | None,
+) -> None:
+    configured = [
+        ("api_key", api_key),
+        ("external_api_key", external_api_key),
+        ("operator_api_key", operator_api_key),
+    ]
+    seen: dict[str, str] = {}
+    for name, value in configured:
+        if not value:
+            continue
+        prior = seen.get(value)
+        if prior is not None:
+            raise ValueError(f"Configured auth keys must be distinct: {prior} equals {name}.")
+        seen[value] = name
+
+
+def _external_run_response_projection(result: dict[str, Any]) -> dict[str, Any]:
+    projected = dict(result)
+    projected["provider_id"] = None
+    projected["trace_steps"] = []
+    projected["knowledge_asset_id"] = None
+    projected["related_knowledge"] = []
+    return projected
+
+
+def _external_block_projection(block: dict[str, Any]) -> dict[str, Any]:
+    projected = dict(block)
+    projected["details"] = []
+    projected["trace_id"] = None
+    return projected
 
 
 def _require_operator_key_in_openapi(openapi_schema: dict[str, Any]) -> None:
@@ -397,6 +443,7 @@ def create_app(
     *,
     retriever: Any | None = None,
     api_key: str | None = None,
+    external_api_key: str | None = None,
     operator_api_key: str | None = None,
     adoption_ingest: Any | None = None,
 ) -> FastAPI:
@@ -413,6 +460,9 @@ def create_app(
         api_key: The required ``X-API-Key`` value. Falls back to the
             ``AGENT_OS_API_KEY`` environment variable. If neither is set, the
             protected routes reject with 503.
+        external_api_key: Optional report-only ``X-API-Key`` value for
+            ``POST /runs``. Falls back to ``AGENT_OS_EXTERNAL_API_KEY``. It can
+            only receive the external read-side projection.
     """
     if runtime is None:
         factory = _build_default_factory()
@@ -430,14 +480,23 @@ def create_app(
         shared_retriever = retriever
         shared_adoption_ingest = adoption_ingest
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
+    configured_external_key = (
+        external_api_key if external_api_key is not None else os.environ.get(EXTERNAL_API_KEY_ENV)
+    )
     configured_operator_key = (
         operator_api_key if operator_api_key is not None else os.environ.get(OPERATOR_API_KEY_ENV)
+    )
+    _validate_distinct_configured_keys(
+        api_key=configured_key,
+        external_api_key=configured_external_key,
+        operator_api_key=configured_operator_key,
     )
 
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
+    app.state.external_api_key = configured_external_key
     app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
 
@@ -450,8 +509,25 @@ def create_app(
                     "variable (or pass api_key to create_app) to enable this endpoint."
                 ),
             )
-        if x_api_key != app.state.api_key:
+        if not _key_matches(x_api_key, app.state.api_key):
             raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
+    def require_run_api_key(
+        x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
+    ) -> Literal["internal", "external"]:
+        if not app.state.api_key:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "API key is not configured. Set the AGENT_OS_API_KEY environment "
+                    "variable (or pass api_key to create_app) to enable this endpoint."
+                ),
+            )
+        if _key_matches(x_api_key, app.state.api_key):
+            return "internal"
+        if _key_matches(x_api_key, app.state.external_api_key):
+            return "external"
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
     def require_operator_api_key(
         x_operator_key: str | None = Header(default=None, alias=OPERATOR_API_KEY_HEADER),
@@ -465,7 +541,7 @@ def create_app(
                     "operator_api_key to create_app) to enable approval execution."
                 ),
             )
-        if x_operator_key != app.state.operator_api_key:
+        if not _key_matches(x_operator_key, app.state.operator_api_key):
             raise HTTPException(status_code=401, detail="Invalid or missing operator key.")
 
     @app.post(
@@ -481,17 +557,28 @@ def create_app(
             }
         },
     )
-    def post_run(body: RunRequest, _: None = Depends(require_api_key)) -> dict[str, Any]:
+    def post_run(
+        body: RunRequest,
+        principal_audience: Literal["internal", "external"] = Depends(require_run_api_key),
+    ) -> dict[str, Any]:
+        audience = "external" if principal_audience == "external" else body.audience
         result = run_service(
             app.state.runtime,
             question=body.question,
             parameters=body.parameters,
-            audience=body.audience,
+            audience=audience,
         )
         if result.get("status") == "blocked":
+            block = (
+                _external_block_projection(result["block"])
+                if principal_audience == "external"
+                else result["block"]
+            )
             # Expected business block (unsafe SQL, unknown metric, ...) -> 422,
             # not a 500: the request was understood but the loop refused to answer.
-            raise HTTPException(status_code=422, detail=result["block"])
+            raise HTTPException(status_code=422, detail=block)
+        if principal_audience == "external":
+            return _external_run_response_projection(result)
         return result
 
     @app.post("/outcomes", response_model=OutcomeResponse)
