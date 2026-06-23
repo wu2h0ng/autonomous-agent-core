@@ -35,13 +35,21 @@ This is a pure-Python monorepo. Source is laid out as `src/`-style packages wire
 `PYTHONPATH`. The Makefile is the canonical entry point and should mirror CI:
 
 ```bash
+make bootstrap-dev
 make ci
+export AGENT_OS_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/agent_os_test"
+make ci-local-full
 make lint
 make format-check
 make unit
 make eval
 make test
 ```
+
+`make ci` is the fast local suite. `make ci-local-full` is the stronger CI-parity
+gate: it requires installed `.[dev,http,postgres]`, a disposable
+`AGENT_OS_DATABASE_URL`, and the OpenAPI contract check. It does not push,
+publish, or release anything.
 
 On Windows PowerShell, the Makefile's Unix-style `PYTHONPATH` may not work directly. Use
 semicolon-separated paths and run the underlying commands manually:

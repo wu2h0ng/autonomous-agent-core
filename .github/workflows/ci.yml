@@ -41,7 +41,5 @@ jobs:
         # retrieval/uow, PG integration, OpenAPI drift gate) run in CI instead
         # of silently skipping (AR-20260611).
         run: python -m pip install -e ".[dev,http,postgres]"
-      - name: Run CI (make ci)
-        run: make ci PYTHON=python
-      - name: API contract drift gate
-        run: PYTHONPATH="packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src" python -m agent_os_api.openapi_contract --check
+      - name: Run full CI parity
+        run: make ci-local-full PYTHON=python
