@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
+from agent_os_contracts import CausalOutcomeAttribution, ConnectorExecutionAudit, KnowledgeQuery
 
 REPORT_AUDIENCES = {"internal", "external"}
 REDACTED_INFRA_FIELDS = [
@@ -115,20 +115,7 @@ def _business_action_status(proposal: Any, action_result: dict[str, Any]) -> str
 
 def _execution_audit_from_event(event: dict[str, Any]) -> dict[str, Any]:
     """Project connector execution semantics without claiming external exactly-once."""
-    status = event.get("status")
-    replay_status = event.get("replay_status")
-    if replay_status is None:
-        replay_status = "idempotent_replay" if status == "idempotent_replay" else "not_replayed"
-    return {
-        "durability_scope": event.get("durability_scope", "connector_response"),
-        "execution_outcome": status,
-        "replay_status": replay_status,
-        "external_ack_status": event.get("external_ack_status", "unknown"),
-        "ledger_status": "recorded" if event.get("record_id") else "not_reported",
-        "record_id": event.get("record_id"),
-        "execution_certainty": event.get("execution_certainty"),
-        "ack_status": event.get("ack_status"),
-    }
+    return ConnectorExecutionAudit.from_event(event).to_dict()
 
 
 def _sql_fingerprint(sql: str) -> str:

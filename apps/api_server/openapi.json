@@ -243,9 +243,7 @@
             "type": "string"
           },
           "execution_audit": {
-            "additionalProperties": true,
-            "title": "Execution Audit",
-            "type": "object"
+            "$ref": "#/components/schemas/ApprovalExecutionAudit"
           },
           "idempotency_key": {
             "anyOf": [
@@ -291,6 +289,87 @@
           "evidence_chain_id"
         ],
         "title": "ApprovalExecuteResponse",
+        "type": "object"
+      },
+      "ApprovalExecutionAudit": {
+        "properties": {
+          "ack_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ack Status"
+          },
+          "durability_scope": {
+            "default": "connector_response",
+            "title": "Durability Scope",
+            "type": "string"
+          },
+          "execution_certainty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Certainty"
+          },
+          "execution_outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Outcome"
+          },
+          "external_ack_status": {
+            "default": "unknown",
+            "title": "External Ack Status",
+            "type": "string"
+          },
+          "external_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Request Id"
+          },
+          "ledger_status": {
+            "default": "not_reported",
+            "title": "Ledger Status",
+            "type": "string"
+          },
+          "record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Id"
+          },
+          "replay_status": {
+            "default": "not_replayed",
+            "title": "Replay Status",
+            "type": "string"
+          }
+        },
+        "title": "ApprovalExecutionAudit",
         "type": "object"
       },
       "BlockDetail": {

@@ -75,6 +75,25 @@ class OpenApiContractTest(unittest.TestCase):
         response_schema = spec["components"]["schemas"]["ApprovalExecuteResponse"]
         self.assertIn("execution_audit", response_schema["properties"])
         self.assertEqual(
+            response_schema["properties"]["execution_audit"],
+            {"$ref": "#/components/schemas/ApprovalExecutionAudit"},
+        )
+        execution_audit_schema = spec["components"]["schemas"]["ApprovalExecutionAudit"]
+        self.assertEqual(
+            set(execution_audit_schema["properties"]),
+            {
+                "durability_scope",
+                "execution_outcome",
+                "replay_status",
+                "external_ack_status",
+                "ledger_status",
+                "record_id",
+                "external_request_id",
+                "execution_certainty",
+                "ack_status",
+            },
+        )
+        self.assertEqual(
             set(response_schema["required"]),
             {
                 "approval_id",

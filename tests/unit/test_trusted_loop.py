@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 
 from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract,
+    ActionProposal,
     LifecycleState,
     MetricContract,
     OperationContract,
@@ -89,6 +90,44 @@ class _FlakyDryRunActionRecordConnector(ActionRecordConnector):
         return super().dry_run(operation, parameters)
 
 
+class _ExternalWebhookConnector(ManualReviewConnector):
+    @property
+    def connector_name(self) -> str:  # type: ignore[override]
+        return "external_webhook"
+
+    def execute(self, operation, parameters):  # type: ignore[override]
+        return {
+            "status": "accepted",
+            "external_request_id": "ext-req-1",
+            "durability_scope": "external_connector",
+            "replay_status": "not_replayed",
+            "ledger_status": "connector_reported",
+            "secret_token": parameters.get("secret_token"),
+            "raw_parameters": dict(parameters),
+        }
+
+
+class _ExternalWebhookActionBuilder:
+    def build(self, *, proposal_id: str, evidence):  # type: ignore[no-untyped-def]
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action="Submit the governed action to an external connector.",
+            reason=evidence.conclusion,
+            risk_level=RiskLevel.R2,
+            expected_impact="Exercise external connector audit semantics.",
+            approval_required=False,
+            approver_role=None,
+            connector_name="external_webhook",
+            action_type="execute",
+            action_parameters={
+                "customer_id": "cust-1",
+                "secret_token": "must-not-leak",
+            },
+        )
+
+
 def _build_spy_connector_registry(spy: _ExecutionSpyConnector) -> ActionConnectorRegistry:
     """Register the spy under the ``manual_review`` routing name."""
     registry = ActionConnectorRegistry()
@@ -136,6 +175,24 @@ def _build_action_record_connector_registry(
             compensating_action_description=(
                 "Restore the action record store to the pre-execution snapshot state"
             ),
+            risk_ceiling="R3",
+            owner="system",
+        ),
+    )
+    return registry
+
+
+def _build_external_webhook_connector_registry() -> ActionConnectorRegistry:
+    registry = ActionConnectorRegistry()
+    registry.register(
+        _ExternalWebhookConnector(),
+        ActionConnectorContract(
+            connector_name="external_webhook",
+            display_name="External Webhook",
+            supported_action_types=("execute",),
+            supports_snapshot=False,
+            supports_rollback=False,
+            compensating_action_description=None,
             risk_ceiling="R3",
             owner="system",
         ),
@@ -472,6 +529,34 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         trace_steps = [event.step for event in result.trace_events]
         self.assertIn("connector_execute", trace_steps)
         self.assertNotIn("awaiting_approval", trace_steps)
+
+    def test_external_connector_execution_audit_uses_safe_reported_fields_only(self) -> None:
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_external_webhook_connector_registry(),
+        )
+        runtime.action_builder = _ExternalWebhookActionBuilder()
+
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertEqual(result.operation_trace.state, OperationState.EXECUTED)
+        execute_event = next(
+            event
+            for event in result.operation_trace.events
+            if event["step"] == "connector_executed"
+        )
+        self.assertEqual(execute_event["connector_name"], "external_webhook")
+        self.assertEqual(execute_event["status"], "accepted")
+        self.assertEqual(execute_event["durability_scope"], "external_connector")
+        self.assertEqual(execute_event["external_request_id"], "ext-req-1")
+        self.assertEqual(execute_event["external_ack_status"], "unknown")
+        self.assertEqual(execute_event["replay_status"], "not_replayed")
+        self.assertEqual(execute_event["ledger_status"], "connector_reported")
+        self.assertNotIn("secret_token", execute_event)
+        self.assertNotIn("raw_parameters", execute_event)
 
     def test_explicit_action_record_intent_routes_to_real_connector_after_approval(self) -> None:
         """A user-visible action request routes to a real reversible connector,

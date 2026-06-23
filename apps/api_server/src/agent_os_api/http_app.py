@@ -404,6 +404,18 @@ class ApprovalExecuteRequest(BaseModel):
     approved_by: str = Field(..., min_length=1)
 
 
+class ApprovalExecutionAudit(BaseModel):
+    durability_scope: str = "connector_response"
+    execution_outcome: str | None = None
+    replay_status: str = "not_replayed"
+    external_ack_status: str = "unknown"
+    ledger_status: str = "not_reported"
+    record_id: str | None = None
+    external_request_id: str | None = None
+    execution_certainty: str | None = None
+    ack_status: str | None = None
+
+
 class ApprovalExecuteResponse(BaseModel):
     approval_id: str
     approval_status: str
@@ -417,7 +429,7 @@ class ApprovalExecuteResponse(BaseModel):
     action_type: str | None = None
     action_result_status: str | None = None
     idempotency_key: str | None = None
-    execution_audit: dict[str, Any] = Field(default_factory=dict)
+    execution_audit: ApprovalExecutionAudit = Field(default_factory=ApprovalExecutionAudit)
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 

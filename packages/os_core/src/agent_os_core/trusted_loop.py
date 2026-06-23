@@ -1063,12 +1063,22 @@ class TrustedLoopRuntime:
         }
         for safe_field in (
             "record_id",
+            "external_request_id",
+            "durability_scope",
+            "replay_status",
+            "external_ack_status",
+            "ledger_status",
             "execution_certainty",
             "ack_status",
             "uncertain_execution_count",
         ):
             if safe_field in action_result:
                 execute_event[safe_field] = action_result[safe_field]
+        if "external_ack_status" not in execute_event and (
+            execute_event.get("durability_scope") == "external_connector"
+            or "external_request_id" in execute_event
+        ):
+            execute_event["external_ack_status"] = "unknown"
         if operation.connector_name == "action_record":
             execute_event["durability_scope"] = "connector_local_ledger"
             if action_result.get("status") == "idempotent_replay":
@@ -1106,7 +1116,7 @@ class TrustedLoopRuntime:
             return None
         if event.get("step") != "connector_execution_uncertain":
             return None
-        return {
+        safe_event = {
             key: value
             for key, value in event.items()
             if key
@@ -1116,6 +1126,11 @@ class TrustedLoopRuntime:
                 "action_type",
                 "status",
                 "record_id",
+                "external_request_id",
+                "durability_scope",
+                "replay_status",
+                "external_ack_status",
+                "ledger_status",
                 "operation_id",
                 "idempotency_key",
                 "reason_code",
@@ -1124,6 +1139,12 @@ class TrustedLoopRuntime:
                 "execution_certainty",
             }
         }
+        if "external_ack_status" not in safe_event and (
+            safe_event.get("durability_scope") == "external_connector"
+            or "external_request_id" in safe_event
+        ):
+            safe_event["external_ack_status"] = "unknown"
+        return safe_event
 
     @staticmethod
     def _with_idempotency_key(

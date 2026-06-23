@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "packages" / "contracts" / "src"))
 
 from agent_os_contracts import (  # noqa: E402
+    ConnectorExecutionAudit,
     DataProductCandidate,
     DataRequirement,
     FeedbackEvent,
@@ -95,6 +96,43 @@ class ArchitectureContractsTest(unittest.TestCase):
         self.assertEqual(trace.events[0]["step"], "proposed")
         self.assertEqual(feedback.trace_id, "trace-1")
         self.assertEqual(asset.source_trace_id, "trace-1")
+
+    def test_connector_execution_audit_projects_safe_external_connector_fields(self) -> None:
+        audit = ConnectorExecutionAudit.from_event(
+            {
+                "status": "accepted",
+                "durability_scope": "external_connector",
+                "external_request_id": "ext-req-1",
+                "replay_status": "not_replayed",
+                "ledger_status": "connector_reported",
+                "secret_token": "must-not-leak",
+                "raw_parameters": {"customer_id": "cust-1"},
+            }
+        )
+
+        self.assertEqual(audit.execution_outcome, "accepted")
+        self.assertEqual(audit.durability_scope, "external_connector")
+        self.assertEqual(audit.external_request_id, "ext-req-1")
+        self.assertEqual(audit.external_ack_status, "unknown")
+        self.assertEqual(audit.replay_status, "not_replayed")
+        self.assertEqual(audit.ledger_status, "connector_reported")
+        self.assertIsNone(audit.record_id)
+        self.assertEqual(
+            audit.to_dict(),
+            {
+                "durability_scope": "external_connector",
+                "execution_outcome": "accepted",
+                "replay_status": "not_replayed",
+                "external_ack_status": "unknown",
+                "ledger_status": "connector_reported",
+                "record_id": None,
+                "external_request_id": "ext-req-1",
+                "execution_certainty": None,
+                "ack_status": None,
+            },
+        )
+        self.assertNotIn("secret_token", audit.to_dict())
+        self.assertNotIn("raw_parameters", audit.to_dict())
 
 
 if __name__ == "__main__":

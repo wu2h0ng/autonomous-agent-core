@@ -99,7 +99,14 @@ Approval execution on the postgres backend resumes the approval-bound context an
 the `action_record` connector ledger. That ledger audits idempotent replays and conflicts
 connector-locally, including conflict fingerprints without raw conflicting payloads. It also
 audits connector-local post-write ACK-uncertain attempts and surfaces recovered idempotent replays
-through the approval execute response's `execution_audit`. This is not external-system
-exactly-once. The runtime can reclaim stale approval contexts that were left `executing` after the
-configured lease, but this does not prove external ACK confirmation or durable execution for
-arbitrary external connectors.
+through the approval execute response's typed `execution_audit`.
+
+`execution_audit` is a conservative projection over connector-reported execution semantics. It can
+show safe fields such as `durability_scope`, `execution_outcome`, `replay_status`,
+`external_ack_status`, `ledger_status`, `record_id`, `external_request_id`,
+`execution_certainty`, and `ack_status`. Raw action parameters, secrets, raw request/response
+bodies, and connector payloads are not copied into this projection. `external_ack_status` defaults
+to `unknown` for external connector semantics unless a connector explicitly reports otherwise.
+This is not external-system exactly-once. The runtime can reclaim stale approval contexts that were
+left `executing` after the configured lease, but this does not prove external ACK confirmation or
+durable execution for arbitrary external connectors.
