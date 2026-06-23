@@ -1,9 +1,9 @@
-updated: "2026-06-24"  # ADR-0002 branch codex/durable-action-ledger under CTO review; H1/M1/M2 remediation plus connector-local lost-ACK uncertainty audit, typed connector execution-audit projection, and connector-declared execution semantics implemented; AR-20260624 CTO gate + founder merge/release gates remain open.
+updated: "2026-06-24"  # ADR-0002 branch codex/durable-action-ledger accepted at AR-20260624 CTO/founder gate; H1/M1/M2 remediation plus connector-local lost-ACK uncertainty audit, typed connector execution-audit projection, and connector-declared execution semantics implemented; merge/push authorized, external release remains a separate non-claim.
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "codex/durable-action-ledger"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact with chart-ready dashboard widgets, strongly typed evidence/source report cards, audience-aware read-side redaction with minimal HTTP principal/scope policy contract, operator-only approval execution with typed execution_audit, durable approval-context resume with stale-claim recovery, connector-side durable action_record ledger with replay/conflict/ACK-uncertain audit, typed connector execution-audit projection, connector-declared execution semantics, and OpenAPI operator-key/execution-audit contract hardening implemented on local feature branch; pending merge/push/release authorization"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact with chart-ready dashboard widgets, strongly typed evidence/source report cards, audience-aware read-side redaction with minimal HTTP principal/scope policy contract, operator-only approval execution with typed execution_audit, durable approval-context resume with stale-claim recovery, connector-side durable action_record ledger with replay/conflict/ACK-uncertain audit, typed connector execution-audit projection, connector-declared execution semantics, and OpenAPI operator-key/execution-audit contract hardening implemented on local feature branch; AR-20260624 accepted and merge/push authorized; external release remains a separate non-claim"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -37,7 +37,7 @@ current_stage:
     - "Connector-declared execution semantics complete on feature branch: ActionConnectorContract now carries ConnectorExecutionSemantics defaults, ActionConnectorRegistry exposes get_execution_semantics, TrustedLoopRuntime fills audit defaults from the registered contract, and action_record declares connector_local_ledger/idempotency/reconciliation semantics; a residual action_record connector-name branch (trusted_loop.py:1087) is still present and should be retired once a second connector exercises the contract-driven path"
   immediate_next:
     id: "adr-0002-branch-review-remediation-then-release-gate"
-    description: "DO NOT MERGE codex/durable-action-ledger until AR-20260624 is accepted at CTO gate and founder merge/release authorization is given. H1/M1/M2 remediation from REVIEW-20260624, connector-local lost-ACK uncertainty audit, typed connector execution-audit projection, and connector-declared execution semantics are implemented. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, or automatic R4/R5 execution."
+    description: "AR-20260624 accepted at CTO/founder gate and merge/push authorization granted for codex/durable-action-ledger after H1/M1/M2 remediation, connector-local lost-ACK uncertainty audit, typed connector execution-audit projection, and connector-declared execution semantics. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -104,9 +104,8 @@ open_items:
   active_decisions_remaining_work:
     - id: "ADR-0002-governed-action-outcome-loop-v0"
       status: "Accepted; lower-half implemented in commit e802377; upper-half, approval-execution hardening, durable approval-context resume with stale-claim recovery plus H1 reclaim CAS remediation, connector-side action_record ledger with replay/conflict/ACK-uncertain audit, OpenAPI operator-key and typed execution_audit contract hardening plus M2 unconfigured-operator-key test, typed connector execution-audit projection with connector-declared execution semantics, chart-ready user_result dashboard, strongly typed evidence/source report cards, audience-aware read-side redaction plus M1 public-external infrastructure stripping, HTTP external-report-key cap, and minimal HTTP principal/scope policy contract implemented locally on feature branch codex/durable-action-ledger"
-      gate: "DO NOT MERGE — H1/M1/M2 remediation verified on 2026-06-24, but AR-20260624 still needs CTO gate acceptance and founder retains merge/push/release authorization"
-      merge_blockers:
-        - "AR-20260624 (governance): net-new auth/principal-scope/external-report-key/redaction + public-OpenAPI surface landed with no ADR/AR; must be accepted at CTO gate and referenced here, not folded under ADR-0002."
+      gate: "MERGE/PUSH AUTHORIZED — H1/M1/M2 remediation verified on 2026-06-24 and AR-20260624 accepted at CTO/founder gate; external release remains a separate non-claim"
+      merge_blockers: []
       remediated_review_findings:
         - "H1 (HIGH bug) CLOSED locally: stale executing approval-context reclaim now gates UPDATE on the observed prior _claim.claimed_at token, and a two-reclaimer race test fails on the old status-only CAS but passes now."
         - "M1 (founder-ruled 2026-06-24) CLOSED locally: audience is the primary projection gate; data_classification only controls metric-data visibility; external public projections still strip physical schemas/tables, bound parameter names, limit metadata, and SQL fingerprints."

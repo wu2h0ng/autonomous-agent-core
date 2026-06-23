@@ -1,6 +1,6 @@
 # AR-20260624: HTTP Principal/Scope Auth + Audience Redaction + External-Report Key
 
-- Status: **Proposed** (retro-active registration; pending CTO gate before merge of `codex/durable-action-ledger`)
+- Status: **Accepted** (retro-active registration accepted at CTO/founder gate on 2026-06-24; merge of `codex/durable-action-ledger` authorized)
 - Scope: the auth/authz + read-side redaction + external-report key + public-OpenAPI surface that landed on branch `codex/durable-action-ledger` **under ADR-0002 without its own architecture review**
 - Risk class: **R3** (auth/permissions + data egress / DLP-adjacent + public-API contract)
 - Parent: [ADR-0002 governed-action outcome loop](../decisions/ADR-0002-governed-action-outcome-loop-v0.md); findings: [REVIEW-20260624](../decisions/ADR-0002-governed-action-outcome-loop-v0.REVIEW-20260624.md)
@@ -58,12 +58,14 @@ Default classification is `internal`, so this is **not exploitable with the ship
 - **Gap (M2):** operator-key **503-unconfigured** path untested (only internal channel's 503 covered). Add `test_unconfigured_operator_key_returns_503`.
 - Optional: assert `block.message` never embeds schema/SQL for external (L4); whitespace-key distinctness (L2).
 
-## 6. Required changes before merge
+## 6. Gate Result
 
-1. **This AR accepted at CTO gate**, and referenced from `CURRENT_STATE.yaml` (replace the "folded under ADR-0002" framing). Fold the OpenAPI delta here or extend `AR-20260611-api-contract-openapi-stabilization`.
-2. **M1 redaction ruling** made and implemented.
+Accepted for merge on 2026-06-24 under the standing boundaries in §7:
+
+1. **This AR accepted at CTO/founder gate** and referenced from `CURRENT_STATE.yaml`.
+2. **M1 redaction ruling** made and implemented: audience is the primary external projection gate; `public` data classification may relax metric-data visibility but still strips physical schemas/tables, bound parameter names, limit metadata, and SQL fingerprints.
 3. **M2 operator-503 test** added.
-4. Concurrency bug **H1** (stale-claim reclaim race) fixed — tracked in REVIEW-20260624, not this AR (it is a durability bug, not an auth-surface item), but is a joint merge-blocker.
+4. Concurrency bug **H1** (stale-claim reclaim race) fixed with observed claim-token CAS.
 
 ## 7. Boundaries
 
@@ -76,4 +78,4 @@ Default classification is `internal`, so this is **not exploitable with the ship
 
 ## Disposition
 
-**Proposed — merge of `codex/durable-action-ledger` is gated** on: this AR accepted at CTO gate, the M1 redaction ruling, the M2 test, and the H1 concurrency fix. The auth/redaction mechanism is sound; this AR supplies the missing review trail and forces the one open egress decision.
+**Accepted — merge of `codex/durable-action-ledger` is authorized** after M1, M2, and H1 remediation. The auth/redaction mechanism is accepted as a bounded deployment-layer surface; it does not authorize full RBAC/DLP, tenant isolation, field/row-level authorization, external release, external-system exactly-once, external ACK confirmation, durable arbitrary external connector recovery, or automatic R4/R5 execution.
