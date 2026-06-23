@@ -18,8 +18,10 @@ Trusted Loop without importing domain logic into OS Core.
 `outcome_service.py` is framework-agnostic (no FastAPI import). It is the single source of
 truth shared by both the CLI and the HTTP app:
 
-- `run_service(runtime, *, question, parameters) -> dict` — runs the loop and returns a
-  summary keyed by `trace_id` (`result.evidence_chain.trace_id`).
+- `run_service(runtime, *, question, parameters, audience="internal") -> dict` — runs
+  the loop and returns a summary keyed by `trace_id` (`result.evidence_chain.trace_id`).
+  `audience` selects the read-side `user_result` projection only; it is not an
+  identity-bound authorization check.
 - `record_outcome_service(runtime, *, trace_id, outcome, reviewer=None, metric_deltas=None)
   -> dict` — records an outcome via `runtime.record_outcome(...)` and reports the resulting
   `knowledge_asset_id` / `knowledge_version`.
@@ -58,7 +60,9 @@ AGENT_OS_API_KEY=your-secret \
 
 Endpoints (all require the `X-API-Key` header):
 
-- `POST /runs` — body `{question, parameters}` -> `run_service` summary.
+- `POST /runs` — body `{question, parameters, audience?}` -> `run_service` summary.
+  `audience` is `internal` by default; `external` redacts non-public result details in
+  `user_result` without changing the underlying Trusted Loop evidence.
 - `POST /outcomes` — body `{trace_id, outcome, reviewer?, metric_deltas?}` ->
   `record_outcome_service` result.
 

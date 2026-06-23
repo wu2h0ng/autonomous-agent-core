@@ -17,6 +17,20 @@ from typing import Any
 
 from agent_os_contracts import CausalOutcomeAttribution, KnowledgeQuery
 
+REPORT_AUDIENCES = {"internal", "external"}
+REDACTED_RESULT_FIELDS = [
+    "checked_schemas",
+    "checked_tables",
+    "metric_dimensions",
+    "bound_parameter_names",
+    "limit_value",
+    "sql_fingerprint",
+    "columns",
+    "preview_rows",
+    "chart_fields",
+    "metric_values",
+]
+
 
 def _preview_rows(rows: tuple[dict[str, Any], ...], *, limit: int = 20) -> list[dict[str, Any]]:
     return [dict(row) for row in rows[:limit]]
@@ -96,14 +110,34 @@ def _sql_fingerprint(sql: str) -> str:
     return "sha256:" + hashlib.sha256(sql.encode("utf-8")).hexdigest()
 
 
+def _normalize_report_audience(audience: str) -> str:
+    if audience not in REPORT_AUDIENCES:
+        raise ValueError(f"Unsupported report audience: {audience}")
+    return audience
+
+
+def _redaction_summary(metric: Any, audience: str) -> dict[str, Any]:
+    data_classification = metric.data_classification.value
+    applied = audience == "external" and data_classification != "public"
+    return {
+        "audience": audience,
+        "applied": applied,
+        "data_classification": data_classification,
+        "redacted_fields": list(REDACTED_RESULT_FIELDS) if applied else [],
+        "reason": ("external audience cannot view non-public result details" if applied else None),
+    }
+
+
 def _report_evidence_cards(
     evidence: Any,
     columns: list[str],
     *,
     preview_row_count: int,
+    redaction: dict[str, Any],
 ) -> list[dict[str, Any]]:
     metric = evidence.metric_contract
     safety = evidence.sql_safety
+    redact = redaction["applied"]
     return [
         {
             "card_id": "metric_contract",
@@ -112,12 +146,13 @@ def _report_evidence_cards(
             "evidence_chain_id": evidence.evidence_chain_id,
             "trace_id": evidence.trace_id,
             "derived_from": ["EvidenceChain.metric_contract"],
+            "redacted_fields": ["dimensions"] if redact else [],
             "metric_name": metric.metric_name,
             "metric_version": metric.version,
             "display_name": metric.display_name,
             "owner": metric.owner,
             "unit": metric.unit,
-            "dimensions": list(metric.dimensions),
+            "dimensions": [] if redact else list(metric.dimensions),
             "data_classification": metric.data_classification.value,
         },
         {
@@ -127,13 +162,24 @@ def _report_evidence_cards(
             "evidence_chain_id": evidence.evidence_chain_id,
             "trace_id": evidence.trace_id,
             "derived_from": ["EvidenceChain.query_plan", "EvidenceChain.sql_safety"],
+            "redacted_fields": (
+                [
+                    "checked_schemas",
+                    "checked_tables",
+                    "bound_parameter_names",
+                    "limit_value",
+                    "sql_fingerprint",
+                ]
+                if redact
+                else []
+            ),
             "query_metric_name": evidence.query_plan.metric_name,
             "sql_safety_allowed": safety.allowed,
-            "checked_schemas": list(safety.checked_schemas),
-            "checked_tables": list(safety.checked_tables),
-            "bound_parameter_names": list(safety.bound_parameters),
-            "limit_value": safety.limit_value,
-            "sql_fingerprint": _sql_fingerprint(evidence.query_plan.sql),
+            "checked_schemas": [] if redact else list(safety.checked_schemas),
+            "checked_tables": [] if redact else list(safety.checked_tables),
+            "bound_parameter_names": [] if redact else list(safety.bound_parameters),
+            "limit_value": None if redact else safety.limit_value,
+            "sql_fingerprint": None if redact else _sql_fingerprint(evidence.query_plan.sql),
         },
         {
             "card_id": "query_result",
@@ -142,14 +188,15 @@ def _report_evidence_cards(
             "evidence_chain_id": evidence.evidence_chain_id,
             "trace_id": evidence.trace_id,
             "derived_from": ["EvidenceChain.query_result"],
+            "redacted_fields": ["columns", "preview_rows"] if redact else [],
             "row_count": evidence.query_result.row_count,
-            "columns": columns,
-            "preview_row_count": preview_row_count,
+            "columns": [] if redact else columns,
+            "preview_row_count": 0 if redact else preview_row_count,
         },
     ]
 
 
-def _build_user_result_artifact(result: Any) -> dict[str, Any]:
+def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> dict[str, Any]:
     """Build the user-facing data-agent result bundle from grounded runtime output.
 
     This is deliberately a read-side projection over ``TrustedLoopResult``: it
@@ -164,10 +211,17 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
     rows = evidence.query_result.rows
     trace_id = evidence.trace_id
     metric = evidence.metric_contract
+    audience = _normalize_report_audience(audience)
+    redaction = _redaction_summary(metric, audience)
+    redact = redaction["applied"]
     preview = _preview_rows(rows)
     columns = _columns(rows)
-    metric_value = _primary_metric_value(rows, metric.metric_name)
-    chart_fields = _chart_fields(rows, columns, metric.dimensions, metric.metric_name)
+    visible_preview = [] if redact else preview
+    visible_columns = [] if redact else columns
+    metric_value = None if redact else _primary_metric_value(rows, metric.metric_name)
+    chart_fields = (
+        None if redact else _chart_fields(rows, columns, metric.dimensions, metric.metric_name)
+    )
     widgets = [
         {
             "widget_id": "primary_metric",
@@ -175,7 +229,13 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
             "title": metric.display_name,
             "value": metric_value,
             "unit": metric.unit,
+            "row_count": None,
+            "columns": [],
+            "preview_rows": [],
+            "x_field": None,
+            "y_field": None,
             "evidence_chain_id": evidence.evidence_chain_id,
+            "redacted_fields": ["value"] if redact else [],
         },
     ]
     if chart_fields is not None:
@@ -186,11 +246,12 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
                 "type": "line_chart",
                 "title": f"{metric.display_name} trend",
                 "row_count": evidence.query_result.row_count,
-                "columns": columns,
-                "preview_rows": preview,
+                "columns": visible_columns,
+                "preview_rows": visible_preview,
                 "x_field": x_field,
                 "y_field": y_field,
                 "evidence_chain_id": evidence.evidence_chain_id,
+                "redacted_fields": [],
             }
         )
     widgets.append(
@@ -199,9 +260,12 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
             "type": "table",
             "title": "Result rows",
             "row_count": evidence.query_result.row_count,
-            "columns": columns,
-            "preview_rows": preview,
+            "columns": visible_columns,
+            "preview_rows": visible_preview,
+            "x_field": None,
+            "y_field": None,
             "evidence_chain_id": evidence.evidence_chain_id,
+            "redacted_fields": ["columns", "preview_rows"] if redact else [],
         }
     )
 
@@ -214,6 +278,8 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
         "action_proposal_id": proposal.proposal_id,
         "question": evidence.intent.question,
         "metric_name": metric.metric_name,
+        "audience": audience,
+        "redaction": redaction,
         "analysis": {
             "summary": evidence.conclusion,
             "confidence": evidence.confidence,
@@ -227,6 +293,7 @@ def _build_user_result_artifact(result: Any) -> dict[str, Any]:
                 evidence,
                 columns,
                 preview_row_count=len(preview),
+                redaction=redaction,
             ),
             "sections": [
                 {
@@ -315,6 +382,7 @@ def run_service(
     *,
     question: str,
     parameters: dict[str, Any],
+    audience: str = "internal",
 ) -> dict[str, Any]:
     """Run the Trusted Loop for ``question`` and return a JSON-able summary.
 
@@ -361,7 +429,7 @@ def run_service(
             {"asset_id": r.asset.asset_id, "title": r.asset.title, "score": r.score}
             for r in result.related_knowledge
         ],
-        "user_result": _build_user_result_artifact(result),
+        "user_result": _build_user_result_artifact(result, audience=audience),
     }
 
 

@@ -36,6 +36,70 @@ def _build_runtime():
     return ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK)).build()
 
 
+def _build_result_for_classification(classification: DataClassification) -> SimpleNamespace:
+    metric = MetricContract(
+        metric_name="orders",
+        display_name="Orders",
+        definition="Count of completed orders",
+        owner="RevOps",
+        unit="orders",
+        allowed_schemas=("ops",),
+        version="v9",
+        dimensions=("channel",),
+        data_classification=classification,
+    )
+    evidence = EvidenceChain(
+        evidence_chain_id="evidence-orders",
+        intent=BusinessIntent(
+            intent_id="intent-orders",
+            question="orders by channel",
+            metric_name="orders",
+        ),
+        metric_contract=metric,
+        query_plan=QueryPlan(
+            metric_name="orders",
+            sql=(
+                "SELECT channel, COUNT(*) AS orders FROM ops.daily_orders "
+                "WHERE day >= :start_date AND secret = :secret_token LIMIT :limit"
+            ),
+            parameters={
+                "start_date": "2026-06-01",
+                "secret_token": "do-not-leak",
+                "limit": 7,
+            },
+        ),
+        sql_safety=SQLSafetyResult(
+            allowed=True,
+            reasons=("ok",),
+            checked_schemas=("ops",),
+            checked_tables=("ops.daily_orders",),
+            bound_parameters=("limit", "secret_token", "start_date"),
+            limit_value=7,
+        ),
+        query_result=QueryResult(rows=({"channel": "email", "orders": 5},), row_count=1),
+        conclusion="Orders are 5.",
+        confidence=0.74,
+        limitations=("sample data",),
+        trace_id="trace-orders",
+    )
+    proposal = ActionProposal(
+        proposal_id="proposal-orders",
+        evidence_chain_id=evidence.evidence_chain_id,
+        target_object="orders",
+        recommended_action="review orders",
+        reason="needs review",
+        risk_level=RiskLevel.R2,
+        expected_impact="better visibility",
+        approval_required=False,
+        approver_role=None,
+    )
+    return SimpleNamespace(
+        evidence_chain=evidence,
+        action_proposal=proposal,
+        action_result={},
+    )
+
+
 class RunServiceTest(unittest.TestCase):
     def test_run_service_returns_trace_and_summary(self) -> None:
         runtime = _build_runtime()
@@ -54,6 +118,17 @@ class RunServiceTest(unittest.TestCase):
         summary = run_service(runtime, question="GMV 记录行动", parameters=RUN_PARAMS)
 
         artifact = summary["user_result"]
+        self.assertEqual(artifact["audience"], "internal")
+        self.assertEqual(
+            artifact["redaction"],
+            {
+                "audience": "internal",
+                "applied": False,
+                "data_classification": "internal",
+                "redacted_fields": [],
+                "reason": None,
+            },
+        )
         self.assertEqual(artifact["kind"], "data_agent_result")
         self.assertEqual(artifact["trace_id"], summary["trace_id"])
         self.assertEqual(artifact["evidence_chain_id"], summary["evidence_chain_id"])
@@ -129,70 +204,97 @@ class RunServiceTest(unittest.TestCase):
         self.assertEqual(business_action["evidence_chain_id"], summary["evidence_chain_id"])
         self.assertEqual(business_action["trace_id"], summary["trace_id"])
 
-    def test_report_evidence_cards_are_derived_from_runtime_contracts(self) -> None:
-        intent = BusinessIntent(
-            intent_id="intent-orders",
-            question="orders by channel",
-            metric_name="orders",
+    def test_external_audience_redacts_internal_table_columns_and_previews(self) -> None:
+        runtime = _build_runtime()
+
+        summary = run_service(
+            runtime,
+            question="GMV 记录行动",
+            parameters=RUN_PARAMS,
+            audience="external",
         )
-        metric = MetricContract(
-            metric_name="orders",
-            display_name="Orders",
-            definition="Count of completed orders",
-            owner="RevOps",
-            unit="orders",
-            allowed_schemas=("ops",),
-            version="v9",
-            dimensions=("channel",),
-            data_classification=DataClassification.CONFIDENTIAL,
-        )
-        query_plan = QueryPlan(
-            metric_name="orders",
-            sql=(
-                "SELECT channel, COUNT(*) AS orders FROM ops.daily_orders "
-                "WHERE day >= :start_date AND secret = :secret_token LIMIT :limit"
-            ),
-            parameters={
-                "start_date": "2026-06-01",
-                "secret_token": "do-not-leak",
-                "limit": 7,
+
+        artifact = summary["user_result"]
+        self.assertEqual(artifact["audience"], "external")
+        self.assertEqual(
+            artifact["redaction"],
+            {
+                "audience": "external",
+                "applied": True,
+                "data_classification": "internal",
+                "redacted_fields": [
+                    "checked_schemas",
+                    "checked_tables",
+                    "metric_dimensions",
+                    "bound_parameter_names",
+                    "limit_value",
+                    "sql_fingerprint",
+                    "columns",
+                    "preview_rows",
+                    "chart_fields",
+                    "metric_values",
+                ],
+                "reason": "external audience cannot view non-public result details",
             },
         )
-        evidence = EvidenceChain(
-            evidence_chain_id="evidence-orders",
-            intent=intent,
-            metric_contract=metric,
-            query_plan=query_plan,
-            sql_safety=SQLSafetyResult(
-                allowed=True,
-                reasons=("ok",),
-                checked_schemas=("ops",),
-                checked_tables=("ops.daily_orders",),
-                bound_parameters=("limit", "secret_token", "start_date"),
-                limit_value=7,
-            ),
-            query_result=QueryResult(rows=({"channel": "email", "orders": 5},), row_count=1),
-            conclusion="Orders are 5.",
-            confidence=0.74,
-            limitations=("sample data",),
-            trace_id="trace-orders",
+
+        cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
+        self.assertEqual(cards["sql_safety"]["checked_schemas"], [])
+        self.assertEqual(cards["sql_safety"]["checked_tables"], [])
+        self.assertEqual(cards["sql_safety"]["bound_parameter_names"], [])
+        self.assertIsNone(cards["sql_safety"]["limit_value"])
+        self.assertIsNone(cards["sql_safety"]["sql_fingerprint"])
+        self.assertEqual(cards["query_result"]["columns"], [])
+        self.assertEqual(cards["query_result"]["preview_row_count"], 0)
+
+        for widget in artifact["dashboard"]["widgets"]:
+            self.assertEqual(widget["columns"], [])
+            self.assertEqual(widget["preview_rows"], [])
+            self.assertIsNone(widget["x_field"])
+            self.assertIsNone(widget["y_field"])
+            if widget["type"] == "kpi":
+                self.assertIsNone(widget["value"])
+
+        rendered = json.dumps(artifact, sort_keys=True)
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+        self.assertNotIn("start_date", rendered)
+        self.assertNotIn("2026-05-31", rendered)
+        self.assertNotIn("128800.0", rendered)
+
+    def test_external_audience_keeps_public_metric_details(self) -> None:
+        artifact = _build_user_result_artifact(
+            _build_result_for_classification(DataClassification.PUBLIC),
+            audience="external",
         )
-        proposal = ActionProposal(
-            proposal_id="proposal-orders",
-            evidence_chain_id=evidence.evidence_chain_id,
-            target_object="orders",
-            recommended_action="review orders",
-            reason="needs review",
-            risk_level=RiskLevel.R2,
-            expected_impact="better visibility",
-            approval_required=False,
-            approver_role=None,
+
+        self.assertEqual(artifact["audience"], "external")
+        self.assertFalse(artifact["redaction"]["applied"])
+        cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
+        self.assertEqual(cards["metric_contract"]["dimensions"], ["channel"])
+        self.assertEqual(cards["sql_safety"]["checked_tables"], ["ops.daily_orders"])
+        self.assertEqual(
+            cards["sql_safety"]["bound_parameter_names"],
+            ["limit", "secret_token", "start_date"],
         )
-        result = SimpleNamespace(
-            evidence_chain=evidence,
-            action_proposal=proposal,
-            action_result={},
+        self.assertTrue(cards["sql_safety"]["sql_fingerprint"].startswith("sha256:"))
+        self.assertEqual(cards["query_result"]["columns"], ["channel", "orders"])
+        table = next(
+            widget for widget in artifact["dashboard"]["widgets"] if widget["type"] == "table"
         )
+        self.assertEqual(table["preview_rows"], [{"channel": "email", "orders": 5}])
+
+    def test_run_service_rejects_unknown_report_audience(self) -> None:
+        runtime = _build_runtime()
+
+        with self.assertRaises(ValueError):
+            run_service(runtime, question="GMV", parameters=RUN_PARAMS, audience="partner")
+
+    def test_report_evidence_cards_are_derived_from_runtime_contracts(self) -> None:
+        result = _build_result_for_classification(DataClassification.CONFIDENTIAL)
+        evidence = result.evidence_chain
+        query_plan = evidence.query_plan
 
         artifact = _build_user_result_artifact(result)
         cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
@@ -221,7 +323,7 @@ class RunServiceTest(unittest.TestCase):
         second_artifact = _build_user_result_artifact(
             SimpleNamespace(
                 evidence_chain=second_evidence,
-                action_proposal=proposal,
+                action_proposal=result.action_proposal,
                 action_result={},
             )
         )

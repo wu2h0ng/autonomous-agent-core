@@ -164,6 +164,42 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(artifact["business_action"]["status"], "awaiting_approval")
         self.assertNotIn("action_parameters", artifact["business_action"])
 
+    def test_run_response_redacts_external_audience_result_details(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+                "audience": "external",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        artifact = run_resp.json()["user_result"]
+        self.assertEqual(artifact["audience"], "external")
+        self.assertTrue(artifact["redaction"]["applied"])
+        cards = {card["card_id"]: card for card in artifact["report"]["evidence_cards"]}
+        self.assertEqual(cards["sql_safety"]["checked_tables"], [])
+        self.assertEqual(cards["sql_safety"]["bound_parameter_names"], [])
+        self.assertIsNone(cards["sql_safety"]["limit_value"])
+        self.assertIsNone(cards["sql_safety"]["sql_fingerprint"])
+        self.assertEqual(cards["query_result"]["columns"], [])
+        for widget in artifact["dashboard"]["widgets"]:
+            self.assertEqual(widget["columns"], [])
+            self.assertEqual(widget["preview_rows"], [])
+            self.assertIsNone(widget["x_field"])
+            self.assertIsNone(widget["y_field"])
+        rendered = run_resp.text
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+        self.assertNotIn("start_date", rendered)
+        self.assertNotIn("2026-05-31", rendered)
+
     def test_approval_execute_endpoint_runs_approval_bound_action(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

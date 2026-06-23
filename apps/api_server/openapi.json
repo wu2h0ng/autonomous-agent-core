@@ -488,6 +488,13 @@
             "title": "Owner",
             "type": "string"
           },
+          "redacted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Redacted Fields",
+            "type": "array"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -646,6 +653,13 @@
             "title": "Preview Row Count",
             "type": "integer"
           },
+          "redacted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Redacted Fields",
+            "type": "array"
+          },
           "row_count": {
             "title": "Row Count",
             "type": "integer"
@@ -704,6 +718,15 @@
       },
       "RunRequest": {
         "properties": {
+          "audience": {
+            "default": "internal",
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
           "parameters": {
             "additionalProperties": true,
             "title": "Parameters",
@@ -853,9 +876,23 @@
             "title": "Query Metric Name",
             "type": "string"
           },
+          "redacted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Redacted Fields",
+            "type": "array"
+          },
           "sql_fingerprint": {
-            "title": "Sql Fingerprint",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sql Fingerprint"
           },
           "sql_safety_allowed": {
             "title": "Sql Safety Allowed",
@@ -1070,6 +1107,14 @@
             "title": "Artifact Id",
             "type": "string"
           },
+          "audience": {
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
           "business_action": {
             "$ref": "#/components/schemas/UserResultBusinessAction"
           },
@@ -1095,6 +1140,9 @@
             "title": "Question",
             "type": "string"
           },
+          "redaction": {
+            "$ref": "#/components/schemas/UserResultRedaction"
+          },
           "report": {
             "$ref": "#/components/schemas/UserResultReport"
           },
@@ -1116,6 +1164,8 @@
           "action_proposal_id",
           "question",
           "metric_name",
+          "audience",
+          "redaction",
           "analysis",
           "report",
           "dashboard",
@@ -1247,6 +1297,13 @@
             "title": "Preview Rows",
             "type": "array"
           },
+          "redacted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Redacted Fields",
+            "type": "array"
+          },
           "row_count": {
             "anyOf": [
               {
@@ -1374,6 +1431,52 @@
           "confidence"
         ],
         "title": "UserResultDecision",
+        "type": "object"
+      },
+      "UserResultRedaction": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "audience": {
+            "enum": [
+              "internal",
+              "external"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "data_classification": {
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "redacted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Redacted Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "audience",
+          "applied",
+          "data_classification",
+          "redacted_fields"
+        ],
+        "title": "UserResultRedaction",
         "type": "object"
       },
       "UserResultReport": {

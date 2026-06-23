@@ -70,6 +70,7 @@ def _install_openapi_contract_hardening(app: FastAPI) -> None:
 class RunRequest(BaseModel):
     question: str = Field(..., min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
+    audience: Literal["internal", "external"] = "internal"
 
 
 class RelatedKnowledgeItem(BaseModel):
@@ -101,6 +102,7 @@ class MetricContractEvidenceCard(BaseModel):
     evidence_chain_id: str
     trace_id: str
     derived_from: list[str]
+    redacted_fields: list[str] = Field(default_factory=list)
     metric_name: str
     metric_version: str
     display_name: str
@@ -117,13 +119,14 @@ class SQLSafetyEvidenceCard(BaseModel):
     evidence_chain_id: str
     trace_id: str
     derived_from: list[str]
+    redacted_fields: list[str] = Field(default_factory=list)
     query_metric_name: str
     sql_safety_allowed: bool
     checked_schemas: list[str]
     checked_tables: list[str]
     bound_parameter_names: list[str]
     limit_value: int | None
-    sql_fingerprint: str
+    sql_fingerprint: str | None
 
 
 class QueryResultEvidenceCard(BaseModel):
@@ -133,6 +136,7 @@ class QueryResultEvidenceCard(BaseModel):
     evidence_chain_id: str
     trace_id: str
     derived_from: list[str]
+    redacted_fields: list[str] = Field(default_factory=list)
     row_count: int
     columns: list[str]
     preview_row_count: int
@@ -162,11 +166,20 @@ class UserResultDashboardWidget(BaseModel):
     preview_rows: list[dict[str, Any]] = Field(default_factory=list)
     x_field: str | None = None
     y_field: str | None = None
+    redacted_fields: list[str] = Field(default_factory=list)
 
 
 class UserResultDashboard(BaseModel):
     title: str
     widgets: list[UserResultDashboardWidget] = Field(default_factory=list)
+
+
+class UserResultRedaction(BaseModel):
+    audience: Literal["internal", "external"]
+    applied: bool
+    data_classification: str
+    redacted_fields: list[str]
+    reason: str | None = None
 
 
 class UserResultDecision(BaseModel):
@@ -203,6 +216,8 @@ class UserResultArtifact(BaseModel):
     action_proposal_id: str
     question: str
     metric_name: str
+    audience: Literal["internal", "external"]
+    redaction: UserResultRedaction
     analysis: UserResultAnalysis
     report: UserResultReport
     dashboard: UserResultDashboard
@@ -471,6 +486,7 @@ def create_app(
             app.state.runtime,
             question=body.question,
             parameters=body.parameters,
+            audience=body.audience,
         )
         if result.get("status") == "blocked":
             # Expected business block (unsafe SQL, unknown metric, ...) -> 422,

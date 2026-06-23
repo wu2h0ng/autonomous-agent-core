@@ -122,6 +122,22 @@ class OpenApiContractTest(unittest.TestCase):
 
     def test_user_result_evidence_cards_are_strongly_typed(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        run_request = spec["components"]["schemas"]["RunRequest"]
+        self.assertEqual(run_request["properties"]["audience"]["default"], "internal")
+        self.assertEqual(
+            run_request["properties"]["audience"]["enum"],
+            ["internal", "external"],
+        )
+
+        artifact = spec["components"]["schemas"]["UserResultArtifact"]
+        self.assertIn("audience", artifact["required"])
+        self.assertIn("redaction", artifact["required"])
+        redaction = spec["components"]["schemas"]["UserResultRedaction"]
+        self.assertGreaterEqual(
+            set(redaction["required"]),
+            {"audience", "applied", "data_classification", "redacted_fields"},
+        )
+
         report = spec["components"]["schemas"]["UserResultReport"]
         self.assertIn("evidence_cards", report["required"])
         evidence_items = report["properties"]["evidence_cards"]["items"]
@@ -181,6 +197,8 @@ class OpenApiContractTest(unittest.TestCase):
                 "preview_row_count",
             },
         )
+        widget = spec["components"]["schemas"]["UserResultDashboardWidget"]
+        self.assertIn("redacted_fields", widget["properties"])
 
     def test_check_mode_detects_drift(self) -> None:
         # Negative path: --check must exit 1 when the snapshot disagrees.
