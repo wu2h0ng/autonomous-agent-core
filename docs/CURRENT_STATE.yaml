@@ -1,9 +1,9 @@
-updated: "2026-06-22"
+updated: "2026-06-23"
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; critical-fix hygiene clean"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop lower-half contracts implemented"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -18,9 +18,10 @@ current_stage:
     - "P5.1b-ii non-bypassable grounding invariant complete"
     - "P5.2a corrigibility pause shell complete"
     - "Critical-fix cleanup complete: SQL LIMIT lower bound, CLI env-store parity, knowledge/index atomicity, atomic knowledge version bump"
+    - "ADR-0002 lower-half contracts complete: causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring"
   immediate_next:
-    id: "ADR-0002-governed-action-outcome-loop-v0-gate"
-    description: "Review Proposed ADR-0002 and its SPEC before any governed-action outcome-loop implementation; fallback next-slice options remain PR-07 frontend, pgvector pushdown, OTel bridge, Stage 2, or P5.2b/c."
+    id: "ADR-0002-governed-action-outcome-loop-v0-upper-half"
+    description: "Continue ADR-0002 only through a scoped upper-half task: CLI adopt/operator causal attribution surface completion, approval-resume governed execution, D6 red eval, and one rollback demonstration. Do not claim full governed-action loop until those pass."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -29,10 +30,10 @@ current_stage:
     - "Directly transplanting or claiming G10 in the enterprise OS without a product-domain validation gate"
 
 last_verified_tests:
-  command: "pytest unit + eval suites; OpenAPI contract check; ruff check + format check"
-  result: "315 unit tests passed, 4 skipped, 7 subtests; 2 eval tests passed, 10 subtests; OpenAPI contract clean; ruff check and format clean"
-  source: "local verification after critical-fix cleanup on current main"
-  verified_at: "2026-06-15"
+  command: "PYTHONPATH=apps/api_server/src:packages/contracts/src:packages/os_core/src:action_connectors:packages/persistence/src .venv/bin/python -m unittest discover -s tests/unit"
+  result: "323 unit tests OK, 4 skipped; OpenAPI drift tests execute with FastAPI installed. Starlette TestClient/httpx deprecation warning remains non-blocking."
+  source: "local verification after ADR-0002 lower-half contract implementation"
+  verified_at: "2026-06-23"
 
 authoritative_records:
   primary_read_order:
@@ -51,7 +52,7 @@ authoritative_records:
     - "docs/architecture_reviews/AR-20260614-p5.1b-ii-grounding-invariant.md"
     - "docs/architecture_reviews/AR-20260614-p5.2-corrigibility-shell.md"
     - "docs/architecture_reviews/AR-20260615-critical-fix-cleanup.md"
-  proposed_decisions:
+  accepted_or_active_decisions:
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md"
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.goal-card.md"
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.SPEC.md"
@@ -71,12 +72,12 @@ scope:
     - "Customer-0 domain logic inside OS Core"
 
 open_items:
-  proposed_decisions_pending_gate:
+  active_decisions_remaining_work:
     - id: "ADR-0002-governed-action-outcome-loop-v0"
-      status: "Proposed"
-      gate: "CEO -> Product -> Architecture -> CTO before runtime implementation"
+      status: "Accepted; lower-half implemented in commit e802377"
+      gate: "Upper-half remains R3 runtime work; prefer scoped task packet and review before merge/release"
       scope: "One reversible governed action loop with CLI adopt, causal attribution, dry-run, idempotency, approval-resume execution, rollback, and D6 red eval"
-      freshness_note: "POST /adoptions already exists and is wired to AdoptionIngest; missing pieces are CLI adopt, causal attribution, dry-run/idempotency, approval-resume execution, and end-to-end eval."
+      freshness_note: "Lower-half now covers causal attribution/result_weight, ActionRecord dry-run/idempotency, and contract/OpenAPI wiring. Remaining missing pieces are CLI adopt/operator causal attribution surface completion, approval-resume governed execution, D6 red eval, and one rollback demonstration."
   blocked_on_decision_or_environment:
     - "PR-07 Frontend F1 blueprint"
     - "ActionProposal routing to real write connector"

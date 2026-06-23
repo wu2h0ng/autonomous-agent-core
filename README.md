@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current next decision (2026-06-22):** **ADR-0002 — governed-action outcome-loop v0** is **Proposed** (decision + SPEC + goal-card landed; runtime not started, gated on CEO→Product→Architecture→CTO). It is the de-facto next implementation plan and supersedes the older "PR-07 frontend next" framing in the Stage 1 / Remaining Items sections below. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
+**Current next implementation slice (2026-06-23):** **ADR-0002 — governed-action outcome-loop v0** is **Accepted** and its lower-half contracts are implemented (causal attribution/result_weight, ActionRecord dry-run/idempotency, contract/OpenAPI wiring). The remaining upper-half is still gated runtime work: CLI `adopt`, approval-resume governed execution, D6 red eval, and one rollback demonstration. See `docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md`.
 
 ## Project Position (2026-06-12 repositioning)
 
@@ -25,7 +25,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway with 315 unit tests passing, 2 eval tests passing, OpenAPI contract clean, and ruff clean.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local unit verification is 323 tests OK, 4 skipped, with OpenAPI contract tests executing under installed FastAPI/httpx dependencies.
 
 ### Delivered Capabilities
 
