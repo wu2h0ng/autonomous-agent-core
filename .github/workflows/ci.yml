@@ -1,0 +1,44 @@
+# autonomous-agent-core CI — deterministic test suite + lint (object layer / research repo).
+# Pure stdlib, zero runtime deps. Mirrors docs/CURRENT_STATE.yaml `test_command` — keep in sync.
+# This is Tier-3 machine enforcement: every PR by any agent (incl. Codex) must pass the
+# falsification-discipline unit tests (assert_gate2_unlocked hard-fail, AST static firewalls,
+# non-vacuous verifier, no-cheat-ref) before merge.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # repo requires-python >= 3.10
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check --no-cache .
+          # `ruff format --check` is intentionally deferred: main currently has format drift in
+          # src/aac/g_eco.py + tests/test_g_eco.py (the pre-hardening committed versions). The
+          # feat/g-eco-pre-gate2-hardening branch is already format-clean — re-enable this line
+          # once that lands on main:
+          # ruff format --check --no-cache .
+      - name: Tests (deterministic, stdlib only)
+        run: PYTHONPATH=src python -m unittest discover -s tests -p "test_*.py"
+
+  # --- ARM-AT-FREEZE (not active yet) -----------------------------------------------------------
+  # prereg-verify: machine-enforce "no mechanism change after a preregistration freeze" (the
+  # research crown-jewel rule) for ALL agents. NOT wired today because:
+  #   (1) no frozen G-Eco lock exists yet (pre-Gate-2);
+  #   (2) `prereg verify` lives in the meta repo's agent_workflow_runner (cross-repo);
+  #   (3) the frozen lock must live somewhere this repo's CI can read it.
+  # To arm at Gate-2 freeze: commit the frozen lock into this repo (e.g. preregistration/<id>.lock,
+  # a non-.agent_runs path), add a step that checks out ai-agent-engineering-workflow (pinned),
+  # `pip install`s the runner, and runs:
+  #   python3 -m agent_workflow_runner.cli prereg verify --workspace-root . --run-id <id> --target .
+  # Installing the runner as a CI *tool* (like ruff) does not violate the cross-repo runtime-import
+  # boundary (gate 19). See docs/OPERATING-TRACKS.md §9 (Tier 2 -> Tier 3).
