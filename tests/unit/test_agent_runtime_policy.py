@@ -218,6 +218,54 @@ class AgentRuntimePolicyTest(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertEqual(result.output, {"value": "x", "approval_id": "approval-1"})
 
+    def test_tool_above_context_risk_ceiling_is_denied_before_tool_body(self) -> None:
+        called: list[str] = []
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="analysis.r3",
+                description="Higher-risk analysis.",
+                required_keys=("value",),
+                risk_level="R3",
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(
+                call_id="call-risk-ceiling", tool_name="analysis.r3", args={"value": "x"}
+            ),
+            _context(risk_ceiling="R2"),
+        )
+
+        self.assertEqual(result.status, "denied")
+        self.assertEqual(result.error_code, "DENY_RISK_CEILING")
+        self.assertEqual(called, [])
+
+    def test_tool_at_context_risk_ceiling_can_run(self) -> None:
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="analysis.r2",
+                description="Ceiling-matched analysis.",
+                required_keys=("value",),
+                risk_level="R2",
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: {"value": value, "risk_ceiling": context.risk_ceiling},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(call_id="call-at-ceiling", tool_name="analysis.r2", args={"value": "x"}),
+            _context(risk_ceiling="R2"),
+        )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.output, {"value": "x", "risk_ceiling": "R2"})
+
 
 if __name__ == "__main__":
     unittest.main()

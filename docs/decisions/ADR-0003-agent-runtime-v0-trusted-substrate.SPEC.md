@@ -133,6 +133,7 @@ principal_role
 run_id
 trace_id
 policy_scope
+risk_ceiling
 approval_id?
 checkpoint_id?
 metadata
@@ -143,6 +144,7 @@ Rules:
 - `tenant_id`, `workspace_id`, `principal_id`, `run_id`, and `trace_id` are required.
 - Context is immutable during one runtime call.
 - Context must not carry secrets.
+- `risk_ceiling` is a run-scoped maximum tool risk (`R0`..`R5`); tools above it are denied before the tool body.
 
 ### 4.2 ToolSpec and ToolRegistry
 
@@ -177,6 +179,8 @@ DENY_MISSING_PERMISSION
 DENY_REQUIRES_APPROVAL
 DENY_PAUSED
 DENY_UNSUPPORTED_RISK
+DENY_INVALID_RISK_CEILING
+DENY_RISK_CEILING
 DENY_INVALID_CONTEXT
 ```
 
@@ -185,6 +189,7 @@ Rules:
 - The gate runs before `ToolRegistry.call`.
 - Deny outcomes return structured runtime failures, not successful tool results.
 - Paused corrigibility shell denies all runtime execution except explicitly allowed read-only observation.
+- Tool risk must be at or below `AgentRunContext.risk_ceiling` even when the caller has the named permission and an `approval_id`.
 
 ### 4.4 AgentToolCall and AgentToolResult
 
@@ -275,6 +280,8 @@ Add tests before implementation:
   - missing principal denied;
   - missing permission denied;
   - paused shell denied;
+  - tool above context risk ceiling denied before tool body;
+  - tool at context risk ceiling allowed;
   - denied call does not execute tool body.
 - `tests/unit/test_agent_runtime_tools.py`
   - duplicate tool registration fails;

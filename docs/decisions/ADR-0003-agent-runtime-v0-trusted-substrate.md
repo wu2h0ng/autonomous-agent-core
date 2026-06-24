@@ -77,6 +77,7 @@ Required properties covered:
 - policy denial does not execute tool bodies;
 - paused `ShellView` denies runtime execution and audits refusal;
 - approval-required tools require an `approval_id`;
+- context `risk_ceiling` denies higher-risk tools before tool execution;
 - unknown tools and invalid inputs return structured failures;
 - tool exceptions return `tool_error` and are traced;
 - trace events exist for success and failure paths;

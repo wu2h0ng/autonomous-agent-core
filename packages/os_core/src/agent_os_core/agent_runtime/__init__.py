@@ -23,6 +23,7 @@ _DEFAULT_SENSITIVE_KEYS = frozenset(
 )
 _APPROVAL_REQUIRED_RISK_LEVELS = frozenset({"R4", "R5"})
 _NO_APPROVAL_SIDE_EFFECT_CLASSES = frozenset({"", "none", "read", "read_only", "readonly"})
+_RISK_LEVEL_ORDER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3, "R4": 4, "R5": 5}
 
 __all__ = [
     "AgentRunContext",
@@ -50,6 +51,7 @@ class AgentRunContext:
     principal_role: str = ""
     run_id: str = ""
     policy_scope: frozenset[str] = field(default_factory=frozenset)
+    risk_ceiling: str = "R5"
     approval_id: str | None = None
     checkpoint_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -237,6 +239,23 @@ class RuntimePolicyGate:
                 allowed=False,
                 code="DENY_UNSUPPORTED_RISK",
                 reason=f"unsupported risk level: {tool_spec.risk_level}",
+            )
+
+        if context.risk_ceiling not in self.supported_risk_levels:
+            return PolicyDecision(
+                allowed=False,
+                code="DENY_INVALID_RISK_CEILING",
+                reason=f"unsupported risk ceiling: {context.risk_ceiling}",
+            )
+
+        if _RISK_LEVEL_ORDER[tool_spec.risk_level] > _RISK_LEVEL_ORDER[context.risk_ceiling]:
+            return PolicyDecision(
+                allowed=False,
+                code="DENY_RISK_CEILING",
+                reason=(
+                    f"tool risk level {tool_spec.risk_level} exceeds "
+                    f"context risk ceiling {context.risk_ceiling}"
+                ),
             )
 
         missing_permissions = set(tool_spec.required_permissions) - set(context.policy_scope)
