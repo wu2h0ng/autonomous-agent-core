@@ -35,7 +35,7 @@ The Stage 1 paragraph still said 429 tests OK while the remediation record and `
 ## H1-H3 Recheck
 
 - H1 closed: `AgentRuntime.run_tool()` now delegates to `invoke_tool()` and no longer bypasses context validation, pause checks, policy, validation, trace, or checkpointing.
-- H2 closed: `RuntimePolicyGate` requires `approval_id` for R4/R5 and side-effecting tools, even when the tool author does not set `requires_approval=True`.
+- H2 closed and later tightened: `RuntimePolicyGate` denies non-proposal R4/R5 tools even with `approval_id`, allows proposal-class tools to produce R4/R5 proposals, and requires `approval_id` for lower-risk side-effecting tools even when the tool author does not set `requires_approval=True`.
 - H3 closed: runtime trace events no longer record raw args or raw output by default, so TrustedLoop parameters/results and secret-like fields are not emitted through runtime trace projection.
 
 The H1-H3 regression tests use the real runtime, tool registry, policy gate, and trace writer; they are not pure mock self-tests.

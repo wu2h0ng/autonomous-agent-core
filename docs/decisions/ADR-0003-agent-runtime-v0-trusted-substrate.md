@@ -36,6 +36,7 @@ Build Agent Runtime v0 as a narrow, self-developed trusted substrate:
 - No cross-repo import from `autonomous-agent-core` or `ai-agent-engineering-workflow`.
 - No runtime self-modification; ADR-0033 remains binding for autonomous-core projection.
 - No automatic R4/R5 execution.
+- R4/R5 runtime tools are proposal-only unless a later ADR changes the release boundary.
 - No replacement or weakening of `TrustedLoopRuntime`.
 - No claim that Enterprise OS runtime task success proves autonomy.
 - No workflow-layer LangGraph/CrewAI replacement in this slice.
@@ -88,6 +89,8 @@ Required properties covered:
 - policy denial does not execute tool bodies;
 - paused `ShellView` denies runtime execution and audits refusal;
 - approval-required tools require an `approval_id`;
+- non-proposal R4/R5 tools are denied before tool execution even when `approval_id` is present;
+- R4/R5 `action_proposal` tools can produce proposals without executing the business action;
 - context `risk_ceiling` denies higher-risk tools before tool execution;
 - unknown tools and invalid inputs return structured failures;
 - tool exceptions return `tool_error` and are traced;
@@ -115,7 +118,7 @@ Result:
 
 - ruff check passed;
 - ruff format check passed;
-- 443 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
+- 445 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
 - 12 eval tests OK;
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.

@@ -34,7 +34,14 @@ Regression test:
 
 ### H2 - R4/R5 and side-effect execution now fail closed
 
-`RuntimePolicyGate` now requires `approval_id` when any of the following is true:
+Current policy after the later `codex/runtime-durable-checkpoint-store` hardening:
+
+- Non-proposal `R4`/`R5` tools return `DENY_HIGH_RISK_EXECUTION` even when `approval_id` is present.
+- `R4`/`R5` proposal tools must declare a proposal side-effect class such as `action_proposal`; they may produce an action proposal but must not execute the business action.
+- Lower-risk side-effecting tools require `approval_id`.
+- `ToolSpec.requires_approval=True` still requires `approval_id`.
+
+Original remediation behavior, superseded by the stricter proposal-only rule above, required `approval_id` when any of the following was true:
 
 - `ToolSpec.requires_approval` is true
 - `ToolSpec.risk_level` is `R4` or `R5`
@@ -44,9 +51,11 @@ Permission checks still run before approval checks, so missing authorization rem
 
 Regression tests:
 
-- `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_r4_tool_is_denied_without_approval_even_without_tool_opt_in`
+- `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_r4_non_proposal_tool_is_denied_before_tool_body`
 - `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_side_effecting_tool_is_denied_without_approval_even_at_lower_risk`
-- `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_r5_side_effecting_tool_can_run_with_approval_id`
+- `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_r5_side_effecting_tool_is_denied_even_with_approval_id`
+- `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_r5_action_proposal_tool_can_run_without_executing_business_action`
+- `tests/unit/test_agent_runtime_policy.py::AgentRuntimePolicyTest::test_r3_side_effecting_tool_can_run_with_approval_id`
 
 ### H3 - Trace projection safe by default
 

@@ -144,7 +144,7 @@ class AgentRuntimePolicyTest(unittest.TestCase):
         self.assertEqual(result.status, "denied")
         self.assertEqual(result.error_code, "DENY_REQUIRES_APPROVAL")
 
-    def test_r4_tool_is_denied_without_approval_even_without_tool_opt_in(self) -> None:
+    def test_r4_non_proposal_tool_is_denied_before_tool_body(self) -> None:
         called: list[str] = []
         registry = ToolRegistry()
         registry.register_tool(
@@ -165,7 +165,7 @@ class AgentRuntimePolicyTest(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "denied")
-        self.assertEqual(result.error_code, "DENY_REQUIRES_APPROVAL")
+        self.assertEqual(result.error_code, "DENY_HIGH_RISK_EXECUTION")
         self.assertEqual(called, [])
 
     def test_side_effecting_tool_is_denied_without_approval_even_at_lower_risk(self) -> None:
@@ -195,14 +195,72 @@ class AgentRuntimePolicyTest(unittest.TestCase):
         self.assertEqual(result.error_code, "DENY_REQUIRES_APPROVAL")
         self.assertEqual(called, [])
 
-    def test_r5_side_effecting_tool_can_run_with_approval_id(self) -> None:
+    def test_r5_side_effecting_tool_is_denied_even_with_approval_id(self) -> None:
+        called: list[str] = []
         registry = ToolRegistry()
         registry.register_tool(
             ToolSpec(
                 name="action.r5",
-                description="Approved high-risk action.",
+                description="High-risk action execution.",
                 required_keys=("value",),
                 risk_level="R5",
+                side_effect_class="external_write",
+                required_permissions=("tool:write",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(call_id="call-r5", tool_name="action.r5", args={"value": "x"}),
+            _context(policy_scope=frozenset({"tool:write"}), approval_id="approval-1"),
+        )
+
+        self.assertEqual(result.status, "denied")
+        self.assertEqual(result.error_code, "DENY_HIGH_RISK_EXECUTION")
+        self.assertEqual(called, [])
+
+    def test_r5_action_proposal_tool_can_run_without_executing_business_action(self) -> None:
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="action.r5.propose",
+                description="High-risk action proposal.",
+                required_keys=("value",),
+                risk_level="R5",
+                side_effect_class="action_proposal",
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: {
+                "proposal": {"risk_level": "R5", "value": value},
+                "executed": False,
+            },
+        )
+        runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
+
+        result = runtime.invoke_tool(
+            AgentToolCall(
+                call_id="call-r5-proposal",
+                tool_name="action.r5.propose",
+                args={"value": "x"},
+            ),
+            _context(),
+        )
+
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(
+            result.output,
+            {"proposal": {"risk_level": "R5", "value": "x"}, "executed": False},
+        )
+
+    def test_r3_side_effecting_tool_can_run_with_approval_id(self) -> None:
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="action.r3",
+                description="Approved bounded action.",
+                required_keys=("value",),
+                risk_level="R3",
                 side_effect_class="external_write",
                 required_permissions=("tool:write",),
             ),
@@ -211,7 +269,7 @@ class AgentRuntimePolicyTest(unittest.TestCase):
         runtime = AgentRuntime(tools=registry, policy_gate=RuntimePolicyGate())
 
         result = runtime.invoke_tool(
-            AgentToolCall(call_id="call-r5", tool_name="action.r5", args={"value": "x"}),
+            AgentToolCall(call_id="call-r3", tool_name="action.r3", args={"value": "x"}),
             _context(policy_scope=frozenset({"tool:write"}), approval_id="approval-1"),
         )
 

@@ -25,6 +25,7 @@ _DEFAULT_SENSITIVE_KEYS = frozenset(
 )
 _APPROVAL_REQUIRED_RISK_LEVELS = frozenset({"R4", "R5"})
 _NO_APPROVAL_SIDE_EFFECT_CLASSES = frozenset({"", "none", "read", "read_only", "readonly"})
+_PROPOSAL_SIDE_EFFECT_CLASSES = frozenset({"proposal", "action_proposal", "propose_only"})
 _RISK_LEVEL_ORDER = {"R0": 0, "R1": 1, "R2": 2, "R3": 3, "R4": 4, "R5": 5}
 
 __all__ = [
@@ -275,10 +276,17 @@ class RuntimePolicyGate:
                 reason=f"missing permissions: {', '.join(sorted(missing_permissions))}",
             )
 
-        requires_runtime_approval = (
-            tool_spec.requires_approval
-            or tool_spec.risk_level in _APPROVAL_REQUIRED_RISK_LEVELS
-            or tool_spec.side_effect_class.lower() not in _NO_APPROVAL_SIDE_EFFECT_CLASSES
+        side_effect_class = tool_spec.side_effect_class.lower()
+        is_action_proposal = side_effect_class in _PROPOSAL_SIDE_EFFECT_CLASSES
+        if tool_spec.risk_level in _APPROVAL_REQUIRED_RISK_LEVELS and not is_action_proposal:
+            return PolicyDecision(
+                allowed=False,
+                code="DENY_HIGH_RISK_EXECUTION",
+                reason="R4/R5 tools are proposal-only in MVP",
+            )
+
+        requires_runtime_approval = tool_spec.requires_approval or (
+            not is_action_proposal and side_effect_class not in _NO_APPROVAL_SIDE_EFFECT_CLASSES
         )
         if requires_runtime_approval and not context.approval_id:
             return PolicyDecision(

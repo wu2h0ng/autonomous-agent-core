@@ -181,6 +181,7 @@ DENY_PAUSED
 DENY_UNSUPPORTED_RISK
 DENY_INVALID_RISK_CEILING
 DENY_RISK_CEILING
+DENY_HIGH_RISK_EXECUTION
 DENY_INVALID_CONTEXT
 ```
 
@@ -190,6 +191,9 @@ Rules:
 - Deny outcomes return structured runtime failures, not successful tool results.
 - Paused corrigibility shell denies all runtime execution except explicitly allowed read-only observation.
 - Tool risk must be at or below `AgentRunContext.risk_ceiling` even when the caller has the named permission and an `approval_id`.
+- R4/R5 non-proposal tools return `DENY_HIGH_RISK_EXECUTION` even with `approval_id`; they are proposal-only in this runtime slice.
+- R4/R5 proposal tools must declare a proposal side-effect class such as `action_proposal`; that tool may produce an action proposal but must not execute the business action.
+- Lower-risk side-effecting execution still requires `approval_id`.
 
 ### 4.4 AgentToolCall and AgentToolResult
 
@@ -286,6 +290,9 @@ Add tests before implementation:
   - paused shell denied;
   - tool above context risk ceiling denied before tool body;
   - tool at context risk ceiling allowed;
+  - R4/R5 non-proposal tools denied even with `approval_id`;
+  - R4/R5 proposal tools can produce proposals without executing business actions;
+  - lower-risk side-effecting tools require `approval_id`;
   - denied call does not execute tool body.
 - `tests/unit/test_agent_runtime_tools.py`
   - duplicate tool registration fails;
@@ -326,6 +333,7 @@ Add tests before implementation:
 - [x] T9: add replay-boundary and nondeterminism handling tests before adding any async, streaming, or parallel runtime behavior.
 - [x] T9a: add fingerprint-bound checkpoint resume tests for call/context/spec mismatch denial and matching-result replay without tool re-execution.
 - [x] T9b: add durable SQL checkpoint-store adapter, schema, Alembic migration, and cross-runtime resume tests while keeping OS Core persistence-independent.
+- [x] T9c: enforce R4/R5 proposal-only runtime policy while preserving approved execution only for lower-risk side-effecting tools.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 
@@ -349,6 +357,7 @@ Stop and return to CTO review if:
 - Runtime has a real entry point.
 - Runtime has typed result contracts.
 - Runtime has policy-deny, validation-error, missing-tool, and tool-exception failure paths.
+- Runtime denies non-proposal R4/R5 execution before the tool body, even when a caller supplies `approval_id`.
 - Runtime writes trace events for both allow and deny paths.
 - Trusted Loop adapter does not bypass existing governance modules.
 - Runtime remains a substrate: it does not own business truth, research conclusions, autonomy claims, or optimization policy.
