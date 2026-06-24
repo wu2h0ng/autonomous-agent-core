@@ -10,5 +10,7 @@ Current active ADRs:
   - Review: `ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md`
   - Remediation: `ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`
   - Second review: `ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md`
+- `PR-07-product-integration-release-gate.REVIEW-20260624.md`
+  - Current verdict: do not merge old F3 rehearsal `d46bd45`; rerun rehearsal from current main `c404e1e` before any merge/release decision
 
 Read `docs/CURRENT_STATE.yaml` first for live status and verification state.

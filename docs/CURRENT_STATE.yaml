@@ -41,8 +41,8 @@ current_stage:
     - "ADR-0003 runtime context risk-ceiling hardening complete locally: AgentRunContext now carries risk_ceiling, RuntimePolicyGate denies tools above that ceiling before the tool body, and tests cover deny/allow-at-ceiling paths"
     - "ADR-0003 checkpoint replay-boundary hardening complete locally: resume_from_checkpoint returns the stored result only when call, context, and tool-spec fingerprints match; mismatches fail closed before tool execution"
   immediate_next:
-    id: "product-integration-stack-merge-order-decision"
-    description: "Founder/CTO decision: decide whether and when to merge the reconcile -> workspace-F1 -> workspace-F2 product-integration stack after its isolated fast-forward rehearsal and CI pass. External agent frameworks remain reference-only; factory/API exposure, durable checkpointing, concurrency, workflow replacement, and autonomous-core adoption require later ADRs/gates. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, production UI, approval-execution UI, full live API-backed golden-loop frontend, or automatic R4/R5 execution."
+    id: "product-integration-stack-rerehearsal-before-merge"
+    description: "Do not merge the existing F3 integration rehearsal yet: it was based on fb2399a and does not include current local main c404e1e runtime/security-doc commits. Next action is to create a fresh c404e1e-based rehearsal and replay main -> enterprise-integration-reconcile -> workspace-F1 -> workspace-F2 -> workspace-F3a, then run CI/browser QA and record a new verification before any founder/CTO merge decision. External agent frameworks remain reference-only; factory/API exposure, durable checkpointing, concurrency, workflow replacement, and autonomous-core adoption require later ADRs/gates. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, production UI, approval-execution UI, full live API-backed golden-loop frontend, or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -95,6 +95,7 @@ authoritative_records:
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md"
+    - "docs/decisions/PR-07-product-integration-release-gate.REVIEW-20260624.md"
   proposed_reviews_pending_gate: []
   archived_baseline:
     - "docs/project_baseline/"

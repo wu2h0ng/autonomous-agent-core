@@ -145,7 +145,7 @@ python -m agent_os_api.openapi_contract --check
 
 ## Remaining Items (Blocked on Decisions/Environment)
 
-- PR-07 Frontend F1 blueprint: pending CTO review
+- PR-07 product-integration stack: do not merge old F3 rehearsal `d46bd45`; rerun integration rehearsal from current local `main` `c404e1e`, then run CI/browser QA and record a fresh verification before founder/CTO merge decision
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval
