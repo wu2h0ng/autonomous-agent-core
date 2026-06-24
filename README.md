@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current local reconcile slice (2026-06-24):** branch `codex/enterprise-integration-reconcile` reconciles local `main` ADR-0003 runtime-substrate work with `codex/enterprise-integration-readiness` ADR-0002 report-read/postgres snapshot work. It is not merged to `main`, not pushed, not released, and not deployed.
+**Current local productization slice (2026-06-24):** branch `codex/workspace-f1-contract-surface` builds on the local reconcile branch and adds a static Frontend Workspace F1 contract surface for DataProduct candidate and KnowledgeAsset candidate visibility. It is not merged to `main`, not pushed, not released, and not deployed. Live API integration, React/Next.js scaffold, and any release remain separate CTO/founder gates.
 
 **ADR-0003 — Agent Runtime v0 Trusted Substrate** is accepted and merged locally to `main` from branch `codex/agent-runtime-v0-trusted-substrate`; local `main` is not yet pushed to `origin/main`. Pre-merge review at `58f3a5f` blocked merge on H1-H3; those blockers are remediated, the second review gate approved the remediation, and the real `TrustedLoopRuntime.evaluate()` adapter follow-up is closed locally. It turns the self-developed `agent_runtime` shell into a narrow trusted substrate: typed run/tool/result/policy contracts, pre-execution `RuntimePolicyGate`, validation-before-tool-body, trace-visible failure paths with safe runtime trace projection, pause-shell denial through `ShellView`, minimal checkpoint/replay boundary, `TrustedLoopRuntime.evaluate()` adapter with fake-loop and real-loop integration coverage, and import-boundary tests blocking external agent-framework runtime dependencies. The remediation closes the `run_tool()` policy bypass, requires `approval_id` for R4/R5 and side-effecting tools, and removes raw args/output from runtime trace events. This does not replace `TrustedLoopRuntime`, does not expose a workflow engine, does not approve automatic R4/R5 execution, and does not claim autonomous-core evidence. See `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`, and `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md`.
 
@@ -29,7 +29,12 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest reconcile-branch verification after combining ADR-0003 runtime substrate with ADR-0002 report-read/postgres snapshot durability is 440 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest workspace-F1 verification after combining ADR-0003 runtime substrate, ADR-0002 report-read/postgres snapshot durability, and the static Frontend Workspace F1 contract surface is 443 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`.
+
+The Frontend Workspace static prototype now includes the F1 contract surface for
+DataProduct candidate and KnowledgeAsset candidate visibility, with loaded,
+blocked, and insufficient-evidence mock states. This is still a static prototype:
+it consumes no live API and imports no OS Core code.
 
 ### Delivered Capabilities
 
@@ -103,7 +108,7 @@ packages/contracts/     public contracts and shared data objects
 packages/persistence/   SQLAlchemy Core adapters (sync, Port-based)
 packages/sdk/           external SDK boundary
 apps/api_server/        FastAPI application + OpenAPI contract + CLI
-apps/workspace/         future user workspace UI
+apps/workspace/         static user workspace prototype and F1 contract surface
 domain_packs/           domain-specific packs (content_commerce)
 providers/              data providers behind ProviderContract
 action_connectors/      governed action connectors (manual_review, action_record)
@@ -147,7 +152,7 @@ python -m agent_os_api.openapi_contract --check
 
 ## Remaining Items (Blocked on Decisions/Environment)
 
-- PR-07 Frontend F1 blueprint: pending CTO review
+- PR-07 Frontend live API/React scaffold: pending CTO review
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval
