@@ -5,7 +5,7 @@
 - Reviewed range: `590df9f..addcc48`
 - Base review: `ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md`
 - Remediation record: `ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`
-- Approval status: **APPROVED WITH FOLLOW-UP**
+- Approval status: **APPROVED; FOLLOW-UP CLOSED LOCALLY**
 
 ## Findings
 
@@ -20,6 +20,10 @@ The adapter test still uses a fake loop and does not prove a real `TrustedLoopRu
 Required follow-up:
 
 - Add a real minimal `TrustedLoopRuntime` adapter integration test in a later patch before expanding runtime adoption.
+
+Follow-up closure:
+
+- Closed locally after main merge: `test_real_trusted_loop_evaluate_preserves_grounding_through_adapter` now instantiates a real `TrustedLoopRuntime`, calls it through `TrustedLoopAgentRuntimeAdapter.evaluate()`, and asserts `TrustedLoopOutcome`/`TrustedLoopResult`, SQL Safety, complete `EvidenceChain`, persisted `RunTrace`, connector execution trace, and AgentRuntime envelope events.
 
 ### L1 - README verification count drift
 
@@ -49,12 +53,13 @@ worktree: clean at reviewed commit
 Codex remediation verification:
 
 ```text
-make ci: ruff clean, format clean, 434 tests OK, 4 skipped, 12 eval tests OK, OpenAPI clean
+targeted adapter integration tests: 3 OK
+make ci: ruff clean, format clean, 435 tests OK, 4 skipped, 12 eval tests OK, OpenAPI clean
 ci-local-full: passed against disposable PostgreSQL on 127.0.0.1:15432
 ```
 
 ## Approval Status
 
-ADR-0003 H1-H3 remediation is **approved with follow-up**. No merge blocker remains from the H1-H3 review gate.
+ADR-0003 H1-H3 remediation is **approved** and the M1 real-adapter coverage follow-up is **closed locally**. No H1-H3 or M1 blocker remains from the review gate.
 
-Merge to `main` still requires explicit founder/CTO authorization under the Git finalization gate.
+The ADR-0003 branch has been merged locally to `main`; local `main` is still not pushed to `origin/main`.
