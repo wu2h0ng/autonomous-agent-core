@@ -302,7 +302,8 @@ Add tests before implementation:
   - successful safe tool returns typed `AgentToolResult`.
 - `tests/unit/test_agent_runtime_trace.py`
   - success and failure both emit required trace events;
-  - trace payload redacts configured sensitive keys.
+  - trace payload redacts configured sensitive keys;
+  - default custom-event redaction matches sensitive keys case-insensitively.
 - `tests/unit/test_agent_runtime_replay_boundary.py`
   - snapshot metadata records the last completed runtime boundary;
   - matching checkpoint resume returns the stored result without executing the tool body again;
@@ -336,6 +337,7 @@ Add tests before implementation:
 - [x] T9a: add fingerprint-bound checkpoint resume tests for call/context/spec mismatch denial and matching-result replay without tool re-execution.
 - [x] T9b: add durable SQL checkpoint-store adapter, schema, Alembic migration, and cross-runtime resume tests while keeping OS Core persistence-independent.
 - [x] T9c: enforce R4/R5 proposal-only runtime policy while preserving approved execution only for lower-risk side-effecting tools.
+- [x] T9d: harden explicit custom trace-event sensitive-key redaction with case-insensitive matching.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 

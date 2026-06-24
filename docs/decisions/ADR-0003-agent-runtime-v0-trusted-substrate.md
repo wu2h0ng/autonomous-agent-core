@@ -95,7 +95,7 @@ Required properties covered:
 - unknown tools and invalid inputs return structured failures;
 - tool exceptions return `tool_error` and are traced;
 - trace events exist for success and failure paths;
-- sensitive trace payload keys are redacted;
+- sensitive trace payload keys are redacted, including common custom-event casing variants;
 - snapshots record the last completed runtime boundary;
 - matching checkpoint resumes return the stored result without re-executing the tool;
 - mismatched call, context, or tool specs fail closed with `CHECKPOINT_MISMATCH` before tool execution;
@@ -119,7 +119,7 @@ Result:
 
 - ruff check passed;
 - ruff format check passed;
-- 446 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
+- 447 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
 - 12 eval tests OK;
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.

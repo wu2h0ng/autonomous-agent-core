@@ -85,6 +85,23 @@ class AgentRuntimeTraceTest(unittest.TestCase):
         self.assertNotIn("'p'", repr(trace_writer.events))
         self.assertIn("[REDACTED]", repr(trace_writer.events))
 
+    def test_trace_writer_redacts_sensitive_keys_case_insensitively(self) -> None:
+        trace_writer = AgentTraceWriter()
+        trace_writer.write(
+            "custom",
+            {
+                "Authorization": "Bearer sk-live",
+                "nested": {"Secret_Token": "secret-value"},
+                "items": [{"API_KEY": "api-value"}],
+            },
+        )
+
+        trace_blob = repr(trace_writer.events)
+        self.assertNotIn("Bearer sk-live", trace_blob)
+        self.assertNotIn("secret-value", trace_blob)
+        self.assertNotIn("api-value", trace_blob)
+        self.assertIn("[REDACTED]", trace_blob)
+
     def test_runtime_trace_does_not_record_raw_args_or_outputs_by_default(self) -> None:
         trace_writer = AgentTraceWriter()
         registry = ToolRegistry()

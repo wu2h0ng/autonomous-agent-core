@@ -86,10 +86,10 @@ Required later ADR before production exposure:
 ### R2 - `AgentTraceWriter` custom-event redaction is not a DLP system
 
 - Severity: LOW/MEDIUM follow-up
-- Status: **non-blocking because runtime-owned events avoid raw payloads**
+- Status: **partially closed by stacked follow-up branch `codex/runtime-checkpoint-trace-security`; still not a general DLP layer**
 - Anchor: `AgentTraceWriter._redact(...)`
 
-The trace writer has a default sensitive-key denylist, but custom events still depend on key-based redaction. Callers must not use it as a general DLP layer. Later hardening should normalize sensitive-key matching and add tool-specific trace projection policies, but this does not reopen H3 because ADR-0003 runtime-owned events no longer write raw args or outputs.
+The trace writer has a default sensitive-key denylist, but custom events still depend on key-based redaction. Callers must not use it as a general DLP layer. The stacked follow-up branch normalizes sensitive-key matching so common casing variants such as `Authorization`, `Secret_Token`, and `API_KEY` are redacted by default. Later hardening should still add tool-specific trace projection policies, but this does not reopen H3 because ADR-0003 runtime-owned events no longer write raw args or outputs.
 
 ## Merge Conditions
 

@@ -181,8 +181,9 @@ class AgentTraceWriter:
     def _redact(self, value: Any) -> Any:
         if isinstance(value, Mapping):
             redacted: dict[str, Any] = {}
+            sensitive_keys = {str(key).lower() for key in self.sensitive_keys}
             for key, item in value.items():
-                if str(key) in self.sensitive_keys:
+                if str(key).lower() in sensitive_keys:
                     redacted[str(key)] = "[REDACTED]"
                 else:
                     redacted[str(key)] = self._redact(item)
