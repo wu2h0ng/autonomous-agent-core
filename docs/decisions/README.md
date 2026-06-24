@@ -11,6 +11,8 @@ Current active ADRs:
   - Remediation: `ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`
   - Second review: `ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md`
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
-  - Current verdict: do not merge old F3 rehearsal `d46bd45`; rerun rehearsal from current main `c404e1e` before any merge/release decision
+  - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
+- `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
+  - Fresh combined successor rehearsal for reconcile/F1/F2/F3a from local main `77c7b07`; CI/browser QA passed; merge and release remain separate gates
 
 Read `docs/CURRENT_STATE.yaml` first for live status and verification state.

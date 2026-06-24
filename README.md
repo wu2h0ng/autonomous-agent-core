@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current integration re-rehearsal slice (2026-06-24):** branch `codex/workspace-f3-rerehearsal-current` starts from local `main` `77c7b07` and replays the product integration stack after the old F3 rehearsal was found stale. This branch is a merge rehearsal only: not merged to `main`, not pushed, not released, and not deployed. It preserves the current ADR-0003 runtime-substrate state, including context-level risk ceiling and fingerprint-bound checkpoint resume, while reintroducing the ADR-0002 report-read/postgres snapshot integration stack plus the Frontend Workspace F1/F2/F3a surfaces for fresh CI/browser verification before any founder/CTO merge decision.
+**Current integration re-rehearsal slice (2026-06-24):** branch `codex/workspace-f3-rerehearsal-current` starts from local `main` `77c7b07` and replays the product integration stack after the old F3 rehearsal was found stale. This branch is a merge rehearsal only: not merged to `main`, not pushed, not released, and not deployed. It preserves the current ADR-0003 runtime-substrate state, including context-level risk ceiling and fingerprint-bound checkpoint resume, while reintroducing the ADR-0002 report-read/postgres snapshot integration stack plus the Frontend Workspace F1/F2/F3a surfaces. Fresh `make ci` and Browser QA passed on this branch; founder/CTO merge decision remains separate.
 
 **ADR-0003 — Agent Runtime v0 Trusted Substrate** is accepted and on `main` / `origin/main` from branch `codex/agent-runtime-v0-trusted-substrate`. Pre-merge review at `58f3a5f` blocked merge on H1-H3; those blockers are remediated, the second review gate approved the remediation, and the real `TrustedLoopRuntime.evaluate()` adapter follow-up is closed. It turns the self-developed `agent_runtime` shell into a narrow trusted substrate: typed run/tool/result/policy contracts, pre-execution `RuntimePolicyGate`, validation-before-tool-body, trace-visible failure paths with safe runtime trace projection, pause-shell denial through `ShellView`, minimal checkpoint/replay boundary, `TrustedLoopRuntime.evaluate()` adapter with fake-loop and real-loop integration coverage, and import-boundary tests blocking external agent-framework runtime dependencies. The remediation closes the `run_tool()` policy bypass, requires `approval_id` for R4/R5 and side-effecting tools, and removes raw args/output from runtime trace events. This does not replace `TrustedLoopRuntime`, does not expose a workflow engine, does not approve automatic R4/R5 execution, and does not claim autonomous-core evidence. See `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`, and `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md`.
 
@@ -29,7 +29,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway. This integration re-rehearsal starts from local `main` `77c7b07`, combines current ADR-0003 runtime hardening with the ADR-0002 report-read/postgres snapshot stack, and must pass fresh CI plus required browser QA before it can be considered by the founder/CTO merge gate.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway. This integration re-rehearsal starts from local `main` `77c7b07`, combines current ADR-0003 runtime hardening with the ADR-0002 report-read/postgres snapshot stack, and passed fresh CI plus required browser QA before any founder/CTO merge-gate decision.
 
 The re-rehearsed Frontend Workspace static prototype now includes the F1 contract surface for
 DataProduct candidate and KnowledgeAsset candidate visibility, with loaded,
@@ -177,7 +177,7 @@ python -m agent_os_api.openapi_contract --check
 
 ## Remaining Items (Blocked on Decisions/Environment)
 
-- PR-07 product-integration stack: this fresh re-rehearsal starts from current local `main` `77c7b07`; old F3 rehearsal `d46bd45` remains stale and must not be merged; this branch still needs F2/F3a replay plus CI/browser QA before founder/CTO merge decision
+- PR-07 product-integration stack: this fresh re-rehearsal starts from current local `main` `77c7b07`; old F3 rehearsal `d46bd45` remains stale and must not be merged; this branch has replayed reconcile/F1/F2/F3a and passed fresh CI/browser QA, but founder/CTO merge decision and release gate remain separate
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval
