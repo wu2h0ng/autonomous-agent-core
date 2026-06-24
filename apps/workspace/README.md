@@ -14,7 +14,8 @@ Implementation stage:
 F0: static workspace skeleton and contract-driven mock states
 F1: static contract surface for EvidenceChain, DataProduct candidate, and KnowledgeAsset candidate
 F2: read-only report projection from GET /runs/{trace_id}/report plus ActionProposal/Approval Lite visibility
-F3: full API integration and golden loop UI
+F3a: limited live-run submit to POST /runs plus existing read-only report projection
+F3 future: fuller API integration and golden-loop UI after separate CTO/founder gate
 ```
 
 Rules:
@@ -39,15 +40,20 @@ business question intake, EvidenceChain review, DataProduct candidate reuse cont
 SQL Safety state, ActionProposal governance, feedback-to-KnowledgeAsset candidate
 review path, Trace, and Telemetry without becoming product runtime logic.
 
-Current F2 boundary:
+Current F3a boundary:
 
-- Static prototype with one read-only API-backed surface: `GET /runs/{trace_id}/report`.
-- The prototype maps the public `UserResultArtifact` contract into the existing
-  answer, EvidenceChain, dashboard, ActionProposal, DataProduct candidate, and
+- Static prototype with two API-backed surfaces: limited `POST /runs` submit and
+  read-only `GET /runs/{trace_id}/report`.
+- The prototype maps the public `RunResponse.user_result` /
+  `RunReportResponse.user_result` contract into the existing answer,
+  EvidenceChain, dashboard, ActionProposal, DataProduct candidate, and
   KnowledgeAsset candidate panels.
-- It does not call `/outcomes`, `/approvals`, operator-key routes, or any write /
-  management surface.
+- `POST /runs` sends only `question`, empty `parameters`, and `audience`; it is
+  analysis/report generation only and does not execute approvals.
+- It does not call `/outcomes`, `/approvals`, `/adoptions`, `/knowledge`,
+  operator-key routes, or any management surface.
 - Contract-shaped mock states remain available when no API endpoint is configured.
-- The UI smoke test in `tests/unit/test_workspace_prototype.py` locks report-read
-  markers, read-only boundaries, DataProduct and KnowledgeAsset candidate visibility,
-  plus the no-OS-Core-import boundary.
+- The UI smoke test in `tests/unit/test_workspace_prototype.py` locks live-run
+  and report-read markers, management-surface boundaries, DataProduct and
+  KnowledgeAsset candidate visibility, script-global run handler scope, and the
+  no-OS-Core-import boundary.

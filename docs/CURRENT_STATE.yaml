@@ -3,7 +3,7 @@ project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "codex/workspace-f3-rerehearsal-current"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; fresh product-integration re-rehearsal branch based on local main 77c7b07. It preserves current main ADR-0003 runtime hardening, including context risk-ceiling and checkpoint replay-boundary hardening, while replaying the ADR-0002 report-read/postgres snapshot durability, connector-semantics cleanup, Frontend Workspace F1 static contract surface, and F2 read-only report-read projection surface for fresh CI/browser verification. This branch is for conflict/CI/browser verification only; merge, push, release, production UI, full live golden-loop UI, approval-execution UI, React/Next.js scaffold, and external release remain separate explicit decisions."
+status: "Stage 1 complete; P5 substrate harvest underway; fresh product-integration re-rehearsal branch based on local main 77c7b07. It preserves current main ADR-0003 runtime hardening, including context risk-ceiling and checkpoint replay-boundary hardening, while replaying the ADR-0002 report-read/postgres snapshot durability, connector-semantics cleanup, Frontend Workspace F1 static contract surface, F2 read-only report-read projection surface, and F3a limited live-run submit surface for fresh CI/browser verification. This branch is for conflict/CI/browser verification only; merge, push, release, production UI, full live golden-loop UI, approval-execution UI, React/Next.js scaffold, and external release remain separate explicit decisions."
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -44,9 +44,10 @@ current_stage:
     - "ADR-0003 checkpoint replay-boundary hardening complete on current local main: resume_from_checkpoint returns the stored result only when call, context, and tool-spec fingerprints match; mismatches fail closed before tool execution"
     - "Frontend Workspace F1 static contract surface is being replayed in this re-rehearsal: prototype/index.html shows DataProduct candidate id/status/contract/freshness/reuse/source context and KnowledgeAsset candidate state/review path across loaded, SQL-blocked, and insufficient-evidence mock states; blocked/insufficient states override the full candidate field set rather than mixing stale scenario values; tests/unit/test_workspace_prototype.py locks candidate visibility, candidate field overrides, mock states, workspace-wide no OS Core import markers, and mobile candidate-header wrap. This is not live API integration or production UI."
     - "Frontend Workspace F2 report-read surface is being replayed in this re-rehearsal: apps/workspace/prototype/index.html can read an existing GET /runs/{trace_id}/report projection with X-API-Key, map the public UserResultArtifact into answer/report/dashboard/evidence/action/DataProduct/KnowledgeAsset/trace panels, and preserve mock fallback states. Review hardening restricts report API origins to same-origin or localhost, renders report-fed trace fields through text nodes, strips raw SQL/parameter mock evidence, bounds HTTP error display, maps the real widget type / decision reason contract fields, collapses before 1280px overflow, and keeps mobile API controls single-column. This is still a static prototype, not production UI or release."
+    - "Frontend Workspace F3a limited live-run surface is being replayed in this re-rehearsal: apps/workspace/prototype/index.html can submit the current question to POST /runs through the public RunRequest contract (question, empty parameters, audience), map the returned RunResponse.user_result through the existing F2 panels, keep the run handler script-global/browser-callable, and preserve the same origin/localhost API-key guard plus bounded HTTP error display. Tests lock the public run markers, two-fetch limit (POST /runs plus GET report), one POST method, no OS Core import boundary, no /outcomes, /approvals, /adoptions, /knowledge, operator-key, approval-execution, or management calls, and the submit handler scope. This is still a static prototype slice, not full golden-loop UI, production UI, or release."
   immediate_next:
     id: "product-integration-stack-rerehearsal-before-merge"
-    description: "Complete this fresh 77c7b07-based re-rehearsal by replaying enterprise-integration-reconcile -> workspace-F1 -> workspace-F2 -> workspace-F3a, then run CI/browser QA and record a new verification before any founder/CTO merge decision. External agent frameworks remain reference-only; factory/API exposure, durable checkpointing beyond approved runtime slices, concurrency, workflow replacement, and autonomous-core adoption require later ADRs/gates. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, production UI, approval-execution UI, full live API-backed golden-loop frontend, or automatic R4/R5 execution."
+    description: "Finish this fresh 77c7b07-based re-rehearsal by running CI/browser QA and recording a new verification before any founder/CTO merge decision. External agent frameworks remain reference-only; factory/API exposure, durable checkpointing beyond approved runtime slices, concurrency, workflow replacement, and autonomous-core adoption require later ADRs/gates. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, production UI, approval-execution UI, full live API-backed golden-loop frontend, or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -58,7 +59,7 @@ current_stage:
 
 last_verified_tests:
   command: "PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_agent_runtime_replay_boundary -v; make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python; AGENT_OS_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:15432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "Pre-rehearsal/current-main verification: AgentRuntime replay-boundary tests OK; 440 tests OK in primary unittest discover, 4 skipped; 12 eval tests OK; ruff clean; format clean; OpenAPI contract drift check included in make ci; ci-local-full passed against disposable PostgreSQL on 127.0.0.1:15432. Prior F1 branch verification reported 445 tests OK, 4 skipped, and 12 eval subset tests OK. Prior F2 branch verification reported 450 tests OK, 4 skipped, and 12 eval subset tests OK. This re-rehearsal branch still needs its own post-F3a make ci/browser QA."
+  result: "Pre-rehearsal/current-main verification: AgentRuntime replay-boundary tests OK; 440 tests OK in primary unittest discover, 4 skipped; 12 eval tests OK; ruff clean; format clean; OpenAPI contract drift check included in make ci; ci-local-full passed against disposable PostgreSQL on 127.0.0.1:15432. Prior F1 branch verification reported 445 tests OK, 4 skipped, and 12 eval subset tests OK. Prior F2 branch verification reported 450 tests OK, 4 skipped, and 12 eval subset tests OK. Prior F3a branch verification reported 453 tests OK, 4 skipped, and 12 eval subset tests OK. This re-rehearsal branch still needs its own post-F3a make ci/browser QA."
   source: "pre-rehearsal and prior-branch verification only; this branch still needs its own post-F3a make ci/browser QA"
   verified_at: "2026-06-24"
 
@@ -66,6 +67,15 @@ last_verified_eval:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
   result: "12 eval tests OK, including 10 governed-action D6 eval tests"
   source: "pre-rehearsal and prior-branch verification only; this branch still needs its own post-F3a make ci/browser QA"
+  verified_at: "2026-06-24"
+
+last_verified_browser:
+  command: "Playwright fallback against python3 -m http.server 8123 after in-app Browser policy-blocked localhost navigation"
+  result: "Prior F3a branch browser QA loaded the static workspace at 1440x900 and 390x900; F3a boundary and POST /runs markers were visible; run click without API server entered bounded network state with fixed Run request failed message; no horizontal overflow; only console error was expected local API connection refusal. This re-rehearsal branch still needs its own post-F3a browser QA."
+  screenshots:
+    - "/tmp/workspace-f3a-desktop.png"
+    - "/tmp/workspace-f3a-mobile.png"
+  source: "prior F3a branch browser QA only; this re-rehearsal branch still needs its own post-F3a browser QA"
   verified_at: "2026-06-24"
 
 authoritative_records:
@@ -104,6 +114,7 @@ authoritative_records:
     - "docs/decisions/PR-07-frontend-workspace-f1-contract-surface.REVIEW-20260624.md"
     - "docs/decisions/PR-07-frontend-workspace-f2-report-read-surface.IMPLEMENTATION-LOG-20260624.md"
     - "docs/decisions/PR-07-frontend-workspace-f2-report-read-surface.REVIEW-20260624.md"
+    - "docs/decisions/PR-07-frontend-workspace-f3-live-run-surface.IMPLEMENTATION-LOG-20260624.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.goal-card.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SPEC.md"

@@ -123,8 +123,6 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
             "fetch('/approvals/",
             'fetch("/outcomes',
             "fetch('/outcomes",
-            'method: "POST"',
-            "method: 'POST'",
             "navigator.sendBeacon",
             "XMLHttpRequest",
             "X-Operator-Key",
@@ -132,8 +130,8 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
         for marker in forbidden_markers:
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, self.html)
-        self.assertEqual(1, len(re.findall(r"\bfetch\s*\(", self.html)))
-        self.assertIsNone(re.search(r"\bmethod\s*:", self.html))
+        self.assertEqual(2, len(re.findall(r"\bfetch\s*\(", self.html)))
+        self.assertEqual(1, len(re.findall(r"\bmethod\s*:\s*\"POST\"", self.html)))
 
     def test_f2_report_projection_does_not_html_inject_trace_fields(self) -> None:
         """API report fields rendered into Trace must stay text, not HTML."""
@@ -170,6 +168,62 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
                 re.S,
             )
         )
+
+    def test_f3_live_run_submit_uses_public_run_contract(self) -> None:
+        """F3a may submit a governed run, then render the returned user_result."""
+        required_markers = (
+            "F3a boundary",
+            'data-contract="POST /runs"',
+            "POST /runs",
+            "function trustedApiRoot",
+            "function buildRunSubmitUrl",
+            "function buildRunRequestBody",
+            "function submitGovernedRun",
+            "fetch(runUrl",
+            'method: "POST"',
+            '"Content-Type": "application/json"',
+            "JSON.stringify(buildRunRequestBody())",
+            "question: refs.question.value.trim()",
+            "parameters: {}",
+            "audience: refs.apiAudience.value",
+            "payload.user_result",
+            "renderUserResultArtifact(payload)",
+            'setApiReportStatus("submitted", "badge ok")',
+        )
+        for marker in required_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.html)
+        self.assertIn("const root = trustedApiRoot(apiBase);", self.html)
+        self.assertIn('new URL("/runs", root)', self.html)
+        self.assertNotIn("apiUrl.href.replace", self.html)
+
+    def test_f3_live_run_submit_keeps_management_surfaces_blocked(self) -> None:
+        """F3a is live analysis only; no approval execution or management writes."""
+        forbidden_markers = (
+            "/approvals/",
+            "/outcomes",
+            "/adoptions",
+            "/knowledge",
+            "X-Operator-Key",
+            "approval execute",
+            "executeApproval",
+            "navigator.sendBeacon",
+            "XMLHttpRequest",
+        )
+        for marker in forbidden_markers:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, self.html)
+        self.assertIn('refs.apiReportNote.textContent = "Run request failed.";', self.html)
+        self.assertEqual(2, len(re.findall(r"\bfetch\s*\(", self.html)))
+        self.assertEqual(1, len(re.findall(r"\bmethod\s*:\s*\"POST\"", self.html)))
+
+    def test_f3_live_run_submit_is_not_nested_inside_report_loader(self) -> None:
+        """The run button handler must be script-global and browser-callable."""
+        load_start = self.html.index("async function loadReportProjection")
+        submit_start = self.html.index("async function submitGovernedRun")
+        report_error_path = self.html.index('"Report request failed."', load_start)
+        self.assertLess(load_start, submit_start)
+        self.assertLess(report_error_path, submit_start)
 
 
 if __name__ == "__main__":
