@@ -63,7 +63,7 @@ current_stage:
 last_verified_tests:
   command: "PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_http_app tests.unit.test_outcome_service tests.integration.test_trusted_loop_agent_runtime_adapter -v; make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python; AGENT_OS_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:15432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
   result: "60 affected HTTP/service/adapter tests OK after Packet A Slice 0 live /runs AgentRuntime wiring and review remediation; full make ci passed with ruff clean, format clean, 451 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed; ci-local-full also passed against disposable PostgreSQL on 127.0.0.1:15432."
-  source: "local verification on codex/agent-runtime-live-wiring after live /runs AgentRuntime envelope wiring, runtime/tool error sanitization, and pre-loop runtime denial trace persistence"
+  source: "local verification on codex/agent-runtime-live-wiring after rebase onto main 4905375, live /runs AgentRuntime envelope wiring, runtime/tool error sanitization, and pre-loop runtime denial trace persistence"
   verified_at: "2026-06-25"
 
 last_verified_eval:
@@ -107,6 +107,7 @@ authoritative_records:
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md"
     - "docs/decisions/ADR-0003-agent-runtime-A7-reconciliation-audit-20260625.md"
     - "docs/decisions/ADR-0003-agent-runtime-checkpoint-trace-security.REVIEW-20260625.md"
+    - "docs/decisions/ADR-0003-agent-runtime-live-wiring.REVIEW-20260625.md"
     - "docs/decisions/PR-07-product-integration-release-gate.REVIEW-20260624.md"
   proposed_reviews_pending_gate: []
   archived_baseline:

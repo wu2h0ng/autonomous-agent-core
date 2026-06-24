@@ -2,7 +2,7 @@
 
 - Date: 2026-06-25
 - Branch reviewed: `codex/agent-runtime-live-wiring`
-- Base: `main` at `0b23094`
+- Base: `main` at `0b23094`; rebased onto current local `main` at `4905375`
 - Initial reviewed head: `b7f3f43`
 - Head after remediation: branch head after this review document lands
 - Scope: Packet A Slice 0, routing `POST /runs` through `AgentRunContext -> TrustedLoopAgentRuntimeAdapter -> RuntimePolicyGate -> TrustedLoopRuntime.evaluate`
@@ -92,6 +92,25 @@ This is not a merge blocker for Packet A Slice 0 because the landed user-facing 
 - runtime/tool internal errors return 500 without raw exception leakage.
 
 ## Verification
+
+Post-rebase verification on `a3c6e14`:
+
+```text
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \
+  /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest \
+  tests.unit.test_http_app tests.unit.test_outcome_service tests.integration.test_trusted_loop_agent_runtime_adapter -v
+
+Result: 60 tests OK
+
+make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+
+Result: ruff clean; format clean; 451 tests OK, 4 skipped; 12 eval tests OK; OpenAPI contract drift check passed.
+
+AGENT_OS_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:15432/agent_os_test \
+  make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+
+Result: full local CI parity checks passed.
+```
 
 Red/green review regressions:
 
