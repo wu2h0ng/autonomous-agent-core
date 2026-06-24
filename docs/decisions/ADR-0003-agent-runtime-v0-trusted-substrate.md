@@ -25,7 +25,7 @@ Build Agent Runtime v0 as a narrow, self-developed trusted substrate:
 - validation before tool body execution;
 - trace events for success, denial, validation failure, missing tool, and tool exception;
 - redaction of configured sensitive trace keys;
-- minimal replay/checkpoint boundary with explicit unreplayable-input failure;
+- minimal replay/checkpoint boundary with explicit unreplayable-input failure and fingerprint-bound checkpoint resume;
 - `TrustedLoopAgentRuntimeAdapter` that wraps `TrustedLoopRuntime.evaluate()` without rewriting SQL Safety, EvidenceChain, Approval, or OperationTrace;
 - AST import-boundary tests blocking external agent-framework imports in product runtime paths.
 
@@ -53,6 +53,7 @@ Implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`:
 - `InMemoryCheckpointStore`
 - `ToolRegistry.register_tool(...)`
 - `AgentRuntime.invoke_tool(...)`
+- `AgentRuntime.resume_from_checkpoint(...)`
 - `TrustedLoopAgentRuntimeAdapter`
 
 The original thin-shell compatibility surface remains:
@@ -83,6 +84,8 @@ Required properties covered:
 - trace events exist for success and failure paths;
 - sensitive trace payload keys are redacted;
 - snapshots record the last completed runtime boundary;
+- matching checkpoint resumes return the stored result without re-executing the tool;
+- mismatched call, context, or tool specs fail closed with `CHECKPOINT_MISMATCH` before tool execution;
 - unsupported nondeterministic inputs fail closed;
 - external agent frameworks are blocked as product runtime imports;
 - Trusted Loop adapter calls `evaluate()` through the runtime envelope and pause blocks before loop execution.
@@ -100,7 +103,7 @@ Result:
 
 - ruff check passed;
 - ruff format check passed;
-- 429 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
+- 440 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
 - 12 eval tests OK;
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.
@@ -112,7 +115,7 @@ This ADR does not claim:
 - general autonomous intelligence;
 - G10/G-Eco transfer into Enterprise OS;
 - workflow runtime replacement;
-- production-grade concurrency, streaming, async graph execution, or durable replay;
+- production-grade concurrency, streaming, async graph execution, or durable arbitrary replay;
 - rollback of irreversible external side effects;
 - production connector-side exactly-once beyond already implemented governed-action boundaries.
 

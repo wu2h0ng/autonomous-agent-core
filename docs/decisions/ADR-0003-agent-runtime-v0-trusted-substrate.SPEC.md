@@ -258,6 +258,9 @@ Rules:
 - v0 may ship with in-memory snapshot store plus tests.
 - Durable implementation is a later slice unless directly needed by Trusted Loop adapter.
 - Snapshots are evidence boundaries, not autonomy claims.
+- Snapshot metadata must include verifiable fingerprints for the tool call, relevant run context, and registered tool spec.
+- `AgentRuntime.resume_from_checkpoint(...)` may return a stored `last_result` only when all checkpoint fingerprints match the requested resume call and context.
+- Fingerprint mismatch, missing checkpoint store, missing `run_id`, missing snapshot, or unknown tool must return a structured validation error and must not execute the tool body.
 - Any nondeterministic value needed to explain a result must be captured in trace metadata or explicitly declared out of scope for replay.
 
 ### 4.7 TrustedLoopRuntime Adapter
@@ -293,6 +296,9 @@ Add tests before implementation:
   - trace payload redacts configured sensitive keys.
 - `tests/unit/test_agent_runtime_replay_boundary.py`
   - snapshot metadata records the last completed runtime boundary;
+  - matching checkpoint resume returns the stored result without executing the tool body again;
+  - call mismatch fails closed before tool execution;
+  - tool spec mismatch fails closed before tool execution;
   - unsupported nondeterministic inputs fail closed or are marked unreplayable in a structured result.
 - `tests/unit/test_agent_runtime_import_boundaries.py`
   - fail if product Core imports `langgraph`, `crewai`, `langchain`, or `openai_agents`.
@@ -312,6 +318,7 @@ Add tests before implementation:
 - [x] T7: add minimal checkpoint port and in-memory snapshot implementation.
 - [x] T8: add Trusted Loop adapter smoke path without changing SQL Safety/EvidenceChain semantics.
 - [x] T9: add replay-boundary and nondeterminism handling tests before adding any async, streaming, or parallel runtime behavior.
+- [x] T9a: add fingerprint-bound checkpoint resume tests for call/context/spec mismatch denial and matching-result replay without tool re-execution.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 
@@ -339,3 +346,4 @@ Stop and return to CTO review if:
 - Trusted Loop adapter does not bypass existing governance modules.
 - Runtime remains a substrate: it does not own business truth, research conclusions, autonomy claims, or optimization policy.
 - Replay boundaries are explicit enough that an external reviewer can determine what was executed, denied, failed, or declared unreplayable.
+- Checkpoint resume is fail-closed: it returns a stored result only for a matching tool call, run context, and tool spec, and mismatches do not execute tools.
