@@ -755,7 +755,7 @@
           <button class="active">
             <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" /></svg>
             <span>Intent Workspace</span>
-            <span class="count">F2</span>
+            <span class="count">F3a</span>
           </button>
           <button>
             <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg>
@@ -780,9 +780,9 @@
         </nav>
 
         <section class="side-section">
-          <h2>F2 boundary</h2>
+          <h2>F3a boundary</h2>
           <ul class="scope-list">
-            <li><span>Runtime</span><b>read projection</b></li>
+            <li><span>Runtime</span><b>live run + read</b></li>
             <li><span>Contract</span><b>public API</b></li>
             <li><span>R4/R5</span><b>proposal only</b></li>
             <li><span>Core import</span><b>blocked</b></li>
@@ -795,7 +795,7 @@
           <div>
             <p class="eyebrow">Intent Workspace</p>
             <h1>可信问数与行动审批工作台</h1>
-            <p class="subtitle">GMV / ROI / 日报场景的 F2 原型，展示意图、证据、行动、审批、追踪和只读报告投影。</p>
+            <p class="subtitle">GMV / ROI / 日报场景的 F3a 原型，受限提交可信运行并展示意图、证据、行动、审批、追踪和只读报告投影。</p>
           </div>
           <div class="toolbar">
             <button class="icon-button" title="刷新状态" aria-label="刷新状态">
@@ -895,6 +895,18 @@
                   </button>
                   <span class="api-status-note" id="apiReportNote">GET /runs/{trace_id}/report</span>
                 </div>
+              </section>
+
+              <section class="candidate-card" data-contract="POST /runs">
+                <div class="action-title">
+                  <h3>Live governed run</h3>
+                  <span class="badge warn">proposal-only</span>
+                </div>
+                <p class="api-status-note">
+                  POST /runs submits the current question through the governed Trusted Loop,
+                  then renders the returned user_result. It does not execute approvals or
+                  write management surfaces.
+                </p>
               </section>
             </div>
           </section>
@@ -1427,6 +1439,24 @@
         return `${root}/runs/${encodeURIComponent(traceId)}/report?${params.toString()}`;
       }
 
+      function buildRunSubmitUrl(apiBase) {
+        // Public API contract: POST /runs
+        const apiUrl = parseReportApiBase(apiBase);
+        if (!isTrustedReportOrigin(apiUrl)) {
+          throw new Error("API base must be same-origin or localhost.");
+        }
+        const root = apiUrl.href.replace(/\/+$/, "");
+        return `${root}/runs`;
+      }
+
+      function buildRunRequestBody() {
+        return {
+          question: refs.question.value.trim(),
+          parameters: {},
+          audience: refs.apiAudience.value,
+        };
+      }
+
       function renderUserResultArtifact(payload) {
         const artifact = payload.user_result;
         const evidenceCards = artifact.report.evidence_cards || [];
@@ -1537,6 +1567,45 @@
         }
       }
 
+      async function submitGovernedRun() {
+        const apiBase = refs.apiBaseUrl.value.trim();
+        const apiKey = refs.apiKey.value;
+        const body = buildRunRequestBody();
+        if (!apiBase || !body.question) {
+          setApiReportStatus("missing input", "badge danger");
+          refs.apiReportNote.textContent = "Question and API base are required.";
+          return;
+        }
+        try {
+          const runUrl = buildRunSubmitUrl(apiBase);
+          setApiReportStatus("submitting", "badge info");
+          refs.apiReportNote.textContent = runUrl;
+          const headers = { "Content-Type": "application/json" };
+          if (apiKey) headers["X-API-Key"] = apiKey;
+          const response = await fetch(runUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(buildRunRequestBody()),
+          });
+          if (!response.ok) {
+            setApiReportStatus(`HTTP ${response.status}`, "badge danger");
+            refs.apiReportNote.textContent = `Run request failed with HTTP ${response.status}.`;
+            return;
+          }
+          const payload = await response.json();
+          renderUserResultArtifact(payload);
+          setApiReportStatus("submitted", "badge ok");
+          refs.apiReportNote.textContent = display(
+            payload.trace_id || payload.user_result?.trace_id,
+            "Run completed.",
+          );
+        } catch (error) {
+          setApiReportStatus("network", "badge danger");
+          refs.apiReportNote.textContent =
+            error instanceof Error ? error.message : "Run request failed.";
+        }
+      }
+
       function render() {
         const scenario = scenarios[activeScenario];
         const state = states[activeState];
@@ -1585,7 +1654,7 @@
         });
       });
 
-      document.getElementById("runButton").addEventListener("click", render);
+      document.getElementById("runButton").addEventListener("click", submitGovernedRun);
       document
         .getElementById("loadReportButton")
         .addEventListener("click", loadReportProjection);
