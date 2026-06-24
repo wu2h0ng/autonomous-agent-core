@@ -339,6 +339,9 @@ class AgentRuntime:
         )
 
         result = self._invoke_tool(call, context)
+        checkpoint_result = self._checkpoint(call, context, result)
+        if checkpoint_result is not None:
+            result = checkpoint_result
         self.trace_writer.write(
             "agent_runtime.invocation_finished",
             {
@@ -350,7 +353,6 @@ class AgentRuntime:
                 "error_code": result.error_code,
             },
         )
-        self._checkpoint(call, context, result)
         return result
 
     def resume_from_checkpoint(
@@ -534,25 +536,50 @@ class AgentRuntime:
         call: AgentToolCall,
         context: AgentRunContext,
         result: AgentToolResult,
-    ) -> None:
+    ) -> AgentToolResult | None:
         if self.checkpoint_store is None or not context.run_id:
-            return
+            return None
         try:
             tool_spec = self.tools.spec_for(call.tool_name)
         except KeyError:
-            return
-        self.checkpoint_store.save(
-            RunStateSnapshot(
-                run_id=context.run_id,
-                trace_id=context.trace_id,
-                step_id=call.call_id,
-                status=result.status,
-                pending_tool_call=None,
-                last_result=result,
-                metadata=self._checkpoint_metadata(call, context, tool_spec),
-                last_completed_boundary="agent_runtime.invoke_tool",
+            return None
+        try:
+            self.checkpoint_store.save(
+                RunStateSnapshot(
+                    run_id=context.run_id,
+                    trace_id=context.trace_id,
+                    step_id=call.call_id,
+                    status=result.status,
+                    pending_tool_call=None,
+                    last_result=result,
+                    metadata=self._checkpoint_metadata(call, context, tool_spec),
+                    last_completed_boundary="agent_runtime.invoke_tool",
+                )
             )
-        )
+        except Exception as exc:  # noqa: BLE001 - checkpoint failures must become typed results
+            self.trace_writer.write(
+                "agent_runtime.checkpoint_failed",
+                {
+                    "call_id": call.call_id,
+                    "tool_name": call.tool_name,
+                    "trace_id": context.trace_id,
+                    "run_id": context.run_id,
+                    "error_code": exc.__class__.__name__,
+                },
+            )
+            return AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="checkpoint_error",
+                error_code=exc.__class__.__name__,
+                error_message="checkpoint save failed",
+                trace_id=context.trace_id,
+                metadata={
+                    "tool_status": result.status,
+                    "checkpoint_boundary": "agent_runtime.invoke_tool",
+                },
+            )
+        return None
 
     def _checkpoint_metadata(
         self,

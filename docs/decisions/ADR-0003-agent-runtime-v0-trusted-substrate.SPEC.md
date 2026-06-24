@@ -266,6 +266,7 @@ Rules:
 - `AgentRuntime.resume_from_checkpoint(...)` may return a stored `last_result` only when all checkpoint fingerprints match the requested resume call and context.
 - Fingerprint mismatch, missing checkpoint store, missing `run_id`, missing snapshot, or unknown tool must return a structured validation error and must not execute the tool body.
 - `SqlAgentCheckpointStore` must persist `RunStateSnapshot` rows by `run_id` and allow a later runtime/store instance to resume only through the same fingerprint validation.
+- Checkpoint save failures after tool execution must return a structured `checkpoint_error` result and emit an `agent_runtime.checkpoint_failed` trace event; raw checkpoint exception details must not be written to trace payloads.
 - Any nondeterministic value needed to explain a result must be captured in trace metadata or explicitly declared out of scope for replay.
 
 ### 4.7 TrustedLoopRuntime Adapter
@@ -307,7 +308,8 @@ Add tests before implementation:
   - matching checkpoint resume returns the stored result without executing the tool body again;
   - call mismatch fails closed before tool execution;
   - tool spec mismatch fails closed before tool execution;
-  - unsupported nondeterministic inputs fail closed or are marked unreplayable in a structured result.
+  - unsupported nondeterministic inputs fail closed or are marked unreplayable in a structured result;
+  - checkpoint store failure after tool execution returns a structured `checkpoint_error` and emits `agent_runtime.checkpoint_failed`.
 - `tests/unit/test_agent_runtime_sql_checkpoint.py`
   - SQL checkpoint resume returns the stored result across runtime/store instances without executing the tool body again;
   - SQL checkpoint mismatch fails closed before tool execution.
@@ -359,6 +361,7 @@ Stop and return to CTO review if:
 - Runtime has policy-deny, validation-error, missing-tool, and tool-exception failure paths.
 - Runtime denies non-proposal R4/R5 execution before the tool body, even when a caller supplies `approval_id`.
 - Runtime writes trace events for both allow and deny paths.
+- Runtime writes a structured trace event and returns a typed failure if checkpoint persistence fails.
 - Trusted Loop adapter does not bypass existing governance modules.
 - Runtime remains a substrate: it does not own business truth, research conclusions, autonomy claims, or optimization policy.
 - Replay boundaries are explicit enough that an external reviewer can determine what was executed, denied, failed, or declared unreplayable.

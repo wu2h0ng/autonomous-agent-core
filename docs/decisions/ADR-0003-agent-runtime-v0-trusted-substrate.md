@@ -101,6 +101,7 @@ Required properties covered:
 - mismatched call, context, or tool specs fail closed with `CHECKPOINT_MISMATCH` before tool execution;
 - SQL checkpoint snapshots round-trip and update through a fresh store instance;
 - SQL checkpoint resume returns a stored result across runtime instances without re-executing the tool;
+- checkpoint store failure after tool execution returns `checkpoint_error` and emits `agent_runtime.checkpoint_failed`;
 - unsupported nondeterministic inputs fail closed;
 - external agent frameworks are blocked as product runtime imports;
 - Trusted Loop adapter calls `evaluate()` through the runtime envelope and pause blocks before loop execution.
@@ -118,7 +119,7 @@ Result:
 
 - ruff check passed;
 - ruff format check passed;
-- 445 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
+- 446 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
 - 12 eval tests OK;
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.

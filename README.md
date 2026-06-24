@@ -27,7 +27,7 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local ADR-0003 runtime verification after H1-H3 remediation, real TrustedLoop adapter follow-up closure, context risk-ceiling hardening, checkpoint replay-boundary hardening, durable checkpoint-store adapter hardening, and R4/R5 proposal-only runtime hardening is 445 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with OpenAPI contract drift check included in `make ci`; `ci-local-full` also passed against a disposable local PostgreSQL test container.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest local ADR-0003 runtime verification after H1-H3 remediation, real TrustedLoop adapter follow-up closure, context risk-ceiling hardening, checkpoint replay-boundary hardening, durable checkpoint-store adapter hardening, checkpoint persistence failure hardening, and R4/R5 proposal-only runtime hardening is 446 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with OpenAPI contract drift check included in `make ci`; `ci-local-full` also passed against a disposable local PostgreSQL test container.
 
 ### Delivered Capabilities
 

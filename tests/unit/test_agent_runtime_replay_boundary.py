@@ -15,7 +15,9 @@ from agent_os_core.agent_runtime import (  # noqa: E402
     AgentRunContext,
     AgentRuntime,
     AgentToolCall,
+    AgentTraceWriter,
     InMemoryCheckpointStore,
+    RunStateSnapshot,
     RuntimePolicyGate,
     ToolRegistry,
     ToolSpec,
@@ -37,6 +39,45 @@ def _context(**overrides: object) -> AgentRunContext:
 
 
 class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
+    def test_checkpoint_store_failure_returns_structured_error_after_tool_execution(self) -> None:
+        class FailingCheckpointStore:
+            def save(self, snapshot: RunStateSnapshot) -> None:
+                raise RuntimeError("database unavailable")
+
+            def get(self, run_id: str) -> RunStateSnapshot | None:
+                return None
+
+        called: list[str] = []
+        trace_writer = AgentTraceWriter()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(name="safe.echo", description="Echo.", required_keys=("value",)),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(),
+            trace_writer=trace_writer,
+            checkpoint_store=FailingCheckpointStore(),
+        )
+
+        result = runtime.invoke_tool(
+            AgentToolCall(
+                call_id="call-checkpoint-fail", tool_name="safe.echo", args={"value": "ok"}
+            ),
+            _context(),
+        )
+
+        self.assertEqual(called, ["ok"])
+        self.assertEqual(result.status, "checkpoint_error")
+        self.assertEqual(result.error_code, "RuntimeError")
+        self.assertEqual(result.error_message, "checkpoint save failed")
+        self.assertEqual(result.metadata["tool_status"], "ok")
+        steps = [event["step"] for event in trace_writer.events]
+        self.assertIn("agent_runtime.checkpoint_failed", steps)
+        self.assertEqual(trace_writer.events[-1]["step"], "agent_runtime.invocation_finished")
+        self.assertEqual(trace_writer.events[-1]["payload"]["status"], "checkpoint_error")
+
     def test_snapshot_records_last_completed_runtime_boundary(self) -> None:
         checkpoints = InMemoryCheckpointStore()
         registry = ToolRegistry()
