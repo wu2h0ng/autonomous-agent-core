@@ -14,10 +14,11 @@ The prior ADR-0003 durable-checkpoint review kept `AgentTraceWriter` custom-even
 - custom events still rely on key-based redaction;
 - key matching was case-sensitive.
 
-This follow-up closes two narrow issues:
+This follow-up closes three narrow issues:
 
 1. Common sensitive-key casing variants such as `Authorization`, `Secret_Token`, or `API_KEY` could bypass the default denylist in explicit custom trace events.
 2. `AgentRuntime.resume_from_checkpoint(...)` returned success/failure results but did not emit runtime trace events for resume start, success, or fail-closed mismatch paths.
+3. Checkpoint store failures could mask a pre-execution policy denial by rewriting a denied result into `checkpoint_error`.
 
 ## TDD Evidence
 
@@ -85,6 +86,36 @@ PYTHONPATH=packages/contracts/src:packages/os_core/src \
   .venv/bin/python -m unittest tests.unit.test_agent_runtime_replay_boundary -v
 
 Result: 6 tests OK.
+```
+
+Third red test added during the 2026-06-25 review gate:
+
+- `tests/unit/test_agent_runtime_replay_boundary.py::AgentRuntimeReplayBoundaryTest::test_checkpoint_store_failure_does_not_mask_policy_denial`
+
+Observed RED failure before implementation:
+
+```text
+AssertionError: 'checkpoint_error' != 'denied'
+```
+
+Minimal implementation:
+
+- `AgentRuntime.invoke_tool(...)` attempts checkpoint persistence only for `ok` and `tool_error`, the two result classes where the tool body has started.
+- Pre-execution denials and validation failures remain the returned result even if the configured checkpoint store is unavailable.
+
+Green tests:
+
+```text
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src \
+  .venv/bin/python -m unittest \
+  tests.unit.test_agent_runtime_replay_boundary.AgentRuntimeReplayBoundaryTest.test_checkpoint_store_failure_does_not_mask_policy_denial -v
+
+Result: 1 test OK.
+
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src \
+  .venv/bin/python -m unittest tests.unit.test_agent_runtime_replay_boundary -v
+
+Result: 7 tests OK.
 ```
 
 ## Boundary

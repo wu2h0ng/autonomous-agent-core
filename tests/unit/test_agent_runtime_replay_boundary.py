@@ -78,6 +78,48 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertEqual(trace_writer.events[-1]["step"], "agent_runtime.invocation_finished")
         self.assertEqual(trace_writer.events[-1]["payload"]["status"], "checkpoint_error")
 
+    def test_checkpoint_store_failure_does_not_mask_policy_denial(self) -> None:
+        class FailingCheckpointStore:
+            def save(self, snapshot: RunStateSnapshot) -> None:
+                raise RuntimeError("database unavailable")
+
+            def get(self, run_id: str) -> RunStateSnapshot | None:
+                return None
+
+        called: list[str] = []
+        trace_writer = AgentTraceWriter()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="action.r5",
+                description="High-risk action execution.",
+                required_keys=("value",),
+                risk_level="R5",
+                side_effect_class="external_write",
+                required_permissions=("tool:write",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(),
+            trace_writer=trace_writer,
+            checkpoint_store=FailingCheckpointStore(),
+        )
+
+        result = runtime.invoke_tool(
+            AgentToolCall(call_id="call-r5", tool_name="action.r5", args={"value": "x"}),
+            _context(policy_scope=frozenset({"tool:write"}), approval_id="approval-1"),
+        )
+
+        self.assertEqual(result.status, "denied")
+        self.assertEqual(result.error_code, "DENY_HIGH_RISK_EXECUTION")
+        self.assertEqual(called, [])
+        self.assertNotIn(
+            "agent_runtime.checkpoint_failed",
+            [event["step"] for event in trace_writer.events],
+        )
+
     def test_snapshot_records_last_completed_runtime_boundary(self) -> None:
         checkpoints = InMemoryCheckpointStore()
         registry = ToolRegistry()

@@ -268,6 +268,7 @@ Rules:
 - `AgentRuntime.resume_from_checkpoint(...)` must emit safe trace events for resume start, success, and failure without raw args/output.
 - `SqlAgentCheckpointStore` must persist `RunStateSnapshot` rows by `run_id` and allow a later runtime/store instance to resume only through the same fingerprint validation.
 - Checkpoint save failures after tool execution must return a structured `checkpoint_error` result and emit an `agent_runtime.checkpoint_failed` trace event; raw checkpoint exception details must not be written to trace payloads.
+- Checkpoint store failures must not mask pre-execution denials or validation failures. A policy denial such as `DENY_HIGH_RISK_EXECUTION` remains the returned result if the tool body never started.
 - Any nondeterministic value needed to explain a result must be captured in trace metadata or explicitly declared out of scope for replay.
 
 ### 4.7 TrustedLoopRuntime Adapter
@@ -313,7 +314,8 @@ Add tests before implementation:
   - checkpoint mismatch emits a safe failure trace event without raw call args;
   - tool spec mismatch fails closed before tool execution;
   - unsupported nondeterministic inputs fail closed or are marked unreplayable in a structured result;
-  - checkpoint store failure after tool execution returns a structured `checkpoint_error` and emits `agent_runtime.checkpoint_failed`.
+  - checkpoint store failure after tool execution returns a structured `checkpoint_error` and emits `agent_runtime.checkpoint_failed`;
+  - checkpoint store failure does not mask pre-execution policy denial.
 - `tests/unit/test_agent_runtime_sql_checkpoint.py`
   - SQL checkpoint resume returns the stored result across runtime/store instances without executing the tool body again;
   - SQL checkpoint mismatch fails closed before tool execution.
@@ -342,6 +344,7 @@ Add tests before implementation:
 - [x] T9c: enforce R4/R5 proposal-only runtime policy while preserving approved execution only for lower-risk side-effecting tools.
 - [x] T9d: harden explicit custom trace-event sensitive-key redaction with case-insensitive matching.
 - [x] T9e: make checkpoint resume success/failure paths trace-visible without raw args/output.
+- [x] T9f: prevent checkpoint persistence failures from masking pre-execution denials.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 

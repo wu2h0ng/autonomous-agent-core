@@ -340,9 +340,10 @@ class AgentRuntime:
         )
 
         result = self._invoke_tool(call, context)
-        checkpoint_result = self._checkpoint(call, context, result)
-        if checkpoint_result is not None:
-            result = checkpoint_result
+        if result.status in {"ok", "tool_error"}:
+            checkpoint_result = self._checkpoint(call, context, result)
+            if checkpoint_result is not None:
+                result = checkpoint_result
         self.trace_writer.write(
             "agent_runtime.invocation_finished",
             {

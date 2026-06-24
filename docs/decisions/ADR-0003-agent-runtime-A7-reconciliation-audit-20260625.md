@@ -30,7 +30,7 @@ Observed state:
 - All inspected OS worktrees are clean.
 - 12 branches are not merged into `main`.
 - `codex/agent-runtime-v0-trusted-substrate` is already merged into `main`.
-- `codex/runtime-checkpoint-trace-security` is a pure forward branch from `main`: left/right count `0 6`.
+- `codex/runtime-checkpoint-trace-security` is a pure forward branch from `main`: left/right count `0 8` after the 2026-06-25 review-gate fix commit.
 - `codex/runtime-durable-checkpoint-store` is a pure forward branch from `main`: left/right count `0 4`.
 - `codex/runtime-durable-checkpoint-store` is an ancestor of `codex/runtime-checkpoint-trace-security`.
 
@@ -40,7 +40,7 @@ Observed state:
 
 | Branch | L/R | Packet A collision surface | Recommendation | Rationale |
 |---|---:|---|---|---|
-| `codex/runtime-checkpoint-trace-security` | `0/6` | Direct: `agent_runtime`, checkpoint persistence, trace, docs | **LAND candidate after review gate** | Contains the full local runtime hardening stack: durable checkpoint store, checkpoint failure typing, R4/R5 proposal-only policy, case-insensitive trace redaction, checkpoint resume trace events. Because `main` is an ancestor, merge mechanics are simple FF after approval. |
+| `codex/runtime-checkpoint-trace-security` | `0/8` | Direct: `agent_runtime`, checkpoint persistence, trace, docs | **LAND candidate after review gate** | Contains the full local runtime hardening stack: durable checkpoint store, checkpoint failure typing, R4/R5 proposal-only policy, case-insensitive trace redaction, checkpoint resume trace events, A7 audit, and checkpoint no-mask review fix. Because `main` is an ancestor, merge mechanics are simple FF after approval. |
 | `codex/runtime-durable-checkpoint-store` | `0/4` | Direct: `agent_runtime`, checkpoint persistence, docs | **SUPERSEDE / abandon after trace-security lands** | This branch is a prefix of `codex/runtime-checkpoint-trace-security`; landing both separately duplicates the checkpoint work and keeps an obsolete worktree alive. |
 | `codex/connector-semantics-generalization` | `13/1` | Indirect: `trusted_loop`, action connector audit semantics | **DEFER / do not land before runtime Packet A** | It is stale relative to main and is also contained in later integration stacks. It does not block landing the runtime hardening branch, but would add `trusted_loop.py` integration pressure before live wiring. |
 | `codex/report-read-projection` | `13/1` | Indirect: API/report surfaces | **DEFER / do not land before runtime Packet A** | Side-effect-free report-read work touches API surfaces likely to overlap later live wiring. Replay from a fresh base if still wanted. |
