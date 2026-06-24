@@ -31,6 +31,7 @@ from agent_os_contracts import (
     TraceEvent,
 )
 from agent_os_core import ApprovalOperationContext, ApprovalRecord
+from agent_os_core.agent_runtime import AgentToolCall, AgentToolResult, RunStateSnapshot
 
 
 def feedback_to_payload(event: FeedbackEvent) -> dict[str, Any]:
@@ -136,6 +137,92 @@ def snapshot_from_payload(payload: dict[str, Any]) -> StateSnapshot:
         state_payload=dict(payload.get("state_payload") or {}),
         created_at=payload["created_at"],
         metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def agent_tool_call_to_payload(call: AgentToolCall) -> dict[str, Any]:
+    return {
+        "call_id": call.call_id,
+        "tool_name": call.tool_name,
+        "args": dict(call.args),
+        "context_ref": call.context_ref,
+    }
+
+
+def agent_tool_call_from_payload(payload: dict[str, Any]) -> AgentToolCall:
+    return AgentToolCall(
+        call_id=payload["call_id"],
+        tool_name=payload["tool_name"],
+        args=dict(payload.get("args") or {}),
+        context_ref=payload.get("context_ref"),
+    )
+
+
+def agent_tool_result_to_payload(result: AgentToolResult) -> dict[str, Any]:
+    return {
+        "call_id": result.call_id,
+        "tool_name": result.tool_name,
+        "status": result.status,
+        "output": result.output,
+        "error_code": result.error_code,
+        "error_message": result.error_message,
+        "trace_id": result.trace_id,
+        "metadata": dict(result.metadata),
+    }
+
+
+def agent_tool_result_from_payload(payload: dict[str, Any]) -> AgentToolResult:
+    return AgentToolResult(
+        call_id=payload["call_id"],
+        tool_name=payload["tool_name"],
+        status=payload["status"],
+        output=payload.get("output"),
+        error_code=payload.get("error_code"),
+        error_message=payload.get("error_message"),
+        trace_id=payload.get("trace_id", ""),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def run_state_snapshot_to_payload(snapshot: RunStateSnapshot) -> dict[str, Any]:
+    return {
+        "run_id": snapshot.run_id,
+        "trace_id": snapshot.trace_id,
+        "step_id": snapshot.step_id,
+        "status": snapshot.status,
+        "pending_tool_call": (
+            agent_tool_call_to_payload(snapshot.pending_tool_call)
+            if snapshot.pending_tool_call is not None
+            else None
+        ),
+        "last_result": (
+            agent_tool_result_to_payload(snapshot.last_result)
+            if snapshot.last_result is not None
+            else None
+        ),
+        "metadata": dict(snapshot.metadata),
+        "last_completed_boundary": snapshot.last_completed_boundary,
+    }
+
+
+def run_state_snapshot_from_payload(payload: dict[str, Any]) -> RunStateSnapshot:
+    pending_tool_call = payload.get("pending_tool_call")
+    last_result = payload.get("last_result")
+    return RunStateSnapshot(
+        run_id=payload["run_id"],
+        trace_id=payload["trace_id"],
+        step_id=payload["step_id"],
+        status=payload["status"],
+        pending_tool_call=(
+            agent_tool_call_from_payload(pending_tool_call)
+            if pending_tool_call is not None
+            else None
+        ),
+        last_result=agent_tool_result_from_payload(last_result)
+        if last_result is not None
+        else None,
+        metadata=dict(payload.get("metadata") or {}),
+        last_completed_boundary=payload.get("last_completed_boundary"),
     )
 
 

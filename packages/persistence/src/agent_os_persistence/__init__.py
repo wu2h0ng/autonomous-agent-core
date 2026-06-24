@@ -13,6 +13,7 @@ from sqlalchemy import Engine
 
 from .repositories import (
     SqlActionRecordStore,
+    SqlAgentCheckpointStore,
     SqlApprovalContextStore,
     SqlApprovalStore,
     SqlFeedbackStore,
@@ -23,6 +24,7 @@ from .repositories import (
 )
 from .retrieval import EmbeddingKnowledgeStore, SqlKnowledgeRetriever, default_projector
 from .schema import (
+    agent_runtime_checkpoints,
     action_records,
     approval_operation_contexts,
     approval_records,
@@ -37,6 +39,7 @@ from .schema import (
 __all__ = [
     "EmbeddingKnowledgeStore",
     "SqlActionRecordStore",
+    "SqlAgentCheckpointStore",
     "SqlApprovalStore",
     "SqlApprovalContextStore",
     "SqlFeedbackStore",
@@ -45,6 +48,7 @@ __all__ = [
     "SqlSnapshotStore",
     "SqlTraceStore",
     "SqlUnitOfWork",
+    "agent_runtime_checkpoints",
     "action_records",
     "approval_operation_contexts",
     "approval_records",

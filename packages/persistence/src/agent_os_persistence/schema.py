@@ -47,6 +47,19 @@ state_snapshots = Table(
     Column("payload", JSON, nullable=False),
 )
 
+# Agent Runtime checkpoints: keyed by run_id and storing the canonical
+# RunStateSnapshot payload. The indexed columns are audit/search affordances; the
+# fingerprint-bearing payload remains the source of truth for resume validation.
+agent_runtime_checkpoints = Table(
+    "agent_runtime_checkpoints",
+    metadata,
+    Column("run_id", String, primary_key=True),
+    Column("trace_id", String, index=True, nullable=False),
+    Column("step_id", String, index=True, nullable=False),
+    Column("status", String, index=True, nullable=False),
+    Column("payload", JSON, nullable=False),
+)
+
 # Connector-side action records: the durable side-effect ledger for the
 # action_record connector. Approval context persistence proves command recovery;
 # this table proves the connector write target and idempotency map survive a

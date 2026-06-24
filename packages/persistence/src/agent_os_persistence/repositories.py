@@ -25,8 +25,10 @@ from agent_os_core import (
     ApprovalOperationContext,
     ApprovalRecord,
     ApprovalStorePort,
+    CheckpointStorePort,
     FeedbackStorePort,
     KnowledgeStorePort,
+    RunStateSnapshot,
     SnapshotStore,
     TraceStorePort,
 )
@@ -238,6 +240,37 @@ class SqlSnapshotStore(_SqlStoreBase, SnapshotStore):
         with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.snapshot_from_payload(row[0]) for row in rows)
+
+
+class SqlAgentCheckpointStore(_SqlStoreBase, CheckpointStorePort):
+    """Durable Agent Runtime checkpoint store backed by SQLAlchemy Core."""
+
+    def save(self, snapshot: RunStateSnapshot) -> None:
+        table = schema.agent_runtime_checkpoints
+        payload = mappers.run_state_snapshot_to_payload(snapshot)
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.run_id).where(table.c.run_id == snapshot.run_id)
+            ).fetchone()
+            values = {
+                "run_id": snapshot.run_id,
+                "trace_id": snapshot.trace_id,
+                "step_id": snapshot.step_id,
+                "status": snapshot.status,
+                "payload": payload,
+            }
+            if exists is None:
+                conn.execute(table.insert().values(**values))
+            else:
+                conn.execute(
+                    table.update().where(table.c.run_id == snapshot.run_id).values(**values)
+                )
+
+    def get(self, run_id: str) -> RunStateSnapshot | None:
+        table = schema.agent_runtime_checkpoints
+        with self._read() as conn:
+            row = conn.execute(select(table.c.payload).where(table.c.run_id == run_id)).fetchone()
+        return mappers.run_state_snapshot_from_payload(row[0]) if row is not None else None
 
 
 class SqlActionRecordStore(_SqlStoreBase):

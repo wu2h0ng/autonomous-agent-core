@@ -10,7 +10,7 @@
 - Decision status: Accepted by CTO/founder on 2026-06-24.
 - Code status: implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`.
 - Runtime dependency status: external agent frameworks are reference-only.
-- Required next gate: review/merge approval; factory/API exposure, durable checkpointing, concurrency, and workflow runtime replacement require later ADRs.
+- Required next gate: review/merge approval; factory/API exposure, checkpoint backend selection in product factories, concurrency, and workflow runtime replacement require later ADRs.
 
 ## 1. Problem
 
@@ -256,11 +256,12 @@ Rules:
 
 - Checkpoint support is a port, not a framework dependency.
 - v0 may ship with in-memory snapshot store plus tests.
-- Durable implementation is a later slice unless directly needed by Trusted Loop adapter.
+- Durable implementation lives in the persistence adapter layer and must not introduce a persistence import into OS Core.
 - Snapshots are evidence boundaries, not autonomy claims.
 - Snapshot metadata must include verifiable fingerprints for the tool call, relevant run context, and registered tool spec.
 - `AgentRuntime.resume_from_checkpoint(...)` may return a stored `last_result` only when all checkpoint fingerprints match the requested resume call and context.
 - Fingerprint mismatch, missing checkpoint store, missing `run_id`, missing snapshot, or unknown tool must return a structured validation error and must not execute the tool body.
+- `SqlAgentCheckpointStore` must persist `RunStateSnapshot` rows by `run_id` and allow a later runtime/store instance to resume only through the same fingerprint validation.
 - Any nondeterministic value needed to explain a result must be captured in trace metadata or explicitly declared out of scope for replay.
 
 ### 4.7 TrustedLoopRuntime Adapter
@@ -300,6 +301,11 @@ Add tests before implementation:
   - call mismatch fails closed before tool execution;
   - tool spec mismatch fails closed before tool execution;
   - unsupported nondeterministic inputs fail closed or are marked unreplayable in a structured result.
+- `tests/unit/test_agent_runtime_sql_checkpoint.py`
+  - SQL checkpoint resume returns the stored result across runtime/store instances without executing the tool body again;
+  - SQL checkpoint mismatch fails closed before tool execution.
+- `tests/unit/test_persistence.py`
+  - `SqlAgentCheckpointStore` round-trips and updates a `RunStateSnapshot`.
 - `tests/unit/test_agent_runtime_import_boundaries.py`
   - fail if product Core imports `langgraph`, `crewai`, `langchain`, or `openai_agents`.
 - `tests/integration/test_trusted_loop_agent_runtime_adapter.py`
@@ -319,6 +325,7 @@ Add tests before implementation:
 - [x] T8: add Trusted Loop adapter smoke path without changing SQL Safety/EvidenceChain semantics.
 - [x] T9: add replay-boundary and nondeterminism handling tests before adding any async, streaming, or parallel runtime behavior.
 - [x] T9a: add fingerprint-bound checkpoint resume tests for call/context/spec mismatch denial and matching-result replay without tool re-execution.
+- [x] T9b: add durable SQL checkpoint-store adapter, schema, Alembic migration, and cross-runtime resume tests while keeping OS Core persistence-independent.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 
@@ -347,3 +354,4 @@ Stop and return to CTO review if:
 - Runtime remains a substrate: it does not own business truth, research conclusions, autonomy claims, or optimization policy.
 - Replay boundaries are explicit enough that an external reviewer can determine what was executed, denied, failed, or declared unreplayable.
 - Checkpoint resume is fail-closed: it returns a stored result only for a matching tool call, run context, and tool spec, and mismatches do not execute tools.
+- Durable checkpoint storage is an adapter behind `CheckpointStorePort`; OS Core does not import SQLAlchemy or `agent_os_persistence`.

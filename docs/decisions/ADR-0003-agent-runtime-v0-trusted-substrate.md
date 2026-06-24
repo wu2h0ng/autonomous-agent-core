@@ -26,6 +26,7 @@ Build Agent Runtime v0 as a narrow, self-developed trusted substrate:
 - trace events for success, denial, validation failure, missing tool, and tool exception;
 - redaction of configured sensitive trace keys;
 - minimal replay/checkpoint boundary with explicit unreplayable-input failure and fingerprint-bound checkpoint resume;
+- durable SQLAlchemy-backed checkpoint adapter outside OS Core;
 - `TrustedLoopAgentRuntimeAdapter` that wraps `TrustedLoopRuntime.evaluate()` without rewriting SQL Safety, EvidenceChain, Approval, or OperationTrace;
 - AST import-boundary tests blocking external agent-framework imports in product runtime paths.
 
@@ -50,11 +51,18 @@ Implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`:
 - `PolicyDecision`
 - `RuntimePolicyGate`
 - `RunStateSnapshot`
+- `CheckpointStorePort`
 - `InMemoryCheckpointStore`
 - `ToolRegistry.register_tool(...)`
 - `AgentRuntime.invoke_tool(...)`
 - `AgentRuntime.resume_from_checkpoint(...)`
 - `TrustedLoopAgentRuntimeAdapter`
+
+Implemented in `packages/persistence/`:
+
+- `SqlAgentCheckpointStore`
+- `agent_runtime_checkpoints` SQLAlchemy table
+- Alembic migration `0008_agent_runtime_checkpoints`
 
 The original thin-shell compatibility surface remains:
 
@@ -70,7 +78,9 @@ Added red-first tests:
 - `tests/unit/test_agent_runtime_tools.py`
 - `tests/unit/test_agent_runtime_trace.py`
 - `tests/unit/test_agent_runtime_replay_boundary.py`
+- `tests/unit/test_agent_runtime_sql_checkpoint.py`
 - `tests/unit/test_agent_runtime_import_boundaries.py`
+- `tests/unit/test_persistence.py::PersistenceRepositoriesTest.test_agent_runtime_checkpoint_round_trip_and_rewrite`
 - `tests/integration/test_trusted_loop_agent_runtime_adapter.py`
 
 Required properties covered:
@@ -86,6 +96,8 @@ Required properties covered:
 - snapshots record the last completed runtime boundary;
 - matching checkpoint resumes return the stored result without re-executing the tool;
 - mismatched call, context, or tool specs fail closed with `CHECKPOINT_MISMATCH` before tool execution;
+- SQL checkpoint snapshots round-trip and update through a fresh store instance;
+- SQL checkpoint resume returns a stored result across runtime instances without re-executing the tool;
 - unsupported nondeterministic inputs fail closed;
 - external agent frameworks are blocked as product runtime imports;
 - Trusted Loop adapter calls `evaluate()` through the runtime envelope and pause blocks before loop execution.
@@ -103,7 +115,7 @@ Result:
 
 - ruff check passed;
 - ruff format check passed;
-- 440 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
+- 443 tests OK, 4 skipped in primary unittest discover after syncing current `main`;
 - 12 eval tests OK;
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.
@@ -124,7 +136,7 @@ This ADR does not claim:
 Future ADRs may add:
 
 - factory/API wiring for runtime-adapter exposure;
-- durable checkpoint store;
+- checkpoint backend selection in product factories;
 - hard budgets for time/tool/cost;
 - concurrency/async graph boundary;
 - workflow-layer LangGraph/CrewAI replacement;

@@ -20,6 +20,7 @@ from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .embedding import Embedder, HashingEmbedder
 from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporter
+from .agent_runtime import CheckpointStorePort, RunStateSnapshot
 from .knowledge_retrieval import (
     Candidate,
     HybridScorer,
@@ -62,6 +63,7 @@ __all__ = [
     "AuditEntry",
     "AuditLog",
     "Candidate",
+    "CheckpointStorePort",
     "CorrigibilityShell",
     "DataProductCompiler",
     "Embedder",
@@ -93,6 +95,7 @@ __all__ = [
     "outcome_to_score",
     "project_asset",
     "ProviderRegistry",
+    "RunStateSnapshot",
     "SQLiteQueryExecutor",
     "SemanticRegistry",
     "ShellView",

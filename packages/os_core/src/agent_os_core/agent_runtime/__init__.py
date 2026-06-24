@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import hashlib
 import json
-from typing import Any
+from typing import Any, Protocol
 
 from ..corrigibility import ShellView
 
@@ -33,6 +33,7 @@ __all__ = [
     "AgentToolCall",
     "AgentToolResult",
     "AgentTraceWriter",
+    "CheckpointStorePort",
     "InMemoryCheckpointStore",
     "PolicyDecision",
     "RunStateSnapshot",
@@ -110,6 +111,12 @@ class RunStateSnapshot:
     last_result: AgentToolResult | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     last_completed_boundary: str | None = None
+
+
+class CheckpointStorePort(Protocol):
+    def save(self, snapshot: RunStateSnapshot) -> None: ...
+
+    def get(self, run_id: str) -> RunStateSnapshot | None: ...
 
 
 class InMemoryCheckpointStore:
@@ -292,7 +299,7 @@ class AgentRuntime:
         *,
         policy_gate: RuntimePolicyGate | None = None,
         trace_writer: AgentTraceWriter | None = None,
-        checkpoint_store: InMemoryCheckpointStore | None = None,
+        checkpoint_store: CheckpointStorePort | None = None,
         validator: StructuredOutputValidator | None = None,
     ) -> None:
         self.tools = tools or ToolRegistry()

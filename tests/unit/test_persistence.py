@@ -75,6 +75,32 @@ class PersistenceRepositoriesTest(unittest.TestCase):
             metadata={"note": "pre-exec"},
         )
 
+    def _agent_runtime_snapshot(self, run_id: str, *, output: dict[str, object] | None = None):
+        from agent_os_core.agent_runtime import AgentToolResult, RunStateSnapshot
+
+        return RunStateSnapshot(
+            run_id=run_id,
+            trace_id=f"trace-{run_id}",
+            step_id=f"call-{run_id}",
+            status="ok",
+            pending_tool_call=None,
+            last_result=AgentToolResult(
+                call_id=f"call-{run_id}",
+                tool_name="safe.echo",
+                status="ok",
+                output=output or {"value": "ok"},
+                trace_id=f"trace-{run_id}",
+                metadata={"result_class": "safe"},
+            ),
+            metadata={
+                "tool_name": "safe.echo",
+                "call_fingerprint": f"call-fp-{run_id}",
+                "context_fingerprint": f"context-fp-{run_id}",
+                "tool_spec_fingerprint": f"spec-fp-{run_id}",
+            },
+            last_completed_boundary="agent_runtime.invoke_tool",
+        )
+
     def _approval_context(self, approval_id: str, proposal_id: str):
         from agent_os_contracts import (
             BusinessIntent,
@@ -341,6 +367,20 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         snap2 = self._snapshot("snap-1", "op-1")
         store.save(snap2)
         self.assertEqual(store.list_for_operation("op-1"), (snap2,))
+
+    def test_agent_runtime_checkpoint_round_trip_and_rewrite(self) -> None:
+        from agent_os_persistence import SqlAgentCheckpointStore
+
+        store = SqlAgentCheckpointStore(self.engine)
+        snapshot = self._agent_runtime_snapshot("run-checkpoint")
+        store.save(snapshot)
+
+        self.assertEqual(store.get("run-checkpoint"), snapshot)
+        self.assertIsNone(store.get("run-missing"))
+
+        updated = self._agent_runtime_snapshot("run-checkpoint", output={"value": "updated"})
+        store.save(updated)
+        self.assertEqual(SqlAgentCheckpointStore(self.engine).get("run-checkpoint"), updated)
 
     def test_action_record_store_round_trip_and_idempotency_over_sql_store(self) -> None:
         from agent_os_persistence import SqlActionRecordStore
