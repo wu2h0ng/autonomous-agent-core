@@ -552,10 +552,12 @@ def create_app(
         shared_adoption_ingest = (
             adoption_ingest if adoption_ingest is not None else factory.adoption_ingest()
         )
+        default_report_store = factory.build_report_snapshot_store()
     else:
         shared_runtime = runtime
         shared_retriever = retriever
         shared_adoption_ingest = adoption_ingest
+        default_report_store = None
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
     configured_external_key = (
         external_api_key if external_api_key is not None else os.environ.get(EXTERNAL_API_KEY_ENV)
@@ -577,7 +579,11 @@ def create_app(
     app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
     app.state.report_store = (
-        report_store if report_store is not None else InMemoryReportSnapshotStore()
+        report_store
+        if report_store is not None
+        else default_report_store
+        if default_report_store is not None
+        else InMemoryReportSnapshotStore()
     )
 
     def authenticate_api_key(

@@ -21,9 +21,17 @@ This closes the product gap where an external report consumer previously had to 
 - Added `InMemoryReportSnapshotStore` in the API service layer.
 - `run_service(..., report_store=...)` stores both internal and external `user_result` projections after a successful run.
 - Added `report_snapshot_service(...)` as a framework-agnostic read helper.
-- `create_app(...)` wires a same-process report snapshot store by default.
+- The original branch's `create_app(...)` wiring used a same-process report snapshot store by default.
 - Added `RunReportResponse` and OpenAPI route schema for `GET /runs/{trace_id}/report`.
 - Added `API_SCOPE_REPORT_READ`; internal and external-report principals can read reports, operator principals cannot.
+
+### Integration-branch durability addendum
+
+The original `codex/report-read-projection` slice used a same-process memory store. The
+`codex/enterprise-integration-readiness` integration branch adds a postgres-backed
+`report_snapshots` table and `SqlReportSnapshotStore`; memory remains same-process, while
+postgres-backed apps can read existing internal/external report projections across fresh
+app/runtime instances without re-running the Trusted Loop.
 
 ## Verification
 
@@ -45,5 +53,7 @@ Green after implementation:
 - No new external action execution path.
 - No automatic R4/R5 execution.
 - No full RBAC, tenant isolation, field/row authorization, or DLP claim.
-- No durable cross-restart report persistence claim; the v0 store is same-process memory.
+- Memory backend snapshots remain same-process only; postgres-backed report snapshots persist
+  across fresh app/runtime instances. This is report-read durability, not external release or
+  external-system exactly-once.
 - No external-system exactly-once or external ACK confirmation claim.

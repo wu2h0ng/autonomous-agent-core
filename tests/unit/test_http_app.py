@@ -763,6 +763,73 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
         # The adopted outcome recorded over HTTP is reflected in the ranking signal.
         self.assertGreater(top["score_breakdown"]["outcome_boost"], 0.0)
 
+    @unittest.skipUnless(_SQLALCHEMY, "sqlalchemy not installed (install .[postgres])")
+    def test_report_snapshot_survives_fresh_app_on_postgres_backend(self) -> None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import (
+            STORE_POSTGRES,
+            ContentCommerceRuntimeFactory,
+            RuntimeFactoryConfig,
+        )
+
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        config = RuntimeFactoryConfig(
+            domain_pack_path=DOMAIN_PACK,
+            store_backend=STORE_POSTGRES,
+            store_engine=engine,
+        )
+        factory1 = ContentCommerceRuntimeFactory(config)
+        client1 = TestClient(
+            create_app(
+                factory1.build(),
+                retriever=factory1.build_knowledge_retriever(),
+                api_key=API_KEY,
+                external_api_key=EXTERNAL_API_KEY,
+                adoption_ingest=factory1.adoption_ingest(),
+                report_store=factory1.build_report_snapshot_store(),
+            )
+        )
+        run_resp = client1.post(
+            "/runs", json={**RUN_BODY, "audience": "internal"}, headers={"X-API-Key": API_KEY}
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        factory2 = ContentCommerceRuntimeFactory(config)
+        client2 = TestClient(
+            create_app(
+                factory2.build(),
+                retriever=factory2.build_knowledge_retriever(),
+                api_key=API_KEY,
+                external_api_key=EXTERNAL_API_KEY,
+                adoption_ingest=factory2.adoption_ingest(),
+                report_store=factory2.build_report_snapshot_store(),
+            )
+        )
+        internal_resp = client2.get(
+            f"/runs/{trace_id}/report",
+            params={"audience": "internal"},
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(internal_resp.status_code, 200, internal_resp.text)
+        external_resp = client2.get(
+            f"/runs/{trace_id}/report",
+            params={"audience": "internal"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 200, external_resp.text)
+        self.assertEqual(external_resp.json()["user_result"]["redaction"]["audience"], "external")
+        self.assertNotEqual(
+            internal_resp.json()["user_result"]["artifact_id"],
+            external_resp.json()["user_result"]["artifact_id"],
+        )
+
     def test_search_requires_api_key(self) -> None:
         client = _make_client(API_KEY)
         resp = client.get("/knowledge/search", params={"q": "GMV"})

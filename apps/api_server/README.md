@@ -70,14 +70,15 @@ Endpoints (protected by `X-API-Key` unless noted):
   the response is always capped to the external projection even when the request body asks
   for `audience=internal`. That projection also omits top-level provider, trace-step, and
   related-knowledge metadata from the HTTP response.
-- `GET /runs/{trace_id}/report` — returns an already-built `user_result` report snapshot
-  from the app's same-process report store. This read path does not call
-  `runtime.evaluate`, does not re-run SQL, does not create approvals, and does not touch
-  action connectors. `AGENT_OS_EXTERNAL_API_KEY` may call this endpoint only through the
-  external projection, even when `?audience=internal` is requested. Internal and external
-  report projections have distinct `artifact_id` values, so clients cannot cache or audit
-  two redaction views as the same rendered artifact. Unknown or cross-process/restarted
-  snapshots return `404`; durable report storage requires a separate persistence ADR/schema.
+- `GET /runs/{trace_id}/report` — returns an already-built `user_result` report snapshot.
+  This read path does not call `runtime.evaluate`, does not re-run SQL, does not create
+  approvals, and does not touch action connectors. The memory backend remains same-process;
+  the postgres store backend persists report snapshots in `report_snapshots` so a fresh app
+  instance on the same database can read the existing projection. `AGENT_OS_EXTERNAL_API_KEY`
+  may call this endpoint only through the external projection, even when `?audience=internal`
+  is requested. Internal and external report projections have distinct `artifact_id` values,
+  so clients cannot cache or audit two redaction views as the same rendered artifact.
+  Unknown snapshots return `404`.
 - `POST /outcomes` — body `{trace_id, outcome, reviewer?, metric_deltas?}` ->
   `record_outcome_service` result.
 
@@ -90,9 +91,8 @@ Auth boundary:
 - `AGENT_OS_EXTERNAL_API_KEY` is not a general API key; non-run management surfaces such as
   `/outcomes`, `/adoptions`, `/knowledge/search`, and `/traces/{id}` still require the
   internal API key. On `POST /runs` it still triggers a new run execution; on
-  `GET /runs/{trace_id}/report` it can only read an existing same-process external report
-  snapshot. This is a narrow HTTP principal/scope and report projection cap, not full RBAC
-  or DLP.
+  `GET /runs/{trace_id}/report` it can only read an existing external report projection.
+  This is a narrow HTTP principal/scope and report projection cap, not full RBAC or DLP.
 - Configured internal, external-report, and operator keys must be distinct; duplicate key
   values fail closed during app creation.
 
