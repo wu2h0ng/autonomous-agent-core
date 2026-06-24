@@ -265,6 +265,7 @@ Rules:
 - Snapshot metadata must include verifiable fingerprints for the tool call, relevant run context, and registered tool spec.
 - `AgentRuntime.resume_from_checkpoint(...)` may return a stored `last_result` only when all checkpoint fingerprints match the requested resume call and context.
 - Fingerprint mismatch, missing checkpoint store, missing `run_id`, missing snapshot, or unknown tool must return a structured validation error and must not execute the tool body.
+- `AgentRuntime.resume_from_checkpoint(...)` must emit safe trace events for resume start, success, and failure without raw args/output.
 - `SqlAgentCheckpointStore` must persist `RunStateSnapshot` rows by `run_id` and allow a later runtime/store instance to resume only through the same fingerprint validation.
 - Checkpoint save failures after tool execution must return a structured `checkpoint_error` result and emit an `agent_runtime.checkpoint_failed` trace event; raw checkpoint exception details must not be written to trace payloads.
 - Any nondeterministic value needed to explain a result must be captured in trace metadata or explicitly declared out of scope for replay.
@@ -307,7 +308,9 @@ Add tests before implementation:
 - `tests/unit/test_agent_runtime_replay_boundary.py`
   - snapshot metadata records the last completed runtime boundary;
   - matching checkpoint resume returns the stored result without executing the tool body again;
+  - matching checkpoint resume emits safe start/success trace events without raw output;
   - call mismatch fails closed before tool execution;
+  - checkpoint mismatch emits a safe failure trace event without raw call args;
   - tool spec mismatch fails closed before tool execution;
   - unsupported nondeterministic inputs fail closed or are marked unreplayable in a structured result;
   - checkpoint store failure after tool execution returns a structured `checkpoint_error` and emits `agent_runtime.checkpoint_failed`.
@@ -338,6 +341,7 @@ Add tests before implementation:
 - [x] T9b: add durable SQL checkpoint-store adapter, schema, Alembic migration, and cross-runtime resume tests while keeping OS Core persistence-independent.
 - [x] T9c: enforce R4/R5 proposal-only runtime policy while preserving approved execution only for lower-risk side-effecting tools.
 - [x] T9d: harden explicit custom trace-event sensitive-key redaction with case-insensitive matching.
+- [x] T9e: make checkpoint resume success/failure paths trace-visible without raw args/output.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 

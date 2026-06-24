@@ -359,8 +359,17 @@ class AgentRuntime:
     def resume_from_checkpoint(
         self, call: AgentToolCall, context: AgentRunContext
     ) -> AgentToolResult:
+        self.trace_writer.write(
+            "agent_runtime.checkpoint_resume_started",
+            {
+                "call_id": call.call_id,
+                "tool_name": call.tool_name,
+                "run_id": context.run_id,
+                "trace_id": context.trace_id,
+            },
+        )
         if self.checkpoint_store is None or not context.run_id:
-            return AgentToolResult(
+            result = AgentToolResult(
                 call_id=call.call_id,
                 tool_name=call.tool_name,
                 status="validation_error",
@@ -368,9 +377,11 @@ class AgentRuntime:
                 error_message="checkpoint store and run_id are required for resume",
                 trace_id=context.trace_id,
             )
+            self._trace_checkpoint_resume_failed(call, context, result)
+            return result
         snapshot = self.checkpoint_store.get(context.run_id)
         if snapshot is None or snapshot.last_result is None:
-            return AgentToolResult(
+            result = AgentToolResult(
                 call_id=call.call_id,
                 tool_name=call.tool_name,
                 status="validation_error",
@@ -378,10 +389,12 @@ class AgentRuntime:
                 error_message=f"checkpoint not found for run_id: {context.run_id}",
                 trace_id=context.trace_id,
             )
+            self._trace_checkpoint_resume_failed(call, context, result)
+            return result
         try:
             tool_spec = self.tools.spec_for(call.tool_name)
         except KeyError as exc:
-            return AgentToolResult(
+            result = AgentToolResult(
                 call_id=call.call_id,
                 tool_name=call.tool_name,
                 status="validation_error",
@@ -389,12 +402,14 @@ class AgentRuntime:
                 error_message=str(exc),
                 trace_id=context.trace_id,
             )
+            self._trace_checkpoint_resume_failed(call, context, result)
+            return result
         expected_metadata = self._checkpoint_metadata(call, context, tool_spec)
         mismatched = [
             key for key, value in expected_metadata.items() if snapshot.metadata.get(key) != value
         ]
         if mismatched:
-            return AgentToolResult(
+            result = AgentToolResult(
                 call_id=call.call_id,
                 tool_name=call.tool_name,
                 status="validation_error",
@@ -403,7 +418,37 @@ class AgentRuntime:
                 trace_id=context.trace_id,
                 metadata={"mismatched": tuple(sorted(mismatched))},
             )
+            self._trace_checkpoint_resume_failed(call, context, result)
+            return result
+        self.trace_writer.write(
+            "agent_runtime.checkpoint_resume_succeeded",
+            {
+                "call_id": call.call_id,
+                "tool_name": call.tool_name,
+                "trace_id": context.trace_id,
+                "run_id": context.run_id,
+                "status": snapshot.last_result.status,
+            },
+        )
         return snapshot.last_result
+
+    def _trace_checkpoint_resume_failed(
+        self,
+        call: AgentToolCall,
+        context: AgentRunContext,
+        result: AgentToolResult,
+    ) -> None:
+        self.trace_writer.write(
+            "agent_runtime.checkpoint_resume_failed",
+            {
+                "call_id": call.call_id,
+                "tool_name": call.tool_name,
+                "trace_id": context.trace_id,
+                "run_id": context.run_id,
+                "status": result.status,
+                "error_code": result.error_code,
+            },
+        )
 
     def _invoke_tool(self, call: AgentToolCall, context: AgentRunContext) -> AgentToolResult:
         unreplayable_inputs = context.metadata.get("nondeterministic_inputs")

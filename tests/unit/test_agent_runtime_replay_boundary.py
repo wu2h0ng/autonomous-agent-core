@@ -125,6 +125,7 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
     def test_resume_rejects_call_mismatch_without_tool_execution(self) -> None:
         called: list[str] = []
         checkpoints = InMemoryCheckpointStore()
+        trace_writer = AgentTraceWriter()
         registry = ToolRegistry()
         registry.register_tool(
             ToolSpec(
@@ -138,6 +139,7 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         runtime = AgentRuntime(
             tools=registry,
             policy_gate=RuntimePolicyGate(),
+            trace_writer=trace_writer,
             checkpoint_store=checkpoints,
         )
         original_call = AgentToolCall(
@@ -147,7 +149,11 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
 
         first = runtime.invoke_tool(original_call, original_context)
         resumed = runtime.resume_from_checkpoint(
-            AgentToolCall(call_id="call-replay", tool_name="safe.echo", args={"value": "changed"}),
+            AgentToolCall(
+                call_id="call-replay",
+                tool_name="safe.echo",
+                args={"value": "changed-secret"},
+            ),
             original_context,
         )
 
@@ -155,10 +161,18 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertEqual(resumed.status, "validation_error")
         self.assertEqual(resumed.error_code, "CHECKPOINT_MISMATCH")
         self.assertEqual(called, ["ok"])
+        self.assertIn(
+            "agent_runtime.checkpoint_resume_failed",
+            [event["step"] for event in trace_writer.events],
+        )
+        trace_blob = repr(trace_writer.events)
+        self.assertIn("CHECKPOINT_MISMATCH", trace_blob)
+        self.assertNotIn("changed-secret", trace_blob)
 
     def test_resume_returns_last_result_for_matching_checkpoint(self) -> None:
         called: list[str] = []
         checkpoints = InMemoryCheckpointStore()
+        trace_writer = AgentTraceWriter()
         registry = ToolRegistry()
         registry.register_tool(
             ToolSpec(
@@ -172,6 +186,7 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         runtime = AgentRuntime(
             tools=registry,
             policy_gate=RuntimePolicyGate(),
+            trace_writer=trace_writer,
             checkpoint_store=checkpoints,
         )
         call = AgentToolCall(call_id="call-replay-ok", tool_name="safe.echo", args={"value": "ok"})
@@ -184,6 +199,16 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertEqual(resumed.status, "ok")
         self.assertEqual(resumed.output, {"value": "ok"})
         self.assertEqual(called, ["ok"])
+        steps = [event["step"] for event in trace_writer.events]
+        self.assertIn("agent_runtime.checkpoint_resume_started", steps)
+        self.assertIn("agent_runtime.checkpoint_resume_succeeded", steps)
+        resume_success = [
+            event
+            for event in trace_writer.events
+            if event["step"] == "agent_runtime.checkpoint_resume_succeeded"
+        ][-1]
+        self.assertEqual(resume_success["payload"]["status"], "ok")
+        self.assertNotIn("output", resume_success["payload"])
 
     def test_resume_rejects_tool_spec_mismatch(self) -> None:
         checkpoints = InMemoryCheckpointStore()

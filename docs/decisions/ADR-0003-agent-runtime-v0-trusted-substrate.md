@@ -99,6 +99,7 @@ Required properties covered:
 - snapshots record the last completed runtime boundary;
 - matching checkpoint resumes return the stored result without re-executing the tool;
 - mismatched call, context, or tool specs fail closed with `CHECKPOINT_MISMATCH` before tool execution;
+- checkpoint resume success and failure paths write safe trace events without raw args/output;
 - SQL checkpoint snapshots round-trip and update through a fresh store instance;
 - SQL checkpoint resume returns a stored result across runtime instances without re-executing the tool;
 - checkpoint store failure after tool execution returns `checkpoint_error` and emits `agent_runtime.checkpoint_failed`;
