@@ -686,7 +686,7 @@
         display: none;
       }
 
-      @media (max-width: 1220px) {
+      @media (max-width: 1320px) {
         .app {
           grid-template-columns: 1fr;
         }
@@ -724,6 +724,7 @@
         .rail,
         .metrics,
         .evidence-grid,
+        .api-grid,
         .candidate-grid,
         .field-grid {
           grid-template-columns: 1fr;
@@ -977,7 +978,7 @@
                   </article>
                   <article class="card">
                     <h3>查询证据</h3>
-                    <code id="sqlEvidence">select order_date, sum(paid_amount) as gmv from sales.orders where order_date &gt;= :start_date group by order_date limit :limit</code>
+                    <code id="sqlEvidence">sql_safety=passed · fingerprint=sqlfp_gmv_7d · parameters=redacted</code>
                   </article>
                   <article class="card">
                     <h3>限制说明</h3>
@@ -1100,7 +1101,7 @@
           metricContract: "GMV v2 · revenue_ops · CNY · internal",
           providerContract: "sales warehouse · allowlist: sales, ads",
           sqlEvidence:
-            "select order_date, sum(paid_amount) as gmv from sales.orders where order_date >= :start_date group by order_date limit :limit",
+            "sql_safety=passed · fingerprint=sqlfp_gmv_7d · parameters=redacted",
           limitations: "素材组 owner 缺失，行动提案需要投放负责人确认。",
           actionTitle: "暂停低 ROI 素材组 48 小时",
           actionReason:
@@ -1145,7 +1146,7 @@
           metricContract: "ROI v1 · ads_ops · GMV / AdSpend · internal",
           providerContract: "ads warehouse · allowlist: ads, sales",
           sqlEvidence:
-            "select channel, sum(gmv) / nullif(sum(ad_spend), 0) as roi from ads.daily_performance where week = :week group by channel",
+            "sql_safety=passed · fingerprint=sqlfp_roi_channel · parameters=redacted",
           limitations: "素材质量标签仍为人工维护，归因解释需要复核最新投放策略。",
           actionTitle: "限制低 ROI 素材组预算上限",
           actionReason:
@@ -1190,7 +1191,7 @@
           metricContract: "Daily Report v0 · ops_lead · GMV / ROI / orders",
           providerContract: "sales + ads warehouse · allowlist: sales, ads",
           sqlEvidence:
-            "select sum(gmv), count(distinct order_id), sum(gmv)/nullif(sum(ad_spend),0) as roi from daily_ops where date = :date",
+            "sql_safety=passed · fingerprint=sqlfp_daily_ops · parameters=redacted",
           limitations: "库存和内容指标仍未接入本次日报视图，日报完整度为 MVP 子集。",
           actionTitle: "转入 ROI 诊断流程",
           actionReason:
@@ -1379,18 +1380,49 @@
         );
       }
 
+      function appendText(parent, tagName, value) {
+        const element = document.createElement(tagName);
+        element.textContent = String(value);
+        parent.appendChild(element);
+        return element;
+      }
+
       function renderTrace(steps) {
-        refs.traceSteps.innerHTML = steps
-          .map(
-            ([number, label, value]) =>
-              `<div class="trace-step"><i>${number}</i><div><span>${label}</span><b>${value}</b></div><span>ok</span></div>`,
-          )
-          .join("");
+        refs.traceSteps.replaceChildren();
+        steps.forEach(([number, label, value]) => {
+          const item = document.createElement("div");
+          item.className = "trace-step";
+          appendText(item, "i", number);
+          const body = document.createElement("div");
+          appendText(body, "span", label);
+          appendText(body, "b", value);
+          item.appendChild(body);
+          appendText(item, "span", "ok");
+          refs.traceSteps.appendChild(item);
+        });
+      }
+
+      function parseReportApiBase(apiBase) {
+        const fallbackOrigin =
+          window.location.origin === "null" ? "http://127.0.0.1" : window.location.origin;
+        return new URL(apiBase, fallbackOrigin);
+      }
+
+      function isTrustedReportOrigin(apiUrl) {
+        const loopbackHosts = ["localhost", "127.0.0.1", "::1"];
+        return (
+          apiUrl.origin === window.location.origin ||
+          loopbackHosts.includes(apiUrl.hostname)
+        );
       }
 
       function buildReportReadUrl(apiBase, traceId, audience) {
         // Public API contract: GET /runs/{trace_id}/report
-        const root = apiBase.replace(/\/+$/, "");
+        const apiUrl = parseReportApiBase(apiBase);
+        if (!isTrustedReportOrigin(apiUrl)) {
+          throw new Error("API base must be same-origin or localhost.");
+        }
+        const root = apiUrl.href.replace(/\/+$/, "");
         const params = new URLSearchParams({ audience });
         return `${root}/runs/${encodeURIComponent(traceId)}/report?${params.toString()}`;
       }
@@ -1418,10 +1450,10 @@
         refs.answerTitle.textContent = display(artifact.title);
         refs.answerBody.textContent = display(
           analysis.summary ||
-            reportSections.map((section) => section.body || section.title).filter(Boolean),
+            reportSections.map((section) => section.body || section.heading).filter(Boolean),
         );
         refs.confidence.textContent = display(analysis.confidence ?? decision.confidence);
-        refs.evalCoverage.textContent = display(firstWidget.widget_type || firstWidget.kind || "report");
+        refs.evalCoverage.textContent = display(firstWidget.type || "report");
         refs.blockingIssues.textContent = redaction.applied ? "redacted" : "0";
         refs.dataProductStatus.textContent = display(artifact.kind);
         refs.dataProductId.textContent = display(artifact.artifact_id);
@@ -1440,7 +1472,7 @@
         refs.sqlEvidence.textContent = summarizeCard(queryCard);
         refs.limitations.textContent = display(artifact.report.limitations || analysis.limitations);
         refs.actionTitle.textContent = display(action.title || action.action_type);
-        refs.actionReason.textContent = display(action.reason || decision.rationale);
+        refs.actionReason.textContent = display(decision.reason);
         refs.riskLevel.textContent = display(action.risk_level);
         refs.observeWindow.textContent = display(action.observe_window || action.status);
         refs.feedbackMetric.textContent = display(action.feedback_metric || artifact.metric_name);
@@ -1483,16 +1515,16 @@
           refs.apiReportNote.textContent = "Trace id and API base are required.";
           return;
         }
-        const reportUrl = buildReportReadUrl(apiBase, traceId, audience);
-        setApiReportStatus("loading", "badge info");
-        refs.apiReportNote.textContent = reportUrl;
         try {
+          const reportUrl = buildReportReadUrl(apiBase, traceId, audience);
+          setApiReportStatus("loading", "badge info");
+          refs.apiReportNote.textContent = reportUrl;
           const response = await fetch(reportUrl, {
             headers: apiKey ? { "X-API-Key": apiKey } : {},
           });
           if (!response.ok) {
             setApiReportStatus(`HTTP ${response.status}`, "badge danger");
-            refs.apiReportNote.textContent = await response.text();
+            refs.apiReportNote.textContent = `Report request failed with HTTP ${response.status}.`;
             return;
           }
           const payload = await response.json();
@@ -1500,7 +1532,8 @@
           setApiReportStatus("loaded", "badge ok");
         } catch (error) {
           setApiReportStatus("network", "badge danger");
-          refs.apiReportNote.textContent = String(error);
+          refs.apiReportNote.textContent =
+            error instanceof Error ? error.message : "Report request failed.";
         }
       }
 

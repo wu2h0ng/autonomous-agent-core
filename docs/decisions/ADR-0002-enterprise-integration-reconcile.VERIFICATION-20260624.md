@@ -77,4 +77,3 @@ This reconcile branch still does not claim:
 - workflow replacement;
 - autonomous-core adoption;
 - automatic R4/R5 business action execution.
-

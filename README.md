@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current local productization slice (2026-06-24):** branch `codex/workspace-f1-contract-surface` builds on the local reconcile branch and adds a static Frontend Workspace F1 contract surface for DataProduct candidate and KnowledgeAsset candidate visibility. It is not merged to `main`, not pushed, not released, and not deployed. Live API integration, React/Next.js scaffold, and any release remain separate CTO/founder gates.
+**Current local productization slice (2026-06-24):** branch `codex/workspace-f2-api-report-surface` builds on the local workspace-F1 and reconcile branches. It preserves the static Frontend Workspace F1 contract surface for DataProduct candidate and KnowledgeAsset candidate visibility, and adds an F2 read-only report projection from `GET /runs/{trace_id}/report` into the static prototype. It is not merged to `main`, not pushed, not released, and not deployed. Full golden-loop UI, production UI, approval-execution UI, React/Next.js scaffold, and any release remain separate CTO/founder gates.
 
 **ADR-0003 — Agent Runtime v0 Trusted Substrate** is accepted and merged locally to `main` from branch `codex/agent-runtime-v0-trusted-substrate`; local `main` is not yet pushed to `origin/main`. Pre-merge review at `58f3a5f` blocked merge on H1-H3; those blockers are remediated, the second review gate approved the remediation, and the real `TrustedLoopRuntime.evaluate()` adapter follow-up is closed locally. It turns the self-developed `agent_runtime` shell into a narrow trusted substrate: typed run/tool/result/policy contracts, pre-execution `RuntimePolicyGate`, validation-before-tool-body, trace-visible failure paths with safe runtime trace projection, pause-shell denial through `ShellView`, minimal checkpoint/replay boundary, `TrustedLoopRuntime.evaluate()` adapter with fake-loop and real-loop integration coverage, and import-boundary tests blocking external agent-framework runtime dependencies. The remediation closes the `run_tool()` policy bypass, requires `approval_id` for R4/R5 and side-effecting tools, and removes raw args/output from runtime trace events. This does not replace `TrustedLoopRuntime`, does not expose a workflow engine, does not approve automatic R4/R5 execution, and does not claim autonomous-core evidence. See `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`, and `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md`.
 
@@ -29,14 +29,18 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest workspace-F1 verification after combining ADR-0003 runtime substrate, ADR-0002 report-read/postgres snapshot durability, and the static Frontend Workspace F1 contract surface is 445 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest workspace-F2 verification after combining ADR-0003 runtime substrate, ADR-0002 report-read/postgres snapshot durability, the static Frontend Workspace F1 contract surface, and the F2 report-read projection is 450 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`.
 
 The Frontend Workspace static prototype now includes the F1 contract surface for
-DataProduct candidate and KnowledgeAsset candidate visibility, with loaded,
-blocked, and insufficient-evidence mock states. This is still a static prototype:
-it consumes no live API and imports no OS Core code. Review hardening ensures
-blocked/insufficient states replace stale candidate fields and the candidate header
-can wrap on mobile.
+DataProduct candidate and KnowledgeAsset candidate visibility plus an F2
+read-only report projection surface. The F2 surface may read an existing
+`GET /runs/{trace_id}/report` `UserResultArtifact` into the answer, report,
+dashboard, EvidenceChain, ActionProposal, DataProduct, KnowledgeAsset, and trace
+panels. It does not call `/outcomes`, `/approvals`, operator-key routes, POST, or
+write/management surfaces, and it imports no OS Core code. Review hardening
+keeps blocked/insufficient states from mixing stale candidate fields, keeps mock
+SQL evidence redacted, restricts report API origins to same-origin or localhost,
+and lets the candidate/API panels wrap on mobile.
 
 ### Delivered Capabilities
 

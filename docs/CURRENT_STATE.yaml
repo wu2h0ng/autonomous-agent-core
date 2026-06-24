@@ -1,9 +1,9 @@
-updated: "2026-06-24"  # Workspace F2 branch builds on F1 and adds a read-only API-backed report projection surface for GET /runs/{trace_id}/report. This branch is not merged to main, pushed, released, or deployed; full golden-loop UI, production UI, approval execution UI, and external release remain separate non-claims.
+updated: "2026-06-24"  # Workspace F2 branch builds on F1 and adds a review-hardened read-only API-backed report projection surface for GET /runs/{trace_id}/report. This branch is not merged to main, pushed, released, or deployed; full golden-loop UI, production UI, approval execution UI, and external release remain separate non-claims.
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "codex/workspace-f2-api-report-surface"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact with chart-ready dashboard widgets, strongly typed evidence/source report cards, audience-aware read-side redaction with minimal HTTP principal/scope policy contract, side-effect-free report-read projection with postgres-backed snapshot durability, operator-only approval execution with typed execution_audit, durable approval-context resume with stale-claim recovery, connector-side durable action_record ledger with replay/conflict/ACK-uncertain audit, typed connector execution-audit projection, connector-declared execution semantics, CI dependency preflight, and OpenAPI operator-key/execution-audit contract hardening are implemented locally; ADR-0003 Agent Runtime v0 trusted substrate is also merged locally into this branch lineage after H1-H3 remediation, second review approval, and real TrustedLoop adapter follow-up closure; Frontend Workspace F1 static contract surface exposes DataProduct and KnowledgeAsset candidate paths; Frontend Workspace F2 now adds a read-only report-read API surface that maps RunReportResponse.user_result into the prototype without calling write/management endpoints; this branch is not merged/pushed/released; external release remains a separate non-claim"
+status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact with chart-ready dashboard widgets, strongly typed evidence/source report cards, audience-aware read-side redaction with minimal HTTP principal/scope policy contract, side-effect-free report-read projection with postgres-backed snapshot durability, operator-only approval execution with typed execution_audit, durable approval-context resume with stale-claim recovery, connector-side durable action_record ledger with replay/conflict/ACK-uncertain audit, typed connector execution-audit projection, connector-declared execution semantics, CI dependency preflight, and OpenAPI operator-key/execution-audit contract hardening are implemented locally; ADR-0003 Agent Runtime v0 trusted substrate is also merged locally into this branch lineage after H1-H3 remediation, second review approval, and real TrustedLoop adapter follow-up closure; Frontend Workspace F1 static contract surface exposes DataProduct and KnowledgeAsset candidate paths; Frontend Workspace F2 now adds a review-hardened read-only report-read API surface that maps RunReportResponse.user_result into the prototype without calling write/management endpoints, leaking API keys to arbitrary origins, rendering report-fed trace HTML, surfacing raw SQL mock evidence, or displaying raw error bodies; this branch is not merged/pushed/released; external release remains a separate non-claim"
 
 current_stage:
   label: "P5 deployment projection / substrate harvest"
@@ -41,7 +41,7 @@ current_stage:
     - "ADR-0003 pre-merge H1-H3 remediation complete and merged locally to main: run_tool now delegates to invoke_tool, RuntimePolicyGate requires approval_id for R4/R5 and side-effecting tools, and runtime trace events no longer record raw args/output by default"
     - "ADR-0003 second-review M1 follow-up closed locally: tests/integration/test_trusted_loop_agent_runtime_adapter.py now covers a real TrustedLoopRuntime.evaluate path through the adapter, including SQL Safety, EvidenceChain, persisted RunTrace, and AgentRuntime envelope events"
     - "Frontend Workspace F1 static contract surface complete on this branch: prototype/index.html now shows DataProduct candidate id/status/contract/freshness/reuse/source context and KnowledgeAsset candidate state/review path across loaded, SQL-blocked, and insufficient-evidence mock states; blocked/insufficient states override the full candidate field set rather than mixing stale scenario values; tests/unit/test_workspace_prototype.py locks candidate visibility, candidate field overrides, mock states, workspace-wide no OS Core import markers, and mobile candidate-header wrap. This is not live API integration or production UI."
-    - "Frontend Workspace F2 report-read surface complete on this branch: apps/workspace/prototype/index.html can read an existing GET /runs/{trace_id}/report projection with X-API-Key, map the public UserResultArtifact into answer/report/dashboard/evidence/action/DataProduct/KnowledgeAsset/trace panels, and preserve mock fallback states. Tests lock the public report-read markers, no OS Core import boundary, and no /outcomes, /approvals, operator-key, POST, or write/management calls. This is still a static prototype, not production UI or release."
+    - "Frontend Workspace F2 report-read surface review-hardened on this branch: apps/workspace/prototype/index.html can read an existing GET /runs/{trace_id}/report projection with X-API-Key, map the public UserResultArtifact into answer/report/dashboard/evidence/action/DataProduct/KnowledgeAsset/trace panels, and preserve mock fallback states. Review hardening restricts report API origins to same-origin or localhost, renders report-fed trace fields through text nodes, strips raw SQL/parameter mock evidence, bounds HTTP error display, maps the real widget type / decision reason contract fields, collapses before 1280px overflow, and keeps mobile API controls single-column. Tests lock the public report-read markers, no OS Core import boundary, no /outcomes, /approvals, operator-key, POST, write/management calls, no trace HTML injection, no raw SQL/error-body display, and the responsive breakpoint. This is still a static prototype, not production UI or release."
   immediate_next:
     id: "workspace-f2-report-read-review-then-merge-order-decision"
     description: "codex/workspace-f2-api-report-surface builds on codex/workspace-f1-contract-surface, which itself builds on codex/enterprise-integration-reconcile. Next explicit decision remains merge order: merge codex/enterprise-integration-reconcile first, then F1/F2, or treat F2 as a combined successor branch. Push, release, production UI, approval-execution UI, React/Next.js scaffold, and external release remain separate explicit decisions. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, workflow replacement, autonomous-core adoption, full live golden-loop UI, production UI, or automatic R4/R5 execution."
@@ -56,14 +56,14 @@ current_stage:
 
 last_verified_tests:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "447 tests OK in primary unittest discover, 4 skipped; 12 eval tests OK; ruff clean; format clean; OpenAPI contract drift check included in make ci and is up to date."
-  source: "local verification on codex/workspace-f2-api-report-surface after Frontend Workspace F2 report-read surface"
+  result: "450 tests OK in primary unittest discover, 4 skipped; 12 eval tests OK; ruff clean; format clean; OpenAPI contract drift check included in make ci and is up to date."
+  source: "local verification on codex/workspace-f2-api-report-surface after Frontend Workspace F2 report-read review hardening"
   verified_at: "2026-06-24"
 
 last_verified_eval:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
   result: "12 eval tests OK, including 10 governed-action D6 eval tests"
-  source: "local verification on codex/workspace-f2-api-report-surface after Frontend Workspace F2 report-read surface"
+  source: "local verification on codex/workspace-f2-api-report-surface after Frontend Workspace F2 report-read review hardening"
   verified_at: "2026-06-24"
 
 authoritative_records:
@@ -101,6 +101,7 @@ authoritative_records:
     - "docs/decisions/PR-07-frontend-workspace-f1-contract-surface.IMPLEMENTATION-LOG-20260624.md"
     - "docs/decisions/PR-07-frontend-workspace-f1-contract-surface.REVIEW-20260624.md"
     - "docs/decisions/PR-07-frontend-workspace-f2-report-read-surface.IMPLEMENTATION-LOG-20260624.md"
+    - "docs/decisions/PR-07-frontend-workspace-f2-report-read-surface.REVIEW-20260624.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.goal-card.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SPEC.md"
