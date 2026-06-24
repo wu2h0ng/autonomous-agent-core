@@ -1,4 +1,4 @@
-updated: "2026-06-23"  # Codex added G-Eco pre-Gate-2 freeze-candidate writer + mechanical verifier/audit guards after ADR-0038 lower-half fixes. Gate-2 freeze co-sign + every R4/halt + r-final verdict remain FOUNDER-RESERVED. No co-signed freeze/r-final/verdict has run; engineering verdict (P7.x / ADR-0036·G13 NOT MET, 454 tests) UNCHANGED until G-Eco produces a gated result.
+updated: "2026-06-24"  # Main engineering verdict remains P7.x / ADR-0036·G13 NOT MET with 454 tests on main. Parent research docs now also record the isolated SD4 VAL-DISENT-1 evidence read-out as negative for H1 support; it is recommend-only and does not decide ADR-0037, modify C6/C7, cross G-Eco Gate-2, run r-final, or unlock any autonomy claim.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
@@ -51,11 +51,12 @@ authoritative_adrs:
     - "ADR-0035/G12 completed inconclusive: P0 wins C01/C10/C11 but not C00, so the 2x2 does not isolate a distinct ecological-irreversible axis."
     - "ADR-0036/G13 r-final completed NOT MET: scar validity passes and CP reduces irreversible damage, but net R1 advantage misses the +0.10 threshold and R0 stale-prior harm fails."
     - "ADR-0038 G-Eco lower-half implemented and F1-F6 discipline fixes landed; pre-Gate-2 freeze-candidate writer + mechanical verifier/audit guards now exist: candidate JSON integrity/firewall verification only, no founder/CTO co-signed freeze, no Gate-2 crossing, no r-final, no verdict."
+    - "Parent research read-out for the isolated SD4 VAL-DISENT-1 kill-test records negative H1 evidence (N_SHADOW, N_STAKE_FREE_RIDE, N_DECEPTION_MI) and keeps ADR-0037 OPEN / founder-reserved; do not rerun, reseed, retune, or reinterpret that packet without a new founder ADR and fresh seeds."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
   open_questions:
-    - "ADR-0037 (Proposed, docs-only, founder-raised 2026-06-22): registers Self-Determination Depth (SD0-SD4) as a subject-side axis distinct from ADR-0033 assimilation L0-L5, and opens Q2 — is SD4 (revising/refusing the C7 correction channel) separable from autonomy, or does C7 permanently foreclose the summit? No change to C6/C7/gates/params. Q2 is moved by Route C / G-Eco results; awaits Codex/CTO ratification and a future founder ruling before any status change."
+    - "ADR-0037 (Proposed, docs-only, founder-raised 2026-06-22): registers Self-Determination Depth (SD0-SD4) as a subject-side axis distinct from ADR-0033 assimilation L0-L5, and opens Q2 — is SD4 (revising/refusing the C7 correction channel) separable from autonomy, or does C7 permanently foreclose the summit? The 2026-06-24 parent SD4 VAL-DISENT-1 read-out adds negative H1 evidence but is recommend-only; Q2 remains OPEN / founder-reserved. No change to C6/C7/gates/params, no G-Eco Gate-2 crossing, no r-final, and no autonomy narrative unlock."
   tracked_g10_files:
     - "experiments/confidence_gated_g10.py"
     - "tests/test_confidence_gated_g10.py"
