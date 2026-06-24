@@ -81,6 +81,48 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
             re.search(r"\.action-title\s*>\s*\*\s*\{[^}]*min-width: 0;", self.html, re.S)
         )
 
+    def test_f2_reads_report_projection_through_public_api_contract(self) -> None:
+        """F2 may read existing report projections, not invent backend fields."""
+        required_markers = (
+            'id="apiBaseUrl"',
+            'id="apiTraceId"',
+            'id="apiKey"',
+            'id="apiAudience"',
+            'id="loadReportButton"',
+            'id="apiReportStatus"',
+            "GET /runs/{trace_id}/report",
+            "function buildReportReadUrl",
+            "function loadReportProjection",
+            "function renderUserResultArtifact",
+            "fetch(reportUrl",
+            '"X-API-Key"',
+            "encodeURIComponent(traceId)",
+            "payload.user_result",
+            "artifact.report.evidence_cards",
+            "artifact.dashboard.widgets",
+            "artifact.business_action",
+            "artifact.decision",
+            "artifact.redaction",
+        )
+        for marker in required_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.html)
+
+    def test_f2_report_projection_is_read_only(self) -> None:
+        """The workspace read projection must not execute approvals or outcomes."""
+        forbidden_markers = (
+            'fetch("/approvals/',
+            "fetch('/approvals/",
+            'fetch("/outcomes',
+            "fetch('/outcomes",
+            'method: "POST"',
+            "method: 'POST'",
+            "X-Operator-Key",
+        )
+        for marker in forbidden_markers:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, self.html)
+
 
 if __name__ == "__main__":
     unittest.main()
