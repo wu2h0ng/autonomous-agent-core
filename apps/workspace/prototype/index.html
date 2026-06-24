@@ -41,7 +41,8 @@
 
       button,
       textarea,
-      input {
+      input,
+      select {
         font: inherit;
       }
 
@@ -307,7 +308,8 @@
       }
 
       .question:focus,
-      input:focus {
+      input:focus,
+      select:focus {
         border-color: #6aa2d8;
         box-shadow: 0 0 0 3px rgba(37, 99, 169, 0.15);
       }
@@ -331,6 +333,35 @@
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
+      }
+
+      .api-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .api-grid input,
+      .api-grid select {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fff;
+        color: var(--ink);
+        padding: 8px 9px;
+        outline: none;
+      }
+
+      .api-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .api-grid .wide {
+        grid-column: 1 / -1;
       }
 
       .field {
@@ -460,6 +491,7 @@
         box-shadow: none;
       }
 
+      .api-status-note,
       .card p,
       .card code,
       .action-copy,
@@ -654,7 +686,7 @@
         display: none;
       }
 
-      @media (max-width: 1220px) {
+      @media (max-width: 1320px) {
         .app {
           grid-template-columns: 1fr;
         }
@@ -692,6 +724,7 @@
         .rail,
         .metrics,
         .evidence-grid,
+        .api-grid,
         .candidate-grid,
         .field-grid {
           grid-template-columns: 1fr;
@@ -722,7 +755,7 @@
           <button class="active">
             <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" /></svg>
             <span>Intent Workspace</span>
-            <span class="count">F0</span>
+            <span class="count">F2</span>
           </button>
           <button>
             <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg>
@@ -747,10 +780,10 @@
         </nav>
 
         <section class="side-section">
-          <h2>F0 boundary</h2>
+          <h2>F2 boundary</h2>
           <ul class="scope-list">
-            <li><span>Runtime</span><b>mock only</b></li>
-            <li><span>Contract</span><b>no new fields</b></li>
+            <li><span>Runtime</span><b>read projection</b></li>
+            <li><span>Contract</span><b>public API</b></li>
             <li><span>R4/R5</span><b>proposal only</b></li>
             <li><span>Core import</span><b>blocked</b></li>
           </ul>
@@ -762,7 +795,7 @@
           <div>
             <p class="eyebrow">Intent Workspace</p>
             <h1>可信问数与行动审批工作台</h1>
-            <p class="subtitle">GMV / ROI / 日报场景的 F0 静态原型，展示意图、证据、行动、审批和追踪。</p>
+            <p class="subtitle">GMV / ROI / 日报场景的 F2 原型，展示意图、证据、行动、审批、追踪和只读报告投影。</p>
           </div>
           <div class="toolbar">
             <button class="icon-button" title="刷新状态" aria-label="刷新状态">
@@ -820,6 +853,49 @@
                 <button data-state="blocked">Blocked</button>
                 <button data-state="insufficient">Need evidence</button>
               </div>
+
+              <section
+                class="candidate-card"
+                data-contract="GET /runs/{trace_id}/report"
+              >
+                <div class="action-title">
+                  <h3>Report projection</h3>
+                  <span class="badge info" id="apiReportStatus">mock state</span>
+                </div>
+                <div class="api-grid">
+                  <label class="wide">
+                    <span class="label">API base</span>
+                    <input id="apiBaseUrl" value="http://127.0.0.1:8000" />
+                  </label>
+                  <label>
+                    <span class="label">Trace id</span>
+                    <input id="apiTraceId" value="trace-a91c42ff09" />
+                  </label>
+                  <label>
+                    <span class="label">X-API-Key</span>
+                    <input
+                      id="apiKey"
+                      type="password"
+                      autocomplete="off"
+                      placeholder="internal or external report key"
+                    />
+                  </label>
+                  <label>
+                    <span class="label">Audience</span>
+                    <select id="apiAudience">
+                      <option value="internal">internal</option>
+                      <option value="external">external</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="api-actions">
+                  <button class="small-action" id="loadReportButton">
+                    <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v6h-6" /></svg>
+                    读取报告
+                  </button>
+                  <span class="api-status-note" id="apiReportNote">GET /runs/{trace_id}/report</span>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -902,7 +978,7 @@
                   </article>
                   <article class="card">
                     <h3>查询证据</h3>
-                    <code id="sqlEvidence">select order_date, sum(paid_amount) as gmv from sales.orders where order_date &gt;= :start_date group by order_date limit :limit</code>
+                    <code id="sqlEvidence">sql_safety=passed · fingerprint=sqlfp_gmv_7d · parameters=redacted</code>
                   </article>
                   <article class="card">
                     <h3>限制说明</h3>
@@ -1025,7 +1101,7 @@
           metricContract: "GMV v2 · revenue_ops · CNY · internal",
           providerContract: "sales warehouse · allowlist: sales, ads",
           sqlEvidence:
-            "select order_date, sum(paid_amount) as gmv from sales.orders where order_date >= :start_date group by order_date limit :limit",
+            "sql_safety=passed · fingerprint=sqlfp_gmv_7d · parameters=redacted",
           limitations: "素材组 owner 缺失，行动提案需要投放负责人确认。",
           actionTitle: "暂停低 ROI 素材组 48 小时",
           actionReason:
@@ -1070,7 +1146,7 @@
           metricContract: "ROI v1 · ads_ops · GMV / AdSpend · internal",
           providerContract: "ads warehouse · allowlist: ads, sales",
           sqlEvidence:
-            "select channel, sum(gmv) / nullif(sum(ad_spend), 0) as roi from ads.daily_performance where week = :week group by channel",
+            "sql_safety=passed · fingerprint=sqlfp_roi_channel · parameters=redacted",
           limitations: "素材质量标签仍为人工维护，归因解释需要复核最新投放策略。",
           actionTitle: "限制低 ROI 素材组预算上限",
           actionReason:
@@ -1115,7 +1191,7 @@
           metricContract: "Daily Report v0 · ops_lead · GMV / ROI / orders",
           providerContract: "sales + ads warehouse · allowlist: sales, ads",
           sqlEvidence:
-            "select sum(gmv), count(distinct order_id), sum(gmv)/nullif(sum(ad_spend),0) as roi from daily_ops where date = :date",
+            "sql_safety=passed · fingerprint=sqlfp_daily_ops · parameters=redacted",
           limitations: "库存和内容指标仍未接入本次日报视图，日报完整度为 MVP 子集。",
           actionTitle: "转入 ROI 诊断流程",
           actionReason:
@@ -1244,6 +1320,12 @@
         approvalBadge: document.getElementById("approvalBadge"),
         auditBadge: document.getElementById("auditBadge"),
         traceSteps: document.getElementById("traceSteps"),
+        apiBaseUrl: document.getElementById("apiBaseUrl"),
+        apiTraceId: document.getElementById("apiTraceId"),
+        apiKey: document.getElementById("apiKey"),
+        apiAudience: document.getElementById("apiAudience"),
+        apiReportStatus: document.getElementById("apiReportStatus"),
+        apiReportNote: document.getElementById("apiReportNote"),
       };
 
       let activeScenario = "gmv";
@@ -1264,13 +1346,195 @@
         el.className = data[1];
       }
 
+      function setApiReportStatus(text, className) {
+        refs.apiReportStatus.textContent = text;
+        refs.apiReportStatus.className = className;
+      }
+
+      function display(value, fallback = "—") {
+        if (value === undefined || value === null || value === "") return fallback;
+        if (Array.isArray(value)) return value.length ? value.join(", ") : fallback;
+        return String(value);
+      }
+
+      function summarizeCard(card) {
+        if (!card) return "—";
+        return [
+          card.card_id,
+          card.card_type || card.kind,
+          card.title,
+          card.summary,
+          card.status,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+
+      function firstMatchingCard(cards, candidates) {
+        return (
+          cards.find((card) =>
+            candidates.some((candidate) =>
+              JSON.stringify(card).toLowerCase().includes(candidate),
+            ),
+          ) || cards[0]
+        );
+      }
+
+      function appendText(parent, tagName, value) {
+        const element = document.createElement(tagName);
+        element.textContent = String(value);
+        parent.appendChild(element);
+        return element;
+      }
+
       function renderTrace(steps) {
-        refs.traceSteps.innerHTML = steps
-          .map(
-            ([number, label, value]) =>
-              `<div class="trace-step"><i>${number}</i><div><span>${label}</span><b>${value}</b></div><span>ok</span></div>`,
-          )
-          .join("");
+        refs.traceSteps.replaceChildren();
+        steps.forEach(([number, label, value]) => {
+          const item = document.createElement("div");
+          item.className = "trace-step";
+          appendText(item, "i", number);
+          const body = document.createElement("div");
+          appendText(body, "span", label);
+          appendText(body, "b", value);
+          item.appendChild(body);
+          appendText(item, "span", "ok");
+          refs.traceSteps.appendChild(item);
+        });
+      }
+
+      function parseReportApiBase(apiBase) {
+        const fallbackOrigin =
+          window.location.origin === "null" ? "http://127.0.0.1" : window.location.origin;
+        return new URL(apiBase, fallbackOrigin);
+      }
+
+      function isTrustedReportOrigin(apiUrl) {
+        const loopbackHosts = ["localhost", "127.0.0.1", "::1"];
+        return (
+          apiUrl.origin === window.location.origin ||
+          loopbackHosts.includes(apiUrl.hostname)
+        );
+      }
+
+      function buildReportReadUrl(apiBase, traceId, audience) {
+        // Public API contract: GET /runs/{trace_id}/report
+        const apiUrl = parseReportApiBase(apiBase);
+        if (!isTrustedReportOrigin(apiUrl)) {
+          throw new Error("API base must be same-origin or localhost.");
+        }
+        const root = apiUrl.href.replace(/\/+$/, "");
+        const params = new URLSearchParams({ audience });
+        return `${root}/runs/${encodeURIComponent(traceId)}/report?${params.toString()}`;
+      }
+
+      function renderUserResultArtifact(payload) {
+        const artifact = payload.user_result;
+        const evidenceCards = artifact.report.evidence_cards || [];
+        const widgets = artifact.dashboard.widgets || [];
+        const action = artifact.business_action || {};
+        const decision = artifact.decision || {};
+        const redaction = artifact.redaction || {};
+        const reportSections = artifact.report.sections || [];
+        const analysis = artifact.analysis || {};
+        const metricCard = firstMatchingCard(evidenceCards, ["metric_contract", "metric"]);
+        const providerCard = firstMatchingCard(evidenceCards, ["provider", "source"]);
+        const queryCard = firstMatchingCard(evidenceCards, ["query_result", "sql_safety", "sql"]);
+        const firstWidget = widgets[0] || {};
+
+        refs.traceId.textContent = display(artifact.trace_id || payload.trace_id);
+        refs.apiTraceId.value = display(artifact.trace_id || payload.trace_id, refs.apiTraceId.value);
+        refs.question.value = display(artifact.question, refs.question.value);
+        refs.metric.textContent = display(artifact.metric_name);
+        refs.window.textContent = display(firstWidget.x_field || firstWidget.title || "report snapshot");
+        refs.answerKicker.textContent = display(artifact.kind, "report");
+        refs.answerTitle.textContent = display(artifact.title);
+        refs.answerBody.textContent = display(
+          analysis.summary ||
+            reportSections.map((section) => section.body || section.heading).filter(Boolean),
+        );
+        refs.confidence.textContent = display(analysis.confidence ?? decision.confidence);
+        refs.evalCoverage.textContent = display(firstWidget.type || "report");
+        refs.blockingIssues.textContent = redaction.applied ? "redacted" : "0";
+        refs.dataProductStatus.textContent = display(artifact.kind);
+        refs.dataProductId.textContent = display(artifact.artifact_id);
+        refs.dataProductContract.textContent = display(
+          `${artifact.metric_name} · ${artifact.audience}`,
+        );
+        refs.dataProductFreshness.textContent = display(
+          `${widgets.length} dashboard widget(s) · ${evidenceCards.length} evidence card(s)`,
+        );
+        refs.dataProductReuse.textContent = display(`GET report snapshot · ${artifact.trace_id}`);
+        refs.dataProductSource.textContent = display(
+          `redaction=${redaction.applied ? "applied" : "none"} · audience=${artifact.audience}`,
+        );
+        refs.metricContract.textContent = summarizeCard(metricCard);
+        refs.providerContract.textContent = summarizeCard(providerCard);
+        refs.sqlEvidence.textContent = summarizeCard(queryCard);
+        refs.limitations.textContent = display(artifact.report.limitations || analysis.limitations);
+        refs.actionTitle.textContent = display(action.title || action.action_type);
+        refs.actionReason.textContent = display(decision.reason);
+        refs.riskLevel.textContent = display(action.risk_level);
+        refs.observeWindow.textContent = display(action.observe_window || action.status);
+        refs.feedbackMetric.textContent = display(action.feedback_metric || artifact.metric_name);
+        refs.evidenceId.textContent = display(artifact.evidence_chain_id);
+        refs.sqlSafety.textContent = display(queryCard?.status || "snapshot read");
+        refs.approvalState.textContent = display(action.status);
+        refs.feedbackState.textContent = display(artifact.report.feedback_state || "pending");
+        refs.knowledgeAssetState.textContent = display(
+          artifact.report.knowledge_asset_state || "review queue",
+        );
+        refs.knowledgeAssetReview.textContent = display(
+          decision.recommendation || artifact.report.title || artifact.title,
+        );
+        refs.gapNote.textContent = display(
+          redaction.applied
+            ? "External projection active; restricted infrastructure fields are hidden."
+            : "Internal projection loaded from report snapshot.",
+        );
+        setBadge(refs.safetyBadge, ["snapshot read", "badge ok"]);
+        setBadge(refs.evidenceBadge, [evidenceCards.length ? "evidence cards" : "no cards", "badge info"]);
+        setBadge(refs.approvalBadge, [display(action.status, "proposal"), "badge warn"]);
+        setBadge(refs.auditBadge, [display(artifact.audience), "badge info"]);
+        renderTrace([
+          ["1", "Report", display(artifact.artifact_id)],
+          ["2", "Audience", display(artifact.audience)],
+          ["3", "Evidence", `${evidenceCards.length} cards`],
+          ["4", "Dashboard", `${widgets.length} widgets`],
+          ["5", "Decision", display(decision.status || decision.recommendation)],
+          ["6", "Action", display(action.status || action.risk_level)],
+        ]);
+      }
+
+      async function loadReportProjection() {
+        const traceId = refs.apiTraceId.value.trim();
+        const apiBase = refs.apiBaseUrl.value.trim();
+        const apiKey = refs.apiKey.value;
+        const audience = refs.apiAudience.value;
+        if (!traceId || !apiBase) {
+          setApiReportStatus("missing input", "badge danger");
+          refs.apiReportNote.textContent = "Trace id and API base are required.";
+          return;
+        }
+        try {
+          const reportUrl = buildReportReadUrl(apiBase, traceId, audience);
+          setApiReportStatus("loading", "badge info");
+          refs.apiReportNote.textContent = reportUrl;
+          const response = await fetch(reportUrl, {
+            headers: apiKey ? { "X-API-Key": apiKey } : {},
+          });
+          if (!response.ok) {
+            setApiReportStatus(`HTTP ${response.status}`, "badge danger");
+            refs.apiReportNote.textContent = `Report request failed with HTTP ${response.status}.`;
+            return;
+          }
+          const payload = await response.json();
+          renderUserResultArtifact(payload);
+          setApiReportStatus("loaded", "badge ok");
+        } catch (error) {
+          setApiReportStatus("network", "badge danger");
+          refs.apiReportNote.textContent =
+            error instanceof Error ? error.message : "Report request failed.";
+        }
       }
 
       function render() {
@@ -1296,6 +1560,7 @@
           refs.answerBody.textContent = state.answerBody;
           refs.confidence.textContent = state.confidence;
         }
+        refs.apiTraceId.value = scenario.traceId;
         renderTrace(scenario.steps);
       }
 
@@ -1321,6 +1586,9 @@
       });
 
       document.getElementById("runButton").addEventListener("click", render);
+      document
+        .getElementById("loadReportButton")
+        .addEventListener("click", loadReportProjection);
       render();
     </script>
   </body>

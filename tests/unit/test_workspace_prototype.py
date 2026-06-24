@@ -81,6 +81,96 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
             re.search(r"\.action-title\s*>\s*\*\s*\{[^}]*min-width: 0;", self.html, re.S)
         )
 
+    def test_f2_reads_report_projection_through_public_api_contract(self) -> None:
+        """F2 may read existing report projections, not invent backend fields."""
+        required_markers = (
+            'id="apiBaseUrl"',
+            'id="apiTraceId"',
+            'id="apiKey"',
+            'id="apiAudience"',
+            'id="loadReportButton"',
+            'id="apiReportStatus"',
+            "GET /runs/{trace_id}/report",
+            "function buildReportReadUrl",
+            "function parseReportApiBase",
+            "function isTrustedReportOrigin",
+            "function loadReportProjection",
+            "function renderUserResultArtifact",
+            "fetch(reportUrl",
+            '"X-API-Key"',
+            "encodeURIComponent(traceId)",
+            "payload.user_result",
+            "artifact.report.evidence_cards",
+            "artifact.dashboard.widgets",
+            "artifact.business_action",
+            "artifact.decision",
+            "artifact.redaction",
+            "API base must be same-origin or localhost.",
+            "loopbackHosts",
+        )
+        for marker in required_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.html)
+        self.assertIn("firstWidget.type", self.html)
+        self.assertIn("decision.reason", self.html)
+        self.assertNotIn("firstWidget.widget_type", self.html)
+        self.assertNotIn("decision.rationale", self.html)
+
+    def test_f2_report_projection_is_read_only(self) -> None:
+        """The workspace read projection must not execute approvals or outcomes."""
+        forbidden_markers = (
+            'fetch("/approvals/',
+            "fetch('/approvals/",
+            'fetch("/outcomes',
+            "fetch('/outcomes",
+            'method: "POST"',
+            "method: 'POST'",
+            "navigator.sendBeacon",
+            "XMLHttpRequest",
+            "X-Operator-Key",
+        )
+        for marker in forbidden_markers:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, self.html)
+        self.assertEqual(1, len(re.findall(r"\bfetch\s*\(", self.html)))
+        self.assertIsNone(re.search(r"\bmethod\s*:", self.html))
+
+    def test_f2_report_projection_does_not_html_inject_trace_fields(self) -> None:
+        """API report fields rendered into Trace must stay text, not HTML."""
+        self.assertNotIn("traceSteps.innerHTML", self.html)
+        self.assertIn("document.createElement", self.html)
+        self.assertIn("textContent = String(value)", self.html)
+
+    def test_f2_report_projection_does_not_surface_raw_sql_or_error_body(self) -> None:
+        """F2 demo and error path must keep the no-raw-SQL report baseline."""
+        forbidden_markers = (
+            "await response.text()",
+            "sales.orders",
+            "ads.daily_performance",
+            "daily_ops where",
+            ":start_date",
+            ":limit",
+            ":week",
+            ":date",
+        )
+        for marker in forbidden_markers:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, self.html)
+        self.assertIn("parameters=redacted", self.html)
+        self.assertIn("Report request failed with HTTP", self.html)
+
+    def test_f2_responsive_layout_switches_before_1280px_overflow(self) -> None:
+        """The three-column desktop layout must collapse before 1280px notebooks overflow."""
+        self.assertIn("@media (max-width: 1320px)", self.html)
+        self.assertNotIn("@media (max-width: 1220px)", self.html)
+        self.assertIsNotNone(
+            re.search(
+                r"@media \(max-width: 760px\)\s*\{.*?\.api-grid,.*?grid-template-columns: 1fr;",
+                self.html,
+                re.S,
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

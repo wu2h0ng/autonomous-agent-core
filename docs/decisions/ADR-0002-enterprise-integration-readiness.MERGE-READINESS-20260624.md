@@ -86,4 +86,3 @@ This branch and this review note still do not claim:
 - durable arbitrary external connector recovery;
 - automatic R4/R5 business action execution;
 - any autonomous-core verdict or autonomy claim.
-

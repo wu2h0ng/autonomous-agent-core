@@ -9,7 +9,7 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the enterprise deployment layer: branch, stage, test status, current P5 scope, blocked decisions, and source-of-truth records.
 
-**Current integration re-rehearsal slice (2026-06-24):** branch `codex/workspace-f3-rerehearsal-current` starts from local `main` `77c7b07` and replays the product integration stack after the old F3 rehearsal was found stale. This branch is a merge rehearsal only: not merged to `main`, not pushed, not released, and not deployed. It preserves the current ADR-0003 runtime-substrate state, including context-level risk ceiling and fingerprint-bound checkpoint resume, while reintroducing the ADR-0002 report-read/postgres snapshot integration stack for fresh CI/browser verification before any founder/CTO merge decision.
+**Current integration re-rehearsal slice (2026-06-24):** branch `codex/workspace-f3-rerehearsal-current` starts from local `main` `77c7b07` and replays the product integration stack after the old F3 rehearsal was found stale. This branch is a merge rehearsal only: not merged to `main`, not pushed, not released, and not deployed. It preserves the current ADR-0003 runtime-substrate state, including context-level risk ceiling and fingerprint-bound checkpoint resume, while reintroducing the ADR-0002 report-read/postgres snapshot integration stack plus the Frontend Workspace F1/F2 surfaces for fresh CI/browser verification before any founder/CTO merge decision.
 
 **ADR-0003 — Agent Runtime v0 Trusted Substrate** is accepted and merged locally to `main` from branch `codex/agent-runtime-v0-trusted-substrate`; local `main` is not yet pushed to `origin/main`. Pre-merge review at `58f3a5f` blocked merge on H1-H3; those blockers are remediated, the second review gate approved the remediation, and the real `TrustedLoopRuntime.evaluate()` adapter follow-up is closed locally. It turns the self-developed `agent_runtime` shell into a narrow trusted substrate: typed run/tool/result/policy contracts, pre-execution `RuntimePolicyGate`, validation-before-tool-body, trace-visible failure paths with safe runtime trace projection, pause-shell denial through `ShellView`, minimal checkpoint/replay boundary, `TrustedLoopRuntime.evaluate()` adapter with fake-loop and real-loop integration coverage, and import-boundary tests blocking external agent-framework runtime dependencies. The remediation closes the `run_tool()` policy bypass, requires `approval_id` for R4/R5 and side-effecting tools, and removes raw args/output from runtime trace events. This does not replace `TrustedLoopRuntime`, does not expose a workflow engine, does not approve automatic R4/R5 execution, and does not claim autonomous-core evidence. See `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.REVIEW-20260624.md`, `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.CODEX-REMEDIATION-20260624.md`, and `docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SECOND-REVIEW-20260624.md`.
 
@@ -37,6 +37,16 @@ blocked, and insufficient-evidence mock states. This is still a static prototype
 it consumes no live API and imports no OS Core code. Review hardening ensures
 blocked/insufficient states replace stale candidate fields and the candidate header
 can wrap on mobile.
+
+It also includes an F2
+read-only report projection surface. The F2 surface may read an existing
+`GET /runs/{trace_id}/report` `UserResultArtifact` into the answer, report,
+dashboard, EvidenceChain, ActionProposal, DataProduct, KnowledgeAsset, and trace
+panels. It does not call `/outcomes`, `/approvals`, operator-key routes, POST, or
+write/management surfaces, and it imports no OS Core code. Review hardening
+keeps blocked/insufficient states from mixing stale candidate fields, keeps mock
+SQL evidence redacted, restricts report API origins to same-origin or localhost,
+and lets the candidate/API panels wrap on mobile.
 
 ### Delivered Capabilities
 

@@ -13,8 +13,8 @@ Implementation stage:
 ```text
 F0: static workspace skeleton and contract-driven mock states
 F1: static contract surface for EvidenceChain, DataProduct candidate, and KnowledgeAsset candidate
-F2: ActionProposal and Approval Lite
-F3: API integration and golden loop UI
+F2: read-only report projection from GET /runs/{trace_id}/report plus ActionProposal/Approval Lite visibility
+F3: full API integration and golden loop UI
 ```
 
 Rules:
@@ -39,9 +39,15 @@ business question intake, EvidenceChain review, DataProduct candidate reuse cont
 SQL Safety state, ActionProposal governance, feedback-to-KnowledgeAsset candidate
 review path, Trace, and Telemetry without becoming product runtime logic.
 
-Current F1 boundary:
+Current F2 boundary:
 
-- Static prototype only; no live API integration.
-- Contract-shaped mock state only; no locally invented backend fields.
-- The UI smoke test in `tests/unit/test_workspace_prototype.py` locks DataProduct
-  and KnowledgeAsset candidate visibility plus the no-OS-Core-import boundary.
+- Static prototype with one read-only API-backed surface: `GET /runs/{trace_id}/report`.
+- The prototype maps the public `UserResultArtifact` contract into the existing
+  answer, EvidenceChain, dashboard, ActionProposal, DataProduct candidate, and
+  KnowledgeAsset candidate panels.
+- It does not call `/outcomes`, `/approvals`, operator-key routes, or any write /
+  management surface.
+- Contract-shaped mock states remain available when no API endpoint is configured.
+- The UI smoke test in `tests/unit/test_workspace_prototype.py` locks report-read
+  markers, read-only boundaries, DataProduct and KnowledgeAsset candidate visibility,
+  plus the no-OS-Core-import boundary.
