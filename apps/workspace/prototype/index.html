@@ -343,6 +343,7 @@
       .field span,
       .metric span,
       .status-row span,
+      .candidate-grid span,
       .trace-step span {
         display: block;
         color: var(--muted);
@@ -352,6 +353,7 @@
       .field b,
       .metric b,
       .status-row b,
+      .candidate-grid b,
       .trace-step b {
         display: block;
         margin-top: 5px;
@@ -478,6 +480,30 @@
         word-break: break-word;
       }
 
+      .candidate-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-2);
+        padding: 13px;
+      }
+
+      .candidate-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .candidate-grid > div {
+        min-width: 0;
+      }
+
+      .candidate-link {
+        margin: 10px 0 0;
+        color: #475467;
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
       .status-list {
         display: grid;
         gap: 0;
@@ -506,6 +532,11 @@
         align-items: center;
         justify-content: space-between;
         gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .action-title > * {
+        min-width: 0;
       }
 
       .risk-level {
@@ -661,6 +692,7 @@
         .rail,
         .metrics,
         .evidence-grid,
+        .candidate-grid,
         .field-grid {
           grid-template-columns: 1fr;
         }
@@ -823,6 +855,38 @@
 
             <section class="panel">
               <div class="panel-head">
+                <h2>DataProduct candidate</h2>
+                <span class="badge info" id="dataProductStatus">draft</span>
+              </div>
+              <div class="panel-body">
+                <article class="candidate-card" id="dataProductCandidate">
+                  <div class="candidate-grid">
+                    <div>
+                      <span>Candidate id</span>
+                      <b id="dataProductId">dp-gmv-7d-v0</b>
+                    </div>
+                    <div>
+                      <span>Contract spine</span>
+                      <b id="dataProductContract">MetricContract + ProviderContract</b>
+                    </div>
+                    <div>
+                      <span>Freshness</span>
+                      <b id="dataProductFreshness">7d window / 20 row cap</b>
+                    </div>
+                    <div>
+                      <span>Reuse path</span>
+                      <b id="dataProductReuse">report snapshot + trace link</b>
+                    </div>
+                  </div>
+                  <p class="candidate-link" id="dataProductSource">
+                    Built from GMV v2, sales provider, SQL Safety result, and evidence trace.
+                  </p>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
                 <h2>EvidenceChain</h2>
                 <span class="badge ok" id="evidenceBadge">complete</span>
               </div>
@@ -906,6 +970,15 @@
                     <b id="feedbackState">pending</b>
                   </div>
                 </div>
+                <article class="candidate-card" id="knowledgeAssetCandidate">
+                  <div class="action-title">
+                    <h3>KnowledgeAsset candidate</h3>
+                    <span class="badge info" id="knowledgeAssetState">review queue</span>
+                  </div>
+                  <p class="candidate-link" id="knowledgeAssetReview">
+                    Trace-bound learning candidate will stay in review until feedback is recorded.
+                  </p>
+                </article>
                 <div class="feedback-row">
                   <button>有用</button>
                   <button>不准确</button>
@@ -942,6 +1015,13 @@
             "主要来自抖音短视频渠道转化下降，客单价稳定，支付订单数下降。建议先暂停低 ROI 素材组，并观察 48 小时。",
           confidence: "0.86",
           evalCoverage: "golden GMV",
+          dataProductId: "dp-gmv-7d-v0",
+          dataProductStatus: "draft",
+          dataProductContract: "MetricContract + ProviderContract",
+          dataProductFreshness: "7d window / 20 row cap",
+          dataProductReuse: "report snapshot + trace link",
+          dataProductSource:
+            "Built from GMV v2, sales provider, SQL Safety result, and evidence trace.",
           metricContract: "GMV v2 · revenue_ops · CNY · internal",
           providerContract: "sales warehouse · allowlist: sales, ads",
           sqlEvidence:
@@ -954,6 +1034,9 @@
           observeWindow: "48 小时",
           feedbackMetric: "GMV、转化率、订单数",
           evidenceId: "evidence-6bb83a",
+          knowledgeAssetState: "review queue",
+          knowledgeAssetReview:
+            "Trace-bound learning candidate will stay in review until feedback is recorded.",
           gapNote: "缺口：素材组维度 owner 未绑定；建议补充渠道 ROI golden query。",
           steps: [
             ["1", "Intent", "metric=GMV"],
@@ -977,6 +1060,13 @@
             "下降集中在信息流素材组 A17 和 A21，点击率未明显下降，但支付转化率低于基线。建议进入素材复盘并限制预算上限。",
           confidence: "0.82",
           evalCoverage: "golden ROI",
+          dataProductId: "dp-roi-channel-v0",
+          dataProductStatus: "needs owner",
+          dataProductContract: "MetricContract + ProviderContract",
+          dataProductFreshness: "weekly channel rollup",
+          dataProductReuse: "diagnosis loop candidate",
+          dataProductSource:
+            "Built from ROI v1, ads provider, SQL Safety result, and grouped channel evidence.",
           metricContract: "ROI v1 · ads_ops · GMV / AdSpend · internal",
           providerContract: "ads warehouse · allowlist: ads, sales",
           sqlEvidence:
@@ -989,6 +1079,9 @@
           observeWindow: "24 小时",
           feedbackMetric: "ROI、消耗、转化率",
           evidenceId: "evidence-9a20fc",
+          knowledgeAssetState: "needs review",
+          knowledgeAssetReview:
+            "Learning candidate can update ROI diagnosis guidance after owner review.",
           gapNote: "缺口：素材质量标签更新滞后；建议补充素材维度质量校验。",
           steps: [
             ["1", "Intent", "metric=ROI"],
@@ -1012,6 +1105,13 @@
             "GMV 和订单量处于正常区间，ROI 环比下降需要优先关注。系统建议进入投放效率诊断，不生成自动执行动作。",
           confidence: "0.79",
           evalCoverage: "golden daily",
+          dataProductId: "dp-daily-ops-v0",
+          dataProductStatus: "MVP subset",
+          dataProductContract: "MetricContract bundle + ProviderContract",
+          dataProductFreshness: "daily snapshot",
+          dataProductReuse: "daily report read projection",
+          dataProductSource:
+            "Built from GMV, ROI, order-count contracts, sales/ads providers, and report evidence.",
           metricContract: "Daily Report v0 · ops_lead · GMV / ROI / orders",
           providerContract: "sales + ads warehouse · allowlist: sales, ads",
           sqlEvidence:
@@ -1024,6 +1124,9 @@
           observeWindow: "当日",
           feedbackMetric: "ROI、GMV、订单数",
           evidenceId: "evidence-daily-18c0",
+          knowledgeAssetState: "review queue",
+          knowledgeAssetReview:
+            "Daily-report learning candidate records unsupported dimensions before promotion.",
           gapNote: "缺口：库存和内容数据未进入日报 MVP；建议作为 P1 扩展。",
           steps: [
             ["1", "Intent", "daily scan"],
@@ -1064,6 +1167,16 @@
           sqlSafety: "blocked",
           approvalState: "disabled",
           feedbackState: "security review",
+          dataProductStatus: "blocked",
+          dataProductId: "blocked-before-candidate",
+          dataProductContract: "SQL Safety blocked",
+          dataProductFreshness: "not applicable",
+          dataProductReuse: "no reusable artifact",
+          dataProductSource:
+            "No DataProduct candidate is promoted because SQL Safety blocked the formal result.",
+          knowledgeAssetState: "blocked",
+          knowledgeAssetReview:
+            "No KnowledgeAsset candidate is created from a blocked formal answer.",
         },
         insufficient: {
           safetyBadge: ["SQL Safety passed", "badge ok"],
@@ -1079,6 +1192,16 @@
           sqlSafety: "read-only / allowlisted",
           approvalState: "need evidence",
           feedbackState: "PM / Data",
+          dataProductStatus: "needs evidence",
+          dataProductId: "draft-pending-evidence",
+          dataProductContract: "contract pending owner evidence",
+          dataProductFreshness: "pending required dimension",
+          dataProductReuse: "review-only draft",
+          dataProductSource:
+            "DataProduct candidate remains draft until owner or required dimension evidence is added.",
+          knowledgeAssetState: "needs evidence",
+          knowledgeAssetReview:
+            "KnowledgeAsset candidate stays review-only until the missing evidence is resolved.",
         },
       };
 
@@ -1094,6 +1217,12 @@
         confidence: document.getElementById("confidence"),
         evalCoverage: document.getElementById("evalCoverage"),
         blockingIssues: document.getElementById("blockingIssues"),
+        dataProductId: document.getElementById("dataProductId"),
+        dataProductStatus: document.getElementById("dataProductStatus"),
+        dataProductContract: document.getElementById("dataProductContract"),
+        dataProductFreshness: document.getElementById("dataProductFreshness"),
+        dataProductReuse: document.getElementById("dataProductReuse"),
+        dataProductSource: document.getElementById("dataProductSource"),
         metricContract: document.getElementById("metricContract"),
         providerContract: document.getElementById("providerContract"),
         sqlEvidence: document.getElementById("sqlEvidence"),
@@ -1108,6 +1237,8 @@
         sqlSafety: document.getElementById("sqlSafety"),
         approvalState: document.getElementById("approvalState"),
         feedbackState: document.getElementById("feedbackState"),
+        knowledgeAssetState: document.getElementById("knowledgeAssetState"),
+        knowledgeAssetReview: document.getElementById("knowledgeAssetReview"),
         safetyBadge: document.getElementById("safetyBadge"),
         evidenceBadge: document.getElementById("evidenceBadge"),
         approvalBadge: document.getElementById("approvalBadge"),
@@ -1117,6 +1248,16 @@
 
       let activeScenario = "gmv";
       let activeState = "loaded";
+      const candidateOverrideKeys = [
+        "dataProductId",
+        "dataProductStatus",
+        "dataProductContract",
+        "dataProductFreshness",
+        "dataProductReuse",
+        "dataProductSource",
+        "knowledgeAssetState",
+        "knowledgeAssetReview",
+      ];
 
       function setBadge(el, data) {
         el.textContent = data[0];
@@ -1147,6 +1288,9 @@
         refs.sqlSafety.textContent = state.sqlSafety;
         refs.approvalState.textContent = state.approvalState;
         refs.feedbackState.textContent = state.feedbackState;
+        candidateOverrideKeys.forEach((key) => {
+          if (state[key]) refs[key].textContent = state[key];
+        });
         if (activeState !== "loaded") {
           refs.answerTitle.textContent = state.answerTitle;
           refs.answerBody.textContent = state.answerBody;

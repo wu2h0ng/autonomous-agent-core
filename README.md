@@ -31,6 +31,13 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway. This integration re-rehearsal starts from local `main` `77c7b07`, combines current ADR-0003 runtime hardening with the ADR-0002 report-read/postgres snapshot stack, and must pass fresh CI plus required browser QA before it can be considered by the founder/CTO merge gate.
 
+The re-rehearsed Frontend Workspace static prototype now includes the F1 contract surface for
+DataProduct candidate and KnowledgeAsset candidate visibility, with loaded,
+blocked, and insufficient-evidence mock states. This is still a static prototype:
+it consumes no live API and imports no OS Core code. Review hardening ensures
+blocked/insufficient states replace stale candidate fields and the candidate header
+can wrap on mobile.
+
 ### Delivered Capabilities
 
 **Trusted Loop** (full chain):
@@ -103,7 +110,7 @@ packages/contracts/     public contracts and shared data objects
 packages/persistence/   SQLAlchemy Core adapters (sync, Port-based)
 packages/sdk/           external SDK boundary
 apps/api_server/        FastAPI application + OpenAPI contract + CLI
-apps/workspace/         future user workspace UI
+apps/workspace/         static user workspace prototype and F1 contract surface
 domain_packs/           domain-specific packs (content_commerce)
 providers/              data providers behind ProviderContract
 action_connectors/      governed action connectors (manual_review, action_record)
@@ -147,7 +154,7 @@ python -m agent_os_api.openapi_contract --check
 
 ## Remaining Items (Blocked on Decisions/Environment)
 
-- PR-07 product-integration stack: do not merge old F3 rehearsal `d46bd45`; rerun integration rehearsal from current local `main` `c404e1e`, then run CI/browser QA and record a fresh verification before founder/CTO merge decision
+- PR-07 product-integration stack: this fresh re-rehearsal starts from current local `main` `77c7b07`; old F3 rehearsal `d46bd45` remains stale and must not be merged; this branch still needs F2/F3a replay plus CI/browser QA before founder/CTO merge decision
 - pgvector pushdown + HNSW: pending pgvector extension install
 - OTel bridge: pending real collector target
 - Stage 2 / Temporal / DataProduct Compiler v1: needs new ADR + CTO approval
