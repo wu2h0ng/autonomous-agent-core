@@ -46,8 +46,9 @@ class InMemoryReportSnapshotStore:
     The Trusted Loop remains the only path that builds evidence. This store only
     keeps already-built user-facing report artifacts so HTTP clients can fetch an
     existing result without re-running SQL, creating approvals, or touching action
-    connectors. It is deliberately same-process memory; durable cross-restart
-    report storage needs a separate persistence ADR/schema.
+    connectors. It is deliberately same-process memory; durable cross-instance
+    report reads are provided only by the configured persistence-backed report
+    snapshot store.
     """
 
     def __init__(self) -> None:
