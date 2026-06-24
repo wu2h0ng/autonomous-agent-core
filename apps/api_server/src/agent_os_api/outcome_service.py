@@ -15,9 +15,21 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from agent_os_contracts import CausalOutcomeAttribution, ConnectorExecutionAudit, KnowledgeQuery
+from agent_os_contracts import (
+    CausalOutcomeAttribution,
+    ConnectorExecutionAudit,
+    KnowledgeQuery,
+    RunTrace,
+    TraceEvent,
+)
 
 REPORT_AUDIENCES = {"internal", "external"}
+AGENT_RUNTIME_BLOCK_STATUSES = {"denied", "validation_error"}
+AGENT_RUNTIME_ERROR_CODES = {
+    "tool_error": "AGENT_RUNTIME_TOOL_ERROR",
+    "checkpoint_error": "AGENT_RUNTIME_CHECKPOINT_ERROR",
+}
+AGENT_RUNTIME_ERROR_MESSAGE = "Agent runtime failed before producing a trusted result."
 REDACTED_INFRA_FIELDS = [
     "checked_schemas",
     "checked_tables",
@@ -50,6 +62,54 @@ def _columns(rows: tuple[dict[str, Any], ...]) -> list[str]:
             if name not in columns:
                 columns.append(name)
     return columns
+
+
+def _safe_agent_runtime_message(agent_result: Any) -> str:
+    return agent_result.error_message or "Agent runtime refused the request."
+
+
+def _persist_agent_runtime_terminal_trace(
+    runtime: Any,
+    *,
+    agent_result: Any,
+    agent_context: Any,
+    status: str,
+    block_message: str | None = None,
+) -> None:
+    trace_store = getattr(runtime, "trace_store", None)
+    if trace_store is None:
+        return
+    trace_id = agent_result.trace_id or agent_context.trace_id
+    event_step = {
+        "denied": "agent_runtime.policy_denied",
+        "validation_error": "agent_runtime.validation_failed",
+        "tool_error": "agent_runtime.tool_failed",
+        "checkpoint_error": "agent_runtime.checkpoint_failed",
+    }.get(agent_result.status, "agent_runtime.failed")
+    events = [
+        TraceEvent(
+            trace_id=trace_id,
+            step=event_step,
+            payload={
+                "call_id": agent_result.call_id,
+                "tool_name": agent_result.tool_name,
+                "error_code": agent_result.error_code,
+            },
+        )
+    ]
+    if status == "blocked":
+        events.append(
+            TraceEvent(
+                trace_id=trace_id,
+                step="blocked",
+                payload={
+                    "code": agent_result.error_code or agent_result.status,
+                    "stage": "agent_runtime",
+                    "message": block_message or "Agent runtime refused the request.",
+                },
+            )
+        )
+    trace_store.save(RunTrace(trace_id=trace_id, status=status, events=tuple(events)))
 
 
 def _primary_metric_value(rows: tuple[dict[str, Any], ...], metric_name: str) -> Any | None:
@@ -448,14 +508,42 @@ def run_service(
             parameters=parameters,
         )
         if agent_result.status != "ok":
+            trace_id = agent_result.trace_id or agent_context.trace_id
+            if agent_result.status not in AGENT_RUNTIME_BLOCK_STATUSES:
+                error_code = AGENT_RUNTIME_ERROR_CODES.get(
+                    agent_result.status, "AGENT_RUNTIME_ERROR"
+                )
+                _persist_agent_runtime_terminal_trace(
+                    runtime,
+                    agent_result=agent_result,
+                    agent_context=agent_context,
+                    status="error",
+                )
+                return {
+                    "status": "error",
+                    "error": {
+                        "code": error_code,
+                        "message": AGENT_RUNTIME_ERROR_MESSAGE,
+                        "stage": "agent_runtime",
+                        "trace_id": trace_id,
+                    },
+                }
+            message = _safe_agent_runtime_message(agent_result)
+            _persist_agent_runtime_terminal_trace(
+                runtime,
+                agent_result=agent_result,
+                agent_context=agent_context,
+                status="blocked",
+                block_message=message,
+            )
             return {
                 "status": "blocked",
                 "block": {
                     "code": agent_result.error_code or agent_result.status,
-                    "message": agent_result.error_message or "Agent runtime refused the request.",
+                    "message": message,
                     "stage": "agent_runtime",
                     "details": [],
-                    "trace_id": agent_result.trace_id or agent_context.trace_id,
+                    "trace_id": trace_id,
                 },
             }
         outcome = agent_result.output

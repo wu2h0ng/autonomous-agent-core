@@ -76,6 +76,51 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         ]
         self.assertIn("agent_runtime.policy_denied", runtime_steps)
         self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+        trace_id = detail["trace_id"]
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        trace_payload = trace_resp.json()
+        self.assertEqual(trace_payload["status"], "blocked")
+        trace_steps = [event["step"] for event in trace_payload["events"]]
+        self.assertIn("agent_runtime.policy_denied", trace_steps)
+        self.assertIn("blocked", trace_steps)
+        self.assertNotIn("agent_runtime.tool_started", trace_steps)
+
+    def test_post_run_tool_error_returns_500_without_exception_text_for_external(self) -> None:
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_core import InMemoryTraceStore
+
+        class ExplodingRuntime:
+            shell_view = None
+
+            def __init__(self) -> None:
+                self.trace_store = InMemoryTraceStore()
+
+            def evaluate(self, question, parameters):  # noqa: ANN001, ANN201 - test double
+                raise RuntimeError("dsn=postgres://secret-token@localhost/customer")
+
+        client = TestClient(
+            create_app(
+                ExplodingRuntime(),
+                api_key=API_KEY,
+                external_api_key=EXTERNAL_API_KEY,
+            )
+        )
+
+        run_resp = client.post(
+            "/runs",
+            json=RUN_BODY,
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(run_resp.status_code, 500, run_resp.text)
+        detail = run_resp.json()["detail"]
+        self.assertEqual(detail["code"], "AGENT_RUNTIME_TOOL_ERROR")
+        encoded = str(detail).lower()
+        self.assertNotIn("postgres://", encoded)
+        self.assertNotIn("secret-token", encoded)
 
     def test_run_then_outcome_shares_runtime_and_bumps_version(self) -> None:
         client = _make_client(API_KEY)

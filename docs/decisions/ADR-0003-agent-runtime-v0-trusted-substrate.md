@@ -69,6 +69,8 @@ Implemented in the HTTP/API composition layer on `codex/agent-runtime-live-wirin
 
 - `POST /runs` constructs an `AgentRunContext` and calls `TrustedLoopRuntime.evaluate()` through `TrustedLoopAgentRuntimeAdapter`;
 - agent-runtime policy denial maps into the existing blocked response contract with `stage="agent_runtime"`;
+- pre-loop Agent Runtime denials persist a queryable blocked `RunTrace`;
+- internal runtime/tool failures map to sanitized HTTP 500 service errors rather than 422 business blocks;
 - the existing Trusted Loop / EvidenceChain / RunTrace / user_result path remains the answer/action producer.
 
 The original thin-shell compatibility surface remains:
@@ -116,6 +118,8 @@ Required properties covered:
 - Trusted Loop adapter calls `evaluate()` through the runtime envelope and pause blocks before loop execution.
 - HTTP `POST /runs` traverses the runtime envelope on success;
 - paused-shell denial at the HTTP entry point returns `DENY_PAUSED` before `agent_runtime.tool_started`.
+- paused-shell denial at the HTTP entry point persists a queryable blocked trace;
+- runtime/tool exception mapping does not expose raw exception text to the external report-key projection.
 
 ## 6. Verification
 
@@ -135,7 +139,7 @@ Result:
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.
 
-Additional Packet A Slice 0 verification on `codex/agent-runtime-live-wiring`:
+Additional Packet A Slice 0 verification on `codex/agent-runtime-live-wiring` after review remediation:
 
 ```bash
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_http_app tests.unit.test_outcome_service tests.integration.test_trusted_loop_agent_runtime_adapter -v
@@ -143,8 +147,8 @@ PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:
 
 Result:
 
-- 59 affected HTTP/service/adapter tests OK;
-- full `make ci` passed with ruff clean, format clean, 450 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
+- 60 affected HTTP/service/adapter tests OK;
+- full `make ci` passed with ruff clean, format clean, 451 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
 - `ci-local-full` also passed against disposable PostgreSQL on `127.0.0.1:15432`.
 
 ## 7. Non-Claims

@@ -662,6 +662,11 @@ def create_app(
                 },
             ),
         )
+        if result.get("status") == "error":
+            detail = dict(result["error"])
+            if principal.audience_ceiling == "external":
+                detail["trace_id"] = None
+            raise HTTPException(status_code=500, detail=detail)
         if result.get("status") == "blocked":
             block = (
                 _external_block_projection(result["block"])
