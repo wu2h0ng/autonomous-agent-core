@@ -81,6 +81,112 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertEqual(result.metadata["unreplayable_inputs"], ("wall_clock",))
         self.assertEqual(called, [])
 
+    def test_resume_rejects_call_mismatch_without_tool_execution(self) -> None:
+        called: list[str] = []
+        checkpoints = InMemoryCheckpointStore()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo.",
+                required_keys=("value",),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(),
+            checkpoint_store=checkpoints,
+        )
+        original_call = AgentToolCall(
+            call_id="call-replay", tool_name="safe.echo", args={"value": "ok"}
+        )
+        original_context = _context()
+
+        first = runtime.invoke_tool(original_call, original_context)
+        resumed = runtime.resume_from_checkpoint(
+            AgentToolCall(call_id="call-replay", tool_name="safe.echo", args={"value": "changed"}),
+            original_context,
+        )
+
+        self.assertEqual(first.status, "ok")
+        self.assertEqual(resumed.status, "validation_error")
+        self.assertEqual(resumed.error_code, "CHECKPOINT_MISMATCH")
+        self.assertEqual(called, ["ok"])
+
+    def test_resume_returns_last_result_for_matching_checkpoint(self) -> None:
+        called: list[str] = []
+        checkpoints = InMemoryCheckpointStore()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo.",
+                required_keys=("value",),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(),
+            checkpoint_store=checkpoints,
+        )
+        call = AgentToolCall(call_id="call-replay-ok", tool_name="safe.echo", args={"value": "ok"})
+        context = _context()
+
+        first = runtime.invoke_tool(call, context)
+        resumed = runtime.resume_from_checkpoint(call, context)
+
+        self.assertEqual(first.status, "ok")
+        self.assertEqual(resumed.status, "ok")
+        self.assertEqual(resumed.output, {"value": "ok"})
+        self.assertEqual(called, ["ok"])
+
+    def test_resume_rejects_tool_spec_mismatch(self) -> None:
+        checkpoints = InMemoryCheckpointStore()
+        first_registry = ToolRegistry()
+        first_registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo.",
+                required_keys=("value",),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: {"value": value},
+        )
+        first_runtime = AgentRuntime(
+            tools=first_registry,
+            policy_gate=RuntimePolicyGate(),
+            checkpoint_store=checkpoints,
+        )
+        call = AgentToolCall(call_id="call-spec", tool_name="safe.echo", args={"value": "ok"})
+        context = _context()
+        first_runtime.invoke_tool(call, context)
+
+        second_registry = ToolRegistry()
+        second_registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo with stricter input.",
+                required_keys=("value", "reason"),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, reason, context: {"value": value, "reason": reason},
+        )
+        second_runtime = AgentRuntime(
+            tools=second_registry,
+            policy_gate=RuntimePolicyGate(),
+            checkpoint_store=checkpoints,
+        )
+
+        resumed = second_runtime.resume_from_checkpoint(call, context)
+
+        self.assertEqual(resumed.status, "validation_error")
+        self.assertEqual(resumed.error_code, "CHECKPOINT_MISMATCH")
+        self.assertEqual(resumed.metadata["mismatched"], ("tool_spec_fingerprint",))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+import hashlib
+import json
 from typing import Any
 
 from ..corrigibility import ShellView
@@ -336,6 +338,55 @@ class AgentRuntime:
         self._checkpoint(call, context, result)
         return result
 
+    def resume_from_checkpoint(
+        self, call: AgentToolCall, context: AgentRunContext
+    ) -> AgentToolResult:
+        if self.checkpoint_store is None or not context.run_id:
+            return AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="validation_error",
+                error_code="CHECKPOINT_NOT_AVAILABLE",
+                error_message="checkpoint store and run_id are required for resume",
+                trace_id=context.trace_id,
+            )
+        snapshot = self.checkpoint_store.get(context.run_id)
+        if snapshot is None or snapshot.last_result is None:
+            return AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="validation_error",
+                error_code="CHECKPOINT_NOT_FOUND",
+                error_message=f"checkpoint not found for run_id: {context.run_id}",
+                trace_id=context.trace_id,
+            )
+        try:
+            tool_spec = self.tools.spec_for(call.tool_name)
+        except KeyError as exc:
+            return AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="validation_error",
+                error_code="TOOL_NOT_REGISTERED",
+                error_message=str(exc),
+                trace_id=context.trace_id,
+            )
+        expected_metadata = self._checkpoint_metadata(call, context, tool_spec)
+        mismatched = [
+            key for key, value in expected_metadata.items() if snapshot.metadata.get(key) != value
+        ]
+        if mismatched:
+            return AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="validation_error",
+                error_code="CHECKPOINT_MISMATCH",
+                error_message=f"checkpoint mismatch: {', '.join(sorted(mismatched))}",
+                trace_id=context.trace_id,
+                metadata={"mismatched": tuple(sorted(mismatched))},
+            )
+        return snapshot.last_result
+
     def _invoke_tool(self, call: AgentToolCall, context: AgentRunContext) -> AgentToolResult:
         unreplayable_inputs = context.metadata.get("nondeterministic_inputs")
         if unreplayable_inputs and not context.metadata.get("replay_capture_id"):
@@ -471,6 +522,10 @@ class AgentRuntime:
     ) -> None:
         if self.checkpoint_store is None or not context.run_id:
             return
+        try:
+            tool_spec = self.tools.spec_for(call.tool_name)
+        except KeyError:
+            return
         self.checkpoint_store.save(
             RunStateSnapshot(
                 run_id=context.run_id,
@@ -479,10 +534,60 @@ class AgentRuntime:
                 status=result.status,
                 pending_tool_call=None,
                 last_result=result,
-                metadata={"tool_name": call.tool_name},
+                metadata=self._checkpoint_metadata(call, context, tool_spec),
                 last_completed_boundary="agent_runtime.invoke_tool",
             )
         )
+
+    def _checkpoint_metadata(
+        self,
+        call: AgentToolCall,
+        context: AgentRunContext,
+        tool_spec: ToolSpec,
+    ) -> Mapping[str, Any]:
+        return {
+            "tool_name": call.tool_name,
+            "call_fingerprint": _fingerprint(
+                {
+                    "call_id": call.call_id,
+                    "tool_name": call.tool_name,
+                    "args": call.args,
+                    "context_ref": call.context_ref,
+                }
+            ),
+            "context_fingerprint": _fingerprint(
+                {
+                    "tenant_id": context.tenant_id,
+                    "workspace_id": context.workspace_id,
+                    "principal_id": context.principal_id,
+                    "principal_role": context.principal_role,
+                    "run_id": context.run_id,
+                    "trace_id": context.trace_id,
+                    "policy_scope": sorted(context.policy_scope),
+                    "risk_ceiling": context.risk_ceiling,
+                    "approval_id": context.approval_id,
+                    "checkpoint_id": context.checkpoint_id,
+                }
+            ),
+            "tool_spec_fingerprint": _fingerprint(
+                {
+                    "name": tool_spec.name,
+                    "required_keys": tool_spec.required_keys,
+                    "risk_level": tool_spec.risk_level,
+                    "side_effect_class": tool_spec.side_effect_class,
+                    "required_permissions": tool_spec.required_permissions,
+                    "requires_evidence": tool_spec.requires_evidence,
+                    "requires_approval": tool_spec.requires_approval,
+                    "timeout_ms": tool_spec.timeout_ms,
+                    "allow_when_paused": tool_spec.allow_when_paused,
+                }
+            ),
+        }
+
+
+def _fingerprint(payload: Mapping[str, Any]) -> str:
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=list)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 class TrustedLoopAgentRuntimeAdapter:
