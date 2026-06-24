@@ -304,15 +304,18 @@ class ActionRecordConnector(ActionConnector):
                 "status": "idempotent_replay",
                 "record_id": record["record_id"],
                 "idempotency_key": operation.idempotency_key,
+                "replay_status": record.get("last_replay_status", "idempotent_replay"),
+                "external_ack_status": "not_applicable",
             }
             for field in (
                 "execution_certainty",
                 "ack_status",
                 "uncertain_execution_count",
-                "last_replay_status",
             ):
                 if field in record:
                     result[field] = record[field]
+            if result.get("execution_certainty") == "uncertain_recovered":
+                result["external_ack_status"] = "unknown"
             return result
         return {"status": "executed", "record_id": record["record_id"]}
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import sys
 import unittest
 from pathlib import Path
@@ -335,6 +336,12 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
 
 class TrustedLoopGovernanceTest(unittest.TestCase):
     """Integration tests for the governance/connector/approval/trace pipeline."""
+
+    def test_execution_audit_has_no_action_record_connector_name_special_case(self) -> None:
+        source = inspect.getsource(TrustedLoopRuntime._execute_governed_operation)
+
+        self.assertNotIn('operation.connector_name == "action_record"', source)
+        self.assertNotIn("operation.connector_name == 'action_record'", source)
 
     def _build_runtime(
         self,
