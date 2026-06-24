@@ -175,6 +175,7 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
             "F3a boundary",
             'data-contract="POST /runs"',
             "POST /runs",
+            "function trustedApiRoot",
             "function buildRunSubmitUrl",
             "function buildRunRequestBody",
             "function submitGovernedRun",
@@ -192,6 +193,9 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
         for marker in required_markers:
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.html)
+        self.assertIn("const root = trustedApiRoot(apiBase);", self.html)
+        self.assertIn('new URL("/runs", root)', self.html)
+        self.assertNotIn("apiUrl.href.replace", self.html)
 
     def test_f3_live_run_submit_keeps_management_surfaces_blocked(self) -> None:
         """F3a is live analysis only; no approval execution or management writes."""
@@ -209,6 +213,7 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
         for marker in forbidden_markers:
             with self.subTest(marker=marker):
                 self.assertNotIn(marker, self.html)
+        self.assertIn('refs.apiReportNote.textContent = "Run request failed.";', self.html)
         self.assertEqual(2, len(re.findall(r"\bfetch\s*\(", self.html)))
         self.assertEqual(1, len(re.findall(r"\bmethod\s*:\s*\"POST\"", self.html)))
 

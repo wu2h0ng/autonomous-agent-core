@@ -69,7 +69,7 @@ last_verified_eval:
 
 last_verified_browser:
   command: "Playwright fallback against python3 -m http.server 8123 after in-app Browser policy-blocked localhost navigation"
-  result: "Static workspace loaded at 1440x900 and 390x900; F3a boundary and POST /runs markers visible; run click without API server entered bounded network state; no horizontal overflow; only console error was expected local API connection refusal."
+  result: "Static workspace loaded at 1440x900 and 390x900; F3a boundary and POST /runs markers visible; run click without API server entered bounded network state with fixed Run request failed message; no horizontal overflow; only console error was expected local API connection refusal."
   screenshots:
     - "/tmp/workspace-f3a-desktop.png"
     - "/tmp/workspace-f3a-mobile.png"

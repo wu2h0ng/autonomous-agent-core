@@ -82,10 +82,30 @@ Browser QA:
 - Desktop viewport `1440x900`: `scrollWidth=1440`, `clientWidth=1440`.
 - Mobile viewport `390x900`: `scrollWidth=390`, `clientWidth=390`,
   `overflow=false`.
+- After clicking the live-run button with no API server, the UI entered the
+  bounded `network` state and displayed the fixed message
+  `Run request failed.`.
 - The only browser console error was the expected
   `net::ERR_CONNECTION_REFUSED` for the absent local API server.
 - Screenshots: `/tmp/workspace-f3a-desktop.png`,
   `/tmp/workspace-f3a-mobile.png`.
+
+## Review Remediation
+
+Two read-only review agents checked the branch before merge-readiness. The
+front-end review found that `buildRunSubmitUrl()` inherited the path component
+from the user-provided API base, so a same-origin or localhost value such as
+`/approvals` could become `/approvals/runs`. The implementation now constructs
+both F2 report-read URLs and F3a submit URLs from a trusted API origin only:
+
+- `trustedApiRoot()` accepts only same-origin or localhost.
+- `buildReportReadUrl()` returns `/runs/{trace_id}/report` from that origin.
+- `buildRunSubmitUrl()` returns `/runs` from that origin.
+- Network, JSON, and payload-shape failures now show fixed UI messages instead
+  of raw exception text.
+
+The regression tests lock the origin-only URL builder and fixed run-error
+message.
 
 ## Non-Claims
 

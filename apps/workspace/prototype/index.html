@@ -1428,25 +1428,27 @@
         );
       }
 
-      function buildReportReadUrl(apiBase, traceId, audience) {
-        // Public API contract: GET /runs/{trace_id}/report
+      function trustedApiRoot(apiBase) {
         const apiUrl = parseReportApiBase(apiBase);
         if (!isTrustedReportOrigin(apiUrl)) {
           throw new Error("API base must be same-origin or localhost.");
         }
-        const root = apiUrl.href.replace(/\/+$/, "");
+        return apiUrl.origin;
+      }
+
+      function buildReportReadUrl(apiBase, traceId, audience) {
+        // Public API contract: GET /runs/{trace_id}/report
+        const root = trustedApiRoot(apiBase);
         const params = new URLSearchParams({ audience });
-        return `${root}/runs/${encodeURIComponent(traceId)}/report?${params.toString()}`;
+        const reportUrl = new URL(`/runs/${encodeURIComponent(traceId)}/report`, root);
+        reportUrl.search = params.toString();
+        return reportUrl.href;
       }
 
       function buildRunSubmitUrl(apiBase) {
         // Public API contract: POST /runs
-        const apiUrl = parseReportApiBase(apiBase);
-        if (!isTrustedReportOrigin(apiUrl)) {
-          throw new Error("API base must be same-origin or localhost.");
-        }
-        const root = apiUrl.href.replace(/\/+$/, "");
-        return `${root}/runs`;
+        const root = trustedApiRoot(apiBase);
+        return new URL("/runs", root).href;
       }
 
       function buildRunRequestBody() {
@@ -1560,10 +1562,9 @@
           const payload = await response.json();
           renderUserResultArtifact(payload);
           setApiReportStatus("loaded", "badge ok");
-        } catch (error) {
+        } catch {
           setApiReportStatus("network", "badge danger");
-          refs.apiReportNote.textContent =
-            error instanceof Error ? error.message : "Report request failed.";
+          refs.apiReportNote.textContent = "Report request failed.";
         }
       }
 
@@ -1599,10 +1600,9 @@
             payload.trace_id || payload.user_result?.trace_id,
             "Run completed.",
           );
-        } catch (error) {
+        } catch {
           setApiReportStatus("network", "badge danger");
-          refs.apiReportNote.textContent =
-            error instanceof Error ? error.message : "Run request failed.";
+          refs.apiReportNote.textContent = "Run request failed.";
         }
       }
 
