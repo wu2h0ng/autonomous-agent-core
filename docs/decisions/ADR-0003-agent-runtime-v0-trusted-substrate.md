@@ -65,6 +65,12 @@ Implemented in `packages/persistence/`:
 - `agent_runtime_checkpoints` SQLAlchemy table
 - Alembic migration `0008_agent_runtime_checkpoints`
 
+Implemented in the HTTP/API composition layer on `codex/agent-runtime-live-wiring`:
+
+- `POST /runs` constructs an `AgentRunContext` and calls `TrustedLoopRuntime.evaluate()` through `TrustedLoopAgentRuntimeAdapter`;
+- agent-runtime policy denial maps into the existing blocked response contract with `stage="agent_runtime"`;
+- the existing Trusted Loop / EvidenceChain / RunTrace / user_result path remains the answer/action producer.
+
 The original thin-shell compatibility surface remains:
 
 - `ToolRegistry.register(name, tool)`
@@ -83,6 +89,7 @@ Added red-first tests:
 - `tests/unit/test_agent_runtime_import_boundaries.py`
 - `tests/unit/test_persistence.py::PersistenceRepositoriesTest.test_agent_runtime_checkpoint_round_trip_and_rewrite`
 - `tests/integration/test_trusted_loop_agent_runtime_adapter.py`
+- `tests/unit/test_http_app.py`
 
 Required properties covered:
 
@@ -107,6 +114,8 @@ Required properties covered:
 - unsupported nondeterministic inputs fail closed;
 - external agent frameworks are blocked as product runtime imports;
 - Trusted Loop adapter calls `evaluate()` through the runtime envelope and pause blocks before loop execution.
+- HTTP `POST /runs` traverses the runtime envelope on success;
+- paused-shell denial at the HTTP entry point returns `DENY_PAUSED` before `agent_runtime.tool_started`.
 
 ## 6. Verification
 
@@ -126,6 +135,18 @@ Result:
 - OpenAPI contract drift check passed.
 - full local CI parity passed against the disposable PostgreSQL URL above.
 
+Additional Packet A Slice 0 verification on `codex/agent-runtime-live-wiring`:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_http_app tests.unit.test_outcome_service tests.integration.test_trusted_loop_agent_runtime_adapter -v
+```
+
+Result:
+
+- 59 affected HTTP/service/adapter tests OK;
+- full `make ci` passed with ruff clean, format clean, 450 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
+- `ci-local-full` also passed against disposable PostgreSQL on `127.0.0.1:15432`.
+
 ## 7. Non-Claims
 
 This ADR does not claim:
@@ -141,7 +162,7 @@ This ADR does not claim:
 
 Future ADRs may add:
 
-- factory/API wiring for runtime-adapter exposure;
+- remaining runtime API surfaces beyond `POST /runs`, including approval-execute envelope decisions;
 - checkpoint backend selection in product factories;
 - hard budgets for time/tool/cost;
 - concurrency/async graph boundary;

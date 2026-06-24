@@ -23,11 +23,17 @@ from dataclasses import dataclass
 import os
 import secrets
 from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
+from agent_os_core.agent_runtime import (
+    AgentRunContext,
+    AgentTraceWriter,
+    TrustedLoopAgentRuntimeAdapter,
+)
 
 from .outcome_service import (
     approve_and_execute_service,
@@ -555,9 +561,17 @@ def create_app(
         external_api_key=configured_external_key,
         operator_api_key=configured_operator_key,
     )
+    agent_runtime_trace_writer = AgentTraceWriter()
+    agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
+        shared_runtime,
+        shell_view=getattr(shared_runtime, "shell_view", None),
+        trace_writer=agent_runtime_trace_writer,
+    )
 
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
+    app.state.agent_runtime_adapter = agent_runtime_adapter
+    app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
     app.state.external_api_key = configured_external_key
@@ -632,6 +646,21 @@ def create_app(
             question=body.question,
             parameters=body.parameters,
             audience=audience,
+            agent_runtime_adapter=app.state.agent_runtime_adapter,
+            agent_context=AgentRunContext(
+                tenant_id="default",
+                workspace_id="default",
+                principal_id=principal.kind,
+                principal_role=principal.kind,
+                run_id=f"http-run-{uuid4().hex[:12]}",
+                trace_id=f"agent-trace-{uuid4().hex[:12]}",
+                policy_scope=frozenset({"trusted_loop:evaluate"}),
+                metadata={
+                    "surface": "POST /runs",
+                    "audience": audience,
+                    "principal_kind": principal.kind,
+                },
+            ),
         )
         if result.get("status") == "blocked":
             block = (

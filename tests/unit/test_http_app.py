@@ -23,6 +23,8 @@ def _make_client(
     api_key: str | None,
     operator_api_key: str | None = OPERATOR_KEY,
     external_api_key: str | None = None,
+    *,
+    paused: bool = False,
 ):
     from starlette.testclient import TestClient
 
@@ -31,6 +33,8 @@ def _make_client(
 
     factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
     runtime = factory.build()
+    if paused:
+        factory.corrigibility_shell().op_pause()
     app = create_app(
         runtime,
         api_key=api_key,
@@ -43,6 +47,36 @@ def _make_client(
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpAppSharedRuntimeTest(unittest.TestCase):
+    def test_post_run_traverses_agent_runtime_envelope(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.policy_allowed", runtime_steps)
+        self.assertIn("agent_runtime.tool_started", runtime_steps)
+        self.assertIn("agent_runtime.tool_succeeded", runtime_steps)
+
+    def test_post_run_pause_is_denied_by_agent_runtime_before_tool_start(self) -> None:
+        client = _make_client(API_KEY, paused=True)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+
+        self.assertEqual(run_resp.status_code, 422, run_resp.text)
+        detail = run_resp.json()["detail"]
+        self.assertEqual(detail["code"], "DENY_PAUSED")
+        self.assertEqual(detail["stage"], "agent_runtime")
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.policy_denied", runtime_steps)
+        self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+
     def test_run_then_outcome_shares_runtime_and_bumps_version(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

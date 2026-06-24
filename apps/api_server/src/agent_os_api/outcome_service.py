@@ -425,6 +425,8 @@ def run_service(
     question: str,
     parameters: dict[str, Any],
     audience: str = "internal",
+    agent_runtime_adapter: Any | None = None,
+    agent_context: Any | None = None,
 ) -> dict[str, Any]:
     """Run the Trusted Loop for ``question`` and return a JSON-able summary.
 
@@ -435,7 +437,29 @@ def run_service(
     "block": {...}}`` for an expected business block (unsafe SQL, unknown metric,
     no template, no provider) — a unified, JSON-able failure contract.
     """
-    outcome = runtime.evaluate(question, parameters)
+    if agent_runtime_adapter is None:
+        outcome = runtime.evaluate(question, parameters)
+    else:
+        if agent_context is None:
+            raise ValueError("agent_context is required when agent_runtime_adapter is provided.")
+        agent_result = agent_runtime_adapter.evaluate(
+            context=agent_context,
+            question=question,
+            parameters=parameters,
+        )
+        if agent_result.status != "ok":
+            return {
+                "status": "blocked",
+                "block": {
+                    "code": agent_result.error_code or agent_result.status,
+                    "message": agent_result.error_message or "Agent runtime refused the request.",
+                    "stage": "agent_runtime",
+                    "details": [],
+                    "trace_id": agent_result.trace_id or agent_context.trace_id,
+                },
+            }
+        outcome = agent_result.output
+
     if outcome.blocked:
         block = outcome.block
         return {

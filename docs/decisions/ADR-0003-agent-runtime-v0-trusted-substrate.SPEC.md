@@ -11,6 +11,7 @@
 - Code status: implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`.
 - Runtime dependency status: external agent frameworks are reference-only.
 - Required next gate: review/merge approval; factory/API exposure, checkpoint backend selection in product factories, concurrency, and workflow runtime replacement require later ADRs.
+- Packet A Slice 0 branch `codex/agent-runtime-live-wiring` wires `POST /runs` through the existing Trusted Loop adapter without replacing `TrustedLoopRuntime`.
 
 ## 1. Problem
 
@@ -283,6 +284,28 @@ The first adapter should be one deterministic wrapper that invokes the existing 
 - pause blocks before loop execution;
 - existing SQL Safety/EvidenceChain behavior is not bypassed.
 
+### 4.8 Live HTTP `/runs` Wiring
+
+Packet A Slice 0 composes the existing Trusted Loop adapter into the HTTP run surface:
+
+```text
+POST /runs
+  -> AgentRunContext
+  -> TrustedLoopAgentRuntimeAdapter.evaluate()
+  -> RuntimePolicyGate.check()
+  -> AgentRuntime.invoke_tool()
+  -> TrustedLoopRuntime.evaluate()
+  -> EvidenceChain / persisted RunTrace / user_result
+```
+
+Rules:
+
+- `POST /runs` constructs a typed `AgentRunContext` and grants only `trusted_loop:evaluate` for this boundary.
+- Runtime envelope trace events must not include raw request parameters or raw tool output.
+- `RuntimePolicyGate` denial returns the existing blocked response contract with `stage="agent_runtime"`.
+- A paused `ShellView` denies before `agent_runtime.tool_started`.
+- This slice does not change `/approvals/{approval_id}/execute`, does not make R4/R5 executable, and does not introduce a graph/workflow engine.
+
 ## 5. Test-First Plan
 
 Add tests before implementation:
@@ -326,6 +349,9 @@ Add tests before implementation:
 - `tests/integration/test_trusted_loop_agent_runtime_adapter.py`
   - one safe Trusted Loop call goes through the runtime adapter;
   - paused shell blocks before Trusted Loop execution.
+- `tests/unit/test_http_app.py`
+  - `POST /runs` traverses the Agent Runtime envelope and emits `agent_runtime.policy_allowed`, `agent_runtime.tool_started`, and `agent_runtime.tool_succeeded`;
+  - a paused shell returns a blocked response with `DENY_PAUSED` at `stage="agent_runtime"` and no `agent_runtime.tool_started` event.
 
 ## 6. Implementation Tasks
 
@@ -347,6 +373,7 @@ Add tests before implementation:
 - [x] T9f: prevent checkpoint persistence failures from masking pre-execution denials.
 - [x] T10: add autonomous-core projection note for any mechanism that should later become an object-layer ADR.
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
+- [x] T12: wire `POST /runs` through the Agent Runtime envelope with endpoint-level success and pause-denial tests.
 
 ## 7. Stop Conditions
 
