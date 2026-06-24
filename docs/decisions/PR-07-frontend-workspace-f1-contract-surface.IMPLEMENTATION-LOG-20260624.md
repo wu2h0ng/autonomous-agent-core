@@ -36,9 +36,11 @@ actions, and does not import OS Core.
 ## Negative Paths
 
 - `blocked` state: DataProduct candidate is not promoted and KnowledgeAsset candidate is not
-  created from a SQL Safety-blocked formal answer.
+  created from a SQL Safety-blocked formal answer. The full visible candidate field set is
+  replaced with blocked/not-applicable values to avoid stale scenario leakage.
 - `insufficient` state: DataProduct remains draft and KnowledgeAsset remains review-only until
-  missing owner/dimension evidence is resolved.
+  missing owner/dimension evidence is resolved. The full visible candidate field set is replaced
+  with draft/pending-evidence values.
 
 ## Verification
 
@@ -48,7 +50,8 @@ actions, and does not import OS Core.
   `http://127.0.0.1:8765/ -> ROI 诊断 -> Need evidence`
 - Checks covered:
   DataProduct candidate visible, KnowledgeAsset candidate visible, loaded/blocked/insufficient
-  states present, no OS Core import marker in the static prototype, no console warnings/errors,
+  states present, blocked/insufficient states override the full candidate field set, no OS Core
+  import marker under `apps/workspace`, candidate header wrapping, no console warnings/errors,
   desktop interaction updates candidate state, and mobile viewport has no horizontal overflow.
 
 ## Non-Claims

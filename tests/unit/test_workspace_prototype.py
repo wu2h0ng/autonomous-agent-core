@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 
@@ -15,6 +16,10 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
         required_markers = (
             'id="dataProductCandidate"',
             'id="dataProductStatus"',
+            'id="dataProductId"',
+            'id="dataProductContract"',
+            'id="dataProductFreshness"',
+            'id="dataProductReuse"',
             'id="dataProductSource"',
             'id="knowledgeAssetCandidate"',
             'id="knowledgeAssetState"',
@@ -23,6 +28,21 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
             "KnowledgeAsset candidate",
         )
         for marker in required_markers:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, self.html)
+
+    def test_f1_states_override_candidate_fields(self) -> None:
+        for marker in (
+            'dataProductId: "blocked-before-candidate"',
+            'dataProductContract: "SQL Safety blocked"',
+            'dataProductFreshness: "not applicable"',
+            'dataProductReuse: "no reusable artifact"',
+            'dataProductId: "draft-pending-evidence"',
+            'dataProductContract: "contract pending owner evidence"',
+            'dataProductFreshness: "pending required dimension"',
+            'dataProductReuse: "review-only draft"',
+            "candidateOverrideKeys",
+        ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.html)
 
@@ -37,10 +57,29 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
                 self.assertIn(marker, self.html)
 
     def test_workspace_prototype_does_not_import_os_core(self) -> None:
-        forbidden_markers = ("agent_os_core", "packages/os_core", "../packages/os_core")
-        for marker in forbidden_markers:
-            with self.subTest(marker=marker):
-                self.assertNotIn(marker, self.html)
+        forbidden_markers = (
+            "agent_os_core",
+            "from agent_os_core",
+            "import agent_os_core",
+            "packages/os_core",
+            "../packages/os_core",
+        )
+        workspace_root = REPO_ROOT / "apps" / "workspace"
+        for path in workspace_root.rglob("*"):
+            if path.suffix not in {".html", ".md", ".js", ".css", ".ts", ".tsx"}:
+                continue
+            content = path.read_text(encoding="utf-8")
+            for marker in forbidden_markers:
+                with self.subTest(path=path.relative_to(REPO_ROOT), marker=marker):
+                    self.assertNotIn(marker, content)
+
+    def test_mobile_candidate_header_can_wrap(self) -> None:
+        self.assertIsNotNone(
+            re.search(r"\.action-title\s*\{[^}]*flex-wrap: wrap;", self.html, re.S)
+        )
+        self.assertIsNotNone(
+            re.search(r"\.action-title\s*>\s*\*\s*\{[^}]*min-width: 0;", self.html, re.S)
+        )
 
 
 if __name__ == "__main__":

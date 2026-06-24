@@ -29,12 +29,14 @@ This repo is the **product implementation root** for the enterprise Business Dat
 
 ## Stage 1 Status (Complete — 2026-06-11)
 
-Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest workspace-F1 verification after combining ADR-0003 runtime substrate, ADR-0002 report-read/postgres snapshot durability, and the static Frontend Workspace F1 contract surface is 443 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`.
+Stage 1 (Trusted Business Loop MVP) engineering is **complete**. All PR-01 through PR-06 merged to `main`. P5 substrate harvest is underway; latest workspace-F1 verification after combining ADR-0003 runtime substrate, ADR-0002 report-read/postgres snapshot durability, and the static Frontend Workspace F1 contract surface is 445 tests OK in the primary unittest discover run, 4 skipped, and 12 eval subset tests OK, with CI dependency preflight plus OpenAPI contract drift check included in `make ci`.
 
 The Frontend Workspace static prototype now includes the F1 contract surface for
 DataProduct candidate and KnowledgeAsset candidate visibility, with loaded,
 blocked, and insufficient-evidence mock states. This is still a static prototype:
-it consumes no live API and imports no OS Core code.
+it consumes no live API and imports no OS Core code. Review hardening ensures
+blocked/insufficient states replace stale candidate fields and the candidate header
+can wrap on mobile.
 
 ### Delivered Capabilities
 

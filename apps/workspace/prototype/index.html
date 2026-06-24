@@ -532,6 +532,11 @@
         align-items: center;
         justify-content: space-between;
         gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .action-title > * {
+        min-width: 0;
       }
 
       .risk-level {
@@ -1163,6 +1168,10 @@
           approvalState: "disabled",
           feedbackState: "security review",
           dataProductStatus: "blocked",
+          dataProductId: "blocked-before-candidate",
+          dataProductContract: "SQL Safety blocked",
+          dataProductFreshness: "not applicable",
+          dataProductReuse: "no reusable artifact",
           dataProductSource:
             "No DataProduct candidate is promoted because SQL Safety blocked the formal result.",
           knowledgeAssetState: "blocked",
@@ -1184,6 +1193,10 @@
           approvalState: "need evidence",
           feedbackState: "PM / Data",
           dataProductStatus: "needs evidence",
+          dataProductId: "draft-pending-evidence",
+          dataProductContract: "contract pending owner evidence",
+          dataProductFreshness: "pending required dimension",
+          dataProductReuse: "review-only draft",
           dataProductSource:
             "DataProduct candidate remains draft until owner or required dimension evidence is added.",
           knowledgeAssetState: "needs evidence",
@@ -1235,6 +1248,16 @@
 
       let activeScenario = "gmv";
       let activeState = "loaded";
+      const candidateOverrideKeys = [
+        "dataProductId",
+        "dataProductStatus",
+        "dataProductContract",
+        "dataProductFreshness",
+        "dataProductReuse",
+        "dataProductSource",
+        "knowledgeAssetState",
+        "knowledgeAssetReview",
+      ];
 
       function setBadge(el, data) {
         el.textContent = data[0];
@@ -1265,18 +1288,9 @@
         refs.sqlSafety.textContent = state.sqlSafety;
         refs.approvalState.textContent = state.approvalState;
         refs.feedbackState.textContent = state.feedbackState;
-        if (state.dataProductStatus) {
-          refs.dataProductStatus.textContent = state.dataProductStatus;
-        }
-        if (state.dataProductSource) {
-          refs.dataProductSource.textContent = state.dataProductSource;
-        }
-        if (state.knowledgeAssetState) {
-          refs.knowledgeAssetState.textContent = state.knowledgeAssetState;
-        }
-        if (state.knowledgeAssetReview) {
-          refs.knowledgeAssetReview.textContent = state.knowledgeAssetReview;
-        }
+        candidateOverrideKeys.forEach((key) => {
+          if (state[key]) refs[key].textContent = state[key];
+        });
         if (activeState !== "loaded") {
           refs.answerTitle.textContent = state.answerTitle;
           refs.answerBody.textContent = state.answerBody;

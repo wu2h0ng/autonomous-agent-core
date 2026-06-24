@@ -40,10 +40,10 @@ current_stage:
     - "ADR-0003 Agent Runtime v0 trusted substrate merged locally to main: typed run/tool/result/policy contracts, pre-execution RuntimePolicyGate, trace-visible failure paths with safe runtime trace projection, pause-shell denial, minimal checkpoint/replay boundary, TrustedLoopRuntime.evaluate adapter, and external agent-framework import-boundary tests"
     - "ADR-0003 pre-merge H1-H3 remediation complete and merged locally to main: run_tool now delegates to invoke_tool, RuntimePolicyGate requires approval_id for R4/R5 and side-effecting tools, and runtime trace events no longer record raw args/output by default"
     - "ADR-0003 second-review M1 follow-up closed locally: tests/integration/test_trusted_loop_agent_runtime_adapter.py now covers a real TrustedLoopRuntime.evaluate path through the adapter, including SQL Safety, EvidenceChain, persisted RunTrace, and AgentRuntime envelope events"
-    - "Frontend Workspace F1 static contract surface complete on this branch: prototype/index.html now shows DataProduct candidate id/status/contract/freshness/reuse/source context and KnowledgeAsset candidate state/review path across loaded, SQL-blocked, and insufficient-evidence mock states; tests/unit/test_workspace_prototype.py locks candidate visibility, mock states, and no OS Core import markers. This is not live API integration or production UI."
+    - "Frontend Workspace F1 static contract surface complete on this branch: prototype/index.html now shows DataProduct candidate id/status/contract/freshness/reuse/source context and KnowledgeAsset candidate state/review path across loaded, SQL-blocked, and insufficient-evidence mock states; blocked/insufficient states override the full candidate field set rather than mixing stale scenario values; tests/unit/test_workspace_prototype.py locks candidate visibility, candidate field overrides, mock states, workspace-wide no OS Core import markers, and mobile candidate-header wrap. This is not live API integration or production UI."
   immediate_next:
-    id: "workspace-f1-contract-surface-review-then-merge-decision"
-    description: "codex/workspace-f1-contract-surface builds on codex/enterprise-integration-reconcile and implements the static PR-07/F1 workspace contract surface. Next explicit decision is whether to review/merge this branch after or alongside the reconcile branch; push, release, live API integration, React/Next.js scaffold, and external release remain separate explicit decisions. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, workflow replacement, autonomous-core adoption, live frontend integration, production UI, or automatic R4/R5 execution."
+    id: "workspace-f1-contract-surface-merge-order-decision"
+    description: "codex/workspace-f1-contract-surface builds on codex/enterprise-integration-reconcile and implements the static PR-07/F1 workspace contract surface. Local review found no code-level blocker for the static F1 surface, but the branch is not standalone against main: a direct merge would also bring the unmerged reconcile stack. Next explicit decision is merge order: merge codex/enterprise-integration-reconcile first, or merge codex/workspace-f1-contract-surface as the combined successor branch. Push, release, live API integration, React/Next.js scaffold, and external release remain separate explicit decisions. Do not claim external release, external-system exactly-once, external ACK confirmation, full RBAC/DLP, tenant isolation, field/row-level authorization, durable arbitrary external connectors, workflow replacement, autonomous-core adoption, live frontend integration, production UI, or automatic R4/R5 execution."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
@@ -54,8 +54,8 @@ current_stage:
 
 last_verified_tests:
   command: "make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python"
-  result: "443 tests OK in primary unittest discover, 4 skipped; 12 eval tests OK; ruff clean; format clean; OpenAPI contract drift check included in make ci and is up to date."
-  source: "local verification on codex/workspace-f1-contract-surface after Frontend Workspace F1 static contract surface"
+  result: "445 tests OK in primary unittest discover, 4 skipped; 12 eval tests OK; ruff clean; format clean; OpenAPI contract drift check included in make ci and is up to date."
+  source: "local verification on codex/workspace-f1-contract-surface after Frontend Workspace F1 review hardening"
   verified_at: "2026-06-24"
 
 last_verified_eval:
@@ -97,6 +97,7 @@ authoritative_records:
     - "docs/decisions/ADR-0002-enterprise-integration-reconcile.VERIFICATION-20260624.md"
     - "docs/decisions/ADR-0002-enterprise-integration-reconcile.REVIEW-20260624.md"
     - "docs/decisions/PR-07-frontend-workspace-f1-contract-surface.IMPLEMENTATION-LOG-20260624.md"
+    - "docs/decisions/PR-07-frontend-workspace-f1-contract-surface.REVIEW-20260624.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.goal-card.md"
     - "docs/decisions/ADR-0003-agent-runtime-v0-trusted-substrate.SPEC.md"
