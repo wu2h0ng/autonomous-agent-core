@@ -342,6 +342,17 @@ class RunResponse(BaseModel):
     user_result: UserResultArtifact
 
 
+class AgentRuntimeErrorDetail(BaseModel):
+    code: str
+    message: str
+    stage: str
+    trace_id: str | None = None
+
+
+class AgentRuntimeErrorResponse(BaseModel):
+    detail: AgentRuntimeErrorDetail
+
+
 class OutcomeRequest(BaseModel):
     trace_id: str = Field(..., min_length=1)
     outcome: str = Field(..., min_length=1)
@@ -561,17 +572,9 @@ def create_app(
         external_api_key=configured_external_key,
         operator_api_key=configured_operator_key,
     )
-    agent_runtime_trace_writer = AgentTraceWriter()
-    agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
-        shared_runtime,
-        shell_view=getattr(shared_runtime, "shell_view", None),
-        trace_writer=agent_runtime_trace_writer,
-    )
-
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
-    app.state.agent_runtime_adapter = agent_runtime_adapter
-    app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
+    app.state.agent_runtime_trace_writer = AgentTraceWriter()
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
     app.state.external_api_key = configured_external_key
@@ -629,7 +632,13 @@ def create_app(
                     "Expected business block (unified block contract): the request was "
                     "understood but the Trusted Loop refused to answer."
                 ),
-            }
+            },
+            500: {
+                "model": AgentRuntimeErrorResponse,
+                "description": (
+                    "Sanitized Agent Runtime failure before a trusted result was produced."
+                ),
+            },
         },
     )
     def post_run(
@@ -641,27 +650,37 @@ def create_app(
             API_SCOPE_RUN_INTERNAL if audience == "internal" else API_SCOPE_RUN_EXTERNAL
         )
         authorize_principal_scope(principal, required_scope)
-        result = run_service(
+        agent_runtime_trace_writer = AgentTraceWriter()
+        agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
             app.state.runtime,
-            question=body.question,
-            parameters=body.parameters,
-            audience=audience,
-            agent_runtime_adapter=app.state.agent_runtime_adapter,
-            agent_context=AgentRunContext(
-                tenant_id="default",
-                workspace_id="default",
-                principal_id=principal.kind,
-                principal_role=principal.kind,
-                run_id=f"http-run-{uuid4().hex[:12]}",
-                trace_id=f"agent-trace-{uuid4().hex[:12]}",
-                policy_scope=frozenset({"trusted_loop:evaluate"}),
-                metadata={
-                    "surface": "POST /runs",
-                    "audience": audience,
-                    "principal_kind": principal.kind,
-                },
-            ),
+            shell_view=getattr(app.state.runtime, "shell_view", None),
+            trace_writer=agent_runtime_trace_writer,
         )
+        agent_context = AgentRunContext(
+            tenant_id="default",
+            workspace_id="default",
+            principal_id=principal.kind,
+            principal_role=principal.kind,
+            run_id=f"http-run-{uuid4().hex[:12]}",
+            trace_id=f"agent-trace-{uuid4().hex[:12]}",
+            policy_scope=frozenset({"trusted_loop:evaluate"}),
+            metadata={
+                "surface": "POST /runs",
+                "audience": audience,
+                "principal_kind": principal.kind,
+            },
+        )
+        try:
+            result = run_service(
+                app.state.runtime,
+                question=body.question,
+                parameters=body.parameters,
+                audience=audience,
+                agent_runtime_adapter=agent_runtime_adapter,
+                agent_context=agent_context,
+            )
+        finally:
+            app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
         if result.get("status") == "error":
             detail = dict(result["error"])
             if principal.audience_ceiling == "external":

@@ -61,6 +61,29 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertIn("agent_runtime.tool_started", runtime_steps)
         self.assertIn("agent_runtime.tool_succeeded", runtime_steps)
 
+    def test_post_run_runtime_diagnostics_are_request_scoped(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        first_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(first_resp.status_code, 200, first_resp.text)
+        first_events = list(client.app.state.agent_runtime_trace_writer.events)
+        first_run_id = next(
+            event["payload"]["run_id"]
+            for event in first_events
+            if event["step"] == "agent_runtime.invocation_started"
+        )
+
+        second_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(second_resp.status_code, 200, second_resp.text)
+        second_events = list(client.app.state.agent_runtime_trace_writer.events)
+        second_run_ids = {
+            event["payload"]["run_id"] for event in second_events if event["payload"].get("run_id")
+        }
+
+        self.assertLessEqual(len(second_events), len(first_events))
+        self.assertNotIn(first_run_id, second_run_ids)
+
     def test_post_run_pause_is_denied_by_agent_runtime_before_tool_start(self) -> None:
         client = _make_client(API_KEY, paused=True)
         headers = {"X-API-Key": API_KEY}

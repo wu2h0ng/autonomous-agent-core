@@ -73,6 +73,18 @@ Implemented in the HTTP/API composition layer on `codex/agent-runtime-live-wirin
 - internal runtime/tool failures map to sanitized HTTP 500 service errors rather than 422 business blocks;
 - the existing Trusted Loop / EvidenceChain / RunTrace / user_result path remains the answer/action producer.
 
+Implemented in the HTTP/API composition layer on stacked branch `codex/agent-runtime-diagnostics-boundary`:
+
+- each `POST /runs` request constructs its own `AgentTraceWriter` and `TrustedLoopAgentRuntimeAdapter`;
+- app-level runtime diagnostic state retains only the latest request's runtime-envelope events;
+- prior request `run_id`s are not retained in the HTTP app diagnostic writer.
+
+Diagnostics-boundary review remediation also declares the sanitized Agent Runtime HTTP 500 path in the published OpenAPI contract:
+
+- `POST /runs` includes a typed `AgentRuntimeErrorResponse` for internal runtime/tool/checkpoint failures;
+- the schema exposes only `code`, `message`, `stage`, and optional `trace_id`;
+- a regression test fails if `/runs` omits the 500 response schema from `apps/api_server/openapi.json`.
+
 The original thin-shell compatibility surface remains:
 
 - `ToolRegistry.register(name, tool)`
@@ -120,6 +132,8 @@ Required properties covered:
 - paused-shell denial at the HTTP entry point returns `DENY_PAUSED` before `agent_runtime.tool_started`.
 - paused-shell denial at the HTTP entry point persists a queryable blocked trace;
 - runtime/tool exception mapping does not expose raw exception text to the external report-key projection.
+- HTTP runtime diagnostic events are request-scoped rather than app-lifetime accumulated.
+- The OpenAPI contract declares the sanitized Agent Runtime 500 response for `/runs`.
 
 ## 6. Verification
 
@@ -149,6 +163,18 @@ Result:
 
 - 60 affected HTTP/service/adapter tests OK;
 - full `make ci` passed with ruff clean, format clean, 451 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
+- `ci-local-full` also passed against disposable PostgreSQL on `127.0.0.1:15432`.
+
+Additional diagnostics-boundary verification on `codex/agent-runtime-diagnostics-boundary`:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_http_app tests.unit.test_outcome_service tests.integration.test_trusted_loop_agent_runtime_adapter -v
+```
+
+Result:
+
+- 61 affected HTTP/service/adapter tests OK.
+- full `make ci` passed with 453 tests OK, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed after adding `AgentRuntimeErrorResponse`.
 - `ci-local-full` also passed against disposable PostgreSQL on `127.0.0.1:15432`.
 
 ## 7. Non-Claims

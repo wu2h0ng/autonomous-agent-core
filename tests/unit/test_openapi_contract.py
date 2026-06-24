@@ -140,6 +140,21 @@ class OpenApiContractTest(unittest.TestCase):
             {"code", "message", "stage", "details", "trace_id"},
         )
 
+    def test_agent_runtime_error_contract_is_declared_on_runs(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        responses = spec["paths"]["/runs"]["post"]["responses"]
+        self.assertIn("500", responses)
+        self.assertEqual(
+            responses["500"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/AgentRuntimeErrorResponse"},
+        )
+        detail = spec["components"]["schemas"]["AgentRuntimeErrorDetail"]
+        self.assertEqual(
+            set(detail["required"]),
+            {"code", "message", "stage"},
+        )
+        self.assertIn("trace_id", detail["properties"])
+
     def test_user_result_evidence_cards_are_strongly_typed(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         run_request = spec["components"]["schemas"]["RunRequest"]

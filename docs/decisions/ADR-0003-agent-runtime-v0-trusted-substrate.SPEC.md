@@ -302,6 +302,7 @@ Rules:
 
 - `POST /runs` constructs a typed `AgentRunContext` and grants only `trusted_loop:evaluate` for this boundary.
 - Runtime envelope trace events must not include raw request parameters or raw tool output.
+- App-level runtime diagnostics must be request-scoped or otherwise bounded; diagnostic storage must not accumulate all requests for the app lifetime.
 - `RuntimePolicyGate` denial returns the existing blocked response contract with `stage="agent_runtime"`.
 - A paused `ShellView` denies before `agent_runtime.tool_started` and persists a queryable blocked `RunTrace`.
 - Internal runtime/tool failures return a sanitized service error instead of a business block and must not expose raw exception text to external report-key projections.
@@ -354,7 +355,9 @@ Add tests before implementation:
   - `POST /runs` traverses the Agent Runtime envelope and emits `agent_runtime.policy_allowed`, `agent_runtime.tool_started`, and `agent_runtime.tool_succeeded`;
   - a paused shell returns a blocked response with `DENY_PAUSED` at `stage="agent_runtime"` and no `agent_runtime.tool_started` event;
   - the paused denial trace id is queryable through `/traces/{trace_id}`;
-  - runtime/tool exceptions return sanitized HTTP 500 errors without exposing raw exception text to external report-key projections.
+  - runtime/tool exceptions return sanitized HTTP 500 errors without exposing raw exception text to external report-key projections;
+  - HTTP runtime diagnostics are request-scoped and do not retain prior request `run_id`s;
+  - sanitized Agent Runtime HTTP 500 failures are declared in the OpenAPI contract with a typed response schema.
 
 ## 6. Implementation Tasks
 
@@ -378,6 +381,8 @@ Add tests before implementation:
 - [x] T11: update `docs/CURRENT_STATE.yaml`, README, and implementation-local indexes after implementation gate and tests are green.
 - [x] T12: wire `POST /runs` through the Agent Runtime envelope with endpoint-level success and pause-denial tests.
 - [x] T13: remediate live-wiring review blockers for runtime/tool error sanitization and pre-loop runtime denial trace persistence.
+- [x] T14: bound HTTP runtime diagnostics by replacing the shared app-lifetime adapter/writer with per-request adapter/writer instances and retaining only the latest request diagnostics.
+- [x] T15: declare sanitized `/runs` Agent Runtime 500 failures in OpenAPI as `AgentRuntimeErrorResponse` and add a contract regression test.
 
 ## 7. Stop Conditions
 

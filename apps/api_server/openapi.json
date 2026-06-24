@@ -115,6 +115,52 @@
         "title": "AdoptionResponse",
         "type": "object"
       },
+      "AgentRuntimeErrorDetail": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "stage"
+        ],
+        "title": "AgentRuntimeErrorDetail",
+        "type": "object"
+      },
+      "AgentRuntimeErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/AgentRuntimeErrorDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "AgentRuntimeErrorResponse",
+        "type": "object"
+      },
       "ApprovalExecuteError": {
         "properties": {
           "approval_id": {
@@ -2035,6 +2081,16 @@
               }
             },
             "description": "Expected business block (unified block contract): the request was understood but the Trusted Loop refused to answer."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRuntimeErrorResponse"
+                }
+              }
+            },
+            "description": "Sanitized Agent Runtime failure before a trusted result was produced."
           }
         },
         "summary": "Post Run"
