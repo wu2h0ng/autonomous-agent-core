@@ -5,6 +5,7 @@
 - Base: `main` at `0b23094`; rebased onto current local `main` at `4905375`
 - Initial reviewed head: `b7f3f43`
 - Head after remediation: branch head after this review document lands
+- Post-gate outcome: founder approved FF merge; local `main` fast-forwarded to `2673ab4` on 2026-06-25
 - Scope: Packet A Slice 0, routing `POST /runs` through `AgentRunContext -> TrustedLoopAgentRuntimeAdapter -> RuntimePolicyGate -> TrustedLoopRuntime.evaluate`
 - Status: approved after remediation and verification
 
@@ -151,7 +152,7 @@ Result: full local CI parity checks passed.
 
 ## Gate Result
 
-Founder/CTO can decide whether to fast-forward `main` to `codex/agent-runtime-live-wiring`.
+Founder/CTO approved fast-forwarding `main` to `codex/agent-runtime-live-wiring`; local `main` now contains Packet A Slice 0 at `2673ab4`.
 
 Recommended next slice after merge:
 
