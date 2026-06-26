@@ -131,6 +131,7 @@ authoritative_records:
     - "docs/decisions/ADR-0003-agent-runtime-budget-guard.IMPLEMENTATION-20260626.md"
     - "docs/decisions/ADR-0003-agent-runtime-budget-guard.REVIEW-20260626.md"
     - "docs/decisions/ADR-0003-agent-runtime-stacked-merge-gate.REVIEW-20260626.md"
+    - "docs/decisions/ADR-0003-agent-runtime-capability-gap-audit-20260626.md"
     - "docs/decisions/PR-07-product-integration-release-gate.REVIEW-20260624.md"
   proposed_reviews_pending_gate:
     - "docs/decisions/ADR-0003-agent-runtime-correction-channel-scope-20260626.md"
