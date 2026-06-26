@@ -135,6 +135,45 @@ class TestGate2Unlock(unittest.TestCase):
                 g_eco.assert_gate2_unlocked(tmp)
             self.assertEqual(cm.exception.code, "GATE2_COSIGN_INVALID")
 
+    def test_locked_when_audit_halt_booleans_empty(self) -> None:
+        # kimicode review (2026-06-27, MED): an EMPTY halt_booleans must NOT read as
+        # "no halt" -- an empty map means the section-7a audit never produced verdicts.
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _make_bundle(tmp)
+            p = tmp / "g_eco.baseline_audit.json"
+            data = json.loads(p.read_text(encoding="utf-8"))
+            data["halt_booleans"] = {}
+            data.pop("content_hash", None)
+            data["content_hash"] = hashlib.sha256(
+                json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            p.write_text(json.dumps(data), encoding="utf-8")
+            g_eco.write_gate2_cosign(tmp, founder_id="founder")
+            with self.assertRaises(GEcoHalt) as cm:
+                g_eco.assert_gate2_unlocked(tmp)
+            self.assertEqual(cm.exception.code, "GATE2_AUDIT_INCOMPLETE")
+
+    def test_locked_when_cosign_seeds_mismatch(self) -> None:
+        # kimicode review (2026-06-27, LOW): the co-signed seed ranges must be
+        # validated, not just the module constants.
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _make_bundle(tmp)
+            _clear_audit_halts(tmp)
+            g_eco.write_gate2_cosign(tmp, founder_id="founder")
+            cosign_path = tmp / g_eco.GATE2_COSIGN_FILE
+            data = json.loads(cosign_path.read_text(encoding="utf-8"))
+            data["seeds"]["rfinal"] = [1810, 1839]  # overlaps calibration band
+            data.pop("content_hash", None)
+            data["content_hash"] = hashlib.sha256(
+                json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            cosign_path.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(GEcoHalt) as cm:
+                g_eco.assert_gate2_unlocked(tmp)
+            self.assertEqual(cm.exception.code, "GATE2_COSIGN_SEED_MISMATCH")
+
     def test_locked_when_bundle_incomplete(self) -> None:
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)

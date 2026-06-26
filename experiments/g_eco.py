@@ -142,6 +142,18 @@ def assert_gate2_unlocked(freeze_dir: Path) -> dict[str, Any]:
     founder = str(cosign.get("cosigned_by") or "").strip()
     if not founder:
         raise GEcoHalt("GATE2_COSIGN_NO_FOUNDER", "Gate-2 co-sign missing founder identity")
+    # The co-sign's declared seed bands are load-bearing: validate them, not just the
+    # module constants (kimicode review 2026-06-27).
+    expected_seeds = {
+        "rate": [RATE_SEEDS[0], RATE_SEEDS[-1]],
+        "calibration": [CALIBRATION_SEEDS[0], CALIBRATION_SEEDS[-1]],
+        "rfinal": [RFINAL_SEEDS[0], RFINAL_SEEDS[-1]],
+    }
+    if cosign.get("seeds") != expected_seeds:
+        raise GEcoHalt(
+            "GATE2_COSIGN_SEED_MISMATCH",
+            "Gate-2 co-sign seed ranges do not match frozen constants",
+        )
 
     # 3. co-signed hashes cover, and match, the exact on-disk bundle (no post-cosign swap)
     recorded = cosign.get("frozen_artifacts", {})
@@ -161,10 +173,17 @@ def assert_gate2_unlocked(freeze_dir: Path) -> dict[str, Any]:
     if assert_g_eco_static_firewalls() is not True:
         raise GEcoHalt("GATE2_STATIC_FIREWALL_FAIL", "section-9 static firewalls did not pass")
 
-    # 5. section-7a baseline-audit fired no halt
+    # 5. section-7a baseline-audit ran AND fired no halt. An empty/missing halt map
+    # must NOT read as "clear" -- it means the audit never produced verdicts
+    # (kimicode review 2026-06-27).
     audit = _load_candidate_payload(freeze_dir / "g_eco.baseline_audit.json")
-    halt_booleans = audit.get("halt_booleans", {})
-    fired = sorted(k for k, v in (halt_booleans or {}).items() if v)
+    halt_booleans = audit.get("halt_booleans")
+    if not isinstance(halt_booleans, dict) or not halt_booleans:
+        raise GEcoHalt(
+            "GATE2_AUDIT_INCOMPLETE",
+            "section-7a audit halt booleans missing/empty: audit did not run",
+        )
+    fired = sorted(k for k, v in halt_booleans.items() if v)
     if fired:
         raise GEcoHalt("GATE2_AUDIT_HALT", "section-7a/8 halt fired: " + ", ".join(fired))
 
