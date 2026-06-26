@@ -41,6 +41,7 @@ def _make_client(
         external_api_key=external_api_key,
         operator_api_key=operator_api_key,
         adoption_ingest=factory.adoption_ingest(),
+        agent_checkpoint_store=factory.build_agent_checkpoint_store(),
     )
     return TestClient(app)
 
@@ -116,6 +117,27 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
 
         self.assertLessEqual(len(second_events), len(first_events))
         self.assertNotIn(first_run_id, second_run_ids)
+
+    def test_post_run_writes_agent_runtime_checkpoint_from_http_entrypoint(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        runtime_events = client.app.state.agent_runtime_trace_writer.events
+        agent_run_id = next(
+            event["payload"]["run_id"]
+            for event in runtime_events
+            if event["step"] == "agent_runtime.invocation_started"
+        )
+
+        snapshot = client.app.state.agent_checkpoint_store.get(agent_run_id)
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.run_id, agent_run_id)
+        self.assertEqual(snapshot.last_completed_boundary, "agent_runtime.invoke_tool")
+        self.assertEqual(snapshot.last_result.status, "ok")
+        self.assertEqual(snapshot.metadata["tool_name"], "trusted_loop.evaluate")
 
     def test_post_run_pause_is_denied_by_agent_runtime_before_tool_start(self) -> None:
         client = _make_client(API_KEY, paused=True)

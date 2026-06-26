@@ -10,7 +10,7 @@
 - Decision status: Accepted by CTO/founder on 2026-06-24.
 - Code status: implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`.
 - Runtime dependency status: external agent frameworks are reference-only.
-- Required next gate: review/merge approval; factory/API exposure, checkpoint backend selection in product factories, concurrency, and workflow runtime replacement require later ADRs.
+- Required next gate: founder/CTO merge approval; checkpoint backend selection in product factories is implemented and branch-locally reviewed on stacked branch `codex/agent-runtime-checkpoint-factory-selection`; broader factory/API exposure, concurrency, and workflow runtime replacement require later ADRs.
 - Packet A Slice 0 branch `codex/agent-runtime-live-wiring` wires `POST /runs` through the existing Trusted Loop adapter without replacing `TrustedLoopRuntime`.
 
 ## 1. Problem
@@ -423,6 +423,7 @@ Add tests before implementation:
 - [x] T15: declare sanitized `/runs` Agent Runtime 500 failures in OpenAPI as `AgentRuntimeErrorResponse` and add a contract regression test.
 - [x] T16: persist safe successful `/runs` Agent Runtime envelope events into the business `RunTrace`.
 - [x] T17: route `POST /approvals/{approval_id}/execute` through a narrow Agent Runtime envelope while preserving Approval/ApprovalContextStore authority and R4/R5 fail-closed execution.
+- [x] T18: select Agent Runtime checkpoint backend in the product factory, inject it into HTTP runtime adapters, and persist SQL checkpoint resume output as an allowlisted Trusted Loop summary.
 
 ## 7. Stop Conditions
 

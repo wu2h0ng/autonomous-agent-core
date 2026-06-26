@@ -689,6 +689,7 @@ class TrustedLoopAgentRuntimeAdapter:
         self,
         trusted_loop: Any,
         *,
+        checkpoint_store: CheckpointStorePort | None = None,
         shell_view: ShellView | None = None,
         trace_writer: AgentTraceWriter | None = None,
     ) -> None:
@@ -707,6 +708,7 @@ class TrustedLoopAgentRuntimeAdapter:
             tools=registry,
             policy_gate=RuntimePolicyGate(shell_view=shell_view),
             trace_writer=trace_writer,
+            checkpoint_store=checkpoint_store,
         )
 
     def evaluate(
@@ -744,6 +746,7 @@ class TrustedLoopApprovalExecutionRuntimeAdapter:
         self,
         trusted_loop: Any,
         *,
+        checkpoint_store: CheckpointStorePort | None = None,
         shell_view: ShellView | None = None,
         trace_writer: AgentTraceWriter | None = None,
     ) -> None:
@@ -765,6 +768,7 @@ class TrustedLoopApprovalExecutionRuntimeAdapter:
             tools=registry,
             policy_gate=RuntimePolicyGate(shell_view=shell_view),
             trace_writer=trace_writer,
+            checkpoint_store=checkpoint_store,
         )
 
     def execute(

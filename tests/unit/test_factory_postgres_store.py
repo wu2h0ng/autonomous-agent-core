@@ -198,6 +198,73 @@ class FactoryPostgresStoreTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             runtime3.execute_pending_approved_operation(approval_id=approval_id)
 
+    def test_agent_runtime_checkpoint_store_is_factory_selected_and_persists_resume(
+        self,
+    ) -> None:
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory
+        from agent_os_core.agent_runtime import (
+            AgentRunContext,
+            AgentToolCall,
+            TrustedLoopAgentRuntimeAdapter,
+        )
+        from agent_os_persistence import SqlAgentCheckpointStore
+
+        engine = self._engine()
+        config = self._config(engine)
+        first_factory = ContentCommerceRuntimeFactory(config)
+        first_runtime = first_factory.build()
+        checkpoint_store = first_factory.build_agent_checkpoint_store()
+        self.assertIsInstance(checkpoint_store, SqlAgentCheckpointStore)
+
+        context = AgentRunContext(
+            tenant_id="tenant",
+            workspace_id="workspace",
+            principal_id="internal",
+            principal_role="internal",
+            run_id="factory-checkpoint-run",
+            trace_id="factory-checkpoint-trace",
+            policy_scope=frozenset({"trusted_loop:evaluate"}),
+        )
+        first_adapter = TrustedLoopAgentRuntimeAdapter(
+            first_runtime,
+            shell_view=first_runtime.shell_view,
+            checkpoint_store=checkpoint_store,
+        )
+        first = first_adapter.evaluate(
+            context=context,
+            question="GMV",
+            parameters=dict(RUN_PARAMS),
+        )
+        self.assertEqual(first.status, "ok")
+
+        second_factory = ContentCommerceRuntimeFactory(config)
+        second_runtime = second_factory.build()
+        second_adapter = TrustedLoopAgentRuntimeAdapter(
+            second_runtime,
+            shell_view=second_runtime.shell_view,
+            checkpoint_store=second_factory.build_agent_checkpoint_store(),
+        )
+        resumed = second_adapter.runtime.resume_from_checkpoint(
+            AgentToolCall(
+                call_id=f"{TrustedLoopAgentRuntimeAdapter.TOOL_NAME}:{context.run_id}",
+                tool_name=TrustedLoopAgentRuntimeAdapter.TOOL_NAME,
+                args={"question": "GMV", "parameters": dict(RUN_PARAMS)},
+            ),
+            context,
+        )
+
+        self.assertEqual(resumed.status, "ok")
+        self.assertEqual(resumed.output["type"], "TrustedLoopOutcome")
+        self.assertEqual(resumed.output["status"], "ok")
+        self.assertEqual(
+            resumed.output["result"]["trace_id"],
+            first.output.result.evidence_chain.trace_id,
+        )
+        self.assertEqual(
+            resumed.output["result"]["evidence_chain_id"],
+            first.output.result.evidence_chain.evidence_chain_id,
+        )
+
     def test_stale_approval_context_claim_recovers_across_runtime_instances(self) -> None:
         from agent_os_contracts import OperationState
         from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory

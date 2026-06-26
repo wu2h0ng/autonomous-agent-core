@@ -105,6 +105,18 @@ Implemented in the HTTP/API composition layer on `codex/agent-runtime-approval-e
 - existing 404/409 approval execution response contracts are preserved;
 - R4/R5 business actions remain proposal-only in MVP.
 
+Implemented in the product composition layer on `codex/agent-runtime-checkpoint-factory-selection`:
+
+- `ContentCommerceRuntimeFactory.build_agent_checkpoint_store()` selects
+  `InMemoryCheckpointStore` for the memory backend and `SqlAgentCheckpointStore`
+  for the postgres backend;
+- `create_app()` stores the selected checkpoint store on
+  `app.state.agent_checkpoint_store`;
+- request-scoped `TrustedLoopAgentRuntimeAdapter` and
+  `TrustedLoopApprovalExecutionRuntimeAdapter` instances receive that store;
+- SQL checkpoint persistence stores an allowlisted `TrustedLoopOutcome` summary
+  rather than raw Trusted Loop contract objects.
+
 The original thin-shell compatibility surface remains:
 
 - `ToolRegistry.register(name, tool)`
@@ -157,6 +169,11 @@ Required properties covered:
 - Successful HTTP `POST /runs` persists safe Agent Runtime envelope events into `/traces/{trace_id}` without raw request parameters.
 - HTTP `POST /approvals/{approval_id}/execute` traverses the approval-execute runtime envelope on success;
 - paused-shell denial at approval execution returns before `agent_runtime.tool_started` and before connector writes.
+- Product factory-selected postgres checkpoint store persists a
+  `trusted_loop.evaluate` Agent Runtime checkpoint across runtime/factory
+  instances and resumes without re-executing the tool body.
+- HTTP `POST /runs` writes an Agent Runtime checkpoint from the real route entry
+  point.
 
 ## 6. Verification
 
@@ -211,6 +228,20 @@ Result:
 - red test first failed with `AssertionError: 'agent_runtime.policy_allowed' not found in []`;
 - focused success-trace test passed after implementation;
 - 62 affected HTTP/service/adapter tests OK.
+
+Additional checkpoint-factory verification on `codex/agent-runtime-checkpoint-factory-selection`:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_factory_postgres_store tests.unit.test_http_app tests.unit.test_agent_runtime_sql_checkpoint tests.unit.test_agent_runtime_replay_boundary tests.unit.test_persistence -v
+make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+```
+
+Result:
+
+- affected suite passed: 77 tests OK;
+- `make ci` passed: ruff, format check, 458 tests, 12 eval tests, and OpenAPI contract check;
+- `ci-local-full` passed against disposable PostgreSQL.
 - full `make ci` passed with ruff clean, format clean, 454 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
 - `ci-local-full` passed against PostgreSQL on `127.0.0.1:5432/agent_os_test`.
 
@@ -244,7 +275,6 @@ This ADR does not claim:
 Future ADRs may add:
 
 - remaining runtime API surfaces beyond `POST /runs` and `/approvals/{approval_id}/execute`;
-- checkpoint backend selection in product factories;
 - production telemetry/export policy for runtime-envelope events;
 - hard budgets for time/tool/cost;
 - concurrency/async graph boundary;

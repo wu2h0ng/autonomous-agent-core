@@ -524,6 +524,7 @@ def create_app(
     runtime: Any | None = None,
     *,
     retriever: Any | None = None,
+    agent_checkpoint_store: Any | None = None,
     api_key: str | None = None,
     external_api_key: str | None = None,
     operator_api_key: str | None = None,
@@ -539,6 +540,9 @@ def create_app(
             Defaults to the factory-built retriever when ``runtime`` is also
             defaulted; if a runtime is injected WITHOUT a retriever, the search
             route rejects with 503 (the app cannot know the runtime's backend).
+        agent_checkpoint_store: Optional Agent Runtime checkpoint store for
+            request-scoped runtime adapters. Defaults to the factory-selected
+            backend when ``runtime`` is also defaulted.
         api_key: The required ``X-API-Key`` value. Falls back to the
             ``AGENT_OS_API_KEY`` environment variable. If neither is set, the
             protected routes reject with 503.
@@ -552,6 +556,11 @@ def create_app(
         shared_retriever = (
             retriever if retriever is not None else factory.build_knowledge_retriever()
         )
+        shared_agent_checkpoint_store = (
+            agent_checkpoint_store
+            if agent_checkpoint_store is not None
+            else factory.build_agent_checkpoint_store()
+        )
         # Operator value channel over the SAME ledger the runtime reads (P5.1a):
         # the default app can promote knowledge from realized adoption out of the box.
         shared_adoption_ingest = (
@@ -560,6 +569,7 @@ def create_app(
     else:
         shared_runtime = runtime
         shared_retriever = retriever
+        shared_agent_checkpoint_store = agent_checkpoint_store
         shared_adoption_ingest = adoption_ingest
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
     configured_external_key = (
@@ -576,6 +586,7 @@ def create_app(
     app = FastAPI(title="Agent OS API", version="0.1.0")
     app.state.runtime = shared_runtime
     app.state.agent_runtime_trace_writer = AgentTraceWriter()
+    app.state.agent_checkpoint_store = shared_agent_checkpoint_store
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
     app.state.external_api_key = configured_external_key
@@ -654,6 +665,7 @@ def create_app(
         agent_runtime_trace_writer = AgentTraceWriter()
         agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
             app.state.runtime,
+            checkpoint_store=app.state.agent_checkpoint_store,
             shell_view=getattr(app.state.runtime, "shell_view", None),
             trace_writer=agent_runtime_trace_writer,
         )
@@ -767,6 +779,7 @@ def create_app(
         agent_runtime_trace_writer = AgentTraceWriter()
         agent_runtime_adapter = TrustedLoopApprovalExecutionRuntimeAdapter(
             app.state.runtime,
+            checkpoint_store=app.state.agent_checkpoint_store,
             shell_view=getattr(app.state.runtime, "shell_view", None),
             trace_writer=agent_runtime_trace_writer,
         )

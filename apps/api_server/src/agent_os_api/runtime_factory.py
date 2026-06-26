@@ -19,6 +19,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     AdoptionIngest,
     AdoptionLedger,
+    CheckpointStorePort,
     ApprovalLiteRuntime,
     CorrigibilityShell,
     ProviderRegistry,
@@ -114,6 +115,10 @@ class ContentCommerceRuntimeFactory:
         # the shell/op_* surface; every runtime built by this factory gets only the
         # read-only ShellView. This mirrors the adoption-channel split.
         self._corrigibility_shell: CorrigibilityShell | None = None
+        # ONE Agent Runtime checkpoint store per factory: request-scoped runtime
+        # adapters can checkpoint/resume through the configured backend without
+        # importing persistence into OS Core.
+        self._agent_checkpoint_store: CheckpointStorePort | None = None
 
     def build(self) -> TrustedLoopRuntime:
         metrics = self._load_metrics()
@@ -298,6 +303,31 @@ class ContentCommerceRuntimeFactory:
             create_all(engine)
             return SqlTraceStore(engine)
         raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+
+    def build_agent_checkpoint_store(self) -> CheckpointStorePort:
+        """Build the Agent Runtime checkpoint store for the configured backend.
+
+        ``memory`` returns a factory-scoped ``InMemoryCheckpointStore``. ``postgres``
+        returns a SQLAlchemy-backed ``SqlAgentCheckpointStore`` over the shared
+        engine, so a later runtime instance can resume a checkpointed Agent Runtime
+        boundary by ``run_id``. The composition layer owns this choice; OS Core only
+        sees the ``CheckpointStorePort``.
+        """
+        if self._agent_checkpoint_store is not None:
+            return self._agent_checkpoint_store
+        if self.config.store_backend == STORE_MEMORY:
+            from agent_os_core.agent_runtime import InMemoryCheckpointStore
+
+            self._agent_checkpoint_store = InMemoryCheckpointStore()
+        elif self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlAgentCheckpointStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            self._agent_checkpoint_store = SqlAgentCheckpointStore(engine)
+        else:
+            raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+        return self._agent_checkpoint_store
 
     def _embedder(self) -> Any:
         from agent_os_core import HashingEmbedder

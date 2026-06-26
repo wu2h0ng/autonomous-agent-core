@@ -163,12 +163,61 @@ def agent_tool_result_to_payload(result: AgentToolResult) -> dict[str, Any]:
         "call_id": result.call_id,
         "tool_name": result.tool_name,
         "status": result.status,
-        "output": result.output,
+        "output": _agent_tool_output_to_payload(result.output),
         "error_code": result.error_code,
         "error_message": result.error_message,
         "trace_id": result.trace_id,
         "metadata": dict(result.metadata),
     }
+
+
+def _agent_tool_output_to_payload(output: Any) -> Any:
+    """Persist only JSON-safe Agent Runtime checkpoint output.
+
+    Most tool outputs are already primitive JSON-like payloads and round-trip
+    unchanged. TrustedLoop objects carry rich business/evidence structures, so
+    checkpoints persist an allowlisted summary instead of raw contracts or
+    connector payloads.
+    """
+    if output is None or isinstance(output, str | int | float | bool):
+        return output
+    if isinstance(output, dict):
+        return {str(key): _agent_tool_output_to_payload(value) for key, value in output.items()}
+    if isinstance(output, tuple | list):
+        return [_agent_tool_output_to_payload(value) for value in output]
+    if output.__class__.__name__ == "TrustedLoopOutcome":
+        return _trusted_loop_outcome_to_payload(output)
+    return {"type": output.__class__.__name__, "omitted": True}
+
+
+def _trusted_loop_outcome_to_payload(outcome: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"type": "TrustedLoopOutcome", "status": outcome.status}
+    result = getattr(outcome, "result", None)
+    if result is not None:
+        evidence = result.evidence_chain
+        proposal = result.action_proposal
+        payload["result"] = {
+            "trace_id": evidence.trace_id,
+            "evidence_chain_id": evidence.evidence_chain_id,
+            "intent_metric_name": result.intent.metric_name,
+            "query_metric_name": result.query_plan.metric_name,
+            "row_count": evidence.query_result.row_count,
+            "action_proposal_id": proposal.proposal_id,
+            "approval_required": proposal.approval_required,
+            "approval_id": (
+                getattr(result.approval_record, "approval_id", None)
+                if result.approval_record is not None
+                else None
+            ),
+        }
+    block = getattr(outcome, "block", None)
+    if block is not None:
+        payload["block"] = {
+            "code": block.code.value,
+            "stage": block.stage,
+            "trace_id": block.trace_id,
+        }
+    return payload
 
 
 def agent_tool_result_from_payload(payload: dict[str, Any]) -> AgentToolResult:
