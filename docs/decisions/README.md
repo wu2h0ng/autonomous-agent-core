@@ -25,6 +25,7 @@ Current active ADRs:
   - Budget guard implementation: `ADR-0003-agent-runtime-budget-guard.IMPLEMENTATION-20260626.md`
   - Budget guard review: `ADR-0003-agent-runtime-budget-guard.REVIEW-20260626.md`
   - Stacked merge gate review: `ADR-0003-agent-runtime-stacked-merge-gate.REVIEW-20260626.md`
+  - Correction channel scope candidate: `ADR-0003-agent-runtime-correction-channel-scope-20260626.md`
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; rerun rehearsal from current main `c404e1e` before any merge/release decision
 
