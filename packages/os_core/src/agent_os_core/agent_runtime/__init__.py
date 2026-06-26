@@ -57,6 +57,9 @@ class AgentRunContext:
     run_id: str = ""
     policy_scope: frozenset[str] = field(default_factory=frozenset)
     risk_ceiling: str = "R5"
+    max_tool_calls: int | None = None
+    tool_timeout_ceiling_ms: int | None = None
+    cost_budget_units: int | None = None
     approval_id: str | None = None
     checkpoint_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
@@ -73,6 +76,7 @@ class ToolSpec:
     requires_evidence: bool = False
     requires_approval: bool = False
     timeout_ms: int | None = None
+    estimated_cost_units: int = 0
     allow_when_paused: bool = False
 
 
@@ -136,6 +140,12 @@ class InMemoryCheckpointStore:
 class _ToolRegistration:
     spec: ToolSpec
     tool: Callable[..., Any]
+
+
+@dataclass
+class _RunBudgetUsage:
+    tool_calls_started: int = 0
+    cost_units_reserved: int = 0
 
 
 class ToolRegistry:
@@ -317,6 +327,7 @@ class AgentRuntime:
         self.trace_writer = trace_writer or AgentTraceWriter()
         self.checkpoint_store = checkpoint_store
         self.validator = validator or StructuredOutputValidator()
+        self._budget_usage_by_run_id: dict[str, _RunBudgetUsage] = {}
 
     def run_tool(self, name: str, context: AgentRunContext, **kwargs: Any) -> AgentToolResult:
         """Compatibility wrapper over the governed invocation path."""
@@ -541,6 +552,10 @@ class AgentRuntime:
             )
             return result
 
+        budget_denial = self._reserve_budget_for_tool_start(call, context, tool_spec)
+        if budget_denial is not None:
+            return budget_denial
+
         self.trace_writer.write(
             "agent_runtime.tool_started",
             {"call_id": call.call_id, "tool_name": call.tool_name},
@@ -576,6 +591,130 @@ class AgentRuntime:
         self.trace_writer.write(
             "agent_runtime.tool_succeeded",
             {"call_id": call.call_id, "tool_name": call.tool_name},
+        )
+        return result
+
+    def _reserve_budget_for_tool_start(
+        self,
+        call: AgentToolCall,
+        context: AgentRunContext,
+        tool_spec: ToolSpec,
+    ) -> AgentToolResult | None:
+        invalid_budget_reason = self._invalid_budget_reason(context, tool_spec)
+        if invalid_budget_reason is not None:
+            return self._budget_denied(
+                call,
+                context,
+                error_code="DENY_INVALID_BUDGET",
+                error_message=invalid_budget_reason,
+            )
+
+        if context.tool_timeout_ceiling_ms is not None:
+            if tool_spec.timeout_ms is None:
+                return self._budget_denied(
+                    call,
+                    context,
+                    error_code="DENY_TIMEOUT_BUDGET",
+                    error_message="tool timeout_ms is required when context timeout ceiling is set",
+                )
+            if tool_spec.timeout_ms > context.tool_timeout_ceiling_ms:
+                return self._budget_denied(
+                    call,
+                    context,
+                    error_code="DENY_TIMEOUT_BUDGET",
+                    error_message=(
+                        f"tool timeout {tool_spec.timeout_ms}ms exceeds "
+                        f"context timeout ceiling {context.tool_timeout_ceiling_ms}ms"
+                    ),
+                )
+
+        usage = self._budget_usage_by_run_id.setdefault(context.run_id, _RunBudgetUsage())
+        if (
+            context.max_tool_calls is not None
+            and usage.tool_calls_started >= context.max_tool_calls
+        ):
+            return self._budget_denied(
+                call,
+                context,
+                error_code="DENY_TOOL_CALL_BUDGET_EXCEEDED",
+                error_message=(
+                    f"tool call budget exhausted for run_id {context.run_id}: "
+                    f"{usage.tool_calls_started}/{context.max_tool_calls}"
+                ),
+            )
+
+        remaining_cost_units = (
+            None
+            if context.cost_budget_units is None
+            else context.cost_budget_units - usage.cost_units_reserved
+        )
+        if (
+            remaining_cost_units is not None
+            and tool_spec.estimated_cost_units > remaining_cost_units
+        ):
+            return self._budget_denied(
+                call,
+                context,
+                error_code="DENY_COST_BUDGET_EXCEEDED",
+                error_message=(
+                    f"tool cost estimate {tool_spec.estimated_cost_units} exceeds "
+                    f"remaining budget {remaining_cost_units}"
+                ),
+            )
+
+        usage.tool_calls_started += 1
+        usage.cost_units_reserved += tool_spec.estimated_cost_units
+        self.trace_writer.write(
+            "agent_runtime.budget_reserved",
+            {
+                "call_id": call.call_id,
+                "tool_name": call.tool_name,
+                "trace_id": context.trace_id,
+                "run_id": context.run_id,
+                "tool_calls_started": usage.tool_calls_started,
+                "cost_units_reserved": usage.cost_units_reserved,
+            },
+        )
+        return None
+
+    def _invalid_budget_reason(self, context: AgentRunContext, tool_spec: ToolSpec) -> str | None:
+        if context.max_tool_calls is not None and context.max_tool_calls < 1:
+            return "max_tool_calls must be positive"
+        if context.tool_timeout_ceiling_ms is not None and context.tool_timeout_ceiling_ms < 1:
+            return "tool_timeout_ceiling_ms must be positive"
+        if context.cost_budget_units is not None and context.cost_budget_units < 1:
+            return "cost_budget_units must be positive"
+        if tool_spec.timeout_ms is not None and tool_spec.timeout_ms < 1:
+            return "tool timeout_ms must be positive when set"
+        if tool_spec.estimated_cost_units < 0:
+            return "tool estimated_cost_units must not be negative"
+        return None
+
+    def _budget_denied(
+        self,
+        call: AgentToolCall,
+        context: AgentRunContext,
+        *,
+        error_code: str,
+        error_message: str,
+    ) -> AgentToolResult:
+        result = AgentToolResult(
+            call_id=call.call_id,
+            tool_name=call.tool_name,
+            status="denied",
+            error_code=error_code,
+            error_message=error_message,
+            trace_id=context.trace_id,
+        )
+        self.trace_writer.write(
+            "agent_runtime.budget_denied",
+            {
+                "call_id": call.call_id,
+                "tool_name": call.tool_name,
+                "trace_id": context.trace_id,
+                "run_id": context.run_id,
+                "error_code": error_code,
+            },
         )
         return result
 
@@ -655,6 +794,9 @@ class AgentRuntime:
                     "trace_id": context.trace_id,
                     "policy_scope": sorted(context.policy_scope),
                     "risk_ceiling": context.risk_ceiling,
+                    "max_tool_calls": context.max_tool_calls,
+                    "tool_timeout_ceiling_ms": context.tool_timeout_ceiling_ms,
+                    "cost_budget_units": context.cost_budget_units,
                     "approval_id": context.approval_id,
                     "checkpoint_id": context.checkpoint_id,
                 }
@@ -669,6 +811,7 @@ class AgentRuntime:
                     "requires_evidence": tool_spec.requires_evidence,
                     "requires_approval": tool_spec.requires_approval,
                     "timeout_ms": tool_spec.timeout_ms,
+                    "estimated_cost_units": tool_spec.estimated_cost_units,
                     "allow_when_paused": tool_spec.allow_when_paused,
                 }
             ),

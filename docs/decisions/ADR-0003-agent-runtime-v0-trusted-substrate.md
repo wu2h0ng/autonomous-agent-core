@@ -117,6 +117,15 @@ Implemented in the product composition layer on `codex/agent-runtime-checkpoint-
 - SQL checkpoint persistence stores an allowlisted `TrustedLoopOutcome` summary
   rather than raw Trusted Loop contract objects.
 
+Implemented in OS Core on `codex/agent-runtime-budget-guard`:
+
+- `AgentRunContext` carries optional run-scoped budget fields:
+  `max_tool_calls`, `tool_timeout_ceiling_ms`, and `cost_budget_units`;
+- `ToolSpec` carries `estimated_cost_units` alongside existing `timeout_ms`;
+- `AgentRuntime` denies invalid, exceeded tool-call, undeclared/exceeded declared
+  timeout, and exceeded declared cost budgets before `agent_runtime.tool_started`;
+- budget reservation and denial emit safe trace events without raw args/output.
+
 The original thin-shell compatibility surface remains:
 
 - `ToolRegistry.register(name, tool)`
@@ -174,6 +183,9 @@ Required properties covered:
   instances and resumes without re-executing the tool body.
 - HTTP `POST /runs` writes an Agent Runtime checkpoint from the real route entry
   point.
+- Runtime budget guard denies invalid or exhausted tool-call, undeclared/exceeded
+  timeout-ceiling, and declared cost budgets before the tool body and without raw
+  payload trace leakage.
 
 ## 6. Verification
 
@@ -242,7 +254,17 @@ Result:
 - affected suite passed: 77 tests OK;
 - `make ci` passed: ruff, format check, 458 tests, 12 eval tests, and OpenAPI contract check;
 - `ci-local-full` passed against disposable PostgreSQL.
-- full `make ci` passed with ruff clean, format clean, 454 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
+
+Additional budget-guard affected verification on `codex/agent-runtime-budget-guard`:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_agent_runtime_budget tests.unit.test_agent_runtime_policy tests.unit.test_agent_runtime_tools tests.unit.test_agent_runtime_trace tests.unit.test_agent_runtime_replay_boundary tests.unit.test_agent_runtime_sql_checkpoint tests.integration.test_trusted_loop_agent_runtime_adapter tests.unit.test_http_app -v
+```
+
+Result:
+
+- affected suite passed: 82 tests OK.
+- full `make ci` passed with ruff clean, format clean, 463 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
 - `ci-local-full` passed against PostgreSQL on `127.0.0.1:5432/agent_os_test`.
 
 Additional approval-execute-envelope verification on `codex/agent-runtime-approval-execute-envelope`:
@@ -276,7 +298,7 @@ Future ADRs may add:
 
 - remaining runtime API surfaces beyond `POST /runs` and `/approvals/{approval_id}/execute`;
 - production telemetry/export policy for runtime-envelope events;
-- hard budgets for time/tool/cost;
+- true wall-clock interruption, streaming cancellation, and production cost metering beyond the pre-execution budget guard;
 - concurrency/async graph boundary;
 - workflow-layer LangGraph/CrewAI replacement;
 - separate autonomous-core mechanism ADR and falsification gate for any object-layer adoption.

@@ -10,7 +10,7 @@
 - Decision status: Accepted by CTO/founder on 2026-06-24.
 - Code status: implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`.
 - Runtime dependency status: external agent frameworks are reference-only.
-- Required next gate: founder/CTO merge approval; checkpoint backend selection in product factories is implemented and branch-locally reviewed on stacked branch `codex/agent-runtime-checkpoint-factory-selection`; broader factory/API exposure, concurrency, and workflow runtime replacement require later ADRs.
+- Required next gate: founder/CTO merge approval for the stacked runtime slices; checkpoint backend selection is implemented and branch-locally reviewed on `codex/agent-runtime-checkpoint-factory-selection`; pre-execution budget guard is implemented, branch-locally verified, and branch-locally reviewed on `codex/agent-runtime-budget-guard`; broader factory/API exposure, true wall-clock interruption, concurrency, and workflow runtime replacement require later ADRs.
 - Packet A Slice 0 branch `codex/agent-runtime-live-wiring` wires `POST /runs` through the existing Trusted Loop adapter without replacing `TrustedLoopRuntime`.
 
 ## 1. Problem
@@ -137,6 +137,9 @@ policy_scope
 risk_ceiling
 approval_id?
 checkpoint_id?
+max_tool_calls?
+tool_timeout_ceiling_ms?
+cost_budget_units?
 metadata
 ```
 
@@ -146,6 +149,7 @@ Rules:
 - Context is immutable during one runtime call.
 - Context must not carry secrets.
 - `risk_ceiling` is a run-scoped maximum tool risk (`R0`..`R5`); tools above it are denied before the tool body.
+- `max_tool_calls`, `tool_timeout_ceiling_ms`, and `cost_budget_units` are run-scoped pre-execution budgets. Invalid or exhausted budgets deny before the tool body.
 
 ### 4.2 ToolSpec and ToolRegistry
 
@@ -161,6 +165,7 @@ required_permissions
 requires_evidence
 requires_approval
 timeout_ms?
+estimated_cost_units
 ```
 
 Rules:
@@ -169,6 +174,7 @@ Rules:
 - Unknown tool fails.
 - Tool name must be stable and non-empty.
 - Side-effecting tools require explicit policy clearance.
+- `timeout_ms` and `estimated_cost_units` are declared metadata used by runtime budget guards. They are not wall-clock interruption or production billing.
 
 ### 4.3 RuntimePolicyGate
 
@@ -343,6 +349,31 @@ Rules:
   raw approval payloads, or raw connector output.
 - Existing 404/409 approval execution response contracts are preserved.
 
+### 4.10 Budget Guard
+
+The budget slice adds a deterministic pre-execution guard:
+
+```text
+AgentRunContext(max_tool_calls, tool_timeout_ceiling_ms, cost_budget_units)
+  + ToolSpec(timeout_ms, estimated_cost_units)
+  -> AgentRuntime budget check
+  -> agent_runtime.budget_reserved OR agent_runtime.budget_denied
+  -> tool body only if budget is valid and not exhausted
+```
+
+Rules:
+
+- Budget checks happen after input validation and before `agent_runtime.tool_started`.
+- `max_tool_calls` is counted per `run_id` for tool bodies that are allowed to start.
+- `cost_budget_units` is consumed by declared `ToolSpec.estimated_cost_units` before the tool body starts.
+- `tool_timeout_ceiling_ms` denies tools without a declared `timeout_ms` and tools whose declared timeout exceeds the run ceiling.
+- Invalid budget values return `DENY_INVALID_BUDGET`.
+- Exhausted tool-call budget returns `DENY_TOOL_CALL_BUDGET_EXCEEDED`.
+- Exhausted cost budget returns `DENY_COST_BUDGET_EXCEEDED`.
+- Timeout-ceiling violation returns `DENY_TIMEOUT_BUDGET`.
+- Budget trace events must not include raw args, outputs, SQL, connector payloads, or secrets.
+- This is not wall-clock preemption, async cancellation, streaming cancellation, or production cost metering.
+
 ## 5. Test-First Plan
 
 Add tests before implementation:
@@ -379,6 +410,12 @@ Add tests before implementation:
 - `tests/unit/test_agent_runtime_sql_checkpoint.py`
   - SQL checkpoint resume returns the stored result across runtime/store instances without executing the tool body again;
   - SQL checkpoint mismatch fails closed before tool execution.
+- `tests/unit/test_agent_runtime_budget.py`
+  - tool-call budget denies before the tool body;
+  - invalid budget denies before the tool body;
+  - timeout ceiling denies a tool whose declared timeout is too high;
+  - timeout ceiling denies a tool whose timeout is undeclared;
+  - declared cost budget is consumed per run and denies before the next tool body when exhausted.
 - `tests/unit/test_persistence.py`
   - `SqlAgentCheckpointStore` round-trips and updates a `RunStateSnapshot`.
 - `tests/unit/test_agent_runtime_import_boundaries.py`
@@ -424,6 +461,7 @@ Add tests before implementation:
 - [x] T16: persist safe successful `/runs` Agent Runtime envelope events into the business `RunTrace`.
 - [x] T17: route `POST /approvals/{approval_id}/execute` through a narrow Agent Runtime envelope while preserving Approval/ApprovalContextStore authority and R4/R5 fail-closed execution.
 - [x] T18: select Agent Runtime checkpoint backend in the product factory, inject it into HTTP runtime adapters, and persist SQL checkpoint resume output as an allowlisted Trusted Loop summary.
+- [x] T19: add pre-execution runtime budget guard for tool-call count, declared timeout ceiling, and declared cost units with safe trace events and failure-first tests.
 
 ## 7. Stop Conditions
 
@@ -455,3 +493,4 @@ Stop and return to CTO review if:
 - Checkpoint resume is fail-closed: it returns a stored result only for a matching tool call, run context, and tool spec, and mismatches do not execute tools.
 - Durable checkpoint storage is an adapter behind `CheckpointStorePort`; OS Core does not import SQLAlchemy or `agent_os_persistence`.
 - HTTP approval execution traverses the runtime envelope, and paused-shell denial stops before connector writes.
+- Runtime budget guard denies invalid or exhausted tool-call, undeclared/exceeded declared timeout, and declared cost budgets before `agent_runtime.tool_started` and without raw payload trace leakage.
