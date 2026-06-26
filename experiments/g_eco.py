@@ -1,12 +1,17 @@
-"""G-Eco lower-half mechanism entrypoint.
+"""G-Eco lower-half mechanism entrypoint + r-final harness (Stage 1).
 
-Allowed modes in this file are smoke/mechanism-check plus pre-Gate-2 candidate
-write/verify. Gate-2 unlock, r-final, and verdict emission are deliberately
-absent until the founder-reserved freeze object exists and is co-signed.
+Allowed modes: smoke/mechanism-check, pre-Gate-2 candidate write/verify, and the
+founder Gate-2 co-sign (``gate2-cosign``). The Gate-2 unlock VERIFIER
+(``assert_gate2_unlocked``) is implemented but stays LOCKED until a founder
+co-sign over the exact frozen bundle exists, the section-9 static firewalls pass,
+and the section-7a audit fired no halt. r-final replay and verdict emission remain
+absent (separate harness pieces); the verdict belongs to the independent kimicode
+adjudicator, never this file.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import sys
@@ -47,16 +52,136 @@ AUDIT_LEAK_TOKENS = (
     "margin",
 )
 
+GATE2_COSIGN_FILE = "g_eco.gate2.cosign.json"
+GATE2_COSIGN_MARKER = "GATE2_FROZEN"
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _cosign_with_hash(payload: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in payload.items() if k != "content_hash"}
+    out["content_hash"] = hashlib.sha256(
+        json.dumps(out, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return out
+
+
+def build_gate2_cosign(freeze_dir: Path, *, founder_id: str) -> dict[str, Any]:
+    """Build the founder Gate-2 co-sign over the EXACT frozen-bundle bytes.
+
+    Stage 1 of the founder-reserved Gate-2 freeze: a deliberate-action +
+    tamper-evidence record binding a founder identity to the on-disk sha256 of
+    every frozen candidate file. It is NOT a cryptographic barrier -- a JSON
+    ``cosigned_by`` marker is forgeable by any writer; the identity teeth come from
+    the Stage-2 prereg.lock + meta-runner actor!=reviewer gate. Writing this object
+    is the founder's deliberate co-sign act.
+    """
+    if not founder_id or not founder_id.strip():
+        raise GEcoHalt("GATE2_COSIGN_NO_FOUNDER", "founder_id is required to co-sign Gate-2")
+    artifacts: dict[str, str] = {}
+    for filename in PREGATE2_CANDIDATE_FILES:
+        path = freeze_dir / filename
+        if not path.exists():
+            raise GEcoHalt("PREGATE2_MISSING_FILE", f"cannot co-sign: missing {filename}")
+        artifacts[filename] = _file_sha256(path)
+    payload = {
+        "kind": "g_eco.gate2.cosign",
+        "cosigned_by": founder_id.strip(),
+        "marker": GATE2_COSIGN_MARKER,
+        "frozen_artifacts": artifacts,
+        "seeds": {
+            "rate": [RATE_SEEDS[0], RATE_SEEDS[-1]],
+            "calibration": [CALIBRATION_SEEDS[0], CALIBRATION_SEEDS[-1]],
+            "rfinal": [RFINAL_SEEDS[0], RFINAL_SEEDS[-1]],
+        },
+    }
+    return _cosign_with_hash(payload)
+
+
+def write_gate2_cosign(freeze_dir: Path, *, founder_id: str) -> dict[str, Any]:
+    """Founder-run: materialize the Gate-2 co-sign object next to the bundle."""
+    payload = build_gate2_cosign(freeze_dir, founder_id=founder_id)
+    _write_json(freeze_dir / GATE2_COSIGN_FILE, payload)
+    return payload
+
 
 def assert_gate2_unlocked(freeze_dir: Path) -> dict[str, Any]:
-    missing = [name for name in GATE2_FILES if not (freeze_dir / name).exists()]
-    if missing:
-        raise RuntimeError(
-            "G-Eco r-final is locked: missing Gate-2 freeze files " + ", ".join(missing)
+    """Unlock r-final ONLY on a complete, firewalled, founder-cosigned freeze.
+
+    Stays LOCKED (raises ``GEcoHalt``) unless ALL hold:
+      1. the pre-Gate-2 candidate bundle verifies (deep firewall/integrity);
+      2. a founder Gate-2 co-sign object is present and self-consistent;
+      3. the co-sign's recorded hashes match the exact on-disk bundle bytes;
+      4. the section-9 AST static firewalls pass;
+      5. the section-7a baseline-audit fired no halt (verdict = enter r-final);
+      6. rate / calibration / r-final seeds are pairwise disjoint.
+    Returns the verified r-final context on success. Writes nothing, runs no seeds,
+    emits no verdict. The co-sign's *authenticity* is a process property (Stage-2
+    prereg.lock), not enforced here.
+    """
+    # 1. deep candidate-bundle verification (existing firewall/integrity; raises GEcoHalt)
+    verify_pregate2_candidate_bundle(freeze_dir)
+
+    # 2. founder co-sign present + self-consistent
+    cosign_path = freeze_dir / GATE2_COSIGN_FILE
+    if not cosign_path.exists():
+        raise GEcoHalt(
+            "GATE2_LOCKED_NO_COSIGN",
+            "G-Eco r-final locked: no founder Gate-2 co-sign present",
         )
-    raise RuntimeError(
-        "G-Eco Gate-2 freeze verifier is not implemented in lower-half scope"
-    )
+    cosign = _load_candidate_payload(cosign_path)
+    if (
+        cosign.get("kind") != "g_eco.gate2.cosign"
+        or cosign.get("marker") != GATE2_COSIGN_MARKER
+    ):
+        raise GEcoHalt("GATE2_COSIGN_INVALID", "Gate-2 co-sign kind/marker invalid")
+    if not verify_content_hash(cosign):
+        raise GEcoHalt("GATE2_COSIGN_TAMPERED", "Gate-2 co-sign content hash mismatch")
+    founder = str(cosign.get("cosigned_by") or "").strip()
+    if not founder:
+        raise GEcoHalt("GATE2_COSIGN_NO_FOUNDER", "Gate-2 co-sign missing founder identity")
+
+    # 3. co-signed hashes cover, and match, the exact on-disk bundle (no post-cosign swap)
+    recorded = cosign.get("frozen_artifacts", {})
+    if not isinstance(recorded, dict) or set(recorded) != set(PREGATE2_CANDIDATE_FILES):
+        raise GEcoHalt(
+            "GATE2_COSIGN_HASH_MISMATCH",
+            "Gate-2 co-sign does not cover the exact frozen bundle",
+        )
+    for filename, expected in recorded.items():
+        if _file_sha256(freeze_dir / filename) != expected:
+            raise GEcoHalt(
+                "GATE2_COSIGN_HASH_MISMATCH",
+                f"frozen {filename} changed after co-sign",
+            )
+
+    # 4. section-9 AST static firewalls
+    if assert_g_eco_static_firewalls() is not True:
+        raise GEcoHalt("GATE2_STATIC_FIREWALL_FAIL", "section-9 static firewalls did not pass")
+
+    # 5. section-7a baseline-audit fired no halt
+    audit = _load_candidate_payload(freeze_dir / "g_eco.baseline_audit.json")
+    halt_booleans = audit.get("halt_booleans", {})
+    fired = sorted(k for k, v in (halt_booleans or {}).items() if v)
+    if fired:
+        raise GEcoHalt("GATE2_AUDIT_HALT", "section-7a/8 halt fired: " + ", ".join(fired))
+
+    # 6. seeds pairwise disjoint
+    rate_s, calib_s, rfinal_s = set(RATE_SEEDS), set(CALIBRATION_SEEDS), set(RFINAL_SEEDS)
+    if (rate_s & calib_s) or (rate_s & rfinal_s) or (calib_s & rfinal_s):
+        raise GEcoHalt("GATE2_SEED_OVERLAP", "rate/calibration/r-final seeds overlap")
+
+    return {
+        "gate2_unlocked": True,
+        "freeze_dir": str(freeze_dir),
+        "cosigned_by": founder,
+        "frozen_artifacts": dict(recorded),
+        "rfinal_seeds": RFINAL_SEEDS,
+        "static_firewalls_verified": True,
+        "audit_halt_clear": True,
+    }
 
 
 def _load_candidate_payload(path: Path) -> dict[str, Any]:
@@ -414,10 +539,19 @@ def main(argv: list[str] | None = None) -> None:
         out_dir = Path(args[1]) if len(args) > 1 else Path(".")
         _print_result(verify_pregate2_candidate_bundle(out_dir))
         return
+    if args and args[0] == "gate2-cosign":
+        # Founder-run deliberate Gate-2 co-sign (Stage 1). Writes the co-sign object
+        # only; it does NOT freeze, run r-final, or emit a verdict, and its
+        # authenticity is a process property (Stage-2 prereg.lock), not this command.
+        if len(args) < 4 or args[2] != "--founder-id":
+            raise SystemExit("usage: python -m experiments.g_eco gate2-cosign OUT_DIR --founder-id ID")
+        _print_result(write_gate2_cosign(Path(args[1]), founder_id=args[3]))
+        return
     if args and args[0] not in {"smoke", "mechanism-check"}:
         raise SystemExit(
             "usage: python -m experiments.g_eco "
-            "[smoke|mechanism-check|pregate2-candidates OUT_DIR|pregate2-verify OUT_DIR]"
+            "[smoke|mechanism-check|pregate2-candidates OUT_DIR|"
+            "pregate2-verify OUT_DIR|gate2-cosign OUT_DIR --founder-id ID]"
         )
     _print_result(mechanism_check())
 
