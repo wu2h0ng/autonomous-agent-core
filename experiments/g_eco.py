@@ -23,6 +23,7 @@ from aac.g_eco import (
     GEcoMetrics,
     assert_no_calibration_refs_in_rfinal,
     assert_g_eco_static_firewalls,
+    assert_shared_substrate,
     build_baseline_audit,
     build_calibration_refs,
     derive_threshold_freeze,
@@ -30,7 +31,11 @@ from aac.g_eco import (
     build_g_eco_arms,
     rfinal_arm_names,
     scan_rate_grid,
+    select_vh_parameters,
     verify_content_hash,
+    # r-final replay MUST use the same primitive theta calibration used, so the
+    # region metric is identical to the one the thresholds were derived from.
+    _run_arm_candidate_summary,
 )
 from envs.ecological_4cond import Ecological4CondEnv
 
@@ -201,6 +206,90 @@ def assert_gate2_unlocked(freeze_dir: Path) -> dict[str, Any]:
         "static_firewalls_verified": True,
         "audit_halt_clear": True,
     }
+
+
+def _assert_rederived_matches(rederived: dict[str, Any], frozen_path: Path, label: str) -> None:
+    frozen = _load_candidate_payload(frozen_path)
+    if rederived.get("content_hash") != frozen.get("content_hash"):
+        raise GEcoHalt(
+            "RFINAL_CANDIDATE_DRIFT",
+            f"re-derived {label} does not match the co-signed freeze",
+        )
+
+
+def run_rfinal(
+    freeze_dir: Path,
+    *,
+    rate_seeds: tuple[int, ...] = RATE_SEEDS,
+    audit_seeds: tuple[int, ...] = CALIBRATION_SEEDS,
+    steps: int = 36,
+    rfinal_seeds: tuple[int, ...] = RFINAL_SEEDS,
+    run_steps: int = 36,
+) -> dict[str, Any]:
+    """Replay the co-signed frozen candidate over the r-final seeds; emit RAW data only.
+
+    Refuses unless Gate-2 is unlocked. Re-derives the frozen rates + VH params from the
+    frozen calibration seeds and asserts they hash-match the co-signed freeze (faithful
+    replay of the EXACT candidate; drift -> RFINAL_CANDIDATE_DRIFT). Replays every
+    r-final arm over ``rfinal_seeds`` deterministically using the SAME run primitive the
+    theta calibration used, and returns per-seed/per-arm raw metrics. NO thresholds, NO
+    comparison-to-bound, NO verdict. C6 (shared substrate + no calibration refs) is
+    verified; C7 shell verification is NOT yet performed and is flagged pending, so the
+    raw data is NOT adjudication-ready until C7 is verified.
+    """
+    ctx = assert_gate2_unlocked(freeze_dir)  # refuses (raises GEcoHalt) if locked
+
+    # Faithful replay: re-derive the frozen candidate and prove it equals the co-sign.
+    rates_freeze = scan_rate_grid(seeds=rate_seeds, steps=steps)
+    _assert_rederived_matches(rates_freeze.to_dict(), freeze_dir / "g_eco.rates.json", "rates")
+    battery_freeze = freeze_battery_parameters(rates_freeze, seeds=audit_seeds, steps=steps)
+    _assert_rederived_matches(battery_freeze.to_dict(), freeze_dir / "g_eco.battery.json", "battery")
+    vh_freeze = select_vh_parameters(rates_freeze, seeds=audit_seeds, steps=steps)
+
+    # C6 firewall verify: bit-identical shared substrate; cheats never reach r-final.
+    all_arms = build_g_eco_arms(include_cheats=True, vh_params=vh_freeze.params)
+    assert_shared_substrate(all_arms)
+    allowed = assert_no_calibration_refs_in_rfinal(all_arms, rfinal_arm_names())
+
+    # Deterministic replay over r-final seeds, using the SAME primitive as calibration
+    # so the region metric is identical to the one theta was derived from.
+    raw: dict[str, list[dict[str, Any]]] = {name: [] for name in allowed}
+    for seed in rfinal_seeds:
+        for name in allowed:
+            summary = _run_arm_candidate_summary(
+                seed, name, rates=rates_freeze.rates, steps=run_steps, vh_params=vh_freeze.params
+            )
+            raw[name].append(
+                {
+                    "seed": seed,
+                    "full_region": bool(summary["full_region"]),
+                    "survival_steps": summary["survival_steps"],
+                    "irreversible_loss": summary["irreversible_loss"],
+                }
+            )
+
+    payload = {
+        "kind": "g_eco.rfinal.raw",
+        "freeze_dir": str(freeze_dir),
+        "cosigned_by": ctx["cosigned_by"],
+        "rfinal_seeds": list(rfinal_seeds),
+        "run_steps": run_steps,
+        "arms": list(allowed),
+        "raw": raw,
+        "c6c7": {
+            "shared_substrate_verified": True,
+            "no_calibration_refs_in_rfinal": True,
+            "c7_shell_verified": False,
+        },
+        "adjudication_ready": False,
+        "note": (
+            "RAW per-seed/per-arm metrics only (full_region/survival_steps/"
+            "irreversible_loss). No judgement and no comparison-to-bound here. "
+            "C7 shell verification pending -> NOT adjudication-ready. Adjudication "
+            "belongs to kimicode, on this raw data, per the frozen rfinal protocol."
+        ),
+    }
+    return _cosign_with_hash(payload)
 
 
 def _load_candidate_payload(path: Path) -> dict[str, Any]:
