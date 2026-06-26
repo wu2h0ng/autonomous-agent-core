@@ -307,7 +307,41 @@ Rules:
 - `RuntimePolicyGate` denial returns the existing blocked response contract with `stage="agent_runtime"`.
 - A paused `ShellView` denies before `agent_runtime.tool_started` and persists a queryable blocked `RunTrace`.
 - Internal runtime/tool failures return a sanitized service error instead of a business block and must not expose raw exception text to external report-key projections.
-- This slice does not change `/approvals/{approval_id}/execute`, does not make R4/R5 executable, and does not introduce a graph/workflow engine.
+- This `/runs` slice did not change `/approvals/{approval_id}/execute`, did not make R4/R5 executable, and did not introduce a graph/workflow engine.
+
+### 4.9 HTTP `/approvals/{approval_id}/execute` Envelope
+
+The approval-execute slice composes the existing approval-resume path into a
+narrow runtime envelope:
+
+```text
+POST /approvals/{approval_id}/execute
+  -> operator-key auth
+  -> AgentRunContext(approval_id, risk_ceiling=R3)
+  -> TrustedLoopApprovalExecutionRuntimeAdapter.execute()
+  -> RuntimePolicyGate.check()
+  -> AgentRuntime.invoke_tool()
+  -> TrustedLoopRuntime.approve_and_execute_pending_operation()
+  -> ApprovalRuntime / ApprovalContextStore / EvidenceChain / OperationTrace
+```
+
+Rules:
+
+- HTTP `X-Operator-Key` remains the transport authentication boundary.
+- `AgentRuntime` does not become the approval authority; approval status,
+  pending-context claim/release, exact operation/evidence/action binding, stale
+  claim behavior, and replay prevention remain owned by `ApprovalRuntime` and
+  `ApprovalContextStore`.
+- The runtime tool is `trusted_loop.approval_execute` with risk `R3`,
+  side-effect class `approval_execution`, permission `trusted_loop:approval_execute`,
+  and `requires_approval=True`.
+- `AgentRunContext.approval_id` is bound from the route path; missing or paused
+  runtime context denies before the tool body.
+- R4/R5 automatic execution remains fail-closed inside the existing
+  `TrustedLoopRuntime.execute_approved_operation(...)` path.
+- Runtime envelope trace events must not include raw request parameters,
+  raw approval payloads, or raw connector output.
+- Existing 404/409 approval execution response contracts are preserved.
 
 ## 5. Test-First Plan
 
@@ -358,8 +392,10 @@ Add tests before implementation:
   - the paused denial trace id is queryable through `/traces/{trace_id}`;
   - runtime/tool exceptions return sanitized HTTP 500 errors without exposing raw exception text to external report-key projections;
   - HTTP runtime diagnostics are request-scoped and do not retain prior request `run_id`s;
-  - sanitized Agent Runtime HTTP 500 failures are declared in the OpenAPI contract with a typed response schema.
-  - successful `POST /runs` persists `agent_runtime.policy_allowed`, `agent_runtime.tool_started`, and `agent_runtime.tool_succeeded` into `/traces/{trace_id}` without raw request parameters.
+  - sanitized Agent Runtime HTTP 500 failures are declared in the OpenAPI contract with a typed response schema;
+  - successful `POST /runs` persists `agent_runtime.policy_allowed`, `agent_runtime.tool_started`, and `agent_runtime.tool_succeeded` into `/traces/{trace_id}` without raw request parameters;
+  - `POST /approvals/{approval_id}/execute` traverses the approval-execute runtime envelope;
+  - paused-shell denial blocks approval execution before connector writes.
 
 ## 6. Implementation Tasks
 
@@ -386,6 +422,7 @@ Add tests before implementation:
 - [x] T14: bound HTTP runtime diagnostics by replacing the shared app-lifetime adapter/writer with per-request adapter/writer instances and retaining only the latest request diagnostics.
 - [x] T15: declare sanitized `/runs` Agent Runtime 500 failures in OpenAPI as `AgentRuntimeErrorResponse` and add a contract regression test.
 - [x] T16: persist safe successful `/runs` Agent Runtime envelope events into the business `RunTrace`.
+- [x] T17: route `POST /approvals/{approval_id}/execute` through a narrow Agent Runtime envelope while preserving Approval/ApprovalContextStore authority and R4/R5 fail-closed execution.
 
 ## 7. Stop Conditions
 
@@ -416,3 +453,4 @@ Stop and return to CTO review if:
 - Replay boundaries are explicit enough that an external reviewer can determine what was executed, denied, failed, or declared unreplayable.
 - Checkpoint resume is fail-closed: it returns a stored result only for a matching tool call, run context, and tool spec, and mismatches do not execute tools.
 - Durable checkpoint storage is an adapter behind `CheckpointStorePort`; OS Core does not import SQLAlchemy or `agent_os_persistence`.
+- HTTP approval execution traverses the runtime envelope, and paused-shell denial stops before connector writes.

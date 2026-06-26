@@ -42,6 +42,7 @@ __all__ = [
     "StructuredOutputValidator",
     "ToolRegistry",
     "ToolSpec",
+    "TrustedLoopApprovalExecutionRuntimeAdapter",
     "TrustedLoopAgentRuntimeAdapter",
 ]
 
@@ -732,3 +733,92 @@ class TrustedLoopAgentRuntimeAdapter:
         context: AgentRunContext,
     ) -> Any:
         return self.trusted_loop.evaluate(question, parameters)
+
+
+class TrustedLoopApprovalExecutionRuntimeAdapter:
+    """Runtime envelope for approval-bound TrustedLoop action execution."""
+
+    TOOL_NAME = "trusted_loop.approval_execute"
+
+    def __init__(
+        self,
+        trusted_loop: Any,
+        *,
+        shell_view: ShellView | None = None,
+        trace_writer: AgentTraceWriter | None = None,
+    ) -> None:
+        self.trusted_loop = trusted_loop
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name=self.TOOL_NAME,
+                description="Execute a pending TrustedLoop approval by approval id.",
+                required_keys=("approval_id", "reason", "approved_by"),
+                risk_level="R3",
+                side_effect_class="approval_execution",
+                required_permissions=("trusted_loop:approval_execute",),
+                requires_approval=True,
+            ),
+            self._execute_tool,
+        )
+        self.runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(shell_view=shell_view),
+            trace_writer=trace_writer,
+        )
+
+    def execute(
+        self,
+        *,
+        context: AgentRunContext,
+        approval_id: str,
+        reason: str,
+        approved_by: str,
+    ) -> AgentToolResult:
+        return self.runtime.invoke_tool(
+            AgentToolCall(
+                call_id=f"{self.TOOL_NAME}:{context.run_id or context.trace_id}",
+                tool_name=self.TOOL_NAME,
+                args={
+                    "approval_id": approval_id,
+                    "reason": reason,
+                    "approved_by": approved_by,
+                },
+            ),
+            context,
+        )
+
+    def _execute_tool(
+        self,
+        *,
+        approval_id: str,
+        reason: str,
+        approved_by: str,
+        context: AgentRunContext,
+    ) -> Mapping[str, Any]:
+        del context
+        try:
+            approval, operation_trace = self.trusted_loop.approve_and_execute_pending_operation(
+                approval_id=approval_id,
+                reason=reason,
+                approved_by=approved_by,
+            )
+        except KeyError as exc:
+            return {
+                "status": "not_found",
+                "code": "approval_context_not_found",
+                "message": str(exc).strip("'"),
+                "approval_id": approval_id,
+            }
+        except ValueError as exc:
+            return {
+                "status": "conflict",
+                "code": "approval_execution_conflict",
+                "message": str(exc),
+                "approval_id": approval_id,
+            }
+        return {
+            "status": "ok",
+            "approval": approval,
+            "operation_trace": operation_trace,
+        }

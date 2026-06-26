@@ -700,6 +700,11 @@ def approve_and_execute_service(
         reason=reason,
         approved_by=approved_by,
     )
+    return approval_execution_response_payload(approval, operation_trace)
+
+
+def approval_execution_response_payload(approval: Any, operation_trace: Any) -> dict[str, Any]:
+    """Project approval execution contracts into the stable HTTP/CLI response shape."""
     final_event = operation_trace.events[-1] if operation_trace.events else {}
     return {
         "approval_id": approval.approval_id,

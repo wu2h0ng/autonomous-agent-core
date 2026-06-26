@@ -92,6 +92,19 @@ Implemented in the HTTP/API composition layer on `codex/agent-runtime-success-tr
 - terminal runtime events such as `agent_runtime.tool_succeeded` are stored after business Trusted Loop events;
 - persisted runtime event payloads are allowlisted to safe metadata and exclude raw request parameters and raw tool output.
 
+Implemented in the HTTP/API composition layer on `codex/agent-runtime-approval-execute-envelope`:
+
+- `POST /approvals/{approval_id}/execute` constructs an `AgentRunContext` with
+  the route-bound `approval_id` and calls the existing approval-resume path
+  through `TrustedLoopApprovalExecutionRuntimeAdapter`;
+- `ApprovalRuntime` and `ApprovalContextStore` remain the authority for approval
+  status, exact pending context, claim/release, replay prevention, and stale-claim
+  behavior;
+- paused-shell runtime policy denial returns before `agent_runtime.tool_started`
+  and before any connector write;
+- existing 404/409 approval execution response contracts are preserved;
+- R4/R5 business actions remain proposal-only in MVP.
+
 The original thin-shell compatibility surface remains:
 
 - `ToolRegistry.register(name, tool)`
@@ -142,6 +155,8 @@ Required properties covered:
 - HTTP runtime diagnostic events are request-scoped rather than app-lifetime accumulated.
 - The OpenAPI contract declares the sanitized Agent Runtime 500 response for `/runs`.
 - Successful HTTP `POST /runs` persists safe Agent Runtime envelope events into `/traces/{trace_id}` without raw request parameters.
+- HTTP `POST /approvals/{approval_id}/execute` traverses the approval-execute runtime envelope on success;
+- paused-shell denial at approval execution returns before `agent_runtime.tool_started` and before connector writes.
 
 ## 6. Verification
 
@@ -199,6 +214,20 @@ Result:
 - full `make ci` passed with ruff clean, format clean, 454 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
 - `ci-local-full` passed against PostgreSQL on `127.0.0.1:5432/agent_os_test`.
 
+Additional approval-execute-envelope verification on `codex/agent-runtime-approval-execute-envelope`:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_http_app tests.unit.test_outcome_service tests.unit.test_agent_runtime_policy tests.unit.test_agent_runtime_tools tests.integration.test_trusted_loop_agent_runtime_adapter -v
+make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+```
+
+Result:
+
+- 79 affected HTTP/service/runtime/adapter tests OK.
+- full `make ci` passed with 455 tests OK, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
+- `ci-local-full` also passed against the local PostgreSQL `agent_os_test` database on `127.0.0.1:5432`.
+
 ## 7. Non-Claims
 
 This ADR does not claim:
@@ -214,7 +243,7 @@ This ADR does not claim:
 
 Future ADRs may add:
 
-- remaining runtime API surfaces beyond `POST /runs`, including approval-execute envelope decisions;
+- remaining runtime API surfaces beyond `POST /runs` and `/approvals/{approval_id}/execute`;
 - checkpoint backend selection in product factories;
 - production telemetry/export policy for runtime-envelope events;
 - hard budgets for time/tool/cost;

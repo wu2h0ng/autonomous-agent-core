@@ -420,6 +420,89 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["execution_audit"]["external_ack_status"], "not_applicable")
         self.assertIn("connector_executed", [event["step"] for event in payload["events"]])
 
+    def test_approval_execute_traverses_agent_runtime_envelope(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+        run_writer = client.app.state.agent_runtime_trace_writer
+
+        execute_resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+
+        self.assertEqual(execute_resp.status_code, 200, execute_resp.text)
+        execute_writer = client.app.state.agent_runtime_trace_writer
+        self.assertIsNot(execute_writer, run_writer)
+        approval_tool_events = [
+            event
+            for event in execute_writer.events
+            if event["payload"].get("tool_name") == "trusted_loop.approval_execute"
+        ]
+        approval_tool_steps = [event["step"] for event in approval_tool_events]
+        self.assertIn("agent_runtime.policy_allowed", approval_tool_steps)
+        self.assertIn("agent_runtime.tool_started", approval_tool_steps)
+        self.assertIn("agent_runtime.tool_succeeded", approval_tool_steps)
+        self.assertIn("agent_runtime.invocation_finished", approval_tool_steps)
+
+    def test_approval_execute_paused_shell_is_denied_before_connector_write(self) -> None:
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        client = TestClient(
+            create_app(
+                runtime,
+                api_key=API_KEY,
+                operator_api_key=OPERATOR_KEY,
+                adoption_ingest=factory.adoption_ingest(),
+            )
+        )
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        factory.corrigibility_shell().op_pause()
+        execute_resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+
+        self.assertEqual(execute_resp.status_code, 409, execute_resp.text)
+        detail = execute_resp.json()["detail"]
+        self.assertEqual(detail["code"], "DENY_PAUSED")
+        self.assertEqual(detail["approval_id"], approval_id)
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.policy_denied", runtime_steps)
+        self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+        action_record_connector = client.app.state.runtime.connector_registry.get("action_record")
+        self.assertEqual(len(action_record_connector.store.records()), 0)
+
     def test_approval_execute_uses_approval_bound_context_without_cross_pollution(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

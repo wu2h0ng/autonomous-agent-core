@@ -32,11 +32,12 @@ from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 from agent_os_core.agent_runtime import (
     AgentRunContext,
     AgentTraceWriter,
+    TrustedLoopApprovalExecutionRuntimeAdapter,
     TrustedLoopAgentRuntimeAdapter,
 )
 
 from .outcome_service import (
-    approve_and_execute_service,
+    approval_execution_response_payload,
     attest_adoption_service,
     record_outcome_service,
     run_service,
@@ -759,35 +760,84 @@ def create_app(
     def post_approval_execute(
         approval_id: str,
         body: ApprovalExecuteRequest,
-        _: ApiPrincipal = Depends(require_operator_api_key),
+        principal: ApiPrincipal = Depends(require_operator_api_key),
     ) -> dict[str, Any]:
         # Approval-bound action execution: approve then execute the exact pending
         # context captured by the prior /runs call. No automatic R4/R5 execution.
+        agent_runtime_trace_writer = AgentTraceWriter()
+        agent_runtime_adapter = TrustedLoopApprovalExecutionRuntimeAdapter(
+            app.state.runtime,
+            shell_view=getattr(app.state.runtime, "shell_view", None),
+            trace_writer=agent_runtime_trace_writer,
+        )
+        agent_context = AgentRunContext(
+            tenant_id="default",
+            workspace_id="default",
+            principal_id=principal.kind,
+            principal_role=principal.kind,
+            run_id=f"http-approval-execute-{uuid4().hex[:12]}",
+            trace_id=f"agent-trace-{uuid4().hex[:12]}",
+            policy_scope=frozenset({"trusted_loop:approval_execute"}),
+            risk_ceiling="R3",
+            approval_id=approval_id,
+            metadata={
+                "surface": "POST /approvals/{approval_id}/execute",
+                "principal_kind": principal.kind,
+            },
+        )
         try:
-            return approve_and_execute_service(
-                app.state.runtime,
+            agent_result = agent_runtime_adapter.execute(
+                context=agent_context,
                 approval_id=approval_id,
                 reason=body.reason,
                 approved_by=body.approved_by,
             )
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "code": "approval_context_not_found",
-                    "message": str(exc).strip("'"),
-                    "approval_id": approval_id,
-                },
-            ) from exc
-        except ValueError as exc:
+        finally:
+            app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
+
+        if agent_result.status != "ok":
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "code": "approval_execution_conflict",
-                    "message": str(exc),
+                    "code": agent_result.error_code or agent_result.status,
+                    "message": agent_result.error_message or "Agent Runtime refused execution.",
                     "approval_id": approval_id,
                 },
-            ) from exc
+            )
+
+        output = agent_result.output if isinstance(agent_result.output, dict) else {}
+        output_status = output.get("status")
+        if output_status == "ok":
+            return approval_execution_response_payload(
+                output["approval"],
+                output["operation_trace"],
+            )
+        if output_status == "not_found":
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": output["code"],
+                    "message": output["message"],
+                    "approval_id": approval_id,
+                },
+            )
+        if output_status == "conflict":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": output["code"],
+                    "message": output["message"],
+                    "approval_id": approval_id,
+                },
+            )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "AGENT_RUNTIME_APPROVAL_EXECUTE_ERROR",
+                "message": "Agent Runtime approval execution returned an invalid result.",
+                "approval_id": approval_id,
+            },
+        )
 
     @app.get("/knowledge/search", response_model=SearchResponse)
     def get_knowledge_search(
