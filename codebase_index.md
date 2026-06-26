@@ -52,6 +52,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0036-bounded-consequence-prior-gate.md` | Completed, NOT MET | G13 tested a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 | `ADR-0037-self-determination-depth-vs-corrigibility.md` | Proposed, docs-only | Registers SD0-SD4 and the open SD4-separability question |
 | `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer and integrity/firewall verifier; no co-signed freeze, no r-final, no verdict |
+| `ADR-0039-viability-empowerment-c1-formalization.md` | Proposed, docs-only (founder-reserved) | Candidate formal object for C1: empowerment (organ-proposed) maximand subject to z∈Viab(K) ∧ B(t)>0, corrigibility as external lexicographic barrier (never in-K, never in objective); preregistered cheap experiment S1/S2 with negatives N1–N6 frozen before runs; pre-empts RR-0026 audit verdicts C1–C3; does not decide ADR-0037 Q2 or touch frozen G-Eco |
 
 ## Current Code Map
 

@@ -56,6 +56,7 @@ authoritative_adrs:
     - "ADR-0033 HyperAgents/DGM external-only assimilation boundary"
   open_questions:
     - "ADR-0037 (Proposed, docs-only, founder-raised 2026-06-22): registers Self-Determination Depth (SD0-SD4) as a subject-side axis distinct from ADR-0033 assimilation L0-L5, and opens Q2 — is SD4 (revising/refusing the C7 correction channel) separable from autonomy, or does C7 permanently foreclose the summit? No change to C6/C7/gates/params. Q2 is moved by Route C / G-Eco results; awaits Codex/CTO ratification and a future founder ruling before any status change."
+    - "ADR-0039 (Proposed, docs-only, agent-recommended 2026-06-24, founder-reserved): proposes a viability/empowerment/thermodynamic-budget formalization of C1 — empowerment as an organ-proposed constrained maximand subject to z∈Viab(K) ∧ B(t)>0, with corrigibility as an external lexicographic barrier (never in-K, never in the objective). Adoptable ONLY on a preregistered cheap CPU-only experiment (S1 arms VEB/B1-B4, seeds 900-929 disjoint from G-Eco, metrics M1-M5, negatives N1-N6 frozen before runs; a clean N5/N6 ⇒ recommend-against). Pre-empts the RR-0026 audit verdicts C1-C3 (holds=false): no 5-discipline convergence invoked, empowerment never disposes, determinism claimed only for the gate + selection over an organ-narrowed feasible set. Does NOT decide ADR-0037 Q2 and does NOT touch frozen Route C / G-Eco. Source: parent docs/research/ADR-DRAFT-viability-empowerment-c1-formalization-2026-06-23.md + RR-0026. Awaits founder ruling before any status change or funding."
   tracked_g10_files:
     - "experiments/confidence_gated_g10.py"
     - "tests/test_confidence_gated_g10.py"
@@ -321,6 +322,7 @@ handoff_read_order:
   - "docs/adr/ADR-0036-bounded-consequence-prior-gate.md"
   - "docs/adr/ADR-0037-self-determination-depth-vs-corrigibility.md"
   - "docs/adr/ADR-0038-g-eco-mechanism-lower-half.md"
+  - "docs/adr/ADR-0039-viability-empowerment-c1-formalization.md"
   - "../docs/research/research_index.md"
   - "docs/adr/ADR-0027-post-c3-route-disposition.md"
   - "docs/adr/ADR-0028-survival-axis-de-risk.md"
