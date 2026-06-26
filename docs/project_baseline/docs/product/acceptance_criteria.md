@@ -69,14 +69,14 @@ Negative path:
 | UI-01 | Business Context visible | F0 pass |
 | UI-02 | Trusted Answer visible with confidence/eval/block count | F0 pass |
 | UI-03 | EvidenceChain visible as first-class section | F0 pass |
-| UI-04 | DataProduct candidate visible or planned for F1 | F1 required |
+| UI-04 | DataProduct candidate visible or planned for F1 | F1 static pass |
 | UI-05 | Action Governance visible with risk and approval | F0 pass |
 | UI-06 | Feedback controls visible | F0 pass |
 | UI-07 | Trace id and steps visible | F0 pass |
 | UI-08 | SQL blocked state visible | F0 pass |
 | UI-09 | Insufficient evidence state visible | F0 pass |
 | UI-10 | Loading and empty states visible | P1 required |
-| UI-11 | KnowledgeAsset candidate review path visible | F1 required |
+| UI-11 | KnowledgeAsset candidate review path visible | F1 static pass |
 
 ## 4. CTO Exit Gate
 

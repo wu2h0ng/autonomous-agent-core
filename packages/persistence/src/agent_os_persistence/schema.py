@@ -60,6 +60,16 @@ agent_runtime_checkpoints = Table(
     Column("payload", JSON, nullable=False),
 )
 
+# User-facing report snapshots: keyed by trace_id + audience. These are already-built
+# projections for read-side report retrieval; they never re-run SQL or actions.
+report_snapshots = Table(
+    "report_snapshots",
+    metadata,
+    Column("trace_id", String, primary_key=True),
+    Column("audience", String, primary_key=True),
+    Column("payload", JSON, nullable=False),
+)
+
 # Connector-side action records: the durable side-effect ledger for the
 # action_record connector. Approval context persistence proves command recovery;
 # this table proves the connector write target and idempotency map survive a

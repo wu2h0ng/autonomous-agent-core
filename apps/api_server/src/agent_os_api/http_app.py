@@ -1,8 +1,10 @@
 """FastAPI HTTP surface for the Trusted Loop.
 
 This is the only module in the package that imports FastAPI. ``__init__.py`` and
-``cli.py`` deliberately do NOT import it, so non-HTTP users (and the canonical
-bare-env ``make ci``) never need fastapi installed.
+``cli.py`` deliberately do NOT import it, so non-HTTP users do not need fastapi
+installed. Local ``make ci`` includes the OpenAPI contract drift gate and therefore
+requires the dev/http/postgres extras from ``make bootstrap-dev`` or an equivalent
+``PYTHON=...`` environment.
 
 The app holds ONE shared ``TrustedLoopRuntime`` for its lifetime so the
 in-memory knowledge/feedback stores persist across requests: a ``POST /runs``
@@ -37,9 +39,11 @@ from agent_os_core.agent_runtime import (
 )
 
 from .outcome_service import (
+    InMemoryReportSnapshotStore,
     approval_execution_response_payload,
     attest_adoption_service,
     record_outcome_service,
+    report_snapshot_service,
     run_service,
     search_service,
     trace_service,
@@ -58,6 +62,7 @@ API_SCOPE_OUTCOME_WRITE = "outcomes:write"
 API_SCOPE_ADOPTION_WRITE = "adoptions:write"
 API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
 API_SCOPE_TRACE_READ = "traces:read"
+API_SCOPE_REPORT_READ = "reports:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
 
 
@@ -81,13 +86,14 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
             API_SCOPE_ADOPTION_WRITE,
             API_SCOPE_KNOWLEDGE_SEARCH,
             API_SCOPE_TRACE_READ,
+            API_SCOPE_REPORT_READ,
         }
     ),
     audience_ceiling="internal",
 )
 API_PRINCIPAL_EXTERNAL_REPORT = ApiPrincipal(
     kind="external_report",
-    scopes=frozenset({API_SCOPE_RUN_EXTERNAL}),
+    scopes=frozenset({API_SCOPE_RUN_EXTERNAL, API_SCOPE_REPORT_READ}),
     audience_ceiling="external",
 )
 API_PRINCIPAL_OPERATOR = ApiPrincipal(
@@ -343,6 +349,12 @@ class RunResponse(BaseModel):
     user_result: UserResultArtifact
 
 
+class RunReportResponse(BaseModel):
+    trace_id: str
+    audience: Literal["internal", "external"]
+    user_result: UserResultArtifact
+
+
 class AgentRuntimeErrorDetail(BaseModel):
     code: str
     message: str
@@ -529,6 +541,7 @@ def create_app(
     external_api_key: str | None = None,
     operator_api_key: str | None = None,
     adoption_ingest: Any | None = None,
+    report_store: Any | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to a single shared runtime.
 
@@ -566,11 +579,13 @@ def create_app(
         shared_adoption_ingest = (
             adoption_ingest if adoption_ingest is not None else factory.adoption_ingest()
         )
+        default_report_store = factory.build_report_snapshot_store()
     else:
         shared_runtime = runtime
         shared_retriever = retriever
         shared_agent_checkpoint_store = agent_checkpoint_store
         shared_adoption_ingest = adoption_ingest
+        default_report_store = None
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
     configured_external_key = (
         external_api_key if external_api_key is not None else os.environ.get(EXTERNAL_API_KEY_ENV)
@@ -592,6 +607,13 @@ def create_app(
     app.state.external_api_key = configured_external_key
     app.state.operator_api_key = configured_operator_key
     app.state.adoption_ingest = shared_adoption_ingest
+    app.state.report_store = (
+        report_store
+        if report_store is not None
+        else default_report_store
+        if default_report_store is not None
+        else InMemoryReportSnapshotStore()
+    )
 
     def authenticate_api_key(
         x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
@@ -691,6 +713,7 @@ def create_app(
                 audience=audience,
                 agent_runtime_adapter=agent_runtime_adapter,
                 agent_context=agent_context,
+                report_store=app.state.report_store,
             )
         finally:
             app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
@@ -711,6 +734,22 @@ def create_app(
         if principal.audience_ceiling == "external":
             return _external_run_response_projection(result)
         return result
+
+    @app.get("/runs/{trace_id}/report", response_model=RunReportResponse)
+    def get_run_report(
+        trace_id: str,
+        audience: Literal["internal", "external"] = Query(default="internal"),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_REPORT_READ)),
+    ) -> dict[str, Any]:
+        projected_audience = "external" if principal.audience_ceiling == "external" else audience
+        payload = report_snapshot_service(
+            app.state.report_store,
+            trace_id=trace_id,
+            audience=projected_audience,
+        )
+        if payload is None:
+            raise HTTPException(status_code=404, detail=f"No report snapshot for {trace_id!r}.")
+        return payload
 
     @app.post("/outcomes", response_model=OutcomeResponse)
     def post_outcome(

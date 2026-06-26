@@ -51,6 +51,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/knowledge/search",
                 "/outcomes",
                 "/runs",
+                "/runs/{trace_id}/report",
                 "/traces/{trace_id}",
             ],
         )

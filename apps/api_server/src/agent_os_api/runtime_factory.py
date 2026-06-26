@@ -329,6 +329,20 @@ class ContentCommerceRuntimeFactory:
             raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
         return self._agent_checkpoint_store
 
+    def build_report_snapshot_store(self) -> Any:
+        """Build the report-read projection store for the configured backend."""
+        if self.config.store_backend == STORE_MEMORY:
+            from .outcome_service import InMemoryReportSnapshotStore
+
+            return InMemoryReportSnapshotStore()
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlReportSnapshotStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            return SqlReportSnapshotStore(engine)
+        raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+
     def _embedder(self) -> Any:
         from agent_os_core import HashingEmbedder
 

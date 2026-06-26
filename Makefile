@@ -4,13 +4,16 @@
 PYTHON      ?= python
 PYTHONPATH   = packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src
 
-.PHONY: bootstrap-dev check-dev-env lint format-check unit eval test openapi-contract ci ci-local-full
+.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval test openapi-contract ci ci-local-full
 
 bootstrap-dev:
 	$(PYTHON) -m pip install -e ".[dev,http,postgres]"
 
-check-dev-env:
-	$(PYTHON) -c "import importlib.util, os, sys; missing=[m for m in ('fastapi','httpx','sqlalchemy','psycopg','alembic','ruff') if importlib.util.find_spec(m) is None]; sys.exit('missing dev dependencies: '+', '.join(missing)) if missing else None; sys.exit('AGENT_OS_DATABASE_URL is required for ci-local-full; use a disposable test database') if not os.environ.get('AGENT_OS_DATABASE_URL') else None"
+check-ci-env:
+	$(PYTHON) -c "import importlib.util, sys; missing=[m for m in ('fastapi','httpx','sqlalchemy','psycopg','alembic','ruff') if importlib.util.find_spec(m) is None]; sys.exit('missing ci dependencies for $(PYTHON): '+', '.join(missing)+'; run make bootstrap-dev PYTHON=$(PYTHON) or pass PYTHON=/path/to/.venv/bin/python') if missing else None"
+
+check-dev-env: check-ci-env
+	$(PYTHON) -c "import os, sys; sys.exit('AGENT_OS_DATABASE_URL is required for ci-local-full; use a disposable test database') if not os.environ.get('AGENT_OS_DATABASE_URL') else None"
 
 lint:
 	$(PYTHON) -m ruff check .
@@ -29,7 +32,7 @@ test: unit eval
 openapi-contract:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m agent_os_api.openapi_contract --check
 
-ci: lint format-check unit eval openapi-contract
+ci: check-ci-env lint format-check unit eval openapi-contract
 	@echo "=== All CI checks passed ==="
 
 ci-local-full: check-dev-env ci
