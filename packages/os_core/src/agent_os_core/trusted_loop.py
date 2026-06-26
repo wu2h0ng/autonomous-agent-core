@@ -1084,21 +1084,6 @@ class TrustedLoopRuntime:
             or "external_request_id" in execute_event
         ):
             execute_event["external_ack_status"] = "unknown"
-        if operation.connector_name == "action_record":
-            execute_event["durability_scope"] = "connector_local_ledger"
-            if action_result.get("status") == "idempotent_replay":
-                execute_event["replay_status"] = action_result.get(
-                    "last_replay_status",
-                    "idempotent_replay",
-                )
-                execute_event["external_ack_status"] = (
-                    "unknown"
-                    if action_result.get("execution_certainty") == "uncertain_recovered"
-                    else "not_applicable"
-                )
-            else:
-                execute_event["replay_status"] = "not_replayed"
-                execute_event["external_ack_status"] = "not_applicable"
         if trace is not None:
             trace.record(
                 "connector_execute",

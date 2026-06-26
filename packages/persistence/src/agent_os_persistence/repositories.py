@@ -273,6 +273,45 @@ class SqlAgentCheckpointStore(_SqlStoreBase, CheckpointStorePort):
         return mappers.run_state_snapshot_from_payload(row[0]) if row is not None else None
 
 
+class SqlReportSnapshotStore(_SqlStoreBase):
+    """Durable read-side store for already-built report projections."""
+
+    _audiences = {"internal", "external"}
+
+    def save(self, trace_id: str, snapshots_by_audience: dict[str, dict[str, object]]) -> None:
+        table = schema.report_snapshots
+        with self._write() as conn:
+            for audience, snapshot in snapshots_by_audience.items():
+                if audience not in self._audiences:
+                    continue
+                payload = copy.deepcopy(snapshot)
+                exists = conn.execute(
+                    select(table.c.trace_id)
+                    .where(table.c.trace_id == trace_id)
+                    .where(table.c.audience == audience)
+                ).fetchone()
+                values = {"trace_id": trace_id, "audience": audience, "payload": payload}
+                if exists is None:
+                    conn.execute(table.insert().values(**values))
+                else:
+                    conn.execute(
+                        table.update()
+                        .where(table.c.trace_id == trace_id)
+                        .where(table.c.audience == audience)
+                        .values(payload=payload)
+                    )
+
+    def get(self, trace_id: str, audience: str) -> dict[str, object] | None:
+        table = schema.report_snapshots
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload)
+                .where(table.c.trace_id == trace_id)
+                .where(table.c.audience == audience)
+            ).fetchone()
+        return copy.deepcopy(dict(row[0])) if row is not None else None
+
+
 class SqlActionRecordStore(_SqlStoreBase):
     """Durable side-effect ledger for the action_record connector.
 

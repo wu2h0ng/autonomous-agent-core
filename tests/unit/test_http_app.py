@@ -334,6 +334,99 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("order_date", rendered)
         self.assertNotIn("sha256:", rendered)
 
+    def test_external_report_key_reads_existing_report_without_reexecuting_run(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV 记录行动",
+                "parameters": RUN_BODY["parameters"],
+                "audience": "internal",
+            },
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        def fail_if_reexecuted(*_args, **_kwargs):
+            raise AssertionError("report read must not call runtime.evaluate")
+
+        client.app.state.runtime.evaluate = fail_if_reexecuted
+
+        report_resp = client.get(
+            f"/runs/{trace_id}/report",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(report_resp.status_code, 200, report_resp.text)
+        payload = report_resp.json()
+        self.assertEqual(payload["trace_id"], trace_id)
+        self.assertEqual(payload["audience"], "external")
+        artifact = payload["user_result"]
+        self.assertEqual(artifact["trace_id"], trace_id)
+        self.assertEqual(artifact["audience"], "external")
+        self.assertTrue(artifact["redaction"]["applied"])
+        rendered = report_resp.text
+        self.assertNotIn("sales.orders", rendered)
+        self.assertNotIn("order_date", rendered)
+        self.assertNotIn("sha256:", rendered)
+
+    def test_report_read_respects_internal_access_and_external_ceiling(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        run_resp = client.post(
+            "/runs",
+            json={
+                "question": RUN_BODY["question"],
+                "parameters": RUN_BODY["parameters"],
+                "audience": "internal",
+            },
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        internal_report = client.get(
+            f"/runs/{trace_id}/report",
+            headers={"X-API-Key": API_KEY},
+        )
+        external_forced_report = client.get(
+            f"/runs/{trace_id}/report?audience=internal",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(internal_report.status_code, 200, internal_report.text)
+        self.assertEqual(external_forced_report.status_code, 200, external_forced_report.text)
+        self.assertEqual(internal_report.json()["audience"], "internal")
+        self.assertEqual(internal_report.json()["user_result"]["audience"], "internal")
+        self.assertEqual(external_forced_report.json()["audience"], "external")
+        self.assertEqual(external_forced_report.json()["user_result"]["audience"], "external")
+        self.assertEqual(
+            internal_report.json()["user_result"]["artifact_id"],
+            f"artifact-{trace_id}-internal",
+        )
+        self.assertEqual(
+            external_forced_report.json()["user_result"]["artifact_id"],
+            f"artifact-{trace_id}-external",
+        )
+        self.assertNotEqual(
+            internal_report.json()["user_result"]["artifact_id"],
+            external_forced_report.json()["user_result"]["artifact_id"],
+        )
+        self.assertIn("sha256:", internal_report.text)
+        self.assertNotIn("sha256:", external_forced_report.text)
+
+    def test_report_read_unknown_snapshot_is_404_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        missing_key = client.get("/runs/trace-missing/report")
+        missing_snapshot = client.get(
+            "/runs/trace-missing/report",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+
+        self.assertEqual(missing_key.status_code, 401)
+        self.assertEqual(missing_snapshot.status_code, 404)
+
     def test_external_api_key_blocked_run_omits_trace_details(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
 
@@ -549,6 +642,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             "API_SCOPE_ADOPTION_WRITE",
             "API_SCOPE_KNOWLEDGE_SEARCH",
             "API_SCOPE_TRACE_READ",
+            "API_SCOPE_REPORT_READ",
             "API_SCOPE_APPROVAL_EXECUTE",
         ]
         for name in required_names:
@@ -571,6 +665,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertTrue(internal.allows(http_app.API_SCOPE_ADOPTION_WRITE))
         self.assertTrue(internal.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
         self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_REPORT_READ))
         self.assertFalse(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
@@ -579,6 +674,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertFalse(external.allows(http_app.API_SCOPE_ADOPTION_WRITE))
         self.assertFalse(external.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
         self.assertFalse(external.allows(http_app.API_SCOPE_TRACE_READ))
+        self.assertTrue(external.allows(http_app.API_SCOPE_REPORT_READ))
         self.assertFalse(external.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertEqual(operator.scopes, frozenset({http_app.API_SCOPE_APPROVAL_EXECUTE}))
@@ -768,6 +864,73 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
         self.assertIn("score_breakdown", top)
         # The adopted outcome recorded over HTTP is reflected in the ranking signal.
         self.assertGreater(top["score_breakdown"]["outcome_boost"], 0.0)
+
+    @unittest.skipUnless(_SQLALCHEMY, "sqlalchemy not installed (install .[postgres])")
+    def test_report_snapshot_survives_fresh_app_on_postgres_backend(self) -> None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import (
+            STORE_POSTGRES,
+            ContentCommerceRuntimeFactory,
+            RuntimeFactoryConfig,
+        )
+
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        config = RuntimeFactoryConfig(
+            domain_pack_path=DOMAIN_PACK,
+            store_backend=STORE_POSTGRES,
+            store_engine=engine,
+        )
+        factory1 = ContentCommerceRuntimeFactory(config)
+        client1 = TestClient(
+            create_app(
+                factory1.build(),
+                retriever=factory1.build_knowledge_retriever(),
+                api_key=API_KEY,
+                external_api_key=EXTERNAL_API_KEY,
+                adoption_ingest=factory1.adoption_ingest(),
+                report_store=factory1.build_report_snapshot_store(),
+            )
+        )
+        run_resp = client1.post(
+            "/runs", json={**RUN_BODY, "audience": "internal"}, headers={"X-API-Key": API_KEY}
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        factory2 = ContentCommerceRuntimeFactory(config)
+        client2 = TestClient(
+            create_app(
+                factory2.build(),
+                retriever=factory2.build_knowledge_retriever(),
+                api_key=API_KEY,
+                external_api_key=EXTERNAL_API_KEY,
+                adoption_ingest=factory2.adoption_ingest(),
+                report_store=factory2.build_report_snapshot_store(),
+            )
+        )
+        internal_resp = client2.get(
+            f"/runs/{trace_id}/report",
+            params={"audience": "internal"},
+            headers={"X-API-Key": API_KEY},
+        )
+        self.assertEqual(internal_resp.status_code, 200, internal_resp.text)
+        external_resp = client2.get(
+            f"/runs/{trace_id}/report",
+            params={"audience": "internal"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 200, external_resp.text)
+        self.assertEqual(external_resp.json()["user_result"]["redaction"]["audience"], "external")
+        self.assertNotEqual(
+            internal_resp.json()["user_result"]["artifact_id"],
+            external_resp.json()["user_result"]["artifact_id"],
+        )
 
     def test_search_requires_api_key(self) -> None:
         client = _make_client(API_KEY)

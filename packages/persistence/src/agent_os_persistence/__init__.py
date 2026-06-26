@@ -18,6 +18,7 @@ from .repositories import (
     SqlApprovalStore,
     SqlFeedbackStore,
     SqlKnowledgeStore,
+    SqlReportSnapshotStore,
     SqlSnapshotStore,
     SqlTraceStore,
     SqlUnitOfWork,
@@ -32,6 +33,7 @@ from .schema import (
     knowledge_assets,
     knowledge_index,
     metadata,
+    report_snapshots,
     run_traces,
     state_snapshots,
 )
@@ -45,6 +47,7 @@ __all__ = [
     "SqlFeedbackStore",
     "SqlKnowledgeRetriever",
     "SqlKnowledgeStore",
+    "SqlReportSnapshotStore",
     "SqlSnapshotStore",
     "SqlTraceStore",
     "SqlUnitOfWork",
@@ -58,6 +61,7 @@ __all__ = [
     "knowledge_assets",
     "knowledge_index",
     "metadata",
+    "report_snapshots",
     "run_traces",
     "state_snapshots",
 ]

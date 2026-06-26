@@ -70,6 +70,15 @@ Endpoints (protected by `X-API-Key` unless noted):
   the response is always capped to the external projection even when the request body asks
   for `audience=internal`. That projection also omits top-level provider, trace-step, and
   related-knowledge metadata from the HTTP response.
+- `GET /runs/{trace_id}/report` — returns an already-built `user_result` report snapshot.
+  This read path does not call `runtime.evaluate`, does not re-run SQL, does not create
+  approvals, and does not touch action connectors. The memory backend remains same-process;
+  the postgres store backend persists report snapshots in `report_snapshots` so a fresh app
+  instance on the same database can read the existing projection. `AGENT_OS_EXTERNAL_API_KEY`
+  may call this endpoint only through the external projection, even when `?audience=internal`
+  is requested. Internal and external report projections have distinct `artifact_id` values,
+  so clients cannot cache or audit two redaction views as the same rendered artifact.
+  Unknown snapshots return `404`.
 - `POST /outcomes` — body `{trace_id, outcome, reviewer?, metric_deltas?}` ->
   `record_outcome_service` result.
 
@@ -81,9 +90,9 @@ Auth boundary:
 - Recognized principal without the required scope -> `403`.
 - `AGENT_OS_EXTERNAL_API_KEY` is not a general API key; non-run management surfaces such as
   `/outcomes`, `/adoptions`, `/knowledge/search`, and `/traces/{id}` still require the
-  internal API key. It still triggers a new `/runs` execution, so it is not a side-effect-free
-  read-only key. This is a narrow HTTP principal/scope and report projection cap, not full
-  RBAC or DLP.
+  internal API key. On `POST /runs` it still triggers a new run execution; on
+  `GET /runs/{trace_id}/report` it can only read an existing external report projection.
+  This is a narrow HTTP principal/scope and report projection cap, not full RBAC or DLP.
 - Configured internal, external-report, and operator keys must be distinct; duplicate key
   values fail closed during app creation.
 
@@ -91,8 +100,8 @@ Minimal principal/scope contract:
 
 | Principal | Credential channel | Scopes | Notes |
 |---|---|---|---|
-| `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read` | Can request either internal or external run projection; cannot execute approvals. |
-| `external_report` | `X-API-Key == AGENT_OS_EXTERNAL_API_KEY` | `runs:external` | Forced to external projection; cannot use management surfaces. |
+| `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `reports:read`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read` | Can request either internal or external run/report projection; cannot execute approvals. |
+| `external_report` | `X-API-Key == AGENT_OS_EXTERNAL_API_KEY` | `runs:external`, `reports:read` | Forced to external projection; cannot use management surfaces. |
 | `operator` | `X-Operator-Key == AGENT_OS_OPERATOR_API_KEY` | `approvals:execute` | Header channel is separate from `X-API-Key`; approval execution remains operator-only. |
 
 Approval execution on the postgres backend resumes the approval-bound context and writes through

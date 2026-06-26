@@ -41,7 +41,8 @@
 
       button,
       textarea,
-      input {
+      input,
+      select {
         font: inherit;
       }
 
@@ -307,7 +308,8 @@
       }
 
       .question:focus,
-      input:focus {
+      input:focus,
+      select:focus {
         border-color: #6aa2d8;
         box-shadow: 0 0 0 3px rgba(37, 99, 169, 0.15);
       }
@@ -333,6 +335,35 @@
         gap: 10px;
       }
 
+      .api-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 9px;
+      }
+
+      .api-grid input,
+      .api-grid select {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fff;
+        color: var(--ink);
+        padding: 8px 9px;
+        outline: none;
+      }
+
+      .api-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      .api-grid .wide {
+        grid-column: 1 / -1;
+      }
+
       .field {
         border: 1px solid var(--line);
         border-radius: 7px;
@@ -343,6 +374,7 @@
       .field span,
       .metric span,
       .status-row span,
+      .candidate-grid span,
       .trace-step span {
         display: block;
         color: var(--muted);
@@ -352,6 +384,7 @@
       .field b,
       .metric b,
       .status-row b,
+      .candidate-grid b,
       .trace-step b {
         display: block;
         margin-top: 5px;
@@ -458,6 +491,7 @@
         box-shadow: none;
       }
 
+      .api-status-note,
       .card p,
       .card code,
       .action-copy,
@@ -476,6 +510,30 @@
         color: #25415f;
         font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
         word-break: break-word;
+      }
+
+      .candidate-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface-2);
+        padding: 13px;
+      }
+
+      .candidate-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .candidate-grid > div {
+        min-width: 0;
+      }
+
+      .candidate-link {
+        margin: 10px 0 0;
+        color: #475467;
+        font-size: 12px;
+        line-height: 1.55;
       }
 
       .status-list {
@@ -506,6 +564,11 @@
         align-items: center;
         justify-content: space-between;
         gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .action-title > * {
+        min-width: 0;
       }
 
       .risk-level {
@@ -623,7 +686,7 @@
         display: none;
       }
 
-      @media (max-width: 1220px) {
+      @media (max-width: 1320px) {
         .app {
           grid-template-columns: 1fr;
         }
@@ -661,6 +724,8 @@
         .rail,
         .metrics,
         .evidence-grid,
+        .api-grid,
+        .candidate-grid,
         .field-grid {
           grid-template-columns: 1fr;
         }
@@ -690,7 +755,7 @@
           <button class="active">
             <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7" /></svg>
             <span>Intent Workspace</span>
-            <span class="count">F0</span>
+            <span class="count">F3a</span>
           </button>
           <button>
             <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14" /></svg>
@@ -715,10 +780,10 @@
         </nav>
 
         <section class="side-section">
-          <h2>F0 boundary</h2>
+          <h2>F3a boundary</h2>
           <ul class="scope-list">
-            <li><span>Runtime</span><b>mock only</b></li>
-            <li><span>Contract</span><b>no new fields</b></li>
+            <li><span>Runtime</span><b>live run + read</b></li>
+            <li><span>Contract</span><b>public API</b></li>
             <li><span>R4/R5</span><b>proposal only</b></li>
             <li><span>Core import</span><b>blocked</b></li>
           </ul>
@@ -730,7 +795,7 @@
           <div>
             <p class="eyebrow">Intent Workspace</p>
             <h1>可信问数与行动审批工作台</h1>
-            <p class="subtitle">GMV / ROI / 日报场景的 F0 静态原型，展示意图、证据、行动、审批和追踪。</p>
+            <p class="subtitle">GMV / ROI / 日报场景的 F3a 原型，受限提交可信运行并展示意图、证据、行动、审批、追踪和只读报告投影。</p>
           </div>
           <div class="toolbar">
             <button class="icon-button" title="刷新状态" aria-label="刷新状态">
@@ -788,6 +853,61 @@
                 <button data-state="blocked">Blocked</button>
                 <button data-state="insufficient">Need evidence</button>
               </div>
+
+              <section
+                class="candidate-card"
+                data-contract="GET /runs/{trace_id}/report"
+              >
+                <div class="action-title">
+                  <h3>Report projection</h3>
+                  <span class="badge info" id="apiReportStatus">mock state</span>
+                </div>
+                <div class="api-grid">
+                  <label class="wide">
+                    <span class="label">API base</span>
+                    <input id="apiBaseUrl" value="http://127.0.0.1:8000" />
+                  </label>
+                  <label>
+                    <span class="label">Trace id</span>
+                    <input id="apiTraceId" value="trace-a91c42ff09" />
+                  </label>
+                  <label>
+                    <span class="label">X-API-Key</span>
+                    <input
+                      id="apiKey"
+                      type="password"
+                      autocomplete="off"
+                      placeholder="internal or external report key"
+                    />
+                  </label>
+                  <label>
+                    <span class="label">Audience</span>
+                    <select id="apiAudience">
+                      <option value="internal">internal</option>
+                      <option value="external">external</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="api-actions">
+                  <button class="small-action" id="loadReportButton">
+                    <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v6h-6" /></svg>
+                    读取报告
+                  </button>
+                  <span class="api-status-note" id="apiReportNote">GET /runs/{trace_id}/report</span>
+                </div>
+              </section>
+
+              <section class="candidate-card" data-contract="POST /runs">
+                <div class="action-title">
+                  <h3>Live governed run</h3>
+                  <span class="badge warn">proposal-only</span>
+                </div>
+                <p class="api-status-note">
+                  POST /runs submits the current question through the governed Trusted Loop,
+                  then renders the returned user_result. It does not execute approvals or
+                  write management surfaces.
+                </p>
+              </section>
             </div>
           </section>
 
@@ -823,6 +943,38 @@
 
             <section class="panel">
               <div class="panel-head">
+                <h2>DataProduct candidate</h2>
+                <span class="badge info" id="dataProductStatus">draft</span>
+              </div>
+              <div class="panel-body">
+                <article class="candidate-card" id="dataProductCandidate">
+                  <div class="candidate-grid">
+                    <div>
+                      <span>Candidate id</span>
+                      <b id="dataProductId">dp-gmv-7d-v0</b>
+                    </div>
+                    <div>
+                      <span>Contract spine</span>
+                      <b id="dataProductContract">MetricContract + ProviderContract</b>
+                    </div>
+                    <div>
+                      <span>Freshness</span>
+                      <b id="dataProductFreshness">7d window / 20 row cap</b>
+                    </div>
+                    <div>
+                      <span>Reuse path</span>
+                      <b id="dataProductReuse">report snapshot + trace link</b>
+                    </div>
+                  </div>
+                  <p class="candidate-link" id="dataProductSource">
+                    Built from GMV v2, sales provider, SQL Safety result, and evidence trace.
+                  </p>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
                 <h2>EvidenceChain</h2>
                 <span class="badge ok" id="evidenceBadge">complete</span>
               </div>
@@ -838,7 +990,7 @@
                   </article>
                   <article class="card">
                     <h3>查询证据</h3>
-                    <code id="sqlEvidence">select order_date, sum(paid_amount) as gmv from sales.orders where order_date &gt;= :start_date group by order_date limit :limit</code>
+                    <code id="sqlEvidence">sql_safety=passed · fingerprint=sqlfp_gmv_7d · parameters=redacted</code>
                   </article>
                   <article class="card">
                     <h3>限制说明</h3>
@@ -906,6 +1058,15 @@
                     <b id="feedbackState">pending</b>
                   </div>
                 </div>
+                <article class="candidate-card" id="knowledgeAssetCandidate">
+                  <div class="action-title">
+                    <h3>KnowledgeAsset candidate</h3>
+                    <span class="badge info" id="knowledgeAssetState">review queue</span>
+                  </div>
+                  <p class="candidate-link" id="knowledgeAssetReview">
+                    Trace-bound learning candidate will stay in review until feedback is recorded.
+                  </p>
+                </article>
                 <div class="feedback-row">
                   <button>有用</button>
                   <button>不准确</button>
@@ -942,10 +1103,17 @@
             "主要来自抖音短视频渠道转化下降，客单价稳定，支付订单数下降。建议先暂停低 ROI 素材组，并观察 48 小时。",
           confidence: "0.86",
           evalCoverage: "golden GMV",
+          dataProductId: "dp-gmv-7d-v0",
+          dataProductStatus: "draft",
+          dataProductContract: "MetricContract + ProviderContract",
+          dataProductFreshness: "7d window / 20 row cap",
+          dataProductReuse: "report snapshot + trace link",
+          dataProductSource:
+            "Built from GMV v2, sales provider, SQL Safety result, and evidence trace.",
           metricContract: "GMV v2 · revenue_ops · CNY · internal",
           providerContract: "sales warehouse · allowlist: sales, ads",
           sqlEvidence:
-            "select order_date, sum(paid_amount) as gmv from sales.orders where order_date >= :start_date group by order_date limit :limit",
+            "sql_safety=passed · fingerprint=sqlfp_gmv_7d · parameters=redacted",
           limitations: "素材组 owner 缺失，行动提案需要投放负责人确认。",
           actionTitle: "暂停低 ROI 素材组 48 小时",
           actionReason:
@@ -954,6 +1122,9 @@
           observeWindow: "48 小时",
           feedbackMetric: "GMV、转化率、订单数",
           evidenceId: "evidence-6bb83a",
+          knowledgeAssetState: "review queue",
+          knowledgeAssetReview:
+            "Trace-bound learning candidate will stay in review until feedback is recorded.",
           gapNote: "缺口：素材组维度 owner 未绑定；建议补充渠道 ROI golden query。",
           steps: [
             ["1", "Intent", "metric=GMV"],
@@ -977,10 +1148,17 @@
             "下降集中在信息流素材组 A17 和 A21，点击率未明显下降，但支付转化率低于基线。建议进入素材复盘并限制预算上限。",
           confidence: "0.82",
           evalCoverage: "golden ROI",
+          dataProductId: "dp-roi-channel-v0",
+          dataProductStatus: "needs owner",
+          dataProductContract: "MetricContract + ProviderContract",
+          dataProductFreshness: "weekly channel rollup",
+          dataProductReuse: "diagnosis loop candidate",
+          dataProductSource:
+            "Built from ROI v1, ads provider, SQL Safety result, and grouped channel evidence.",
           metricContract: "ROI v1 · ads_ops · GMV / AdSpend · internal",
           providerContract: "ads warehouse · allowlist: ads, sales",
           sqlEvidence:
-            "select channel, sum(gmv) / nullif(sum(ad_spend), 0) as roi from ads.daily_performance where week = :week group by channel",
+            "sql_safety=passed · fingerprint=sqlfp_roi_channel · parameters=redacted",
           limitations: "素材质量标签仍为人工维护，归因解释需要复核最新投放策略。",
           actionTitle: "限制低 ROI 素材组预算上限",
           actionReason:
@@ -989,6 +1167,9 @@
           observeWindow: "24 小时",
           feedbackMetric: "ROI、消耗、转化率",
           evidenceId: "evidence-9a20fc",
+          knowledgeAssetState: "needs review",
+          knowledgeAssetReview:
+            "Learning candidate can update ROI diagnosis guidance after owner review.",
           gapNote: "缺口：素材质量标签更新滞后；建议补充素材维度质量校验。",
           steps: [
             ["1", "Intent", "metric=ROI"],
@@ -1012,10 +1193,17 @@
             "GMV 和订单量处于正常区间，ROI 环比下降需要优先关注。系统建议进入投放效率诊断，不生成自动执行动作。",
           confidence: "0.79",
           evalCoverage: "golden daily",
+          dataProductId: "dp-daily-ops-v0",
+          dataProductStatus: "MVP subset",
+          dataProductContract: "MetricContract bundle + ProviderContract",
+          dataProductFreshness: "daily snapshot",
+          dataProductReuse: "daily report read projection",
+          dataProductSource:
+            "Built from GMV, ROI, order-count contracts, sales/ads providers, and report evidence.",
           metricContract: "Daily Report v0 · ops_lead · GMV / ROI / orders",
           providerContract: "sales + ads warehouse · allowlist: sales, ads",
           sqlEvidence:
-            "select sum(gmv), count(distinct order_id), sum(gmv)/nullif(sum(ad_spend),0) as roi from daily_ops where date = :date",
+            "sql_safety=passed · fingerprint=sqlfp_daily_ops · parameters=redacted",
           limitations: "库存和内容指标仍未接入本次日报视图，日报完整度为 MVP 子集。",
           actionTitle: "转入 ROI 诊断流程",
           actionReason:
@@ -1024,6 +1212,9 @@
           observeWindow: "当日",
           feedbackMetric: "ROI、GMV、订单数",
           evidenceId: "evidence-daily-18c0",
+          knowledgeAssetState: "review queue",
+          knowledgeAssetReview:
+            "Daily-report learning candidate records unsupported dimensions before promotion.",
           gapNote: "缺口：库存和内容数据未进入日报 MVP；建议作为 P1 扩展。",
           steps: [
             ["1", "Intent", "daily scan"],
@@ -1064,6 +1255,16 @@
           sqlSafety: "blocked",
           approvalState: "disabled",
           feedbackState: "security review",
+          dataProductStatus: "blocked",
+          dataProductId: "blocked-before-candidate",
+          dataProductContract: "SQL Safety blocked",
+          dataProductFreshness: "not applicable",
+          dataProductReuse: "no reusable artifact",
+          dataProductSource:
+            "No DataProduct candidate is promoted because SQL Safety blocked the formal result.",
+          knowledgeAssetState: "blocked",
+          knowledgeAssetReview:
+            "No KnowledgeAsset candidate is created from a blocked formal answer.",
         },
         insufficient: {
           safetyBadge: ["SQL Safety passed", "badge ok"],
@@ -1079,6 +1280,16 @@
           sqlSafety: "read-only / allowlisted",
           approvalState: "need evidence",
           feedbackState: "PM / Data",
+          dataProductStatus: "needs evidence",
+          dataProductId: "draft-pending-evidence",
+          dataProductContract: "contract pending owner evidence",
+          dataProductFreshness: "pending required dimension",
+          dataProductReuse: "review-only draft",
+          dataProductSource:
+            "DataProduct candidate remains draft until owner or required dimension evidence is added.",
+          knowledgeAssetState: "needs evidence",
+          knowledgeAssetReview:
+            "KnowledgeAsset candidate stays review-only until the missing evidence is resolved.",
         },
       };
 
@@ -1094,6 +1305,12 @@
         confidence: document.getElementById("confidence"),
         evalCoverage: document.getElementById("evalCoverage"),
         blockingIssues: document.getElementById("blockingIssues"),
+        dataProductId: document.getElementById("dataProductId"),
+        dataProductStatus: document.getElementById("dataProductStatus"),
+        dataProductContract: document.getElementById("dataProductContract"),
+        dataProductFreshness: document.getElementById("dataProductFreshness"),
+        dataProductReuse: document.getElementById("dataProductReuse"),
+        dataProductSource: document.getElementById("dataProductSource"),
         metricContract: document.getElementById("metricContract"),
         providerContract: document.getElementById("providerContract"),
         sqlEvidence: document.getElementById("sqlEvidence"),
@@ -1108,28 +1325,285 @@
         sqlSafety: document.getElementById("sqlSafety"),
         approvalState: document.getElementById("approvalState"),
         feedbackState: document.getElementById("feedbackState"),
+        knowledgeAssetState: document.getElementById("knowledgeAssetState"),
+        knowledgeAssetReview: document.getElementById("knowledgeAssetReview"),
         safetyBadge: document.getElementById("safetyBadge"),
         evidenceBadge: document.getElementById("evidenceBadge"),
         approvalBadge: document.getElementById("approvalBadge"),
         auditBadge: document.getElementById("auditBadge"),
         traceSteps: document.getElementById("traceSteps"),
+        apiBaseUrl: document.getElementById("apiBaseUrl"),
+        apiTraceId: document.getElementById("apiTraceId"),
+        apiKey: document.getElementById("apiKey"),
+        apiAudience: document.getElementById("apiAudience"),
+        apiReportStatus: document.getElementById("apiReportStatus"),
+        apiReportNote: document.getElementById("apiReportNote"),
       };
 
       let activeScenario = "gmv";
       let activeState = "loaded";
+      const candidateOverrideKeys = [
+        "dataProductId",
+        "dataProductStatus",
+        "dataProductContract",
+        "dataProductFreshness",
+        "dataProductReuse",
+        "dataProductSource",
+        "knowledgeAssetState",
+        "knowledgeAssetReview",
+      ];
 
       function setBadge(el, data) {
         el.textContent = data[0];
         el.className = data[1];
       }
 
+      function setApiReportStatus(text, className) {
+        refs.apiReportStatus.textContent = text;
+        refs.apiReportStatus.className = className;
+      }
+
+      function display(value, fallback = "—") {
+        if (value === undefined || value === null || value === "") return fallback;
+        if (Array.isArray(value)) return value.length ? value.join(", ") : fallback;
+        return String(value);
+      }
+
+      function summarizeCard(card) {
+        if (!card) return "—";
+        return [
+          card.card_id,
+          card.card_type || card.kind,
+          card.title,
+          card.summary,
+          card.status,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+
+      function firstMatchingCard(cards, candidates) {
+        return (
+          cards.find((card) =>
+            candidates.some((candidate) =>
+              JSON.stringify(card).toLowerCase().includes(candidate),
+            ),
+          ) || cards[0]
+        );
+      }
+
+      function appendText(parent, tagName, value) {
+        const element = document.createElement(tagName);
+        element.textContent = String(value);
+        parent.appendChild(element);
+        return element;
+      }
+
       function renderTrace(steps) {
-        refs.traceSteps.innerHTML = steps
-          .map(
-            ([number, label, value]) =>
-              `<div class="trace-step"><i>${number}</i><div><span>${label}</span><b>${value}</b></div><span>ok</span></div>`,
-          )
-          .join("");
+        refs.traceSteps.replaceChildren();
+        steps.forEach(([number, label, value]) => {
+          const item = document.createElement("div");
+          item.className = "trace-step";
+          appendText(item, "i", number);
+          const body = document.createElement("div");
+          appendText(body, "span", label);
+          appendText(body, "b", value);
+          item.appendChild(body);
+          appendText(item, "span", "ok");
+          refs.traceSteps.appendChild(item);
+        });
+      }
+
+      function parseReportApiBase(apiBase) {
+        const fallbackOrigin =
+          window.location.origin === "null" ? "http://127.0.0.1" : window.location.origin;
+        return new URL(apiBase, fallbackOrigin);
+      }
+
+      function isTrustedReportOrigin(apiUrl) {
+        const loopbackHosts = ["localhost", "127.0.0.1", "::1"];
+        return (
+          apiUrl.origin === window.location.origin ||
+          loopbackHosts.includes(apiUrl.hostname)
+        );
+      }
+
+      function trustedApiRoot(apiBase) {
+        const apiUrl = parseReportApiBase(apiBase);
+        if (!isTrustedReportOrigin(apiUrl)) {
+          throw new Error("API base must be same-origin or localhost.");
+        }
+        return apiUrl.origin;
+      }
+
+      function buildReportReadUrl(apiBase, traceId, audience) {
+        // Public API contract: GET /runs/{trace_id}/report
+        const root = trustedApiRoot(apiBase);
+        const params = new URLSearchParams({ audience });
+        const reportUrl = new URL(`/runs/${encodeURIComponent(traceId)}/report`, root);
+        reportUrl.search = params.toString();
+        return reportUrl.href;
+      }
+
+      function buildRunSubmitUrl(apiBase) {
+        // Public API contract: POST /runs
+        const root = trustedApiRoot(apiBase);
+        return new URL("/runs", root).href;
+      }
+
+      function buildRunRequestBody() {
+        return {
+          question: refs.question.value.trim(),
+          parameters: {},
+          audience: refs.apiAudience.value,
+        };
+      }
+
+      function renderUserResultArtifact(payload) {
+        const artifact = payload.user_result;
+        const evidenceCards = artifact.report.evidence_cards || [];
+        const widgets = artifact.dashboard.widgets || [];
+        const action = artifact.business_action || {};
+        const decision = artifact.decision || {};
+        const redaction = artifact.redaction || {};
+        const reportSections = artifact.report.sections || [];
+        const analysis = artifact.analysis || {};
+        const metricCard = firstMatchingCard(evidenceCards, ["metric_contract", "metric"]);
+        const providerCard = firstMatchingCard(evidenceCards, ["provider", "source"]);
+        const queryCard = firstMatchingCard(evidenceCards, ["query_result", "sql_safety", "sql"]);
+        const firstWidget = widgets[0] || {};
+
+        refs.traceId.textContent = display(artifact.trace_id || payload.trace_id);
+        refs.apiTraceId.value = display(artifact.trace_id || payload.trace_id, refs.apiTraceId.value);
+        refs.question.value = display(artifact.question, refs.question.value);
+        refs.metric.textContent = display(artifact.metric_name);
+        refs.window.textContent = display(firstWidget.x_field || firstWidget.title || "report snapshot");
+        refs.answerKicker.textContent = display(artifact.kind, "report");
+        refs.answerTitle.textContent = display(artifact.title);
+        refs.answerBody.textContent = display(
+          analysis.summary ||
+            reportSections.map((section) => section.body || section.heading).filter(Boolean),
+        );
+        refs.confidence.textContent = display(analysis.confidence ?? decision.confidence);
+        refs.evalCoverage.textContent = display(firstWidget.type || "report");
+        refs.blockingIssues.textContent = redaction.applied ? "redacted" : "0";
+        refs.dataProductStatus.textContent = display(artifact.kind);
+        refs.dataProductId.textContent = display(artifact.artifact_id);
+        refs.dataProductContract.textContent = display(
+          `${artifact.metric_name} · ${artifact.audience}`,
+        );
+        refs.dataProductFreshness.textContent = display(
+          `${widgets.length} dashboard widget(s) · ${evidenceCards.length} evidence card(s)`,
+        );
+        refs.dataProductReuse.textContent = display(`GET report snapshot · ${artifact.trace_id}`);
+        refs.dataProductSource.textContent = display(
+          `redaction=${redaction.applied ? "applied" : "none"} · audience=${artifact.audience}`,
+        );
+        refs.metricContract.textContent = summarizeCard(metricCard);
+        refs.providerContract.textContent = summarizeCard(providerCard);
+        refs.sqlEvidence.textContent = summarizeCard(queryCard);
+        refs.limitations.textContent = display(artifact.report.limitations || analysis.limitations);
+        refs.actionTitle.textContent = display(action.title || action.action_type);
+        refs.actionReason.textContent = display(decision.reason);
+        refs.riskLevel.textContent = display(action.risk_level);
+        refs.observeWindow.textContent = display(action.observe_window || action.status);
+        refs.feedbackMetric.textContent = display(action.feedback_metric || artifact.metric_name);
+        refs.evidenceId.textContent = display(artifact.evidence_chain_id);
+        refs.sqlSafety.textContent = display(queryCard?.status || "snapshot read");
+        refs.approvalState.textContent = display(action.status);
+        refs.feedbackState.textContent = display(artifact.report.feedback_state || "pending");
+        refs.knowledgeAssetState.textContent = display(
+          artifact.report.knowledge_asset_state || "review queue",
+        );
+        refs.knowledgeAssetReview.textContent = display(
+          decision.recommendation || artifact.report.title || artifact.title,
+        );
+        refs.gapNote.textContent = display(
+          redaction.applied
+            ? "External projection active; restricted infrastructure fields are hidden."
+            : "Internal projection loaded from report snapshot.",
+        );
+        setBadge(refs.safetyBadge, ["snapshot read", "badge ok"]);
+        setBadge(refs.evidenceBadge, [evidenceCards.length ? "evidence cards" : "no cards", "badge info"]);
+        setBadge(refs.approvalBadge, [display(action.status, "proposal"), "badge warn"]);
+        setBadge(refs.auditBadge, [display(artifact.audience), "badge info"]);
+        renderTrace([
+          ["1", "Report", display(artifact.artifact_id)],
+          ["2", "Audience", display(artifact.audience)],
+          ["3", "Evidence", `${evidenceCards.length} cards`],
+          ["4", "Dashboard", `${widgets.length} widgets`],
+          ["5", "Decision", display(decision.status || decision.recommendation)],
+          ["6", "Action", display(action.status || action.risk_level)],
+        ]);
+      }
+
+      async function loadReportProjection() {
+        const traceId = refs.apiTraceId.value.trim();
+        const apiBase = refs.apiBaseUrl.value.trim();
+        const apiKey = refs.apiKey.value;
+        const audience = refs.apiAudience.value;
+        if (!traceId || !apiBase) {
+          setApiReportStatus("missing input", "badge danger");
+          refs.apiReportNote.textContent = "Trace id and API base are required.";
+          return;
+        }
+        try {
+          const reportUrl = buildReportReadUrl(apiBase, traceId, audience);
+          setApiReportStatus("loading", "badge info");
+          refs.apiReportNote.textContent = reportUrl;
+          const response = await fetch(reportUrl, {
+            headers: apiKey ? { "X-API-Key": apiKey } : {},
+          });
+          if (!response.ok) {
+            setApiReportStatus(`HTTP ${response.status}`, "badge danger");
+            refs.apiReportNote.textContent = `Report request failed with HTTP ${response.status}.`;
+            return;
+          }
+          const payload = await response.json();
+          renderUserResultArtifact(payload);
+          setApiReportStatus("loaded", "badge ok");
+        } catch {
+          setApiReportStatus("network", "badge danger");
+          refs.apiReportNote.textContent = "Report request failed.";
+        }
+      }
+
+      async function submitGovernedRun() {
+        const apiBase = refs.apiBaseUrl.value.trim();
+        const apiKey = refs.apiKey.value;
+        const body = buildRunRequestBody();
+        if (!apiBase || !body.question) {
+          setApiReportStatus("missing input", "badge danger");
+          refs.apiReportNote.textContent = "Question and API base are required.";
+          return;
+        }
+        try {
+          const runUrl = buildRunSubmitUrl(apiBase);
+          setApiReportStatus("submitting", "badge info");
+          refs.apiReportNote.textContent = runUrl;
+          const headers = { "Content-Type": "application/json" };
+          if (apiKey) headers["X-API-Key"] = apiKey;
+          const response = await fetch(runUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(buildRunRequestBody()),
+          });
+          if (!response.ok) {
+            setApiReportStatus(`HTTP ${response.status}`, "badge danger");
+            refs.apiReportNote.textContent = `Run request failed with HTTP ${response.status}.`;
+            return;
+          }
+          const payload = await response.json();
+          renderUserResultArtifact(payload);
+          setApiReportStatus("submitted", "badge ok");
+          refs.apiReportNote.textContent = display(
+            payload.trace_id || payload.user_result?.trace_id,
+            "Run completed.",
+          );
+        } catch {
+          setApiReportStatus("network", "badge danger");
+          refs.apiReportNote.textContent = "Run request failed.";
+        }
       }
 
       function render() {
@@ -1147,11 +1621,15 @@
         refs.sqlSafety.textContent = state.sqlSafety;
         refs.approvalState.textContent = state.approvalState;
         refs.feedbackState.textContent = state.feedbackState;
+        candidateOverrideKeys.forEach((key) => {
+          if (state[key]) refs[key].textContent = state[key];
+        });
         if (activeState !== "loaded") {
           refs.answerTitle.textContent = state.answerTitle;
           refs.answerBody.textContent = state.answerBody;
           refs.confidence.textContent = state.confidence;
         }
+        refs.apiTraceId.value = scenario.traceId;
         renderTrace(scenario.steps);
       }
 
@@ -1176,7 +1654,10 @@
         });
       });
 
-      document.getElementById("runButton").addEventListener("click", render);
+      document.getElementById("runButton").addEventListener("click", submitGovernedRun);
+      document
+        .getElementById("loadReportButton")
+        .addEventListener("click", loadReportProjection);
       render();
     </script>
   </body>
