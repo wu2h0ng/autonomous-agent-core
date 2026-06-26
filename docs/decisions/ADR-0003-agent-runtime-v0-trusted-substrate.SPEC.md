@@ -303,6 +303,7 @@ Rules:
 - `POST /runs` constructs a typed `AgentRunContext` and grants only `trusted_loop:evaluate` for this boundary.
 - Runtime envelope trace events must not include raw request parameters or raw tool output.
 - App-level runtime diagnostics must be request-scoped or otherwise bounded; diagnostic storage must not accumulate all requests for the app lifetime.
+- Successful `POST /runs` runtime-envelope events must be persisted into the queryable business `RunTrace` as safe allowlisted metadata, so `/traces/{trace_id}` can prove the HTTP run crossed the runtime policy envelope without exposing raw request parameters or raw tool output.
 - `RuntimePolicyGate` denial returns the existing blocked response contract with `stage="agent_runtime"`.
 - A paused `ShellView` denies before `agent_runtime.tool_started` and persists a queryable blocked `RunTrace`.
 - Internal runtime/tool failures return a sanitized service error instead of a business block and must not expose raw exception text to external report-key projections.
@@ -358,6 +359,7 @@ Add tests before implementation:
   - runtime/tool exceptions return sanitized HTTP 500 errors without exposing raw exception text to external report-key projections;
   - HTTP runtime diagnostics are request-scoped and do not retain prior request `run_id`s;
   - sanitized Agent Runtime HTTP 500 failures are declared in the OpenAPI contract with a typed response schema.
+  - successful `POST /runs` persists `agent_runtime.policy_allowed`, `agent_runtime.tool_started`, and `agent_runtime.tool_succeeded` into `/traces/{trace_id}` without raw request parameters.
 
 ## 6. Implementation Tasks
 
@@ -383,6 +385,7 @@ Add tests before implementation:
 - [x] T13: remediate live-wiring review blockers for runtime/tool error sanitization and pre-loop runtime denial trace persistence.
 - [x] T14: bound HTTP runtime diagnostics by replacing the shared app-lifetime adapter/writer with per-request adapter/writer instances and retaining only the latest request diagnostics.
 - [x] T15: declare sanitized `/runs` Agent Runtime 500 failures in OpenAPI as `AgentRuntimeErrorResponse` and add a contract regression test.
+- [x] T16: persist safe successful `/runs` Agent Runtime envelope events into the business `RunTrace`.
 
 ## 7. Stop Conditions
 
@@ -406,6 +409,7 @@ Stop and return to CTO review if:
 - Runtime has policy-deny, validation-error, missing-tool, and tool-exception failure paths.
 - Runtime denies non-proposal R4/R5 execution before the tool body, even when a caller supplies `approval_id`.
 - Runtime writes trace events for both allow and deny paths.
+- Successful HTTP `/runs` persists safe runtime-envelope events into queryable `RunTrace` without raw request parameters or raw tool output.
 - Runtime writes a structured trace event and returns a typed failure if checkpoint persistence fails.
 - Trusted Loop adapter does not bypass existing governance modules.
 - Runtime remains a substrate: it does not own business truth, research conclusions, autonomy claims, or optimization policy.

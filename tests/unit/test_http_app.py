@@ -61,6 +61,39 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertIn("agent_runtime.tool_started", runtime_steps)
         self.assertIn("agent_runtime.tool_succeeded", runtime_steps)
 
+    def test_post_run_persists_agent_runtime_envelope_in_run_trace(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        trace_payload = trace_resp.json()
+        runtime_events = [
+            event for event in trace_payload["events"] if event["step"].startswith("agent_runtime.")
+        ]
+        runtime_steps = [event["step"] for event in runtime_events]
+
+        self.assertIn("agent_runtime.policy_allowed", runtime_steps)
+        self.assertIn("agent_runtime.tool_started", runtime_steps)
+        self.assertIn("agent_runtime.tool_succeeded", runtime_steps)
+        trace_steps = [event["step"] for event in trace_payload["events"]]
+        self.assertLess(
+            trace_steps.index("agent_runtime.tool_started"),
+            trace_steps.index("intent"),
+        )
+        self.assertLess(
+            trace_steps.index("knowledge_asset_candidate"),
+            trace_steps.index("agent_runtime.tool_succeeded"),
+        )
+        encoded_runtime_payloads = str([event["payload"] for event in runtime_events])
+        self.assertNotIn("2026-05-25", encoded_runtime_payloads)
+        self.assertNotIn("start_date", encoded_runtime_payloads)
+        self.assertNotIn("end_date", encoded_runtime_payloads)
+
     def test_post_run_runtime_diagnostics_are_request_scoped(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

@@ -12,6 +12,7 @@ they contain no domain- or transport-specific logic.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 from typing import Any
 
@@ -30,6 +31,16 @@ AGENT_RUNTIME_ERROR_CODES = {
     "checkpoint_error": "AGENT_RUNTIME_CHECKPOINT_ERROR",
 }
 AGENT_RUNTIME_ERROR_MESSAGE = "Agent runtime failed before producing a trusted result."
+AGENT_RUNTIME_TRACE_PAYLOAD_KEYS = frozenset(
+    {"call_id", "tool_name", "run_id", "status", "error_code"}
+)
+AGENT_RUNTIME_PRE_LOOP_TRACE_STEPS = frozenset(
+    {
+        "agent_runtime.invocation_started",
+        "agent_runtime.policy_allowed",
+        "agent_runtime.tool_started",
+    }
+)
 REDACTED_INFRA_FIELDS = [
     "checked_schemas",
     "checked_tables",
@@ -66,6 +77,54 @@ def _columns(rows: tuple[dict[str, Any], ...]) -> list[str]:
 
 def _safe_agent_runtime_message(agent_result: Any) -> str:
     return agent_result.error_message or "Agent runtime refused the request."
+
+
+def _safe_agent_runtime_trace_payload(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        key: payload[key]
+        for key in sorted(AGENT_RUNTIME_TRACE_PAYLOAD_KEYS)
+        if key in payload and payload[key] is not None
+    }
+
+
+def _persist_agent_runtime_success_trace(
+    runtime: Any,
+    *,
+    trace_id: str,
+    agent_runtime_adapter: Any,
+) -> None:
+    trace_store = getattr(runtime, "trace_store", None)
+    if trace_store is None:
+        return
+    existing = trace_store.get(trace_id)
+    if existing is None:
+        return
+    adapter_runtime = getattr(agent_runtime_adapter, "runtime", None)
+    trace_writer = getattr(adapter_runtime, "trace_writer", None)
+    raw_events = getattr(trace_writer, "events", ())
+    runtime_events = [
+        TraceEvent(
+            trace_id=trace_id,
+            step=event["step"],
+            payload=_safe_agent_runtime_trace_payload(event.get("payload")),
+        )
+        for event in raw_events
+        if isinstance(event, dict)
+        and isinstance(event.get("step"), str)
+        and event["step"].startswith("agent_runtime.")
+    ]
+    if not runtime_events:
+        return
+
+    pre_loop_events = tuple(
+        event for event in runtime_events if event.step in AGENT_RUNTIME_PRE_LOOP_TRACE_STEPS
+    )
+    post_loop_events = tuple(
+        event for event in runtime_events if event.step not in AGENT_RUNTIME_PRE_LOOP_TRACE_STEPS
+    )
+    trace_store.save(replace(existing, events=pre_loop_events + existing.events + post_loop_events))
 
 
 def _persist_agent_runtime_terminal_trace(
@@ -564,6 +623,12 @@ def run_service(
 
     result = outcome.result
     trace_id = result.evidence_chain.trace_id
+    if agent_runtime_adapter is not None:
+        _persist_agent_runtime_success_trace(
+            runtime,
+            trace_id=trace_id,
+            agent_runtime_adapter=agent_runtime_adapter,
+        )
     asset = runtime.knowledge_store.get_by_trace(trace_id)
 
     return {

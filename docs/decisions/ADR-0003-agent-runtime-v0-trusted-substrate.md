@@ -85,6 +85,13 @@ Diagnostics-boundary review remediation also declares the sanitized Agent Runtim
 - the schema exposes only `code`, `message`, `stage`, and optional `trace_id`;
 - a regression test fails if `/runs` omits the 500 response schema from `apps/api_server/openapi.json`.
 
+Implemented in the HTTP/API composition layer on `codex/agent-runtime-success-trace-bridge-current`:
+
+- successful `POST /runs` persists safe `agent_runtime.*` envelope events into the queryable business `RunTrace`;
+- pre-loop runtime events such as `agent_runtime.policy_allowed` and `agent_runtime.tool_started` are stored before business Trusted Loop events;
+- terminal runtime events such as `agent_runtime.tool_succeeded` are stored after business Trusted Loop events;
+- persisted runtime event payloads are allowlisted to safe metadata and exclude raw request parameters and raw tool output.
+
 The original thin-shell compatibility surface remains:
 
 - `ToolRegistry.register(name, tool)`
@@ -134,6 +141,7 @@ Required properties covered:
 - runtime/tool exception mapping does not expose raw exception text to the external report-key projection.
 - HTTP runtime diagnostic events are request-scoped rather than app-lifetime accumulated.
 - The OpenAPI contract declares the sanitized Agent Runtime 500 response for `/runs`.
+- Successful HTTP `POST /runs` persists safe Agent Runtime envelope events into `/traces/{trace_id}` without raw request parameters.
 
 ## 6. Verification
 
@@ -177,6 +185,20 @@ Result:
 - full `make ci` passed with 453 tests OK, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed after adding `AgentRuntimeErrorResponse`.
 - `ci-local-full` also passed against disposable PostgreSQL on `127.0.0.1:15432`.
 
+Additional success-trace-bridge verification on `codex/agent-runtime-success-trace-bridge-current`:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_http_app tests.unit.test_outcome_service tests.integration.test_trusted_loop_agent_runtime_adapter -v
+```
+
+Result:
+
+- red test first failed with `AssertionError: 'agent_runtime.policy_allowed' not found in []`;
+- focused success-trace test passed after implementation;
+- 62 affected HTTP/service/adapter tests OK.
+- full `make ci` passed with ruff clean, format clean, 454 tests OK in primary unittest discover, 4 skipped, 12 eval tests OK, and OpenAPI contract drift check passed.
+- `ci-local-full` passed against PostgreSQL on `127.0.0.1:5432/agent_os_test`.
+
 ## 7. Non-Claims
 
 This ADR does not claim:
@@ -194,6 +216,7 @@ Future ADRs may add:
 
 - remaining runtime API surfaces beyond `POST /runs`, including approval-execute envelope decisions;
 - checkpoint backend selection in product factories;
+- production telemetry/export policy for runtime-envelope events;
 - hard budgets for time/tool/cost;
 - concurrency/async graph boundary;
 - workflow-layer LangGraph/CrewAI replacement;
