@@ -44,14 +44,14 @@ Implement the G-Eco lower-half only:
 - `src/envs/ecological_4cond.py` defines a deterministic four-condition ecological environment with energy pressure, irreversible integrity loss, incompatible A/B needs under one-action budget, and de-complete observation (partial, lagged, noisy state estimate). It does not implement rate-grid scan order or a divergence-axis detector.
 - `src/aac/g_eco.py` defines one shared substrate (`observation`, `predictor`, `lookahead`, `H`) used by VH, `VH_noStake`, and the nine-arm fixed-preference battery: `LIN`, `LEX`, `THR`, `QUOTA`, `MINIMAX`, `P0`, `RSTAR`, `O1`, `BT`. `lookahead_depth` is active.
 - `src/aac/g_eco.py` also defines two calibration-only references, `HOMEOSTATIC_ORACLE` and `WCREF`, with `calibration_only=True`; they are not included in future r-final arm names. These references are truth-state privileged and are not runtime aliases of VH/MINIMAX.
-- `experiments/g_eco.py` exposes only `smoke` / `mechanism-check`. `freeze`, `r-final`, and `verdict` modes refuse to run while Gate-2 is locked.
-- `tests/test_g_eco.py` guards shared-substrate identity, arm inventory, `VH_noStake` ablation surface, deterministic replay, no external rollback, pure environment region metrics, C6/C7 pause/tighten dominance, and Gate-2 refusal.
+- `experiments/g_eco.py` exposes `smoke` / `mechanism-check` plus pre-Gate-2 candidate writer/verifier surfaces. `freeze`, `r-final`, and `verdict` modes refuse to run while Gate-2 is locked.
+- `tests/test_g_eco.py` guards shared-substrate identity, arm inventory, `VH_noStake` ablation surface, deterministic replay, no external rollback, pure environment region metrics, pre-Gate-2 candidate integrity/firewall checks, C6/C7 pause/tighten dominance, and Gate-2 refusal.
 
 ## Non-Goals
 
-- No §6 rate scan.
+- No founder/CTO co-signed §6 freeze.
 - No divergence-axis detector or pre-freeze rate-grid order change.
-- No freeze JSON writer.
+- No Gate-2-unlocking freeze verifier.
 - No Gate-2 co-sign simulation.
 - No r-final run.
 - No verdict row.
@@ -74,4 +74,22 @@ An adversarial discipline review (workflow `w4tinneni`) confirmed no falsificati
 - **F5 fixed:** `lookahead_depth` performs real multi-step rollout, and VH carries a trajectory/irreversibility pressure term.
 - **F6 fixed:** the C7-tighten test now forbids the action VH would otherwise select and asserts the selected action changes.
 
-KEEP/CHECKPOINT status of `c1363fa` is unchanged; the remediation tightens pre-§6 discipline and still does not implement §6 rate scan, freeze JSON, Gate-2 crossing, r-final, or verdict.
+KEEP/CHECKPOINT status of `c1363fa` is unchanged; the remediation tightens pre-§6 discipline and still does not cross Gate-2, run r-final, or emit a verdict.
+
+## Pre-Gate-2 Candidate Hardening (2026-06-24)
+
+An adversarial freeze-candidate review found two remaining pre-freeze risks and one under-specified Gate-2 leaf:
+
+- VH aggregation constants were still hand-coded without calibration provenance.
+- §9 firewalls for region/rate/threshold logic relied on self-reported JSON booleans rather than static source guards; a follow-on review required those guards to follow same-module callees so forbidden reads cannot be moved one helper deeper.
+- Gate-2 max-hardening condition C3 required G-Eco-4 bootstrap, battery-best tie-break, and comparison epsilon/rounding to be fixed into the hash-locked threshold object before activation.
+
+Codex implemented the pre-Gate-2 hardening without unlocking Gate-2:
+
+- `GEcoVHParams` and `select_vh_parameters()` select VH parameters from a finite calibration grid on calibration seeds, record grid hash/selected label/objective/provenance in `g_eco.battery.json`, and keep performance values withheld.
+- `assert_g_eco_static_firewalls()` adds recursive AST source checks for the region predicate, rate witness, and threshold formula. `pregate2-verify` now runs these checks in addition to content-hash and leak checks. The rate witness now uses a calibration-ref-only runner rather than the generic arm runner, so recursive source checks can prove it does not reach VH or battery arms through a helper.
+- `g_eco.thresholds.json` now records the C3 verdict-mechanics leaves: percentile bootstrap with `B=10000` and seed `611038`, deterministic battery-best tie-break order, and comparison `epsilon=1e-12` with no rounding.
+
+This remains candidate-material hardening only. A passing `pregate2-verify` is not founder/CTO Gate-2 co-sign, not r-final authorization, not a halt/R4 disposition, and not a G-Eco verdict.
+
+2026-06-24 verification after recursive-firewall hardening: `PYTHONPATH=src python -m unittest discover -s tests -v` ran 457 tests OK; `pregate2-candidates` followed by `pregate2-verify` returned `gate2_locked=true`, `verified_candidate_bundle=true`, and `static_firewalls_verified=true`.

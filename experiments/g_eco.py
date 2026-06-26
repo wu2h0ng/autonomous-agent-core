@@ -1,8 +1,8 @@
 """G-Eco lower-half mechanism entrypoint.
 
-Allowed modes in this file are smoke/mechanism-check only. Calibration freeze,
-Gate-2 unlock, r-final, and verdict emission are deliberately absent until the
-founder-reserved freeze object exists and is co-signed.
+Allowed modes in this file are smoke/mechanism-check plus pre-Gate-2 candidate
+write/verify. Gate-2 unlock, r-final, and verdict emission are deliberately
+absent until the founder-reserved freeze object exists and is co-signed.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from aac.g_eco import (
     GEcoHalt,
     GEcoMetrics,
     assert_no_calibration_refs_in_rfinal,
+    assert_g_eco_static_firewalls,
     build_baseline_audit,
     build_calibration_refs,
     derive_threshold_freeze,
@@ -69,7 +70,9 @@ def _load_candidate_payload(path: Path) -> dict[str, Any]:
             f"invalid pre-Gate-2 JSON in {path.name}: {exc}",
         ) from exc
     if not isinstance(payload, dict):
-        raise GEcoHalt("PREGATE2_INVALID_JSON", f"{path.name} must contain a JSON object")
+        raise GEcoHalt(
+            "PREGATE2_INVALID_JSON", f"{path.name} must contain a JSON object"
+        )
     return payload
 
 
@@ -80,19 +83,28 @@ def _require(condition: bool, code: str, message: str) -> None:
 
 def _verify_rates_payload(payload: dict[str, Any]) -> None:
     firewall = payload.get("firewall", {})
-    _require(isinstance(firewall, dict), "PREGATE2_FIREWALL_INVALID", "rates firewall missing")
+    _require(
+        isinstance(firewall, dict),
+        "PREGATE2_FIREWALL_INVALID",
+        "rates firewall missing",
+    )
     _require(
         firewall.get("no_battery_outputs_used") is True,
         "PREGATE2_FIREWALL_INVALID",
         "rates freeze must not use battery outputs",
     )
     _require(
-        set(firewall.get("used_refs", ())) == {"naive_uniform", "HOMEOSTATIC_ORACLE", "WCREF"},
+        set(firewall.get("used_refs", ()))
+        == {"naive_uniform", "HOMEOSTATIC_ORACLE", "WCREF"},
         "PREGATE2_FIREWALL_INVALID",
         "rates freeze must use only tri-border calibration references",
     )
     tri_border = payload.get("tri_border", {})
-    _require(isinstance(tri_border, dict), "PREGATE2_RATES_INVALID", "tri-border rates missing")
+    _require(
+        isinstance(tri_border, dict),
+        "PREGATE2_RATES_INVALID",
+        "tri-border rates missing",
+    )
     _require(
         set(tri_border)
         == {
@@ -117,18 +129,43 @@ def _verify_battery_payload(payload: dict[str, Any]) -> None:
         "battery freeze must withhold performance fields",
     )
     serialized = json.dumps(payload, sort_keys=True)
-    _require("enter_rate" not in serialized, "PREGATE2_BATTERY_LEAK", "battery leaked enter_rate")
+    _require(
+        "enter_rate" not in serialized,
+        "PREGATE2_BATTERY_LEAK",
+        "battery leaked enter_rate",
+    )
+    candidates = payload.get("candidate_parameters", {})
+    _require(
+        isinstance(candidates, dict)
+        and "VH" in candidates
+        and "VH_noStake" in candidates,
+        "PREGATE2_BATTERY_INVALID",
+        "battery freeze must pin VH and VH_noStake parameters",
+    )
+    vh_source = (
+        candidates["VH"].get("source", {}) if isinstance(candidates["VH"], dict) else {}
+    )
+    _require(
+        isinstance(vh_source, dict)
+        and vh_source.get("kind") == "calibration_grid"
+        and "parameter_grid_hash" in vh_source
+        and "selected_label" in vh_source,
+        "PREGATE2_BATTERY_INVALID",
+        "VH parameters must be calibration-grid selected with provenance",
+    )
 
 
 def _verify_threshold_payload(payload: dict[str, Any]) -> None:
     _require(
-        set(payload.get("formula_inputs", ())) == {"naive_er", "oracle_er", "seed_count", "K"},
+        set(payload.get("formula_inputs", ()))
+        == {"naive_er", "oracle_er", "seed_count", "K"},
         "PREGATE2_THRESHOLDS_INVALID",
         "threshold formula inputs must stay blind to candidate/battery arms",
     )
     firewall = payload.get("firewall", {})
     _require(
-        isinstance(firewall, dict) and firewall.get("uses_only_naive_and_oracle") is True,
+        isinstance(firewall, dict)
+        and firewall.get("uses_only_naive_and_oracle") is True,
         "PREGATE2_THRESHOLDS_INVALID",
         "threshold freeze must use only naive/oracle inputs",
     )
@@ -136,6 +173,34 @@ def _verify_threshold_payload(payload: dict[str, Any]) -> None:
         firewall.get("opponent_arm_level_inputs_withheld") is True,
         "PREGATE2_THRESHOLDS_INVALID",
         "threshold freeze must withhold opponent arm-level inputs",
+    )
+    mechanics = payload.get("verdict_mechanics", {})
+    _require(
+        isinstance(mechanics, dict),
+        "PREGATE2_THRESHOLDS_INVALID",
+        "threshold freeze must record verdict mechanics",
+    )
+    _require(
+        mechanics.get("bootstrap")
+        == {"B": 10000, "resample_seed": 611038, "ci_method": "percentile"},
+        "PREGATE2_THRESHOLDS_INVALID",
+        "bootstrap mechanics must be frozen",
+    )
+    _require(
+        mechanics.get("battery_best_tie_break")
+        == [
+            "enter_rate_desc",
+            "survival_steps_desc",
+            "irreversible_loss_asc",
+            "arm_name_asc",
+        ],
+        "PREGATE2_THRESHOLDS_INVALID",
+        "battery-best tie-break must be frozen",
+    )
+    _require(
+        mechanics.get("comparison") == {"epsilon": 1e-12, "rounding": "none"},
+        "PREGATE2_THRESHOLDS_INVALID",
+        "comparison epsilon/rounding must be frozen",
     )
 
 
@@ -149,7 +214,11 @@ def _verify_audit_payload(payload: dict[str, Any]) -> None:
         "baseline audit firewall flags are not armed",
     )
     halt_booleans = payload.get("halt_booleans", {})
-    _require(isinstance(halt_booleans, dict), "PREGATE2_AUDIT_INVALID", "halt booleans missing")
+    _require(
+        isinstance(halt_booleans, dict),
+        "PREGATE2_AUDIT_INVALID",
+        "halt booleans missing",
+    )
     _require(
         all(isinstance(value, bool) for value in halt_booleans.values()),
         "PREGATE2_AUDIT_INVALID",
@@ -178,6 +247,7 @@ def verify_pregate2_candidate_bundle(out_dir: Path) -> dict[str, Any]:
     passing result is explicitly not a Gate-2 co-sign, not a freeze, not
     r-final authorization, and not a verdict.
     """
+    assert_g_eco_static_firewalls()
     payloads: dict[str, dict[str, Any]] = {}
     for filename, expected_kind in PREGATE2_CANDIDATE_FILES.items():
         payload = _load_candidate_payload(out_dir / filename)
@@ -207,9 +277,11 @@ def verify_pregate2_candidate_bundle(out_dir: Path) -> dict[str, Any]:
         "kind": "G-Eco pre-Gate-2 candidate verification",
         "gate2_locked": True,
         "verified_candidate_bundle": True,
+        "static_firewalls_verified": True,
         "files": sorted(PREGATE2_CANDIDATE_FILES),
         "content_hashes": {
-            filename: payload["content_hash"] for filename, payload in sorted(payloads.items())
+            filename: payload["content_hash"]
+            for filename, payload in sorted(payloads.items())
         },
         "note": (
             "Mechanical candidate integrity/firewall verification only; still no "
@@ -270,7 +342,9 @@ def mechanism_check(
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def write_pregate2_candidate(
@@ -288,7 +362,7 @@ def write_pregate2_candidate(
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     rates = scan_rate_grid(seeds=rate_seeds, steps=steps)
-    battery = freeze_battery_parameters()
+    battery = freeze_battery_parameters(rates, seeds=audit_seeds, steps=steps)
     thresholds = derive_threshold_freeze(
         naive_er=rates.naive_full_region_rate,
         oracle_er=rates.oracle_full_region_rate,
