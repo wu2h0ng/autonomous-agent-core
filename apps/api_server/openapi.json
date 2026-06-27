@@ -1016,6 +1016,57 @@
         "title": "RuntimeCheckpointRef",
         "type": "object"
       },
+      "RuntimeResumeErrorDetail": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "runtime_run_id": {
+            "title": "Runtime Run Id",
+            "type": "string"
+          },
+          "runtime_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Trace Id"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "stage",
+          "runtime_run_id"
+        ],
+        "title": "RuntimeResumeErrorDetail",
+        "type": "object"
+      },
+      "RuntimeResumeErrorResponse": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/RuntimeResumeErrorDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "RuntimeResumeErrorResponse",
+        "type": "object"
+      },
       "RuntimeResumeOutputRef": {
         "properties": {
           "block_code": {
@@ -2046,6 +2097,26 @@
             },
             "description": "Successful Response"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeResumeErrorResponse"
+                }
+              }
+            },
+            "description": "Agent Runtime checkpoint not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeResumeErrorResponse"
+                }
+              }
+            },
+            "description": "Agent Runtime checkpoint mismatch or policy denial."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2055,6 +2126,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeResumeErrorResponse"
+                }
+              }
+            },
+            "description": "Agent Runtime checkpoint resume failed internally."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeResumeErrorResponse"
+                }
+              }
+            },
+            "description": "Agent Runtime checkpoint store is not configured."
           }
         },
         "summary": "Post Agent Runtime Resume"

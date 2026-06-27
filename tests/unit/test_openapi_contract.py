@@ -182,6 +182,17 @@ class OpenApiContractTest(unittest.TestCase):
             set(response_schema["required"]),
             {"runtime_run_id", "runtime_trace_id", "tool_name", "status", "resumed"},
         )
+        for status_code in ("404", "409", "500", "503"):
+            self.assertEqual(
+                resume["responses"][status_code]["content"]["application/json"]["schema"],
+                {"$ref": "#/components/schemas/RuntimeResumeErrorResponse"},
+            )
+        error_detail = spec["components"]["schemas"]["RuntimeResumeErrorDetail"]
+        self.assertEqual(
+            set(error_detail["required"]),
+            {"code", "message", "stage", "runtime_run_id"},
+        )
+        self.assertIn("runtime_trace_id", error_detail["properties"])
         output_ref = spec["components"]["schemas"]["RuntimeResumeOutputRef"]
         self.assertNotIn("parameters", json.dumps(output_ref))
         self.assertNotIn("raw", json.dumps(output_ref).lower())

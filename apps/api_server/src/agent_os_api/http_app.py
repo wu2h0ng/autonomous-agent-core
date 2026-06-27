@@ -477,6 +477,18 @@ class RuntimeResumeResponse(BaseModel):
     output_ref: RuntimeResumeOutputRef | None = None
 
 
+class RuntimeResumeErrorDetail(BaseModel):
+    code: str
+    message: str
+    stage: str
+    runtime_run_id: str
+    runtime_trace_id: str | None = None
+
+
+class RuntimeResumeErrorResponse(BaseModel):
+    detail: RuntimeResumeErrorDetail
+
+
 class AgentRuntimeErrorDetail(BaseModel):
     code: str
     message: str
@@ -881,6 +893,24 @@ def create_app(
     @app.post(
         "/agent-runtime/runs/{runtime_run_id}/resume",
         response_model=RuntimeResumeResponse,
+        responses={
+            404: {
+                "model": RuntimeResumeErrorResponse,
+                "description": "Agent Runtime checkpoint not found.",
+            },
+            409: {
+                "model": RuntimeResumeErrorResponse,
+                "description": "Agent Runtime checkpoint mismatch or policy denial.",
+            },
+            500: {
+                "model": RuntimeResumeErrorResponse,
+                "description": "Agent Runtime checkpoint resume failed internally.",
+            },
+            503: {
+                "model": RuntimeResumeErrorResponse,
+                "description": "Agent Runtime checkpoint store is not configured.",
+            },
+        },
     )
     def post_agent_runtime_resume(
         runtime_run_id: str,
