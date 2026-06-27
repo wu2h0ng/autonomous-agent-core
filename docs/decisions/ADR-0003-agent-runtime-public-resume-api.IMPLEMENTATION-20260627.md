@@ -154,5 +154,10 @@ This slice does not:
 
 ## Next Gate
 
-Require review and explicit founder/CTO authorization before any local-main
-merge. Push and release remain separate gates.
+Branch-local Codex self-review is recorded in
+`ADR-0003-agent-runtime-public-resume-api.SELF-REVIEW-20260627.md`.
+
+That self-review is not independent review and not merge authorization. Require
+explicit founder/CTO authorization, and independent review if founder/CTO
+requires it, before any local-main merge. Push and release remain separate
+gates.
