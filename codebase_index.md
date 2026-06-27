@@ -105,8 +105,12 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/consequence_prior_g13.freeze.json` | ADR-0036/G13 | Founder unlock artifact for the one r-final |
 | `experiments/consequence_prior_g13.result.json` | ADR-0036/G13 | R-final artifact; G13 NOT MET |
 | `tests/test_consequence_prior_g13.py` | ADR-0036/G13 | CP interface, C6/C7, scar env, collapse, denominator, r-final guard tests |
-| `experiments/g_eco.py` | ADR-0038/G-Eco | Lower-half smoke/mechanism-check plus `pregate2-candidates` writer and `pregate2-verify` integrity/static-firewall verifier; freeze/r-final/verdict modes refuse while Gate-2 locked |
+| `experiments/g_eco.py` | ADR-0038/G-Eco + r-final harness | Lower-half smoke/mechanism-check + `pregate2-candidates`/`pregate2-verify` + `gate2-cosign`. r-final harness: `assert_gate2_unlocked` (founder-cosign-gated verifier), `run_rfinal` (faithful frozen-candidate replay -> RAW only, C6/C7 + Stage-2 prereg.lock double-bind), `verify_prereg_lock` (mechanism-code drift gate), `build_adjudication_packet` + `verify_adjudication_integrity` (kimicode handoff + Claude verify-and-narrate incl. gate-4 Wilcoxon/bootstrap). freeze/r-final/verdict CLI still refuse; verdict is kimicode's |
 | `tests/test_g_eco.py` | ADR-0038/G-Eco | Shared substrate, r-final cheat-ref firewall, truth-state separation, frozen-source battery adapters, de-complete observation, active lookahead, VH_noStake, deterministic replay, reset boundary, calibration-selected VH params, recursive static firewalls, C3 verdict-mechanics leaves, pre-Gate-2 candidate writer/verifier/audit guards, C6/C7, Gate-2 refusal guards |
+| `tests/test_gate2_unlock.py` | G-Eco r-final harness | Gate-2 unlock verifier: locked-by-default, founder co-sign exact-bytes binding, audit-halt/incomplete, seed-band, tamper guards |
+| `tests/test_rfinal_runner.py` | G-Eco r-final harness | run_rfinal: refuses-when-locked, faithful-replay drift, RAW-only no-verdict, determinism, C6/C7 (multi-seed, non-acting-arm rejected) |
+| `tests/test_adjudication.py` | G-Eco r-final harness | Packet assembly + verify-and-narrate integrity (fabrication/non-frozen-theta/ragged-rows/alpha-drift caught); gate-4 Wilcoxon+bootstrap known-answers |
+| `tests/test_prereg_lock.py` | G-Eco r-final harness Stage-2 | prereg.lock double-bind: no-lock-not-ready, verified-lock-ready, mechanism drift / traversal / non-object / missing rejected |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |

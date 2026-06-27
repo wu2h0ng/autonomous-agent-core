@@ -2,10 +2,10 @@ updated: "2026-06-27"  # Reconcile-merge (founder-cast option A, 2026-06-27): fe
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; G-Eco pre-Gate-2 hardening MERGED to main 2026-06-27; assert_gate2_unlocked still hard-fails; r-final harness not yet written (Claude-writes/kimicode-adjudicates per 2026-06-27 founder decision)"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; G-Eco pre-Gate-2 hardening + r-final HARNESS MERGED to main 2026-06-27 (feat/geco-rfinal-harness, kimicode-reviewed each piece incl. one BLOCK->APPROVE). assert_gate2_unlocked is now a REAL founder-cosign-gated verifier (not hard-fail); run_rfinal replays the frozen candidate -> RAW data only; build_adjudication_packet + verify_adjudication_integrity hand off to kimicode; Stage-2 prereg.lock double-bind gates adjudication_ready. Gate-2 freeze/r-final/verdict STILL founder-reserved and NOT run; 4-agent firewall Codex(mechanism)/Claude(harness)/opencode(freeze)/kimicode(adjudication)/founder(conclusion) per 2026-06-27 founder decisions; machine prereg spec docs/research/G-Eco.prereg.yaml ready"
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 457
+  count: 489
   result: "OK"
   source: "Full suite verified by Codex on 2026-06-24 after G-Eco pre-Gate-2 hardening for calibration-selected VH params, recursive AST static firewalls, calibration-ref-only rate witness, and C3 verdict-mechanics leaves"
 
