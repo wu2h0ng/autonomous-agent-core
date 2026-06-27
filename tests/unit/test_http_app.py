@@ -238,6 +238,149 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(adopt_payload["knowledge_version"], 2)
         self.assertIsNotNone(adopt_payload["knowledge_asset_id"])
 
+    def test_outcomes_traverse_agent_runtime_envelope_without_knowledge_promotion(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        run_writer = client.app.state.agent_runtime_trace_writer
+
+        outcome_resp = client.post(
+            "/outcomes",
+            json={
+                "trace_id": trace_id,
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+                "metric_deltas": {"gmv": 1000.0, "secret_token": "do-not-leak"},
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+        self.assertIsNot(client.app.state.agent_runtime_trace_writer, run_writer)
+        payload = outcome_resp.json()
+        self.assertEqual(payload["knowledge_version"], 1)
+        self.assertIsNotNone(payload["knowledge_asset_id"])
+        outcome_events = [
+            event
+            for event in client.app.state.agent_runtime_trace_writer.events
+            if event["payload"].get("tool_name") == "trusted_loop.record_outcome"
+        ]
+        outcome_steps = [event["step"] for event in outcome_events]
+        self.assertIn("agent_runtime.policy_allowed", outcome_steps)
+        self.assertIn("agent_runtime.tool_started", outcome_steps)
+        self.assertIn("agent_runtime.tool_succeeded", outcome_steps)
+        self.assertIn("agent_runtime.invocation_finished", outcome_steps)
+
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        trace_events = trace_resp.json()["events"]
+        persisted_record_events = [
+            event
+            for event in trace_events
+            if event["payload"].get("tool_name") == "trusted_loop.record_outcome"
+        ]
+        self.assertTrue(persisted_record_events)
+        knowledge_candidate_index = next(
+            index
+            for index, event in enumerate(trace_events)
+            if event["step"] == "knowledge_asset_candidate"
+        )
+        record_tool_started_index = next(
+            index
+            for index, event in enumerate(trace_events)
+            if event["step"] == "agent_runtime.tool_started"
+            and event["payload"].get("tool_name") == "trusted_loop.record_outcome"
+        )
+        self.assertLess(knowledge_candidate_index, record_tool_started_index)
+        encoded_runtime_payloads = str(
+            [
+                event["payload"]
+                for event in trace_events
+                if event["step"].startswith("agent_runtime.")
+            ]
+        )
+        self.assertNotIn("1000.0", encoded_runtime_payloads)
+        self.assertNotIn("metric_deltas", encoded_runtime_payloads)
+        self.assertNotIn("secret_token", encoded_runtime_payloads)
+        self.assertNotIn("do-not-leak", encoded_runtime_payloads)
+
+    def test_outcomes_paused_shell_denies_before_feedback_write(self) -> None:
+        client = _make_client(API_KEY, paused=True)
+        headers = {"X-API-Key": API_KEY}
+
+        outcome_resp = client.post(
+            "/outcomes",
+            json={
+                "trace_id": "trace-paused-outcome",
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(outcome_resp.status_code, 409, outcome_resp.text)
+        detail = outcome_resp.json()["detail"]
+        self.assertEqual(detail["code"], "DENY_PAUSED")
+        self.assertEqual(detail["stage"], "agent_runtime")
+        self.assertEqual(
+            client.app.state.runtime.feedback_store.get_by_trace("trace-paused-outcome"),
+            (),
+        )
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.policy_denied", runtime_steps)
+        self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+
+    def test_outcome_runtime_denial_preserves_existing_run_trace(self) -> None:
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        client = TestClient(
+            create_app(
+                runtime,
+                api_key=API_KEY,
+                operator_api_key=OPERATOR_KEY,
+                adoption_ingest=factory.adoption_ingest(),
+                agent_checkpoint_store=factory.build_agent_checkpoint_store(),
+            )
+        )
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        before_trace = client.get(f"/traces/{trace_id}", headers=headers).json()
+        before_steps = [event["step"] for event in before_trace["events"]]
+        self.assertIn("intent", before_steps)
+        self.assertIn("knowledge_asset_candidate", before_steps)
+
+        factory.corrigibility_shell().op_pause()
+        outcome_resp = client.post(
+            "/outcomes",
+            json={
+                "trace_id": trace_id,
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(outcome_resp.status_code, 409, outcome_resp.text)
+        after_trace = client.get(f"/traces/{trace_id}", headers=headers).json()
+        after_steps = [event["step"] for event in after_trace["events"]]
+        self.assertIn("intent", after_steps)
+        self.assertIn("knowledge_asset_candidate", after_steps)
+        self.assertIn("agent_runtime.policy_denied", after_steps)
+        self.assertIn("blocked", after_steps)
+
     def test_adoptions_accepts_causal_attribution_and_surfaces_result_weight(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}
@@ -271,6 +414,103 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         payload = adopt_resp.json()
         self.assertEqual(payload["knowledge_version"], 2)
         self.assertEqual(payload["result_weight"], 0.8)
+
+    def test_adoptions_traverse_runtime_envelope_and_preserve_writer_authority(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        run_writer = client.app.state.agent_runtime_trace_writer
+
+        adopt_resp = client.post(
+            "/adoptions",
+            json={
+                "trace_id": trace_id,
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+                "metric_deltas": {"gmv": 1200.0, "api_key": "do-not-leak"},
+                "causal_attribution": {
+                    "metric_name": "gmv",
+                    "observed_value": 11200.0,
+                    "counterfactual_value": 10000.0,
+                    "delta_absolute": 1200.0,
+                    "delta_percent": 0.12,
+                    "method": "holdout",
+                    "comparison_ref": "holdout:campaign-42",
+                    "window_start": "2026-06-01",
+                    "window_end": "2026-06-07",
+                    "confidence": 0.8,
+                },
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(adopt_resp.status_code, 200, adopt_resp.text)
+        self.assertIsNot(client.app.state.agent_runtime_trace_writer, run_writer)
+        payload = adopt_resp.json()
+        self.assertEqual(payload["knowledge_version"], 2)
+        self.assertEqual(payload["result_weight"], 0.8)
+        self.assertEqual(len(client.app.state.runtime.adoption_for_trace(trace_id)), 1)
+        self.assertFalse(hasattr(client.app.state.runtime, "adoption_ingest"))
+        adoption_events = [
+            event
+            for event in client.app.state.agent_runtime_trace_writer.events
+            if event["payload"].get("tool_name") == "trusted_loop.attest_adoption"
+        ]
+        adoption_steps = [event["step"] for event in adoption_events]
+        self.assertIn("agent_runtime.policy_allowed", adoption_steps)
+        self.assertIn("agent_runtime.tool_started", adoption_steps)
+        self.assertIn("agent_runtime.tool_succeeded", adoption_steps)
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        trace_events = trace_resp.json()["events"]
+        knowledge_candidate_index = next(
+            index
+            for index, event in enumerate(trace_events)
+            if event["step"] == "knowledge_asset_candidate"
+        )
+        adoption_tool_started_index = next(
+            index
+            for index, event in enumerate(trace_events)
+            if event["step"] == "agent_runtime.tool_started"
+            and event["payload"].get("tool_name") == "trusted_loop.attest_adoption"
+        )
+        self.assertLess(knowledge_candidate_index, adoption_tool_started_index)
+        encoded_runtime_payloads = str(
+            [event["payload"] for event in client.app.state.agent_runtime_trace_writer.events]
+        )
+        self.assertNotIn("holdout:campaign-42", encoded_runtime_payloads)
+        self.assertNotIn("delta_absolute", encoded_runtime_payloads)
+        self.assertNotIn("1200.0", encoded_runtime_payloads)
+        self.assertNotIn("api_key", encoded_runtime_payloads)
+        self.assertNotIn("do-not-leak", encoded_runtime_payloads)
+
+    def test_adoptions_paused_shell_denies_before_adoption_write(self) -> None:
+        client = _make_client(API_KEY, paused=True)
+        headers = {"X-API-Key": API_KEY}
+
+        adopt_resp = client.post(
+            "/adoptions",
+            json={
+                "trace_id": "trace-paused-adoption",
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(adopt_resp.status_code, 409, adopt_resp.text)
+        detail = adopt_resp.json()["detail"]
+        self.assertEqual(detail["code"], "DENY_PAUSED")
+        self.assertEqual(detail["stage"], "agent_runtime")
+        self.assertEqual(client.app.state.runtime.adoption_for_trace("trace-paused-adoption"), ())
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.policy_denied", runtime_steps)
+        self.assertNotIn("agent_runtime.tool_started", runtime_steps)
 
     def test_run_response_carries_user_facing_result_artifact(self) -> None:
         client = _make_client(API_KEY)

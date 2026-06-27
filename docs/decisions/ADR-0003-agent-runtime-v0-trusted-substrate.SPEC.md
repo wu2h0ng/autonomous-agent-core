@@ -10,7 +10,7 @@
 - Decision status: Accepted by CTO/founder on 2026-06-24.
 - Code status: implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`.
 - Runtime dependency status: external agent frameworks are reference-only.
-- Required next gate: open a fresh branch from updated local `main` for the correction-channel runtime envelope scoped in `ADR-0003-agent-runtime-correction-channel-scope-20260626.md`; broader factory/API exposure, true wall-clock interruption, concurrency, and workflow runtime replacement require later ADRs.
+- Correction-channel slice: implemented locally on branch `codex/agent-runtime-correction-channel` for `POST /outcomes` and `POST /adoptions`; review/merge gate remains pending. Broader factory/API exposure, true wall-clock interruption, concurrency, and workflow runtime replacement require later ADRs.
 - Packet A Slice 0 branch `codex/agent-runtime-live-wiring` wires `POST /runs` through the existing Trusted Loop adapter without replacing `TrustedLoopRuntime`.
 
 ## 1. Problem

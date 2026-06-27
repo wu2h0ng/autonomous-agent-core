@@ -40,9 +40,10 @@ from agent_os_core.agent_runtime import (
 
 from .outcome_service import (
     InMemoryReportSnapshotStore,
+    TrustedLoopCorrectionRuntimeAdapter,
+    _persist_agent_runtime_appended_trace,
+    _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
-    attest_adoption_service,
-    record_outcome_service,
     report_snapshot_service,
     run_service,
     search_service,
@@ -754,21 +755,69 @@ def create_app(
     @app.post("/outcomes", response_model=OutcomeResponse)
     def post_outcome(
         body: OutcomeRequest,
-        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_OUTCOME_WRITE)),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_OUTCOME_WRITE)),
     ) -> dict[str, Any]:
         # Self-report only (P5.1b): records feedback, does NOT promote knowledge.
-        return record_outcome_service(
+        agent_runtime_trace_writer = AgentTraceWriter()
+        agent_runtime_adapter = TrustedLoopCorrectionRuntimeAdapter(
+            app.state.runtime,
+            checkpoint_store=app.state.agent_checkpoint_store,
+            shell_view=getattr(app.state.runtime, "shell_view", None),
+            trace_writer=agent_runtime_trace_writer,
+        )
+        agent_context = AgentRunContext(
+            tenant_id="default",
+            workspace_id="default",
+            principal_id=principal.kind,
+            principal_role=principal.kind,
+            run_id=f"http-outcome-{uuid4().hex[:12]}",
+            trace_id=body.trace_id,
+            policy_scope=frozenset({"trusted_loop:record_outcome"}),
+            risk_ceiling="R1",
+            metadata={
+                "surface": "POST /outcomes",
+                "principal_kind": principal.kind,
+            },
+        )
+        try:
+            agent_result = agent_runtime_adapter.record_outcome(
+                context=agent_context,
+                trace_id=body.trace_id,
+                outcome=body.outcome,
+                reviewer=body.reviewer,
+                metric_deltas=body.metric_deltas,
+            )
+        finally:
+            app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
+
+        if agent_result.status != "ok":
+            _persist_agent_runtime_terminal_trace(
+                app.state.runtime,
+                agent_result=agent_result,
+                agent_context=agent_context,
+                status="blocked",
+                block_message=agent_result.error_message,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": agent_result.error_code or agent_result.status,
+                    "message": agent_result.error_message or "Agent Runtime refused correction.",
+                    "stage": "agent_runtime",
+                    "trace_id": body.trace_id,
+                },
+            )
+        _persist_agent_runtime_appended_trace(
             app.state.runtime,
             trace_id=body.trace_id,
-            outcome=body.outcome,
-            reviewer=body.reviewer,
-            metric_deltas=body.metric_deltas,
+            agent_runtime_adapter=agent_runtime_adapter,
         )
+        return agent_result.output if isinstance(agent_result.output, dict) else {}
 
     @app.post("/adoptions", response_model=AdoptionResponse)
     def post_adoption(
         body: AdoptionRequest,
-        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_ADOPTION_WRITE)),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_ADOPTION_WRITE)),
     ) -> dict[str, Any]:
         # The operator value channel (P5.1b): attest realized external value and
         # promote the trace's knowledge. The only surface that drives promotion.
@@ -780,19 +829,67 @@ def create_app(
                     "factory, or pass adoption_ingest= to create_app to enable this endpoint."
                 ),
             )
-        return attest_adoption_service(
+        agent_runtime_trace_writer = AgentTraceWriter()
+        agent_runtime_adapter = TrustedLoopCorrectionRuntimeAdapter(
             app.state.runtime,
-            app.state.adoption_ingest,
-            trace_id=body.trace_id,
-            outcome=body.outcome,
-            reviewer=body.reviewer,
-            metric_deltas=body.metric_deltas,
-            causal_attribution=(
-                body.causal_attribution.to_contract()
-                if body.causal_attribution is not None
-                else None
-            ),
+            adoption_ingest=app.state.adoption_ingest,
+            checkpoint_store=app.state.agent_checkpoint_store,
+            shell_view=getattr(app.state.runtime, "shell_view", None),
+            trace_writer=agent_runtime_trace_writer,
         )
+        agent_context = AgentRunContext(
+            tenant_id="default",
+            workspace_id="default",
+            principal_id=principal.kind,
+            principal_role=principal.kind,
+            run_id=f"http-adoption-{uuid4().hex[:12]}",
+            trace_id=body.trace_id,
+            policy_scope=frozenset({"trusted_loop:attest_adoption"}),
+            risk_ceiling="R2",
+            metadata={
+                "surface": "POST /adoptions",
+                "principal_kind": principal.kind,
+            },
+        )
+        try:
+            agent_result = agent_runtime_adapter.attest_adoption(
+                context=agent_context,
+                trace_id=body.trace_id,
+                outcome=body.outcome,
+                reviewer=body.reviewer,
+                metric_deltas=body.metric_deltas,
+                causal_attribution=(
+                    body.causal_attribution.to_contract()
+                    if body.causal_attribution is not None
+                    else None
+                ),
+            )
+        finally:
+            app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
+
+        if agent_result.status != "ok":
+            _persist_agent_runtime_terminal_trace(
+                app.state.runtime,
+                agent_result=agent_result,
+                agent_context=agent_context,
+                status="blocked",
+                block_message=agent_result.error_message,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": agent_result.error_code or agent_result.status,
+                    "message": agent_result.error_message or "Agent Runtime refused correction.",
+                    "stage": "agent_runtime",
+                    "trace_id": body.trace_id,
+                },
+            )
+        _persist_agent_runtime_appended_trace(
+            app.state.runtime,
+            trace_id=body.trace_id,
+            agent_runtime_adapter=agent_runtime_adapter,
+        )
+        return agent_result.output if isinstance(agent_result.output, dict) else {}
 
     @app.post(
         "/approvals/{approval_id}/execute",

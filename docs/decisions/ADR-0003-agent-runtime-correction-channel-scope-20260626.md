@@ -1,7 +1,7 @@
 # ADR-0003 Scope: Agent Runtime Correction Channel
 
 Date: 2026-06-26
-Status: SCOPE CANDIDATE ONLY - NOT IMPLEMENTED
+Status: IMPLEMENTED LOCALLY ON `codex/agent-runtime-correction-channel` - REVIEW/MERGE PENDING
 Depends on: stacked merge of `codex/agent-runtime-reviewed-slices-consolidation`,
 `codex/agent-runtime-checkpoint-factory-selection`, and
 `codex/agent-runtime-budget-guard` into local `main`
@@ -92,6 +92,55 @@ options before implementation:
 Recommended v0 decision: option 1 for `record_outcome`, and option 2 or a new
 operator-key-only correction approval for `attest_adoption`. The external value
 writer is more sensitive than self-report feedback.
+
+## Implementation Decision (2026-06-27)
+
+The local implementation uses a narrow version of option 1 for both tools:
+
+- `RuntimePolicyGate` allowlists only the correction-channel side-effect classes
+  `self_report_feedback` and `external_value_attestation`.
+- The allowlist applies only when the tool risk is below R3 and the tool declares
+  required permissions. Missing `trusted_loop:record_outcome` or
+  `trusted_loop:attest_adoption` still denies before the tool body.
+- Arbitrary non-read side effects remain approval-required by default, and
+  R4/R5 execution remains proposal-only.
+- `TrustedLoopCorrectionRuntimeAdapter` lives in the API/service composition
+  layer. It may receive the operator-held `AdoptionIngest` for the adoption tool,
+  but neither `AgentRuntime` nor `TrustedLoopRuntime` receives an adoption writer.
+- `POST /outcomes` and `POST /adoptions` each create a request-scoped
+  `AgentRunContext`, `AgentTraceWriter`, and correction adapter before invoking
+  existing service functions.
+- Runtime trace persistence keeps only the allowlisted
+  `call_id/tool_name/run_id/status/error_code` metadata and excludes raw metric
+  deltas, causal-attribution payloads, secret-like keys, contract objects, and
+  full business payloads.
+
+This keeps current API authorization semantics (`adoptions:write` is still the
+realized-value HTTP scope) while adding a second runtime permission/pause gate.
+It does not add operator-key-only correction approval; that remains a possible
+future hardening slice if the external value channel is promoted above the
+current internal API surface.
+
+## Verification (2026-06-27)
+
+- Failure-first targeted tests were added in
+  `tests/unit/test_agent_runtime_correction_channel.py` and
+  `tests/unit/test_http_app.py`.
+- Failure-first coverage targets the pre-existing bypass shape: `/outcomes` and
+  `/adoptions` must enter through request-scoped runtime context, deny before
+  feedback/adoption writes when paused or missing permissions, and preserve
+  writer authority. During hardening, `test_outcome_runtime_denial_preserves_existing_run_trace`
+  first failed because terminal correction denial overwrote the prior `/runs`
+  trace instead of appending safe denial events.
+- GREEN evidence after implementation:
+  - targeted runtime/correction suite covering correction-channel, policy,
+    tool, replay-boundary, outcome-service, and HTTP paths: 100 tests OK;
+  - `make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python`:
+    ruff clean, format clean, 492 unittest tests OK with 4 skipped, 12 eval
+    tests OK, OpenAPI drift check passed;
+  - `AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python`:
+    full local CI parity passed with the same 492 tests OK / 4 skipped, 12 eval
+    tests OK, and OpenAPI up to date.
 
 ## Required Failure-First Tests
 

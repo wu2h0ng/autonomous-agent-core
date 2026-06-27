@@ -13,16 +13,29 @@ they contain no domain- or transport-specific logic.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 import hashlib
+from collections.abc import Mapping
 from typing import Any
 
 from agent_os_contracts import (
+    CausalAttributionMethod,
     CausalOutcomeAttribution,
     ConnectorExecutionAudit,
     KnowledgeQuery,
     RunTrace,
     TraceEvent,
+)
+from agent_os_core.agent_runtime import (
+    AgentRunContext,
+    AgentRuntime,
+    AgentToolCall,
+    AgentToolResult,
+    AgentTraceWriter,
+    CheckpointStorePort,
+    RuntimePolicyGate,
+    ToolRegistry,
+    ToolSpec,
 )
 
 REPORT_AUDIENCES = {"internal", "external"}
@@ -61,6 +74,169 @@ REDACTED_RESULT_FIELDS = [
     "chart_fields",
     "metric_values",
 ]
+
+
+def _causal_attribution_to_payload(
+    causal_attribution: CausalOutcomeAttribution | None,
+) -> dict[str, Any] | None:
+    if causal_attribution is None:
+        return None
+    payload = asdict(causal_attribution)
+    payload["method"] = causal_attribution.method.value
+    return payload
+
+
+def _causal_attribution_from_payload(
+    payload: CausalOutcomeAttribution | Mapping[str, Any] | None,
+) -> CausalOutcomeAttribution | None:
+    if payload is None or isinstance(payload, CausalOutcomeAttribution):
+        return payload
+    values = dict(payload)
+    if not isinstance(values.get("method"), CausalAttributionMethod):
+        values["method"] = CausalAttributionMethod(values["method"])
+    return CausalOutcomeAttribution(**values)
+
+
+class TrustedLoopCorrectionRuntimeAdapter:
+    """Runtime envelope for correction/value-feedback Trusted Loop channels.
+
+    This adapter belongs to the composition layer: it may hold the operator-side
+    adoption writer passed by the API factory, while the underlying AgentRuntime
+    and TrustedLoopRuntime remain free of adoption-write authority.
+    """
+
+    RECORD_OUTCOME_TOOL_NAME = "trusted_loop.record_outcome"
+    ATTEST_ADOPTION_TOOL_NAME = "trusted_loop.attest_adoption"
+
+    def __init__(
+        self,
+        trusted_loop: Any,
+        *,
+        adoption_ingest: Any | None = None,
+        checkpoint_store: CheckpointStorePort | None = None,
+        shell_view: Any | None = None,
+        trace_writer: AgentTraceWriter | None = None,
+    ) -> None:
+        self.trusted_loop = trusted_loop
+        self.adoption_ingest = adoption_ingest
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name=self.RECORD_OUTCOME_TOOL_NAME,
+                description="Record a Trusted Loop self-report outcome without promotion.",
+                required_keys=("trace_id", "outcome"),
+                risk_level="R1",
+                side_effect_class="self_report_feedback",
+                required_permissions=("trusted_loop:record_outcome",),
+            ),
+            self._record_outcome_tool,
+        )
+        registry.register_tool(
+            ToolSpec(
+                name=self.ATTEST_ADOPTION_TOOL_NAME,
+                description="Attest realized external adoption through the operator value channel.",
+                required_keys=("trace_id", "outcome"),
+                risk_level="R2",
+                side_effect_class="external_value_attestation",
+                required_permissions=("trusted_loop:attest_adoption",),
+            ),
+            self._attest_adoption_tool,
+        )
+        self.runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(shell_view=shell_view),
+            trace_writer=trace_writer,
+            checkpoint_store=checkpoint_store,
+        )
+
+    def record_outcome(
+        self,
+        *,
+        context: AgentRunContext,
+        trace_id: str,
+        outcome: str,
+        reviewer: str | None = None,
+        metric_deltas: dict[str, Any] | None = None,
+    ) -> AgentToolResult:
+        return self.runtime.invoke_tool(
+            AgentToolCall(
+                call_id=f"{self.RECORD_OUTCOME_TOOL_NAME}:{context.run_id or context.trace_id}",
+                tool_name=self.RECORD_OUTCOME_TOOL_NAME,
+                args={
+                    "trace_id": trace_id,
+                    "outcome": outcome,
+                    "reviewer": reviewer,
+                    "metric_deltas": metric_deltas,
+                },
+            ),
+            context,
+        )
+
+    def attest_adoption(
+        self,
+        *,
+        context: AgentRunContext,
+        trace_id: str,
+        outcome: str,
+        reviewer: str | None = None,
+        metric_deltas: dict[str, Any] | None = None,
+        causal_attribution: CausalOutcomeAttribution | None = None,
+    ) -> AgentToolResult:
+        return self.runtime.invoke_tool(
+            AgentToolCall(
+                call_id=f"{self.ATTEST_ADOPTION_TOOL_NAME}:{context.run_id or context.trace_id}",
+                tool_name=self.ATTEST_ADOPTION_TOOL_NAME,
+                args={
+                    "trace_id": trace_id,
+                    "outcome": outcome,
+                    "reviewer": reviewer,
+                    "metric_deltas": metric_deltas,
+                    "causal_attribution": _causal_attribution_to_payload(causal_attribution),
+                },
+            ),
+            context,
+        )
+
+    def _record_outcome_tool(
+        self,
+        *,
+        trace_id: str,
+        outcome: str,
+        reviewer: str | None = None,
+        metric_deltas: dict[str, Any] | None = None,
+        context: AgentRunContext,
+    ) -> dict[str, Any]:
+        del context
+        return record_outcome_service(
+            self.trusted_loop,
+            trace_id=trace_id,
+            outcome=outcome,
+            reviewer=reviewer,
+            metric_deltas=metric_deltas,
+        )
+
+    def _attest_adoption_tool(
+        self,
+        *,
+        trace_id: str,
+        outcome: str,
+        reviewer: str | None = None,
+        metric_deltas: dict[str, Any] | None = None,
+        causal_attribution: CausalOutcomeAttribution | Mapping[str, Any] | None = None,
+        context: AgentRunContext,
+    ) -> dict[str, Any]:
+        del context
+        if self.adoption_ingest is None:
+            raise RuntimeError("adoption value channel is not configured")
+        return attest_adoption_service(
+            self.trusted_loop,
+            self.adoption_ingest,
+            trace_id=trace_id,
+            outcome=outcome,
+            reviewer=reviewer,
+            metric_deltas=metric_deltas,
+            causal_attribution=_causal_attribution_from_payload(causal_attribution),
+        )
 
 
 class InMemoryReportSnapshotStore:
@@ -119,6 +295,27 @@ def _safe_agent_runtime_trace_payload(payload: Any) -> dict[str, Any]:
     }
 
 
+def _safe_agent_runtime_events(
+    *,
+    trace_id: str,
+    agent_runtime_adapter: Any,
+) -> list[TraceEvent]:
+    adapter_runtime = getattr(agent_runtime_adapter, "runtime", None)
+    trace_writer = getattr(adapter_runtime, "trace_writer", None)
+    raw_events = getattr(trace_writer, "events", ())
+    return [
+        TraceEvent(
+            trace_id=trace_id,
+            step=event["step"],
+            payload=_safe_agent_runtime_trace_payload(event.get("payload")),
+        )
+        for event in raw_events
+        if isinstance(event, dict)
+        and isinstance(event.get("step"), str)
+        and event["step"].startswith("agent_runtime.")
+    ]
+
+
 def _persist_agent_runtime_success_trace(
     runtime: Any,
     *,
@@ -131,20 +328,10 @@ def _persist_agent_runtime_success_trace(
     existing = trace_store.get(trace_id)
     if existing is None:
         return
-    adapter_runtime = getattr(agent_runtime_adapter, "runtime", None)
-    trace_writer = getattr(adapter_runtime, "trace_writer", None)
-    raw_events = getattr(trace_writer, "events", ())
-    runtime_events = [
-        TraceEvent(
-            trace_id=trace_id,
-            step=event["step"],
-            payload=_safe_agent_runtime_trace_payload(event.get("payload")),
-        )
-        for event in raw_events
-        if isinstance(event, dict)
-        and isinstance(event.get("step"), str)
-        and event["step"].startswith("agent_runtime.")
-    ]
+    runtime_events = _safe_agent_runtime_events(
+        trace_id=trace_id,
+        agent_runtime_adapter=agent_runtime_adapter,
+    )
     if not runtime_events:
         return
 
@@ -155,6 +342,30 @@ def _persist_agent_runtime_success_trace(
         event for event in runtime_events if event.step not in AGENT_RUNTIME_PRE_LOOP_TRACE_STEPS
     )
     trace_store.save(replace(existing, events=pre_loop_events + existing.events + post_loop_events))
+
+
+def _persist_agent_runtime_appended_trace(
+    runtime: Any,
+    *,
+    trace_id: str,
+    agent_runtime_adapter: Any,
+) -> None:
+    trace_store = getattr(runtime, "trace_store", None)
+    if trace_store is None:
+        return
+    runtime_events = tuple(
+        _safe_agent_runtime_events(
+            trace_id=trace_id,
+            agent_runtime_adapter=agent_runtime_adapter,
+        )
+    )
+    if not runtime_events:
+        return
+    existing = trace_store.get(trace_id)
+    if existing is None:
+        trace_store.save(RunTrace(trace_id=trace_id, status="ok", events=runtime_events))
+        return
+    trace_store.save(replace(existing, events=existing.events + runtime_events))
 
 
 def _persist_agent_runtime_terminal_trace(
@@ -198,6 +409,10 @@ def _persist_agent_runtime_terminal_trace(
                 },
             )
         )
+    existing = trace_store.get(trace_id)
+    if existing is not None:
+        trace_store.save(replace(existing, events=existing.events + tuple(events)))
+        return
     trace_store.save(RunTrace(trace_id=trace_id, status=status, events=tuple(events)))
 
 
