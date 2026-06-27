@@ -299,6 +299,55 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertEqual(resume_success["payload"]["status"], "ok")
         self.assertNotIn("output", resume_success["payload"])
 
+    def test_resume_respects_paused_shell_before_returning_checkpoint(self) -> None:
+        from agent_os_core.corrigibility import CorrigibilityShell
+
+        called: list[str] = []
+        checkpoints = InMemoryCheckpointStore()
+        trace_writer = AgentTraceWriter()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo.",
+                required_keys=("value",),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        shell = CorrigibilityShell()
+        active_runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(shell_view=shell.view()),
+            trace_writer=trace_writer,
+            checkpoint_store=checkpoints,
+        )
+        call = AgentToolCall(
+            call_id="call-paused-resume",
+            tool_name="safe.echo",
+            args={"value": "ok"},
+        )
+        context = _context()
+        first = active_runtime.invoke_tool(call, context)
+        shell.op_pause()
+        paused_runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(shell_view=shell.view()),
+            trace_writer=trace_writer,
+            checkpoint_store=checkpoints,
+        )
+
+        resumed = paused_runtime.resume_from_checkpoint(call, context)
+
+        self.assertEqual(first.status, "ok")
+        self.assertEqual(resumed.status, "denied")
+        self.assertEqual(resumed.error_code, "DENY_PAUSED")
+        self.assertEqual(called, ["ok"])
+        steps = [event["step"] for event in trace_writer.events]
+        self.assertIn("agent_runtime.policy_denied", steps)
+        self.assertIn("agent_runtime.checkpoint_resume_failed", steps)
+        self.assertNotIn("agent_runtime.checkpoint_resume_succeeded", steps)
+
     def test_resume_rejects_tool_spec_mismatch(self) -> None:
         checkpoints = InMemoryCheckpointStore()
         first_registry = ToolRegistry()

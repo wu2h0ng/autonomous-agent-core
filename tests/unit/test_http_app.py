@@ -149,6 +149,167 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(snapshot.last_result.status, "ok")
         self.assertEqual(snapshot.metadata["tool_name"], "trusted_loop.evaluate")
 
+    def test_internal_run_response_carries_runtime_checkpoint_ref(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        payload = run_resp.json()
+        checkpoint_ref = payload["runtime_checkpoint_ref"]
+
+        self.assertTrue(checkpoint_ref["run_id"].startswith("http-run-"))
+        self.assertTrue(checkpoint_ref["trace_id"].startswith("agent-trace-"))
+        self.assertEqual(checkpoint_ref["tool_name"], "trusted_loop.evaluate")
+        self.assertEqual(
+            checkpoint_ref["call_id"],
+            f"trusted_loop.evaluate:{checkpoint_ref['run_id']}",
+        )
+
+        external_resp = client.post(
+            "/runs",
+            json={**RUN_BODY, "audience": "internal"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 200, external_resp.text)
+        self.assertIsNone(external_resp.json()["runtime_checkpoint_ref"])
+
+    def test_runtime_resume_replays_checkpoint_without_rerunning_trusted_loop(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        run_payload = run_resp.json()
+        checkpoint_ref = run_payload["runtime_checkpoint_ref"]
+        before_trace = client.get(f"/traces/{run_payload['trace_id']}", headers=headers).json()
+
+        resume_resp = client.post(
+            f"/agent-runtime/runs/{checkpoint_ref['run_id']}/resume",
+            json={
+                "runtime_trace_id": checkpoint_ref["trace_id"],
+                "question": RUN_BODY["question"],
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(resume_resp.status_code, 200, resume_resp.text)
+        payload = resume_resp.json()
+        self.assertTrue(payload["resumed"])
+        self.assertEqual(payload["status"], "ok")
+        self.assertIsNone(payload["error_code"])
+        self.assertEqual(payload["runtime_run_id"], checkpoint_ref["run_id"])
+        self.assertEqual(payload["runtime_trace_id"], checkpoint_ref["trace_id"])
+        self.assertEqual(payload["tool_name"], "trusted_loop.evaluate")
+        self.assertEqual(payload["output_ref"]["kind"], "trusted_loop_outcome")
+        self.assertEqual(payload["output_ref"]["business_trace_id"], run_payload["trace_id"])
+        self.assertEqual(
+            payload["output_ref"]["evidence_chain_id"],
+            run_payload["evidence_chain_id"],
+        )
+        self.assertEqual(payload["output_ref"]["row_count"], run_payload["row_count"])
+        encoded_payload = str(payload)
+        self.assertNotIn("2026-05-25", encoded_payload)
+        self.assertNotIn("start_date", encoded_payload)
+        self.assertNotIn("end_date", encoded_payload)
+        after_trace = client.get(f"/traces/{run_payload['trace_id']}", headers=headers).json()
+        self.assertEqual(before_trace["status"], after_trace["status"])
+        self.assertGreater(len(after_trace["events"]), len(before_trace["events"]))
+        after_steps = [event["step"] for event in after_trace["events"]]
+        self.assertIn("agent_runtime.checkpoint_resume_succeeded", after_steps)
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.checkpoint_resume_started", runtime_steps)
+        self.assertIn("agent_runtime.checkpoint_resume_succeeded", runtime_steps)
+        self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+
+    def test_runtime_resume_mismatch_fails_closed_without_raw_args(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        checkpoint_ref = run_resp.json()["runtime_checkpoint_ref"]
+
+        resume_resp = client.post(
+            f"/agent-runtime/runs/{checkpoint_ref['run_id']}/resume",
+            json={
+                "runtime_trace_id": checkpoint_ref["trace_id"],
+                "question": RUN_BODY["question"],
+                "parameters": {
+                    **RUN_BODY["parameters"],
+                    "start_date": "changed-secret-date",
+                },
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(resume_resp.status_code, 409, resume_resp.text)
+        detail = resume_resp.json()["detail"]
+        self.assertEqual(detail["code"], "CHECKPOINT_MISMATCH")
+        self.assertEqual(detail["stage"], "agent_runtime")
+        encoded_detail = str(detail)
+        self.assertNotIn("changed-secret-date", encoded_detail)
+        self.assertNotIn("start_date", encoded_detail)
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.checkpoint_resume_failed", runtime_steps)
+        self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+
+    def test_runtime_resume_context_mismatch_does_not_echo_untrusted_trace_id(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        checkpoint_ref = run_resp.json()["runtime_checkpoint_ref"]
+
+        resume_resp = client.post(
+            f"/agent-runtime/runs/{checkpoint_ref['run_id']}/resume",
+            json={
+                "runtime_trace_id": "secret-runtime-trace-token",
+                "question": RUN_BODY["question"],
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(resume_resp.status_code, 409, resume_resp.text)
+        encoded = str(resume_resp.json()) + repr(client.app.state.agent_runtime_trace_writer.events)
+        self.assertNotIn("secret-runtime-trace-token", encoded)
+
+    def test_runtime_resume_without_checkpoint_store_is_service_unavailable(self) -> None:
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        client = TestClient(
+            create_app(
+                factory.build(),
+                api_key=API_KEY,
+                adoption_ingest=factory.adoption_ingest(),
+                agent_checkpoint_store=None,
+            )
+        )
+
+        resume_resp = client.post(
+            "/agent-runtime/runs/http-run-missing-store/resume",
+            json={
+                "runtime_trace_id": "agent-trace-missing-store",
+                "question": RUN_BODY["question"],
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers={"X-API-Key": API_KEY},
+        )
+
+        self.assertEqual(resume_resp.status_code, 503, resume_resp.text)
+        self.assertEqual(resume_resp.json()["detail"]["code"], "CHECKPOINT_NOT_AVAILABLE")
+
     def test_post_run_pause_is_denied_by_agent_runtime_before_tool_start(self) -> None:
         client = _make_client(API_KEY, paused=True)
         headers = {"X-API-Key": API_KEY}
@@ -1073,6 +1234,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             "API_SCOPE_TRACE_READ",
             "API_SCOPE_REPORT_READ",
             "API_SCOPE_APPROVAL_EXECUTE",
+            "API_SCOPE_RUNTIME_RESUME",
         ]
         for name in required_names:
             self.assertTrue(hasattr(http_app, name), f"{name} is missing")
@@ -1095,6 +1257,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertTrue(internal.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
         self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
         self.assertTrue(internal.allows(http_app.API_SCOPE_REPORT_READ))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_RUNTIME_RESUME))
         self.assertFalse(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
@@ -1104,6 +1267,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertFalse(external.allows(http_app.API_SCOPE_KNOWLEDGE_SEARCH))
         self.assertFalse(external.allows(http_app.API_SCOPE_TRACE_READ))
         self.assertTrue(external.allows(http_app.API_SCOPE_REPORT_READ))
+        self.assertFalse(external.allows(http_app.API_SCOPE_RUNTIME_RESUME))
         self.assertFalse(external.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertEqual(operator.scopes, frozenset({http_app.API_SCOPE_APPROVAL_EXECUTE}))
@@ -1165,10 +1329,20 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         )
         search_resp = client.get("/knowledge/search", params={"q": "GMV"}, headers=headers)
         trace_resp = client.get("/traces/trace-x", headers=headers)
+        resume_resp = client.post(
+            "/agent-runtime/runs/http-run-x/resume",
+            json={
+                "runtime_trace_id": "agent-trace-x",
+                "question": "GMV",
+                "parameters": {},
+            },
+            headers=headers,
+        )
 
         self.assertEqual(adoption_resp.status_code, 403)
         self.assertEqual(search_resp.status_code, 403)
         self.assertEqual(trace_resp.status_code, 403)
+        self.assertEqual(resume_resp.status_code, 403)
 
     def test_external_report_key_cannot_execute_approval_as_operator(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)

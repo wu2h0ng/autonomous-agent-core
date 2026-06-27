@@ -47,6 +47,7 @@ class OpenApiContractTest(unittest.TestCase):
             sorted(spec["paths"]),
             [
                 "/adoptions",
+                "/agent-runtime/runs/{runtime_run_id}/resume",
                 "/approvals/{approval_id}/execute",
                 "/knowledge/search",
                 "/outcomes",
@@ -155,6 +156,35 @@ class OpenApiContractTest(unittest.TestCase):
             {"code", "message", "stage"},
         )
         self.assertIn("trace_id", detail["properties"])
+
+    def test_agent_runtime_resume_contract_is_declared(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        run_response = spec["components"]["schemas"]["RunResponse"]
+        self.assertIn("runtime_checkpoint_ref", run_response["properties"])
+        self.assertEqual(
+            run_response["properties"]["runtime_checkpoint_ref"]["anyOf"][0],
+            {"$ref": "#/components/schemas/RuntimeCheckpointRef"},
+        )
+
+        resume = spec["paths"]["/agent-runtime/runs/{runtime_run_id}/resume"]["post"]
+        self.assertEqual(
+            resume["requestBody"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/RuntimeResumeRequest"},
+        )
+        self.assertEqual(
+            resume["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/RuntimeResumeResponse"},
+        )
+        request_schema = spec["components"]["schemas"]["RuntimeResumeRequest"]
+        self.assertEqual(set(request_schema["required"]), {"runtime_trace_id", "question"})
+        response_schema = spec["components"]["schemas"]["RuntimeResumeResponse"]
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {"runtime_run_id", "runtime_trace_id", "tool_name", "status", "resumed"},
+        )
+        output_ref = spec["components"]["schemas"]["RuntimeResumeOutputRef"]
+        self.assertNotIn("parameters", json.dumps(output_ref))
+        self.assertNotIn("raw", json.dumps(output_ref).lower())
 
     def test_user_result_evidence_cards_are_strongly_typed(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))

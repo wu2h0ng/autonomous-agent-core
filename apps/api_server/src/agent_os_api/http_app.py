@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
 from agent_os_core.agent_runtime import (
     AgentRunContext,
+    AgentToolCall,
     AgentTraceWriter,
     TrustedLoopApprovalExecutionRuntimeAdapter,
     TrustedLoopAgentRuntimeAdapter,
@@ -65,6 +66,7 @@ API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
 API_SCOPE_TRACE_READ = "traces:read"
 API_SCOPE_REPORT_READ = "reports:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
+API_SCOPE_RUNTIME_RESUME = "runtime:resume"
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,7 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
             API_SCOPE_KNOWLEDGE_SEARCH,
             API_SCOPE_TRACE_READ,
             API_SCOPE_REPORT_READ,
+            API_SCOPE_RUNTIME_RESUME,
         }
     ),
     audience_ceiling="internal",
@@ -142,6 +145,7 @@ def _external_run_response_projection(result: dict[str, Any]) -> dict[str, Any]:
     projected["trace_steps"] = []
     projected["knowledge_asset_id"] = None
     projected["related_knowledge"] = []
+    projected["runtime_checkpoint_ref"] = None
     return projected
 
 
@@ -150,6 +154,69 @@ def _external_block_projection(block: dict[str, Any]) -> dict[str, Any]:
     projected["details"] = []
     projected["trace_id"] = None
     return projected
+
+
+def _runtime_checkpoint_ref(context: AgentRunContext, *, tool_name: str) -> dict[str, str]:
+    return {
+        "run_id": context.run_id,
+        "trace_id": context.trace_id,
+        "tool_name": tool_name,
+        "call_id": f"{tool_name}:{context.run_id or context.trace_id}",
+    }
+
+
+def _runtime_resume_output_ref(output: Any) -> dict[str, Any]:
+    """Project a checkpointed tool output without exposing raw tool output."""
+    if isinstance(output, dict) and output.get("type") == "TrustedLoopOutcome":
+        result = output.get("result")
+        if isinstance(result, dict):
+            return {
+                "kind": "trusted_loop_outcome",
+                "business_trace_id": result.get("trace_id"),
+                "evidence_chain_id": result.get("evidence_chain_id"),
+                "row_count": result.get("row_count"),
+                "blocked": False,
+            }
+        block = output.get("block")
+        if isinstance(block, dict):
+            return {
+                "kind": "trusted_loop_outcome",
+                "business_trace_id": block.get("trace_id"),
+                "blocked": True,
+                "block_code": block.get("code"),
+            }
+
+    if output.__class__.__name__ == "TrustedLoopOutcome":
+        result = getattr(output, "result", None)
+        if result is not None:
+            evidence = result.evidence_chain
+            return {
+                "kind": "trusted_loop_outcome",
+                "business_trace_id": evidence.trace_id,
+                "evidence_chain_id": evidence.evidence_chain_id,
+                "row_count": evidence.query_result.row_count,
+                "blocked": False,
+            }
+        block = getattr(output, "block", None)
+        if block is not None:
+            return {
+                "kind": "trusted_loop_outcome",
+                "business_trace_id": block.trace_id,
+                "blocked": True,
+                "block_code": block.code.value,
+            }
+
+    return {"kind": output.__class__.__name__ if output is not None else "none"}
+
+
+def _runtime_resume_error_detail(agent_result: Any, *, runtime_run_id: str) -> dict[str, Any]:
+    return {
+        "code": agent_result.error_code or agent_result.status,
+        "message": agent_result.error_message or "Agent Runtime refused checkpoint resume.",
+        "stage": "agent_runtime",
+        "runtime_run_id": runtime_run_id,
+        "runtime_trace_id": agent_result.trace_id,
+    }
 
 
 def _require_operator_key_in_openapi(openapi_schema: dict[str, Any]) -> None:
@@ -336,6 +403,13 @@ class UserResultArtifact(BaseModel):
     business_action: UserResultBusinessAction
 
 
+class RuntimeCheckpointRef(BaseModel):
+    run_id: str
+    trace_id: str
+    tool_name: str
+    call_id: str
+
+
 class RunResponse(BaseModel):
     trace_id: str
     intent: str
@@ -348,12 +422,38 @@ class RunResponse(BaseModel):
     knowledge_version: int
     related_knowledge: list[RelatedKnowledgeItem] = Field(default_factory=list)
     user_result: UserResultArtifact
+    runtime_checkpoint_ref: RuntimeCheckpointRef | None = None
 
 
 class RunReportResponse(BaseModel):
     trace_id: str
     audience: Literal["internal", "external"]
     user_result: UserResultArtifact
+
+
+class RuntimeResumeRequest(BaseModel):
+    runtime_trace_id: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeResumeOutputRef(BaseModel):
+    kind: str
+    business_trace_id: str | None = None
+    evidence_chain_id: str | None = None
+    row_count: int | None = None
+    blocked: bool = False
+    block_code: str | None = None
+
+
+class RuntimeResumeResponse(BaseModel):
+    runtime_run_id: str
+    runtime_trace_id: str
+    tool_name: str
+    status: str
+    resumed: bool
+    error_code: str | None = None
+    output_ref: RuntimeResumeOutputRef | None = None
 
 
 class AgentRuntimeErrorDetail(BaseModel):
@@ -732,6 +832,10 @@ def create_app(
             # Expected business block (unsafe SQL, unknown metric, ...) -> 422,
             # not a 500: the request was understood but the loop refused to answer.
             raise HTTPException(status_code=422, detail=block)
+        result["runtime_checkpoint_ref"] = _runtime_checkpoint_ref(
+            agent_context,
+            tool_name=TrustedLoopAgentRuntimeAdapter.TOOL_NAME,
+        )
         if principal.audience_ceiling == "external":
             return _external_run_response_projection(result)
         return result
@@ -751,6 +855,119 @@ def create_app(
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No report snapshot for {trace_id!r}.")
         return payload
+
+    @app.post(
+        "/agent-runtime/runs/{runtime_run_id}/resume",
+        response_model=RuntimeResumeResponse,
+    )
+    def post_agent_runtime_resume(
+        runtime_run_id: str,
+        body: RuntimeResumeRequest,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUNTIME_RESUME)),
+    ) -> dict[str, Any]:
+        # Resume returns only a safe reference to the checkpointed result. It never
+        # re-runs the Trusted Loop body and never exposes raw args or tool output.
+        checkpoint_store = app.state.agent_checkpoint_store
+        if checkpoint_store is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "CHECKPOINT_NOT_AVAILABLE",
+                    "message": "Agent Runtime checkpoint store is not configured.",
+                    "stage": "agent_runtime",
+                    "runtime_run_id": runtime_run_id,
+                    "runtime_trace_id": None,
+                },
+            )
+        snapshot = checkpoint_store.get(runtime_run_id)
+        if snapshot is None or snapshot.last_result is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "CHECKPOINT_NOT_FOUND",
+                    "message": f"checkpoint not found for run_id: {runtime_run_id}",
+                    "stage": "agent_runtime",
+                    "runtime_run_id": runtime_run_id,
+                    "runtime_trace_id": None,
+                },
+            )
+        if body.runtime_trace_id != snapshot.trace_id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "CHECKPOINT_MISMATCH",
+                    "message": "checkpoint mismatch: runtime_trace_id",
+                    "stage": "agent_runtime",
+                    "runtime_run_id": runtime_run_id,
+                    "runtime_trace_id": None,
+                },
+            )
+        agent_runtime_trace_writer = AgentTraceWriter()
+        agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
+            app.state.runtime,
+            checkpoint_store=checkpoint_store,
+            shell_view=getattr(app.state.runtime, "shell_view", None),
+            trace_writer=agent_runtime_trace_writer,
+        )
+        agent_context = AgentRunContext(
+            tenant_id="default",
+            workspace_id="default",
+            principal_id=principal.kind,
+            principal_role=principal.kind,
+            run_id=runtime_run_id,
+            trace_id=snapshot.trace_id,
+            policy_scope=frozenset({"trusted_loop:evaluate"}),
+            metadata={
+                "surface": "POST /agent-runtime/runs/{runtime_run_id}/resume",
+                "principal_kind": principal.kind,
+            },
+        )
+        agent_call = AgentToolCall(
+            call_id=f"{TrustedLoopAgentRuntimeAdapter.TOOL_NAME}:{runtime_run_id}",
+            tool_name=TrustedLoopAgentRuntimeAdapter.TOOL_NAME,
+            args={"question": body.question, "parameters": body.parameters},
+        )
+        try:
+            agent_result = agent_runtime_adapter.runtime.resume_from_checkpoint(
+                agent_call,
+                agent_context,
+            )
+        finally:
+            app.state.agent_runtime_trace_writer = agent_runtime_trace_writer
+
+        if agent_result.status != "ok":
+            _persist_agent_runtime_terminal_trace(
+                app.state.runtime,
+                agent_result=agent_result,
+                agent_context=agent_context,
+                status="blocked",
+                block_message=agent_result.error_message,
+            )
+            status_code = 404 if agent_result.error_code == "CHECKPOINT_NOT_FOUND" else 409
+            if agent_result.status in {"tool_error", "checkpoint_error"}:
+                status_code = 500
+            raise HTTPException(
+                status_code=status_code,
+                detail=_runtime_resume_error_detail(agent_result, runtime_run_id=runtime_run_id),
+            )
+
+        output_ref = _runtime_resume_output_ref(agent_result.output)
+        business_trace_id = output_ref.get("business_trace_id")
+        if isinstance(business_trace_id, str) and business_trace_id:
+            _persist_agent_runtime_appended_trace(
+                app.state.runtime,
+                trace_id=business_trace_id,
+                agent_runtime_adapter=agent_runtime_adapter,
+            )
+        return {
+            "runtime_run_id": runtime_run_id,
+            "runtime_trace_id": snapshot.trace_id,
+            "tool_name": agent_result.tool_name,
+            "status": agent_result.status,
+            "resumed": True,
+            "error_code": None,
+            "output_ref": output_ref,
+        }
 
     @app.post("/outcomes", response_model=OutcomeResponse)
     def post_outcome(

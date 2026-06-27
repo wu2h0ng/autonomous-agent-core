@@ -11,6 +11,7 @@
 - Code status: implemented in `packages/os_core/src/agent_os_core/agent_runtime/__init__.py`.
 - Runtime dependency status: external agent frameworks are reference-only.
 - Correction-channel slice: fast-forward merged to deployment local `main` for `POST /outcomes` and `POST /adoptions` after founder/CTO authorization; push/release remain separate gates. Broader factory/API exposure, true wall-clock interruption, concurrency, and workflow runtime replacement require later ADRs.
+- Public resume API slice: implemented branch-locally on `codex/agent-runtime-public-resume-api`; exposes internal-only `runtime_checkpoint_ref` and `POST /agent-runtime/runs/{runtime_run_id}/resume` with policy recheck, fingerprint validation, safe output projection, and safe trace append. It is not merged, pushed, or released.
 - Packet A Slice 0 branch `codex/agent-runtime-live-wiring` wires `POST /runs` through the existing Trusted Loop adapter without replacing `TrustedLoopRuntime`.
 
 ## 1. Problem

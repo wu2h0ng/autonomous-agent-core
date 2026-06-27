@@ -89,8 +89,9 @@ Auth boundary:
 - Missing or wrong `X-API-Key` -> `401`.
 - Recognized principal without the required scope -> `403`.
 - `AGENT_OS_EXTERNAL_API_KEY` is not a general API key; non-run management surfaces such as
-  `/outcomes`, `/adoptions`, `/knowledge/search`, and `/traces/{id}` still require the
-  internal API key. On `POST /runs` it still triggers a new run execution; on
+  `/outcomes`, `/adoptions`, `/knowledge/search`, `/traces/{id}`, and
+  `/agent-runtime/runs/{runtime_run_id}/resume` still require the internal API key. On
+  `POST /runs` it still triggers a new run execution; on
   `GET /runs/{trace_id}/report` it can only read an existing external report projection.
   This is a narrow HTTP principal/scope and report projection cap, not full RBAC or DLP.
 - Configured internal, external-report, and operator keys must be distinct; duplicate key
@@ -100,7 +101,7 @@ Minimal principal/scope contract:
 
 | Principal | Credential channel | Scopes | Notes |
 |---|---|---|---|
-| `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `reports:read`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read` | Can request either internal or external run/report projection; cannot execute approvals. |
+| `internal` | `X-API-Key == AGENT_OS_API_KEY` | `runs:internal`, `runs:external`, `reports:read`, `outcomes:write`, `adoptions:write`, `knowledge:search`, `traces:read`, `runtime:resume` | Can request either internal or external run/report projection and resume checkpointed runtime runs; cannot execute approvals. |
 | `external_report` | `X-API-Key == AGENT_OS_EXTERNAL_API_KEY` | `runs:external`, `reports:read` | Forced to external projection; cannot use management surfaces. |
 | `operator` | `X-Operator-Key == AGENT_OS_OPERATOR_API_KEY` | `approvals:execute` | Header channel is separate from `X-API-Key`; approval execution remains operator-only. |
 

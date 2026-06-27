@@ -1,7 +1,7 @@
 # ADR-0003 Audit: Agent Runtime Capability Gap
 
 Date: 2026-06-26
-Status: AUDIT RECORD UPDATED AFTER LOCAL MERGE - NOT A RELEASE CLAIM
+Status: AUDIT RECORD UPDATED WITH BRANCH-LOCAL PUBLIC RESUME API - NOT A RELEASE CLAIM
 Scope: self-developed Agent Runtime trusted substrate in the Enterprise OS deployment layer
 
 ## Purpose
@@ -26,7 +26,7 @@ release-ready product surface.
 | Approval channel | `/approvals/{approval_id}/execute` runtime envelope preserves `ApprovalRuntime` and `ApprovalContextStore` authority. | Covered on main/origin baseline |
 | Correction channel | Deployment local `main` implements `/outcomes` and `/adoptions` runtime-envelope entry paths while preserving P5.1b anti-wirehead semantics and adoption-writer authority. | Covered on local main; not pushed or released |
 | Trace-safe execution envelope | Runtime trace events are allowlisted; raw args/output removed; success envelope events persist into `RunTrace`; failure paths are trace-visible. | Covered for `/runs`, approval-execute, and runtime tool calls |
-| Checkpoint/replay/recovery boundary | `CheckpointStorePort`, `InMemoryCheckpointStore`, `SqlAgentCheckpointStore`, fingerprint-bound resume, checkpoint save failure typing, and safe resume trace events. | Covered for internal runtime checkpoint boundary |
+| Checkpoint/replay/recovery boundary | `CheckpointStorePort`, `InMemoryCheckpointStore`, `SqlAgentCheckpointStore`, fingerprint-bound resume, checkpoint save failure typing, safe resume trace events, and branch-local internal-only HTTP resume API. | Covered for internal runtime checkpoint boundary; HTTP surface branch-local only |
 | Tool permission and risk ceiling | Required permissions, `risk_ceiling`, invalid risk handling, R4/R5 fail-closed policy tests. | Covered |
 | Action proposal vs execution separation | R4/R5 non-proposal tools deny even with `approval_id`; R4/R5 proposal tools may produce proposals without executing business action. | Covered |
 | Failure-first tests and evals | Runtime policy/tools/trace/replay/sql-checkpoint/budget tests; HTTP and real Trusted Loop adapter tests; branch `make ci` and `ci-local-full` passed. | Covered for implemented slices |
@@ -61,12 +61,25 @@ The implementation preserves:
 - safe runtime trace without raw metric deltas, causal-attribution details, or
   full feedback/adoption payloads.
 
-### G2: Public checkpoint resume API is not introduced
+### G2: Public checkpoint resume API is branch-local only
 
-The runtime has a checkpoint/replay boundary and SQL persistence adapter, but no
-public HTTP/SDK resume surface. This is intentional. A public resume API would
-need its own typed contract, authorization model, replay-safety review, and
-payload-projection rules.
+Branch `codex/agent-runtime-public-resume-api` introduces the first HTTP resume
+surface for checkpointed `/runs` runtime execution:
+
+- internal `POST /runs` responses include a safe `runtime_checkpoint_ref`;
+- external report-key projections receive `runtime_checkpoint_ref = null`;
+- `POST /agent-runtime/runs/{runtime_run_id}/resume` requires the internal
+  `runtime:resume` scope;
+- `AgentRuntime.resume_from_checkpoint` rechecks `RuntimePolicyGate` before
+  returning checkpoint data;
+- resume validates call/context/tool fingerprints and fails closed on mismatch;
+- successful resume appends safe runtime events to `RunTrace`;
+- responses expose only a safe `output_ref`, not raw args, raw SQL, raw tool
+  output, or connector payloads.
+
+This slice is branch-local. It is not merged, pushed, released, or reviewed as
+an external API shipment. The record is
+`ADR-0003-agent-runtime-public-resume-api.IMPLEMENTATION-20260627.md`.
 
 ### G3: True wall-clock interruption and streaming cancellation are not implemented
 
@@ -90,8 +103,8 @@ no production OTel/export/redaction retention policy is accepted in this slice.
 1. Keep push and release blocked unless separately authorized.
 2. Choose the next runtime slice only through its own ADR/gate, with
    failure-first tests and docs sync.
-3. Candidate next slices:
-   production telemetry/export policy, public resume API, true cancellation, or
+3. Candidate next slices after public-resume review:
+   production telemetry/export policy, true cancellation, or
    concurrency/workflow runtime semantics.
 
 ## Stop Conditions

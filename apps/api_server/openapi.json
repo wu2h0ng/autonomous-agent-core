@@ -951,6 +951,16 @@
             "title": "Row Count",
             "type": "integer"
           },
+          "runtime_checkpoint_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeCheckpointRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "trace_id": {
             "title": "Trace Id",
             "type": "string"
@@ -976,6 +986,175 @@
           "user_result"
         ],
         "title": "RunResponse",
+        "type": "object"
+      },
+      "RuntimeCheckpointRef": {
+        "properties": {
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "trace_id",
+          "tool_name",
+          "call_id"
+        ],
+        "title": "RuntimeCheckpointRef",
+        "type": "object"
+      },
+      "RuntimeResumeOutputRef": {
+        "properties": {
+          "block_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Code"
+          },
+          "blocked": {
+            "default": false,
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "business_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Trace Id"
+          },
+          "evidence_chain_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Chain Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "RuntimeResumeOutputRef",
+        "type": "object"
+      },
+      "RuntimeResumeRequest": {
+        "properties": {
+          "parameters": {
+            "additionalProperties": true,
+            "title": "Parameters",
+            "type": "object"
+          },
+          "question": {
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "runtime_trace_id": {
+            "minLength": 1,
+            "title": "Runtime Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_trace_id",
+          "question"
+        ],
+        "title": "RuntimeResumeRequest",
+        "type": "object"
+      },
+      "RuntimeResumeResponse": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "output_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeResumeOutputRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resumed": {
+            "title": "Resumed",
+            "type": "boolean"
+          },
+          "runtime_run_id": {
+            "title": "Runtime Run Id",
+            "type": "string"
+          },
+          "runtime_trace_id": {
+            "title": "Runtime Trace Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runtime_run_id",
+          "runtime_trace_id",
+          "tool_name",
+          "status",
+          "resumed"
+        ],
+        "title": "RuntimeResumeResponse",
         "type": "object"
       },
       "SQLSafetyEvidenceCard": {
@@ -1814,6 +1993,71 @@
           }
         },
         "summary": "Post Adoption"
+      }
+    },
+    "/agent-runtime/runs/{runtime_run_id}/resume": {
+      "post": {
+        "operationId": "post_agent_runtime_resume_agent_runtime_runs__runtime_run_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runtime_run_id",
+            "required": true,
+            "schema": {
+              "title": "Runtime Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeResumeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeResumeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Agent Runtime Resume"
       }
     },
     "/approvals/{approval_id}/execute": {
