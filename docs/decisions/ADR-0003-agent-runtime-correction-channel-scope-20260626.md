@@ -1,7 +1,7 @@
 # ADR-0003 Scope: Agent Runtime Correction Channel
 
 Date: 2026-06-26
-Status: IMPLEMENTED AND SELF-REVIEWED LOCALLY ON `codex/agent-runtime-correction-channel` - FOUNDER/CTO MERGE AUTHORIZATION PENDING
+Status: MERGED TO DEPLOYMENT LOCAL `main` AFTER FOUNDER/CTO AUTHORIZATION - NO PUSH/RELEASE CLAIM
 Depends on: stacked merge of `codex/agent-runtime-reviewed-slices-consolidation`,
 `codex/agent-runtime-checkpoint-factory-selection`, and
 `codex/agent-runtime-budget-guard` into local `main`
@@ -95,7 +95,7 @@ writer is more sensitive than self-report feedback.
 
 ## Implementation Decision (2026-06-27)
 
-The local implementation uses a narrow version of option 1 for both tools:
+The local-main implementation uses a narrow version of option 1 for both tools:
 
 - `RuntimePolicyGate` allowlists only the correction-channel side-effect classes
   `self_report_feedback` and `external_value_attestation`.
@@ -208,15 +208,15 @@ Stop and return to CTO/founder review if:
 
 ## Next Gate
 
-The implementation is on a fresh branch from updated `main` and has local
-verification plus a branch-local self-review record:
+The implementation was developed on a fresh branch from updated `main`, received
+local verification plus a branch-local self-review record, and was
+fast-forward merged to deployment local `main` after founder/CTO authorization:
 
 - `ADR-0003-agent-runtime-correction-channel.REVIEW-20260627.md`
+- `ADR-0003-agent-runtime-correction-channel.MERGE-READINESS-20260627.md`
 
 Remaining gate:
 
-1. Obtain explicit founder/CTO authorization before merging
-   `codex/agent-runtime-correction-channel` into local `main`.
-2. Run post-merge `make ci` and `ci-local-full` on local `main`.
-3. Do not push, release, or claim external shipment unless a later release gate
+1. Post-merge `make ci` and `ci-local-full` passed on local `main`.
+2. Do not push, release, or claim external shipment unless a later release gate
    explicitly authorizes it.

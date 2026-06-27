@@ -1,7 +1,7 @@
 # ADR-0003 Audit: Agent Runtime Capability Gap
 
 Date: 2026-06-26
-Status: AUDIT RECORD - NOT A RELEASE CLAIM
+Status: AUDIT RECORD UPDATED AFTER LOCAL MERGE - NOT A RELEASE CLAIM
 Scope: self-developed Agent Runtime trusted substrate in the Enterprise OS deployment layer
 
 ## Purpose
@@ -24,7 +24,7 @@ release-ready product surface.
 | Pause channel | `ShellView` denial returns `DENY_PAUSED`; `/runs` and approval-execute pause tests prove stop-before-tool/body behavior. | Covered for current entrypoints |
 | Rollback boundary | Rollback remains owned by Trusted Loop / action connector / snapshot machinery, not by Agent Runtime. Runtime does not claim to undo irreversible external side effects. | Covered as boundary, not runtime-owned |
 | Approval channel | `/approvals/{approval_id}/execute` runtime envelope preserves `ApprovalRuntime` and `ApprovalContextStore` authority. | Covered on main/origin baseline |
-| Correction channel | Branch `codex/agent-runtime-correction-channel` implements `/outcomes` and `/adoptions` runtime-envelope entry paths while preserving P5.1b anti-wirehead semantics and adoption-writer authority. | Implemented locally; review/merge pending |
+| Correction channel | Deployment local `main` implements `/outcomes` and `/adoptions` runtime-envelope entry paths while preserving P5.1b anti-wirehead semantics and adoption-writer authority. | Covered on local main; not pushed or released |
 | Trace-safe execution envelope | Runtime trace events are allowlisted; raw args/output removed; success envelope events persist into `RunTrace`; failure paths are trace-visible. | Covered for `/runs`, approval-execute, and runtime tool calls |
 | Checkpoint/replay/recovery boundary | `CheckpointStorePort`, `InMemoryCheckpointStore`, `SqlAgentCheckpointStore`, fingerprint-bound resume, checkpoint save failure typing, and safe resume trace events. | Covered for internal runtime checkpoint boundary |
 | Tool permission and risk ceiling | Required permissions, `risk_ceiling`, invalid risk handling, R4/R5 fail-closed policy tests. | Covered |
@@ -37,19 +37,21 @@ release-ready product surface.
 
 ## Gaps That Still Matter
 
-### G1: Correction channel is branch-local, not merged
+### G1: Correction channel is local-main only, not pushed or released
 
 `POST /outcomes` and `POST /adoptions` now traverse the Agent Runtime envelope
-on branch `codex/agent-runtime-correction-channel`, with policy, pause, trace,
-and checkpoint replay tests. This is still a local feature branch. It is not on
-`main`, not pushed, and not released.
+on deployment local `main`, with policy, pause, trace, and checkpoint replay
+tests. This is a local merge only. It is not pushed, not released, and not an
+external shipment claim.
 
-The branch-local implementation and review records are:
+The implementation and review records are:
 
 - `ADR-0003-agent-runtime-correction-channel-scope-20260626.md`
 - `ADR-0003-agent-runtime-correction-channel.REVIEW-20260627.md`
+- `ADR-0003-agent-runtime-correction-channel.MERGE-READINESS-20260627.md`
 
-Merge still requires explicit founder/CTO authorization.
+The founder/CTO local merge authorization has been used for the local
+fast-forward merge. Push and release remain separate gates.
 
 The implementation preserves:
 
@@ -85,12 +87,10 @@ no production OTel/export/redaction retention policy is accepted in this slice.
 
 ## Recommended Order
 
-1. Complete branch-local correction-channel review without treating self-review
-   as merge authorization.
-2. Obtain explicit founder/CTO authorization before merging
-   `codex/agent-runtime-correction-channel` into local `main`.
-3. Run post-merge `make ci` and `ci-local-full` on local `main`.
-4. Only after correction-channel merge should the project consider:
+1. Keep push and release blocked unless separately authorized.
+2. Choose the next runtime slice only through its own ADR/gate, with
+   failure-first tests and docs sync.
+3. Candidate next slices:
    production telemetry/export policy, public resume API, true cancellation, or
    concurrency/workflow runtime semantics.
 

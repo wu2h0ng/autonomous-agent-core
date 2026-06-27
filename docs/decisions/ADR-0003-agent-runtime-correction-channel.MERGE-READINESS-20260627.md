@@ -1,7 +1,7 @@
 # ADR-0003 Merge Readiness: Agent Runtime Correction Channel
 
 Date: 2026-06-27
-Status: MERGE-READY EVIDENCE PACKET - NOT AUTHORIZATION
+Status: USED FOR AUTHORIZED LOCAL FF MERGE - NOT PUSH/RELEASE AUTHORIZATION
 Branch: `codex/agent-runtime-correction-channel`
 Target: deployment local `main`
 Base before implementation: `main@dba87bc`
@@ -10,12 +10,13 @@ Implementation commits before this readiness packet:
 - `1c36bd4 feat(runtime): route correction channel through runtime envelope`
 - `2835a9b fix(runtime): preserve correction writes on checkpoint failure`
 
-This packet is a merge-decision aid. It is not founder/CTO authorization, not
-an independent review, not a push request, and not an external release claim.
+This packet was the merge-decision aid used before the founder/CTO-authorized
+local fast-forward merge. It is not an independent review, not a push request,
+and not an external release claim.
 
 ## Readiness Verdict
 
-The branch is ready for founder/CTO merge decision if the intended merge is:
+The branch was ready for founder/CTO merge decision under these conditions:
 
 1. fast-forward only;
 2. local deployment `main` only;
@@ -31,8 +32,8 @@ git rev-list --left-right --count main...HEAD
 0 2
 ```
 
-After this readiness packet is committed, the ahead count is expected to
-increase by one docs-only commit while preserving fast-forward eligibility.
+After this readiness packet was committed, the branch remained fast-forward
+eligible and was merged locally under the authorized gate.
 
 ## Scope To Merge
 
@@ -65,8 +66,7 @@ agent framework dependency, or autonomous-core import.
 
 ## Required Post-Merge Commands
 
-Run these from `/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os`
-after explicit founder/CTO merge authorization:
+These commands are the required local post-merge gate:
 
 ```bash
 git switch main
@@ -106,7 +106,7 @@ authorize automatic R4/R5 business action execution.
 
 ## Gate Outcome
 
-Outcome: READY FOR EXPLICIT FOUNDER/CTO MERGE DECISION.
+Outcome: USED FOR EXPLICIT FOUNDER/CTO LOCAL MERGE DECISION.
 
-Required next step: founder/CTO explicitly authorizes or rejects local
-fast-forward merge. Until that happens, keep the branch unmerged and unpushed.
+Post-merge `make ci` and `ci-local-full` passed on deployment local `main`.
+Keep push and release blocked unless separately authorized.

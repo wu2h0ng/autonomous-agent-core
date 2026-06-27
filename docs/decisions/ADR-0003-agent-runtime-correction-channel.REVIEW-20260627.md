@@ -1,14 +1,14 @@
 # ADR-0003 Review: Agent Runtime Correction Channel
 
 Date: 2026-06-27
-Status: BRANCH-LOCAL SELF-REVIEW COMPLETE - FOUNDER/CTO MERGE AUTHORIZATION STILL REQUIRED
+Status: BRANCH-LOCAL SELF-REVIEW COMPLETE; LOCAL MAIN MERGE AUTHORIZED AND COMPLETED - NO PUSH/RELEASE CLAIM
 Branch: `codex/agent-runtime-correction-channel`
 Base: `main@dba87bc`
 Reviewed range: `main@dba87bc..codex/agent-runtime-correction-channel`
 
 ## Scope
 
-This review covers the branch-local correction-channel runtime envelope for:
+This review covered the branch-local correction-channel runtime envelope for:
 
 - `POST /outcomes`
 - `POST /adoptions`
@@ -16,9 +16,9 @@ This review covers the branch-local correction-channel runtime envelope for:
 - the narrow `RuntimePolicyGate` correction side-effect allowlist
 - correction-channel tests and documentation updates
 
-This review is not an external independent review, not a release claim, and not
-authorization to merge or push. It is a branch-local gate record to reduce drift
-before founder/CTO merge decision.
+This review is not an external independent review and not a release claim. It
+was used as a branch-local gate record before the founder/CTO-authorized local
+fast-forward merge to deployment `main`.
 
 ## Reviewed Diff
 
@@ -179,7 +179,8 @@ Product/process boundary:
 
 ## Gate Outcome
 
-Outcome: ACCEPTABLE FOR FOUNDER/CTO MERGE DECISION.
+Outcome: ACCEPTABLE FOR LOCAL MERGE DECISION; LOCAL MERGE COMPLETED AFTER FOUNDER/CTO AUTHORIZATION.
 
-Required next step: explicit founder/CTO authorization before any merge to local
-`main`. Do not push, release, or describe this branch as externally shipped.
+Post-merge `make ci` and `ci-local-full` passed on local `main`. Do not push,
+release, or describe this work as externally shipped unless a later release gate
+explicitly authorizes it.
