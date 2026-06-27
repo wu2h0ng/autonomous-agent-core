@@ -53,7 +53,7 @@ def _faithful_verdict(raw_payload: dict, freeze_dir: Path) -> dict:
     diffs = [v["survival_steps"] - b["survival_steps"] for v, b in zip(vh, bbr)]
     g4_p = g_eco._wilcoxon_p_two_sided(diffs)
     g4_lo, _g4_hi = g_eco._bootstrap_ci(diffs, B=boot["B"], seed=boot["resample_seed"])
-    g4 = (g4_p < 0.05) and (g4_lo > 0)
+    g4 = (g4_p < g_eco._FROZEN_ALPHA) and (g4_lo > 0)
     return {
         "reported": {
             "enter_rate_vh": vh_er,
@@ -162,6 +162,25 @@ class TestAdjudication(unittest.TestCase):
         self.assertEqual(g_eco._bootstrap_ci(d, B=500, seed=611038), (5.0, 5.0))
         # symmetric mix -> not significant
         self.assertGreater(g_eco._wilcoxon_p_two_sided([1.0, -1.0, 2.0, -2.0, 3.0, -3.0]), 0.05)
+        # edge cases (kimicode LOW): empty input, and mixed-sign ties
+        self.assertEqual(g_eco._wilcoxon_p_two_sided([]), 1.0)
+        self.assertEqual(g_eco._bootstrap_ci([], B=100, seed=1), (0.0, 0.0))
+        self.assertGreater(g_eco._wilcoxon_p_two_sided([2.0, -2.0, 2.0, -2.0]), 0.05)
+
+    def test_integrity_rejects_embedded_alpha_or_m_drift(self) -> None:
+        # kimicode MED (2026-06-27): a thresholds file embedding a different alpha/m must
+        # be rejected, not silently used to retune gates 3/4.
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            raw = self._raw(tmp)
+            v = _faithful_verdict(raw, tmp)
+            thp = tmp / "g_eco.thresholds.json"
+            data = json.loads(thp.read_text())
+            data["verdict_mechanics"]["alpha"] = 0.99  # embedded retune attempt
+            thp.write_text(json.dumps(data))
+            report = g_eco.verify_adjudication_integrity(v, raw, tmp)
+            self.assertFalse(report["integrity_ok"])
+            self.assertIn("alpha_drift", report["mismatches"])
 
     def test_integrity_recomputes_gate4_and_catches_fabrication(self) -> None:
         with tempfile.TemporaryDirectory() as t:

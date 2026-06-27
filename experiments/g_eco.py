@@ -410,6 +410,13 @@ def run_rfinal(
 
 RFINAL_BATTERY_NAMES = ("LIN", "LEX", "THR", "QUOTA", "MINIMAX", "P0", "RSTAR", "O1", "BT")
 
+# Frozen spec constants (G-Eco-preregistration-spec.md v4 §0/§7). These are NOT
+# candidate-derived: verify_adjudication_integrity uses the constants and rejects any
+# thresholds file that embeds a different alpha/m (kimicode MED, 2026-06-27).
+_FROZEN_ALPHA = 0.05         # G-Eco-4 Wilcoxon significance
+_FROZEN_M = 22               # G-Eco-3 per-seed strict count (m of 30)
+_P_DIVERGENCE_TOL = 0.02     # adjudicator-vs-recompute gate-4 p tolerance (documented in prereg spec)
+
 
 def _arm_enter_rate(rows: list[dict[str, Any]]) -> float:
     return sum(1 for r in rows if r["full_region"]) / len(rows)
@@ -536,9 +543,10 @@ def verify_adjudication_integrity(
 ) -> dict[str, Any]:
     """Claude verify-and-narrate: confirm kimicode's verdict applied the FROZEN rubric
     to the RAW data arithmetically. Does NOT re-judge MET/NOT_MET (that is kimicode's);
-    only recomputes the reported quantities + frozen-theta usage + gate 1/2/3/5 booleans
-    from the raw data and flags any mismatch. integrity_ok=False means the verdict is
-    not faithful to the raw data and the founder must not rely on it.
+    only recomputes the reported quantities + frozen-theta usage + gates 1/2/3/4/5 (gate-4
+    = Wilcoxon + bootstrap under the frozen mechanics) from the raw data and flags any
+    mismatch. integrity_ok=False means the verdict is not faithful to the raw data and the
+    founder must not rely on it.
     """
     raw = raw_payload["raw"]
     thresholds = _load_candidate_payload(freeze_dir / "g_eco.thresholds.json")
@@ -564,12 +572,19 @@ def verify_adjudication_integrity(
     rep = verdict.get("reported", {})
     used = verdict.get("thresholds_used", {})
     gates = verdict.get("gates", {})
-    m = thresholds.get("verdict_mechanics", {}).get("m", 22)
+    mech_v = thresholds.get("verdict_mechanics", {})
+    m = _FROZEN_M
     mismatches: list[str] = []
 
+    # alpha / m are FROZEN constants, not candidate-derived. If a thresholds file embeds a
+    # DIFFERENT value, reject it (a retune vector) rather than reading it (kimicode MED).
+    if "alpha" in mech_v and float(mech_v["alpha"]) != _FROZEN_ALPHA:
+        mismatches.append("alpha_drift")
+    if "m" in mech_v and int(mech_v["m"]) != _FROZEN_M:
+        mismatches.append("m_drift")
     # Frozen tie-break must match what _battery_best applies; fail loud if mechanics
     # were refreshed (kimicode LOW, 2026-06-27).
-    if thresholds.get("verdict_mechanics", {}).get("battery_best_tie_break") != [
+    if mech_v.get("battery_best_tie_break") != [
         "enter_rate_desc",
         "survival_steps_desc",
         "irreversible_loss_asc",
@@ -608,18 +623,17 @@ def verify_adjudication_integrity(
     # recomputed from raw under the FROZEN mechanics. Statistical methods can differ near
     # the boundary across implementations, so we BOTH surface divergence from the
     # adjudicator's reported stats AND check its boolean against our independent recompute.
-    mechanics = thresholds.get("verdict_mechanics", {})
-    boot = mechanics.get("bootstrap", {})
+    boot = mech_v.get("bootstrap", {})
     B = int(boot.get("B", 10000))
     resample_seed = int(boot.get("resample_seed", 611038))
-    alpha = float(mechanics.get("alpha", 0.05))
+    alpha = _FROZEN_ALPHA
     diffs = [v["survival_steps"] - b["survival_steps"] for v, b in zip(vh_rows, bb_rows)]
     g4_p = _wilcoxon_p_two_sided(diffs)
     g4_ci_lo, g4_ci_hi = _bootstrap_ci(diffs, B=B, seed=resample_seed)
     g4 = (g4_p < alpha) and (g4_ci_lo > 0)
     rep_p = rep.get("gate4_p")
     rep_ci_lo = rep.get("gate4_ci_lower")
-    if rep_p is not None and abs(float(rep_p) - g4_p) > 0.02:
+    if rep_p is not None and abs(float(rep_p) - g4_p) > _P_DIVERGENCE_TOL:
         mismatches.append("G-Eco-4_p_divergence")
     if rep_ci_lo is not None and (float(rep_ci_lo) > 0) != (g4_ci_lo > 0):
         mismatches.append("G-Eco-4_ci_sign_divergence")
