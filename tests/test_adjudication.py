@@ -108,6 +108,18 @@ class TestAdjudication(unittest.TestCase):
             self.assertFalse(report["integrity_ok"])
             self.assertIn("enter_rate_vh", report["mismatches"])
 
+    def test_integrity_fails_on_ragged_rows(self) -> None:
+        # kimicode LOW (2026-06-27): unequal per-arm row counts must be flagged, not
+        # silently truncated by zip().
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            raw = self._raw(tmp)
+            v = _faithful_verdict(raw, tmp)
+            raw["raw"]["LIN"] = raw["raw"]["LIN"][:-1]  # drop one row -> ragged
+            report = g_eco.verify_adjudication_integrity(v, raw, tmp)
+            self.assertFalse(report["integrity_ok"])
+            self.assertIn("row_length_mismatch", report["mismatches"])
+
     def test_integrity_fails_on_nonfrozen_theta(self) -> None:
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)

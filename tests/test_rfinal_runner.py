@@ -123,8 +123,29 @@ class TestRFinalRunner(unittest.TestCase):
                 return "rest"  # ignores pause and tighten
 
         with self.assertRaises(GEcoHalt) as cm:
-            g_eco._verify_c7_shell((_DefiantArm(substrate),), rates=rates, seed=1800)
+            g_eco._verify_c7_shell((_DefiantArm(substrate),), rates=rates, seeds=(1800,))
         self.assertEqual(cm.exception.code, "RFINAL_C7_PAUSE_FAIL")
+
+    def test_c7_rejects_a_nonacting_arm_instead_of_vacuous_pass(self) -> None:
+        # kimicode MED (2026-06-27): an arm that never acts must NOT clear C7 vacuously
+        # (tighten/audit would be skipped) -- it is rejected as unverifiable.
+        from aac.g_eco import build_g_eco_arms, scan_rate_grid
+
+        rates = scan_rate_grid(seeds=tuple(range(1800, 1810)), steps=24).rates
+        substrate = build_g_eco_arms()[0].substrate
+
+        class _InertArm:
+            name = "INERT"
+
+            def __init__(self, sub: object) -> None:
+                self.substrate = sub
+
+            def select(self, obs: object, *, shell: object = None) -> None:
+                return None  # respects pause, but never acts -> tighten unverifiable
+
+        with self.assertRaises(GEcoHalt) as cm:
+            g_eco._verify_c7_shell((_InertArm(substrate),), rates=rates, seeds=(1800, 1801, 1802))
+        self.assertEqual(cm.exception.code, "RFINAL_C7_NONACTING")
 
 
 if __name__ == "__main__":
