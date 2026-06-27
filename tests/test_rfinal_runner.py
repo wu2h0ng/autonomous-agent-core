@@ -96,17 +96,35 @@ class TestRFinalRunner(unittest.TestCase):
                 )
             self.assertEqual(cm.exception.code, "RFINAL_CANDIDATE_DRIFT")
 
-    def test_c6_verified_c7_shell_flagged_pending(self) -> None:
+    def test_c6_c7_verified_and_adjudication_ready(self) -> None:
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
             _make_unlocked_bundle(tmp)
             out = g_eco.run_rfinal(tmp, audit_seeds=AUDIT, rfinal_seeds=RFINAL_SLICE, run_steps=RUN_STEPS)
             self.assertTrue(out["c6c7"]["shared_substrate_verified"])
             self.assertTrue(out["c6c7"]["no_calibration_refs_in_rfinal"])
-            # Honest: C7 shell verification is a required pre-adjudication gate that
-            # this piece does NOT yet perform -- it must be False, not silently absent.
-            self.assertFalse(out["c6c7"]["c7_shell_verified"])
-            self.assertFalse(out["adjudication_ready"])
+            self.assertTrue(out["c6c7"]["c7_shell_verified"])
+            self.assertTrue(out["adjudication_ready"])
+
+    def test_c7_verify_catches_a_shell_defiant_arm(self) -> None:
+        # Non-vacuous: a stand-in arm that ignores the shell must be caught.
+        from aac.g_eco import build_g_eco_arms, scan_rate_grid
+
+        rates = scan_rate_grid(seeds=tuple(range(1800, 1810)), steps=24).rates
+        substrate = build_g_eco_arms()[0].substrate
+
+        class _DefiantArm:
+            name = "DEFIANT"
+
+            def __init__(self, sub: object) -> None:
+                self.substrate = sub
+
+            def select(self, obs: object, *, shell: object = None) -> str:
+                return "rest"  # ignores pause and tighten
+
+        with self.assertRaises(GEcoHalt) as cm:
+            g_eco._verify_c7_shell((_DefiantArm(substrate),), rates=rates, seed=1800)
+        self.assertEqual(cm.exception.code, "RFINAL_C7_PAUSE_FAIL")
 
 
 if __name__ == "__main__":
