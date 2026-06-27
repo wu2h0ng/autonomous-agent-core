@@ -556,7 +556,9 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
             self.assertEqual(out["gate2_locked"], True)
             self.assertNotIn("verdict", out)
 
-            with self.assertRaisesRegex(RuntimeError, "verifier is not implemented"):
+            # Gate-2 unlock verifier is now implemented but stays LOCKED without a
+            # founder co-sign over the exact bundle (see tests/test_gate2_unlock.py).
+            with self.assertRaisesRegex(RuntimeError, "co-sign"):
                 g_eco.assert_gate2_unlocked(Path(tmp))
 
     def test_pregate2_candidate_verifier_accepts_intact_candidate_but_keeps_gate_locked(
@@ -577,7 +579,9 @@ class TestGEcoPreGate2Freeze(unittest.TestCase):
             self.assertIn("g_eco.baseline_audit.json", report["files"])
             self.assertNotIn("verdict", report)
 
-            with self.assertRaisesRegex(RuntimeError, "verifier is not implemented"):
+            # Gate-2 unlock verifier is now implemented but stays LOCKED without a
+            # founder co-sign over the exact bundle (see tests/test_gate2_unlock.py).
+            with self.assertRaisesRegex(RuntimeError, "co-sign"):
                 g_eco.assert_gate2_unlocked(Path(tmp))
 
     def test_pregate2_candidate_verifier_rejects_tampered_hash(self) -> None:
