@@ -32,6 +32,8 @@ Implemented branch-local:
   the persisted business `RunTrace`.
 - checkpoint mismatch, missing checkpoint, and policy denial are fail-closed
   with safe HTTP errors.
+- non-200 resume failures declare a typed `RuntimeResumeErrorResponse` schema
+  for `404`, `409`, `500`, and `503` in OpenAPI.
 
 ## Call Path
 
@@ -69,6 +71,9 @@ POST /agent-runtime/runs/{runtime_run_id}/resume
   configuration failure.
 - `POST /runs` omits `runtime_checkpoint_ref` when no checkpoint store is
   configured or when a matching persisted checkpoint cannot be proven.
+- OpenAPI declares the safe `RuntimeResumeErrorResponse` shape for missing
+  checkpoint, mismatch/policy denial, internal runtime failure, and missing
+  checkpoint-store failures.
 
 ## Verification
 
@@ -86,6 +91,8 @@ Additional hardening RED was observed during implementation:
   configuration-specific `503 CHECKPOINT_NOT_AVAILABLE` failure.
 - `POST /runs` returned a `runtime_checkpoint_ref` even when no checkpoint
   store was configured, creating a non-recoverable resume reference.
+- the resume route only declared `200` plus framework validation errors in
+  OpenAPI, leaving its runtime failure payloads untyped.
 
 Targeted GREEN after implementation:
 
@@ -156,6 +163,8 @@ This slice does not:
 
 Branch-local Codex self-review is recorded in
 `ADR-0003-agent-runtime-public-resume-api.SELF-REVIEW-20260627.md`.
+Merge readiness is recorded in
+`ADR-0003-agent-runtime-public-resume-api.MERGE-READINESS-20260627.md`.
 
 That self-review is not independent review and not merge authorization. Require
 explicit founder/CTO authorization, and independent review if founder/CTO

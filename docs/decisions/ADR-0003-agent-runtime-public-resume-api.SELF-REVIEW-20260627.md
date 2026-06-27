@@ -64,15 +64,12 @@ Reviewed security and authority properties:
 
 ## Open Questions
 
-- Should this internal-only HTTP resume route expose typed non-200 OpenAPI error
-  models now, or keep the current behavior consistent with existing
-  `HTTPException.detail` patterns until broader API error-shape cleanup?
 - Should a later independent reviewer require operator-key or a distinct
   runtime-management key for resume, instead of the current internal API key
   plus `runtime:resume` scope?
 
-Neither question blocks the current branch-local implementation, but both are
-reasonable future hardening candidates before external release.
+This question does not block the current branch-local implementation, but it is
+a reasonable future hardening candidate before external release.
 
 ## Required Changes
 
@@ -81,6 +78,13 @@ Required change completed in `9b98286`:
 - add the persisted-checkpoint projection guard for `runtime_checkpoint_ref`;
 - add the negative test for no-checkpoint-store `/runs` behavior;
 - sync implementation log, gap audit, README, and `CURRENT_STATE.yaml`.
+
+Required change completed after self-review:
+
+- declare typed `RuntimeResumeErrorResponse` OpenAPI schemas for `404`, `409`,
+  `500`, and `503` resume failures;
+- extend `test_agent_runtime_resume_contract_is_declared` to prove the
+  non-200 error contract.
 
 ## Evidence
 
@@ -194,8 +198,6 @@ Product/process boundary:
   founder/CTO judgment is still required before local-main merge.
 - The route is internal-only but still management-like; a later hardening slice
   may choose a distinct runtime-management credential boundary.
-- Non-200 OpenAPI error responses are not yet declared as typed schemas for this
-  route.
 - This does not implement wall-clock interruption, streaming cancellation,
   workflow concurrency semantics, production telemetry export, or external
   release readiness.
@@ -203,6 +205,9 @@ Product/process boundary:
 ## Gate Outcome
 
 Outcome: SELF-REVIEW ACCEPTABLE FOR FOUNDER/CTO MERGE DECISION; NOT MERGE AUTHORIZATION.
+
+Merge readiness is recorded in
+`ADR-0003-agent-runtime-public-resume-api.MERGE-READINESS-20260627.md`.
 
 Do not merge, push, release, or describe this branch as externally shipped
 without explicit founder/CTO authorization and the required post-merge
