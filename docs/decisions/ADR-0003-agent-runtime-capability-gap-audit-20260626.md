@@ -23,8 +23,8 @@ release-ready product surface.
 | Pre-execution policy gate | `RuntimePolicyGate.check(...)` runs before tool body; policy denial tests prove no tool execution. | Covered |
 | Pause channel | `ShellView` denial returns `DENY_PAUSED`; `/runs` and approval-execute pause tests prove stop-before-tool/body behavior. | Covered for current entrypoints |
 | Rollback boundary | Rollback remains owned by Trusted Loop / action connector / snapshot machinery, not by Agent Runtime. Runtime does not claim to undo irreversible external side effects. | Covered as boundary, not runtime-owned |
-| Approval channel | `/approvals/{approval_id}/execute` runtime envelope preserves `ApprovalRuntime` and `ApprovalContextStore` authority. | Covered on stacked branch |
-| Correction channel | Scope candidate defines `/outcomes` and `/adoptions` runtime-envelope requirements while preserving P5.1b anti-wirehead semantics. | Scoped, not implemented |
+| Approval channel | `/approvals/{approval_id}/execute` runtime envelope preserves `ApprovalRuntime` and `ApprovalContextStore` authority. | Covered on main/origin baseline |
+| Correction channel | Branch `codex/agent-runtime-correction-channel` implements `/outcomes` and `/adoptions` runtime-envelope entry paths while preserving P5.1b anti-wirehead semantics and adoption-writer authority. | Implemented locally; review/merge pending |
 | Trace-safe execution envelope | Runtime trace events are allowlisted; raw args/output removed; success envelope events persist into `RunTrace`; failure paths are trace-visible. | Covered for `/runs`, approval-execute, and runtime tool calls |
 | Checkpoint/replay/recovery boundary | `CheckpointStorePort`, `InMemoryCheckpointStore`, `SqlAgentCheckpointStore`, fingerprint-bound resume, checkpoint save failure typing, and safe resume trace events. | Covered for internal runtime checkpoint boundary |
 | Tool permission and risk ceiling | Required permissions, `risk_ceiling`, invalid risk handling, R4/R5 fail-closed policy tests. | Covered |
@@ -37,30 +37,21 @@ release-ready product surface.
 
 ## Gaps That Still Matter
 
-### G1: Stack is not merged to local `main`
+### G1: Correction channel is branch-local, not merged
 
-The latest reviewed runtime stack remains on feature branches:
+`POST /outcomes` and `POST /adoptions` now traverse the Agent Runtime envelope
+on branch `codex/agent-runtime-correction-channel`, with policy, pause, trace,
+and checkpoint replay tests. This is still a local feature branch. It is not on
+`main`, not pushed, and not released.
 
-```text
-main@3249c36
-  -> codex/agent-runtime-reviewed-slices-consolidation
-  -> codex/agent-runtime-checkpoint-factory-selection
-  -> codex/agent-runtime-budget-guard
-```
+The branch-local implementation and review records are:
 
-The stack is reviewed and fast-forwardable, but founder/CTO merge authorization
-is still required. Until then, current `main` does not include the latest
-approval-execute consolidation, checkpoint-factory selection, or budget guard.
+- `ADR-0003-agent-runtime-correction-channel-scope-20260626.md`
+- `ADR-0003-agent-runtime-correction-channel.REVIEW-20260627.md`
 
-### G2: Correction channel is scoped but not implemented
+Merge still requires explicit founder/CTO authorization.
 
-`POST /outcomes` and `POST /adoptions` have product semantics today, but they do
-not yet traverse the Agent Runtime envelope.
-
-The required next slice is documented in
-`ADR-0003-agent-runtime-correction-channel-scope-20260626.md`.
-
-Implementation must preserve:
+The implementation preserves:
 
 - `POST /outcomes` as self-report only;
 - `POST /adoptions` as the operator/external value writer;
@@ -68,41 +59,38 @@ Implementation must preserve:
 - safe runtime trace without raw metric deltas, causal-attribution details, or
   full feedback/adoption payloads.
 
-### G3: Public checkpoint resume API is not introduced
+### G2: Public checkpoint resume API is not introduced
 
 The runtime has a checkpoint/replay boundary and SQL persistence adapter, but no
 public HTTP/SDK resume surface. This is intentional. A public resume API would
 need its own typed contract, authorization model, replay-safety review, and
 payload-projection rules.
 
-### G4: True wall-clock interruption and streaming cancellation are not implemented
+### G3: True wall-clock interruption and streaming cancellation are not implemented
 
 The budget guard is a deterministic pre-execution guard over declared metadata.
 It is not OS-level preemption, async cancellation, streaming abort, token
 metering, or production billing.
 
-### G5: Concurrency/workflow engine semantics are not implemented
+### G4: Concurrency/workflow engine semantics are not implemented
 
 The current runtime substrate is one policy-gated tool boundary plus selected
 Trusted Loop adapters. It is not a graph scheduler, CrewAI/LangGraph replacement,
 multi-agent workflow engine, or durable async orchestration layer.
 
-### G6: Production telemetry export policy is not implemented
+### G5: Production telemetry export policy is not implemented
 
 Runtime trace events are safe and queryable through product trace surfaces, but
 no production OTel/export/redaction retention policy is accepted in this slice.
 
 ## Recommended Order
 
-1. Obtain explicit founder/CTO authorization for the reviewed stacked
-   fast-forward merge.
-2. Fast-forward merge in order:
-   `reviewed-slices-consolidation` -> `checkpoint-factory-selection` ->
-   `budget-guard`.
+1. Complete branch-local correction-channel review without treating self-review
+   as merge authorization.
+2. Obtain explicit founder/CTO authorization before merging
+   `codex/agent-runtime-correction-channel` into local `main`.
 3. Run post-merge `make ci` and `ci-local-full` on local `main`.
-4. Open a fresh branch for the correction-channel runtime envelope.
-5. Implement the correction-channel tests first.
-6. Only after correction-channel merge should the project consider:
+4. Only after correction-channel merge should the project consider:
    production telemetry/export policy, public resume API, true cancellation, or
    concurrency/workflow runtime semantics.
 

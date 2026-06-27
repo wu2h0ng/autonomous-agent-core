@@ -78,6 +78,53 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertEqual(trace_writer.events[-1]["step"], "agent_runtime.invocation_finished")
         self.assertEqual(trace_writer.events[-1]["payload"]["status"], "checkpoint_error")
 
+    def test_checkpoint_failure_can_preserve_result_for_irreversible_side_effects(self) -> None:
+        class FailingCheckpointStore:
+            def save(self, snapshot: RunStateSnapshot) -> None:
+                raise RuntimeError("database unavailable")
+
+            def get(self, run_id: str) -> RunStateSnapshot | None:
+                return None
+
+        called: list[str] = []
+        trace_writer = AgentTraceWriter()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="correction.adopt",
+                description="Write completed correction side effect.",
+                required_keys=("value",),
+                side_effect_class="external_value_attestation",
+                required_permissions=("tool:read",),
+                preserve_result_on_checkpoint_failure=True,
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(),
+            trace_writer=trace_writer,
+            checkpoint_store=FailingCheckpointStore(),
+        )
+
+        result = runtime.invoke_tool(
+            AgentToolCall(
+                call_id="call-checkpoint-preserve",
+                tool_name="correction.adopt",
+                args={"value": "written"},
+            ),
+            _context(),
+        )
+
+        self.assertEqual(called, ["written"])
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.output, {"value": "written"})
+        self.assertEqual(result.metadata["checkpoint_status"], "failed")
+        steps = [event["step"] for event in trace_writer.events]
+        self.assertIn("agent_runtime.checkpoint_failed", steps)
+        self.assertEqual(trace_writer.events[-1]["step"], "agent_runtime.invocation_finished")
+        self.assertEqual(trace_writer.events[-1]["payload"]["status"], "ok")
+
     def test_checkpoint_store_failure_does_not_mask_policy_denial(self) -> None:
         class FailingCheckpointStore:
             def save(self, snapshot: RunStateSnapshot) -> None:

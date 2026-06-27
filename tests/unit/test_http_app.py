@@ -19,6 +19,16 @@ EXTERNAL_API_KEY = "secret-external-key"
 OPERATOR_KEY = "secret-operator-key"
 
 
+class _FailingCheckpointStore:
+    def save(self, snapshot: object) -> None:
+        del snapshot
+        raise RuntimeError("checkpoint backend unavailable")
+
+    def get(self, run_id: str) -> None:
+        del run_id
+        return None
+
+
 def _make_client(
     api_key: str | None,
     operator_api_key: str | None = OPERATOR_KEY,
@@ -511,6 +521,47 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         ]
         self.assertIn("agent_runtime.policy_denied", runtime_steps)
         self.assertNotIn("agent_runtime.tool_started", runtime_steps)
+
+    def test_adoptions_preserve_success_on_checkpoint_failure_after_value_write(self) -> None:
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        client = TestClient(
+            create_app(
+                runtime,
+                api_key=API_KEY,
+                operator_api_key=OPERATOR_KEY,
+                adoption_ingest=factory.adoption_ingest(),
+                agent_checkpoint_store=factory.build_agent_checkpoint_store(),
+            )
+        )
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        client.app.state.agent_checkpoint_store = _FailingCheckpointStore()
+        adopt_resp = client.post(
+            "/adoptions",
+            json={
+                "trace_id": trace_id,
+                "outcome": "adopted",
+                "reviewer": "ops@example.com",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(adopt_resp.status_code, 200, adopt_resp.text)
+        self.assertEqual(len(client.app.state.runtime.adoption_for_trace(trace_id)), 1)
+        runtime_steps = [
+            event["step"] for event in client.app.state.agent_runtime_trace_writer.events
+        ]
+        self.assertIn("agent_runtime.tool_succeeded", runtime_steps)
+        self.assertIn("agent_runtime.checkpoint_failed", runtime_steps)
 
     def test_run_response_carries_user_facing_result_artifact(self) -> None:
         client = _make_client(API_KEY)

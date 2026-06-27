@@ -1,7 +1,7 @@
 # ADR-0003 Scope: Agent Runtime Correction Channel
 
 Date: 2026-06-26
-Status: IMPLEMENTED LOCALLY ON `codex/agent-runtime-correction-channel` - REVIEW/MERGE PENDING
+Status: IMPLEMENTED AND SELF-REVIEWED LOCALLY ON `codex/agent-runtime-correction-channel` - FOUNDER/CTO MERGE AUTHORIZATION PENDING
 Depends on: stacked merge of `codex/agent-runtime-reviewed-slices-consolidation`,
 `codex/agent-runtime-checkpoint-factory-selection`, and
 `codex/agent-runtime-budget-guard` into local `main`
@@ -114,6 +114,13 @@ The local implementation uses a narrow version of option 1 for both tools:
   `call_id/tool_name/run_id/status/error_code` metadata and excludes raw metric
   deltas, causal-attribution payloads, secret-like keys, contract objects, and
   full business payloads.
+- The HTTP correction routes inject the request checkpoint store into their
+  side-effecting correction adapters. The two correction tools set
+  `ToolSpec.preserve_result_on_checkpoint_failure=True` so a completed
+  feedback/adoption write is not converted into a retry-inducing HTTP failure if
+  the checkpoint backend fails after the write. The default runtime behavior for
+  other tools remains `checkpoint_error`, and the correction path still emits
+  safe `agent_runtime.checkpoint_failed` evidence.
 
 This keeps current API authorization semantics (`adoptions:write` is still the
 realized-value HTTP scope) while adding a second runtime permission/pause gate.
@@ -132,14 +139,20 @@ current internal API surface.
   writer authority. During hardening, `test_outcome_runtime_denial_preserves_existing_run_trace`
   first failed because terminal correction denial overwrote the prior `/runs`
   trace instead of appending safe denial events.
+- Branch-local review found a post-write ambiguity: a failing checkpoint store
+  could make `/adoptions` return `409 checkpoint save failed` after the external
+  adoption write had already completed, inviting duplicate retry. The red test
+  `test_adoptions_preserve_success_on_checkpoint_failure_after_value_write`
+  failed on that behavior before `ToolSpec.preserve_result_on_checkpoint_failure`
+  was added and enabled only for the correction tools.
 - GREEN evidence after implementation:
   - targeted runtime/correction suite covering correction-channel, policy,
-    tool, replay-boundary, outcome-service, and HTTP paths: 100 tests OK;
+    tool, replay-boundary, outcome-service, and HTTP paths: 102 tests OK;
   - `make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python`:
-    ruff clean, format clean, 492 unittest tests OK with 4 skipped, 12 eval
+    ruff clean, format clean, 494 unittest tests OK with 4 skipped, 12 eval
     tests OK, OpenAPI drift check passed;
   - `AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python`:
-    full local CI parity passed with the same 492 tests OK / 4 skipped, 12 eval
+    full local CI parity passed with the same 494 tests OK / 4 skipped, 12 eval
     tests OK, and OpenAPI up to date.
 
 ## Required Failure-First Tests
@@ -158,6 +171,8 @@ Add tests before implementation:
 - Runtime trace events for both routes are request-scoped and safe: no raw
   metric deltas, causal-attribution payload, secret-like keys, raw contract
   object, or full business payload.
+- Checkpoint backend failure after a completed adoption write does not turn the
+  HTTP response into a retry-inducing failure, but remains trace-visible.
 - Self-report feedback cannot be replayed as external adoption through a runtime
   checkpoint.
 - External adoption cannot be executed through `record_outcome`.
@@ -193,12 +208,15 @@ Stop and return to CTO/founder review if:
 
 ## Next Gate
 
-Do not implement this slice on top of an unmerged stacked branch unless explicitly
-approved. Preferred sequence:
+The implementation is on a fresh branch from updated `main` and has local
+verification plus a branch-local self-review record:
 
-1. Fast-forward the reviewed ADR-0003 stack into local `main` after explicit
-   founder/CTO authorization.
-2. Run post-merge `make ci` and `ci-local-full` on `main`.
-3. Open a fresh branch from updated `main` for the correction-channel runtime
-   envelope.
-4. Write the failure-first tests above before implementation.
+- `ADR-0003-agent-runtime-correction-channel.REVIEW-20260627.md`
+
+Remaining gate:
+
+1. Obtain explicit founder/CTO authorization before merging
+   `codex/agent-runtime-correction-channel` into local `main`.
+2. Run post-merge `make ci` and `ci-local-full` on local `main`.
+3. Do not push, release, or claim external shipment unless a later release gate
+   explicitly authorizes it.

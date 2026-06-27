@@ -128,6 +128,7 @@ class TrustedLoopCorrectionRuntimeAdapter:
                 risk_level="R1",
                 side_effect_class="self_report_feedback",
                 required_permissions=("trusted_loop:record_outcome",),
+                preserve_result_on_checkpoint_failure=True,
             ),
             self._record_outcome_tool,
         )
@@ -139,6 +140,7 @@ class TrustedLoopCorrectionRuntimeAdapter:
                 risk_level="R2",
                 side_effect_class="external_value_attestation",
                 required_permissions=("trusted_loop:attest_adoption",),
+                preserve_result_on_checkpoint_failure=True,
             ),
             self._attest_adoption_tool,
         )

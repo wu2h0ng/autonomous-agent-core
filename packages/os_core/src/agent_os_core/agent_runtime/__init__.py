@@ -81,6 +81,7 @@ class ToolSpec:
     timeout_ms: int | None = None
     estimated_cost_units: int = 0
     allow_when_paused: bool = False
+    preserve_result_on_checkpoint_failure: bool = False
 
 
 @dataclass(frozen=True)
@@ -764,6 +765,22 @@ class AgentRuntime:
                     "error_code": exc.__class__.__name__,
                 },
             )
+            if tool_spec.preserve_result_on_checkpoint_failure:
+                return AgentToolResult(
+                    call_id=result.call_id,
+                    tool_name=result.tool_name,
+                    status=result.status,
+                    output=result.output,
+                    error_code=result.error_code,
+                    error_message=result.error_message,
+                    trace_id=result.trace_id,
+                    metadata={
+                        **dict(result.metadata),
+                        "checkpoint_status": "failed",
+                        "checkpoint_error_code": exc.__class__.__name__,
+                        "checkpoint_boundary": "agent_runtime.invoke_tool",
+                    },
+                )
             return AgentToolResult(
                 call_id=call.call_id,
                 tool_name=call.tool_name,
@@ -823,6 +840,9 @@ class AgentRuntime:
                     "timeout_ms": tool_spec.timeout_ms,
                     "estimated_cost_units": tool_spec.estimated_cost_units,
                     "allow_when_paused": tool_spec.allow_when_paused,
+                    "preserve_result_on_checkpoint_failure": (
+                        tool_spec.preserve_result_on_checkpoint_failure
+                    ),
                 }
             ),
         }
