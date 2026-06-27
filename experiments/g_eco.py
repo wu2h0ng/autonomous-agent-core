@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import sys
 from pathlib import Path
@@ -276,12 +277,18 @@ def verify_prereg_lock(
     if not lock_path.is_file():
         raise GEcoHalt("RFINAL_PREREG_LOCK_MISSING", f"prereg.lock not found: {lock_path}")
     data = json.loads(lock_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise GEcoHalt("RFINAL_PREREG_LOCK_INVALID", "prereg.lock is not a JSON object")
     mechanism_files = data.get("mechanism_files", {})
     if not isinstance(mechanism_files, dict) or not mechanism_files:
         raise GEcoHalt("RFINAL_PREREG_LOCK_INVALID", "prereg.lock has no mechanism_files")
     drift: list[str] = []
     for rel, expected in mechanism_files.items():
-        p = target_root / rel
+        rel_path = Path(rel)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            # A lock must only pin files UNDER the target; reject traversal/absolute paths.
+            raise GEcoHalt("RFINAL_PREREG_LOCK_INVALID", f"unsafe mechanism path in lock: {rel}")
+        p = target_root / rel_path
         if not p.is_file() or _file_sha256(p) != expected:
             drift.append(rel)
     if spec_path is not None and data.get("spec_file_sha256") != _file_sha256(spec_path):
@@ -305,6 +312,7 @@ def run_rfinal(
     run_steps: int = 36,
     prereg_lock: Path | None = None,
     prereg_target_root: Path | None = None,
+    prereg_spec: Path | None = None,
 ) -> dict[str, Any]:
     """Replay the co-signed frozen candidate over the r-final seeds; emit RAW data only.
 
@@ -350,7 +358,7 @@ def run_rfinal(
     prereg_info: dict[str, Any] | None = None
     if prereg_lock is not None:
         root = prereg_target_root or Path(__file__).resolve().parents[1]
-        prereg_info = verify_prereg_lock(prereg_lock, target_root=root)
+        prereg_info = verify_prereg_lock(prereg_lock, target_root=root, spec_path=prereg_spec)
     prereg_lock_verified = prereg_info is not None
 
     # Deterministic replay over r-final seeds, using the SAME primitive as calibration
@@ -432,6 +440,52 @@ def _battery_best(raw: dict[str, list[dict[str, Any]]]) -> str:
     return min(RFINAL_BATTERY_NAMES, key=key)
 
 
+def _wilcoxon_p_two_sided(diffs: list[float]) -> float:
+    """Two-sided Wilcoxon signed-rank p-value (normal approx, tie + continuity correction).
+
+    Pure stdlib. For the r-final n=30 this approximation is standard; near-boundary
+    method differences vs the adjudicator are surfaced as a divergence flag rather than
+    silently trusted (see verify_adjudication_integrity).
+    """
+    nonzero = [d for d in diffs if d != 0]
+    n = len(nonzero)
+    if n == 0:
+        return 1.0
+    absd = sorted((abs(d), 1 if d > 0 else -1) for d in nonzero)
+    ranks = [0.0] * n
+    tie_term = 0.0
+    i = 0
+    while i < n:
+        j = i
+        while j < n and absd[j][0] == absd[i][0]:
+            j += 1
+        avg_rank = (i + 1 + j) / 2.0
+        for k in range(i, j):
+            ranks[k] = avg_rank
+        t = j - i
+        tie_term += t**3 - t
+        i = j
+    w_plus = sum(ranks[k] for k in range(n) if absd[k][1] > 0)
+    mean_w = n * (n + 1) / 4.0
+    var_w = (n * (n + 1) * (2 * n + 1) - tie_term / 2.0) / 24.0
+    if var_w <= 0:
+        return 1.0
+    z = (abs(w_plus - mean_w) - 0.5) / math.sqrt(var_w)  # continuity-corrected
+    p = 2.0 * (1.0 - 0.5 * (1.0 + math.erf(z / math.sqrt(2.0))))
+    return min(1.0, max(0.0, p))
+
+
+def _bootstrap_ci(diffs: list[float], *, B: int, seed: int) -> tuple[float, float]:
+    """Percentile 95% CI of the mean paired difference, deterministic with ``seed``."""
+    n = len(diffs)
+    if n == 0:
+        return (0.0, 0.0)
+    rng = random.Random(seed)
+    means = [sum(diffs[rng.randrange(n)] for _ in range(n)) / n for _ in range(B)]
+    means.sort()
+    return (means[int(0.025 * B)], means[min(B - 1, int(0.975 * B))])
+
+
 def build_adjudication_packet(
     freeze_dir: Path, raw_payload: dict[str, Any], out_dir: Path
 ) -> dict[str, Any]:
@@ -444,7 +498,8 @@ def build_adjudication_packet(
     if not raw_payload.get("adjudication_ready"):
         raise GEcoHalt(
             "ADJUDICATION_NOT_READY",
-            "raw r-final data is not adjudication-ready (C6/C7 not both verified)",
+            "raw r-final data is not adjudication-ready (needs co-sign + C6 + C7 + a "
+            "verified Stage-2 prereg.lock)",
         )
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_json(out_dir / "g_eco.rfinal.raw.json", raw_payload)
@@ -459,10 +514,13 @@ def build_adjudication_packet(
             "Walk the FROZEN sections 3/4 decision tree on the raw data using ONLY the "
             "frozen theta_hi/theta_lo and verdict_mechanics. Emit g_eco.adjudication."
             "verdict.json with: reported{enter_rate_vh, battery_best_arm, "
-            "battery_best_enter_rate, pairwise_vh_strict_count, vh_irreversible_median}, "
-            "thresholds_used{theta_hi, theta_lo}, gates{G-Eco-1..5 booleans}, and the "
-            "verdict (MET / C_NOT_SUPPORTED / R4 / INCONCLUSIVE). Do not re-tune, do not "
-            "introduce criteria outside the frozen tables."
+            "battery_best_enter_rate, pairwise_vh_strict_count, vh_irreversible_median, "
+            "gate4_p, gate4_ci_lower}, thresholds_used{theta_hi, theta_lo}, "
+            "gates{G-Eco-1..5 booleans}, and the verdict (MET / C_NOT_SUPPORTED / R4 / "
+            "INCONCLUSIVE). gate4_p = two-sided Wilcoxon(VH vs battery-best survival); "
+            "gate4_ci_lower = lower bound of the bootstrap CI of the paired survival diff "
+            "under the frozen bootstrap mechanics. Do not re-tune, do not introduce "
+            "criteria outside the frozen tables."
         ),
         "boundary": "Final conclusion / autonomy narrative / disposition is founder's, not the adjudicator's.",
     }
@@ -546,6 +604,28 @@ def verify_adjudication_integrity(
     if gates.get("G-Eco-5") != g5:
         mismatches.append("G-Eco-5_inconsistent")
 
+    # Gate-4: Wilcoxon(VH vs battery-best survival) + bootstrap CI of the paired diff,
+    # recomputed from raw under the FROZEN mechanics. Statistical methods can differ near
+    # the boundary across implementations, so we BOTH surface divergence from the
+    # adjudicator's reported stats AND check its boolean against our independent recompute.
+    mechanics = thresholds.get("verdict_mechanics", {})
+    boot = mechanics.get("bootstrap", {})
+    B = int(boot.get("B", 10000))
+    resample_seed = int(boot.get("resample_seed", 611038))
+    alpha = float(mechanics.get("alpha", 0.05))
+    diffs = [v["survival_steps"] - b["survival_steps"] for v, b in zip(vh_rows, bb_rows)]
+    g4_p = _wilcoxon_p_two_sided(diffs)
+    g4_ci_lo, g4_ci_hi = _bootstrap_ci(diffs, B=B, seed=resample_seed)
+    g4 = (g4_p < alpha) and (g4_ci_lo > 0)
+    rep_p = rep.get("gate4_p")
+    rep_ci_lo = rep.get("gate4_ci_lower")
+    if rep_p is not None and abs(float(rep_p) - g4_p) > 0.02:
+        mismatches.append("G-Eco-4_p_divergence")
+    if rep_ci_lo is not None and (float(rep_ci_lo) > 0) != (g4_ci_lo > 0):
+        mismatches.append("G-Eco-4_ci_sign_divergence")
+    if gates.get("G-Eco-4") != g4:
+        mismatches.append("G-Eco-4_inconsistent")
+
     return {
         "kind": "g_eco.adjudication.integrity",
         "integrity_ok": not mismatches,
@@ -557,14 +637,19 @@ def verify_adjudication_integrity(
             "pairwise_vh_strict_count": pairwise,
             "vh_irreversible_median": vh_irr_med,
             "g_eco_5": g5,
+            "gate4_p": g4_p,
+            "gate4_ci_lower": g4_ci_lo,
+            "gate4_ci_upper": g4_ci_hi,
+            "g_eco_4": g4,
         },
-        "gate4_stat_recomputed": False,
+        "gate4_stat_recomputed": True,
         "note": (
             "Verify-and-narrate integrity ONLY: kimicode's reported quantities + "
-            "frozen-theta usage + gate 1/2/3/5 booleans recomputed from raw. Gate-4 "
-            "(Wilcoxon/bootstrap) statistical recompute NOT performed here (flagged). "
-            "This does NOT re-judge the verdict; MET/NOT_MET is kimicode's, the final "
-            "conclusion and disposition are the founder's."
+            "frozen-theta usage + gates 1/2/3/4/5 recomputed from raw (gate-4 = Wilcoxon "
+            "+ bootstrap CI under the frozen mechanics). Method-sensitive gate-4 "
+            "divergence is flagged, not silently trusted. This does NOT re-judge the "
+            "verdict; MET/NOT_MET is kimicode's, the final conclusion and disposition are "
+            "the founder's."
         ),
     }
 

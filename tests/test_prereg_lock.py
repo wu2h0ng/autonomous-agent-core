@@ -87,6 +87,32 @@ class TestStage2PreregLock(unittest.TestCase):
                 _run(tmp, prereg_lock=lock, prereg_target_root=REPO_ROOT)
             self.assertEqual(cm.exception.code, "RFINAL_PREREG_DRIFT")
 
+    def test_traversal_path_in_lock_rejected(self) -> None:
+        # kimicode LOW (2026-06-27): a lock must only pin files UNDER the target.
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _unlocked(tmp)
+            lock = tmp / "prereg.lock"
+            lock.write_text(json.dumps({
+                "prereg_id": "t", "spec_file_sha256": "0" * 64, "spec_sha256": "0" * 64,
+                "mechanism_files": {"../../../etc/passwd": "0" * 64},
+                "target_head": None, "frozen_at": "2026-06-27T00:00:00+00:00",
+            }))
+            with self.assertRaises(GEcoHalt) as cm:
+                _run(tmp, prereg_lock=lock, prereg_target_root=REPO_ROOT)
+            self.assertEqual(cm.exception.code, "RFINAL_PREREG_LOCK_INVALID")
+
+    def test_non_object_lock_rejected(self) -> None:
+        # kimicode MED (2026-06-27): a non-object lock must GEcoHalt, not AttributeError.
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            _unlocked(tmp)
+            lock = tmp / "prereg.lock"
+            lock.write_text("[]")
+            with self.assertRaises(GEcoHalt) as cm:
+                _run(tmp, prereg_lock=lock, prereg_target_root=REPO_ROOT)
+            self.assertEqual(cm.exception.code, "RFINAL_PREREG_LOCK_INVALID")
+
     def test_missing_lock_path_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)

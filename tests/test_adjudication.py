@@ -49,6 +49,11 @@ def _faithful_verdict(raw_payload: dict, freeze_dir: Path) -> dict:
     vh_med = g_eco._median([r["irreversible_loss"] for r in vh])
     g5 = all(vh_med < g_eco._median([r["irreversible_loss"] for r in raw[b]])
              for b in g_eco.RFINAL_BATTERY_NAMES)
+    boot = th["verdict_mechanics"]["bootstrap"]
+    diffs = [v["survival_steps"] - b["survival_steps"] for v, b in zip(vh, bbr)]
+    g4_p = g_eco._wilcoxon_p_two_sided(diffs)
+    g4_lo, _g4_hi = g_eco._bootstrap_ci(diffs, B=boot["B"], seed=boot["resample_seed"])
+    g4 = (g4_p < 0.05) and (g4_lo > 0)
     return {
         "reported": {
             "enter_rate_vh": vh_er,
@@ -56,12 +61,15 @@ def _faithful_verdict(raw_payload: dict, freeze_dir: Path) -> dict:
             "battery_best_enter_rate": bb_er,
             "pairwise_vh_strict_count": pairwise,
             "vh_irreversible_median": vh_med,
+            "gate4_p": g4_p,
+            "gate4_ci_lower": g4_lo,
         },
         "thresholds_used": {"theta_hi": th["theta_hi"], "theta_lo": th["theta_lo"]},
         "gates": {
             "G-Eco-1": vh_er >= th["theta_hi"],
             "G-Eco-2": bb_er <= th["theta_lo"],
             "G-Eco-3": pairwise >= 22,
+            "G-Eco-4": g4,
             "G-Eco-5": g5,
         },
         "verdict": "C_NOT_SUPPORTED",
@@ -142,6 +150,31 @@ class TestAdjudication(unittest.TestCase):
             report = g_eco.verify_adjudication_integrity(v, raw, tmp)
             self.assertFalse(report["integrity_ok"])
             self.assertIn("theta_not_frozen", report["mismatches"])
+
+
+    def test_gate4_stats_known_answers(self) -> None:
+        # all-zero diffs -> p == 1.0, CI == (0,0)
+        self.assertEqual(g_eco._wilcoxon_p_two_sided([0.0] * 10), 1.0)
+        self.assertEqual(g_eco._bootstrap_ci([0.0] * 10, B=200, seed=1), (0.0, 0.0))
+        # strongly positive (n=20, all +5): p tiny, CI collapses to (5,5)
+        d = [5.0] * 20
+        self.assertLess(g_eco._wilcoxon_p_two_sided(d), 0.001)
+        self.assertEqual(g_eco._bootstrap_ci(d, B=500, seed=611038), (5.0, 5.0))
+        # symmetric mix -> not significant
+        self.assertGreater(g_eco._wilcoxon_p_two_sided([1.0, -1.0, 2.0, -2.0, 3.0, -3.0]), 0.05)
+
+    def test_integrity_recomputes_gate4_and_catches_fabrication(self) -> None:
+        with tempfile.TemporaryDirectory() as t:
+            tmp = Path(t)
+            raw = self._raw(tmp)
+            v = _faithful_verdict(raw, tmp)
+            report = g_eco.verify_adjudication_integrity(v, raw, tmp)
+            self.assertTrue(report["gate4_stat_recomputed"])
+            self.assertTrue(report["integrity_ok"], report["mismatches"])
+            v["gates"]["G-Eco-4"] = not v["gates"]["G-Eco-4"]  # flip -> inconsistent
+            bad = g_eco.verify_adjudication_integrity(v, raw, tmp)
+            self.assertFalse(bad["integrity_ok"])
+            self.assertIn("G-Eco-4_inconsistent", bad["mismatches"])
 
 
 if __name__ == "__main__":
