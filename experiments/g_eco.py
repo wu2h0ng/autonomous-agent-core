@@ -333,6 +333,164 @@ def run_rfinal(
     return _cosign_with_hash(payload)
 
 
+# --- piece 3: kimicode adjudication handoff + Claude verify-and-narrate -------------
+
+RFINAL_BATTERY_NAMES = ("LIN", "LEX", "THR", "QUOTA", "MINIMAX", "P0", "RSTAR", "O1", "BT")
+
+
+def _arm_enter_rate(rows: list[dict[str, Any]]) -> float:
+    return sum(1 for r in rows if r["full_region"]) / len(rows)
+
+
+def _arm_mean(rows: list[dict[str, Any]], field: str) -> float:
+    return sum(r[field] for r in rows) / len(rows)
+
+
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _battery_best(raw: dict[str, list[dict[str, Any]]]) -> str:
+    # Frozen tie-break (g_eco.thresholds verdict_mechanics): enter_rate desc,
+    # survival desc, irreversible asc, arm-name asc.
+    def key(name: str) -> tuple[float, float, float, str]:
+        rows = raw[name]
+        return (
+            -_arm_enter_rate(rows),
+            -_arm_mean(rows, "survival_steps"),
+            _arm_mean(rows, "irreversible_loss"),
+            name,
+        )
+
+    return min(RFINAL_BATTERY_NAMES, key=key)
+
+
+def build_adjudication_packet(
+    freeze_dir: Path, raw_payload: dict[str, Any], out_dir: Path
+) -> dict[str, Any]:
+    """Assemble the input packet for the independent kimicode adjudicator.
+
+    Writes the RAW r-final data + the FROZEN thresholds (theta band + verdict mechanics)
+    + a task brief pointing at the frozen protocol. Judges nothing; this is only the
+    handoff to kimicode, which walks protocol sections 3/4 and emits the verdict.
+    """
+    if not raw_payload.get("adjudication_ready"):
+        raise GEcoHalt(
+            "ADJUDICATION_NOT_READY",
+            "raw r-final data is not adjudication-ready (C6/C7 not both verified)",
+        )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(out_dir / "g_eco.rfinal.raw.json", raw_payload)
+    thresholds = _load_candidate_payload(freeze_dir / "g_eco.thresholds.json")
+    _write_json(out_dir / "g_eco.thresholds.json", thresholds)
+    brief = {
+        "kind": "g_eco.adjudication.task",
+        "adjudicator": "kimicode",
+        "protocol": "docs/research/G-Eco-rfinal-adjudication-protocol.md (FROZEN; sections 3/4)",
+        "inputs": ["g_eco.rfinal.raw.json", "g_eco.thresholds.json"],
+        "instruction": (
+            "Walk the FROZEN sections 3/4 decision tree on the raw data using ONLY the "
+            "frozen theta_hi/theta_lo and verdict_mechanics. Emit g_eco.adjudication."
+            "verdict.json with: reported{enter_rate_vh, battery_best_arm, "
+            "battery_best_enter_rate, pairwise_vh_strict_count, vh_irreversible_median}, "
+            "thresholds_used{theta_hi, theta_lo}, gates{G-Eco-1..5 booleans}, and the "
+            "verdict (MET / C_NOT_SUPPORTED / R4 / INCONCLUSIVE). Do not re-tune, do not "
+            "introduce criteria outside the frozen tables."
+        ),
+        "boundary": "Final conclusion / autonomy narrative / disposition is founder's, not the adjudicator's.",
+    }
+    _write_json(out_dir / "ADJUDICATION_TASK.json", brief)
+    return {
+        "packet_dir": str(out_dir),
+        "files": ["g_eco.rfinal.raw.json", "g_eco.thresholds.json", "ADJUDICATION_TASK.json"],
+    }
+
+
+def verify_adjudication_integrity(
+    verdict: dict[str, Any], raw_payload: dict[str, Any], freeze_dir: Path
+) -> dict[str, Any]:
+    """Claude verify-and-narrate: confirm kimicode's verdict applied the FROZEN rubric
+    to the RAW data arithmetically. Does NOT re-judge MET/NOT_MET (that is kimicode's);
+    only recomputes the reported quantities + frozen-theta usage + gate 1/2/3/5 booleans
+    from the raw data and flags any mismatch. integrity_ok=False means the verdict is
+    not faithful to the raw data and the founder must not rely on it.
+    """
+    raw = raw_payload["raw"]
+    thresholds = _load_candidate_payload(freeze_dir / "g_eco.thresholds.json")
+    theta_hi = thresholds["theta_hi"]
+    theta_lo = thresholds["theta_lo"]
+
+    vh_rows = raw["VH"]
+    vh_er = _arm_enter_rate(vh_rows)
+    bb = _battery_best(raw)
+    bb_rows = raw[bb]
+    bb_er = _arm_enter_rate(bb_rows)
+    pairwise = sum(
+        1
+        for v, b in zip(vh_rows, bb_rows)
+        if v["full_region"] and not b["full_region"]
+    )
+    vh_irr_med = _median([r["irreversible_loss"] for r in vh_rows])
+    g5 = all(
+        vh_irr_med < _median([r["irreversible_loss"] for r in raw[b]])
+        for b in RFINAL_BATTERY_NAMES
+    )
+
+    rep = verdict.get("reported", {})
+    used = verdict.get("thresholds_used", {})
+    gates = verdict.get("gates", {})
+    m = thresholds.get("verdict_mechanics", {}).get("m", 22)
+    mismatches: list[str] = []
+
+    def _num_off(key: str, recomputed: float) -> bool:
+        return abs(float(rep.get(key, float("nan")) if rep.get(key) is not None else 1e18) - recomputed) > 1e-9
+
+    if _num_off("enter_rate_vh", vh_er):
+        mismatches.append("enter_rate_vh")
+    if rep.get("battery_best_arm") != bb:
+        mismatches.append("battery_best_arm")
+    if _num_off("battery_best_enter_rate", bb_er):
+        mismatches.append("battery_best_enter_rate")
+    if rep.get("pairwise_vh_strict_count") != pairwise:
+        mismatches.append("pairwise_vh_strict_count")
+    if _num_off("vh_irreversible_median", vh_irr_med):
+        mismatches.append("vh_irreversible_median")
+    if used.get("theta_hi") != theta_hi or used.get("theta_lo") != theta_lo:
+        mismatches.append("theta_not_frozen")
+    if gates.get("G-Eco-1") != (vh_er >= theta_hi):
+        mismatches.append("G-Eco-1_inconsistent")
+    if gates.get("G-Eco-2") != (bb_er <= theta_lo):
+        mismatches.append("G-Eco-2_inconsistent")
+    if gates.get("G-Eco-3") != (pairwise >= m):
+        mismatches.append("G-Eco-3_inconsistent")
+    if gates.get("G-Eco-5") != g5:
+        mismatches.append("G-Eco-5_inconsistent")
+
+    return {
+        "kind": "g_eco.adjudication.integrity",
+        "integrity_ok": not mismatches,
+        "mismatches": mismatches,
+        "recomputed": {
+            "enter_rate_vh": vh_er,
+            "battery_best_arm": bb,
+            "battery_best_enter_rate": bb_er,
+            "pairwise_vh_strict_count": pairwise,
+            "vh_irreversible_median": vh_irr_med,
+            "g_eco_5": g5,
+        },
+        "gate4_stat_recomputed": False,
+        "note": (
+            "Verify-and-narrate integrity ONLY: kimicode's reported quantities + "
+            "frozen-theta usage + gate 1/2/3/5 booleans recomputed from raw. Gate-4 "
+            "(Wilcoxon/bootstrap) statistical recompute NOT performed here (flagged). "
+            "This does NOT re-judge the verdict; MET/NOT_MET is kimicode's, the final "
+            "conclusion and disposition are the founder's."
+        ),
+    }
+
+
 def _load_candidate_payload(path: Path) -> dict[str, Any]:
     if not path.exists():
         raise GEcoHalt("PREGATE2_MISSING_FILE", f"missing pre-Gate-2 file: {path.name}")
