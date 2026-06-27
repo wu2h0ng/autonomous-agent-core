@@ -262,6 +262,39 @@ def _verify_c7_shell(arms: tuple[Any, ...], *, rates: Any, seeds: tuple[int, ...
     return True
 
 
+def verify_prereg_lock(
+    lock_path: Path, *, target_root: Path, spec_path: Path | None = None
+) -> dict[str, Any]:
+    """Stage-2 drift gate: reject if any frozen mechanism file (or the raw spec) drifts
+    from the meta-runner ``prereg.lock``.
+
+    This is the teeth of the founder-chosen double-bind: the co-sign pins the CANDIDATE;
+    this pins the mechanism CODE behind it (constitution gate #23 -- reject if current
+    mechanism file bytes drift from the lock). Self-contained (no subprocess): it
+    re-hashes the lock's ``mechanism_files`` under ``target_root`` and compares.
+    """
+    if not lock_path.is_file():
+        raise GEcoHalt("RFINAL_PREREG_LOCK_MISSING", f"prereg.lock not found: {lock_path}")
+    data = json.loads(lock_path.read_text(encoding="utf-8"))
+    mechanism_files = data.get("mechanism_files", {})
+    if not isinstance(mechanism_files, dict) or not mechanism_files:
+        raise GEcoHalt("RFINAL_PREREG_LOCK_INVALID", "prereg.lock has no mechanism_files")
+    drift: list[str] = []
+    for rel, expected in mechanism_files.items():
+        p = target_root / rel
+        if not p.is_file() or _file_sha256(p) != expected:
+            drift.append(rel)
+    if spec_path is not None and data.get("spec_file_sha256") != _file_sha256(spec_path):
+        drift.append("spec_file")
+    if drift:
+        raise GEcoHalt("RFINAL_PREREG_DRIFT", "prereg.lock drift: " + ", ".join(sorted(drift)))
+    return {
+        "prereg_id": str(data.get("prereg_id", "")),
+        "verified": True,
+        "mechanism_files": sorted(mechanism_files),
+    }
+
+
 def run_rfinal(
     freeze_dir: Path,
     *,
@@ -270,6 +303,8 @@ def run_rfinal(
     steps: int = 36,
     rfinal_seeds: tuple[int, ...] = RFINAL_SEEDS,
     run_steps: int = 36,
+    prereg_lock: Path | None = None,
+    prereg_target_root: Path | None = None,
 ) -> dict[str, Any]:
     """Replay the co-signed frozen candidate over the r-final seeds; emit RAW data only.
 
@@ -280,8 +315,10 @@ def run_rfinal(
     over ``rfinal_seeds`` deterministically using the SAME run primitive theta calibration
     used, and returns per-seed/per-arm raw metrics. NO thresholds, NO comparison-to-bound,
     NO verdict. Both C6 (shared substrate + no calibration refs) and C7 (multi-seed
-    pause/tighten dominance + audit) are verified; ``adjudication_ready`` is set only when
-    both pass.
+    pause/tighten dominance + audit) are verified. ``adjudication_ready`` requires C6 + C7
+    AND a verified Stage-2 ``prereg_lock`` (the mechanism-code drift gate) -- the
+    founder-chosen double-bind: the co-sign pins the candidate, the lock pins the code.
+    Without a lock the data is produced but NOT adjudication-ready.
     """
     ctx = assert_gate2_unlocked(freeze_dir)  # refuses (raises GEcoHalt) if locked
 
@@ -306,6 +343,15 @@ def run_rfinal(
         arm for arm in build_g_eco_arms(vh_params=vh_params) if arm.name in allowed
     )
     _verify_c7_shell(rfinal_arms, rates=rates_freeze.rates, seeds=rate_seeds[:3])
+
+    # Stage-2 double-bind: prereg.lock pins the mechanism CODE (co-sign pins the
+    # candidate). adjudication_ready requires BOTH; without a verified lock the raw data
+    # is NOT adjudication-ready (founder-chosen double-bind; constitution gate #23).
+    prereg_info: dict[str, Any] | None = None
+    if prereg_lock is not None:
+        root = prereg_target_root or Path(__file__).resolve().parents[1]
+        prereg_info = verify_prereg_lock(prereg_lock, target_root=root)
+    prereg_lock_verified = prereg_info is not None
 
     # Deterministic replay over r-final seeds, using the SAME primitive as calibration
     # so the region metric is identical to the one theta was derived from.
@@ -336,14 +382,17 @@ def run_rfinal(
             "shared_substrate_verified": True,
             "no_calibration_refs_in_rfinal": True,
             "c7_shell_verified": True,
+            "prereg_lock_verified": prereg_lock_verified,
         },
-        "adjudication_ready": True,
+        "prereg_id": (prereg_info or {}).get("prereg_id"),
+        "adjudication_ready": prereg_lock_verified,
         "note": (
             "RAW per-seed/per-arm metrics only (full_region/survival_steps/"
             "irreversible_loss). No judgement and no comparison-to-bound here. "
             "C6 (substrate + no-cal-refs) and C7 (pause/tighten dominance + audit) "
-            "verified. Adjudication belongs to kimicode, on this raw data, per the "
-            "frozen rfinal protocol."
+            "verified. adjudication_ready requires BOTH the Stage-1 co-sign (gated above) "
+            "AND a verified Stage-2 prereg.lock (mechanism-code drift gate). Adjudication "
+            "belongs to kimicode, on this raw data, per the frozen rfinal protocol."
         ),
     }
     return _cosign_with_hash(payload)

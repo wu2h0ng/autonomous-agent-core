@@ -97,13 +97,28 @@ class TestRFinalRunner(unittest.TestCase):
             self.assertEqual(cm.exception.code, "RFINAL_CANDIDATE_DRIFT")
 
     def test_c6_c7_verified_and_adjudication_ready(self) -> None:
+        import hashlib
+        root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
             _make_unlocked_bundle(tmp)
-            out = g_eco.run_rfinal(tmp, audit_seeds=AUDIT, rfinal_seeds=RFINAL_SLICE, run_steps=RUN_STEPS)
+            mech = {
+                rel: hashlib.sha256((root / rel).read_bytes()).hexdigest()
+                for rel in ("experiments/g_eco.py", "src/aac/g_eco.py", "src/envs/ecological_4cond.py")
+            }
+            lock = tmp / "prereg.lock"
+            lock.write_text(json.dumps({
+                "prereg_id": "t", "spec_file_sha256": "0" * 64, "spec_sha256": "0" * 64,
+                "mechanism_files": mech, "target_head": None, "frozen_at": "2026-06-27T00:00:00+00:00",
+            }))
+            out = g_eco.run_rfinal(
+                tmp, audit_seeds=AUDIT, rfinal_seeds=RFINAL_SLICE, run_steps=RUN_STEPS,
+                prereg_lock=lock, prereg_target_root=root,
+            )
             self.assertTrue(out["c6c7"]["shared_substrate_verified"])
             self.assertTrue(out["c6c7"]["no_calibration_refs_in_rfinal"])
             self.assertTrue(out["c6c7"]["c7_shell_verified"])
+            self.assertTrue(out["c6c7"]["prereg_lock_verified"])
             self.assertTrue(out["adjudication_ready"])
 
     def test_c7_verify_catches_a_shell_defiant_arm(self) -> None:

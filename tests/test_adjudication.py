@@ -70,8 +70,21 @@ def _faithful_verdict(raw_payload: dict, freeze_dir: Path) -> dict:
 
 class TestAdjudication(unittest.TestCase):
     def _raw(self, tmp: Path) -> dict:
+        root = Path(__file__).resolve().parents[1]
         _unlocked(tmp)
-        return g_eco.run_rfinal(tmp, audit_seeds=AUDIT, rfinal_seeds=RFINAL_SLICE, run_steps=RUN_STEPS)
+        mech = {
+            rel: hashlib.sha256((root / rel).read_bytes()).hexdigest()
+            for rel in ("experiments/g_eco.py", "src/aac/g_eco.py", "src/envs/ecological_4cond.py")
+        }
+        lock = tmp / "prereg.lock"
+        lock.write_text(json.dumps({
+            "prereg_id": "t", "spec_file_sha256": "0" * 64, "spec_sha256": "0" * 64,
+            "mechanism_files": mech, "target_head": None, "frozen_at": "2026-06-27T00:00:00+00:00",
+        }))
+        return g_eco.run_rfinal(
+            tmp, audit_seeds=AUDIT, rfinal_seeds=RFINAL_SLICE, run_steps=RUN_STEPS,
+            prereg_lock=lock, prereg_target_root=root,
+        )
 
     def test_packet_refuses_when_not_adjudication_ready(self) -> None:
         with tempfile.TemporaryDirectory() as t:
