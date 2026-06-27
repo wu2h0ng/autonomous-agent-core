@@ -18,7 +18,8 @@ not an external release, and not an autonomy claim.
 Implemented branch-local:
 
 - `POST /runs` now returns an internal-only `runtime_checkpoint_ref` with
-  runtime `run_id`, runtime `trace_id`, `tool_name`, and `call_id`.
+  runtime `run_id`, runtime `trace_id`, `tool_name`, and `call_id` only after
+  the checkpoint store can prove a persisted matching checkpoint exists.
 - external report-key projections force `runtime_checkpoint_ref = null`.
 - `POST /agent-runtime/runs/{runtime_run_id}/resume` reconstructs the same
   `trusted_loop.evaluate` call fingerprint from the caller-supplied
@@ -40,7 +41,8 @@ POST /runs
   -> TrustedLoopAgentRuntimeAdapter
   -> AgentRuntime.invoke_tool
   -> factory-selected checkpoint store
-  -> internal runtime_checkpoint_ref in RunResponse
+  -> persisted-checkpoint guard
+  -> internal runtime_checkpoint_ref in RunResponse when recoverable
 
 POST /agent-runtime/runs/{runtime_run_id}/resume
   -> internal API scope `runtime:resume`
@@ -65,6 +67,8 @@ POST /agent-runtime/runs/{runtime_run_id}/resume
 - missing checkpoint returns a safe `CHECKPOINT_NOT_FOUND` error.
 - missing checkpoint store returns `CHECKPOINT_NOT_AVAILABLE` as a `503`
   configuration failure.
+- `POST /runs` omits `runtime_checkpoint_ref` when no checkpoint store is
+  configured or when a matching persisted checkpoint cannot be proven.
 
 ## Verification
 
@@ -80,6 +84,8 @@ Additional hardening RED was observed during implementation:
   path before snapshot prevalidation;
 - a missing checkpoint store returned a generic conflict instead of the
   configuration-specific `503 CHECKPOINT_NOT_AVAILABLE` failure.
+- `POST /runs` returned a `runtime_checkpoint_ref` even when no checkpoint
+  store was configured, creating a non-recoverable resume reference.
 
 Targeted GREEN after implementation:
 
@@ -89,6 +95,7 @@ PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:
   -m unittest \
   tests.unit.test_agent_runtime_replay_boundary.AgentRuntimeReplayBoundaryTest.test_resume_respects_paused_shell_before_returning_checkpoint \
   tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_internal_run_response_carries_runtime_checkpoint_ref \
+  tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_run_response_omits_runtime_checkpoint_ref_without_checkpoint_store \
   tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_runtime_resume_replays_checkpoint_without_rerunning_trusted_loop \
   tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_runtime_resume_mismatch_fails_closed_without_raw_args \
   tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_runtime_resume_context_mismatch_does_not_echo_untrusted_trace_id \
@@ -101,7 +108,7 @@ PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:
   -v
 ```
 
-Observed: `11` tests OK.
+Observed: `12` tests OK.
 
 Full branch verification also passed:
 
@@ -113,7 +120,7 @@ Observed:
 
 - ruff clean
 - formatting clean (`114 files already formatted`)
-- primary unittest discovery: `501` tests OK, `4` skipped
+- primary unittest discovery: `502` tests OK, `4` skipped
 - eval suite: `12` tests OK
 - OpenAPI snapshot up to date
 - `=== All CI checks passed ===`
@@ -126,7 +133,7 @@ Observed:
 
 - ruff clean
 - formatting clean
-- primary unittest discovery: `501` tests OK
+- primary unittest discovery: `502` tests OK
 - eval suite: `12` tests OK
 - OpenAPI snapshot up to date
 - `=== Full local CI parity checks passed ===`

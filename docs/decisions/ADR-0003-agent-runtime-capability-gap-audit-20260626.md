@@ -66,7 +66,8 @@ The implementation preserves:
 Branch `codex/agent-runtime-public-resume-api` introduces the first HTTP resume
 surface for checkpointed `/runs` runtime execution:
 
-- internal `POST /runs` responses include a safe `runtime_checkpoint_ref`;
+- internal `POST /runs` responses include a safe `runtime_checkpoint_ref`
+  only when a matching persisted checkpoint exists;
 - external report-key projections receive `runtime_checkpoint_ref = null`;
 - `POST /agent-runtime/runs/{runtime_run_id}/resume` requires the internal
   `runtime:resume` scope;

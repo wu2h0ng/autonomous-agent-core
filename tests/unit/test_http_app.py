@@ -174,6 +174,27 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(external_resp.status_code, 200, external_resp.text)
         self.assertIsNone(external_resp.json()["runtime_checkpoint_ref"])
 
+    def test_run_response_omits_runtime_checkpoint_ref_without_checkpoint_store(self) -> None:
+        from starlette.testclient import TestClient
+
+        from agent_os_api.http_app import create_app
+        from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        client = TestClient(
+            create_app(
+                factory.build(),
+                api_key=API_KEY,
+                adoption_ingest=factory.adoption_ingest(),
+                agent_checkpoint_store=None,
+            )
+        )
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers={"X-API-Key": API_KEY})
+
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        self.assertIsNone(run_resp.json()["runtime_checkpoint_ref"])
+
     def test_runtime_resume_replays_checkpoint_without_rerunning_trusted_loop(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

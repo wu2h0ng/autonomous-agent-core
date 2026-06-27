@@ -165,6 +165,27 @@ def _runtime_checkpoint_ref(context: AgentRunContext, *, tool_name: str) -> dict
     }
 
 
+def _runtime_checkpoint_ref_if_persisted(
+    checkpoint_store: Any | None,
+    context: AgentRunContext,
+    *,
+    tool_name: str,
+) -> dict[str, str] | None:
+    if checkpoint_store is None or not context.run_id:
+        return None
+    try:
+        snapshot = checkpoint_store.get(context.run_id)
+    except Exception:  # noqa: BLE001 - ref projection must not expose backend details
+        return None
+    if snapshot is None or snapshot.last_result is None:
+        return None
+    if snapshot.trace_id != context.trace_id:
+        return None
+    if snapshot.metadata.get("tool_name") != tool_name:
+        return None
+    return _runtime_checkpoint_ref(context, tool_name=tool_name)
+
+
 def _runtime_resume_output_ref(output: Any) -> dict[str, Any]:
     """Project a checkpointed tool output without exposing raw tool output."""
     if isinstance(output, dict) and output.get("type") == "TrustedLoopOutcome":
@@ -832,7 +853,8 @@ def create_app(
             # Expected business block (unsafe SQL, unknown metric, ...) -> 422,
             # not a 500: the request was understood but the loop refused to answer.
             raise HTTPException(status_code=422, detail=block)
-        result["runtime_checkpoint_ref"] = _runtime_checkpoint_ref(
+        result["runtime_checkpoint_ref"] = _runtime_checkpoint_ref_if_persisted(
+            app.state.agent_checkpoint_store,
             agent_context,
             tool_name=TrustedLoopAgentRuntimeAdapter.TOOL_NAME,
         )
