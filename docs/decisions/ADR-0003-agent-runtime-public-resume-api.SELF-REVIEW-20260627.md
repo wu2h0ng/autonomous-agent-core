@@ -3,9 +3,9 @@
 Date: 2026-06-27
 Status: BRANCH-LOCAL SELF-REVIEW COMPLETE - NOT INDEPENDENT REVIEW / NOT MERGE AUTHORIZATION
 Branch: `codex/agent-runtime-public-resume-api`
-Reviewed commit: `9b98286`
+Reviewed implementation commit: `2a3150f`
 Base: `main@69389a5`
-Reviewed range: `main@69389a5..9b98286`
+Reviewed implementation range: `main@69389a5..2a3150f`
 
 ## Scope
 
@@ -79,7 +79,7 @@ Required change completed in `9b98286`:
 - add the negative test for no-checkpoint-store `/runs` behavior;
 - sync implementation log, gap audit, README, and `CURRENT_STATE.yaml`.
 
-Required change completed after self-review:
+Required change completed after initial self-review in `2a3150f`:
 
 - declare typed `RuntimeResumeErrorResponse` OpenAPI schemas for `404`, `409`,
   `500`, and `503` resume failures;
@@ -101,7 +101,7 @@ Primary reviewed files:
 - `tests/unit/test_openapi_contract.py`
 - `apps/api_server/openapi.json`
 
-Verification recorded for reviewed commit `9b98286`:
+Verification recorded after reviewed implementation and readiness docs:
 
 ```text
 make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python

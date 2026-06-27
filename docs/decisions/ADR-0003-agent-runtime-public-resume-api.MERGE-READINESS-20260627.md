@@ -5,7 +5,8 @@ Status: READY FOR FOUNDER/CTO LOCAL MERGE DECISION - NOT MERGE/PUSH/RELEASE AUTH
 Branch: `codex/agent-runtime-public-resume-api`
 Target: deployment local `main`
 Base before implementation: `main@69389a5`
-Head at packet creation: `2a3150f`
+Implementation head before readiness packet: `2a3150f`
+Readiness packet commit: `497ce17`
 
 Implementation commits before this readiness packet:
 
@@ -27,15 +28,20 @@ The branch is ready for founder/CTO merge decision under these conditions:
 4. post-merge `make ci` and `ci-local-full` must pass on local `main`;
 5. if founder/CTO requires independent review, obtain it before merge.
 
-As checked before creating this packet, the branch is linear on local `main`:
+As checked before creating this packet, the implementation head was linear on
+local `main`:
 
 ```text
-git rev-list --left-right --count main...HEAD
+git rev-list --left-right --count main...2a3150f
 0 4
 
-git merge-base --is-ancestor main HEAD
+git merge-base --is-ancestor main 2a3150f
 exit 0
 ```
+
+The readiness packet itself is docs-only. Re-run the same fast-forward checks
+immediately before any founder/CTO-authorized merge instead of relying on this
+record as a live branch-state assertion.
 
 ## Scope To Merge
 
