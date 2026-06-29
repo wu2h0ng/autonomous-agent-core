@@ -52,6 +52,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0036-bounded-consequence-prior-gate.md` | Completed, NOT MET | G13 tested a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 | `ADR-0037-self-determination-depth-vs-corrigibility.md` | Proposed, docs-only / OPEN | Registers SD0-SD4 and the open SD4-separability question; parent SD4 VAL-DISENT-1 read-out adds negative H1 evidence but does not decide the ADR |
 | `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + hardened pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer, calibration-selected VH parameter provenance, recursive AST static firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves, and integrity/firewall verifier; no co-signed freeze, no r-final, no verdict |
+| `ADR-0039-viability-empowerment-c1-formalization.md` | Proposed (open, founder-reserved); landed 2026-06-29 from branch | Viability/empowerment formalization of C1 + preregistered S1/S2 gate; not accepted, not funded, not run |
 
 ## Current Code Map
 
@@ -77,6 +78,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/aac/outcome_judge.py` | Grounded RAP outcome judge | `OutcomeJudge` |
 | `src/aac/idle_drives.py` | Idle endogenous drives, G3/C3 input | `IdleDrives` |
 | `src/aac/residual_calibrator.py` | ADR-0031 subject-side belief calibrator | `ResidualCalibrator` |
+| `src/aac/commitment_ledger.py` | R-CSL-1 no-model commitment-ledger mechanism (preserved-failed-baseline; builder!=reviewer separation enforced in its harness) | `CommitmentLedgerPolicy` |
 | `src/envs/structured_regime.py` | Reusable structured regime env for G6/G7/G8/G9/G10 | `StructuredRegimeEnv` |
 | `src/envs/staleness.py` | P4 staleness-only environment | `StalenessEnv` |
 | `src/envs/semantic_regime.py` | Offline semantic de-risk env | `SemanticRegimeEnv` |
@@ -84,6 +86,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/envs/ecological_regime.py` | ADR-0035/G12 2x2 environment cells | `EcologicalRegimeEnv` |
 | `src/envs/consequence_scar.py` | ADR-0036/G13 public-affordance scar environment | `ConsequenceScarEnv`, `ConsequenceFeature` |
 | `src/envs/ecological_4cond.py` | ADR-0038 G-Eco four-condition environment with partial/lagged/noisy observation; no rate-grid scan or divergence detector | `Ecological4CondEnv`, `GEcoState`, `GEcoRates`, `GEcoObservation`, `transition_state` |
+| `src/envs/commitment_correction.py` | R-CSL-1 commitment/correction environment | `CommitmentCorrectionEnv`, `CorrectionSignal` |
 
 ## Current Experiments
 
@@ -125,13 +128,17 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/rap_g4.py` | G4 | NOT MET, RAP archived |
 | `experiments/metabolic_g3.py` | G3 | NOT MET overall; claim 1 supported |
 | `experiments/causal_relevance_g2.py` | G2 | NOT MET, claim 2 hard-stopped |
+| `experiments/r_csl_1.py` | R-CSL-1 | Preserved-failed-baseline no-model commitment-ledger mechanism + harness; preregistered, NOT run (landed 2026-06-29 from probe branch) |
+| `experiments/direction1_coupling_sweep.py` | Direction-1 | confidence->temperature coupling falsifier; FLAT / record-and-stop (max frozen-vs-best gap 3.3%) |
+| `experiments/parity_lag_falsifier.py` | parity-lag | structural-vs-artifact falsifier; INCONCLUSIVE (kimicode flagged the clean re-prereg as unfair-baseline OVERCLAIM) |
+| `experiments/parity_lag_largelag_falsifier.py` | parity-lag | clean large-lag re-prereg; ARTIFACT (structural foreclosure refuted) |
 
 ## Current Tests
 
 Current full suite:
 
 ```text
-457 tests OK
+506 tests OK
 ```
 
 Important current test files:

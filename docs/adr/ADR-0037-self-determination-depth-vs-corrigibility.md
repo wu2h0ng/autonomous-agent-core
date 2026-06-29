@@ -4,6 +4,7 @@
 - Date: 2026-06-22
 - Deciders: founder (raised the question on 2026-06-22); drafted by Claude in the spec/adjudication lane per the RR-0004 role split; awaits Codex research-director/CTO ratification and a future founder ruling before any status change.
 - Predecessors: ADR-0033 (HyperAgents/DGM assimilation boundary), ADR-0035 (P7 ecological axis), ADR-0034 (B/R/K attribution), `docs/research/RR-0019` (channel decomposition), `docs/research/RR-0024` (operational foundations cleanup), `route-C-emergent-autonomy-charter.md`, `G-Eco-preregistration-spec.md`.
+- UPDATE 2026-06-29 (status note, NOT a status flip): a cross-model-verified z_t-out-of-B_K foreclosure attack (see `docs/CURRENT_STATE.yaml` open_questions; parent `docs/research/thin-readout-law-and-structural-vs-artifact-crux-2026-06-28.md` §7b) now records Q2 as NEGATIVE **conditional on an undischarged representation-level recurrence-symmetry construction-audit**. The construction-audit is the cheap pre-declared decider. Status stays Proposed / founder-reserved until it is discharged and the founder rules.
 
 ## Context
 

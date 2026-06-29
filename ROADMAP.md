@@ -88,12 +88,12 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **G6b 离线 de-risk(ADR-0019)**:语义环境 O3 oracle 916 vs 数字 ~1910;semantic-exploitable=YES。真实 LLM 运行待 founder 批 key/budget。
 - **G7 LatentRegimeOrgan(ADR-0020,NOT MET)**:corrected O4 贝叶斯后验跟踪 + 信息导向塑形 + 连续注入。O4=1224.3 vs O1=1325.6(-7.6% regret area),O4<O1 29/30 seeds, Wilcoxon p<0.000001;但 O4<O2 26/30,未达 27/30,故 G7 不过。按 ADR 不调参重跑。
 
-## P1 论文加固实验(ADR-0021) — 已实现,待完整运行
+## P1 论文加固实验(ADR-0021) — 已完成(结果见 ADR-0021 §7,2026-06-14)
 
 - **T1 谱系扫描**:4×4 网格(n_regimes=[2,5,10,20] × noise=[0.1,0.3,0.5,1.0]),O1 vs O4,10 seeds/条件。找 O4 优势消失的相变边界。
 - **T2 O4 消融**:5 臂(full/no-info/no-transition/oneshot/no-posterior),30 seeds,配对 Wilcoxon。分解贝叶斯跟踪各组件贡献。
 - 实现:提取 G7 共享工具(`_g7_common.py`),LatentRegimeOrgan 加 `continuous_inject`/`bayesian_update` 消融 flag(默认 True,生产行为不变)。
-- **测试:342 绿**。预注册已冻结(ADR-0021),结果需按 corrected O4 复核。
+- **测试:506 绿**(2026-06-29 验证,chore/finalization-debt-2026-06-29)。预注册已冻结(ADR-0021),结果已按 corrected O4 复核(§7)。
 
 ## P5 部署投影:收割已验证基底进企业 OS — Proposed(ADR-0018,跨仓+founder)
 
@@ -183,5 +183,5 @@ LangChain/LLM/guardrail **不进本仓**(只在 workflow 与 data-os);对象层�
 - **Purpose**: implement the pre-Gate-2 mechanism surface for the frozen parent G-Eco spec without running calibration, freeze, r-final, or verdict.
 - **Implemented**: shared substrate `observation/predictor/lookahead/H`; `ecological_4cond` four-condition environment; `VH`, `VH_noStake`, and nine fixed-preference battery arms (`LIN`, `LEX`, `THR`, `QUOTA`, `MINIMAX`, `P0`, `RSTAR`, `O1`, `BT`); calibration-only refs `HOMEOSTATIC_ORACLE` and `WCREF`; mechanism-check entrypoint; deterministic replay, reset-boundary, C6/C7, and Gate-2 refusal guards.
 - **Files**: `src/aac/g_eco.py`, `src/envs/ecological_4cond.py`, `experiments/g_eco.py`, `tests/test_g_eco.py`, `docs/adr/ADR-0038-g-eco-mechanism-lower-half.md`.
-- **Verification**: 445 tests OK after ADR-0038 discipline fixes.
+- **Verification**: 506 tests OK (2026-06-29; was 445 at ADR-0038 time).
 - **Locked**: §6 rate scan, divergence-axis detector, rate-grid scan order, `g_eco.rates.json`, `g_eco.battery.json`, `g_eco.thresholds.json`, Gate-2 crossing, r-final, verdict row, and any autonomy/intelligence claim remain outside this step.

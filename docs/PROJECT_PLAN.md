@@ -40,10 +40,10 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-454 tests OK
+506 tests OK
 ```
 
-The 454-test result was verified by Codex on 2026-06-23 after implementing the ADR-0038 G-Eco lower-half discipline fixes plus pre-Gate-2 freeze-candidate writer, mechanical candidate verifier, and audit guards. Re-run before code submission if you change code.
+The 506-test result was verified 2026-06-29 on chore/finalization-debt-2026-06-29 (off main) after landing the stranded additive research artifacts (R-CSL-1, parity-lag, direction1, ADR-0039). Was 454 (Codex, 2026-06-23, ADR-0038 era). Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
