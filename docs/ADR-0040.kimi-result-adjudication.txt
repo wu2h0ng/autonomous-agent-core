@@ -1,0 +1,85 @@
+• The user is asking me to act as an independent cross-model result adjudicator for a frozen experiment ADR-0040. This is a research/adjudication task about a specific experiment in the autonomous-agent-core repo. I need to examine the ADR-0040 documents and the mechanical harness results, then make a ruling.
+
+  First, I should read the relevant files: docs/ADR-0040.kimi-prereg-review-r1.txt, docs/ADR-0040.kimi-prereg-review-r2.txt, and probably docs/CONSTRUCTION-AUDIT-CROSSMODEL-REOPEN-2026-06-29.md which seems directly relevant.
+
+  Let me read these files in parallel.
+
+• I will read the frozen ADR-0040 preregistration and audit records to adjudicate the mechanical verdict against the frozen rules.• Now I have the context. The user is asking me to adjudicate the mechanical harness verdict for ADR-0040. I previously (as Kimi) reviewed the prereg in r1 and r2, and APPROVED it. Now the mechanical harness produced a verdict: ALIGNED = H1b (reopen).
+
+  The user wants me to be adversarial and default to distrusting a "reopen". I need to rule on whether the mechanical H1b is genuine, vacuous, or invalid/inconclusive due to the flawed oracle-init B* anchor.
+
+  Key frozen rules:
+  - H1b (REOPEN) requires: adv(ORGAN,BASE-FAIR) >= delta at >>B*; BASE-FAIR phi*-recovery < 0.5+eps at >>B*; ORACLE-FEATURE-BASE ties ORGAN (not INPUT-DENIED); MISALIGNED control passes; AND not VACUOUS.
+  - VACUOUS iff (i) phi* is provably hard for the frozen fair learner class under a stated computational model (statistical-query / finite-automaton) EVEN WITH UNBOUNDED fair observations+compute, OR (ii) phi* exceeds the description-length bound.
+  - B* = smallest acquisition step at which ORACLE-INITIALIZED BASE-FAIR (perceptron warm-started at the exact phi* monomial) reaches >=0.95*ORACLE return. >>B* = 8*B*.
+  - BASE-FAIR = online kernelized logistic learner over the exact degree<=3 monomial kernel of the 64-bit buffer (so it CAN represent every archive member, including parity); kernel normalized by FEATURE_COUNT (~40k).
+
+  Raw mechanical result:
+  - phi* = A1 = parity over fixed observable indices {0,2,4} (degree-3 parity monomial).
+  - B* = 8 (oracle-init hit target in 8 steps). >>B* = 64. Budget sweep = [4,8,16,32,64].
+  - adv(ORGAN, BASE-FAIR) = 1.0 at EVERY budget including 64.
+  - BASE-FAIR phi*-recovery at 64 = 0.498 (chance = 0.5).
+  - ORACLE-FEATURE-BASE (handed phi*(x_t)) adv = 0.0 (ties ORGAN) -> harness ruled "not INPUT-DENIED".
+  - MISALIGNED control passed.
+  - Mechanical verdict: ALIGNED = H1b (reopen).
+
+  The Claude-side analysis flags this as an ARTIFACT:
+  (a) B* anchored to ORACLE-INIT convergence (warm-started at the answer) = 8 steps, which does NOT measure how long a FAIR cold-start baseline needs;
+  (b) a kernel perceptron learning a parity over a 64-bit buffer needs ~Omega(FEATURE_COUNT)~tens-of-thousands of examples, so >>B*=64 is far below fair learnability;
+  (c) parity is SQ-hard, but it IS learnable with enough fair data (representable + eventually-converges), so the "hard even with unbounded observations" VACUOUS clause (i) is borderline.
+
+  I need to rule:
+  1. Is the mechanical H1b a GENUINE reopen, or VACUOUS, or INVALID/INCONCLUSIVE due to the flawed oracle-init B* anchor?
+  2. Does the B* definition need re-spec (anchor to fair cold-start learnability or a theoretical sample-complexity bound) and a re-run?
+  3. Is A1-parity inside or outside the intended "natural, non-SQ-hard" archive?
+
+  Then end with the EXACT block.
+
+  Analysis:
+
+  The frozen B* definition is "smallest acquisition step at which ORACLE-INITIALIZED BASE-FAIR (perceptron warm-started at the exact phi* monomial) reaches >=0.95*ORACLE return." This is explicitly what was frozen. The question is whether this definition is itself valid/legitimate or whether it produces an artifact.
+
+  The B* anchor is based on oracle-initialized BASE-FAIR. That measures how fast the learner can exploit the answer if given the answer, not how fast a fair cold-start learner can discover the answer. For a parity problem, even though the kernel can represent parity, learning which parity (which monomial) among ~40k features requires many samples. The oracle-init B* = 8 is essentially measuring convergence of weights on a known feature, not feature selection. The fair baseline needs to discover the correct monomial among 40k, which is much harder.
+
+  The prereg r2 approved B* anchored to oracle-initialized BASE-FAIR convergence as a "learnability horizon." But the result now shows this anchor is flawed: >>B* = 64 is far below the actual fair learnability horizon for parity. The BASE-FAIR recovery is still chance at 64, and advantage is 1.0. This is not a genuine irreducible prior advantage; it's because the fair baseline hasn't had enough budget to learn the parity.
+
+  VACUOUS analysis:
+  - VACUOUS clause (i): phi* is provably hard for the frozen fair learner class under SQ/finite-automaton EVEN WITH UNBOUNDED fair observations+compute.
+  - Parity over a fixed small subset {0,2,4} of 64 bits is NOT hard with unbounded observations+compute for a degree<=3 monomial kernel. The kernel can represent it exactly. A kernel perceptron with enough data will eventually learn it (though slowly). It is SQ-hard in the sense that no statistical-query algorithm can learn parity efficiently, but "unbounded observations+compute" means even SQ-hardness doesn't matter if we have enough data and a representation that can identify the monomial. Actually wait: parity is SQ-hard, meaning any SQ algorithm needs exponentially many queries to learn parity. But a kernel perceptron is not an SQ algorithm per se. With the exact monomial kernel, the perceptron can learn parity given enough samples because the target is one of the features. The sample complexity is Omega(FEATURE_COUNT) = ~40k, not exponential in the dimension. So with unbounded observations, it will learn. Thus clause (i) is not satisfied for "unbounded fair observations+compute" under the frozen learner class (kernel logistic regression over degree<=3 monomials). Because the learner CAN represent it and WILL learn it eventually. So not vacuous under clause (i).
+  - Clause (ii): phi* exceeds the description-length bound. A1 parity over {0,2,4} is low description length (3 indices). So not vacuous under clause (ii).
+
+  But the result is still an ARTIFACT because B* is anchored to oracle-init convergence, which is the wrong horizon for fair cold-start learning. The fair baseline at >>B* = 64 hasn't had enough budget to learn parity, so the "reopen" is actually just an under-budgeted baseline. This is INVALID/INCONCLUSIVE.
+
+  The B* definition needs re-spec. It should be anchored to fair cold-start learnability, not oracle-init. For example:
+  - B* = budget at which a COLD-START BASE-FAIR (no phi* warm-start) reaches >=0.95*ORACLE return, OR
+  - B* = a theoretical sample-complexity bound for learning phi* in the frozen fair learner class, OR
+  - B* = budget at which BASE-FAIR phi*-recovery reaches some threshold (e.g., >0.9), OR
+  - Use the oracle-init convergence only to set a floor, but >>B* must be scaled by a known feature-selection complexity factor (e.g., O(FEATURE_COUNT)).
+
+  The user specifically asks: "Does the B* definition need re-spec (anchor to fair cold-start learnability or a theoretical sample-complexity bound) and a re-run?" Yes, it does.
+
+  Is A1-parity inside or outside the intended "natural, non-SQ-hard" archive?
+  - A1 is a degree-3 parity monomial over a small fixed subset. It's low description length. However, it is SQ-hard. The archive was supposed to be "low-description-length, interpretable readouts" excluding "secret random subsets, large parity, cryptographic hashes." But this is a small parity, not a large random subset. The prereg r2 said "Excluded: secret random subsets, large parity, cryptographic hashes (→ VACUOUS by definition)." A1 is parity over 3 fixed indices. Is that "large parity"? No, it's small. Is it "natural"? It's a simple XOR of 3 bits. It's interpretable. So it's borderline: it's a parity (which is SQ-hard), but it's small and representable. The intended archive probably includes low-degree polynomials and logical combinations. A degree-3 monomial parity is technically a low-degree polynomial (degree 3). So it might be inside the archive as a low-DL readout. But because parity is SQ-hard, there's a tension.
+
+  Given the frozen rules, A1 is representable in the degree<=3 kernel, so the archive definition didn't exclude it. The description-length is small. So it's inside the archive (or borderline). The issue is not that A1 is vacuous; the issue is the B* anchor is wrong.
+
+  Now, adjudication:
+  - The mechanical H1b is INVALID/INCONCLUSIVE because B* is anchored to oracle-init convergence, which doesn't measure fair cold-start learnability. >>B*=64 is far below the actual sample complexity needed for a kernel logistic learner to discover the parity among ~40k monomials. The ORGAN advantage is therefore an artifact of under-budgeting the fair baseline, not evidence of an irreducible prior.
+  - B* needs re-spec: anchor to fair cold-start learnability (e.g., cold-start BASE-FAIR convergence) or a theoretical sample-complexity bound. Then re-run.
+  - A1-parity is borderline: low-DL and representable (inside archive) but SQ-hard. Given the frozen archive includes degree<=3 monomials and doesn't exclude small parities, it's inside/borderline.
+
+  Wait, the user asks "Is A1-parity inside or outside the intended 'natural, non-SQ-hard' archive?" The phrase "non-SQ-hard" suggests the intended archive might exclude SQ-hard functions. But the frozen rules didn't explicitly exclude small parities. The VACUOUS rule says SQ-hard under unbounded observations+compute. A1 is SQ-hard in the SQ model but learnable with enough data in the frozen learner class. So it's borderline. Since the user gives options "inside or outside", I should pick one with justification. I think "borderline" is most accurate, but the question asks inside or outside. Maybe answer "borderline (leans inside the DL bound but outside the spirit of non-SQ-hard)." But the final block has a field "parity_is_vacuous_or_natural: <vacuous | natural | borderline>". So I can use "borderline". Good.
+
+  Need to be adversarial and default to distrusting reopen. So verdict should be INVALID_INCONCLUSIVE_RESPEC_NEEDED. B_star_anchor_valid: no. Disposition: re-spec B* and re-run.
+
+  Let me craft the exact block. Need one sentence per field.
+
+===RESULT-ADJUDICATION===
+  verdict: INVALID_INCONCLUSIVE_RESPEC_NEEDED
+  B_star_anchor_valid: no — anchoring B* to oracle-initialized BASE-FAIR convergence measures only weight stabilization on a known feature, not the fair cold-start feature-selection cost of discovering the correct parity monomial among ~40,000 candidates.
+  parity_is_vacuous_or_natural: borderline — A1 is low-description-length and representable in the degree≤3 kernel, so it is inside the archive’s DL bound, yet it is parity/SQ-hard and therefore outside the spirit of the “natural, non-SQ-hard” guard.
+  disposition: re-spec B* to a fair cold-start learnability horizon (e.g., cold-start BASE-FAIR reaching ≥0.95·ORACLE or φ*-recovery ≥ threshold, or a theoretical Ω(FEATURE_COUNT) sample-complexity bound) and re-run; the current mechanical verdict must not be recorded as a genuine reopen.
+  one_line: The H1b “reopen” is an under-budgeting artifact, not evidence of an irreducible prior advantage.
+  ===END===
+
+To resume this session: kimi -r session_0ed0b600-35ac-48e4-9c1c-9030c1121bda
