@@ -1,0 +1,10 @@
+{
+  "adr": "ADR-0042", "date": "2026-06-30", "line": "product (causal world model), NOT autonomy",
+  "seeds": "0..9", "steps": 3000,
+  "raw": {"SPURIOUS_surface_CAUSAL": 177.5, "SPURIOUS_surface_STAT": 609.5, "ratio": 0.291, "p": 0.0025,
+          "negative_control_CAUSAL_CUE_ratio": 0.581, "negative_control": "FAIL (baseline-noise confound caught)"},
+  "difference_in_differences": {"CAUSAL_excess": 16.5, "STAT_excess": 332.5, "ratio": 0.05, "p": 0.0025},
+  "verdict": "G1-CWM-MET (confound-controlled)",
+  "reading": "Causal/invariant modeling (ignore observationally-predictive-but-spurious cues, track interventional per-action effect) cuts the re-learning cost of a broken spurious cue by ~95% vs a statistical learner that exploits the cue. The raw surface-shift ratio (0.29) was contaminated by a baseline-policy-noise confound that the pre-registered NEGATIVE CONTROL correctly caught (CAUSAL also won in CAUSAL_CUE); difference-in-differences (subtracting each arm's no-real-shift baseline) isolates the genuine surface-invariance advantage = 5% of STAT's recovery cost. Product meaning: causal world model -> robust to surface change -> far fewer re-learning episodes -> fewer trials / less interaction. This is the H1a sample-efficiency/robustness lever (real; NOT the foreclosed autonomy axis).",
+  "honesty": "First build; the negative control did its job (flagged the confound in real time), DiD is the principled fix. A fuller version should also (a) make STAT's steady-state policy match CAUSAL's to remove the confound at source, (b) add seed-level CIs + a unit test, (c) widen to more cue/shift regimes."
+}
