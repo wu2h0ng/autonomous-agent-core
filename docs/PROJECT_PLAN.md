@@ -263,7 +263,7 @@ Confirmed PREDICTION 1 result (ADR-0031):
 ```text
 Calibration seeds          = 1200..1219
 Frozen params              = lambda 0.8 / eta 0.1
-Prereg hash                = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
+Prereg hash                = f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936
 R-final seeds              = 1300..1329
 P0 frozen G10              = 788.8
 PR gate + calibrator       = 793.3

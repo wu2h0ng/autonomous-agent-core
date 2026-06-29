@@ -159,7 +159,7 @@ current_truth:
     frozen_params:
       lambda: 0.8
       eta: 0.1
-      prereg_hash: "fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf"
+      prereg_hash: "f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936"
     key_result:
       P0: 788.8
       PR: 793.3

@@ -196,7 +196,7 @@ G9 verdict:
   - T5b StalenessEnv PASS: P0 advantage 36.4%, GENERAL FIX not structure theft.
   - Interpretation: the subject-side belief-to-action coupling survives all flip-the-conclusion traps.
 - ADR-0031 residual-calibrator attack returned PRED1-HOLDS:
-  - frozen lambda/eta = 0.8 / 0.1; prereg hash fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf.
+  - frozen lambda/eta = 0.8 / 0.1; prereg hash f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936.
   - P0 788.8 vs PR 793.3; PR margin -0.006, wins 13/30, p=0.550830, CI [-30.8, 19.0].
   - PR-B vs A1 margin -0.039, CI [-67.9, -32.6].
   - Interpretation: residual calibration is not an independent second axis over frozen G10.

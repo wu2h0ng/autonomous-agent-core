@@ -29,3 +29,11 @@ This is a RESULT, not a collapse:
 3. Keep the line PARKED as-is (already supplementary per 2026-06-27).
 
 Artifacts: docs/ADR-0041.kimi-degeneracy-adjudication.txt; docs/ADR-0040.result-adjudication-2026-06-29.md; docs/CONSTRUCTION-AUDIT-CROSSMODEL-REOPEN-2026-06-29.md.
+
+## Remaining-items disposition (2026-06-30, after founder "handle these" pass)
+- **G11/C1 system-level autonomy-signature (ADR-0025/0027):** MOOTED by this terminus — parked "until a second independent winning axis exists"; degeneracy proves no separable axis exists, so there is no second axis to find. CLOSED-as-mooted.
+- **Claim 2 / relevance realization (ADR-0007/0010/0011, 5x NOT MET hard-stop):** stays closed; subsumed by the no-separable-axis result. No founder-reset reopening warranted.
+- **parity-lag falsifier (INCONCLUSIVE + overclaim):** RESOLVED-by-subsumption — degeneracy classifies parity as VACUOUS (SQ-hard); the earlier overclaim (unfair buffer) is exactly the asymmetry fair-accounting rejects. Settled analytically + cross-model; no discrete fair re-run performed.
+- **PRED1 prereg lock (ADR-0031):** RE-LOCKED 2026-06-30. r-final re-run reproduces PRED1-HOLDS exactly (drift = ruff line-wrap + unrelated shared-file evolution; PRED1 path unaffected). Stable re-lock + enforced refuse-on-drift gate (tests/test_prereg_locks.py); fixed the self-referential-hash fragility. Lock: experiments/prediction1_residual_calibrator.lock.json.
+- **STILL OPEN (real): ADR-0034 K-residue** — why G10/P0 (K channel) keeps a decisive ~23% advantage over RSTAR after B/R/K decomposition (PRED-B FAIL, share_R=0.373). Mechanism-attribution on the one validated lever; the live next experiment.
+- **PENDING FOUNDER BUDGET: G6b** live-LLM semantic-organ gate (needs a paid LLM key); strategic value reduced by the terminus, not zero.

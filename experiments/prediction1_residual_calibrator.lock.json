@@ -1,0 +1,10 @@
+{
+  "adr": "ADR-0031",
+  "kind": "PRED1 prereg lock (re-locked)",
+  "prereg_hash": "f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936",
+  "relocked": "2026-06-30",
+  "prior_hash": "fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf",
+  "justification": "Recorded lock fe40754e no longer reproduced (post-freeze formatting/shared-file evolution: residual_calibrator.py ruff line-wrap; agent.py/experiment reflow+unrelated additions). PRED1 r-final RE-RUN on current code on 2026-06-30 reproduces PRED1-HOLDS exactly (PR vs P0 margin -0.006, 13/30 wins, p=0.55, P0=788.8/PR=793.3) -> result robust to the drift -> re-lock justified, not a breach.",
+  "enforced_by": "tests/test_prereg_locks.py (refuse-on-drift gate)",
+  "note_design": "Recorded hash now lives only in non-hashed / regex-neutralized locations; updating it never perturbs prereg_hash() (fixes the original self-referential fragility)."
+}
