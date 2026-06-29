@@ -348,6 +348,56 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertIn("agent_runtime.checkpoint_resume_failed", steps)
         self.assertNotIn("agent_runtime.checkpoint_resume_succeeded", steps)
 
+    def test_resume_mismatch_is_not_masked_by_paused_shell(self) -> None:
+        from agent_os_core.corrigibility import CorrigibilityShell
+
+        called: list[str] = []
+        checkpoints = InMemoryCheckpointStore()
+        trace_writer = AgentTraceWriter()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo.",
+                required_keys=("value",),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: called.append(value) or {"value": value},
+        )
+        shell = CorrigibilityShell()
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(shell_view=shell.view()),
+            trace_writer=trace_writer,
+            checkpoint_store=checkpoints,
+        )
+        original_call = AgentToolCall(
+            call_id="call-paused-mismatch",
+            tool_name="safe.echo",
+            args={"value": "ok"},
+        )
+        context = _context()
+        first = runtime.invoke_tool(original_call, context)
+        shell.op_pause()
+
+        resumed = runtime.resume_from_checkpoint(
+            AgentToolCall(
+                call_id="call-paused-mismatch",
+                tool_name="safe.echo",
+                args={"value": "changed-secret"},
+            ),
+            context,
+        )
+
+        self.assertEqual(first.status, "ok")
+        self.assertEqual(resumed.status, "validation_error")
+        self.assertEqual(resumed.error_code, "CHECKPOINT_MISMATCH")
+        self.assertEqual(called, ["ok"])
+        steps = [event["step"] for event in trace_writer.events]
+        self.assertIn("agent_runtime.checkpoint_resume_failed", steps)
+        self.assertNotIn("agent_runtime.checkpoint_resume_succeeded", steps)
+        self.assertNotIn("changed-secret", repr(trace_writer.events))
+
     def test_resume_rejects_tool_spec_mismatch(self) -> None:
         checkpoints = InMemoryCheckpointStore()
         first_registry = ToolRegistry()

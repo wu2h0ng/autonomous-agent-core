@@ -416,26 +416,6 @@ class AgentRuntime:
             )
             self._trace_checkpoint_resume_failed(call, context, result)
             return result
-        policy = self.policy_gate.check(context=context, tool_spec=tool_spec)
-        if not policy.allowed:
-            result = AgentToolResult(
-                call_id=call.call_id,
-                tool_name=call.tool_name,
-                status="denied",
-                error_code=policy.code,
-                error_message=policy.reason,
-                trace_id=context.trace_id,
-            )
-            self.trace_writer.write(
-                "agent_runtime.policy_denied",
-                {
-                    "call_id": call.call_id,
-                    "tool_name": call.tool_name,
-                    "error_code": policy.code,
-                },
-            )
-            self._trace_checkpoint_resume_failed(call, context, result)
-            return result
         snapshot = self.checkpoint_store.get(context.run_id)
         if snapshot is None or snapshot.last_result is None:
             result = AgentToolResult(
@@ -461,6 +441,26 @@ class AgentRuntime:
                 error_message=f"checkpoint mismatch: {', '.join(sorted(mismatched))}",
                 trace_id=context.trace_id,
                 metadata={"mismatched": tuple(sorted(mismatched))},
+            )
+            self._trace_checkpoint_resume_failed(call, context, result)
+            return result
+        policy = self.policy_gate.check(context=context, tool_spec=tool_spec)
+        if not policy.allowed:
+            result = AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="denied",
+                error_code=policy.code,
+                error_message=policy.reason,
+                trace_id=context.trace_id,
+            )
+            self.trace_writer.write(
+                "agent_runtime.policy_denied",
+                {
+                    "call_id": call.call_id,
+                    "tool_name": call.tool_name,
+                    "error_code": policy.code,
+                },
             )
             self._trace_checkpoint_resume_failed(call, context, result)
             return result
