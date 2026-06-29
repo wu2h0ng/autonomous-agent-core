@@ -57,3 +57,28 @@ prereg author: Claude. prereg reviewer (cross-model): Kimi. freezer (independent
 
 ## C6/C7 guards
 φ* is a deterministic function of the observation buffer (bounded-memory observation), out of the correction path; no run-time oracle/privileged control surface; pause/forbidden dominance unchanged. The ONLY asymmetry under test is the acquisition convention — the founder-reserved modeling axis.
+
+## FROZEN NUMERICS + PER-CONDITION RULE (freeze v1, 2026-06-29; per Kimi r2 APPROVE residuals)
+Observation o_t is a length-8 ±1 vector; buffer = last M=8 observations (so ORGAN/BASE-FAIR see an 8×8 = 64-bit window); a lag selector is observable at o_t[6] (k = (index from o_t[6]) ∈ {1,2,3}); a slow regime bit at o_t[7].
+
+**Archive A (finite, enumerated, frozen; description-length bound L = "∈ A"):**
+- `A1` = parity over fixed observable indices {0,2,4} of o_t  (degree 3).
+- `A2` = parity at state-selected lag: XOR(o_t[0], o_{t-k}[0]), k from o_t[6]  (degree ≤3 over the buffer).
+- `A3` = degree-2 polynomial threshold: sign(o_t[0]·o_t[1] + o_t[2])  (degree 2).
+- `A4` = 3-gate Boolean over observables: (o_t[0]∧o_t[1]) ∨ o_t[3]  (degree ≤3).
+All four are degree ≤3 over the 64-bit buffer. **Representability proof-sketch (frozen):** BASE-FAIR fits an online perceptron over ALL monomials of degree ≤3 of the 64-bit buffer; this hypothesis class contains every φ* ∈ A exactly. Therefore any BASE-FAIR failure is acquisition (sample/optimization), never representability — closing the INPUT-DENIED path by construction (the ORACLE-FEATURE arm remains as the empirical check).
+
+**BASE-FAIR online learner (frozen):** degree-≤3 monomial perceptron over the 64-bit buffer, online logistic update, learning rate 0.05, one pass per acquisition step. ORACLE-FEATURE-BASE = same + the scalar φ*(x_t) appended as a 65th-feature.
+
+**Learnability horizon (frozen):** B* = the smallest acquisition step at which oracle-initialized BASE-FAIR (perceptron warm-started at the exact φ* monomial) reaches ≥ (1−η) of ORACLE return, η=0.05, on calibration seeds. **≫B* proxy = 8·B*.**
+
+**Thresholds (frozen):** δ = 0.10 (adv margin), ε = 0.05 (φ*-recovery over chance=0.5), η = 0.05.
+
+**Per-condition evaluation rule (frozen — NO pooling):**
+- Conditions evaluated SEPARATELY: ALIGNED (env optimum = ORGAN's φ*) and MISALIGNED (env optimum = a different A-member; ORGAN keeps the same φ*).
+- **MISALIGNED is a negative control:** ORGAN must NOT beat BASE-FAIR by >δ in MISALIGNED. If it does, the prior leaks env-specific info → result is RIG/LEAK, not a reopen.
+- **H1b (REOPEN) requires ALL:** in ALIGNED, adv(ORGAN,BASE-FAIR) ≥ δ at ≫B*; BASE-FAIR φ*-recovery < 0.5+ε at ≫B*; ORACLE-FEATURE-BASE ties ORGAN (≤δ) at ≫B* (not INPUT-DENIED); MISALIGNED control passes (ORGAN advantage ≤ δ). H1b is claimable ONLY in ALIGNED.
+- **H0** if adv(ORGAN,BASE-FAIR) ≤ δ at B* in ALIGNED.
+- **H1a** if adv ≥ δ at small budget but ≤ δ at B* in ALIGNED (converges; not a reopen).
+
+**Seeds:** calibration 2000..2019 (sets B* and confirms harness; tunes no mechanism); r-final 2100..2129. Frozen.
