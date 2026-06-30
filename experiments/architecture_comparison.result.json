@@ -1,0 +1,13 @@
+{
+  "adr": "ADR-0046", "date": "2026-06-30", "task": "confounded causal discovery (abstract, 4 knobs)", "seeds": 10,
+  "arms": {
+    "STAT_correlational": {"decoy_correct": 0.00, "mask_acc": 0.75, "interventions": 0},
+    "PURE_A_LLM": {"decoy_correct": 0.90, "mask_acc": 0.75, "interventions": 0},
+    "PURE_B_CWM": {"decoy_correct": 1.00, "mask_acc": 1.00, "interventions": 200},
+    "HYBRID": {"decoy_correct": 1.00, "mask_acc": 1.00, "interventions": 100, "found_true_cause_pct": 100}
+  },
+  "verdict": "HYBRID WINS — the founder's layered architecture is empirically best",
+  "reading": "HYBRID matches PURE-B's perfect accuracy (1.00) at HALF the interventions (100 vs 200): the LLM's hypothesis-RANKING guides the CWM to test the right knobs first (true cause found in 100% of seeds), and the CWM's verification overrides the LLM to reach certainty. Value decomposition: (1) LLM = good-but-noisy PRIORS -- surprisingly NOT a dumb correlation machine (decoy 0.90 vs STAT 0.00; it reasons about confounds), but it CANNOT reach certainty (mask-acc caps at 0.75, same as STAT -- it makes compensating errors elsewhere because it can't verify). (2) CWM = VERIFICATION/certainty (1.00) -- turns the LLM's good priors into ground truth, efficiently. (3) governance = CWM overrides the LLM, acts only on verified findings -> trustworthy. Each layer earns its keep; neither alone is both correct AND efficient.",
+  "refines_architecture": "The worry 'LLM is correlational/gets fooled' is PARTLY WRONG: the LLM is decent at spotting confounds. Its real limitation is it can't reach CERTAINTY without intervention -- exactly what the CWM provides. So the layered architecture's rationale sharpens: LLM = breadth + good priors (halves the causal-discovery search), CWM = verification (certainty + catches the residual errors), governance = trust.",
+  "honesty_caps": "Abstract toy task (4 knobs); the LLM's 0.90 and the HYBRID half-budget win depend on the task being clean and the LLM's ranking good (it was). On harder/real domains the LLM may be more fooled OR its ranking may put the true cause in the untested tail -> HYBRID could miss it (a real failure mode that did NOT appear here). Real validation needs harder/real domains. Key via env var only."
+}
