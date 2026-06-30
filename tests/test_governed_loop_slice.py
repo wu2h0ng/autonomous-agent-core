@@ -13,7 +13,9 @@ from __future__ import annotations
 import random
 import unittest
 
-from aac.governed_loop import GovernedLoop, Candidate, VerifyResult, TaskSpec
+from aac.governed_loop import (
+    GovernedLoop, Candidate, VerifyResult, TaskSpec, ActionMemory, MemoryReranker,
+)
 from aac.governed_gate import GovernedDecisionGate
 from aac.self_model import AgentSelfModel
 from aac.shell import CorrigibilityShell
@@ -150,6 +152,49 @@ class ShellAndEscalation(unittest.TestCase):
         )
         res = loop.run_task(TaskSpec("t", risk_tier=1))
         self.assertEqual(res.status, "escalated")
+
+
+class BudgetCapAndMemory(unittest.TestCase):
+    def test_hard_budget_cap_escalates_early(self):
+        # a verifier that never confirms + a low intervention cap -> escalate without exhausting all
+        env = CausalLeverEnv(random.Random(6))
+
+        class NeverVerifier:
+            def verify(self, cand):
+                return VerifyResult(False, 0.0, 0, 1)  # 1 intervention each, never effective
+
+        loop = GovernedLoop(
+            gate=GovernedDecisionGate(_self_model()),
+            proposer=SimulatedProposer(env, 1.0, random.Random(13)),
+            verifier=NeverVerifier(), actuator=LeverActuator(env),
+            shell_view=CorrigibilityShell().view(), verify_budget=D, max_interventions=3,
+        )
+        res = loop.run_task(TaskSpec("t", risk_tier=1))
+        self.assertEqual(res.status, "escalated")
+        self.assertLessEqual(res.interventions, 4)   # capped (3) + at most the one that crossed
+
+    def test_memory_rerank_reduces_interventions_on_repeat(self):
+        # task 1 spends interventions finding the true cause; memory remembers it; task 2 ranks it
+        # first -> fewer interventions. Real belief-update: the outcome changes future behavior.
+        saved = 0
+        for seed in range(20):
+            env = CausalLeverEnv(random.Random(seed))
+            mem = ActionMemory()
+            base = SimulatedProposer(env, 0.0, random.Random(seed + 7))  # true cause NOT boosted -> buried
+            loop = GovernedLoop(
+                gate=GovernedDecisionGate(_self_model()),
+                proposer=MemoryReranker(base, mem),
+                verifier=InterventionVerifier(env, random.Random(seed + 13)),
+                actuator=LeverActuator(env), shell_view=CorrigibilityShell().view(),
+                verify_budget=D, memory=mem,
+            )
+            r1 = loop.run_task(TaskSpec("t1", risk_tier=1))
+            r2 = loop.run_task(TaskSpec("t2", risk_tier=1))
+            self.assertEqual(r1.status, "acted")
+            self.assertEqual(r2.status, "acted")
+            self.assertLessEqual(r2.interventions, r1.interventions)
+            saved += r1.interventions - r2.interventions
+        self.assertGreater(saved, 0)   # across seeds, memory strictly reduced total interventions
 
 
 if __name__ == "__main__":

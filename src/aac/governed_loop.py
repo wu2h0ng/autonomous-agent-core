@@ -80,6 +80,8 @@ class GovernedLoop:
     shell_view: Optional[Any] = None  # C7 capability view (paused/forbidden/observe)
     verify_budget: int = 4
     on_outcome: Optional[Any] = None  # feedback record hook: called (target, outcome) on act
+    max_interventions: Optional[int] = None  # hard budget cap; exceeded -> escalate (REF-ARCH-04 §4)
+    memory: Optional[Any] = None      # has .remember(action); written on act -> memory-driven re-ranking
 
     def run_task(self, task: TaskSpec) -> TaskResult:
         self._observe({"event": "task_start", "task": task.name, "risk_tier": task.risk_tier})
@@ -89,6 +91,10 @@ class GovernedLoop:
         reliability = getattr(self.proposer, "reliability", None)
 
         for cand in ranked[: self.verify_budget]:
+            # --- hard budget cap: never blow the intervention budget; escalate instead ---
+            if self.max_interventions is not None and total_interv >= self.max_interventions:
+                self._observe({"event": "escalate", "reason": "intervention budget exhausted"})
+                return TaskResult("escalated", None, None, total_interv, steps)
             # --- VERIFY first: a candidate is only a decision once intervention confirms it ---
             vr: VerifyResult = self.verifier.verify(cand)
             total_interv += vr.interventions
@@ -115,8 +121,10 @@ class GovernedLoop:
             if d.verdict == ALLOW:
                 outcome = self.actuator.apply(cand)
                 self._observe({"event": "act", "action": cand.action, "outcome": outcome})
-                if self.on_outcome is not None:        # feedback record (not yet belief-update)
+                if self.on_outcome is not None:        # feedback record hook
                     self.on_outcome(cand.target, outcome)
+                if self.memory is not None and outcome and outcome > 0:  # belief update: remember what worked
+                    self.memory.remember(cand.action)
                 return TaskResult("acted", cand.target, outcome, total_interv, steps)
             if d.verdict == ESCALATE:
                 self._observe({"event": "escalate", "action": cand.action, "reason": d.reason})
@@ -133,3 +141,40 @@ class GovernedLoop:
     def _observe(self, payload: dict) -> None:
         if self.shell_view is not None:
             self.shell_view.observe(payload)
+
+
+class ActionMemory:
+    """Minimal belief store: which actions have verified as effective (REF-ARCH-03 'Learn').
+
+    The loop writes here on a successful act; a MemoryReranker reads it to try known-good actions
+    first next time -> fewer interventions on a repeat task. This is the real (if minimal) feedback
+    loop: the outcome of acting CHANGES future behavior, not just a logged record."""
+
+    def __init__(self) -> None:
+        self._effective: dict[str, int] = {}
+
+    def remember(self, action: str) -> None:
+        self._effective[action] = self._effective.get(action, 0) + 1
+
+    def known(self) -> set[str]:
+        return set(self._effective)
+
+
+@dataclass
+class MemoryReranker:
+    """Wraps a base proposer: moves memory-known-effective candidates to the front (belief-driven
+    re-ranking). Falls back to the base order for everything else."""
+
+    base: Any                     # the underlying proposer (.rank(task) -> list[Candidate])
+    memory: ActionMemory
+    reliability: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        self.reliability = getattr(self.base, "reliability", None)
+
+    def rank(self, task) -> list[Candidate]:
+        cands = self.base.rank(task)
+        known = self.memory.known()
+        head = [c for c in cands if c.action in known]
+        tail = [c for c in cands if c.action not in known]
+        return head + tail
