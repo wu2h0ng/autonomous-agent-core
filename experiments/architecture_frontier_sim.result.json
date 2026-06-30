@@ -1,0 +1,14 @@
+{
+  "adr": "ADR-0047", "date": "2026-06-30", "method": "simulated LLM-ranker reliability sweep (real kimi run hung; see note)",
+  "real_kimi_note": "The real-LLM frontier hung 1h22m on a network call (urllib timeout did not fire; server held the connection). kimi-for-coding measured ~30s/call and returned degenerate rankings on the abstract task -> operationally fragile + task-fit-poor. Switched to a controllable-reliability simulation: the architectural question is p (LLM reliability) x D, not one flaky model.",
+  "hybrid_causes_found_of_2": {
+    "D6":  {"p1.0": 1.92, "p0.9": 1.74, "p0.7": 1.33, "p0.5": 1.09, "p0.3": 0.82},
+    "D10": {"p1.0": 2.00, "p0.9": 1.82, "p0.7": 1.56, "p0.5": 1.27, "p0.3": 1.01},
+    "D16": {"p1.0": 2.00, "p0.9": 1.91, "p0.7": 1.65, "p0.5": 1.50, "p0.3": 1.22},
+    "D24": {"p1.0": 2.00, "p0.9": 1.88, "p0.7": 1.65, "p0.5": 1.46, "p0.3": 1.25}
+  },
+  "verdict": "FRONTIER FOUND — fixed-half-budget HYBRID is fragile; its win is an easy-corner artifact",
+  "reading": "The ADR-0046 HYBRID win (perfect + half cost) held only in the EASY corner (D=4, clean confound, lucky LLM). At realistic LLM reliability (p<1.0) or higher D, the fixed-half-budget 'trust the un-tested tail' MISSES true causes -- a CORRECTNESS failure, not just inefficiency. At p=0.9 (~ real kimi on an easy task) HYBRID already drops to ~1.8/2; at p~0.5 (abstract-hard) it loses ~half the causes. Min reliability for ~2/2 at half budget is essentially p=1.0 -- i.e. only a near-perfect LLM makes fixed-half-trust safe.",
+  "architecture_refinement": "The frontier reveals that the fixed-half HYBRID VIOLATED the founder's own governance principle ('policy only acts on VERIFIED findings, never trusts the LLM directly'): trusting the un-tested tail IS acting on unverified LLM judgment, and that is exactly what fails. The corrected design: (1) the verification fraction must ADAPT to LLM-reliability x stakes (verify deeper when the LLM is less reliable or the cost of a missed cause is high); (2) for the un-verified tail you ESCALATE (human/disposer) or verify more -- you do NOT silently trust it. So the governance principle is MORE load-bearing than it first appeared; HYBRID's efficiency is real only in the high-reliability / low-stakes corner.",
+  "operational_finding": "The LLM organ is also operationally fragile (slow ~30s/call, can hang past timeouts, task-fit-dependent) -> the system must never BLOCK on it: hard timeouts + graceful degradation to CWM-verify + escalation. This is a real cost of track A the architecture must budget for."
+}
