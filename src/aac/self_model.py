@@ -11,18 +11,20 @@ the gate applies the ADR-0048 stakes-keyed trilemma. The self model never execut
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass(frozen=True)
 class ActionRequest:
     """A proposed action presented to the gate for a verdict (REF-ARCH-04 §3)."""
 
-    action: str          # tool/action id
+    action: str          # tool/action id (e.g. "apply_lever:3")
     risk_tier: int       # R0..R5
     confidence: float    # the loop's own confidence in this action, [0, 1]
     verified: bool       # has the action's effect been VERIFIED (intervention / OutcomeJudge)?
     evidence_count: int  # number of bound evidence refs
     approved: bool = False  # has a human approved it (for tiers that require approval)?
+    action_index: Optional[int] = None  # the action's integer index, checked against shell.forbidden
 
 
 @dataclass(frozen=True)

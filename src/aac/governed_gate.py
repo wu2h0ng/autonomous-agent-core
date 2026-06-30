@@ -58,9 +58,9 @@ class GovernedDecisionGate:
         if shell_view is not None:
             if getattr(shell_view, "paused", False):
                 return GateDecision(DENY, "corrigibility shell is paused")
-            # the shell forbids by integer action index; honor it if the request carries one
+            # the shell forbids by integer ACTION INDEX (op_tighten); match the request's action_index
             forbidden = getattr(shell_view, "forbidden", frozenset())
-            if request.risk_tier in forbidden:  # defensive: never loosen on shell signal
+            if request.action_index is not None and request.action_index in forbidden:
                 return GateDecision(DENY, "action forbidden by corrigibility shell")
 
         # --- 3. above the risk ceiling -> never act ---
