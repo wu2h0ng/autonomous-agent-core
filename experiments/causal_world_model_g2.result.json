@@ -1,0 +1,11 @@
+{
+  "adr": "ADR-0043", "date": "2026-06-30", "line": "product (causal WM agent loop), NOT autonomy",
+  "metric": "human interventions per task (confidence-gated escalation; same policy both agents; only the world model differs)",
+  "seeds": "0..9", "T": 3000, "K": 8, "theta": 0.625,
+  "SPURIOUS": {"CWM_surface_intervs": 0.0, "STAT_surface_intervs": 28.9, "CWM_causal_intervs": 20.0, "STAT_causal_intervs": 19.8, "CWM_auto_fail": 0.049, "STAT_auto_fail": 0.138},
+  "CAUSAL_CUE_negative_control": {"CWM_surface": 0.0, "STAT_surface": 1.4, "passes": true},
+  "difference_in_differences": {"CWM_excess": 0.0, "STAT_excess": 27.5, "ratio": 0.0, "p": 0.0025},
+  "verdict": "G2-CWM-MET",
+  "reading": "With an IDENTICAL confidence-gated escalation policy (the G10/P0 lever: confident -> act alone; unsure -> ask the human), a causal/invariant world-model agent needs ZERO human interventions when the SURFACE changes (its model is invariant), vs ~29 for a statistical agent that re-learns each surface shift -- AND the causal agent fails LESS autonomously (4.9% vs 13.8%). Negative control passes (no advantage when the cue is reliable). HONEST nuance: at CAUSAL shifts (the underlying rules/goal actually move), BOTH still need ~20 interventions -- the causal agent removes hand-holding for surface change, NOT for genuine rule change. That is the right worker behavior: don't bother the human when the interface changes; do ask when the goal changes. Direct product metric for the self-driven-worker goal: causal WM -> fewer interventions per task -> less hand-holding.",
+  "honesty": "Synthetic demo; H1a robustness lever (real, product-relevant), not the foreclosed autonomy axis. Same escalation policy both agents -> isolates the world model; negative control + DiD + quality check all pass. Real next step: wire into a real task env + a real model and measure real interventions."
+}
