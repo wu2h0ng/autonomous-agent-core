@@ -187,5 +187,66 @@ class TrustedLoopSeamWire(unittest.TestCase):
         self.assertFalse(outcome.blocked)
 
 
+class TransportAndFallback(unittest.TestCase):
+    """RR-0032 #1 steps 4-5: HTTP transport + never-block fallback (ADR-0047)."""
+
+    def test_fallback_used_when_primary_fails(self):
+        from agent_os_core.governance_decision_seam import FallbackGovernanceDecisionClient
+
+        class _Raising(GovernanceDecisionClient):
+            def decide(self, req):
+                raise TimeoutError("remote brain slow")
+
+        client = FallbackGovernanceDecisionClient(_Raising(), _client(effective=("good",)))
+        r = client.decide(_req(candidate_actions=("bad", "good")))
+        self.assertEqual(r.verdict, ALLOW)        # degraded to local governance, did NOT crash/block
+
+    def test_primary_used_when_it_succeeds(self):
+        from agent_os_core.governance_decision_seam import FallbackGovernanceDecisionClient
+
+        client = FallbackGovernanceDecisionClient(_FixedClient(DENY), _client(effective=("good",)))
+        self.assertEqual(client.decide(_req()).verdict, DENY)   # primary wins when healthy
+
+    def test_http_transport_round_trip(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import threading
+        from agent_os_core.governance_decision_seam import http_transport, RemoteGovernanceDecisionClient
+
+        fixed = response_to_json(GovernanceDecisionResponse("t", ALLOW, "good", 0.9, "ok", "ref"))
+
+        class _Fake(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                out = fixed.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
+            def log_message(self, *a):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Fake)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            client = RemoteGovernanceDecisionClient(http_transport(f"http://127.0.0.1:{port}/decide", 5.0))
+            r = client.decide(_req())
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(r.verdict, ALLOW)
+        self.assertEqual(r.chosen_action, "good")
+
+    def test_dead_endpoint_falls_back(self):
+        from agent_os_core.governance_decision_seam import (
+            http_transport, RemoteGovernanceDecisionClient, FallbackGovernanceDecisionClient,
+        )
+        # nothing listening on this port -> connection refused -> fallback (never blocks the loop)
+        remote = RemoteGovernanceDecisionClient(http_transport("http://127.0.0.1:9/decide", 0.5))
+        client = FallbackGovernanceDecisionClient(remote, _client(effective=("good",)))
+        r = client.decide(_req(candidate_actions=("bad", "good")))
+        self.assertEqual(r.verdict, ALLOW)        # degraded to local, did not raise
+
+
 if __name__ == "__main__":
     unittest.main()

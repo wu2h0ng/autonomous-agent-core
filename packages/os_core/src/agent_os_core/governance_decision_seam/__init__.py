@@ -115,3 +115,40 @@ class RemoteGovernanceDecisionClient(GovernanceDecisionClient):
             raise NotImplementedError(
                 "remote governed-decision transport not configured (no autonomous-agent-core service wired)")
         return response_from_json(self.transport(request_to_json(request)))
+
+
+def http_transport(url: str, timeout_seconds: float = 2.0) -> Callable[[str], str]:
+    """A default HTTP POST transport for RemoteGovernanceDecisionClient (RR-0032 #1 step 4).
+
+    POSTs the request JSON to the autonomous-agent-core seam service's /decide endpoint and returns the
+    response JSON. A HARD wall-clock timeout (default 2s) means the decision path never blocks on a slow
+    remote brain (ADR-0047: never block on the organ) — on timeout/connection failure it raises, which
+    FallbackGovernanceDecisionClient turns into a safe local/escalate decision."""
+    import urllib.request
+
+    def _post(body: str) -> str:
+        req = urllib.request.Request(
+            url, data=body.encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            return resp.read().decode("utf-8")
+
+    return _post
+
+
+class FallbackGovernanceDecisionClient(GovernanceDecisionClient):
+    """Resilience wrapper (RR-0032 #1 step 5): try the primary (remote) client; on ANY failure
+    (timeout, connection error, malformed response) fall back to a safe local client. The OS decision
+    path must NEVER block or crash because the remote brain is slow/down — degrade, don't fail
+    (ADR-0047). The fallback should itself be safe (e.g. LocalGovernanceDecisionClient, or one that
+    escalates), so 'brain unreachable' resolves to governed-locally or escalate-to-human, never auto-allow."""
+
+    def __init__(self, primary: GovernanceDecisionClient, fallback: GovernanceDecisionClient) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
+    def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse:
+        try:
+            return self.primary.decide(request)
+        except Exception:  # timeout / connection / parse — anything: degrade, never propagate into the loop
+            return self.fallback.decide(request)
