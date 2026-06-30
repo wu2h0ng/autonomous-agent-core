@@ -36,6 +36,7 @@ Current active ADRs:
   - Public resume API refresh verify: `ADR-0003-agent-runtime-public-resume-api.REFRESH-VERIFY-20260629.md`
   - Public resume API resume-order fix: `ADR-0003-agent-runtime-public-resume-api.RESUME-ORDER-FIX-20260629.md`
   - Public resume API checkpoint-read failure fix: `ADR-0003-agent-runtime-public-resume-api.CHECKPOINT-READ-FAILURE-FIX-20260630.md`
+  - Public resume API fresh verify: `ADR-0003-agent-runtime-public-resume-api.FRESH-VERIFY-20260701.md`
   - Capability gap audit: `ADR-0003-agent-runtime-capability-gap-audit-20260626.md`
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
