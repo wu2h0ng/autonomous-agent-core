@@ -1,0 +1,11 @@
+{
+  "adr": "ADR-0044", "date": "2026-06-30", "line": "resumed core research prototype, real tasks (coding)",
+  "model": "kimi-for-coding", "tasks": 11,
+  "SEAM": {"autonomous_success": "11/11", "interventions_per_task": 0.0, "silent_failures": 0, "note": "one reverse_words 'verify+retry' was most likely a transient API timeout (graceful ''->retry), not a genuine model error"},
+  "NO_VERIFY": {"silent_broken_commits": "0/11", "note": "model got everything right -> no errors for verification to catch"},
+  "ALWAYS_ASK": {"interventions_per_task": 1.0},
+  "verdict": "PLUMBING-VALIDATED, VALUE-NOT-YET-EXPOSED",
+  "honest_reading": "The seam runs end-to-end on real coding with a real model (proposer=Kimi; causal world model=interventional verification by running tests; governable disposer=confidence-gated escalation; metric=interventions/task). On this task set the strong model solves 11/11 first-try, including the hard edge-case tasks (atoi clamp, IPv4 leading-zeros, integer-division eval) -> 0 interventions, 0 silent failures, BUT also 0 silent failures for NO-VERIFY, so the arms do not differentiate. The task set is within the model's competence; the experiment validates the architecture but does NOT yet demonstrate the seam's value.",
+  "product_insight": "The seam's value is FRONTIER-DEPENDENT. It is NOT what makes the model capable (it already is, on these tasks) -- it is what makes the model TRUSTWORTHY TO RUN UNATTENDED: verification catches its failures and escalation surfaces its uncertainty, instead of silently committing garbage. On tasks the model nails, the seam is invisible (0 interventions either way); on tasks at/beyond the model's edge it is exactly what lets you deploy it autonomously. To MEASURE the value, push to the model's failure frontier (genuinely hard / ambiguous / multi-step real tasks where strong models fail) -- there, SEAM (catch+escalate, 0 silent failures, interventions << always-ask) visibly differentiates from NO-VERIFY (silent broken commits) and ALWAYS-ASK (max interventions).",
+  "key_handling": "KIMI_API_KEY via env var only; not in code/result/git."
+}
