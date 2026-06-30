@@ -1,7 +1,7 @@
 # ADR-0003 Audit: Agent Runtime Capability Gap
 
 Date: 2026-06-26
-Status: AUDIT RECORD UPDATED WITH BRANCH-LOCAL PUBLIC RESUME API - NOT A RELEASE CLAIM
+Status: AUDIT RECORD UPDATED WITH LOCAL-MAIN PUBLIC RESUME API - NOT A RELEASE CLAIM
 Scope: self-developed Agent Runtime trusted substrate in the Enterprise OS deployment layer
 
 ## Purpose
@@ -26,10 +26,10 @@ release-ready product surface.
 | Approval channel | `/approvals/{approval_id}/execute` runtime envelope preserves `ApprovalRuntime` and `ApprovalContextStore` authority. | Covered on main/origin baseline |
 | Correction channel | Deployment local `main` implements `/outcomes` and `/adoptions` runtime-envelope entry paths while preserving P5.1b anti-wirehead semantics and adoption-writer authority. | Covered on local main; not pushed or released |
 | Trace-safe execution envelope | Runtime trace events are allowlisted; raw args/output removed; success envelope events persist into `RunTrace`; failure paths are trace-visible. | Covered for `/runs`, approval-execute, and runtime tool calls |
-| Checkpoint/replay/recovery boundary | `CheckpointStorePort`, `InMemoryCheckpointStore`, `SqlAgentCheckpointStore`, fingerprint-bound resume, checkpoint save failure typing, safe resume trace events, and branch-local internal-only HTTP resume API. | Covered for internal runtime checkpoint boundary; HTTP surface branch-local only |
+| Checkpoint/replay/recovery boundary | `CheckpointStorePort`, `InMemoryCheckpointStore`, `SqlAgentCheckpointStore`, fingerprint-bound resume, checkpoint save failure typing, safe resume trace events, and local-main internal-only HTTP resume API. | Covered for internal runtime checkpoint boundary on deployment local main; not pushed or released |
 | Tool permission and risk ceiling | Required permissions, `risk_ceiling`, invalid risk handling, R4/R5 fail-closed policy tests. | Covered |
 | Action proposal vs execution separation | R4/R5 non-proposal tools deny even with `approval_id`; R4/R5 proposal tools may produce proposals without executing business action. | Covered |
-| Failure-first tests and evals | Runtime policy/tools/trace/replay/sql-checkpoint/budget tests; HTTP and real Trusted Loop adapter tests; branch `make ci` and `ci-local-full` passed. | Covered for implemented slices |
+| Failure-first tests and evals | Runtime policy/tools/trace/replay/sql-checkpoint/budget tests; HTTP and real Trusted Loop adapter tests; deployment local-main `make ci` and `ci-local-full` passed after the public resume merge. | Covered for implemented slices |
 | Trusted Loop / EvidenceChain / Approval / Trace real call path | Real `TrustedLoopRuntime.evaluate()` adapter test; HTTP `/runs`; approval-execute envelope; SQL Safety/EvidenceChain/Trace assertions. | Covered for `/runs` and approval execution |
 | No external agent-framework core dependency | Import-boundary tests block LangGraph/CrewAI/LangChain/OpenAI Agents runtime imports. | Covered |
 | No cross-repo autonomous-core import | Runtime work stays inside deployment repo; projection is documented as pattern only. | Covered by boundary |
@@ -61,10 +61,11 @@ The implementation preserves:
 - safe runtime trace without raw metric deltas, causal-attribution details, or
   full feedback/adoption payloads.
 
-### G2: Public checkpoint resume API is branch-local only
+### G2: Public checkpoint resume API is local-main only, not pushed or released
 
-Branch `codex/agent-runtime-public-resume-api` introduces the first HTTP resume
-surface for checkpointed `/runs` runtime execution:
+Branch `codex/agent-runtime-public-resume-api` was fast-forward merged into
+deployment local `main@31d8ea7` after founder authorization. It introduces the
+first HTTP resume surface for checkpointed `/runs` runtime execution:
 
 - internal `POST /runs` responses include a safe `runtime_checkpoint_ref`
   only when a matching persisted checkpoint exists;
@@ -82,9 +83,10 @@ surface for checkpointed `/runs` runtime execution:
 - responses expose only a safe `output_ref`, not raw args, raw SQL, raw tool
   output, or connector payloads.
 
-This slice is branch-local. It is not merged, pushed, released, or reviewed as
-an external API shipment. The record is
-`ADR-0003-agent-runtime-public-resume-api.IMPLEMENTATION-20260627.md`.
+This slice is now on deployment local `main`, but it is not pushed, released, or
+reviewed as an external API shipment. The records are
+`ADR-0003-agent-runtime-public-resume-api.IMPLEMENTATION-20260627.md` and
+`ADR-0003-agent-runtime-public-resume-api.POST-MERGE-VERIFY-20260701.md`.
 
 ### G3: True wall-clock interruption and streaming cancellation are not implemented
 
@@ -108,7 +110,7 @@ no production OTel/export/redaction retention policy is accepted in this slice.
 1. Keep push and release blocked unless separately authorized.
 2. Choose the next runtime slice only through its own ADR/gate, with
    failure-first tests and docs sync.
-3. Candidate next slices after public-resume review:
+3. Candidate next slices after the local public-resume merge:
    production telemetry/export policy, true cancellation, or
    concurrency/workflow runtime semantics.
 
