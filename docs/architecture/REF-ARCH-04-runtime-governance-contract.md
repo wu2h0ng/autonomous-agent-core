@@ -48,7 +48,7 @@ Multiple models and roles increase capability; **this contract is what keeps tha
 
 ## 6. Status / gaps
 - ✅ `CorrigibilityShell` (C7), `AuditLog` exist.
-- 🟡 `PolicySelector` does not yet implement the ADR-0048 stakes-keyed trilemma gate as the single live decision point.
+- ✅ `GovernedDecisionGate` (`governed_gate.py`) implements the ADR-0048 stakes-keyed trilemma (DENY/VERIFY_MORE/ESCALATE/ALLOW), respects the C7 shell view (paused/forbidden only tighten), built + tested (11 tests). 🟡 not yet the single live decision point inside `agent.py`.
+- ✅ `AgentSelfModel` (`self_model.py`) — the risk/capability source the gate reads — built + tested. 🟡 not yet wired into the loop.
 - 🟡 Hard wall-clock caps on organ calls must be enforced at the `LLMBackend` boundary (currently ad hoc in experiments).
-- ❌ `AgentSelfModel` (the risk/capability source the gate reads) — to build (REF-ARCH-03 §1).
 - ❌ OS-side `RuntimePolicyGate`↔core shell seam — needs the cross-repo ADR (Hard Boundary #19).

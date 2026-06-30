@@ -12,20 +12,18 @@
 | **Decide** | choose action under stakes (verify/escalate/trust) | verified findings + self model | decision | `policy.py:PolicySelector` + ADR-0048 trilemma | low confidence / high risk → escalate |
 | **Govern** | enforce the boundary the agent can't overwrite | decision | allow / block / require-approval | `shell.py:CorrigibilityShell` (C7) | violation → block + audit |
 | **Learn** | update beliefs/organs from outcomes | outcome/feedback | belief/organ delta | `_validated_delta`, `OutcomeJudge` | bad update → bounded, reversible |
-| **Self-monitor** ❌ | know own capability/risk/boundary | run context | `AgentSelfModel` | (to build) | over-reach → refuse/escalate |
+| **Self-monitor** ✅ | know own capability/risk/boundary | run context | `AgentSelfModel` + gate verdict | `self_model.py`, `governed_gate.py` | over-reach → DENY/ESCALATE |
 
-**The missing one (❌): a consolidated `AgentSelfModel`.** Today self-knowledge is scattered across `ViabilityCore` (self-state), `PolicySelector` (choice), and the shell (risk boundary). REF-ARCH-01 §6 lists this as the #1 gap. Proposed shape (design only, not yet built):
+**Now built (✅): `AgentSelfModel` (`src/aac/self_model.py`) + `GovernedDecisionGate` (`src/aac/governed_gate.py`).** Self-knowledge was scattered across `ViabilityCore` (self-state), `PolicySelector` (choice), and the shell (risk boundary); it now has a consolidated source. Shape (as built):
 ```
-AgentSelfModel:
-  allowed_tools / denied_tools
-  risk_ceiling
-  approval_required_actions
-  evidence_requirements
-  confidence_thresholds
-  budget_limits
-  escalation_policy
+AgentSelfModel:                          GovernedDecisionGate.decide(request, shell_view, llm_reliability)
+  allowed_tools / denied_tools             -> ALLOW | VERIFY_MORE | ESCALATE | DENY
+  risk_ceiling                             (ADR-0048 trilemma keyed by stakes; C7 shell can only tighten)
+  approval_required_at_or_above
+  evidence_requirements[tier]
+  confidence_thresholds[tier]
 ```
-It answers: *does the agent know what it may not do, and when to stop?* It is what turns "can call a tool" into "knows when not to."
+It answers: *does the agent know what it may not do, and when to stop?* — turning "can call a tool" into "knows when not to." 🟡 Remaining: wire it as the single decision point inside the `agent.py` loop (it's built + tested standalone, not yet the loop's live gate).
 
 ## 2. The non-negotiable rule
 ```

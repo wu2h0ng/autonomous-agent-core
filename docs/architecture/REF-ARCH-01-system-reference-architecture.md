@@ -64,8 +64,8 @@ OS (EvidenceChain → ActionProposal → Approval → Feedback → KnowledgeAsse
 - **Hard Boundary #19**: this wiring needs a founder/CTO-approved cross-repo ADR. This document defines the seam; it does not authorize the integration.
 
 ## 6. Status summary / gaps to close (in order)
-1. ❌ **Consolidated `AgentSelfModel`** (capability/risk/boundary) — currently scattered; the highest-value missing piece for safety. → REF-ARCH-03.
-2. 🟡 **One `PolicySelector` that implements the adaptive verify-or-escalate trilemma** (ADR-0048) as the live decision gate. → REF-ARCH-04.
+1. ✅ **Consolidated `AgentSelfModel`** (`src/aac/self_model.py`) — built + tested (capability/risk/boundary self-knowledge). 🟡 not yet wired into the `agent.py` loop (the scattered `ViabilityCore`/`PolicySelector`/shell sources still exist; this is the single consolidated source going forward). → REF-ARCH-03.
+2. ✅ **`GovernedDecisionGate`** (`src/aac/governed_gate.py`) — the ADR-0048 stakes-keyed verify-or-escalate trilemma as a first-class component, built + tested (11 tests), respects the C7 shell view. 🟡 not yet the single live decision point inside the loop. → REF-ARCH-04.
 3. 🟡 **Promote the CWM core from `experiments/` into `src/aac/` as a first-class organ** behind the `PriorOrgan` contract. → REF-ARCH-02.
 4. ❌ **Cross-repo injection ADR** for the OS seam (founder/CTO).
 5. 🟡 **One real vertical slice** exercising the full loop end-to-end on a fit-gate-passing task. → REF-ARCH-03 §slice.
