@@ -1,0 +1,16 @@
+{
+  "adr": "ADR-0048", "date": "2026-06-30", "method": "simulated LLM reliability p x D, seeds 0..199",
+  "arms": "FIXED (trust tail = broken HYBRID) | ADAPT (escalate tail) | CALIB (escalate only when LLM top-picks miscalibrated) | PURE-B (verify all)",
+  "D24_causes_found_of_2": {
+    "p1.0": {"FIXED": 2.00, "ADAPT": 2.00, "CALIB": 2.00, "CALIB_escal": 0.30},
+    "p0.9": {"FIXED": 1.88, "ADAPT": 2.00, "CALIB": 1.86, "CALIB_escal": 0.39},
+    "p0.7": {"FIXED": 1.65, "ADAPT": 2.00, "CALIB": 1.73, "CALIB_escal": 0.43},
+    "p0.5": {"FIXED": 1.46, "ADAPT": 2.00, "CALIB": 1.62, "CALIB_escal": 0.47},
+    "p0.3": {"FIXED": 1.25, "ADAPT": 2.00, "CALIB": 1.67, "CALIB_escal": 0.58}
+  },
+  "verdict": "ADAPT fixes the hole (2.00 at all p by escalating the un-verified tail); CALIB makes escalation adaptive but is NOT a free lunch",
+  "trilemma": "{correctness, autonomy(low escalation), efficiency(low verify)} cannot all be maxed. FIXED sacrifices correctness (silently misses causes). ADAPT sacrifices autonomy (~1 escalation/task) to guarantee correctness. PURE-B sacrifices efficiency (verify all D). CALIB navigates by escalating only when the LLM's top picks verify as non-causal -> escalation rises 0.30->0.58 as reliability falls (real autonomy when the LLM earns trust), but reintroduces a residual miss WORST in the MARGINAL zone (p~0.5 dips below p=0.3): 'looks reliable but isn't' is the danger band.",
+  "honest_failure": "First CALIB attempt had escal=0.00 everywhere and tracked FIXED -- it read a quick run of confounded decoys at the top as 'reliable', when that run is precisely the LLM being fooled. Corrected signal: trust only when the LLM's MOST-CONFIDENT top picks verify as causal (no decoy ranked above a cause).",
+  "design_guidance": "The 'trust only verified, C7 overrides' principle is a SPECTRUM set by STAKES: high-risk (R4/R5-like) -> ADAPT or PURE-B (never silently trust); low-risk -> CALIB (calibrated trust at bounded miss risk); FIXED is never acceptable.",
+  "honesty_caps": "Simulated reliability; the trilemma is the real result, CALIB is a useful-but-imperfect navigator."
+}
