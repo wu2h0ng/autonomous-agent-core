@@ -3,6 +3,8 @@ from __future__ import annotations
 import random
 from typing import Any, Mapping
 
+from .governed_gate import GovernedDecisionGate
+from .governed_loop import Candidate, GovernedLoop, TaskSpec
 from .idle_drives import IdleDrives
 from .policy import PolicySelector
 from .prior_organ import PriorOrgan, merge_organ_advice, snapshot_belief
@@ -47,6 +49,9 @@ class Agent:
         base_temperature: float = 0.3,
         residual_calibrator: ResidualCalibrator | None = None,
         relevance: RelevanceField | None = None,
+        governed_gate: GovernedDecisionGate | None = None,
+        verifier: Any | None = None,
+        governed_memory: Any | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -82,6 +87,13 @@ class Agent:
         self.prior_organ = prior_organ  # None = O0 baseline (ADR-0016)
         self.residual_calibrator = residual_calibrator  # None = no ADR-0031 calibrator
         self.modulate_relevance = modulate_relevance
+        # Governed decision path (REF-ARCH-03/04, ADR-0048/0049): opt-in. All three default None ->
+        # step() is bit-identical to before (no test affected). When a gate + verifier are supplied,
+        # governed_step() runs the verify-before-decide, stakes-gated, C7-wrapped loop as a FORMAL
+        # Agent capability, reusing the Agent's own belief (model), shell, and organ.
+        self.governed_gate = governed_gate
+        self.verifier = verifier
+        self.governed_memory = governed_memory
         self.steps = 0
         self._reflex_engaged = False
 
@@ -210,6 +222,66 @@ class Agent:
             record["w_e"] = round(policy_diag["w_e"], 4)
         self.shell.observe(record)
         return record
+
+    def governed_step(
+        self, env: Any, task: TaskSpec, *, verify_budget: int | None = None,
+        max_interventions: int | None = None,
+    ) -> Any:
+        """Run ONE governed decision as a formal Agent capability (REF-ARCH-03 §4).
+
+        Reuses the Agent's own components — belief (``model``) ranks candidates, the ``prior_organ``
+        advises (bounded, C6), the ``shell`` (C7) wraps it — and the injected ``governed_gate`` +
+        ``verifier`` enforce verify-before-decide and stakes-gated escalation. Returns a TaskResult
+        (acted | escalated | denied). Requires ``governed_gate`` and ``verifier`` to be set.
+
+        This is the slice (ADR-0048/0049) wired into the subject: the Agent no longer just picks an
+        action — it proposes, VERIFIES, decides under stakes, and escalates instead of acting blind.
+        """
+        if self.governed_gate is None or self.verifier is None:
+            raise ValueError("governed_step requires governed_gate and verifier")
+        if self.shell.paused or not self.viability.alive:
+            return None
+
+        agent = self
+
+        class _BeliefProposer:
+            """Rank candidate actions by the Agent's own belief (model.mu), organ advice applied."""
+            reliability = None
+
+            def rank(self, _task):
+                if agent.prior_organ is not None:
+                    advice = agent.prior_organ.advise(
+                        agent._organ_situation(env, idle=False), snapshot_belief(agent.model)
+                    )
+                    merge_organ_advice(agent.model, advice)
+                forbidden = agent.shell.forbidden
+                order = sorted(
+                    (a for a in range(agent.model.n_actions) if a not in forbidden),
+                    key=lambda a: -agent.model.mu[a],
+                )
+                return [Candidate(action=f"action:{a}", target=a) for a in order]
+
+        class _AgentActuator:
+            """Commit the action through the env and fold the outcome into the Agent's belief."""
+            def apply(self, cand: Candidate) -> float:
+                reward = env.act(cand.target)
+                agent.viability.ingest(reward)
+                agent.viability.metabolize()
+                agent.model.update(cand.target, reward)
+                agent.steps += 1
+                return reward
+
+        loop = GovernedLoop(
+            gate=self.governed_gate,
+            proposer=_BeliefProposer(),
+            verifier=self.verifier,
+            actuator=_AgentActuator(),
+            shell_view=self.shell,
+            verify_budget=verify_budget if verify_budget is not None else self.model.n_actions,
+            memory=self.governed_memory,
+            max_interventions=max_interventions,
+        )
+        return loop.run_task(task)
 
     def _organ_situation(self, env: Any, *, idle: bool) -> Mapping[str, Any]:
         situation = getattr(env, "situation", None)
