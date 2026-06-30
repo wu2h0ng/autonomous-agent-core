@@ -198,6 +198,9 @@ class BlockCode(StrEnum):
     # shell; the loop refuses to answer until resumed. Operator sovereignty, not
     # a data/intent problem.
     PAUSED = "paused"
+    # RR-0032: the external governed-decision seam DENIED the action (the seam can only tighten,
+    # never loosen). Distinct from PAUSED (operator) and SQL_SAFETY (data path).
+    GOVERNANCE_DENIED = "governance_denied"
 
 
 @dataclass(frozen=True)

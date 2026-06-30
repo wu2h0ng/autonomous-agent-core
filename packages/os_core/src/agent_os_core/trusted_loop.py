@@ -32,6 +32,12 @@ from agent_os_contracts import (
     TrustedLoopOutcome,
     TrustedLoopResult,
 )
+from agent_os_contracts.governance_decision_seam import (
+    GovernanceDecisionRequest,
+    DENY as _GD_DENY,
+    ESCALATE as _GD_ESCALATE,
+    VERIFY_MORE as _GD_VERIFY_MORE,
+)
 
 from .action_connectors.registry import ActionConnectorRegistry
 from .action_governance import ActionGovernance
@@ -130,6 +136,7 @@ class TrustedLoopRuntime:
         shell_view: ShellView | None = None,
         approval_context_store: ApprovalContextStorePort | None = None,
         approval_context_reclaim_after_seconds: float | None = 300.0,
+        governance_decision_client: Any | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -193,6 +200,10 @@ class TrustedLoopRuntime:
         # tamper-evident audit, but holds no op_* — it cannot pause/resume itself.
         # ``None`` = no shell wired (the loop runs unguarded).
         self.shell_view = shell_view
+        # RR-0032 governed-decision seam (R0-R3 wire): an optional injected client consulted at the
+        # governance gate. It can only TIGHTEN (DENY -> block; ESCALATE/VERIFY_MORE -> force approval),
+        # never loosen. None = no external governance (the loop is unchanged). #19: contract-only.
+        self.governance_decision_client = governance_decision_client
         # Optional unit-of-work factory: a zero-arg callable returning a context
         # manager that yields (feedback_store, knowledge_store) bound to one
         # transaction, making record_outcome's two writes atomic. When None,
@@ -474,6 +485,41 @@ class TrustedLoopRuntime:
                 "approval_required": proposal.approval_required,
             },
         )
+
+        # ====== Governed-decision seam (RR-0032, R0-R3 wire): optional external governance ======
+        # The injected client (a remote RPC stub or a local reference) returns a verdict that can only
+        # TIGHTEN: DENY -> block the loop; ESCALATE/VERIFY_MORE -> force this proposal through approval.
+        # ALLOW -> unchanged. Default None -> this block is skipped and the loop behaves exactly as before.
+        if self.governance_decision_client is not None:
+            seam_decision = self.governance_decision_client.decide(
+                GovernanceDecisionRequest(
+                    task_id=proposal.proposal_id,
+                    risk_tier=proposal.risk_level.value,
+                    candidate_actions=(proposal.recommended_action,),
+                    evidence_count=1 if evidence.is_complete() else 0,
+                    approved=False,  # the OS Approval lifecycle still owns approval; the seam only tightens
+                )
+            )
+            trace.record(
+                "governed_decision",
+                {"verdict": seam_decision.verdict, "reason": seam_decision.reason,
+                 "audit_ref": seam_decision.audit_ref},
+            )
+            if self.shell_view is not None:
+                self.shell_view.observe(
+                    {"event": "governed_decision", "proposal_id": proposal.proposal_id,
+                     "verdict": seam_decision.verdict})
+            if seam_decision.verdict == _GD_DENY:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.GOVERNANCE_DENIED,
+                        message="External governed-decision seam denied the action.",
+                        stage="governed_decision",
+                        details=(seam_decision.reason,),
+                    )
+                )
+            if seam_decision.verdict in (_GD_ESCALATE, _GD_VERIFY_MORE) and not proposal.approval_required:
+                proposal = replace(proposal, approval_required=True)
 
         # ====== Governance gate: propose-only vs governed execution ======
         #
