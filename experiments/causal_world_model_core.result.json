@@ -1,0 +1,10 @@
+{
+  "adr": "ADR-0045", "date": "2026-06-30", "line": "resumed core; SHARED causal-world-model core for tracks A & B",
+  "D": 4, "obs_n": 200, "interv_n": 200, "seeds": 20,
+  "MAIN_decoy_is_confound": {"cwm_interv_pred_acc": 1.00, "stat_interv_pred_acc": 0.75, "cwm_decoy_query_acc": 1.00, "stat_decoy_query_acc": 0.00},
+  "NEGATIVE_CONTROL_decoy_is_causal": {"cwm_decoy_query_acc": 1.00, "stat_decoy_query_acc": 1.00},
+  "verdict": "CWM-CORE-MET",
+  "reading": "An EXPLICIT causal world model (learns the causal mask by intervention/do, predicts interventional effects) vs a correlational learner (the stand-in for an LLM/statistical model, learns from observational data only). The hallmark: asked whether do(decoy) changes reward, the causal model is 100% correct (it knows the confounded decoy is non-causal) while the correlational model is 0% (fooled by the confound). Negative control: when the decoy is GENUINELY causal, both are 100% -> the causal advantage is specific to confounds, not general superiority. This is a REAL causal world model (the founder's keystone), not an LLM and not 'running tests'.",
+  "honest_nuance": "The action-reward test did NOT differentiate (both agents can set the true cause to get reward, because the cause is predictive for the statistical model too). The causal advantage shows in PREDICTION -- knowing the decoy is irrelevant / not being fooled by it -- which compounds in richer settings (planning, transfer, catching an LLM's correlational errors). Minimal core (4 features).",
+  "tracks": "SHARED core. (B) = this standalone (narrow domain intelligence). (A) = this + LLM: the LLM proposes from its (correlational) knowledge, the causal world model grounds/corrects it -- it would CATCH exactly the kind of confound-fooling the coding-prototype LLM was never checked against. That CWM-grounds-LLM integration is where track A's value compounds."
+}
