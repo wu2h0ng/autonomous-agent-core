@@ -398,6 +398,51 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
         self.assertNotIn("agent_runtime.checkpoint_resume_succeeded", steps)
         self.assertNotIn("changed-secret", repr(trace_writer.events))
 
+    def test_resume_checkpoint_store_read_failure_returns_structured_error(self) -> None:
+        class FailingCheckpointStore:
+            def save(self, snapshot: RunStateSnapshot) -> None:
+                del snapshot
+
+            def get(self, run_id: str) -> RunStateSnapshot | None:
+                del run_id
+                raise RuntimeError("dsn=postgres://secret-token@localhost/customer")
+
+        trace_writer = AgentTraceWriter()
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                name="safe.echo",
+                description="Echo.",
+                required_keys=("value",),
+                required_permissions=("tool:read",),
+            ),
+            lambda *, value, context: {"value": value},
+        )
+        runtime = AgentRuntime(
+            tools=registry,
+            policy_gate=RuntimePolicyGate(),
+            trace_writer=trace_writer,
+            checkpoint_store=FailingCheckpointStore(),
+        )
+        call = AgentToolCall(
+            call_id="call-resume-read-failure",
+            tool_name="safe.echo",
+            args={"value": "sensitive-input"},
+        )
+
+        try:
+            resumed = runtime.resume_from_checkpoint(call, _context())
+        except RuntimeError:
+            self.fail("resume leaked checkpoint read exception")
+
+        self.assertEqual(resumed.status, "checkpoint_error")
+        self.assertEqual(resumed.error_code, "CHECKPOINT_READ_FAILED")
+        self.assertEqual(resumed.error_message, "checkpoint read failed")
+        trace_blob = repr(trace_writer.events)
+        self.assertIn("agent_runtime.checkpoint_resume_failed", trace_blob)
+        self.assertNotIn("secret-token", trace_blob)
+        self.assertNotIn("sensitive-input", trace_blob)
+
     def test_resume_rejects_tool_spec_mismatch(self) -> None:
         checkpoints = InMemoryCheckpointStore()
         first_registry = ToolRegistry()

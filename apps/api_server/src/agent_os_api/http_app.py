@@ -931,7 +931,19 @@ def create_app(
                     "runtime_trace_id": None,
                 },
             )
-        snapshot = checkpoint_store.get(runtime_run_id)
+        try:
+            snapshot = checkpoint_store.get(runtime_run_id)
+        except Exception:  # noqa: BLE001 - checkpoint backend details must stay internal
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "CHECKPOINT_READ_FAILED",
+                    "message": "Agent Runtime checkpoint read failed.",
+                    "stage": "agent_runtime",
+                    "runtime_run_id": runtime_run_id,
+                    "runtime_trace_id": None,
+                },
+            ) from None
         if snapshot is None or snapshot.last_result is None:
             raise HTTPException(
                 status_code=404,

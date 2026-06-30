@@ -29,6 +29,15 @@ class _FailingCheckpointStore:
         return None
 
 
+class _RaisingCheckpointReadStore:
+    def save(self, snapshot: object) -> None:
+        del snapshot
+
+    def get(self, run_id: str) -> None:
+        del run_id
+        raise RuntimeError("dsn=postgres://secret-token@localhost/customer")
+
+
 def _make_client(
     api_key: str | None,
     operator_api_key: str | None = OPERATOR_KEY,
@@ -330,6 +339,37 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
 
         self.assertEqual(resume_resp.status_code, 503, resume_resp.text)
         self.assertEqual(resume_resp.json()["detail"]["code"], "CHECKPOINT_NOT_AVAILABLE")
+
+    def test_runtime_resume_checkpoint_read_failure_is_typed_500(self) -> None:
+        from starlette.testclient import TestClient
+
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        checkpoint_ref = run_resp.json()["runtime_checkpoint_ref"]
+        client.app.state.agent_checkpoint_store = _RaisingCheckpointReadStore()
+        client = TestClient(client.app, raise_server_exceptions=False)
+
+        resume_resp = client.post(
+            f"/agent-runtime/runs/{checkpoint_ref['run_id']}/resume",
+            json={
+                "runtime_trace_id": checkpoint_ref["trace_id"],
+                "question": RUN_BODY["question"],
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(resume_resp.status_code, 500, resume_resp.text)
+        self.assertIn("application/json", resume_resp.headers.get("content-type", ""))
+        detail = resume_resp.json()["detail"]
+        self.assertEqual(detail["code"], "CHECKPOINT_READ_FAILED")
+        self.assertEqual(detail["stage"], "agent_runtime")
+        encoded = str(detail)
+        self.assertNotIn("secret-token", encoded)
+        self.assertNotIn("postgres://", encoded)
 
     def test_post_run_pause_is_denied_by_agent_runtime_before_tool_start(self) -> None:
         client = _make_client(API_KEY, paused=True)

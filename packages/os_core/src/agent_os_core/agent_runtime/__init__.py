@@ -416,7 +416,19 @@ class AgentRuntime:
             )
             self._trace_checkpoint_resume_failed(call, context, result)
             return result
-        snapshot = self.checkpoint_store.get(context.run_id)
+        try:
+            snapshot = self.checkpoint_store.get(context.run_id)
+        except Exception:  # noqa: BLE001 - checkpoint backend details must stay internal
+            result = AgentToolResult(
+                call_id=call.call_id,
+                tool_name=call.tool_name,
+                status="checkpoint_error",
+                error_code="CHECKPOINT_READ_FAILED",
+                error_message="checkpoint read failed",
+                trace_id=context.trace_id,
+            )
+            self._trace_checkpoint_resume_failed(call, context, result)
+            return result
         if snapshot is None or snapshot.last_result is None:
             result = AgentToolResult(
                 call_id=call.call_id,

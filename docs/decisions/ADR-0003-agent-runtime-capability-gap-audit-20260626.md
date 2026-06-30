@@ -77,6 +77,8 @@ surface for checkpointed `/runs` runtime execution:
 - successful resume appends safe runtime events to `RunTrace`;
 - OpenAPI declares typed `RuntimeResumeErrorResponse` schemas for `404`, `409`,
   `500`, and `503` resume failures;
+- checkpoint backend read failures return typed `CHECKPOINT_READ_FAILED` errors
+  without backend DSNs, credentials, raw args, or plain-text 500 responses;
 - responses expose only a safe `output_ref`, not raw args, raw SQL, raw tool
   output, or connector payloads.
 
