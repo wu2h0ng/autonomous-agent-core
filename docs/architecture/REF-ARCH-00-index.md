@@ -9,6 +9,7 @@
 2. **[REF-ARCH-02 Model Organ Contract](REF-ARCH-02-model-organ-contract.md)** — how every model (LLM, CWM, forecaster, classifier…) plugs in as an *organ*: typed in/out, bounded advice, what it may never do.
 3. **[REF-ARCH-03 Agent Role Contract](REF-ARCH-03-agent-role-contract.md)** — the prototype's cognitive roles (propose / model / verify / decide / govern / learn / self-monitor), their I/O, permissions, failure paths, and how they project onto the OS business roles at the seam.
 4. **[REF-ARCH-04 Runtime Governance Contract](REF-ARCH-04-runtime-governance-contract.md)** — how every call passes the gate: run context, risk ceiling, budget, checkpoint, trace, approval, C7 override, failure sanitization; the adaptive verify-or-escalate decision gate.
+5. **[REF-ARCH-05 First R0–R3 OS use-case](REF-ARCH-05-first-os-usecase.md)** — the concrete low-stakes use-case ("which lever causally moves the metric?") the OS injection seam (RR-0032) is first wired to; seam mapping + acceptance criteria. PREPARE deliverable (a); WIRE still gated.
 
 ## The one sentence
 **LLM is an organ, the (causal) world model is the map of action→consequence, the agent self model is the map of own capability/risk/boundary, the Agent is the governed closed loop that perceives–models–decides–verifies–acts–is-corrected–learns, and the Runtime is the envelope that proves none of that bypassed a safety boundary.** Multiple models and multiple roles live *inside one governed loop* — never as sovereign agents.
