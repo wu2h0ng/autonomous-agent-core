@@ -18,9 +18,20 @@ from typing import Any, Optional
 
 from .governed_gate import ALLOW, VERIFY_MORE, ESCALATE, DENY
 from .governed_loop import GovernedLoop, Candidate, TaskSpec
+from .self_model import ActionRequest
 from .shell import CorrigibilityShell
 
-SEAM_CONTRACT_VERSION = "1.0.0"   # semver; a core mechanism change must bump this (RR-0032 cast #4)
+SEAM_CONTRACT_VERSION = "1.1.0"   # semver; v1.1 adds OS-supplied verification (RR-0032 "OS verifies")
+
+
+@dataclass(frozen=True)
+class VerifiedCandidate:
+    """A candidate the OS has already VERIFIED (RR-0032 "OS verifies -> core governs"): the OS ran the
+    interventional cohort A/B test (it owns the data); the core only governs this supplied result."""
+    action: str
+    verified: bool
+    confidence: float
+    evidence_count: int
 
 
 @dataclass(frozen=True)
@@ -30,6 +41,9 @@ class GovernedDecisionRequest:
     candidate_actions: list[str]       # OS-ranked candidate action ids (the confounded prior)
     evidence_count: int = 0            # evidence already bound by the OS EvidenceChain
     approved: bool = False             # OS Approval result (for high-stakes tiers)
+    # v1.1: the OS's own verification of the candidates ("OS verifies -> core governs"). When present,
+    # the core governs these instead of running its own verifier (it has no access to OS data).
+    verified_candidates: tuple[VerifiedCandidate, ...] = field(default_factory=tuple)
     contract_version: str = SEAM_CONTRACT_VERSION
 
 
@@ -49,7 +63,11 @@ def to_json(obj: Any) -> str:
 
 
 def request_from_json(s: str) -> GovernedDecisionRequest:
-    return GovernedDecisionRequest(**json.loads(s))
+    d = json.loads(s)
+    d["verified_candidates"] = tuple(
+        VerifiedCandidate(**vc) for vc in d.get("verified_candidates", ())
+    )
+    return GovernedDecisionRequest(**d)
 
 
 def response_from_json(s: str) -> GovernedDecisionResponse:
@@ -88,6 +106,13 @@ class SeamProducer:
                 f"incompatible contract major version {request.contract_version} != {SEAM_CONTRACT_VERSION}", "")
 
         shell = self.shell if self.shell is not None else CorrigibilityShell()
+
+        # v1.1 primary path: the OS already verified (it owns the data) -> the core only GOVERNS the
+        # supplied verification via the gate. The core does NOT re-verify (RR-0032 "OS verifies").
+        if request.verified_candidates:
+            return self._govern(request, shell)
+
+        # v1.0 back-compat path: no OS verification supplied -> self-verify via the injected verifier.
         actuator = _RecordActuator()
         index = {a: i for i, a in enumerate(request.candidate_actions)}
         producer = self
@@ -112,3 +137,33 @@ class SeamProducer:
         confidence = 1.0 if verdict == ALLOW else 0.0   # coarse; per-step detail is in the audit chain
         return GovernedDecisionResponse(
             request.task_id, verdict, chosen, confidence, reason, audit_ref)
+
+    def _govern(self, request: GovernedDecisionRequest, shell: CorrigibilityShell) -> GovernedDecisionResponse:
+        """Governance-only over OS-supplied verification (v1.1): apply the gate to each verified
+        candidate in order; act only on verified; C7/paused/forbidden tighten via the gate."""
+        shell_view = shell.view()
+
+        def _resp(verdict, chosen, conf, reason):
+            shell_view.observe({"event": "governed_decision", "verdict": verdict, "chosen": chosen})
+            entries = shell.audit.entries()
+            return GovernedDecisionResponse(
+                request.task_id, verdict, chosen, conf, reason,
+                entries[-1].entry_hash if entries else "")
+
+        for i, vc in enumerate(request.verified_candidates):
+            if not vc.verified:
+                continue                                  # act only on VERIFIED (invariant 1)
+            decision = self.gate.decide(
+                ActionRequest(
+                    action=vc.action, risk_tier=request.risk_tier, confidence=vc.confidence,
+                    verified=True, evidence_count=vc.evidence_count, approved=request.approved,
+                    action_index=i,
+                ),
+                shell_view=shell_view,
+            )
+            if decision.verdict == ALLOW:
+                return _resp(ALLOW, vc.action, vc.confidence, decision.reason)
+            if decision.verdict in (ESCALATE, DENY):
+                return _resp(decision.verdict, None, 0.0, decision.reason)
+            # VERIFY_MORE -> try the next verified candidate
+        return _resp(ESCALATE, None, 0.0, "no governable verified candidate")

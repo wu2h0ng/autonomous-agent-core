@@ -9,7 +9,7 @@ from __future__ import annotations
 import unittest
 
 from aac.seam_contract import (
-    SeamProducer, GovernedDecisionRequest, GovernedDecisionResponse,
+    SeamProducer, GovernedDecisionRequest, GovernedDecisionResponse, VerifiedCandidate,
     to_json, request_from_json, response_from_json, SEAM_CONTRACT_VERSION,
 )
 from aac.governed_gate import GovernedDecisionGate, ALLOW, ESCALATE, DENY
@@ -97,6 +97,50 @@ class ContractVersioning(unittest.TestCase):
         self.assertEqual(request_from_json(to_json(req)), req)
         resp = _producer().handle(req)
         self.assertEqual(response_from_json(to_json(resp)), resp)
+
+
+class V11_OSVerifiesCoreGoverns(unittest.TestCase):
+    """v1.1: the OS supplies verification; the core GOVERNS it (does not re-verify)."""
+
+    def _vreq(self, vcs, **kw):
+        base = dict(task_id="t", risk_tier=1, candidate_actions=[vc.action for vc in vcs],
+                    approved=False, verified_candidates=tuple(vcs))
+        base.update(kw)
+        return GovernedDecisionRequest(**base)
+
+    def test_governs_supplied_verification_allow(self):
+        vcs = [VerifiedCandidate(DECOY, False, 0.0, 0), VerifiedCandidate(TRUE, True, 0.9, 3)]
+        r = _producer().handle(self._vreq(vcs))
+        self.assertEqual(r.verdict, ALLOW)
+        self.assertEqual(r.chosen_action, TRUE)     # skips the unverified decoy, governs the verified one
+
+    def test_all_unverified_escalates(self):
+        vcs = [VerifiedCandidate(DECOY, False, 0.0, 0)]
+        self.assertEqual(_producer().handle(self._vreq(vcs)).verdict, ESCALATE)
+
+    def test_high_stakes_supplied_verification_escalates_unapproved(self):
+        vcs = [VerifiedCandidate(TRUE, True, 0.9, 3)]
+        self.assertEqual(_producer().handle(self._vreq(vcs, risk_tier=4, approved=False)).verdict, ESCALATE)
+
+    def test_paused_shell_denies_supplied_verification(self):
+        shell = CorrigibilityShell(); shell.op_pause()
+        vcs = [VerifiedCandidate(TRUE, True, 0.9, 3)]
+        self.assertEqual(_producer(shell=shell).handle(self._vreq(vcs)).verdict, DENY)
+
+    def test_core_does_not_reverify(self):
+        # the core trusts the OS verification: a candidate the OS marked verified is governed even
+        # though this producer's own _Verifier would call it ineffective (proves no core re-verify).
+        vcs = [VerifiedCandidate(DECOY, True, 0.9, 3)]   # OS says the "decoy" IS verified-effective
+        r = _producer().handle(self._vreq(vcs))
+        self.assertEqual(r.verdict, ALLOW)
+        self.assertEqual(r.chosen_action, DECOY)
+
+    def test_v11_json_round_trip(self):
+        req = self._vreq([VerifiedCandidate(TRUE, True, 0.9, 3)])
+        self.assertEqual(request_from_json(to_json(req)), req)
+
+    def test_version_is_1_1(self):
+        self.assertTrue(SEAM_CONTRACT_VERSION.startswith("1.1"))
 
 
 if __name__ == "__main__":
