@@ -14,15 +14,27 @@ from __future__ import annotations
 
 import hashlib
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Any, Callable, Optional
 
 from agent_os_contracts.governance_decision_seam import (
-    GovernanceDecisionRequest, GovernanceDecisionResponse,
+    GovernanceDecisionRequest, GovernanceDecisionResponse, VerifiedCandidate,
     SEAM_CONTRACT_VERSION, ALLOW, VERIFY_MORE, ESCALATE, DENY,
     request_to_json, response_from_json,
 )
 
 _RISK_ORDER = {f"R{i}": i for i in range(6)}
+
+
+def verify_candidates(verifier: "CohortABVerifier", actions) -> tuple[VerifiedCandidate, ...]:
+    """OS-side verification: run the cohort A/B verifier on each candidate action (RR-0032 "OS
+    verifies"). Produces the VerifiedCandidate tuple the remote brain governs — the OS owns the data,
+    so verification MUST happen here, not in the remote core."""
+    out = []
+    for action in actions:
+        effective, confidence, evidence = verifier.verify(action)
+        out.append(VerifiedCandidate(action, effective, confidence, evidence))
+    return tuple(out)
 
 
 class CohortABVerifier(ABC):
@@ -103,17 +115,29 @@ class LocalGovernanceDecisionClient(GovernanceDecisionClient):
 
 
 class RemoteGovernanceDecisionClient(GovernanceDecisionClient):
-    """RPC boundary stub: serialize the request for the remote autonomous-agent-core governed-decision
-    service, parse the response. The transport is injected (e.g. an HTTP POST). #19: no core import.
-    With no transport configured this raises — the remote service is not wired in this repo."""
+    """RPC client to the remote autonomous-agent-core governed-decision service (#19: no core import).
 
-    def __init__(self, transport: Optional[Callable[[str], str]] = None) -> None:
+    v1.1 "OS verifies -> core governs": the OS owns the data, so this client VERIFIES the candidates
+    LOCALLY (via the injected verifier) and sends the VerifiedCandidate results to the remote brain,
+    which only governs them. If a request already carries verified_candidates, it is sent as-is; if no
+    verifier is set and none are supplied, the request goes unverified (the remote will escalate)."""
+
+    def __init__(
+        self,
+        transport: Optional[Callable[[str], str]] = None,
+        verifier: Optional["CohortABVerifier"] = None,
+    ) -> None:
         self.transport = transport
+        self.verifier = verifier
 
     def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse:
         if self.transport is None:
             raise NotImplementedError(
                 "remote governed-decision transport not configured (no autonomous-agent-core service wired)")
+        # OS-side verification before the request crosses the wire (the remote brain cannot verify).
+        if not request.verified_candidates and self.verifier is not None:
+            request = replace(
+                request, verified_candidates=verify_candidates(self.verifier, request.candidate_actions))
         return response_from_json(self.transport(request_to_json(request)))
 
 

@@ -9,9 +9,9 @@ library import). Both sides implement the same versioned schema independently.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 
-SEAM_CONTRACT_VERSION = "1.0.0"  # semver; a contract change must bump this (RR-0032 cast #4)
+SEAM_CONTRACT_VERSION = "1.1.0"  # v1.1 adds OS-supplied verification (RR-0032 "OS verifies")
 
 # verdicts
 ALLOW = "ALLOW"
@@ -21,12 +21,25 @@ DENY = "DENY"
 
 
 @dataclass(frozen=True)
+class VerifiedCandidate:
+    """A candidate the OS has already VERIFIED (RR-0032 "OS verifies -> core governs"): the OS ran the
+    interventional cohort A/B test (it owns the data); the remote brain only governs this result."""
+    action: str
+    verified: bool
+    confidence: float
+    evidence_count: int
+
+
+@dataclass(frozen=True)
 class GovernanceDecisionRequest:
     task_id: str
     risk_tier: str               # "R0".."R5" — shared vocabulary across the seam (RR-0032 cast #3)
     candidate_actions: tuple[str, ...]
     evidence_count: int = 0
     approved: bool = False
+    # v1.1: the OS's own verification ("OS verifies -> core governs"). When present, the brain governs
+    # these instead of running its own verifier (it has no access to OS data/cohorts).
+    verified_candidates: tuple[VerifiedCandidate, ...] = field(default_factory=tuple)
     contract_version: str = SEAM_CONTRACT_VERSION
 
 
@@ -52,6 +65,9 @@ def response_to_json(resp: GovernanceDecisionResponse) -> str:
 def request_from_json(s: str) -> GovernanceDecisionRequest:
     d = json.loads(s)
     d["candidate_actions"] = tuple(d.get("candidate_actions", ()))
+    d["verified_candidates"] = tuple(
+        VerifiedCandidate(**vc) for vc in d.get("verified_candidates", ())
+    )
     return GovernanceDecisionRequest(**d)
 
 

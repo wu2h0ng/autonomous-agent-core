@@ -23,7 +23,8 @@ from agent_os_contracts import (  # noqa: E402
     ActionConnectorContract, BlockCode, MetricContract, ProviderContract, ProviderKind, SQLTemplate,
 )
 from agent_os_contracts.governance_decision_seam import (  # noqa: E402
-    GovernanceDecisionRequest, GovernanceDecisionResponse, ALLOW, ESCALATE, DENY,
+    GovernanceDecisionRequest, GovernanceDecisionResponse, VerifiedCandidate,
+    SEAM_CONTRACT_VERSION, ALLOW, ESCALATE, DENY,
     request_to_json, request_from_json, response_to_json, response_from_json,
 )
 from agent_os_core import (  # noqa: E402
@@ -31,7 +32,7 @@ from agent_os_core import (  # noqa: E402
 )
 from agent_os_core.governance_decision_seam import (  # noqa: E402
     CohortABVerifier, GovernanceDecisionClient,
-    LocalGovernanceDecisionClient, RemoteGovernanceDecisionClient,
+    LocalGovernanceDecisionClient, RemoteGovernanceDecisionClient, verify_candidates,
 )
 from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
@@ -246,6 +247,40 @@ class TransportAndFallback(unittest.TestCase):
         client = FallbackGovernanceDecisionClient(remote, _client(effective=("good",)))
         r = client.decide(_req(candidate_actions=("bad", "good")))
         self.assertEqual(r.verdict, ALLOW)        # degraded to local, did not raise
+
+
+class V11_OSVerifiesBeforeSending(unittest.TestCase):
+    """v1.1 (RR-0032 "OS verifies -> core governs"): the OS verifies locally, the remote only governs."""
+
+    def test_verify_candidates_helper(self):
+        vcs = verify_candidates(_Verifier({"good"}), ("bad", "good"))
+        self.assertEqual(len(vcs), 2)
+        self.assertEqual((vcs[0].action, vcs[0].verified), ("bad", False))
+        self.assertEqual((vcs[1].action, vcs[1].verified), ("good", True))
+
+    def test_remote_client_verifies_os_side_before_wire(self):
+        # capture what crosses the wire: it MUST already carry the OS verification
+        captured = {}
+
+        def transport(req_json: str) -> str:
+            captured["req"] = request_from_json(req_json)
+            return response_to_json(GovernanceDecisionResponse("t", ALLOW, "good", 0.9, "ok", "ref"))
+
+        client = RemoteGovernanceDecisionClient(transport, verifier=_Verifier({"good"}))
+        client.decide(_req(candidate_actions=("bad", "good")))
+        sent = captured["req"]
+        self.assertEqual(len(sent.verified_candidates), 2)          # OS verified before sending
+        self.assertTrue(any(vc.verified and vc.action == "good" for vc in sent.verified_candidates))
+        self.assertTrue(all(not vc.verified for vc in sent.verified_candidates if vc.action == "bad"))
+
+    def test_contract_v11_json_round_trip(self):
+        req = GovernanceDecisionRequest(
+            task_id="t", risk_tier="R1", candidate_actions=("good",),
+            verified_candidates=(VerifiedCandidate("good", True, 0.9, 3),))
+        self.assertEqual(request_from_json(request_to_json(req)), req)
+
+    def test_version_is_1_1(self):
+        self.assertTrue(SEAM_CONTRACT_VERSION.startswith("1.1"))
 
 
 if __name__ == "__main__":
