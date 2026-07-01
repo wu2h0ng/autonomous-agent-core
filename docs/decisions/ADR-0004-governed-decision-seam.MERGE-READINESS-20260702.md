@@ -5,7 +5,10 @@ Status: READY FOR FOUNDER/CTO LOCAL MERGE DECISION - NOT MERGE/PUSH/RELEASE AUTH
 Branch: `feature/governance-decision-seam-2026-07-01`
 Target: deployment local `main`
 Target head checked: `main@91ae01c`
-Implementation head checked: `ce554f3`
+Implementation code commit checked: `be0c511`
+Readiness metadata note: this file may be followed by a docs-only metadata
+commit on the same feature branch. Re-run the HEAD fast-forward checks below
+immediately before any authorized merge.
 Remote feature note: `origin/feature/governance-decision-seam-2026-07-01@5a4e86e` is older than the checked local branch; do not treat the remote branch as current readiness evidence.
 
 This packet is the RR-0033 M3 PREPARE deliverable for ADR-0004/RR-0032. It is
@@ -24,13 +27,14 @@ conditions:
 5. founder/CTO must separately approve any cross-repo service deployment,
    production metric/lever binding, or M4 CWM `governed_loop` wiring.
 
-As checked during this PREPARE pass, the branch is linear on local `main`:
+As checked during this PREPARE pass, implementation code commit `be0c511` is
+linear on local `main`:
 
 ```text
-git merge-base --is-ancestor main HEAD
+git merge-base --is-ancestor main be0c511
 exit 0
 
-git rev-list --left-right --count main...HEAD
+git rev-list --left-right --count main...be0c511
 0 5
 ```
 
