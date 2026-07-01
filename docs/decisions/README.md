@@ -39,6 +39,11 @@ Current active ADRs:
   - Public resume API fresh verify: `ADR-0003-agent-runtime-public-resume-api.FRESH-VERIFY-20260701.md`
   - Public resume API post-merge verify: `ADR-0003-agent-runtime-public-resume-api.POST-MERGE-VERIFY-20260701.md`
   - Capability gap audit: `ADR-0003-agent-runtime-capability-gap-audit-20260626.md`
+- `ADR-0004-governed-decision-seam.md`
+  - Branch-local governed-decision injection seam for RR-0032 R0-R3 RPC boundary.
+    Rebased onto local `main@91ae01c` and verified on 2026-07-02; not merged,
+    pushed after rebase, or released.
+  - Review/remediation: `ADR-0004-governed-decision-seam.REVIEW-20260702.md`
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

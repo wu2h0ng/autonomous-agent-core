@@ -18,12 +18,38 @@ from dataclasses import replace
 from typing import Any, Callable, Optional
 
 from agent_os_contracts.governance_decision_seam import (
-    GovernanceDecisionRequest, GovernanceDecisionResponse, VerifiedCandidate,
-    SEAM_CONTRACT_VERSION, ALLOW, VERIFY_MORE, ESCALATE, DENY,
-    request_to_json, response_from_json,
+    GovernanceDecisionRequest,
+    GovernanceDecisionResponse,
+    VerifiedCandidate,
+    SEAM_CONTRACT_VERSION,
+    ALLOW,
+    VERIFY_MORE,
+    ESCALATE,
+    DENY,
+    request_to_json,
+    response_from_json,
 )
 
 _RISK_ORDER = {f"R{i}": i for i in range(6)}
+_ALLOWED_VERDICTS = frozenset((ALLOW, VERIFY_MORE, ESCALATE, DENY))
+
+
+def _major(version: str) -> str:
+    return version.split(".", 1)[0]
+
+
+def _validate_remote_response(
+    request: GovernanceDecisionRequest, response: GovernanceDecisionResponse
+) -> GovernanceDecisionResponse:
+    if response.task_id != request.task_id:
+        raise ValueError("governance decision task mismatch")
+    if _major(response.contract_version) != _major(SEAM_CONTRACT_VERSION):
+        raise ValueError("incompatible governance decision contract")
+    if response.verdict not in _ALLOWED_VERDICTS:
+        raise ValueError("invalid governance decision verdict")
+    if not response.audit_ref:
+        raise ValueError("governance decision audit_ref required")
+    return response
 
 
 def verify_candidates(verifier: "CohortABVerifier", actions) -> tuple[VerifiedCandidate, ...]:
@@ -44,17 +70,17 @@ class CohortABVerifier(ABC):
     verdict. Async tests surface as is_effective=False with confidence 0 -> VERIFY_MORE upstream."""
 
     @abstractmethod
-    def verify(self, action: str) -> tuple[bool, float, int]:
-        ...
+    def verify(self, action: str) -> tuple[bool, float, int]: ...
 
 
 class GovernanceDecisionClient(ABC):
     @abstractmethod
-    def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse:
-        ...
+    def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse: ...
 
 
-def _audit_ref(req: GovernanceDecisionRequest, verdict: str, chosen: Optional[str], reason: str) -> str:
+def _audit_ref(
+    req: GovernanceDecisionRequest, verdict: str, chosen: Optional[str], reason: str
+) -> str:
     blob = f"{req.task_id}|{verdict}|{chosen}|{reason}".encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
 
@@ -81,14 +107,19 @@ class LocalGovernanceDecisionClient(GovernanceDecisionClient):
 
     def _resp(self, req, verdict, chosen, conf, reason) -> GovernanceDecisionResponse:
         if self.shell_view is not None:
-            self.shell_view.observe({"event": "governed_decision", "task_id": req.task_id, "verdict": verdict})
+            self.shell_view.observe(
+                {"event": "governed_decision", "task_id": req.task_id, "verdict": verdict}
+            )
         return GovernanceDecisionResponse(
-            req.task_id, verdict, chosen, conf, reason, _audit_ref(req, verdict, chosen, reason))
+            req.task_id, verdict, chosen, conf, reason, _audit_ref(req, verdict, chosen, reason)
+        )
 
     def decide(self, req: GovernanceDecisionRequest) -> GovernanceDecisionResponse:
         # invariant: contract version
         if req.contract_version.split(".")[0] != SEAM_CONTRACT_VERSION.split(".")[0]:
-            return self._resp(req, DENY, None, 0.0, f"incompatible contract version {req.contract_version}")
+            return self._resp(
+                req, DENY, None, 0.0, f"incompatible contract version {req.contract_version}"
+            )
         # invariant 3: C7 supremacy — a paused operator shell can only tighten
         if self.shell_view is not None and getattr(self.shell_view, "paused", False):
             return self._resp(req, DENY, None, 0.0, "corrigibility shell paused")
@@ -99,19 +130,27 @@ class LocalGovernanceDecisionClient(GovernanceDecisionClient):
         for action in req.candidate_actions:
             effective, conf, _ev = self.verifier.verify(action)
             if not effective:
-                continue                                   # invariant 1: never act on unverified
+                continue  # invariant 1: never act on unverified
             # verified-effective candidate found
-            if high_stakes:                                # invariant 2: high-stakes never auto-allowed
+            if high_stakes:  # invariant 2: high-stakes never auto-allowed
                 if not req.approved:
-                    return self._resp(req, ESCALATE, None, conf, "high-stakes action requires approval")
+                    return self._resp(
+                        req, ESCALATE, None, conf, "high-stakes action requires approval"
+                    )
                 if conf < self.confidence_floor:
-                    return self._resp(req, ESCALATE, None, conf, "high-stakes confidence below floor")
-                return self._resp(req, ALLOW, action, conf, "high-stakes: verified, confident, approved")
+                    return self._resp(
+                        req, ESCALATE, None, conf, "high-stakes confidence below floor"
+                    )
+                return self._resp(
+                    req, ALLOW, action, conf, "high-stakes: verified, confident, approved"
+                )
             if conf < self.confidence_floor:
                 return self._resp(req, VERIFY_MORE, None, conf, "confidence below floor")
             return self._resp(req, ALLOW, action, conf, "low-stakes: verified and confident")
 
-        return self._resp(req, ESCALATE, None, 0.0, "no verified-effective candidate")  # never silently act
+        return self._resp(
+            req, ESCALATE, None, 0.0, "no verified-effective candidate"
+        )  # never silently act
 
 
 class RemoteGovernanceDecisionClient(GovernanceDecisionClient):
@@ -133,12 +172,16 @@ class RemoteGovernanceDecisionClient(GovernanceDecisionClient):
     def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse:
         if self.transport is None:
             raise NotImplementedError(
-                "remote governed-decision transport not configured (no autonomous-agent-core service wired)")
+                "remote governed-decision transport not configured (no autonomous-agent-core service wired)"
+            )
         # OS-side verification before the request crosses the wire (the remote brain cannot verify).
         if not request.verified_candidates and self.verifier is not None:
             request = replace(
-                request, verified_candidates=verify_candidates(self.verifier, request.candidate_actions))
-        return response_from_json(self.transport(request_to_json(request)))
+                request,
+                verified_candidates=verify_candidates(self.verifier, request.candidate_actions),
+            )
+        response = response_from_json(self.transport(request_to_json(request)))
+        return _validate_remote_response(request, response)
 
 
 def http_transport(url: str, timeout_seconds: float = 2.0) -> Callable[[str], str]:
@@ -152,8 +195,11 @@ def http_transport(url: str, timeout_seconds: float = 2.0) -> Callable[[str], st
 
     def _post(body: str) -> str:
         req = urllib.request.Request(
-            url, data=body.encode("utf-8"),
-            headers={"Content-Type": "application/json"}, method="POST")
+            url,
+            data=body.encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             return resp.read().decode("utf-8")
 
@@ -167,12 +213,16 @@ class FallbackGovernanceDecisionClient(GovernanceDecisionClient):
     (ADR-0047). The fallback should itself be safe (e.g. LocalGovernanceDecisionClient, or one that
     escalates), so 'brain unreachable' resolves to governed-locally or escalate-to-human, never auto-allow."""
 
-    def __init__(self, primary: GovernanceDecisionClient, fallback: GovernanceDecisionClient) -> None:
+    def __init__(
+        self, primary: GovernanceDecisionClient, fallback: GovernanceDecisionClient
+    ) -> None:
         self.primary = primary
         self.fallback = fallback
 
     def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse:
         try:
             return self.primary.decide(request)
-        except Exception:  # timeout / connection / parse — anything: degrade, never propagate into the loop
+        except (
+            Exception
+        ):  # timeout / connection / parse — anything: degrade, never propagate into the loop
             return self.fallback.decide(request)

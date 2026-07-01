@@ -24,6 +24,7 @@ DENY = "DENY"
 class VerifiedCandidate:
     """A candidate the OS has already VERIFIED (RR-0032 "OS verifies -> core governs"): the OS ran the
     interventional cohort A/B test (it owns the data); the remote brain only governs this result."""
+
     action: str
     verified: bool
     confidence: float
@@ -33,7 +34,7 @@ class VerifiedCandidate:
 @dataclass(frozen=True)
 class GovernanceDecisionRequest:
     task_id: str
-    risk_tier: str               # "R0".."R5" — shared vocabulary across the seam (RR-0032 cast #3)
+    risk_tier: str  # "R0".."R5" — shared vocabulary across the seam (RR-0032 cast #3)
     candidate_actions: tuple[str, ...]
     evidence_count: int = 0
     approved: bool = False
@@ -46,7 +47,7 @@ class GovernanceDecisionRequest:
 @dataclass(frozen=True)
 class GovernanceDecisionResponse:
     task_id: str
-    verdict: str                 # ALLOW | VERIFY_MORE | ESCALATE | DENY
+    verdict: str  # ALLOW | VERIFY_MORE | ESCALATE | DENY
     chosen_action: str | None
     confidence: float
     reason: str

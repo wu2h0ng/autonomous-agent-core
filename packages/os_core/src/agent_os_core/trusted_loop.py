@@ -34,6 +34,7 @@ from agent_os_contracts import (
 )
 from agent_os_contracts.governance_decision_seam import (
     GovernanceDecisionRequest,
+    ALLOW as _GD_ALLOW,
     DENY as _GD_DENY,
     ESCALATE as _GD_ESCALATE,
     VERIFY_MORE as _GD_VERIFY_MORE,
@@ -65,6 +66,13 @@ from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .sql_safety import SQLSafetyChecker
 from .trace import InMemoryTraceStore, TraceRecorder, TraceStorePort
+
+_GOVERNANCE_DECISION_REASON_WITHHELD = "governance decision reason withheld"
+_GOVERNANCE_DECISION_CLIENT_UNAVAILABLE = "governance decision client unavailable"
+_GOVERNANCE_DECISION_INVALID_VERDICT = "governance decision invalid verdict"
+_GOVERNANCE_DECISION_ALLOWED_VERDICTS = frozenset(
+    (_GD_ALLOW, _GD_DENY, _GD_ESCALATE, _GD_VERIFY_MORE)
+)
 
 
 class TrustedLoopBlocked(Exception):
@@ -491,35 +499,87 @@ class TrustedLoopRuntime:
         # TIGHTEN: DENY -> block the loop; ESCALATE/VERIFY_MORE -> force this proposal through approval.
         # ALLOW -> unchanged. Default None -> this block is skipped and the loop behaves exactly as before.
         if self.governance_decision_client is not None:
-            seam_decision = self.governance_decision_client.decide(
-                GovernanceDecisionRequest(
-                    task_id=proposal.proposal_id,
-                    risk_tier=proposal.risk_level.value,
-                    candidate_actions=(proposal.recommended_action,),
-                    evidence_count=1 if evidence.is_complete() else 0,
-                    approved=False,  # the OS Approval lifecycle still owns approval; the seam only tightens
-                )
-            )
-            trace.record(
-                "governed_decision",
-                {"verdict": seam_decision.verdict, "reason": seam_decision.reason,
-                 "audit_ref": seam_decision.audit_ref},
-            )
-            if self.shell_view is not None:
-                self.shell_view.observe(
-                    {"event": "governed_decision", "proposal_id": proposal.proposal_id,
-                     "verdict": seam_decision.verdict})
-            if seam_decision.verdict == _GD_DENY:
-                raise TrustedLoopBlocked(
-                    TrustedLoopBlock(
-                        code=BlockCode.GOVERNANCE_DENIED,
-                        message="External governed-decision seam denied the action.",
-                        stage="governed_decision",
-                        details=(seam_decision.reason,),
+            try:
+                seam_decision = self.governance_decision_client.decide(
+                    GovernanceDecisionRequest(
+                        task_id=proposal.proposal_id,
+                        risk_tier=proposal.risk_level.value,
+                        candidate_actions=(proposal.recommended_action,),
+                        evidence_count=1 if evidence.is_complete() else 0,
+                        approved=False,  # the OS Approval lifecycle still owns approval; the seam only tightens
                     )
                 )
-            if seam_decision.verdict in (_GD_ESCALATE, _GD_VERIFY_MORE) and not proposal.approval_required:
-                proposal = replace(proposal, approval_required=True)
+            except Exception as exc:  # noqa: BLE001 - seam failures must degrade safely
+                trace.record(
+                    "governed_decision",
+                    {
+                        "verdict": _GD_VERIFY_MORE,
+                        "reason": _GOVERNANCE_DECISION_CLIENT_UNAVAILABLE,
+                        "audit_ref": f"local-fail-closed:{proposal.proposal_id}",
+                        "client_error_code": exc.__class__.__name__,
+                    },
+                )
+                if self.shell_view is not None:
+                    self.shell_view.observe(
+                        {
+                            "event": "governed_decision",
+                            "proposal_id": proposal.proposal_id,
+                            "verdict": _GD_VERIFY_MORE,
+                        }
+                    )
+                if not proposal.approval_required:
+                    proposal = replace(proposal, approval_required=True)
+            else:
+                if seam_decision.verdict not in _GOVERNANCE_DECISION_ALLOWED_VERDICTS:
+                    trace.record(
+                        "governed_decision",
+                        {
+                            "verdict": _GD_VERIFY_MORE,
+                            "reason": _GOVERNANCE_DECISION_INVALID_VERDICT,
+                            "audit_ref": f"local-invalid-verdict:{proposal.proposal_id}",
+                        },
+                    )
+                    if self.shell_view is not None:
+                        self.shell_view.observe(
+                            {
+                                "event": "governed_decision",
+                                "proposal_id": proposal.proposal_id,
+                                "verdict": _GD_VERIFY_MORE,
+                            }
+                        )
+                    if not proposal.approval_required:
+                        proposal = replace(proposal, approval_required=True)
+                else:
+                    trace.record(
+                        "governed_decision",
+                        {
+                            "verdict": seam_decision.verdict,
+                            "reason": _GOVERNANCE_DECISION_REASON_WITHHELD,
+                            "audit_ref": seam_decision.audit_ref,
+                        },
+                    )
+                    if self.shell_view is not None:
+                        self.shell_view.observe(
+                            {
+                                "event": "governed_decision",
+                                "proposal_id": proposal.proposal_id,
+                                "verdict": seam_decision.verdict,
+                            }
+                        )
+                    if seam_decision.verdict == _GD_DENY:
+                        raise TrustedLoopBlocked(
+                            TrustedLoopBlock(
+                                code=BlockCode.GOVERNANCE_DENIED,
+                                message="External governed-decision seam denied the action.",
+                                stage="governed_decision",
+                                details=(_GOVERNANCE_DECISION_REASON_WITHHELD,),
+                            )
+                        )
+                    if (
+                        seam_decision.verdict in (_GD_ESCALATE, _GD_VERIFY_MORE)
+                        and not proposal.approval_required
+                    ):
+                        proposal = replace(proposal, approval_required=True)
 
         # ====== Governance gate: propose-only vs governed execution ======
         #
