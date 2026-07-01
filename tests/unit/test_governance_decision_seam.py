@@ -366,6 +366,10 @@ class TrustedLoopSeamWire(unittest.TestCase):
         self.assertEqual(governed_payload["verdict"], ESCALATE)
         self.assertEqual(governed_payload["reason"], "governance decision reason withheld")
         self.assertEqual(governed_payload["audit_ref"], "remote-audit-ref-safe")
+        self.assertEqual(governed_payload["trace_id"], result.evidence_chain.trace_id)
+        self.assertEqual(
+            governed_payload["evidence_chain_id"], result.evidence_chain.evidence_chain_id
+        )
         trace_blob = repr(result.trace_events)
         self.assertNotIn("operator note", trace_blob)
         self.assertNotIn("raw vendor payload", trace_blob)
@@ -387,9 +391,16 @@ class TrustedLoopSeamWire(unittest.TestCase):
         governed_payload = next(
             event.payload for event in stored.events if event.step == "governed_decision"
         )
+        evidence_payload = next(
+            event.payload for event in stored.events if event.step == "evidence_chain"
+        )
         self.assertEqual(governed_payload["verdict"], DENY)
         self.assertEqual(governed_payload["reason"], "governance decision reason withheld")
         self.assertEqual(governed_payload["audit_ref"], "remote-audit-ref-safe")
+        self.assertEqual(governed_payload["trace_id"], outcome.block.trace_id)
+        self.assertEqual(
+            governed_payload["evidence_chain_id"], evidence_payload["evidence_chain_id"]
+        )
         trace_blob = repr(stored.events)
         self.assertNotIn("operator note", trace_blob)
         self.assertNotIn("raw vendor payload", trace_blob)

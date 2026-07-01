@@ -516,6 +516,8 @@ class TrustedLoopRuntime:
                         "verdict": _GD_VERIFY_MORE,
                         "reason": _GOVERNANCE_DECISION_CLIENT_UNAVAILABLE,
                         "audit_ref": f"local-fail-closed:{proposal.proposal_id}",
+                        "trace_id": trace_id,
+                        "evidence_chain_id": evidence.evidence_chain_id,
                         "client_error_code": exc.__class__.__name__,
                     },
                 )
@@ -537,6 +539,8 @@ class TrustedLoopRuntime:
                             "verdict": _GD_VERIFY_MORE,
                             "reason": _GOVERNANCE_DECISION_INVALID_VERDICT,
                             "audit_ref": f"local-invalid-verdict:{proposal.proposal_id}",
+                            "trace_id": trace_id,
+                            "evidence_chain_id": evidence.evidence_chain_id,
                         },
                     )
                     if self.shell_view is not None:
@@ -556,6 +560,8 @@ class TrustedLoopRuntime:
                             "verdict": seam_decision.verdict,
                             "reason": _GOVERNANCE_DECISION_REASON_WITHHELD,
                             "audit_ref": seam_decision.audit_ref,
+                            "trace_id": trace_id,
+                            "evidence_chain_id": evidence.evidence_chain_id,
                         },
                     )
                     if self.shell_view is not None:

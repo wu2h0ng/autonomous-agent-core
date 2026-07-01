@@ -44,6 +44,7 @@ Current active ADRs:
     Rebased onto local `main@91ae01c` and verified on 2026-07-02; not merged,
     pushed after rebase, or released.
   - Review/remediation: `ADR-0004-governed-decision-seam.REVIEW-20260702.md`
+  - Merge readiness: `ADR-0004-governed-decision-seam.MERGE-READINESS-20260702.md`
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

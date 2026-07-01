@@ -46,7 +46,8 @@ Default `None` -> the seam is skipped and the loop is unchanged.
 
 1. act only on a verified candidate; 2. high-stakes (>=R4) never auto-allowed
 -> escalate; 3. C7: a paused shell can only DENY; 4. deterministic (no LLM in
-the control path); 5. every response carries a resolving `audit_ref`. Plus
+the control path); 5. every response carries a resolving `audit_ref` and the OS
+trace binds the decision back to `trace_id` / `evidence_chain_id`. Plus
 contract-version rejection, JSON round-trip, HTTP transport/fallback behavior,
 remote response validation, unknown-verdict fail-closed behavior, safe reason
 projection, and the integration wire (DENY blocks / ALLOW+None unchanged /
@@ -56,7 +57,7 @@ ESCALATE/VERIFY_MORE force approval).
 - R0-R3 only. **R4/R5 stay proposal-only** (unchanged) - the seam can only push
   toward approval, never authorize a high-risk write.
 - The OS keeps SQL Safety, EvidenceChain, Approval, connectors. The seam adds a governance check, it does not replace any.
-- Completion gate: entry point = `TrustedLoopRuntime` governance gate; contract = `GovernanceDecisionRequest/Response`; negative path = DENY block + version/task/verdict/audit_ref reject + unknown-verdict fail-closed (tested); regression test = `test_governance_decision_seam.py` (fails if the wire is bypassed); trace/audit = safe `trace.record("governed_decision")` + shell `observe` + `audit_ref`; OS Core boundary intact (no sibling import; contract-only).
+- Completion gate: entry point = `TrustedLoopRuntime` governance gate; contract = `GovernanceDecisionRequest/Response`; negative path = DENY block + version/task/verdict/audit_ref reject + unknown-verdict fail-closed (tested); regression test = `test_governance_decision_seam.py` (fails if the wire is bypassed); trace/audit = safe `trace.record("governed_decision")` + shell `observe` + `audit_ref` + OS `trace_id` / `evidence_chain_id` anchors; OS Core boundary intact (no sibling import; contract-only).
 - Known boundary: this seam is consulted at initial proposal time. Approval-resume
   execution does not re-consult the seam in this slice; add a follow-up ADR/gate
   if a live use-case requires execution-time governance recheck.
