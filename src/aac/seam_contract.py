@@ -23,6 +23,16 @@ from .shell import CorrigibilityShell
 
 SEAM_CONTRACT_VERSION = "1.1.0"   # semver; v1.1 adds OS-supplied verification (RR-0032 "OS verifies")
 
+# Wire risk vocabulary is the string "R0".."R5" (RR-0032 cast #3; matches the OS RiskLevel). The core
+# governs with integer tiers internally, so it converts at the boundary.
+_TIER = {f"R{i}": i for i in range(6)}
+
+
+def _tier_int(risk_tier: Any) -> int:
+    if isinstance(risk_tier, int):
+        return risk_tier                       # tolerate an int for back-compat/local callers
+    return _TIER.get(str(risk_tier), 5)        # unknown -> treat as highest stakes (safe)
+
 
 @dataclass(frozen=True)
 class VerifiedCandidate:
@@ -37,7 +47,7 @@ class VerifiedCandidate:
 @dataclass(frozen=True)
 class GovernedDecisionRequest:
     task_id: str
-    risk_tier: int                     # R0..R5; shared vocabulary across the seam (RR-0032 cast #3)
+    risk_tier: str                     # "R0".."R5" wire vocabulary (RR-0032 cast #3); core converts to int
     candidate_actions: list[str]       # OS-ranked candidate action ids (the confounded prior)
     evidence_count: int = 0            # evidence already bound by the OS EvidenceChain
     approved: bool = False             # OS Approval result (for high-stakes tiers)
@@ -127,7 +137,7 @@ class SeamProducer:
             gate=self.gate, proposer=_Proposer(), verifier=self.verifier, actuator=actuator,
             shell_view=shell.view(), verify_budget=max(1, len(request.candidate_actions)),
         )
-        res = loop.run_task(TaskSpec(request.task_id, request.risk_tier, request.approved))
+        res = loop.run_task(TaskSpec(request.task_id, _tier_int(request.risk_tier), request.approved))
 
         entries = shell.audit.entries()
         audit_ref = entries[-1].entry_hash if entries else ""
@@ -155,7 +165,7 @@ class SeamProducer:
                 continue                                  # act only on VERIFIED (invariant 1)
             decision = self.gate.decide(
                 ActionRequest(
-                    action=vc.action, risk_tier=request.risk_tier, confidence=vc.confidence,
+                    action=vc.action, risk_tier=_tier_int(request.risk_tier), confidence=vc.confidence,
                     verified=True, evidence_count=vc.evidence_count, approved=request.approved,
                     action_index=i,
                 ),

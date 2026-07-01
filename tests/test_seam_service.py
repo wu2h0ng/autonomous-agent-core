@@ -7,8 +7,8 @@ import threading
 import unittest
 import urllib.request
 
-from aac.seam_service import SeamService, serve
-from aac.seam_contract import SeamProducer, GovernedDecisionRequest, to_json
+from aac.seam_service import SeamService, serve, default_producer, main
+from aac.seam_contract import SeamProducer, GovernedDecisionRequest, VerifiedCandidate, to_json
 from aac.governed_gate import GovernedDecisionGate, ALLOW, ESCALATE, DENY
 from aac.governed_loop import VerifyResult, Candidate
 from aac.self_model import AgentSelfModel
@@ -75,6 +75,41 @@ class HttpRoundTrip(unittest.TestCase):
 
 def _producer_service() -> SeamService:
     return SeamService(_producer())
+
+
+class DefaultProducerAndLaunch(unittest.TestCase):
+    """The launch entry (RR-0032 #1 local run): default_producer governs OS-verified requests with the
+    real WIRE format (string risk_tier "R0".."R5"), and main() exposes a --help entry."""
+
+    def _vreq(self, tier, verified, approved=False):
+        return GovernedDecisionRequest(
+            "t", tier, ["lever_a"], approved=approved,
+            verified_candidates=(VerifiedCandidate("lever_a", verified, 0.9 if verified else 0.0, 3 if verified else 0),))
+
+    def test_low_risk_verified_allows(self):
+        r = default_producer().handle(self._vreq("R1", True))
+        self.assertEqual(r.verdict, ALLOW)
+        self.assertEqual(r.chosen_action, "lever_a")
+        self.assertTrue(r.audit_ref)                       # resolving audit_ref (OS client requires it)
+
+    def test_high_risk_unapproved_escalates(self):
+        self.assertEqual(default_producer().handle(self._vreq("R4", True)).verdict, ESCALATE)
+
+    def test_high_risk_approved_allows(self):
+        self.assertEqual(default_producer().handle(self._vreq("R4", True, approved=True)).verdict, ALLOW)
+
+    def test_unverified_escalates(self):
+        self.assertEqual(default_producer().handle(self._vreq("R1", False)).verdict, ESCALATE)
+
+    def test_string_tier_over_the_wire(self):
+        # the OS sends risk_tier as a string "R4"; the core must convert, not TypeError (the wire fix)
+        out = json.loads(_producer_service().handle_raw(to_json(self._vreq("R4", True))))
+        self.assertEqual(out["verdict"], ESCALATE)         # high-stakes unapproved
+
+    def test_main_help_exits_zero(self):
+        with self.assertRaises(SystemExit) as cm:
+            main(["--help"])
+        self.assertEqual(cm.exception.code, 0)
 
 
 if __name__ == "__main__":

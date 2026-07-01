@@ -14,7 +14,9 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from .governed_gate import DENY
+from .governed_gate import DENY, GovernedDecisionGate
+from .governed_loop import Candidate, VerifyResult
+from .self_model import AgentSelfModel
 from .seam_contract import (
     GovernedDecisionResponse, SeamProducer, request_from_json, to_json,
 )
@@ -63,3 +65,54 @@ def serve(producer: SeamProducer, host: str = "127.0.0.1", port: int = 0) -> Thr
     """Build (but do not start) a threaded HTTP server. Caller runs ``server.serve_forever()`` (e.g. in
     a thread) and ``server.shutdown()``. port=0 -> an OS-assigned free port (read server.server_address)."""
     return ThreadingHTTPServer((host, port), make_handler(SeamService(producer)))
+
+
+class _RejectingVerifier:
+    """v1.1 services GOVERN OS-supplied verification. A v1.0 request (no verified_candidates) carries no
+    OS verification, so this safe default rejects it -> the loop escalates (never auto-allow unverified)."""
+
+    def verify(self, cand: Candidate) -> VerifyResult:
+        return VerifyResult(False, 0.0, 0, 1)
+
+
+def default_producer() -> SeamProducer:
+    """A reference SeamProducer with a default governance config (RR-0032 "OS verifies -> core governs").
+    Production configures the AgentSelfModel (tool allow/deny, tier thresholds) per tenant/policy."""
+    self_model = AgentSelfModel(
+        allowed_tools=frozenset(), denied_tools=frozenset(), risk_ceiling=5,
+        approval_required_at_or_above=4,             # R4/R5 require approval
+        evidence_requirements={},
+        confidence_thresholds={0: 0.0, 1: 0.2, 2: 0.3, 3: 0.5, 4: 0.7, 5: 0.8},
+    )
+    return SeamProducer(GovernedDecisionGate(self_model), _RejectingVerifier())
+
+
+def main(argv: Any = None) -> int:
+    """Launch entry: ``python -m aac.seam_service --host 127.0.0.1 --port 8900`` (RR-0032 #1 local run).
+
+    Runs the reference seam service as a local process. No server/infra needed — the OS side connects
+    with RemoteGovernanceDecisionClient(http_transport("http://<host>:<port>/decide")). Production
+    swaps default_producer() for a tenant-configured producer + real auth."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="python -m aac.seam_service",
+                                     description="Local governed-decision seam service (POST /decide).")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8900)
+    args = parser.parse_args(argv)
+
+    server = serve(default_producer(), host=args.host, port=args.port)
+    host, port = server.server_address
+    print(f"seam service listening on http://{host}:{port}/decide  (Ctrl-C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nshutting down")
+    finally:
+        server.shutdown()
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
