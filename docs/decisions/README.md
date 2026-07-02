@@ -258,7 +258,12 @@ Current active ADRs:
     `review_priority` and `recommended_review_action` fields derived from safe
     `quality_status`. Branch-local `make ci` plus PostgreSQL `ci-local-full`
     passed with 585 primary unittest tests OK / 4 skipped plus 12 eval OK.
-    Not merged, pushed, or released.
+    Later locally merged to deployment `main@816cb3e`; not pushed or released.
+- `P1-22-knowledge-quality-review-priority.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-22 after founder/CTO-authorized
+    ff-only merge to `main@816cb3e`; `make ci` and PostgreSQL
+    `ci-local-full` passed with 585 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
