@@ -245,8 +245,13 @@ Current active ADRs:
     `unused|proposal_only|outcome_observed|adoption_observed`, explicit 400 on
     invalid filters, and `quality_status_filter` echo in the response.
     Branch-local `make ci` plus PostgreSQL `ci-local-full` passed with 585
-    primary unittest tests OK / 4 skipped plus 12 eval OK. Not merged, pushed,
-    or released.
+    primary unittest tests OK / 4 skipped plus 12 eval OK. Later locally merged
+    to deployment `main@4dda317`; not pushed or released.
+- `P1-21-knowledge-quality-filter.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-21 after founder/CTO-authorized
+    ff-only merge to `main@4dda317`; `make ci` and PostgreSQL
+    `ci-local-full` passed with 585 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
