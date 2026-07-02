@@ -321,6 +321,48 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_detail_is_read_only_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        asset_id = client.get("/knowledge/review-queue", headers=headers).json()["items"][0][
+            "asset_id"
+        ]
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+
+        detail_resp = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
+
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        payload = detail_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["source_trace_id"], trace_id)
+        self.assertEqual(payload["state"], "active")
+        self.assertEqual(payload["knowledge_version"], 2)
+        self.assertTrue(payload["has_source_trace"])
+        self.assertNotIn("events", payload)
+
+        repeat_resp = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
+        self.assertEqual(repeat_resp.status_code, 200, repeat_resp.text)
+        self.assertEqual(repeat_resp.json()["knowledge_version"], 2)
+
+        missing_resp = client.get("/knowledge/assets/knowledge-missing", headers=headers)
+        self.assertEqual(missing_resp.status_code, 404, missing_resp.text)
+        self.assertEqual(missing_resp.json()["detail"]["code"], "KNOWLEDGE_ASSET_NOT_FOUND")
+
+        external_resp = client.get(
+            f"/knowledge/assets/{asset_id}",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_internal_knowledge_deprecate_requires_reviewed_asset(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

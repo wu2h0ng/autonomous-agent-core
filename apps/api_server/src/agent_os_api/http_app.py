@@ -46,6 +46,7 @@ from .outcome_service import (
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
     knowledge_asset_catalog_service,
+    knowledge_asset_detail_service,
     knowledge_deprecate_service,
     knowledge_publish_service,
     knowledge_review_action_service,
@@ -607,6 +608,11 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     catalog_state: str
     count: int
     items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
+
+
+class KnowledgeAssetDetailResponse(KnowledgeAssetCatalogItem):
+    status: str
+    has_source_trace: bool
 
 
 class KnowledgeReviewActionRequest(BaseModel):
@@ -1364,6 +1370,23 @@ def create_app(
                 detail={
                     "code": "KNOWLEDGE_CATALOG_INVALID_REQUEST",
                     "message": str(exc),
+                },
+            ) from exc
+
+    @app.get("/knowledge/assets/{asset_id}", response_model=KnowledgeAssetDetailResponse)
+    def get_knowledge_asset_detail(
+        asset_id: str,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_asset_detail_service(app.state.runtime, asset_id=asset_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_FOUND",
+                    "message": "KnowledgeAsset was not found.",
+                    "asset_id": asset_id,
                 },
             ) from exc
 

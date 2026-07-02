@@ -1141,6 +1141,43 @@ def knowledge_asset_catalog_service(
     }
 
 
+def knowledge_asset_detail_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+) -> dict[str, Any]:
+    """Return safe, read-only metadata for a single KnowledgeAsset."""
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    source_trace_id = target.source_trace_id
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+    return {
+        "status": "ok",
+        "asset_id": target.asset_id,
+        "title": target.title,
+        "asset_type": target.asset_type,
+        "source_trace_id": source_trace_id,
+        "owner": target.owner,
+        "state": target.state.value,
+        "outcome": target.outcome,
+        "result_weight": target.result_weight,
+        "knowledge_version": (
+            runtime.knowledge_store.version_of(source_trace_id)
+            if source_trace_id is not None
+            else 0
+        ),
+        "has_source_trace": persisted_trace is not None,
+    }
+
+
 def knowledge_review_action_service(
     runtime: Any,
     *,

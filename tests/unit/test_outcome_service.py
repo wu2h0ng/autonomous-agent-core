@@ -868,6 +868,54 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             outcome_service.knowledge_asset_catalog_service(runtime, lifecycle_state="external")
 
 
+class KnowledgeAssetDetailServiceTest(unittest.TestCase):
+    def test_returns_single_asset_detail_without_mutating_store(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV asset detail", parameters=RUN_PARAMS)
+        trace_id = run["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        before_version = runtime.knowledge_store.version_of(trace_id)
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_detail_service"),
+            "knowledge_asset_detail_service is required for internal asset drill-down",
+        )
+        detail = outcome_service.knowledge_asset_detail_service(
+            runtime,
+            asset_id=asset.asset_id,
+        )
+
+        self.assertEqual(detail["status"], "ok")
+        self.assertEqual(detail["asset_id"], asset.asset_id)
+        self.assertEqual(detail["title"], asset.title)
+        self.assertEqual(detail["asset_type"], asset.asset_type)
+        self.assertEqual(detail["source_trace_id"], trace_id)
+        self.assertEqual(detail["owner"], asset.owner)
+        self.assertEqual(detail["state"], "active")
+        self.assertEqual(detail["knowledge_version"], before_version)
+        self.assertTrue(detail["has_source_trace"])
+        self.assertNotIn("events", detail)
+        self.assertNotIn("reason", detail)
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), before_version)
+
+    def test_unknown_asset_detail_raises_key_error(self) -> None:
+        runtime = _build_runtime()
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_detail_service"),
+            "knowledge_asset_detail_service is required for internal asset drill-down",
+        )
+        with self.assertRaises(KeyError):
+            outcome_service.knowledge_asset_detail_service(runtime, asset_id="knowledge-missing")
+
+
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:
         runtime = _build_runtime()

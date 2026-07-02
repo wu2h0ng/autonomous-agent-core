@@ -668,6 +668,81 @@
         "title": "KnowledgeAssetCatalogResponse",
         "type": "object"
       },
+      "KnowledgeAssetDetailResponse": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "has_source_trace": {
+            "title": "Has Source Trace",
+            "type": "boolean"
+          },
+          "knowledge_version": {
+            "title": "Knowledge Version",
+            "type": "integer"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "result_weight": {
+            "title": "Result Weight",
+            "type": "number"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "asset_type",
+          "owner",
+          "state",
+          "result_weight",
+          "knowledge_version",
+          "status",
+          "has_source_trace"
+        ],
+        "title": "KnowledgeAssetDetailResponse",
+        "type": "object"
+      },
       "KnowledgePublishRequest": {
         "properties": {
           "reason": {
@@ -2628,6 +2703,61 @@
           }
         },
         "summary": "Get Knowledge Assets"
+      }
+    },
+    "/knowledge/assets/{asset_id}": {
+      "get": {
+        "operationId": "get_knowledge_asset_detail_knowledge_assets__asset_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeAssetDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Knowledge Asset Detail"
       }
     },
     "/knowledge/assets/{asset_id}/deprecate": {
