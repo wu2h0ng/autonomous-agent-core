@@ -1240,6 +1240,104 @@ class KnowledgeAssetDecisionQualityServiceTest(unittest.TestCase):
             )
 
 
+class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
+    def test_returns_safe_quality_catalog_without_mutation(self) -> None:
+        runtime = _build_runtime()
+        first = run_service(runtime, question="GMV quality catalog", parameters=RUN_PARAMS)
+        unused = run_service(runtime, question="GMV quality catalog unused", parameters=RUN_PARAMS)
+        active_asset = runtime.knowledge_store.get_by_trace(first["trace_id"])
+        unused_asset = runtime.knowledge_store.get_by_trace(unused["trace_id"])
+        self.assertIsNotNone(active_asset)
+        self.assertIsNotNone(unused_asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=active_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        outcome_run = run_service(runtime, question="GMV quality catalog", parameters=RUN_PARAMS)
+        stored_trace = runtime.trace_store.get(outcome_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=outcome_run["trace_id"],
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [active_asset.asset_id],
+                            "metric_deltas": {"secret_token": "do-not-leak"},
+                            "reason": "do-not-project",
+                        },
+                    ),
+                ),
+            )
+        )
+        before_versions = {
+            first["trace_id"]: runtime.knowledge_store.version_of(first["trace_id"]),
+            unused["trace_id"]: runtime.knowledge_store.version_of(unused["trace_id"]),
+        }
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_quality_summary_service"),
+            "knowledge_asset_quality_summary_service is required for the internal quality catalog",
+        )
+        result = outcome_service.knowledge_asset_quality_summary_service(runtime)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["count"], 3)
+        items = {item["asset_id"]: item for item in result["items"]}
+        self.assertTrue({active_asset.asset_id, unused_asset.asset_id}.issubset(set(items)))
+        active_item = items[active_asset.asset_id]
+        self.assertEqual(active_item["source_trace_id"], first["trace_id"])
+        self.assertEqual(active_item["state"], "active")
+        self.assertEqual(active_item["proposal_usage_count"], 1)
+        self.assertEqual(active_item["correction_usage_count"], 1)
+        self.assertEqual(active_item["outcome_correction_count"], 1)
+        self.assertEqual(active_item["adoption_correction_count"], 0)
+        self.assertEqual(active_item["distinct_usage_trace_count"], 1)
+        self.assertEqual(active_item["quality_status"], "outcome_observed")
+        unused_item = items[unused_asset.asset_id]
+        self.assertEqual(unused_item["source_trace_id"], unused["trace_id"])
+        self.assertEqual(unused_item["state"], "draft")
+        self.assertEqual(unused_item["proposal_usage_count"], 0)
+        self.assertEqual(unused_item["correction_usage_count"], 0)
+        self.assertEqual(unused_item["quality_status"], "unused")
+        rendered = str(result)
+        self.assertNotIn("title", rendered)
+        self.assertNotIn("content", rendered)
+        self.assertNotIn("related_knowledge", rendered)
+        self.assertNotIn("metric_deltas", rendered)
+        self.assertNotIn("reason", rendered)
+        self.assertNotIn("secret_token", rendered)
+        for item in result["items"]:
+            self.assertLessEqual(
+                set(item),
+                {
+                    "asset_id",
+                    "source_trace_id",
+                    "state",
+                    "proposal_usage_count",
+                    "correction_usage_count",
+                    "outcome_correction_count",
+                    "adoption_correction_count",
+                    "distinct_usage_trace_count",
+                    "quality_status",
+                },
+            )
+        self.assertEqual(
+            runtime.knowledge_store.version_of(first["trace_id"]),
+            before_versions[first["trace_id"]],
+        )
+        self.assertEqual(
+            runtime.knowledge_store.version_of(unused["trace_id"]),
+            before_versions[unused["trace_id"]],
+        )
+
+
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:
         runtime = _build_runtime()

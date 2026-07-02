@@ -50,6 +50,7 @@ from .outcome_service import (
     knowledge_asset_decision_quality_service,
     knowledge_asset_detail_service,
     knowledge_asset_lifecycle_events_service,
+    knowledge_asset_quality_summary_service,
     knowledge_asset_usage_events_service,
     knowledge_deprecate_service,
     knowledge_publish_service,
@@ -673,6 +674,29 @@ class KnowledgeAssetDecisionQualityResponse(BaseModel):
     adoption_correction_count: int
     distinct_usage_trace_count: int
     usage_trace_ids: list[str] = Field(default_factory=list)
+
+
+class KnowledgeAssetQualitySummaryItem(BaseModel):
+    asset_id: str
+    source_trace_id: str | None = None
+    state: str
+    proposal_usage_count: int
+    correction_usage_count: int
+    outcome_correction_count: int
+    adoption_correction_count: int
+    distinct_usage_trace_count: int
+    quality_status: Literal[
+        "unused",
+        "proposal_only",
+        "outcome_observed",
+        "adoption_observed",
+    ]
+
+
+class KnowledgeAssetQualitySummaryResponse(BaseModel):
+    status: str
+    count: int
+    items: list[KnowledgeAssetQualitySummaryItem]
 
 
 class KnowledgeReviewActionRequest(BaseModel):
@@ -1434,6 +1458,15 @@ def create_app(
                     "message": str(exc),
                 },
             ) from exc
+
+    @app.get(
+        "/knowledge/assets/quality-summary",
+        response_model=KnowledgeAssetQualitySummaryResponse,
+    )
+    def get_knowledge_asset_quality_summary(
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        return knowledge_asset_quality_summary_service(app.state.runtime)
 
     @app.get("/knowledge/assets/{asset_id}", response_model=KnowledgeAssetDetailResponse)
     def get_knowledge_asset_detail(

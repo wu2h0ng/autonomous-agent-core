@@ -50,6 +50,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/agent-runtime/runs/{runtime_run_id}/resume",
                 "/approvals/{approval_id}/execute",
                 "/knowledge/assets",
+                "/knowledge/assets/quality-summary",
                 "/knowledge/assets/{asset_id}",
                 "/knowledge/assets/{asset_id}/decision-quality",
                 "/knowledge/assets/{asset_id}/deprecate",
@@ -185,6 +186,39 @@ class OpenApiContractTest(unittest.TestCase):
         rendered_schema = json.dumps(item_schema)
         self.assertNotIn("related_knowledge", rendered_schema)
         self.assertNotIn("metric_deltas", rendered_schema)
+
+    def test_knowledge_asset_quality_summary_contract_is_declared(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        summary = spec["paths"]["/knowledge/assets/quality-summary"]["get"]
+        self.assertEqual(
+            summary["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/KnowledgeAssetQualitySummaryResponse"},
+        )
+        response_schema = spec["components"]["schemas"]["KnowledgeAssetQualitySummaryResponse"]
+        self.assertGreaterEqual(set(response_schema["required"]), {"status", "count", "items"})
+        item_ref = response_schema["properties"]["items"]["items"]
+        self.assertEqual(
+            item_ref, {"$ref": "#/components/schemas/KnowledgeAssetQualitySummaryItem"}
+        )
+        item_schema = spec["components"]["schemas"]["KnowledgeAssetQualitySummaryItem"]
+        self.assertEqual(
+            set(item_schema["required"]),
+            {
+                "asset_id",
+                "state",
+                "proposal_usage_count",
+                "correction_usage_count",
+                "outcome_correction_count",
+                "adoption_correction_count",
+                "distinct_usage_trace_count",
+                "quality_status",
+            },
+        )
+        self.assertNotIn("title", item_schema["properties"])
+        self.assertNotIn("content", item_schema["properties"])
+        self.assertNotIn("related_knowledge", item_schema["properties"])
+        self.assertNotIn("usage_trace_ids", item_schema["properties"])
+        self.assertNotIn("metric_deltas", item_schema["properties"])
 
     def test_knowledge_asset_decision_quality_contract_is_declared(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))

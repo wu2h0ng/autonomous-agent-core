@@ -927,6 +927,97 @@
         "title": "KnowledgeAssetLifecycleEventsResponse",
         "type": "object"
       },
+      "KnowledgeAssetQualitySummaryItem": {
+        "properties": {
+          "adoption_correction_count": {
+            "title": "Adoption Correction Count",
+            "type": "integer"
+          },
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "correction_usage_count": {
+            "title": "Correction Usage Count",
+            "type": "integer"
+          },
+          "distinct_usage_trace_count": {
+            "title": "Distinct Usage Trace Count",
+            "type": "integer"
+          },
+          "outcome_correction_count": {
+            "title": "Outcome Correction Count",
+            "type": "integer"
+          },
+          "proposal_usage_count": {
+            "title": "Proposal Usage Count",
+            "type": "integer"
+          },
+          "quality_status": {
+            "enum": [
+              "unused",
+              "proposal_only",
+              "outcome_observed",
+              "adoption_observed"
+            ],
+            "title": "Quality Status",
+            "type": "string"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "state",
+          "proposal_usage_count",
+          "correction_usage_count",
+          "outcome_correction_count",
+          "adoption_correction_count",
+          "distinct_usage_trace_count",
+          "quality_status"
+        ],
+        "title": "KnowledgeAssetQualitySummaryItem",
+        "type": "object"
+      },
+      "KnowledgeAssetQualitySummaryResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeAssetQualitySummaryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "count",
+          "items"
+        ],
+        "title": "KnowledgeAssetQualitySummaryResponse",
+        "type": "object"
+      },
       "KnowledgeAssetUsageEventItem": {
         "properties": {
           "asset_id": {
@@ -2989,6 +3080,52 @@
           }
         },
         "summary": "Get Knowledge Assets"
+      }
+    },
+    "/knowledge/assets/quality-summary": {
+      "get": {
+        "operationId": "get_knowledge_asset_quality_summary_knowledge_assets_quality_summary_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeAssetQualitySummaryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Knowledge Asset Quality Summary"
       }
     },
     "/knowledge/assets/{asset_id}": {

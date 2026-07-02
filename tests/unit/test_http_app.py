@@ -592,6 +592,95 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_quality_summary_is_safe_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        first = client.post(
+            "/runs",
+            json={"question": "GMV quality catalog", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        unused = client.post(
+            "/runs",
+            json={
+                "question": "GMV quality catalog unused",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(unused.status_code, 200, unused.text)
+        active_asset_id = first.json()["knowledge_asset_id"]
+        unused_asset_id = unused.json()["knowledge_asset_id"]
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{active_asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        outcome_run = client.post(
+            "/runs",
+            json={"question": "GMV quality catalog", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(outcome_run.status_code, 200, outcome_run.text)
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": outcome_run.json()["trace_id"], "outcome": "adopted"},
+            headers=headers,
+        )
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+
+        summary_resp = client.get("/knowledge/assets/quality-summary", headers=headers)
+
+        self.assertEqual(summary_resp.status_code, 200, summary_resp.text)
+        payload = summary_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["count"], 3)
+        items = {item["asset_id"]: item for item in payload["items"]}
+        self.assertTrue({active_asset_id, unused_asset_id}.issubset(set(items)))
+        self.assertEqual(items[active_asset_id]["source_trace_id"], first.json()["trace_id"])
+        self.assertEqual(items[active_asset_id]["state"], "active")
+        self.assertEqual(items[active_asset_id]["proposal_usage_count"], 1)
+        self.assertEqual(items[active_asset_id]["correction_usage_count"], 1)
+        self.assertEqual(items[active_asset_id]["outcome_correction_count"], 1)
+        self.assertEqual(items[active_asset_id]["adoption_correction_count"], 0)
+        self.assertEqual(items[active_asset_id]["distinct_usage_trace_count"], 1)
+        self.assertEqual(items[active_asset_id]["quality_status"], "outcome_observed")
+        self.assertEqual(items[unused_asset_id]["source_trace_id"], unused.json()["trace_id"])
+        self.assertEqual(items[unused_asset_id]["state"], "draft")
+        self.assertEqual(items[unused_asset_id]["proposal_usage_count"], 0)
+        self.assertEqual(items[unused_asset_id]["correction_usage_count"], 0)
+        self.assertEqual(items[unused_asset_id]["quality_status"], "unused")
+        rendered = str(payload)
+        self.assertNotIn("related_knowledge", rendered)
+        self.assertNotIn("metric_deltas", rendered)
+        self.assertNotIn("reason", rendered)
+        self.assertNotIn("title", rendered)
+        self.assertNotIn("content", rendered)
+        for item in payload["items"]:
+            self.assertNotIn("usage_trace_ids", item)
+            self.assertLessEqual(
+                set(item),
+                {
+                    "asset_id",
+                    "source_trace_id",
+                    "state",
+                    "proposal_usage_count",
+                    "correction_usage_count",
+                    "outcome_correction_count",
+                    "adoption_correction_count",
+                    "distinct_usage_trace_count",
+                    "quality_status",
+                },
+            )
+
+        external_resp = client.get(
+            "/knowledge/assets/quality-summary",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_internal_knowledge_deprecate_requires_reviewed_asset(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

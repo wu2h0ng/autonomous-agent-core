@@ -1398,6 +1398,42 @@ def knowledge_asset_decision_quality_service(
     }
 
 
+def _knowledge_asset_quality_status(summary: dict[str, Any]) -> str:
+    if summary["adoption_correction_count"] > 0:
+        return "adoption_observed"
+    if summary["outcome_correction_count"] > 0:
+        return "outcome_observed"
+    if summary["proposal_usage_count"] > 0:
+        return "proposal_only"
+    return "unused"
+
+
+def knowledge_asset_quality_summary_service(runtime: Any) -> dict[str, Any]:
+    """Return a safe, read-only quality catalog for all KnowledgeAssets."""
+    items: list[dict[str, Any]] = []
+    for asset in runtime.knowledge_store.all_assets():
+        quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
+        items.append(
+            {
+                "asset_id": asset.asset_id,
+                "source_trace_id": asset.source_trace_id,
+                "state": asset.state.value,
+                "proposal_usage_count": quality["proposal_usage_count"],
+                "correction_usage_count": quality["correction_usage_count"],
+                "outcome_correction_count": quality["outcome_correction_count"],
+                "adoption_correction_count": quality["adoption_correction_count"],
+                "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
+                "quality_status": _knowledge_asset_quality_status(quality),
+            }
+        )
+
+    return {
+        "status": "ok",
+        "count": len(items),
+        "items": items,
+    }
+
+
 def knowledge_review_action_service(
     runtime: Any,
     *,
