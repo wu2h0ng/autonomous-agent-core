@@ -68,9 +68,13 @@ Current active ADRs:
     ff-only merge to `main@0d4b0cb`; `make ci` and PostgreSQL `ci-local-full`
     passed. Not pushed, not released.
 - `P1-06-knowledge-review-actions.IMPLEMENTATION-20260703.md`
-  - Branch-local bounded KnowledgeAsset review action surface on
-    `codex/p1-06-knowledge-review-actions-20260703`; targeted tests pass.
-    Not merged, pushed, or released.
+  - Bounded KnowledgeAsset review action surface originally implemented on
+    `codex/p1-06-knowledge-review-actions-20260703`; locally merged to
+    deployment `main` on 2026-07-03. Not pushed or released.
+- `P1-06-knowledge-review-actions.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-06 after founder/CTO-authorized
+    ff-only merge to `main@e1986e9`; `make ci` and PostgreSQL `ci-local-full`
+    passed. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
