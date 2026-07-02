@@ -1,7 +1,7 @@
 # ADR-0003 Audit: Agent Runtime Capability Gap
 
 Date: 2026-06-26
-Status: AUDIT RECORD REFRESHED 2026-07-02 WITH ADR-0004 BRANCH-LOCAL SEAM - NOT A RELEASE CLAIM
+Status: AUDIT RECORD REFRESHED 2026-07-03 WITH ADR-0004 LOCAL-MAIN SEAM - NOT A RELEASE CLAIM
 Scope: self-developed Agent Runtime trusted substrate in the Enterprise OS deployment layer
 
 ## Purpose
@@ -15,12 +15,13 @@ This document is not a claim that the runtime is an autonomous-core
 implementation, autonomous intelligence, a workflow-engine replacement, or a
 release-ready product surface.
 
-## 2026-07-02 Refresh Boundary
+## 2026-07-03 Refresh Boundary
 
-This refresh aligns the capability audit with RR-0033 and the branch-local
-ADR-0004 governed-decision seam evidence on
-`feature/governance-decision-seam-2026-07-01`; the checked implementation code
-commit was `be0c511`, followed by merge-readiness metadata at `c6cd209`.
+This refresh aligns the capability audit with RR-0033 and the founder/CTO-
+authorized local-main ADR-0004 governed-decision seam. The seam branch
+`feature/governance-decision-seam-2026-07-01` was fast-forward merged into
+deployment local `main` at `b2225ac` on 2026-07-03, then verified with
+post-merge `make ci` and PostgreSQL `ci-local-full`.
 
 The current evidence proves a self-developed governed runtime substrate is
 materially present for selected Trusted Loop entrypoints. It does not prove the
@@ -29,7 +30,6 @@ M4 CWM/governed_loop product integration.
 
 No gate is moved by this document:
 
-- no local-main merge authorization;
 - no push or release authorization;
 - no R4/R5 automatic execution;
 - no deployed autonomous-core/CWM service wiring;
@@ -52,7 +52,7 @@ No gate is moved by this document:
 | Action proposal vs execution separation | R4/R5 non-proposal tools deny even with `approval_id`; R4/R5 proposal tools may produce proposals without executing business action. | Covered |
 | Failure-first tests and evals | Runtime policy/tools/trace/replay/sql-checkpoint/budget tests; HTTP and real Trusted Loop adapter tests; deployment local-main `make ci` and `ci-local-full` passed after the public resume merge. | Covered for implemented slices |
 | Trusted Loop / EvidenceChain / Approval / Trace real call path | Real `TrustedLoopRuntime.evaluate()` adapter test; HTTP `/runs`; approval-execute envelope; SQL Safety/EvidenceChain/Trace assertions. | Covered for `/runs` and approval execution |
-| Governed-decision seam into Trusted Loop | ADR-0004 branch-local code builds an OS-local candidate after SQL Safety/EvidenceChain, lets an injected governed-decision client only ALLOW/DENY/ESCALATE within R0-R3, preserves default `None`, and writes `governed_decision` trace events with `audit_ref`, `trace_id`, and `evidence_chain_id`. Seam suite 29 OK plus `make ci` / PostgreSQL `ci-local-full` OK on 2026-07-02. | Covered as branch-local M3 evidence; not merged, pushed, released, or M4 CWM-wired |
+| Governed-decision seam into Trusted Loop | ADR-0004 local-main code builds an OS-local candidate after SQL Safety/EvidenceChain, lets an injected governed-decision client only ALLOW/DENY/ESCALATE within R0-R3, preserves default `None`, and writes `governed_decision` trace events with `audit_ref`, `trace_id`, and `evidence_chain_id`. Seam suite 29 OK on branch; post-merge `make ci` and PostgreSQL `ci-local-full` OK on local main@b2225ac on 2026-07-03. | Covered on local main; not pushed, released, or M4 CWM-wired |
 | No external agent-framework core dependency | Import-boundary tests block LangGraph/CrewAI/LangChain/OpenAI Agents runtime imports. | Covered |
 | No cross-repo autonomous-core import | Runtime work stays inside deployment repo; autonomous-core can inform product runtime only through approved contracts, tests, and founder/CTO gates, never code imports. | Covered by boundary |
 | No automatic R4/R5 execution | Runtime and Trusted Loop tests keep R4/R5 execution fail-closed. | Covered |
@@ -110,18 +110,19 @@ reviewed as an external API shipment. The records are
 `ADR-0003-agent-runtime-public-resume-api.IMPLEMENTATION-20260627.md` and
 `ADR-0003-agent-runtime-public-resume-api.POST-MERGE-VERIFY-20260701.md`.
 
-### G3: ADR-0004 governed-decision seam is branch-local only, not merged or M4-wired
+### G3: ADR-0004 governed-decision seam is local-main only, not pushed, released, or M4-wired
 
 ADR-0004 now proves the RR-0032/M3 tighten-only seam shape on
-`feature/governance-decision-seam-2026-07-01`: default
+deployment local `main@b2225ac`: default
 `governance_decision_client=None` preserves the Trusted Loop path; remote
 responses are validated fail-closed for task/version/verdict/audit_ref; unknown
 verdicts deny; unsafe remote reasons are projected safely; and trace events bind
 the governed-decision `audit_ref` to the OS `trace_id` and `evidence_chain_id`.
 
-This is still only branch-local merge-readiness evidence. It is not a deployed
-CWM service, not a true CohortABVerifier, not a production metric/lever loop,
-not M4, and not proof of autonomous-core/G10 product validation.
+This is still only local-main product-runtime seam evidence. It is not pushed,
+not released, not a deployed CWM service, not a true CohortABVerifier, not a
+production metric/lever loop, not M4, and not proof of autonomous-core/G10
+product validation.
 
 ### G4: True wall-clock interruption and streaming cancellation are not implemented
 
