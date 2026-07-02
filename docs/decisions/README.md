@@ -46,6 +46,9 @@ Current active ADRs:
   - Review/remediation: `ADR-0004-governed-decision-seam.REVIEW-20260702.md`
   - Merge readiness: `ADR-0004-governed-decision-seam.MERGE-READINESS-20260702.md`
   - Post-merge verification: `ADR-0004-governed-decision-seam.POST-MERGE-VERIFY-20260703.md`
+- `P1-04-eval-threshold-report.IMPLEMENTATION-20260703.md`
+  - Branch-local eval threshold report surface on
+    `codex/eval-threshold-report-20260703`; not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

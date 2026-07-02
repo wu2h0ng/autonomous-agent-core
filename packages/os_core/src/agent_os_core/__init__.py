@@ -19,7 +19,13 @@ from .corrigibility import AuditEntry, AuditLog, CorrigibilityShell, ShellView
 from .data_access_plane import ProviderRegistry
 from .data_product_compiler import DataProductCompiler
 from .embedding import Embedder, HashingEmbedder
-from .eval_hub import EvalCaseOutcome, EvalThresholdReport, EvalThresholdReporter
+from .eval_hub import (
+    EvalCaseOutcome,
+    EvalThresholdReport,
+    EvalThresholdReporter,
+    outcomes_from_json,
+    thresholds_from_json,
+)
 from .agent_runtime import CheckpointStorePort, RunStateSnapshot
 from .knowledge_retrieval import (
     Candidate,
@@ -92,6 +98,7 @@ __all__ = [
     "ModelProviderAdapter",
     "OperationStateMachine",
     "OperationTraceBuilder",
+    "outcomes_from_json",
     "outcome_to_score",
     "project_asset",
     "ProviderRegistry",
@@ -103,6 +110,7 @@ __all__ = [
     "StaticQueryExecutor",
     "GroundingInvariantViolation",
     "TemplateRegistry",
+    "thresholds_from_json",
     "tokenize_content",
     "TrustedLoopBlocked",
     "TrustedLoopRuntime",

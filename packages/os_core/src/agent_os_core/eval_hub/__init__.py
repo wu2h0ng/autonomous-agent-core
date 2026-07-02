@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Mapping
 
 
@@ -28,6 +29,16 @@ class EvalDimensionResult:
     def meets_threshold(self) -> bool:
         return self.pass_rate >= self.threshold
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "passed": self.passed,
+            "total": self.total,
+            "threshold": self.threshold,
+            "pass_rate": self.pass_rate,
+            "meets_threshold": self.meets_threshold,
+        }
+
 
 @dataclass(frozen=True)
 class EvalThresholdReport:
@@ -44,6 +55,17 @@ class EvalThresholdReport:
             if dimension.name == name:
                 return dimension
         raise KeyError(name)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "case_count": self.case_count,
+            "dimensions": [dimension.to_dict() for dimension in self.dimensions],
+            "failures": list(self.failures),
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
 
 class EvalThresholdReporter:
@@ -96,9 +118,64 @@ class EvalThresholdReporter:
         )
 
 
+def outcomes_from_json(payload: str) -> tuple[EvalCaseOutcome, ...]:
+    raw = json.loads(payload)
+    if not isinstance(raw, list):
+        raise ValueError("Eval outcomes JSON must be a list.")
+
+    outcomes: list[EvalCaseOutcome] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"Eval outcome at index {index} must be an object.")
+
+        case_id = item.get("case_id")
+        checks = item.get("checks")
+        reasons = item.get("reasons", ())
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError(f"Eval outcome at index {index} requires case_id.")
+        if not isinstance(checks, dict):
+            raise ValueError(f"Eval outcome {case_id} requires checks object.")
+        if not all(
+            isinstance(name, str) and isinstance(value, bool) for name, value in checks.items()
+        ):
+            raise ValueError(f"Eval outcome {case_id} checks must map strings to booleans.")
+        if not isinstance(reasons, list | tuple) or not all(
+            isinstance(reason, str) for reason in reasons
+        ):
+            raise ValueError(f"Eval outcome {case_id} reasons must be strings.")
+
+        outcomes.append(
+            EvalCaseOutcome(
+                case_id=case_id,
+                checks=dict(checks),
+                reasons=tuple(reasons),
+            )
+        )
+
+    return tuple(outcomes)
+
+
+def thresholds_from_json(payload: str) -> dict[str, float]:
+    raw = json.loads(payload)
+    if not isinstance(raw, dict):
+        raise ValueError("Eval thresholds JSON must be an object.")
+
+    thresholds: dict[str, float] = {}
+    for name, threshold in raw.items():
+        if not isinstance(name, str):
+            raise ValueError("Eval threshold names must be strings.")
+        if isinstance(threshold, bool) or not isinstance(threshold, int | float):
+            raise ValueError(f"Eval threshold for {name} must be numeric.")
+        thresholds[name] = float(threshold)
+
+    return thresholds
+
+
 __all__ = [
     "EvalCaseOutcome",
     "EvalDimensionResult",
     "EvalThresholdReport",
     "EvalThresholdReporter",
+    "outcomes_from_json",
+    "thresholds_from_json",
 ]

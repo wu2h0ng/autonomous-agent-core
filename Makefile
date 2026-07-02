@@ -3,8 +3,10 @@
 
 PYTHON      ?= python
 PYTHONPATH   = packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src
+EVAL_THRESHOLDS_FILE ?= tests/eval/golden_thresholds.json
+EVAL_THRESHOLD_REPORT_OUT ?= .agent_runs/eval-threshold-report/golden-threshold-report.json
 
-.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval test openapi-contract ci ci-local-full
+.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval eval-threshold-report test openapi-contract ci ci-local-full
 
 bootstrap-dev:
 	$(PYTHON) -m pip install -e ".[dev,http,postgres]"
@@ -27,12 +29,15 @@ unit:
 eval:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m unittest discover -s tests/eval -p "test_*.py" -v
 
+eval-threshold-report:
+	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m tests.eval.threshold_report --thresholds-file $(EVAL_THRESHOLDS_FILE) --output $(EVAL_THRESHOLD_REPORT_OUT)
+
 test: unit eval
 
 openapi-contract:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m agent_os_api.openapi_contract --check
 
-ci: check-ci-env lint format-check unit eval openapi-contract
+ci: check-ci-env lint format-check unit eval eval-threshold-report openapi-contract
 	@echo "=== All CI checks passed ==="
 
 ci-local-full: check-dev-env ci
