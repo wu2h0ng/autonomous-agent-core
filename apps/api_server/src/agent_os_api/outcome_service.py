@@ -615,6 +615,9 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
     metric = evidence.metric_contract
     audience = _normalize_report_audience(audience)
     redaction = _redaction_summary(metric, audience)
+    knowledge_context_refs = (
+        [] if audience == "external" else list(getattr(proposal, "knowledge_context_refs", ()))
+    )
     hide_columns = _redacts(redaction, "columns")
     hide_preview_rows = _redacts(redaction, "preview_rows")
     hide_chart_fields = _redacts(redaction, "chart_fields")
@@ -742,6 +745,7 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
             "approver_role": proposal.approver_role,
             "action_proposal_id": proposal.proposal_id,
             "confidence": evidence.confidence,
+            "knowledge_context_refs": knowledge_context_refs,
         },
         "business_action": {
             "connector_name": proposal.connector_name,

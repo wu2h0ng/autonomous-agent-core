@@ -2004,6 +2004,13 @@
             "title": "Expected Impact",
             "type": "string"
           },
+          "knowledge_context_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Context Refs",
+            "type": "array"
+          },
           "reason": {
             "title": "Reason",
             "type": "string"

@@ -1845,6 +1845,21 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
         self.assertTrue(related, "run should recall reviewed prior knowledge")
         self.assertIn(first.json()["knowledge_asset_id"], [r["asset_id"] for r in related])
         self.assertIn("score", related[0])
+        self.assertEqual(
+            third.json()["user_result"]["decision"].get("knowledge_context_refs"),
+            [first.json()["knowledge_asset_id"]],
+        )
+
+        external = client.post(
+            "/runs",
+            json={**RUN_BODY, "audience": "external"},
+            headers=headers,
+        )
+        self.assertEqual(external.status_code, 200, external.text)
+        self.assertEqual(
+            external.json()["user_result"]["decision"].get("knowledge_context_refs"),
+            [],
+        )
 
 
 if __name__ == "__main__":

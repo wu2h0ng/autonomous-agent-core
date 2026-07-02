@@ -394,6 +394,7 @@ class UserResultDecision(BaseModel):
     approver_role: str | None = None
     action_proposal_id: str
     confidence: float
+    knowledge_context_refs: list[str] = Field(default_factory=list)
 
 
 class UserResultBusinessAction(BaseModel):
