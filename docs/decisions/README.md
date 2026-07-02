@@ -160,6 +160,15 @@ Current active ADRs:
     ff-only merge to `main@ec46dc0`; `make ci` and PostgreSQL `ci-local-full`
     passed with 566 primary unittest tests OK / 4 skipped plus 12 eval OK.
     Not pushed, not released.
+- `P1-15-knowledge-asset-lifecycle-events.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of an internal read-only `GET
+    /knowledge/assets/{asset_id}/lifecycle-events` audit surface over existing
+    KnowledgeAsset lifecycle decision events. It projects only allowlisted
+    review/publish/deprecate fields, omits raw reasons and full trace payloads,
+    denies `external_report`, does not mutate lifecycle/version/feedback/adoption
+    state, and branch-local `make ci` plus PostgreSQL `ci-local-full` passed with
+    569 primary unittest tests OK / 4 skipped plus 12 eval OK. Not merged,
+    pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

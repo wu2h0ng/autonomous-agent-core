@@ -1178,6 +1178,70 @@ def knowledge_asset_detail_service(
     }
 
 
+def knowledge_asset_lifecycle_events_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+) -> dict[str, Any]:
+    """Return safe, read-only lifecycle audit events for a KnowledgeAsset."""
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    source_trace_id = target.source_trace_id
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+    if persisted_trace is None:
+        return {
+            "status": "ok",
+            "asset_id": target.asset_id,
+            "source_trace_id": source_trace_id,
+            "has_source_trace": False,
+            "count": 0,
+            "events": [],
+        }
+
+    lifecycle_steps = {
+        "knowledge_review_decision",
+        "knowledge_publish_decision",
+        "knowledge_deprecate_decision",
+    }
+    projected_events: list[dict[str, Any]] = []
+    for event in persisted_trace.events:
+        if event.step not in lifecycle_steps:
+            continue
+        payload = event.payload
+        if payload.get("asset_id") != target.asset_id:
+            continue
+        projected_events.append(
+            {
+                "trace_id": event.trace_id,
+                "step": event.step,
+                "asset_id": payload.get("asset_id"),
+                "action": payload.get("action"),
+                "previous_state": payload.get("previous_state"),
+                "state": payload.get("state"),
+                "reviewer": payload.get("reviewer"),
+                "knowledge_version": payload.get("knowledge_version"),
+                "reason_present": bool(payload.get("reason_present")),
+            }
+        )
+
+    return {
+        "status": "ok",
+        "asset_id": target.asset_id,
+        "source_trace_id": source_trace_id,
+        "has_source_trace": True,
+        "count": len(projected_events),
+        "events": projected_events,
+    }
+
+
 def knowledge_review_action_service(
     runtime: Any,
     *,

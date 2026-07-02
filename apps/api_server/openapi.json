@@ -743,6 +743,122 @@
         "title": "KnowledgeAssetDetailResponse",
         "type": "object"
       },
+      "KnowledgeAssetLifecycleEvent": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "knowledge_version": {
+            "title": "Knowledge Version",
+            "type": "integer"
+          },
+          "previous_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous State"
+          },
+          "reason_present": {
+            "title": "Reason Present",
+            "type": "boolean"
+          },
+          "reviewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "knowledge_review_decision",
+              "knowledge_publish_decision",
+              "knowledge_deprecate_decision"
+            ],
+            "title": "Step",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "step",
+          "asset_id",
+          "action",
+          "state",
+          "knowledge_version",
+          "reason_present"
+        ],
+        "title": "KnowledgeAssetLifecycleEvent",
+        "type": "object"
+      },
+      "KnowledgeAssetLifecycleEventsResponse": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeAssetLifecycleEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "has_source_trace": {
+            "title": "Has Source Trace",
+            "type": "boolean"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "asset_id",
+          "has_source_trace",
+          "count"
+        ],
+        "title": "KnowledgeAssetLifecycleEventsResponse",
+        "type": "object"
+      },
       "KnowledgePublishRequest": {
         "properties": {
           "reason": {
@@ -2823,6 +2939,61 @@
           }
         },
         "summary": "Post Knowledge Deprecate"
+      }
+    },
+    "/knowledge/assets/{asset_id}/lifecycle-events": {
+      "get": {
+        "operationId": "get_knowledge_asset_lifecycle_events_knowledge_assets__asset_id__lifecycle_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeAssetLifecycleEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Knowledge Asset Lifecycle Events"
       }
     },
     "/knowledge/assets/{asset_id}/publish": {

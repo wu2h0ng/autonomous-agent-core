@@ -916,6 +916,101 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
             outcome_service.knowledge_asset_detail_service(runtime, asset_id="knowledge-missing")
 
 
+class KnowledgeAssetLifecycleEventsServiceTest(unittest.TestCase):
+    def test_returns_safe_lifecycle_events_without_raw_reasons_or_mutation(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV lifecycle history", parameters=RUN_PARAMS)
+        trace_id = run["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=asset.asset_id,
+            action="approve",
+            reviewer="founder",
+            reason="contains sensitive review rationale",
+        )
+        knowledge_publish_service(
+            runtime,
+            asset_id=asset.asset_id,
+            reviewer="founder",
+            reason="contains sensitive publish rationale",
+        )
+        outcome_service.knowledge_deprecate_service(
+            runtime,
+            asset_id=asset.asset_id,
+            reviewer="founder",
+            reason="contains sensitive deprecate rationale",
+        )
+        before_version = runtime.knowledge_store.version_of(trace_id)
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_lifecycle_events_service"),
+            "knowledge_asset_lifecycle_events_service is required for internal audit drill-down",
+        )
+        result = outcome_service.knowledge_asset_lifecycle_events_service(
+            runtime,
+            asset_id=asset.asset_id,
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["asset_id"], asset.asset_id)
+        self.assertEqual(result["source_trace_id"], trace_id)
+        self.assertTrue(result["has_source_trace"])
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(
+            [event["step"] for event in result["events"]],
+            [
+                "knowledge_review_decision",
+                "knowledge_publish_decision",
+                "knowledge_deprecate_decision",
+            ],
+        )
+        self.assertEqual(
+            [event["state"] for event in result["events"]],
+            ["active", "published", "deprecated"],
+        )
+        self.assertEqual(
+            [event["knowledge_version"] for event in result["events"]],
+            [2, 3, 4],
+        )
+        for event in result["events"]:
+            self.assertEqual(event["asset_id"], asset.asset_id)
+            self.assertEqual(event["trace_id"], trace_id)
+            self.assertEqual(event["reviewer"], "founder")
+            self.assertTrue(event["reason_present"])
+            self.assertNotIn("reason", event)
+            self.assertNotIn("contains sensitive", str(event))
+            self.assertLessEqual(
+                set(event),
+                {
+                    "trace_id",
+                    "step",
+                    "asset_id",
+                    "action",
+                    "previous_state",
+                    "state",
+                    "reviewer",
+                    "knowledge_version",
+                    "reason_present",
+                },
+            )
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), before_version)
+
+    def test_unknown_asset_lifecycle_events_raise_key_error(self) -> None:
+        runtime = _build_runtime()
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_lifecycle_events_service"),
+            "knowledge_asset_lifecycle_events_service is required for internal audit drill-down",
+        )
+        with self.assertRaises(KeyError):
+            outcome_service.knowledge_asset_lifecycle_events_service(
+                runtime,
+                asset_id="knowledge-missing",
+            )
+
+
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:
         runtime = _build_runtime()

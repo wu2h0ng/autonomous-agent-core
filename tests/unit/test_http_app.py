@@ -363,6 +363,82 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_lifecycle_events_are_safe_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        asset_id = client.get("/knowledge/review-queue", headers=headers).json()["items"][0][
+            "asset_id"
+        ]
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "sensitive review rationale",
+            },
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        publish_resp = client.post(
+            f"/knowledge/assets/{asset_id}/publish",
+            json={"reviewer": "founder", "reason": "sensitive publish rationale"},
+            headers=headers,
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        deprecate_resp = client.post(
+            f"/knowledge/assets/{asset_id}/deprecate",
+            json={"reviewer": "founder", "reason": "sensitive deprecate rationale"},
+            headers=headers,
+        )
+        self.assertEqual(deprecate_resp.status_code, 200, deprecate_resp.text)
+
+        events_resp = client.get(
+            f"/knowledge/assets/{asset_id}/lifecycle-events",
+            headers=headers,
+        )
+
+        self.assertEqual(events_resp.status_code, 200, events_resp.text)
+        payload = events_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["source_trace_id"], trace_id)
+        self.assertTrue(payload["has_source_trace"])
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(
+            [event["step"] for event in payload["events"]],
+            [
+                "knowledge_review_decision",
+                "knowledge_publish_decision",
+                "knowledge_deprecate_decision",
+            ],
+        )
+        for event in payload["events"]:
+            self.assertEqual(event["asset_id"], asset_id)
+            self.assertEqual(event["trace_id"], trace_id)
+            self.assertTrue(event["reason_present"])
+            self.assertNotIn("reason", event)
+            self.assertNotIn("sensitive", str(event))
+
+        repeat_detail = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
+        self.assertEqual(repeat_detail.status_code, 200, repeat_detail.text)
+        self.assertEqual(repeat_detail.json()["knowledge_version"], 4)
+
+        missing_resp = client.get(
+            "/knowledge/assets/knowledge-missing/lifecycle-events",
+            headers=headers,
+        )
+        self.assertEqual(missing_resp.status_code, 404, missing_resp.text)
+        self.assertEqual(missing_resp.json()["detail"]["code"], "KNOWLEDGE_ASSET_NOT_FOUND")
+
+        external_resp = client.get(
+            f"/knowledge/assets/{asset_id}/lifecycle-events",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_internal_knowledge_deprecate_requires_reviewed_asset(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

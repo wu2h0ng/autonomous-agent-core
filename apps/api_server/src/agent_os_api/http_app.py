@@ -47,6 +47,7 @@ from .outcome_service import (
     approval_execution_response_payload,
     knowledge_asset_catalog_service,
     knowledge_asset_detail_service,
+    knowledge_asset_lifecycle_events_service,
     knowledge_deprecate_service,
     knowledge_publish_service,
     knowledge_review_action_service,
@@ -613,6 +614,31 @@ class KnowledgeAssetCatalogResponse(BaseModel):
 class KnowledgeAssetDetailResponse(KnowledgeAssetCatalogItem):
     status: str
     has_source_trace: bool
+
+
+class KnowledgeAssetLifecycleEvent(BaseModel):
+    trace_id: str
+    step: Literal[
+        "knowledge_review_decision",
+        "knowledge_publish_decision",
+        "knowledge_deprecate_decision",
+    ]
+    asset_id: str
+    action: str
+    previous_state: str | None = None
+    state: str
+    reviewer: str | None = None
+    knowledge_version: int
+    reason_present: bool
+
+
+class KnowledgeAssetLifecycleEventsResponse(BaseModel):
+    status: str
+    asset_id: str
+    source_trace_id: str | None = None
+    has_source_trace: bool
+    count: int
+    events: list[KnowledgeAssetLifecycleEvent] = Field(default_factory=list)
 
 
 class KnowledgeReviewActionRequest(BaseModel):
@@ -1380,6 +1406,29 @@ def create_app(
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_detail_service(app.state.runtime, asset_id=asset_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_FOUND",
+                    "message": "KnowledgeAsset was not found.",
+                    "asset_id": asset_id,
+                },
+            ) from exc
+
+    @app.get(
+        "/knowledge/assets/{asset_id}/lifecycle-events",
+        response_model=KnowledgeAssetLifecycleEventsResponse,
+    )
+    def get_knowledge_asset_lifecycle_events(
+        asset_id: str,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_asset_lifecycle_events_service(
+                app.state.runtime,
+                asset_id=asset_id,
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,

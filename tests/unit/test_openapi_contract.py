@@ -52,6 +52,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/knowledge/assets",
                 "/knowledge/assets/{asset_id}",
                 "/knowledge/assets/{asset_id}/deprecate",
+                "/knowledge/assets/{asset_id}/lifecycle-events",
                 "/knowledge/assets/{asset_id}/publish",
                 "/knowledge/review-queue",
                 "/knowledge/review-queue/{asset_id}/decision",
