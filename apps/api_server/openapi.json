@@ -573,6 +573,101 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "KnowledgeAssetCatalogItem": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "knowledge_version": {
+            "title": "Knowledge Version",
+            "type": "integer"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "result_weight": {
+            "title": "Result Weight",
+            "type": "number"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "asset_type",
+          "owner",
+          "state",
+          "result_weight",
+          "knowledge_version"
+        ],
+        "title": "KnowledgeAssetCatalogItem",
+        "type": "object"
+      },
+      "KnowledgeAssetCatalogResponse": {
+        "properties": {
+          "catalog_state": {
+            "title": "Catalog State",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeAssetCatalogItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "catalog_state",
+          "count"
+        ],
+        "title": "KnowledgeAssetCatalogResponse",
+        "type": "object"
+      },
       "KnowledgePublishRequest": {
         "properties": {
           "reason": {
@@ -2469,6 +2564,70 @@
           }
         },
         "summary": "Post Approval Execute"
+      }
+    },
+    "/knowledge/assets": {
+      "get": {
+        "operationId": "get_knowledge_assets_knowledge_assets_get",
+        "parameters": [
+          {
+            "description": "lifecycle filter: draft|active|published|deprecated|all",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "lifecycle filter: draft|active|published|deprecated|all",
+              "title": "State"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeAssetCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Knowledge Assets"
       }
     },
     "/knowledge/assets/{asset_id}/publish": {

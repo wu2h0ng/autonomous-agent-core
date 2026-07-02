@@ -45,6 +45,7 @@ from .outcome_service import (
     _persist_agent_runtime_appended_trace,
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
+    knowledge_asset_catalog_service,
     knowledge_publish_service,
     knowledge_review_action_service,
     knowledge_review_queue_service,
@@ -586,6 +587,25 @@ class KnowledgeReviewQueueResponse(BaseModel):
     review_state: str
     count: int
     items: list[KnowledgeReviewQueueItem] = Field(default_factory=list)
+
+
+class KnowledgeAssetCatalogItem(BaseModel):
+    asset_id: str
+    title: str
+    asset_type: str
+    source_trace_id: str | None = None
+    owner: str
+    state: str
+    outcome: str | None = None
+    result_weight: float
+    knowledge_version: int
+
+
+class KnowledgeAssetCatalogResponse(BaseModel):
+    status: str
+    catalog_state: str
+    count: int
+    items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
 
 
 class KnowledgeReviewActionRequest(BaseModel):
@@ -1326,6 +1346,25 @@ def create_app(
         # P1-05 review queue is read-only: it lists DRAFT candidates that the
         # Trusted Loop already produced. It does not promote or publish assets.
         return knowledge_review_queue_service(app.state.runtime)
+
+    @app.get("/knowledge/assets", response_model=KnowledgeAssetCatalogResponse)
+    def get_knowledge_assets(
+        state: str | None = Query(
+            default=None,
+            description="lifecycle filter: draft|active|published|deprecated|all",
+        ),
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_asset_catalog_service(app.state.runtime, lifecycle_state=state)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+                    "message": str(exc),
+                },
+            ) from exc
 
     @app.post(
         "/knowledge/review-queue/{asset_id}/decision",

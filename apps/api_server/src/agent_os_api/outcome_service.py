@@ -1082,6 +1082,65 @@ def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
     }
 
 
+def knowledge_asset_catalog_service(
+    runtime: Any,
+    *,
+    lifecycle_state: str | None = None,
+) -> dict[str, Any]:
+    """Return an internal, read-only KnowledgeAsset lifecycle catalog.
+
+    The catalog is an operator visibility surface over existing assets. It must
+    not create assets, mutate lifecycle state, promote value, or expose anything
+    through external report principals.
+    """
+    normalized_state = lifecycle_state.strip().lower() if lifecycle_state else None
+    if normalized_state in {None, ""}:
+        allowed_states = {LifecycleState.ACTIVE, LifecycleState.PUBLISHED}
+        catalog_state = "active,published"
+    elif normalized_state == "all":
+        allowed_states = None
+        catalog_state = "all"
+    else:
+        try:
+            requested = LifecycleState(normalized_state)
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported KnowledgeAsset lifecycle filter: {lifecycle_state}"
+            ) from exc
+        allowed_states = {requested}
+        catalog_state = requested.value
+
+    items: list[dict[str, Any]] = []
+    for asset in runtime.knowledge_store.all_assets():
+        if allowed_states is not None and asset.state not in allowed_states:
+            continue
+        source_trace_id = asset.source_trace_id
+        items.append(
+            {
+                "asset_id": asset.asset_id,
+                "title": asset.title,
+                "asset_type": asset.asset_type,
+                "source_trace_id": source_trace_id,
+                "owner": asset.owner,
+                "state": asset.state.value,
+                "outcome": asset.outcome,
+                "result_weight": asset.result_weight,
+                "knowledge_version": (
+                    runtime.knowledge_store.version_of(source_trace_id)
+                    if source_trace_id is not None
+                    else 0
+                ),
+            }
+        )
+
+    return {
+        "status": "ok",
+        "catalog_state": catalog_state,
+        "count": len(items),
+        "items": items,
+    }
+
+
 def knowledge_review_action_service(
     runtime: Any,
     *,

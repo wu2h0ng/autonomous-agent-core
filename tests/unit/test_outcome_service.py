@@ -24,11 +24,13 @@ from agent_os_api.outcome_service import (
     _build_user_result_artifact,
     approve_and_execute_service,
     attest_adoption_service,
+    knowledge_publish_service,
     knowledge_review_action_service,
     knowledge_review_queue_service,
     record_outcome_service,
     run_service,
 )
+import agent_os_api.outcome_service as outcome_service
 from agent_os_api.runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
 
 DOMAIN_PACK = Path("domain_packs/content_commerce")
@@ -767,6 +769,103 @@ class KnowledgeReviewActionServiceTest(unittest.TestCase):
         self.assertIsNotNone(stored)
         self.assertEqual(stored.state.value, "draft")
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+
+
+class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
+    def test_catalog_lists_active_and_published_assets_without_mutating_store(self) -> None:
+        runtime = _build_runtime()
+        draft = run_service(runtime, question="GMV draft", parameters=RUN_PARAMS)
+        active = run_service(runtime, question="GMV active", parameters=RUN_PARAMS)
+        published = run_service(runtime, question="GMV published", parameters=RUN_PARAMS)
+        deprecated = run_service(runtime, question="GMV deprecated", parameters=RUN_PARAMS)
+
+        active_asset = runtime.knowledge_store.get_by_trace(active["trace_id"])
+        published_asset = runtime.knowledge_store.get_by_trace(published["trace_id"])
+        deprecated_asset = runtime.knowledge_store.get_by_trace(deprecated["trace_id"])
+        self.assertIsNotNone(active_asset)
+        self.assertIsNotNone(published_asset)
+        self.assertIsNotNone(deprecated_asset)
+
+        knowledge_review_action_service(
+            runtime,
+            asset_id=active_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        knowledge_review_action_service(
+            runtime,
+            asset_id=published_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        knowledge_publish_service(
+            runtime,
+            asset_id=published_asset.asset_id,
+            reviewer="founder",
+        )
+        knowledge_review_action_service(
+            runtime,
+            asset_id=deprecated_asset.asset_id,
+            action="reject",
+            reviewer="founder",
+        )
+        before_versions = {
+            trace_id: runtime.knowledge_store.version_of(trace_id)
+            for trace_id in (
+                draft["trace_id"],
+                active["trace_id"],
+                published["trace_id"],
+                deprecated["trace_id"],
+            )
+        }
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_catalog_service"),
+            "knowledge_asset_catalog_service is required for the internal catalog surface",
+        )
+        default_catalog = outcome_service.knowledge_asset_catalog_service(runtime)
+
+        self.assertEqual(default_catalog["status"], "ok")
+        self.assertEqual(default_catalog["catalog_state"], "active,published")
+        self.assertEqual(default_catalog["count"], 2)
+        self.assertEqual(
+            {item["state"] for item in default_catalog["items"]},
+            {"active", "published"},
+        )
+        self.assertEqual(
+            {item["source_trace_id"] for item in default_catalog["items"]},
+            {active["trace_id"], published["trace_id"]},
+        )
+        self.assertEqual(
+            {item["knowledge_version"] for item in default_catalog["items"]},
+            {2, 3},
+        )
+
+        all_catalog = outcome_service.knowledge_asset_catalog_service(
+            runtime, lifecycle_state="all"
+        )
+        self.assertEqual(all_catalog["count"], 4)
+        self.assertEqual(
+            {item["state"] for item in all_catalog["items"]},
+            {"draft", "active", "published", "deprecated"},
+        )
+        self.assertEqual(
+            {
+                trace_id: runtime.knowledge_store.version_of(trace_id)
+                for trace_id in before_versions
+            },
+            before_versions,
+        )
+
+    def test_catalog_rejects_unknown_lifecycle_filter(self) -> None:
+        runtime = _build_runtime()
+
+        with self.assertRaisesRegex(ValueError, "Unsupported KnowledgeAsset lifecycle filter"):
+            self.assertTrue(
+                hasattr(outcome_service, "knowledge_asset_catalog_service"),
+                "knowledge_asset_catalog_service is required for the internal catalog surface",
+            )
+            outcome_service.knowledge_asset_catalog_service(runtime, lifecycle_state="external")
 
 
 if __name__ == "__main__":

@@ -234,6 +234,93 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_catalog_lists_reviewed_and_published_assets(
+        self,
+    ) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        draft_run = client.post(
+            "/runs",
+            json={"question": "GMV draft catalog item", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        active_run = client.post(
+            "/runs",
+            json={"question": "GMV active catalog item", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        published_run = client.post(
+            "/runs",
+            json={"question": "GMV published catalog item", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(draft_run.status_code, 200, draft_run.text)
+        self.assertEqual(active_run.status_code, 200, active_run.text)
+        self.assertEqual(published_run.status_code, 200, published_run.text)
+
+        queue = client.get("/knowledge/review-queue", headers=headers).json()["items"]
+        by_trace = {item["source_trace_id"]: item["asset_id"] for item in queue}
+        active_asset_id = by_trace[active_run.json()["trace_id"]]
+        published_asset_id = by_trace[published_run.json()["trace_id"]]
+
+        active_approve = client.post(
+            f"/knowledge/review-queue/{active_asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        published_approve = client.post(
+            f"/knowledge/review-queue/{published_asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(active_approve.status_code, 200, active_approve.text)
+        self.assertEqual(published_approve.status_code, 200, published_approve.text)
+        publish_resp = client.post(
+            f"/knowledge/assets/{published_asset_id}/publish",
+            json={"reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+
+        catalog_resp = client.get("/knowledge/assets", headers=headers)
+
+        self.assertEqual(catalog_resp.status_code, 200, catalog_resp.text)
+        payload = catalog_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["catalog_state"], "active,published")
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            {item["asset_id"] for item in payload["items"]},
+            {active_asset_id, published_asset_id},
+        )
+        self.assertEqual({item["state"] for item in payload["items"]}, {"active", "published"})
+        self.assertEqual({item["knowledge_version"] for item in payload["items"]}, {2, 3})
+
+        all_resp = client.get("/knowledge/assets", params={"state": "all"}, headers=headers)
+        self.assertEqual(all_resp.status_code, 200, all_resp.text)
+        self.assertEqual(all_resp.json()["count"], 3)
+        self.assertIn(
+            draft_run.json()["knowledge_asset_id"],
+            [item["asset_id"] for item in all_resp.json()["items"]],
+        )
+
+        unknown_filter = client.get(
+            "/knowledge/assets",
+            params={"state": "external"},
+            headers=headers,
+        )
+        self.assertEqual(unknown_filter.status_code, 400, unknown_filter.text)
+        self.assertEqual(
+            unknown_filter.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+
+        external_resp = client.get(
+            "/knowledge/assets",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_knowledge_review_action_is_visible_in_persisted_trace_without_raw_reason(
         self,
     ) -> None:
