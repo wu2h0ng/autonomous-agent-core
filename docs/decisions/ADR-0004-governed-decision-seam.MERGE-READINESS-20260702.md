@@ -6,9 +6,12 @@ Branch: `feature/governance-decision-seam-2026-07-01`
 Target: deployment local `main`
 Target head checked: `main@91ae01c`
 Implementation code commit checked: `be0c511`
-Readiness metadata note: this file may be followed by a docs-only metadata
-commit on the same feature branch. Re-run the HEAD fast-forward checks below
-immediately before any authorized merge.
+Feature head checked after docs-sync and before this rehearsal record: `640ac7b`
+Readiness metadata note: `640ac7b` adds docs-only readiness boundary sync on
+top of the checked implementation. This rehearsal record may itself create a
+later docs-only feature head. Re-run the HEAD fast-forward checks below
+immediately before any authorized merge, because either `main` or the feature
+head may move.
 Remote feature note: `origin/feature/governance-decision-seam-2026-07-01@5a4e86e` is older than the checked local branch; do not treat the remote branch as current readiness evidence.
 
 This packet is the RR-0033 M3 PREPARE deliverable for ADR-0004/RR-0032. It is
@@ -27,8 +30,8 @@ conditions:
 5. founder/CTO must separately approve any cross-repo service deployment,
    production metric/lever binding, or M4 CWM `governed_loop` wiring.
 
-As checked during this PREPARE pass, implementation code commit `be0c511` is
-linear on local `main`:
+As checked during the implementation PREPARE pass, implementation code commit
+`be0c511` was linear on local `main`:
 
 ```text
 git merge-base --is-ancestor main be0c511
@@ -39,6 +42,17 @@ git rev-list --left-right --count main...be0c511
 ```
 
 Re-run these fast-forward checks immediately before any authorized merge.
+
+As checked after the docs-sync commit, the then-current feature head `640ac7b`
+remained linear on local `main`:
+
+```text
+git merge-base --is-ancestor main 640ac7b
+exit 0
+
+git rev-list --left-right --count main...640ac7b
+0 7
+```
 
 ## Scope To Merge
 
@@ -65,8 +79,11 @@ The branch adds an optional governed-decision seam at the
 The changed files relative to local `main@91ae01c` are:
 
 ```text
+AGENTS.md
 README.md
 docs/CURRENT_STATE.yaml
+docs/decisions/ADR-0003-agent-runtime-capability-gap-audit-20260626.md
+docs/decisions/ADR-0004-governed-decision-seam.MERGE-READINESS-20260702.md
 docs/decisions/ADR-0004-governed-decision-seam.REVIEW-20260702.md
 docs/decisions/ADR-0004-governed-decision-seam.md
 docs/decisions/README.md
@@ -122,6 +139,56 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 Result: ruff clean, format clean, 534 primary unittest tests OK with 4 skipped,
 12 eval tests OK, OpenAPI contract up to date, and
 `=== Full local CI parity checks passed ===`.
+
+## Merge Rehearsal Verification
+
+After the docs-sync commit, Codex created an isolated rehearsal worktree from
+local `main@91ae01c`, fast-forwarded it to then-current feature head `640ac7b`,
+and verified the post-merge tree shape without moving `main`:
+
+```bash
+git worktree add .worktrees/governance-seam-merge-rehearsal-20260702 \
+  -b codex/governance-seam-merge-rehearsal-20260702 main
+git -C .worktrees/governance-seam-merge-rehearsal-20260702 \
+  merge --ff-only feature/governance-decision-seam-2026-07-01
+```
+
+Result: fast-forward succeeded from `91ae01c` to `640ac7b`; no conflict
+resolution was needed, and local `main` was not moved.
+
+Rehearsal targeted suite:
+
+```bash
+PYTHONPATH=packages/contracts/src:packages/os_core/src:action_connectors:apps/api_server/src \
+  ../../.venv/bin/python3 -m unittest tests.unit.test_governance_decision_seam \
+  tests.unit.test_trusted_loop tests.integration.test_trusted_loop_agent_runtime_adapter -v
+```
+
+Result: 50 tests OK.
+
+Rehearsal full CI:
+
+```bash
+make ci PYTHON=../../.venv/bin/python3
+```
+
+Result: ruff clean, format clean, 534 primary unittest tests OK with 4 skipped,
+12 eval tests OK, OpenAPI contract up to date, and
+`=== All CI checks passed ===`.
+
+Rehearsal PostgreSQL local parity:
+
+```bash
+AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test \
+  make ci-local-full PYTHON=../../.venv/bin/python3
+```
+
+Result: 534 primary unittest tests OK with 4 skipped, 12 eval tests OK,
+OpenAPI contract up to date, and `=== Full local CI parity checks passed ===`.
+
+This rehearsal is stronger evidence than branch-only verification, but it is
+still not merge authorization. A real local-main merge must be explicitly
+authorized and must rerun the post-merge commands on actual `main`.
 
 ## Required Post-Merge Commands
 
