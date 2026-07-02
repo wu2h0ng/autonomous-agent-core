@@ -55,6 +55,9 @@ class TraceStorePort(ABC):
     @abstractmethod
     def get(self, trace_id: str) -> RunTrace | None: ...
 
+    @abstractmethod
+    def all_traces(self) -> tuple[RunTrace, ...]: ...
+
 
 class InMemoryTraceStore(TraceStorePort):
     """Default per-process store: traces are queryable out of the box."""
@@ -67,3 +70,6 @@ class InMemoryTraceStore(TraceStorePort):
 
     def get(self, trace_id: str) -> RunTrace | None:
         return self._by_trace.get(trace_id)
+
+    def all_traces(self) -> tuple[RunTrace, ...]:
+        return tuple(self._by_trace.values())

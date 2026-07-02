@@ -439,6 +439,81 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_usage_events_are_safe_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        first = client.post(
+            "/runs",
+            json={"question": "GMV usage audit", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        source_trace_id = first.json()["trace_id"]
+        asset_id = first.json()["knowledge_asset_id"]
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        used = client.post(
+            "/runs",
+            json={"question": "GMV usage audit", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(used.status_code, 200, used.text)
+        usage_trace_id = used.json()["trace_id"]
+        self.assertEqual(
+            used.json()["user_result"]["decision"]["knowledge_context_refs"],
+            [asset_id],
+        )
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": usage_trace_id, "outcome": "adopted"},
+            headers=headers,
+        )
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+
+        usage_resp = client.get(
+            f"/knowledge/assets/{asset_id}/usage-events",
+            headers=headers,
+        )
+
+        self.assertEqual(usage_resp.status_code, 200, usage_resp.text)
+        payload = usage_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["source_trace_id"], source_trace_id)
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            [event["usage_kind"] for event in payload["events"]],
+            ["proposal_context", "correction_context"],
+        )
+        self.assertEqual(
+            [event["trace_id"] for event in payload["events"]],
+            [usage_trace_id, usage_trace_id],
+        )
+        self.assertEqual(
+            [event["knowledge_context_refs"] for event in payload["events"]],
+            [[asset_id], [asset_id]],
+        )
+        rendered = str(payload)
+        self.assertNotIn("related_knowledge", rendered)
+        self.assertNotIn("metric_deltas", rendered)
+
+        missing_resp = client.get(
+            "/knowledge/assets/knowledge-missing/usage-events",
+            headers=headers,
+        )
+        self.assertEqual(missing_resp.status_code, 404, missing_resp.text)
+        self.assertEqual(missing_resp.json()["detail"]["code"], "KNOWLEDGE_ASSET_NOT_FOUND")
+
+        external_resp = client.get(
+            f"/knowledge/assets/{asset_id}/usage-events",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_internal_knowledge_deprecate_requires_reviewed_asset(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

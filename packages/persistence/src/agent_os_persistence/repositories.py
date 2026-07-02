@@ -723,3 +723,9 @@ class SqlTraceStore(_SqlStoreBase, TraceStorePort):
         if row is None:
             return None
         return mappers.run_trace_from_payload(row.payload)
+
+    def all_traces(self) -> tuple[RunTrace, ...]:
+        table = schema.run_traces
+        with self._read() as conn:
+            rows = conn.execute(select(table.c.payload).order_by(table.c.trace_id)).fetchall()
+        return tuple(mappers.run_trace_from_payload(row.payload) for row in rows)

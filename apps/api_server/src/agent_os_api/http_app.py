@@ -49,6 +49,7 @@ from .outcome_service import (
     knowledge_asset_catalog_service,
     knowledge_asset_detail_service,
     knowledge_asset_lifecycle_events_service,
+    knowledge_asset_usage_events_service,
     knowledge_deprecate_service,
     knowledge_publish_service,
     knowledge_review_action_service,
@@ -642,6 +643,23 @@ class KnowledgeAssetLifecycleEventsResponse(BaseModel):
     has_source_trace: bool
     count: int
     events: list[KnowledgeAssetLifecycleEvent] = Field(default_factory=list)
+
+
+class KnowledgeAssetUsageEventItem(BaseModel):
+    trace_id: str
+    step: Literal["action_proposal", "agent_runtime.tool_succeeded"]
+    usage_kind: Literal["proposal_context", "correction_context"]
+    asset_id: str
+    knowledge_context_refs: list[str] = Field(default_factory=list)
+    tool_name: str | None = None
+
+
+class KnowledgeAssetUsageEventsResponse(BaseModel):
+    status: str
+    asset_id: str
+    source_trace_id: str | None = None
+    count: int
+    events: list[KnowledgeAssetUsageEventItem] = Field(default_factory=list)
 
 
 class KnowledgeReviewActionRequest(BaseModel):
@@ -1431,6 +1449,29 @@ def create_app(
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_lifecycle_events_service(
+                app.state.runtime,
+                asset_id=asset_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_FOUND",
+                    "message": "KnowledgeAsset was not found.",
+                    "asset_id": asset_id,
+                },
+            ) from exc
+
+    @app.get(
+        "/knowledge/assets/{asset_id}/usage-events",
+        response_model=KnowledgeAssetUsageEventsResponse,
+    )
+    def get_knowledge_asset_usage_events(
+        asset_id: str,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_asset_usage_events_service(
                 app.state.runtime,
                 asset_id=asset_id,
             )

@@ -54,6 +54,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/knowledge/assets/{asset_id}/deprecate",
                 "/knowledge/assets/{asset_id}/lifecycle-events",
                 "/knowledge/assets/{asset_id}/publish",
+                "/knowledge/assets/{asset_id}/usage-events",
                 "/knowledge/review-queue",
                 "/knowledge/review-queue/{asset_id}/decision",
                 "/knowledge/search",
@@ -151,6 +152,38 @@ class OpenApiContractTest(unittest.TestCase):
                     "title": "Knowledge Context Refs",
                 },
             )
+
+    def test_knowledge_asset_usage_events_contract_is_declared(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        usage = spec["paths"]["/knowledge/assets/{asset_id}/usage-events"]["get"]
+        self.assertEqual(
+            usage["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/KnowledgeAssetUsageEventsResponse"},
+        )
+        response_schema = spec["components"]["schemas"]["KnowledgeAssetUsageEventsResponse"]
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {"status", "asset_id", "count"},
+        )
+        self.assertEqual(
+            response_schema["properties"]["source_trace_id"]["anyOf"],
+            [{"type": "string"}, {"type": "null"}],
+        )
+        item_schema = spec["components"]["schemas"]["KnowledgeAssetUsageEventItem"]
+        self.assertEqual(
+            set(item_schema["properties"]),
+            {
+                "trace_id",
+                "step",
+                "usage_kind",
+                "asset_id",
+                "knowledge_context_refs",
+                "tool_name",
+            },
+        )
+        rendered_schema = json.dumps(item_schema)
+        self.assertNotIn("related_knowledge", rendered_schema)
+        self.assertNotIn("metric_deltas", rendered_schema)
 
     def test_unified_block_contract_is_declared_on_runs(self) -> None:
         # AR-20260606-unified-block-outcome: the 422 business-block shape must be

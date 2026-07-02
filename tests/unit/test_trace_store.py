@@ -125,6 +125,7 @@ class InMemoryTraceStoreTest(unittest.TestCase):
         store.save(run_trace)
         self.assertEqual(store.get("trace-x"), run_trace)
         self.assertIsNone(store.get("trace-unknown"))
+        self.assertEqual(store.all_traces(), (run_trace,))
 
 
 class RunTracePersistenceTest(unittest.TestCase):
@@ -224,10 +225,13 @@ class SqlTraceStoreTest(unittest.TestCase):
         store.save(run_trace)
         self.assertEqual(store.get("trace-sql"), run_trace)
         self.assertIsNone(store.get("trace-unknown"))
+        self.assertEqual(store.all_traces(), (run_trace,))
 
         # Upsert: saving the same trace_id replaces, not duplicates.
-        store.save(RunTrace(trace_id="trace-sql", status="blocked", events=()))
+        blocked_trace = RunTrace(trace_id="trace-sql", status="blocked", events=())
+        store.save(blocked_trace)
         self.assertEqual(store.get("trace-sql").status, "blocked")
+        self.assertEqual(store.all_traces(), (blocked_trace,))
 
 
 class CliTraceEntryPointTest(unittest.TestCase):

@@ -866,6 +866,101 @@
         "title": "KnowledgeAssetLifecycleEventsResponse",
         "type": "object"
       },
+      "KnowledgeAssetUsageEventItem": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "knowledge_context_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Context Refs",
+            "type": "array"
+          },
+          "step": {
+            "enum": [
+              "action_proposal",
+              "agent_runtime.tool_succeeded"
+            ],
+            "title": "Step",
+            "type": "string"
+          },
+          "tool_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Name"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "usage_kind": {
+            "enum": [
+              "proposal_context",
+              "correction_context"
+            ],
+            "title": "Usage Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "step",
+          "usage_kind",
+          "asset_id"
+        ],
+        "title": "KnowledgeAssetUsageEventItem",
+        "type": "object"
+      },
+      "KnowledgeAssetUsageEventsResponse": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeAssetUsageEventItem"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "asset_id",
+          "count"
+        ],
+        "title": "KnowledgeAssetUsageEventsResponse",
+        "type": "object"
+      },
       "KnowledgePublishRequest": {
         "properties": {
           "reason": {
@@ -3073,6 +3168,61 @@
           }
         },
         "summary": "Post Knowledge Publish"
+      }
+    },
+    "/knowledge/assets/{asset_id}/usage-events": {
+      "get": {
+        "operationId": "get_knowledge_asset_usage_events_knowledge_assets__asset_id__usage_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "title": "Asset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeAssetUsageEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Knowledge Asset Usage Events"
       }
     },
     "/knowledge/review-queue": {

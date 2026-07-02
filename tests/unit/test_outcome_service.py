@@ -1048,6 +1048,99 @@ class KnowledgeAssetLifecycleEventsServiceTest(unittest.TestCase):
             )
 
 
+class KnowledgeAssetUsageEventsServiceTest(unittest.TestCase):
+    def test_returns_safe_usage_events_without_asset_content_or_mutation(self) -> None:
+        runtime = _build_runtime()
+        first = run_service(runtime, question="GMV usage history", parameters=RUN_PARAMS)
+        source_trace_id = first["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(source_trace_id)
+        self.assertIsNotNone(asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        used = run_service(runtime, question="GMV usage history", parameters=RUN_PARAMS)
+        usage_trace_id = used["trace_id"]
+        stored_usage_trace = runtime.trace_store.get(usage_trace_id)
+        self.assertIsNotNone(stored_usage_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_usage_trace,
+                events=stored_usage_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=usage_trace_id,
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [asset.asset_id],
+                            "metric_deltas": {"secret_token": "do-not-leak"},
+                        },
+                    ),
+                ),
+            )
+        )
+        before_version = runtime.knowledge_store.version_of(source_trace_id)
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_usage_events_service"),
+            "knowledge_asset_usage_events_service is required for internal usage audit",
+        )
+        result = outcome_service.knowledge_asset_usage_events_service(
+            runtime,
+            asset_id=asset.asset_id,
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["asset_id"], asset.asset_id)
+        self.assertEqual(result["source_trace_id"], source_trace_id)
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(
+            [event["usage_kind"] for event in result["events"]],
+            ["proposal_context", "correction_context"],
+        )
+        self.assertEqual(
+            [event["step"] for event in result["events"]],
+            ["action_proposal", "agent_runtime.tool_succeeded"],
+        )
+        for event in result["events"]:
+            self.assertEqual(event["asset_id"], asset.asset_id)
+            self.assertEqual(event["trace_id"], usage_trace_id)
+            self.assertEqual(event["knowledge_context_refs"], [asset.asset_id])
+            self.assertNotIn("title", event)
+            self.assertNotIn("content", event)
+            self.assertNotIn("related_knowledge", event)
+            self.assertNotIn("metric_deltas", event)
+            self.assertNotIn("secret_token", str(event))
+            self.assertLessEqual(
+                set(event),
+                {
+                    "trace_id",
+                    "step",
+                    "usage_kind",
+                    "asset_id",
+                    "knowledge_context_refs",
+                    "tool_name",
+                },
+            )
+        self.assertEqual(runtime.knowledge_store.version_of(source_trace_id), before_version)
+
+    def test_unknown_asset_usage_events_raise_key_error(self) -> None:
+        runtime = _build_runtime()
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_usage_events_service"),
+            "knowledge_asset_usage_events_service is required for internal usage audit",
+        )
+        with self.assertRaises(KeyError):
+            outcome_service.knowledge_asset_usage_events_service(
+                runtime,
+                asset_id="knowledge-missing",
+            )
+
+
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:
         runtime = _build_runtime()

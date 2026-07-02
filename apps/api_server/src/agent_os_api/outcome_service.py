@@ -1272,6 +1272,67 @@ def knowledge_asset_lifecycle_events_service(
     }
 
 
+def knowledge_asset_usage_events_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+) -> dict[str, Any]:
+    """Return safe, read-only usage audit events for a KnowledgeAsset."""
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    trace_store = getattr(runtime, "trace_store", None)
+    all_traces = getattr(trace_store, "all_traces", None)
+    traces = all_traces() if callable(all_traces) else ()
+
+    projected_events: list[dict[str, Any]] = []
+    for run_trace in traces:
+        for event in run_trace.events:
+            payload = event.payload
+            refs = payload.get("knowledge_context_refs")
+            if not isinstance(refs, list) or asset_id not in refs:
+                continue
+            safe_refs = [ref for ref in refs if isinstance(ref, str)]
+            if event.step == "action_proposal":
+                usage_kind = "proposal_context"
+                tool_name = None
+            elif event.step == "agent_runtime.tool_succeeded":
+                usage_kind = "correction_context"
+                tool_name = payload.get("tool_name")
+                if tool_name not in {
+                    TrustedLoopCorrectionRuntimeAdapter.RECORD_OUTCOME_TOOL_NAME,
+                    TrustedLoopCorrectionRuntimeAdapter.ATTEST_ADOPTION_TOOL_NAME,
+                }:
+                    continue
+            else:
+                continue
+
+            projected_events.append(
+                {
+                    "trace_id": event.trace_id,
+                    "step": event.step,
+                    "usage_kind": usage_kind,
+                    "asset_id": asset_id,
+                    "knowledge_context_refs": safe_refs,
+                    "tool_name": tool_name,
+                }
+            )
+
+    return {
+        "status": "ok",
+        "asset_id": target.asset_id,
+        "source_trace_id": target.source_trace_id,
+        "count": len(projected_events),
+        "events": projected_events,
+    }
+
+
 def knowledge_review_action_service(
     runtime: Any,
     *,
