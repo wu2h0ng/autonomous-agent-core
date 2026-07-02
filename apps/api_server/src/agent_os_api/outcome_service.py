@@ -1008,6 +1008,21 @@ def approval_execution_response_payload(approval: Any, operation_trace: Any) -> 
     }
 
 
+def _knowledge_context_refs_for_trace(runtime: Any, trace_id: str) -> list[str]:
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(trace_id) if trace_store is not None else None
+    if persisted_trace is None:
+        return []
+    for event in reversed(persisted_trace.events):
+        if event.step != "action_proposal":
+            continue
+        refs = event.payload.get("knowledge_context_refs")
+        if not isinstance(refs, list):
+            return []
+        return [ref for ref in refs if isinstance(ref, str)]
+    return []
+
+
 def record_outcome_service(
     runtime: Any,
     *,
@@ -1042,6 +1057,7 @@ def record_outcome_service(
         "reviewer": reviewer,
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
         "knowledge_version": runtime.knowledge_store.version_of(trace_id),
+        "knowledge_context_refs": _knowledge_context_refs_for_trace(runtime, trace_id),
     }
 
 
@@ -1496,4 +1512,5 @@ def attest_adoption_service(
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
         "knowledge_version": runtime.knowledge_store.version_of(trace_id),
         "result_weight": revised.result_weight if revised is not None else None,
+        "knowledge_context_refs": _knowledge_context_refs_for_trace(runtime, trace_id),
     }

@@ -939,6 +939,53 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(adopt_payload["knowledge_version"], 2)
         self.assertIsNotNone(adopt_payload["knowledge_asset_id"])
 
+    def test_correction_responses_project_used_knowledge_context_refs(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        first = client.post(
+            "/runs",
+            json={"question": "GMV feedback context", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        first_asset_id = first.json()["knowledge_asset_id"]
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{first_asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        used_context = client.post(
+            "/runs",
+            json={"question": "GMV feedback context", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(used_context.status_code, 200, used_context.text)
+        trace_id = used_context.json()["trace_id"]
+        self.assertEqual(
+            used_context.json()["user_result"]["decision"]["knowledge_context_refs"],
+            [first_asset_id],
+        )
+
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": trace_id, "outcome": "adopted", "reviewer": "ops@example.com"},
+            headers=headers,
+        )
+        adoption_resp = client.post(
+            "/adoptions",
+            json={"trace_id": trace_id, "outcome": "adopted", "reviewer": "ops@example.com"},
+            headers=headers,
+        )
+
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+        self.assertEqual(adoption_resp.status_code, 200, adoption_resp.text)
+        self.assertEqual(outcome_resp.json()["knowledge_context_refs"], [first_asset_id])
+        self.assertEqual(adoption_resp.json()["knowledge_context_refs"], [first_asset_id])
+        self.assertNotIn("related_knowledge", outcome_resp.json())
+        self.assertNotIn("related_knowledge", adoption_resp.json())
+
     def test_outcomes_traverse_agent_runtime_envelope_without_knowledge_promotion(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

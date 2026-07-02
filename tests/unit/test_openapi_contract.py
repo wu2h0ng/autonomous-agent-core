@@ -136,6 +136,22 @@ class OpenApiContractTest(unittest.TestCase):
             },
         )
 
+    def test_correction_responses_declare_knowledge_context_refs(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        outcome_response = spec["components"]["schemas"]["OutcomeResponse"]
+        adoption_response = spec["components"]["schemas"]["AdoptionResponse"]
+
+        for response_schema in (outcome_response, adoption_response):
+            self.assertIn("knowledge_context_refs", response_schema["properties"])
+            self.assertEqual(
+                response_schema["properties"]["knowledge_context_refs"],
+                {
+                    "items": {"type": "string"},
+                    "type": "array",
+                    "title": "Knowledge Context Refs",
+                },
+            )
+
     def test_unified_block_contract_is_declared_on_runs(self) -> None:
         # AR-20260606-unified-block-outcome: the 422 business-block shape must be
         # part of the published schema, not folklore.

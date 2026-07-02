@@ -591,6 +591,43 @@ class RecordOutcomeServiceTest(unittest.TestCase):
         self.assertIsNone(result["knowledge_asset_id"])
         self.assertEqual(result["knowledge_version"], 0)
 
+    def test_correction_responses_project_used_knowledge_context_refs(self) -> None:
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        first = run_service(runtime, question="GMV reusable context", parameters=RUN_PARAMS)
+        first_asset_id = first["knowledge_asset_id"]
+        knowledge_review_action_service(
+            runtime,
+            asset_id=first_asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        third = run_service(runtime, question="GMV reusable context", parameters=RUN_PARAMS)
+        trace_id = third["trace_id"]
+        self.assertEqual(
+            third["user_result"]["decision"]["knowledge_context_refs"],
+            [first_asset_id],
+        )
+
+        outcome = record_outcome_service(
+            runtime,
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops@example.com",
+        )
+        adoption = attest_adoption_service(
+            runtime,
+            factory.adoption_ingest(),
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops@example.com",
+        )
+
+        self.assertEqual(outcome["knowledge_context_refs"], [first_asset_id])
+        self.assertEqual(adoption["knowledge_context_refs"], [first_asset_id])
+        self.assertEqual(outcome["knowledge_version"], 1)
+        self.assertEqual(adoption["knowledge_version"], 2)
+
 
 class KnowledgeReviewQueueServiceTest(unittest.TestCase):
     def test_lists_three_draft_candidates_without_mutating_store(self) -> None:

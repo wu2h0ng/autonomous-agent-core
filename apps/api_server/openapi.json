@@ -71,6 +71,13 @@
             ],
             "title": "Knowledge Asset Id"
           },
+          "knowledge_context_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Context Refs",
+            "type": "array"
+          },
           "knowledge_version": {
             "title": "Knowledge Version",
             "type": "integer"
@@ -1241,6 +1248,13 @@
               }
             ],
             "title": "Knowledge Asset Id"
+          },
+          "knowledge_context_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Context Refs",
+            "type": "array"
           },
           "knowledge_version": {
             "title": "Knowledge Version",

@@ -174,6 +174,13 @@ Current active ADRs:
     ff-only merge to `main@019dab8`; `make ci` and PostgreSQL `ci-local-full`
     passed with 569 primary unittest tests OK / 4 skipped plus 12 eval OK.
     Not pushed, not released.
+- `P1-16-knowledge-context-feedback-projection.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe `knowledge_context_refs` projection on
+    `/outcomes` and `/adoptions` responses from the source trace's
+    `action_proposal` event. It exposes asset ids only, not raw
+    KnowledgeAsset titles/content or full related knowledge, and branch-local
+    `make ci` plus PostgreSQL `ci-local-full` passed with 572 primary unittest
+    tests OK / 4 skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
