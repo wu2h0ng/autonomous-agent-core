@@ -1337,6 +1337,67 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             before_versions[unused["trace_id"]],
         )
 
+    def test_quality_catalog_filters_by_quality_status(self) -> None:
+        runtime = _build_runtime()
+        first = run_service(runtime, question="GMV quality filter", parameters=RUN_PARAMS)
+        unused = run_service(runtime, question="GMV quality filter unused", parameters=RUN_PARAMS)
+        active_asset = runtime.knowledge_store.get_by_trace(first["trace_id"])
+        unused_asset = runtime.knowledge_store.get_by_trace(unused["trace_id"])
+        self.assertIsNotNone(active_asset)
+        self.assertIsNotNone(unused_asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=active_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        outcome_run = run_service(runtime, question="GMV quality filter", parameters=RUN_PARAMS)
+        stored_trace = runtime.trace_store.get(outcome_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=outcome_run["trace_id"],
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [active_asset.asset_id],
+                        },
+                    ),
+                ),
+            )
+        )
+
+        outcome_only = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            quality_status="outcome_observed",
+        )
+        unused_only = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            quality_status="unused",
+        )
+
+        self.assertEqual(outcome_only["quality_status_filter"], "outcome_observed")
+        self.assertEqual(outcome_only["count"], 1)
+        self.assertEqual(outcome_only["items"][0]["asset_id"], active_asset.asset_id)
+        self.assertEqual(outcome_only["items"][0]["quality_status"], "outcome_observed")
+        self.assertEqual(unused_only["quality_status_filter"], "unused")
+        self.assertGreaterEqual(unused_only["count"], 1)
+        self.assertIn(
+            unused_asset.asset_id,
+            [item["asset_id"] for item in unused_only["items"]],
+        )
+        self.assertEqual({item["quality_status"] for item in unused_only["items"]}, {"unused"})
+
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(
+                runtime,
+                quality_status="not-a-status",
+            )
+
 
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:

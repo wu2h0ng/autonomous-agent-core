@@ -1408,11 +1408,37 @@ def _knowledge_asset_quality_status(summary: dict[str, Any]) -> str:
     return "unused"
 
 
-def knowledge_asset_quality_summary_service(runtime: Any) -> dict[str, Any]:
+_KNOWLEDGE_ASSET_QUALITY_STATUSES = {
+    "unused",
+    "proposal_only",
+    "outcome_observed",
+    "adoption_observed",
+}
+
+
+def _normalize_knowledge_asset_quality_status_filter(quality_status: str | None) -> str | None:
+    if quality_status is None:
+        return None
+    normalized = quality_status.strip().lower()
+    if normalized not in _KNOWLEDGE_ASSET_QUALITY_STATUSES:
+        allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_QUALITY_STATUSES))
+        raise ValueError(f"Unsupported quality_status filter: {quality_status}. Allowed: {allowed}")
+    return normalized
+
+
+def knowledge_asset_quality_summary_service(
+    runtime: Any,
+    *,
+    quality_status: str | None = None,
+) -> dict[str, Any]:
     """Return a safe, read-only quality catalog for all KnowledgeAssets."""
+    quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
+        derived_status = _knowledge_asset_quality_status(quality)
+        if quality_status_filter is not None and derived_status != quality_status_filter:
+            continue
         items.append(
             {
                 "asset_id": asset.asset_id,
@@ -1423,12 +1449,13 @@ def knowledge_asset_quality_summary_service(runtime: Any) -> dict[str, Any]:
                 "outcome_correction_count": quality["outcome_correction_count"],
                 "adoption_correction_count": quality["adoption_correction_count"],
                 "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
-                "quality_status": _knowledge_asset_quality_status(quality),
+                "quality_status": derived_status,
             }
         )
 
     return {
         "status": "ok",
+        "quality_status_filter": quality_status_filter,
         "count": len(items),
         "items": items,
     }

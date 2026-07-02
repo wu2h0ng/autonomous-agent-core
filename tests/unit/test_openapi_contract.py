@@ -190,12 +190,41 @@ class OpenApiContractTest(unittest.TestCase):
     def test_knowledge_asset_quality_summary_contract_is_declared(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         summary = spec["paths"]["/knowledge/assets/quality-summary"]["get"]
+        quality_status_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "quality_status"
+        )
+        self.assertFalse(quality_status_param["required"])
+        self.assertEqual(
+            quality_status_param["schema"]["enum"],
+            ["unused", "proposal_only", "outcome_observed", "adoption_observed"],
+        )
+        self.assertIn("400", summary["responses"])
         self.assertEqual(
             summary["responses"]["200"]["content"]["application/json"]["schema"],
             {"$ref": "#/components/schemas/KnowledgeAssetQualitySummaryResponse"},
         )
         response_schema = spec["components"]["schemas"]["KnowledgeAssetQualitySummaryResponse"]
-        self.assertGreaterEqual(set(response_schema["required"]), {"status", "count", "items"})
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {"status", "count", "items", "quality_status_filter"},
+        )
+        self.assertEqual(
+            response_schema["properties"]["quality_status_filter"]["anyOf"],
+            [
+                {
+                    "enum": [
+                        "unused",
+                        "proposal_only",
+                        "outcome_observed",
+                        "adoption_observed",
+                    ],
+                    "type": "string",
+                },
+                {"type": "null"},
+            ],
+        )
         item_ref = response_schema["properties"]["items"]["items"]
         self.assertEqual(
             item_ref, {"$ref": "#/components/schemas/KnowledgeAssetQualitySummaryItem"}

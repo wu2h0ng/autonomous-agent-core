@@ -1005,6 +1005,23 @@
             "title": "Items",
             "type": "array"
           },
+          "quality_status_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unused",
+                  "proposal_only",
+                  "outcome_observed",
+                  "adoption_observed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Status Filter"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -1012,6 +1029,7 @@
         },
         "required": [
           "status",
+          "quality_status_filter",
           "count",
           "items"
         ],
@@ -3087,6 +3105,30 @@
         "operationId": "get_knowledge_asset_quality_summary_knowledge_assets_quality_summary_get",
         "parameters": [
           {
+            "description": "optional quality status filter",
+            "in": "query",
+            "name": "quality_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional quality status filter",
+              "enum": [
+                "unused",
+                "proposal_only",
+                "outcome_observed",
+                "adoption_observed"
+              ],
+              "title": "Quality Status"
+            }
+          },
+          {
             "in": "header",
             "name": "X-API-Key",
             "required": false,
@@ -3113,6 +3155,9 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid quality_status filter"
           },
           "422": {
             "content": {

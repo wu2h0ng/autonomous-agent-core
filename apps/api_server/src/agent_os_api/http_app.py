@@ -69,6 +69,12 @@ OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 API_KEY_HEADER = "X-API-Key"
 OPERATOR_API_KEY_HEADER = "X-Operator-Key"
 APPROVAL_EXECUTE_PATH = "/approvals/{approval_id}/execute"
+KNOWLEDGE_QUALITY_STATUS_VALUES = [
+    "unused",
+    "proposal_only",
+    "outcome_observed",
+    "adoption_observed",
+]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
 API_SCOPE_OUTCOME_WRITE = "outcomes:write"
@@ -695,6 +701,15 @@ class KnowledgeAssetQualitySummaryItem(BaseModel):
 
 class KnowledgeAssetQualitySummaryResponse(BaseModel):
     status: str
+    quality_status_filter: (
+        Literal[
+            "unused",
+            "proposal_only",
+            "outcome_observed",
+            "adoption_observed",
+        ]
+        | None
+    )
     count: int
     items: list[KnowledgeAssetQualitySummaryItem]
 
@@ -1462,11 +1477,29 @@ def create_app(
     @app.get(
         "/knowledge/assets/quality-summary",
         response_model=KnowledgeAssetQualitySummaryResponse,
+        responses={400: {"description": "Invalid quality_status filter"}},
     )
     def get_knowledge_asset_quality_summary(
+        quality_status: str | None = Query(
+            default=None,
+            description="optional quality status filter",
+            json_schema_extra={"enum": KNOWLEDGE_QUALITY_STATUS_VALUES},
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
-        return knowledge_asset_quality_summary_service(app.state.runtime)
+        try:
+            return knowledge_asset_quality_summary_service(
+                app.state.runtime,
+                quality_status=quality_status,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+                    "message": str(exc),
+                },
+            ) from exc
 
     @app.get("/knowledge/assets/{asset_id}", response_model=KnowledgeAssetDetailResponse)
     def get_knowledge_asset_detail(
