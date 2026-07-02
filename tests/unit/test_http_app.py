@@ -171,6 +171,47 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(second_resp.status_code, 409, second_resp.text)
 
+    def test_knowledge_review_action_is_visible_in_persisted_trace_without_raw_reason(
+        self,
+    ) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        asset_id = client.get("/knowledge/review-queue", headers=headers).json()["items"][0][
+            "asset_id"
+        ]
+
+        decision_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "contains sensitive customer rationale",
+            },
+            headers=headers,
+        )
+        self.assertEqual(decision_resp.status_code, 200, decision_resp.text)
+
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        audit_events = [
+            event
+            for event in trace_resp.json()["events"]
+            if event["step"] == "knowledge_review_decision"
+        ]
+        self.assertEqual(len(audit_events), 1)
+        payload = audit_events[0]["payload"]
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["action"], "approve")
+        self.assertEqual(payload["previous_state"], "draft")
+        self.assertEqual(payload["state"], "active")
+        self.assertEqual(payload["reviewer"], "founder")
+        self.assertTrue(payload["reason_present"])
+        self.assertNotIn("reason", payload)
+        self.assertNotIn("sensitive customer rationale", str(payload))
+
     def test_post_run_persists_agent_runtime_envelope_in_run_trace(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

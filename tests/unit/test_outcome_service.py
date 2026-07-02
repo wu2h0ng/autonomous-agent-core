@@ -703,6 +703,71 @@ class KnowledgeReviewActionServiceTest(unittest.TestCase):
                 reason="too much authority",
             )
 
+    def test_review_action_appends_safe_audit_event_to_run_trace(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV candidate to audit", parameters=RUN_PARAMS)
+        trace_id = run["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(asset)
+
+        result = knowledge_review_action_service(
+            runtime,
+            asset_id=asset.asset_id,
+            action="approve",
+            reviewer="founder",
+            reason="contains sensitive customer rationale",
+        )
+
+        stored_trace = runtime.trace_store.get(trace_id)
+        self.assertIsNotNone(stored_trace)
+        audit_events = [
+            event for event in stored_trace.events if event.step == "knowledge_review_decision"
+        ]
+        self.assertEqual(len(audit_events), 1)
+        payload = audit_events[0].payload
+        self.assertEqual(payload["asset_id"], asset.asset_id)
+        self.assertEqual(payload["action"], "approve")
+        self.assertEqual(payload["previous_state"], "draft")
+        self.assertEqual(payload["state"], "active")
+        self.assertEqual(payload["reviewer"], "founder")
+        self.assertEqual(payload["knowledge_version"], result["knowledge_version"])
+        self.assertTrue(payload["reason_present"])
+        self.assertNotIn("reason", payload)
+        self.assertNotIn("sensitive customer rationale", str(payload))
+
+    def test_review_action_fails_closed_when_source_trace_is_missing(self) -> None:
+        class MissingTraceStore:
+            def get(self, trace_id: str) -> None:
+                del trace_id
+                return None
+
+            def save(self, run_trace: object) -> None:
+                del run_trace
+                raise AssertionError("review action must not save without a persisted trace")
+
+        runtime = _build_runtime()
+        run = run_service(
+            runtime, question="GMV candidate with missing trace", parameters=RUN_PARAMS
+        )
+        trace_id = run["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(asset)
+        runtime.trace_store = MissingTraceStore()
+
+        with self.assertRaisesRegex(RuntimeError, "source trace is not persisted"):
+            knowledge_review_action_service(
+                runtime,
+                asset_id=asset.asset_id,
+                action="approve",
+                reviewer="founder",
+                reason="must not mutate without audit",
+            )
+
+        stored = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored.state.value, "draft")
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

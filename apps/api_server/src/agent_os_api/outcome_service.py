@@ -1109,6 +1109,13 @@ def knowledge_review_action_service(
     if target.source_trace_id is None:
         raise ValueError("KnowledgeAsset.source_trace_id is required for review")
 
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(target.source_trace_id) if trace_store is not None else None
+    if persisted_trace is None:
+        raise RuntimeError(
+            f"KnowledgeAsset '{asset_id}' source trace is not persisted: {target.source_trace_id}"
+        )
+
     if target.state != LifecycleState.DRAFT:
         raise RuntimeError(f"KnowledgeAsset '{asset_id}' is not draft: {target.state.value}")
 
@@ -1117,6 +1124,21 @@ def knowledge_review_action_service(
     )
     reviewed = replace(target, state=next_state)
     runtime.knowledge_store.register_version(reviewed)
+    knowledge_version = runtime.knowledge_store.version_of(target.source_trace_id)
+    audit_event = TraceEvent(
+        trace_id=target.source_trace_id,
+        step="knowledge_review_decision",
+        payload={
+            "asset_id": reviewed.asset_id,
+            "action": normalized_action,
+            "previous_state": target.state.value,
+            "state": reviewed.state.value,
+            "reviewer": reviewer,
+            "knowledge_version": knowledge_version,
+            "reason_present": reason is not None,
+        },
+    )
+    trace_store.save(replace(persisted_trace, events=persisted_trace.events + (audit_event,)))
 
     return {
         "status": "ok",
@@ -1127,7 +1149,7 @@ def knowledge_review_action_service(
         "state": reviewed.state.value,
         "reviewer": reviewer,
         "reason": reason,
-        "knowledge_version": runtime.knowledge_store.version_of(target.source_trace_id),
+        "knowledge_version": knowledge_version,
         "result_weight": reviewed.result_weight,
         "outcome": reviewed.outcome,
     }
