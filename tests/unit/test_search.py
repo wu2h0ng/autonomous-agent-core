@@ -30,7 +30,7 @@ def _asset(aid: str, title: str):
         asset_type="decision_loop",
         source_trace_id=f"trace-{aid}",
         owner="revenue_ops",
-        state=LifecycleState.DRAFT,
+        state=LifecycleState.ACTIVE,
     )
 
 

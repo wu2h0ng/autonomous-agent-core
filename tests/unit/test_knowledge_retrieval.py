@@ -51,9 +51,13 @@ class InMemoryKnowledgeRetrieverTest(unittest.TestCase):
         self.retriever = InMemoryKnowledgeRetriever(HashingEmbedder(dimensions=128))
 
     def test_ranks_most_relevant_first(self) -> None:
-        self.retriever.index(_asset("gmv", "gmv gross merchandise value daily"))
-        self.retriever.index(_asset("spend", "ad spend marketing budget"))
-        self.retriever.index(_asset("conv", "conversion rate funnel"))
+        self.retriever.index(
+            _asset("gmv", "gmv gross merchandise value daily", state=LifecycleState.ACTIVE)
+        )
+        self.retriever.index(
+            _asset("spend", "ad spend marketing budget", state=LifecycleState.ACTIVE)
+        )
+        self.retriever.index(_asset("conv", "conversion rate funnel", state=LifecycleState.ACTIVE))
 
         res = self.retriever.search(KnowledgeQuery(text="ad spend marketing budget", k=3))
         self.assertEqual(res[0].asset.asset_id, "spend")
@@ -73,8 +77,14 @@ class InMemoryKnowledgeRetrieverTest(unittest.TestCase):
         )
 
     def test_structured_filters(self) -> None:
-        self.retriever.index(_asset("a", "same words", owner="alice"), metric_name="gmv")
-        self.retriever.index(_asset("b", "same words", owner="bob"), metric_name="roi")
+        self.retriever.index(
+            _asset("a", "same words", owner="alice", state=LifecycleState.ACTIVE),
+            metric_name="gmv",
+        )
+        self.retriever.index(
+            _asset("b", "same words", owner="bob", state=LifecycleState.ACTIVE),
+            metric_name="roi",
+        )
         self.retriever.index(
             _asset("c", "same words", owner="alice", state=LifecycleState.ACTIVE),
             metric_name="gmv",
@@ -89,30 +99,65 @@ class InMemoryKnowledgeRetrieverTest(unittest.TestCase):
         by_state = self.retriever.search(
             KnowledgeQuery(text="same words", lifecycle_state=LifecycleState.ACTIVE)
         )
-        self.assertEqual({r.asset.asset_id for r in by_state}, {"c"})
+        self.assertEqual({r.asset.asset_id for r in by_state}, {"a", "b", "c"})
+
+    def test_default_search_consumes_only_reviewed_or_value_backed_assets(self) -> None:
+        self.retriever.index(_asset("draft", "governed gmv lesson"))
+        self.retriever.index(_asset("active", "governed gmv lesson", state=LifecycleState.ACTIVE))
+        self.retriever.index(
+            _asset("adopted", "governed gmv lesson"),
+            outcome="adopted",
+            outcome_score=1.0,
+        )
+        self.retriever.index(
+            _asset("deprecated", "governed gmv lesson", state=LifecycleState.DEPRECATED)
+        )
+
+        default_hits = self.retriever.search(KnowledgeQuery(text="governed gmv lesson", k=10))
+        self.assertEqual(
+            {r.asset.asset_id for r in default_hits},
+            {"active", "adopted"},
+        )
+
+        draft_hits = self.retriever.search(
+            KnowledgeQuery(
+                text="governed gmv lesson",
+                lifecycle_state=LifecycleState.DRAFT,
+                k=10,
+            )
+        )
+        self.assertEqual({r.asset.asset_id for r in draft_hits}, {"draft", "adopted"})
 
     def test_outcome_boost_overcomes_recency(self) -> None:
         # Identical text -> equal relevance; indexed FIRST (older) but higher outcome.
-        self.retriever.index(_asset("adopted", "same title"), outcome_score=1.0)
-        self.retriever.index(_asset("neutral", "same title"), outcome_score=0.0)
+        self.retriever.index(
+            _asset("adopted", "same title", state=LifecycleState.ACTIVE), outcome_score=1.0
+        )
+        self.retriever.index(
+            _asset("neutral", "same title", state=LifecycleState.ACTIVE), outcome_score=0.0
+        )
         res = self.retriever.search(KnowledgeQuery(text="same title", k=2))
         self.assertEqual(res[0].asset.asset_id, "adopted")
 
     def test_recency_boost_breaks_ties(self) -> None:
-        self.retriever.index(_asset("old", "same title"), outcome_score=0.0)
-        self.retriever.index(_asset("new", "same title"), outcome_score=0.0)
+        self.retriever.index(
+            _asset("old", "same title", state=LifecycleState.ACTIVE), outcome_score=0.0
+        )
+        self.retriever.index(
+            _asset("new", "same title", state=LifecycleState.ACTIVE), outcome_score=0.0
+        )
         res = self.retriever.search(KnowledgeQuery(text="same title", k=2))
         self.assertEqual(res[0].asset.asset_id, "new")
 
     def test_k_limits_and_empty(self) -> None:
         self.assertEqual(self.retriever.search(KnowledgeQuery(text="anything")), ())
         for i in range(5):
-            self.retriever.index(_asset(f"a{i}", f"title token{i}"))
+            self.retriever.index(_asset(f"a{i}", f"title token{i}", state=LifecycleState.ACTIVE))
         self.assertEqual(len(self.retriever.search(KnowledgeQuery(text="title", k=2))), 2)
 
     def test_reindex_replaces_same_asset(self) -> None:
-        self.retriever.index(_asset("x", "old title alpha"))
-        self.retriever.index(_asset("x", "new title beta"))
+        self.retriever.index(_asset("x", "old title alpha", state=LifecycleState.ACTIVE))
+        self.retriever.index(_asset("x", "new title beta", state=LifecycleState.ACTIVE))
         res = self.retriever.search(KnowledgeQuery(text="new title beta", k=5))
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0].asset.title, "new title beta")

@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "packages" / "persistence" / "src"))
 _SQLALCHEMY = importlib.util.find_spec("sqlalchemy") is not None
 
 
-def _asset(aid: str, title: str, *, owner: str = "revenue_ops"):
+def _asset(aid: str, title: str, *, owner: str = "revenue_ops", state=None):
     from agent_os_contracts import KnowledgeAsset, LifecycleState
 
     return KnowledgeAsset(
@@ -22,7 +22,7 @@ def _asset(aid: str, title: str, *, owner: str = "revenue_ops"):
         asset_type="decision_loop",
         source_trace_id=f"trace-{aid}",
         owner=owner,
-        state=LifecycleState.DRAFT,
+        state=state or LifecycleState.DRAFT,
     )
 
 
@@ -74,11 +74,21 @@ class SqlKnowledgeRetrievalTest(unittest.TestCase):
         self.assertEqual(self.store.version_of("trace-a"), 1)
 
     def test_retriever_ranks_and_filters(self) -> None:
-        from agent_os_contracts import KnowledgeQuery
+        from agent_os_contracts import KnowledgeQuery, LifecycleState
 
-        self.store.register(_asset("gmv", "[gmv] gross merchandise value daily"))
-        self.store.register(_asset("spend", "[spend] ad spend marketing budget"))
-        self.store.register(_asset("conv", "[conversion_rate] conversion rate funnel"))
+        self.store.register(
+            _asset("gmv", "[gmv] gross merchandise value daily", state=LifecycleState.ACTIVE)
+        )
+        self.store.register(
+            _asset("spend", "[spend] ad spend marketing budget", state=LifecycleState.ACTIVE)
+        )
+        self.store.register(
+            _asset(
+                "conv",
+                "[conversion_rate] conversion rate funnel",
+                state=LifecycleState.ACTIVE,
+            )
+        )
 
         res = self.retriever.search(KnowledgeQuery(text="ad spend marketing budget", k=3))
         self.assertEqual(res[0].asset.asset_id, "spend")
@@ -97,6 +107,41 @@ class SqlKnowledgeRetrievalTest(unittest.TestCase):
 
         by_metric = self.retriever.search(KnowledgeQuery(text="anything", metric_name="gmv"))
         self.assertEqual({r.asset.asset_id for r in by_metric}, {"gmv"})
+
+    def test_default_search_consumes_only_reviewed_or_value_backed_assets(self) -> None:
+        from agent_os_contracts import KnowledgeQuery, LifecycleState
+
+        self.store.register(_asset("draft", "[gmv] governed gmv lesson"))
+        self.store.register(
+            _asset("active", "[gmv] governed gmv lesson", state=LifecycleState.ACTIVE)
+        )
+        self.store.register_version(
+            _asset("adopted", "[gmv] governed gmv lesson", state=LifecycleState.DRAFT)
+        )
+        from dataclasses import replace
+
+        adopted = self.store.get_by_trace("trace-adopted")
+        self.assertIsNotNone(adopted)
+        self.store.register_version(replace(adopted, outcome="adopted", result_weight=1.0))
+        self.store.register(
+            _asset(
+                "deprecated",
+                "[gmv] governed gmv lesson",
+                state=LifecycleState.DEPRECATED,
+            )
+        )
+
+        default_hits = self.retriever.search(KnowledgeQuery(text="governed gmv lesson", k=10))
+        self.assertEqual({r.asset.asset_id for r in default_hits}, {"active", "adopted"})
+
+        draft_hits = self.retriever.search(
+            KnowledgeQuery(
+                text="governed gmv lesson",
+                lifecycle_state=LifecycleState.DRAFT,
+                k=10,
+            )
+        )
+        self.assertEqual({r.asset.asset_id for r in draft_hits}, {"draft", "adopted"})
 
     def _revised(self, asset_id: str, title: str, trace: str):
         from agent_os_contracts import KnowledgeAsset, LifecycleState

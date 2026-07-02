@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, RetrievalResult
+from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, LifecycleState, RetrievalResult
 from agent_os_core import (
     Candidate,
     Embedder,
@@ -26,7 +26,7 @@ from agent_os_core import (
     project_asset,
     tokenize_content,
 )
-from sqlalchemy import Connection, Engine, select
+from sqlalchemy import Connection, Engine, or_, select
 
 from . import mappers, schema
 
@@ -152,6 +152,13 @@ class SqlKnowledgeRetriever(KnowledgeRetriever):
             stmt = stmt.where(t.c.risk_level == query.risk_level)
         if query.lifecycle_state is not None:
             stmt = stmt.where(t.c.lifecycle_state == query.lifecycle_state.value)
+        else:
+            stmt = stmt.where(
+                or_(
+                    t.c.lifecycle_state == LifecycleState.ACTIVE.value,
+                    t.c.outcome == "adopted",
+                )
+            )
         if query.outcome is not None:
             stmt = stmt.where(t.c.outcome == query.outcome)
 

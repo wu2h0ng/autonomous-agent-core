@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, RetrievalResult
+from agent_os_contracts import KnowledgeAsset, KnowledgeQuery, LifecycleState, RetrievalResult
 
 from .. import embedding
 from ..embedding import Embedder
@@ -247,7 +247,10 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
             return False
         if query.risk_level is not None and entry.risk_level != query.risk_level:
             return False
-        if query.lifecycle_state is not None and entry.asset.state != query.lifecycle_state:
+        if query.lifecycle_state is not None:
+            if entry.asset.state != query.lifecycle_state:
+                return False
+        elif entry.asset.state != LifecycleState.ACTIVE and entry.outcome != "adopted":
             return False
         if query.outcome is not None and entry.outcome != query.outcome:
             return False

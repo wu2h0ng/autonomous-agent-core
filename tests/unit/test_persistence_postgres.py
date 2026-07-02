@@ -142,7 +142,12 @@ class PostgresIntegrationTest(unittest.TestCase):
         store = EmbeddingKnowledgeStore(SqlKnowledgeStore(self.engine), embedder, self.engine)
 
         def _asset(
-            aid: str, title: str, *, trace: str | None = None, outcome: str | None = None
+            aid: str,
+            title: str,
+            *,
+            trace: str | None = None,
+            outcome: str | None = None,
+            state: LifecycleState = LifecycleState.DRAFT,
         ) -> KnowledgeAsset:
             return KnowledgeAsset(
                 asset_id=aid,
@@ -150,11 +155,13 @@ class PostgresIntegrationTest(unittest.TestCase):
                 asset_type="decision_loop",
                 source_trace_id=trace or f"trace-{aid}",
                 owner="revenue_ops",
-                state=LifecycleState.DRAFT,
+                state=state,
                 outcome=outcome,
             )
 
-        store.register(_asset("gmv", "[gmv] gross merchandise value daily"))
+        store.register(
+            _asset("gmv", "[gmv] gross merchandise value daily", state=LifecycleState.ACTIVE)
+        )
         store.register(_asset("spend", "[spend] ad spend marketing budget"))
 
         # Outcome folds in through the transactional uow re-embed path (the same

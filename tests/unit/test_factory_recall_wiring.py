@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +24,7 @@ for _p in (
 ):
     sys.path.insert(0, str(_p))
 
-from agent_os_contracts import KnowledgeQuery  # noqa: E402
+from agent_os_contracts import KnowledgeQuery, LifecycleState  # noqa: E402
 
 from agent_os_api.runtime_factory import (  # noqa: E402
     EXECUTOR_SQLITE,
@@ -60,7 +61,12 @@ class MemoryBackendRecallWiringTest(unittest.TestCase):
         result = runtime.run("GMV", dict(RUN_PARAMS))
         self.assertIsNotNone(result.knowledge_asset_candidate)
 
-        # The SAME retriever instance sees the runtime's write.
+        # The SAME retriever instance sees the runtime's write once it is reviewed
+        # into a consumable lifecycle state.
+        self.assertEqual(retriever.search(KnowledgeQuery(text="GMV", k=10)), ())
+        runtime.knowledge_store.register_version(
+            replace(result.knowledge_asset_candidate, state=LifecycleState.ACTIVE)
+        )
         hits = retriever.search(KnowledgeQuery(text="GMV", k=10))
         self.assertIn(result.knowledge_asset_candidate.asset_id, [h.asset.asset_id for h in hits])
 
@@ -68,6 +74,9 @@ class MemoryBackendRecallWiringTest(unittest.TestCase):
         factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
         runtime = factory.build()
         first = runtime.run("GMV", dict(RUN_PARAMS))
+        runtime.knowledge_store.register_version(
+            replace(first.knowledge_asset_candidate, state=LifecycleState.ACTIVE)
+        )
         second = runtime.run("GMV", dict(RUN_PARAMS))
         self.assertIn(
             first.knowledge_asset_candidate.asset_id,
@@ -93,6 +102,9 @@ class PostgresBackendRecallWiringTest(unittest.TestCase):
         )
         runtime = factory.build()
         first = runtime.run("GMV", dict(RUN_PARAMS))
+        runtime.knowledge_store.register_version(
+            replace(first.knowledge_asset_candidate, state=LifecycleState.ACTIVE)
+        )
         second = runtime.run("GMV", dict(RUN_PARAMS))
         self.assertIn(
             first.knowledge_asset_candidate.asset_id,

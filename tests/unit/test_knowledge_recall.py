@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -122,20 +123,31 @@ class KnowledgeRecallInRunTest(unittest.TestCase):
         # The recall step is still traced (it ran and found nothing).
         self.assertEqual(len(_recall_events(result)), 1)
 
-    def test_second_run_recalls_prior_knowledge(self) -> None:
+    def test_second_run_does_not_recall_unreviewed_draft_candidate(self) -> None:
         runtime, _ = self._wired_runtime()
         first = runtime.run("GMV", dict(PARAMS))
         first_asset = first.knowledge_asset_candidate
         self.assertIsNotNone(first_asset)
 
         second = runtime.run("GMV", dict(PARAMS))
-        recalled_ids = [r.asset.asset_id for r in second.related_knowledge]
-        self.assertIn(first_asset.asset_id, recalled_ids)
-        # Explainability is preserved end to end.
-        self.assertIn("total", second.related_knowledge[0].score_breakdown)
-        # And the recall is recorded in the trace with the hit.
+        self.assertEqual(second.related_knowledge, ())
         (event,) = _recall_events(second)
-        self.assertIn(first_asset.asset_id, event.payload.get("asset_ids", []))
+        self.assertEqual(event.payload.get("asset_ids", []), [])
+
+    def test_second_run_recalls_active_reviewed_knowledge(self) -> None:
+        runtime, _ = self._wired_runtime()
+        first = runtime.run("GMV", dict(PARAMS))
+        first_asset = first.knowledge_asset_candidate
+        self.assertIsNotNone(first_asset)
+        active_asset = replace(first_asset, state=LifecycleState.ACTIVE)
+        runtime.knowledge_store.register_version(active_asset)
+
+        second = runtime.run("GMV", dict(PARAMS))
+        recalled_ids = [r.asset.asset_id for r in second.related_knowledge]
+        self.assertIn(active_asset.asset_id, recalled_ids)
+        self.assertIn("total", second.related_knowledge[0].score_breakdown)
+        (event,) = _recall_events(second)
+        self.assertIn(active_asset.asset_id, event.payload.get("asset_ids", []))
 
     def test_without_retriever_behavior_unchanged(self) -> None:
         runtime = _runtime()
@@ -169,7 +181,12 @@ class IndexingKnowledgeStoreTest(unittest.TestCase):
     def test_register_indexes_with_projected_metric(self) -> None:
         retriever = InMemoryKnowledgeRetriever(HashingEmbedder(64))
         store = IndexingKnowledgeStore(KnowledgeStore(), retriever)
-        store.register(self._asset("a", "[gmv] gross merchandise value", "trace-a"))
+        store.register_version(
+            replace(
+                self._asset("a", "[gmv] gross merchandise value", "trace-a"),
+                state=LifecycleState.ACTIVE,
+            )
+        )
 
         hits = retriever.search(KnowledgeQuery(text="gross merchandise value", metric_name="gmv"))
         self.assertEqual([h.asset.asset_id for h in hits], ["a"])
@@ -180,8 +197,16 @@ class IndexingKnowledgeStoreTest(unittest.TestCase):
         # Mirrors the SQL knowledge_index: one current entry per trace.
         retriever = InMemoryKnowledgeRetriever(HashingEmbedder(64))
         store = IndexingKnowledgeStore(KnowledgeStore(), retriever)
-        store.register(self._asset("v1", "[gmv] original wording", "trace-x"))
-        store.register_version(self._asset("v2", "[gmv] original wording", "trace-x"))
+        store.register_version(
+            replace(
+                self._asset("v1", "[gmv] original wording", "trace-x"), state=LifecycleState.ACTIVE
+            )
+        )
+        store.register_version(
+            replace(
+                self._asset("v2", "[gmv] original wording", "trace-x"), state=LifecycleState.ACTIVE
+            )
+        )
 
         hits = retriever.search(KnowledgeQuery(text="original wording", k=10))
         self.assertEqual([h.asset.asset_id for h in hits], ["v2"])
@@ -191,7 +216,11 @@ class IndexingKnowledgeStoreTest(unittest.TestCase):
 
         retriever = InMemoryKnowledgeRetriever(HashingEmbedder(64))
         store = IndexingKnowledgeStore(KnowledgeStore(), retriever)
-        adopted = replace(self._asset("k", "[gmv] adopted wisdom", "trace-k"), outcome="adopted")
+        adopted = replace(
+            self._asset("k", "[gmv] adopted wisdom", "trace-k"),
+            state=LifecycleState.ACTIVE,
+            outcome="adopted",
+        )
         store.register_version(adopted)
 
         (hit,) = retriever.search(KnowledgeQuery(text="adopted wisdom", k=1))

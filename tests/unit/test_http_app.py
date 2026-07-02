@@ -1747,8 +1747,7 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class HttpDefaultAppRecallTest(unittest.TestCase):
-    """The DEFAULT app (no injection) must close the knowledge loop (AR-20260611):
-    a run indexes knowledge that the search endpoint and later runs can see."""
+    """The DEFAULT app must close the reviewed/value-backed knowledge loop."""
 
     def _default_client(self):
         from starlette.testclient import TestClient
@@ -1757,7 +1756,7 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
 
         return TestClient(create_app(api_key=API_KEY))
 
-    def test_default_app_search_reflects_runtime_writes(self) -> None:
+    def test_default_app_search_consumes_reviewed_knowledge_not_raw_drafts(self) -> None:
         client = self._default_client()
         headers = {"X-API-Key": API_KEY}
 
@@ -1768,8 +1767,19 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
 
         search_resp = client.get("/knowledge/search", params={"q": "GMV", "k": 10}, headers=headers)
         self.assertEqual(search_resp.status_code, 200, search_resp.text)
+        self.assertEqual(search_resp.json()["results"], [])
+
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+
+        search_resp = client.get("/knowledge/search", params={"q": "GMV", "k": 10}, headers=headers)
+        self.assertEqual(search_resp.status_code, 200, search_resp.text)
         hits = [r["asset_id"] for r in search_resp.json()["results"]]
-        self.assertIn(asset_id, hits, "default app search no longer sees runtime writes")
+        self.assertIn(asset_id, hits, "default app search no longer sees reviewed knowledge")
 
     def test_trace_endpoint_returns_persisted_run_trace(self) -> None:
         client = self._default_client()
@@ -1821,8 +1831,18 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
         self.assertEqual(first.json()["related_knowledge"], [])  # nothing prior
 
         second = client.post("/runs", json=RUN_BODY, headers=headers)
-        related = second.json()["related_knowledge"]
-        self.assertTrue(related, "second run should recall the first run's knowledge")
+        self.assertEqual(second.json()["related_knowledge"], [])
+
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{first.json()['knowledge_asset_id']}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+
+        third = client.post("/runs", json=RUN_BODY, headers=headers)
+        related = third.json()["related_knowledge"]
+        self.assertTrue(related, "run should recall reviewed prior knowledge")
         self.assertIn(first.json()["knowledge_asset_id"], [r["asset_id"] for r in related])
         self.assertIn("score", related[0])
 
