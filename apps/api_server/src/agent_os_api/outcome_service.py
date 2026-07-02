@@ -1333,6 +1333,71 @@ def knowledge_asset_usage_events_service(
     }
 
 
+def knowledge_asset_decision_quality_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+) -> dict[str, Any]:
+    """Return a safe aggregate of downstream decision-quality usage signals."""
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    trace_store = getattr(runtime, "trace_store", None)
+    all_traces = getattr(trace_store, "all_traces", None)
+    traces = all_traces() if callable(all_traces) else ()
+
+    proposal_usage_count = 0
+    correction_usage_count = 0
+    outcome_correction_count = 0
+    adoption_correction_count = 0
+    usage_trace_ids: list[str] = []
+    seen_trace_ids: set[str] = set()
+
+    for run_trace in traces:
+        for event in run_trace.events:
+            payload = event.payload
+            refs = payload.get("knowledge_context_refs")
+            if not isinstance(refs, list) or asset_id not in refs:
+                continue
+
+            if event.step == "action_proposal":
+                proposal_usage_count += 1
+            elif event.step == "agent_runtime.tool_succeeded":
+                tool_name = payload.get("tool_name")
+                if tool_name == TrustedLoopCorrectionRuntimeAdapter.RECORD_OUTCOME_TOOL_NAME:
+                    correction_usage_count += 1
+                    outcome_correction_count += 1
+                elif tool_name == TrustedLoopCorrectionRuntimeAdapter.ATTEST_ADOPTION_TOOL_NAME:
+                    correction_usage_count += 1
+                    adoption_correction_count += 1
+                else:
+                    continue
+            else:
+                continue
+
+            if event.trace_id not in seen_trace_ids:
+                seen_trace_ids.add(event.trace_id)
+                usage_trace_ids.append(event.trace_id)
+
+    return {
+        "status": "ok",
+        "asset_id": target.asset_id,
+        "source_trace_id": target.source_trace_id,
+        "proposal_usage_count": proposal_usage_count,
+        "correction_usage_count": correction_usage_count,
+        "outcome_correction_count": outcome_correction_count,
+        "adoption_correction_count": adoption_correction_count,
+        "distinct_usage_trace_count": len(usage_trace_ids),
+        "usage_trace_ids": usage_trace_ids,
+    }
+
+
 def knowledge_review_action_service(
     runtime: Any,
     *,

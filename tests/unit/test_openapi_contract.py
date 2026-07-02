@@ -51,6 +51,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/approvals/{approval_id}/execute",
                 "/knowledge/assets",
                 "/knowledge/assets/{asset_id}",
+                "/knowledge/assets/{asset_id}/decision-quality",
                 "/knowledge/assets/{asset_id}/deprecate",
                 "/knowledge/assets/{asset_id}/lifecycle-events",
                 "/knowledge/assets/{asset_id}/publish",
@@ -182,6 +183,38 @@ class OpenApiContractTest(unittest.TestCase):
             },
         )
         rendered_schema = json.dumps(item_schema)
+        self.assertNotIn("related_knowledge", rendered_schema)
+        self.assertNotIn("metric_deltas", rendered_schema)
+
+    def test_knowledge_asset_decision_quality_contract_is_declared(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        quality = spec["paths"]["/knowledge/assets/{asset_id}/decision-quality"]["get"]
+        self.assertEqual(
+            quality["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/KnowledgeAssetDecisionQualityResponse"},
+        )
+        response_schema = spec["components"]["schemas"]["KnowledgeAssetDecisionQualityResponse"]
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {
+                "status",
+                "asset_id",
+                "proposal_usage_count",
+                "correction_usage_count",
+                "outcome_correction_count",
+                "adoption_correction_count",
+                "distinct_usage_trace_count",
+            },
+        )
+        self.assertEqual(
+            response_schema["properties"]["usage_trace_ids"],
+            {
+                "items": {"type": "string"},
+                "type": "array",
+                "title": "Usage Trace Ids",
+            },
+        )
+        rendered_schema = json.dumps(response_schema)
         self.assertNotIn("related_knowledge", rendered_schema)
         self.assertNotIn("metric_deltas", rendered_schema)
 

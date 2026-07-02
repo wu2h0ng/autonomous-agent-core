@@ -47,6 +47,7 @@ from .outcome_service import (
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
     knowledge_asset_catalog_service,
+    knowledge_asset_decision_quality_service,
     knowledge_asset_detail_service,
     knowledge_asset_lifecycle_events_service,
     knowledge_asset_usage_events_service,
@@ -660,6 +661,18 @@ class KnowledgeAssetUsageEventsResponse(BaseModel):
     source_trace_id: str | None = None
     count: int
     events: list[KnowledgeAssetUsageEventItem] = Field(default_factory=list)
+
+
+class KnowledgeAssetDecisionQualityResponse(BaseModel):
+    status: str
+    asset_id: str
+    source_trace_id: str | None = None
+    proposal_usage_count: int
+    correction_usage_count: int
+    outcome_correction_count: int
+    adoption_correction_count: int
+    distinct_usage_trace_count: int
+    usage_trace_ids: list[str] = Field(default_factory=list)
 
 
 class KnowledgeReviewActionRequest(BaseModel):
@@ -1472,6 +1485,29 @@ def create_app(
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_usage_events_service(
+                app.state.runtime,
+                asset_id=asset_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_FOUND",
+                    "message": "KnowledgeAsset was not found.",
+                    "asset_id": asset_id,
+                },
+            ) from exc
+
+    @app.get(
+        "/knowledge/assets/{asset_id}/decision-quality",
+        response_model=KnowledgeAssetDecisionQualityResponse,
+    )
+    def get_knowledge_asset_decision_quality(
+        asset_id: str,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_asset_decision_quality_service(
                 app.state.runtime,
                 asset_id=asset_id,
             )

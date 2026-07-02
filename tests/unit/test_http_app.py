@@ -514,6 +514,84 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_decision_quality_is_safe_and_guarded(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        first = client.post(
+            "/runs",
+            json={"question": "GMV quality summary", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        source_trace_id = first.json()["trace_id"]
+        asset_id = first.json()["knowledge_asset_id"]
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        outcome_run = client.post(
+            "/runs",
+            json={"question": "GMV quality summary", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(outcome_run.status_code, 200, outcome_run.text)
+        adoption_run = client.post(
+            "/runs",
+            json={"question": "GMV quality summary", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(adoption_run.status_code, 200, adoption_run.text)
+        outcome_trace_id = outcome_run.json()["trace_id"]
+        adoption_trace_id = adoption_run.json()["trace_id"]
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": outcome_trace_id, "outcome": "adopted"},
+            headers=headers,
+        )
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+        adoption_resp = client.post(
+            "/adoptions",
+            json={"trace_id": adoption_trace_id, "outcome": "realized"},
+            headers=headers,
+        )
+        self.assertEqual(adoption_resp.status_code, 200, adoption_resp.text)
+
+        quality_resp = client.get(
+            f"/knowledge/assets/{asset_id}/decision-quality",
+            headers=headers,
+        )
+
+        self.assertEqual(quality_resp.status_code, 200, quality_resp.text)
+        payload = quality_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["source_trace_id"], source_trace_id)
+        self.assertEqual(payload["proposal_usage_count"], 2)
+        self.assertEqual(payload["correction_usage_count"], 2)
+        self.assertEqual(payload["outcome_correction_count"], 1)
+        self.assertEqual(payload["adoption_correction_count"], 1)
+        self.assertEqual(payload["distinct_usage_trace_count"], 2)
+        self.assertEqual(payload["usage_trace_ids"], [outcome_trace_id, adoption_trace_id])
+        rendered = str(payload)
+        self.assertNotIn("related_knowledge", rendered)
+        self.assertNotIn("metric_deltas", rendered)
+        self.assertNotIn("reason", rendered)
+
+        missing_resp = client.get(
+            "/knowledge/assets/knowledge-missing/decision-quality",
+            headers=headers,
+        )
+        self.assertEqual(missing_resp.status_code, 404, missing_resp.text)
+        self.assertEqual(missing_resp.json()["detail"]["code"], "KNOWLEDGE_ASSET_NOT_FOUND")
+
+        external_resp = client.get(
+            f"/knowledge/assets/{asset_id}/decision-quality",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_internal_knowledge_deprecate_requires_reviewed_asset(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

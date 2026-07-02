@@ -1141,6 +1141,105 @@ class KnowledgeAssetUsageEventsServiceTest(unittest.TestCase):
             )
 
 
+class KnowledgeAssetDecisionQualityServiceTest(unittest.TestCase):
+    def test_returns_safe_decision_quality_summary_without_mutation(self) -> None:
+        runtime = _build_runtime()
+        first = run_service(runtime, question="GMV quality summary", parameters=RUN_PARAMS)
+        source_trace_id = first["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(source_trace_id)
+        self.assertIsNotNone(asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        outcome_run = run_service(runtime, question="GMV quality summary", parameters=RUN_PARAMS)
+        adoption_run = run_service(runtime, question="GMV quality summary", parameters=RUN_PARAMS)
+        for trace_id, tool_name in (
+            (outcome_run["trace_id"], "trusted_loop.record_outcome"),
+            (adoption_run["trace_id"], "trusted_loop.attest_adoption"),
+        ):
+            stored_trace = runtime.trace_store.get(trace_id)
+            self.assertIsNotNone(stored_trace)
+            runtime.trace_store.save(
+                replace(
+                    stored_trace,
+                    events=stored_trace.events
+                    + (
+                        outcome_service.TraceEvent(
+                            trace_id=trace_id,
+                            step="agent_runtime.tool_succeeded",
+                            payload={
+                                "tool_name": tool_name,
+                                "knowledge_context_refs": [asset.asset_id],
+                                "metric_deltas": {"secret_token": "do-not-leak"},
+                                "reason": "do-not-project",
+                            },
+                        ),
+                    ),
+                )
+            )
+        before_version = runtime.knowledge_store.version_of(source_trace_id)
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_decision_quality_service"),
+            "knowledge_asset_decision_quality_service is required for the internal quality summary",
+        )
+        result = outcome_service.knowledge_asset_decision_quality_service(
+            runtime,
+            asset_id=asset.asset_id,
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["asset_id"], asset.asset_id)
+        self.assertEqual(result["source_trace_id"], source_trace_id)
+        self.assertEqual(result["proposal_usage_count"], 2)
+        self.assertEqual(result["correction_usage_count"], 2)
+        self.assertEqual(result["outcome_correction_count"], 1)
+        self.assertEqual(result["adoption_correction_count"], 1)
+        self.assertEqual(result["distinct_usage_trace_count"], 2)
+        self.assertEqual(
+            result["usage_trace_ids"],
+            [outcome_run["trace_id"], adoption_run["trace_id"]],
+        )
+        rendered = str(result)
+        self.assertNotIn("title", result)
+        self.assertNotIn("content", rendered)
+        self.assertNotIn("related_knowledge", rendered)
+        self.assertNotIn("metric_deltas", rendered)
+        self.assertNotIn("reason", rendered)
+        self.assertNotIn("secret_token", rendered)
+        self.assertLessEqual(
+            set(result),
+            {
+                "status",
+                "asset_id",
+                "source_trace_id",
+                "proposal_usage_count",
+                "correction_usage_count",
+                "outcome_correction_count",
+                "adoption_correction_count",
+                "distinct_usage_trace_count",
+                "usage_trace_ids",
+            },
+        )
+        self.assertEqual(runtime.knowledge_store.version_of(source_trace_id), before_version)
+
+    def test_unknown_asset_decision_quality_raises_key_error(self) -> None:
+        runtime = _build_runtime()
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_asset_decision_quality_service"),
+            "knowledge_asset_decision_quality_service is required for the internal quality summary",
+        )
+        with self.assertRaises(KeyError):
+            outcome_service.knowledge_asset_decision_quality_service(
+                runtime,
+                asset_id="knowledge-missing",
+            )
+
+
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:
         runtime = _build_runtime()
