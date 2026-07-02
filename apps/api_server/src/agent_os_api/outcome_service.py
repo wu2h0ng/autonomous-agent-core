@@ -23,6 +23,7 @@ from agent_os_contracts import (
     CausalOutcomeAttribution,
     ConnectorExecutionAudit,
     KnowledgeQuery,
+    LifecycleState,
     RunTrace,
     TraceEvent,
 )
@@ -1074,6 +1075,61 @@ def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
         "review_state": "draft",
         "count": len(items),
         "items": items,
+    }
+
+
+def knowledge_review_action_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+    action: str,
+    reviewer: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Apply a bounded human review decision to a DRAFT KnowledgeAsset.
+
+    This review action is intentionally narrower than adoption/value promotion:
+    it changes only the lifecycle state of an existing DRAFT candidate. It does
+    not record feedback, infer outcome, change result_weight, publish assets, or
+    execute business actions.
+    """
+    normalized_action = action.strip().lower()
+    if normalized_action not in {"approve", "reject"}:
+        raise ValueError(f"Unsupported knowledge review action: {action}")
+
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    if target.source_trace_id is None:
+        raise ValueError("KnowledgeAsset.source_trace_id is required for review")
+
+    if target.state != LifecycleState.DRAFT:
+        raise RuntimeError(f"KnowledgeAsset '{asset_id}' is not draft: {target.state.value}")
+
+    next_state = (
+        LifecycleState.ACTIVE if normalized_action == "approve" else LifecycleState.DEPRECATED
+    )
+    reviewed = replace(target, state=next_state)
+    runtime.knowledge_store.register_version(reviewed)
+
+    return {
+        "status": "ok",
+        "asset_id": reviewed.asset_id,
+        "source_trace_id": reviewed.source_trace_id,
+        "action": normalized_action,
+        "previous_state": target.state.value,
+        "state": reviewed.state.value,
+        "reviewer": reviewer,
+        "reason": reason,
+        "knowledge_version": runtime.knowledge_store.version_of(target.source_trace_id),
+        "result_weight": reviewed.result_weight,
+        "outcome": reviewed.outcome,
     }
 
 

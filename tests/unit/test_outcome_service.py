@@ -13,6 +13,7 @@ from agent_os_contracts import (
     CausalOutcomeAttribution,
     DataClassification,
     EvidenceChain,
+    LifecycleState,
     MetricContract,
     QueryPlan,
     QueryResult,
@@ -23,6 +24,7 @@ from agent_os_api.outcome_service import (
     _build_user_result_artifact,
     approve_and_execute_service,
     attest_adoption_service,
+    knowledge_review_action_service,
     knowledge_review_queue_service,
     record_outcome_service,
     run_service,
@@ -627,6 +629,79 @@ class KnowledgeReviewQueueServiceTest(unittest.TestCase):
             {trace_id: runtime.knowledge_store.version_of(trace_id) for trace_id in trace_ids},
             before_versions,
         )
+
+
+class KnowledgeReviewActionServiceTest(unittest.TestCase):
+    def test_approve_marks_draft_asset_active_without_value_promotion(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV candidate to approve", parameters=RUN_PARAMS)
+        trace_id = run["trace_id"]
+        original = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(original)
+
+        result = knowledge_review_action_service(
+            runtime,
+            asset_id=original.asset_id,
+            action="approve",
+            reviewer="founder",
+            reason="safe enough for reuse",
+        )
+
+        stored = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(stored)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["action"], "approve")
+        self.assertEqual(result["asset_id"], original.asset_id)
+        self.assertEqual(result["source_trace_id"], trace_id)
+        self.assertEqual(result["previous_state"], "draft")
+        self.assertEqual(result["state"], "active")
+        self.assertEqual(result["reviewer"], "founder")
+        self.assertEqual(result["knowledge_version"], 2)
+        self.assertEqual(stored.state, LifecycleState.ACTIVE)
+        self.assertEqual(stored.result_weight, original.result_weight)
+        self.assertEqual(stored.outcome, original.outcome)
+        self.assertEqual(runtime.knowledge_store.version_of(trace_id), 2)
+
+    def test_reject_marks_draft_asset_deprecated_and_removes_it_from_queue(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV candidate to reject", parameters=RUN_PARAMS)
+        trace_id = run["trace_id"]
+        original = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(original)
+
+        result = knowledge_review_action_service(
+            runtime,
+            asset_id=original.asset_id,
+            action="reject",
+            reviewer="founder",
+            reason="not reusable",
+        )
+
+        stored = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(stored)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["action"], "reject")
+        self.assertEqual(result["previous_state"], "draft")
+        self.assertEqual(result["state"], "deprecated")
+        self.assertEqual(result["knowledge_version"], 2)
+        self.assertEqual(stored.state, LifecycleState.DEPRECATED)
+        self.assertEqual(stored.result_weight, original.result_weight)
+        self.assertEqual(knowledge_review_queue_service(runtime)["count"], 0)
+
+    def test_review_action_rejects_unknown_action(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV candidate", parameters=RUN_PARAMS)
+        asset = runtime.knowledge_store.get_by_trace(run["trace_id"])
+        self.assertIsNotNone(asset)
+
+        with self.assertRaisesRegex(ValueError, "Unsupported knowledge review action"):
+            knowledge_review_action_service(
+                runtime,
+                asset_id=asset.asset_id,
+                action="publish",
+                reviewer="founder",
+                reason="too much authority",
+            )
 
 
 if __name__ == "__main__":

@@ -117,6 +117,60 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_review_action_approves_candidate(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        queue_resp = client.get("/knowledge/review-queue", headers=headers)
+        self.assertEqual(queue_resp.status_code, 200, queue_resp.text)
+        asset_id = queue_resp.json()["items"][0]["asset_id"]
+
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "safe reusable lesson",
+            },
+            headers=headers,
+        )
+
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        payload = approve_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["action"], "approve")
+        self.assertEqual(payload["previous_state"], "draft")
+        self.assertEqual(payload["state"], "active")
+        self.assertEqual(payload["reviewer"], "founder")
+        self.assertEqual(payload["knowledge_version"], 2)
+        self.assertEqual(payload["result_weight"], 0.0)
+        self.assertIsNone(payload["outcome"])
+        self.assertEqual(client.get("/knowledge/review-queue", headers=headers).json()["count"], 0)
+
+        external_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "reject",
+                "reviewer": "external",
+                "reason": "not allowed",
+            },
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
+        second_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "reject",
+                "reviewer": "founder",
+                "reason": "already reviewed",
+            },
+            headers=headers,
+        )
+        self.assertEqual(second_resp.status_code, 409, second_resp.text)
+
     def test_post_run_persists_agent_runtime_envelope_in_run_trace(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

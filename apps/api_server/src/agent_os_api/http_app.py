@@ -45,6 +45,7 @@ from .outcome_service import (
     _persist_agent_runtime_appended_trace,
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
+    knowledge_review_action_service,
     knowledge_review_queue_service,
     report_snapshot_service,
     run_service,
@@ -583,6 +584,26 @@ class KnowledgeReviewQueueResponse(BaseModel):
     review_state: str
     count: int
     items: list[KnowledgeReviewQueueItem] = Field(default_factory=list)
+
+
+class KnowledgeReviewActionRequest(BaseModel):
+    action: Literal["approve", "reject"]
+    reviewer: str = Field(..., min_length=1)
+    reason: str | None = None
+
+
+class KnowledgeReviewActionResponse(BaseModel):
+    status: str
+    asset_id: str
+    source_trace_id: str | None = None
+    action: str
+    previous_state: str
+    state: str
+    reviewer: str
+    reason: str | None = None
+    knowledge_version: int
+    result_weight: float
+    outcome: str | None = None
 
 
 class ApprovalExecuteRequest(BaseModel):
@@ -1298,6 +1319,51 @@ def create_app(
         # P1-05 review queue is read-only: it lists DRAFT candidates that the
         # Trusted Loop already produced. It does not promote or publish assets.
         return knowledge_review_queue_service(app.state.runtime)
+
+    @app.post(
+        "/knowledge/review-queue/{asset_id}/decision",
+        response_model=KnowledgeReviewActionResponse,
+    )
+    def post_knowledge_review_decision(
+        asset_id: str,
+        request: KnowledgeReviewActionRequest,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_review_action_service(
+                app.state.runtime,
+                asset_id=asset_id,
+                action=request.action,
+                reviewer=request.reviewer,
+                reason=request.reason,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_FOUND",
+                    "message": "KnowledgeAsset was not found.",
+                    "asset_id": asset_id,
+                },
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_DRAFT",
+                    "message": str(exc),
+                    "asset_id": asset_id,
+                },
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "KNOWLEDGE_REVIEW_INVALID_REQUEST",
+                    "message": str(exc),
+                    "asset_id": asset_id,
+                },
+            ) from exc
 
     @app.get("/knowledge/search", response_model=SearchResponse)
     def get_knowledge_search(
