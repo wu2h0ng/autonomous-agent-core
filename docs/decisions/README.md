@@ -49,6 +49,11 @@ Current active ADRs:
 - `P1-04-eval-threshold-report.IMPLEMENTATION-20260703.md`
   - Branch-local eval threshold report surface on
     `codex/eval-threshold-report-20260703`; not merged, pushed, or released.
+- `P1-04-eval-threshold-report.MERGE-READINESS-20260703.md`
+  - Merge-decision packet for branch-local P1-04 eval threshold report;
+    fast-forward readiness checked from local `main@f56054c` to implementation
+    head `e652db0`, with docs-only readiness metadata on top. Not merge
+    authorization, not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
