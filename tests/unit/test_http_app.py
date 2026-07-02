@@ -171,6 +171,69 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(second_resp.status_code, 409, second_resp.text)
 
+    def test_internal_knowledge_publish_requires_active_asset(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        asset_id = client.get("/knowledge/review-queue", headers=headers).json()["items"][0][
+            "asset_id"
+        ]
+
+        draft_publish = client.post(
+            f"/knowledge/assets/{asset_id}/publish",
+            json={"reviewer": "founder", "reason": "skip review"},
+            headers=headers,
+        )
+        self.assertEqual(draft_publish.status_code, 409, draft_publish.text)
+
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "safe reusable lesson",
+            },
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+
+        publish_resp = client.post(
+            f"/knowledge/assets/{asset_id}/publish",
+            json={"reviewer": "founder", "reason": "ready for internal reuse"},
+            headers=headers,
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        payload = publish_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["action"], "publish")
+        self.assertEqual(payload["previous_state"], "active")
+        self.assertEqual(payload["state"], "published")
+        self.assertEqual(payload["knowledge_version"], 3)
+
+        trace_resp = client.get(f"/traces/{run_resp.json()['trace_id']}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        publish_events = [
+            event
+            for event in trace_resp.json()["events"]
+            if event["step"] == "knowledge_publish_decision"
+        ]
+        self.assertEqual(len(publish_events), 1)
+        publish_payload = publish_events[0]["payload"]
+        self.assertEqual(publish_payload["asset_id"], asset_id)
+        self.assertEqual(publish_payload["previous_state"], "active")
+        self.assertEqual(publish_payload["state"], "published")
+        self.assertTrue(publish_payload["reason_present"])
+        self.assertNotIn("ready for internal reuse", str(publish_payload))
+
+        external_resp = client.post(
+            f"/knowledge/assets/{asset_id}/publish",
+            json={"reviewer": "external"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_knowledge_review_action_is_visible_in_persisted_trace_without_raw_reason(
         self,
     ) -> None:

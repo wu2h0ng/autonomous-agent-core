@@ -156,6 +156,7 @@ class SqlKnowledgeRetriever(KnowledgeRetriever):
             stmt = stmt.where(
                 or_(
                     t.c.lifecycle_state == LifecycleState.ACTIVE.value,
+                    t.c.lifecycle_state == LifecycleState.PUBLISHED.value,
                     t.c.outcome == "adopted",
                 )
             )

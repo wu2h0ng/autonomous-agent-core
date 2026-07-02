@@ -110,6 +110,12 @@ Current active ADRs:
   - Local-main post-merge verification for P1-10 after founder/CTO-authorized
     ff-only merge to `main@4432784`; `make ci` and PostgreSQL `ci-local-full`
     passed. Not pushed, not released.
+- `P1-11-knowledge-publish-lifecycle.IMPLEMENTATION-20260703.md`
+  - Internal KnowledgeAsset publish lifecycle implemented on
+    `codex/p1-11-knowledge-publish-lifecycle-20260703`: reviewed `active`
+    assets can become `published`, draft/deprecated assets cannot skip gates,
+    and default retrieval consumes `published` assets; branch-local `make ci`
+    and PostgreSQL `ci-local-full` passed. Not pushed or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

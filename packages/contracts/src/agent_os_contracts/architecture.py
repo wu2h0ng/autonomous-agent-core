@@ -8,6 +8,7 @@ from typing import Any
 class LifecycleState(StrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
+    PUBLISHED = "published"
     DEPRECATED = "deprecated"
 
 

@@ -1159,6 +1159,74 @@ def knowledge_review_action_service(
     }
 
 
+def knowledge_publish_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+    reviewer: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Publish an already reviewed KnowledgeAsset for governed internal reuse.
+
+    Publishing is a lifecycle transition only. It requires prior human approval
+    (`active`) and does not infer value, write feedback, or expose asset content
+    externally.
+    """
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    if target.source_trace_id is None:
+        raise ValueError("KnowledgeAsset.source_trace_id is required for publish")
+
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(target.source_trace_id) if trace_store is not None else None
+    if persisted_trace is None:
+        raise RuntimeError(
+            f"KnowledgeAsset '{asset_id}' source trace is not persisted: {target.source_trace_id}"
+        )
+
+    if target.state != LifecycleState.ACTIVE:
+        raise RuntimeError(f"KnowledgeAsset '{asset_id}' is not active: {target.state.value}")
+
+    published = replace(target, state=LifecycleState.PUBLISHED)
+    runtime.knowledge_store.register_version(published)
+    knowledge_version = runtime.knowledge_store.version_of(target.source_trace_id)
+    audit_event = TraceEvent(
+        trace_id=target.source_trace_id,
+        step="knowledge_publish_decision",
+        payload={
+            "asset_id": published.asset_id,
+            "action": "publish",
+            "previous_state": target.state.value,
+            "state": published.state.value,
+            "reviewer": reviewer,
+            "knowledge_version": knowledge_version,
+            "reason_present": reason is not None,
+        },
+    )
+    trace_store.save(replace(persisted_trace, events=persisted_trace.events + (audit_event,)))
+
+    return {
+        "status": "ok",
+        "asset_id": published.asset_id,
+        "source_trace_id": published.source_trace_id,
+        "action": "publish",
+        "previous_state": target.state.value,
+        "state": published.state.value,
+        "reviewer": reviewer,
+        "reason": reason,
+        "knowledge_version": knowledge_version,
+        "result_weight": published.result_weight,
+        "outcome": published.outcome,
+    }
+
+
 def attest_adoption_service(
     runtime: Any,
     adoption_ingest: Any,

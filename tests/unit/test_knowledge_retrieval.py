@@ -105,6 +105,9 @@ class InMemoryKnowledgeRetrieverTest(unittest.TestCase):
         self.retriever.index(_asset("draft", "governed gmv lesson"))
         self.retriever.index(_asset("active", "governed gmv lesson", state=LifecycleState.ACTIVE))
         self.retriever.index(
+            _asset("published", "governed gmv lesson", state=LifecycleState.PUBLISHED)
+        )
+        self.retriever.index(
             _asset("adopted", "governed gmv lesson"),
             outcome="adopted",
             outcome_score=1.0,
@@ -116,7 +119,7 @@ class InMemoryKnowledgeRetrieverTest(unittest.TestCase):
         default_hits = self.retriever.search(KnowledgeQuery(text="governed gmv lesson", k=10))
         self.assertEqual(
             {r.asset.asset_id for r in default_hits},
-            {"active", "adopted"},
+            {"active", "published", "adopted"},
         )
 
         draft_hits = self.retriever.search(

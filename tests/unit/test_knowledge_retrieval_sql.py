@@ -115,6 +115,9 @@ class SqlKnowledgeRetrievalTest(unittest.TestCase):
         self.store.register(
             _asset("active", "[gmv] governed gmv lesson", state=LifecycleState.ACTIVE)
         )
+        self.store.register(
+            _asset("published", "[gmv] governed gmv lesson", state=LifecycleState.PUBLISHED)
+        )
         self.store.register_version(
             _asset("adopted", "[gmv] governed gmv lesson", state=LifecycleState.DRAFT)
         )
@@ -132,7 +135,10 @@ class SqlKnowledgeRetrievalTest(unittest.TestCase):
         )
 
         default_hits = self.retriever.search(KnowledgeQuery(text="governed gmv lesson", k=10))
-        self.assertEqual({r.asset.asset_id for r in default_hits}, {"active", "adopted"})
+        self.assertEqual(
+            {r.asset.asset_id for r in default_hits},
+            {"active", "published", "adopted"},
+        )
 
         draft_hits = self.retriever.search(
             KnowledgeQuery(

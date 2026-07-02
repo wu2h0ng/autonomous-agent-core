@@ -45,6 +45,7 @@ from .outcome_service import (
     _persist_agent_runtime_appended_trace,
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
+    knowledge_publish_service,
     knowledge_review_action_service,
     knowledge_review_queue_service,
     report_snapshot_service,
@@ -589,6 +590,11 @@ class KnowledgeReviewQueueResponse(BaseModel):
 
 class KnowledgeReviewActionRequest(BaseModel):
     action: Literal["approve", "reject"]
+    reviewer: str = Field(..., min_length=1)
+    reason: str | None = None
+
+
+class KnowledgePublishRequest(BaseModel):
     reviewer: str = Field(..., min_length=1)
     reason: str | None = None
 
@@ -1361,6 +1367,50 @@ def create_app(
                 status_code=400,
                 detail={
                     "code": "KNOWLEDGE_REVIEW_INVALID_REQUEST",
+                    "message": str(exc),
+                    "asset_id": asset_id,
+                },
+            ) from exc
+
+    @app.post(
+        "/knowledge/assets/{asset_id}/publish",
+        response_model=KnowledgeReviewActionResponse,
+    )
+    def post_knowledge_publish(
+        asset_id: str,
+        request: KnowledgePublishRequest,
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        try:
+            return knowledge_publish_service(
+                app.state.runtime,
+                asset_id=asset_id,
+                reviewer=request.reviewer,
+                reason=request.reason,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_FOUND",
+                    "message": "KnowledgeAsset was not found.",
+                    "asset_id": asset_id,
+                },
+            ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "KNOWLEDGE_ASSET_NOT_ACTIVE",
+                    "message": str(exc),
+                    "asset_id": asset_id,
+                },
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "KNOWLEDGE_PUBLISH_INVALID_REQUEST",
                     "message": str(exc),
                     "asset_id": asset_id,
                 },

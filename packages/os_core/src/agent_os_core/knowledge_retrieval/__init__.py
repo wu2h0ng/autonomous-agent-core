@@ -250,7 +250,14 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
         if query.lifecycle_state is not None:
             if entry.asset.state != query.lifecycle_state:
                 return False
-        elif entry.asset.state != LifecycleState.ACTIVE and entry.outcome != "adopted":
+        elif (
+            entry.asset.state
+            not in {
+                LifecycleState.ACTIVE,
+                LifecycleState.PUBLISHED,
+            }
+            and entry.outcome != "adopted"
+        ):
             return False
         if query.outcome is not None and entry.outcome != query.outcome:
             return False
