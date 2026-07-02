@@ -241,7 +241,22 @@ class OpenApiContractTest(unittest.TestCase):
                 "adoption_correction_count",
                 "distinct_usage_trace_count",
                 "quality_status",
+                "review_priority",
+                "recommended_review_action",
             },
+        )
+        self.assertEqual(
+            item_schema["properties"]["review_priority"]["enum"],
+            ["high", "medium", "low"],
+        )
+        self.assertEqual(
+            item_schema["properties"]["recommended_review_action"]["enum"],
+            [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
         )
         self.assertNotIn("title", item_schema["properties"])
         self.assertNotIn("content", item_schema["properties"])

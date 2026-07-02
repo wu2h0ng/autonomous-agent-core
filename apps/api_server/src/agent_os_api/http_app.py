@@ -697,6 +697,13 @@ class KnowledgeAssetQualitySummaryItem(BaseModel):
         "outcome_observed",
         "adoption_observed",
     ]
+    review_priority: Literal["high", "medium", "low"]
+    recommended_review_action: Literal[
+        "review_or_reject",
+        "collect_outcome_feedback",
+        "monitor_for_adoption",
+        "consider_publish",
+    ]
 
 
 class KnowledgeAssetQualitySummaryResponse(BaseModel):

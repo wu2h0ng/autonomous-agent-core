@@ -1415,6 +1415,20 @@ _KNOWLEDGE_ASSET_QUALITY_STATUSES = {
     "adoption_observed",
 }
 
+_KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS = {
+    "unused": "high",
+    "proposal_only": "medium",
+    "outcome_observed": "medium",
+    "adoption_observed": "high",
+}
+
+_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS = {
+    "unused": "review_or_reject",
+    "proposal_only": "collect_outcome_feedback",
+    "outcome_observed": "monitor_for_adoption",
+    "adoption_observed": "consider_publish",
+}
+
 
 def _normalize_knowledge_asset_quality_status_filter(quality_status: str | None) -> str | None:
     if quality_status is None:
@@ -1450,6 +1464,10 @@ def knowledge_asset_quality_summary_service(
                 "adoption_correction_count": quality["adoption_correction_count"],
                 "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
                 "quality_status": derived_status,
+                "review_priority": _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[derived_status],
+                "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[
+                    derived_status
+                ],
             }
         )
 

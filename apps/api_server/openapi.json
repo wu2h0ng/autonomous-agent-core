@@ -963,6 +963,25 @@
             "title": "Quality Status",
             "type": "string"
           },
+          "recommended_review_action": {
+            "enum": [
+              "review_or_reject",
+              "collect_outcome_feedback",
+              "monitor_for_adoption",
+              "consider_publish"
+            ],
+            "title": "Recommended Review Action",
+            "type": "string"
+          },
+          "review_priority": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Review Priority",
+            "type": "string"
+          },
           "source_trace_id": {
             "anyOf": [
               {
@@ -987,7 +1006,9 @@
           "outcome_correction_count",
           "adoption_correction_count",
           "distinct_usage_trace_count",
-          "quality_status"
+          "quality_status",
+          "review_priority",
+          "recommended_review_action"
         ],
         "title": "KnowledgeAssetQualitySummaryItem",
         "type": "object"
