@@ -1429,6 +1429,9 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS = {
     "adoption_observed": "consider_publish",
 }
 
+_KNOWLEDGE_ASSET_REVIEW_PRIORITIES = set(_KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS.values())
+_KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS.values())
+
 
 def _normalize_knowledge_asset_quality_status_filter(quality_status: str | None) -> str | None:
     if quality_status is None:
@@ -1440,18 +1443,60 @@ def _normalize_knowledge_asset_quality_status_filter(quality_status: str | None)
     return normalized
 
 
+def _normalize_knowledge_asset_review_priority_filter(review_priority: str | None) -> str | None:
+    if review_priority is None:
+        return None
+    normalized = review_priority.strip().lower()
+    if normalized not in _KNOWLEDGE_ASSET_REVIEW_PRIORITIES:
+        allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_REVIEW_PRIORITIES))
+        raise ValueError(
+            f"Unsupported review_priority filter: {review_priority}. Allowed: {allowed}"
+        )
+    return normalized
+
+
+def _normalize_knowledge_asset_recommended_action_filter(
+    recommended_review_action: str | None,
+) -> str | None:
+    if recommended_review_action is None:
+        return None
+    normalized = recommended_review_action.strip().lower()
+    if normalized not in _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS:
+        allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS))
+        raise ValueError(
+            "Unsupported recommended_review_action filter: "
+            f"{recommended_review_action}. Allowed: {allowed}"
+        )
+    return normalized
+
+
 def knowledge_asset_quality_summary_service(
     runtime: Any,
     *,
     quality_status: str | None = None,
+    review_priority: str | None = None,
+    recommended_review_action: str | None = None,
 ) -> dict[str, Any]:
     """Return a safe, read-only quality catalog for all KnowledgeAssets."""
     quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
+    review_priority_filter = _normalize_knowledge_asset_review_priority_filter(review_priority)
+    recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
+        recommended_review_action
+    )
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
         derived_status = _knowledge_asset_quality_status(quality)
+        derived_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[derived_status]
+        derived_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[derived_status]
         if quality_status_filter is not None and derived_status != quality_status_filter:
+            continue
+        if review_priority_filter is not None and derived_priority != review_priority_filter:
+            continue
+        if (
+            recommended_review_action_filter is not None
+            and derived_action != recommended_review_action_filter
+        ):
             continue
         items.append(
             {
@@ -1464,16 +1509,16 @@ def knowledge_asset_quality_summary_service(
                 "adoption_correction_count": quality["adoption_correction_count"],
                 "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
                 "quality_status": derived_status,
-                "review_priority": _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[derived_status],
-                "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[
-                    derived_status
-                ],
+                "review_priority": derived_priority,
+                "recommended_review_action": derived_action,
             }
         )
 
     return {
         "status": "ok",
         "quality_status_filter": quality_status_filter,
+        "review_priority_filter": review_priority_filter,
+        "recommended_review_action_filter": recommended_review_action_filter,
         "count": len(items),
         "items": items,
     }

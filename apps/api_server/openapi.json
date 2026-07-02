@@ -1043,6 +1043,39 @@
             ],
             "title": "Quality Status Filter"
           },
+          "recommended_review_action_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "review_or_reject",
+                  "collect_outcome_feedback",
+                  "monitor_for_adoption",
+                  "consider_publish"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Review Action Filter"
+          },
+          "review_priority_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Priority Filter"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -1051,6 +1084,8 @@
         "required": [
           "status",
           "quality_status_filter",
+          "review_priority_filter",
+          "recommended_review_action_filter",
           "count",
           "items"
         ],
@@ -3147,6 +3182,53 @@
                 "adoption_observed"
               ],
               "title": "Quality Status"
+            }
+          },
+          {
+            "description": "optional reviewer priority filter",
+            "in": "query",
+            "name": "review_priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional reviewer priority filter",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "title": "Review Priority"
+            }
+          },
+          {
+            "description": "optional recommended review action filter",
+            "in": "query",
+            "name": "recommended_review_action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional recommended review action filter",
+              "enum": [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish"
+              ],
+              "title": "Recommended Review Action"
             }
           },
           {

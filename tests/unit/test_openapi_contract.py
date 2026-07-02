@@ -200,6 +200,28 @@ class OpenApiContractTest(unittest.TestCase):
             quality_status_param["schema"]["enum"],
             ["unused", "proposal_only", "outcome_observed", "adoption_observed"],
         )
+        review_priority_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "review_priority"
+        )
+        recommended_action_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "recommended_review_action"
+        )
+        self.assertFalse(review_priority_param["required"])
+        self.assertFalse(recommended_action_param["required"])
+        self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
+        self.assertEqual(
+            recommended_action_param["schema"]["enum"],
+            [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        )
         self.assertIn("400", summary["responses"])
         self.assertEqual(
             summary["responses"]["200"]["content"]["application/json"]["schema"],
@@ -208,7 +230,14 @@ class OpenApiContractTest(unittest.TestCase):
         response_schema = spec["components"]["schemas"]["KnowledgeAssetQualitySummaryResponse"]
         self.assertGreaterEqual(
             set(response_schema["required"]),
-            {"status", "count", "items", "quality_status_filter"},
+            {
+                "status",
+                "count",
+                "items",
+                "quality_status_filter",
+                "review_priority_filter",
+                "recommended_review_action_filter",
+            },
         )
         self.assertEqual(
             response_schema["properties"]["quality_status_filter"]["anyOf"],
@@ -219,6 +248,28 @@ class OpenApiContractTest(unittest.TestCase):
                         "proposal_only",
                         "outcome_observed",
                         "adoption_observed",
+                    ],
+                    "type": "string",
+                },
+                {"type": "null"},
+            ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_priority_filter"]["anyOf"],
+            [
+                {"enum": ["high", "medium", "low"], "type": "string"},
+                {"type": "null"},
+            ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["recommended_review_action_filter"]["anyOf"],
+            [
+                {
+                    "enum": [
+                        "review_or_reject",
+                        "collect_outcome_feedback",
+                        "monitor_for_adoption",
+                        "consider_publish",
                     ],
                     "type": "string",
                 },

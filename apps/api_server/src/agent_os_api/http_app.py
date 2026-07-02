@@ -75,6 +75,13 @@ KNOWLEDGE_QUALITY_STATUS_VALUES = [
     "outcome_observed",
     "adoption_observed",
 ]
+KNOWLEDGE_REVIEW_PRIORITY_VALUES = ["high", "medium", "low"]
+KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES = [
+    "review_or_reject",
+    "collect_outcome_feedback",
+    "monitor_for_adoption",
+    "consider_publish",
+]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
 API_SCOPE_OUTCOME_WRITE = "outcomes:write"
@@ -714,6 +721,16 @@ class KnowledgeAssetQualitySummaryResponse(BaseModel):
             "proposal_only",
             "outcome_observed",
             "adoption_observed",
+        ]
+        | None
+    )
+    review_priority_filter: Literal["high", "medium", "low"] | None
+    recommended_review_action_filter: (
+        Literal[
+            "review_or_reject",
+            "collect_outcome_feedback",
+            "monitor_for_adoption",
+            "consider_publish",
         ]
         | None
     )
@@ -1492,12 +1509,24 @@ def create_app(
             description="optional quality status filter",
             json_schema_extra={"enum": KNOWLEDGE_QUALITY_STATUS_VALUES},
         ),
+        review_priority: str | None = Query(
+            default=None,
+            description="optional reviewer priority filter",
+            json_schema_extra={"enum": KNOWLEDGE_REVIEW_PRIORITY_VALUES},
+        ),
+        recommended_review_action: str | None = Query(
+            default=None,
+            description="optional recommended review action filter",
+            json_schema_extra={"enum": KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES},
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_quality_summary_service(
                 app.state.runtime,
                 quality_status=quality_status,
+                review_priority=review_priority,
+                recommended_review_action=recommended_review_action,
             )
         except ValueError as exc:
             raise HTTPException(

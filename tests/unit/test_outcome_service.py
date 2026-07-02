@@ -1343,7 +1343,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             before_versions[unused["trace_id"]],
         )
 
-    def test_quality_catalog_filters_by_quality_status(self) -> None:
+    def test_quality_catalog_filters_review_queue_fields(self) -> None:
         runtime = _build_runtime()
         first = run_service(runtime, question="GMV quality filter", parameters=RUN_PARAMS)
         unused = run_service(runtime, question="GMV quality filter unused", parameters=RUN_PARAMS)
@@ -1385,6 +1385,14 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             runtime,
             quality_status="unused",
         )
+        medium_priority = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            review_priority="medium",
+        )
+        review_or_reject = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            recommended_review_action="review_or_reject",
+        )
 
         self.assertEqual(outcome_only["quality_status_filter"], "outcome_observed")
         self.assertEqual(outcome_only["count"], 1)
@@ -1397,11 +1405,42 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             [item["asset_id"] for item in unused_only["items"]],
         )
         self.assertEqual({item["quality_status"] for item in unused_only["items"]}, {"unused"})
+        self.assertEqual(medium_priority["review_priority_filter"], "medium")
+        self.assertIn(
+            active_asset.asset_id,
+            [item["asset_id"] for item in medium_priority["items"]],
+        )
+        self.assertEqual(
+            {item["review_priority"] for item in medium_priority["items"]},
+            {"medium"},
+        )
+        self.assertEqual(
+            review_or_reject["recommended_review_action_filter"],
+            "review_or_reject",
+        )
+        self.assertIn(
+            unused_asset.asset_id,
+            [item["asset_id"] for item in review_or_reject["items"]],
+        )
+        self.assertEqual(
+            {item["recommended_review_action"] for item in review_or_reject["items"]},
+            {"review_or_reject"},
+        )
 
         with self.assertRaises(ValueError):
             outcome_service.knowledge_asset_quality_summary_service(
                 runtime,
                 quality_status="not-a-status",
+            )
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(
+                runtime,
+                review_priority="urgent",
+            )
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(
+                runtime,
+                recommended_review_action="auto_publish",
             )
 
 

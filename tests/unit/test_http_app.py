@@ -739,9 +739,29 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"quality_status": "unused"},
             headers=headers,
         )
+        medium_priority_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"review_priority": "medium"},
+            headers=headers,
+        )
+        review_or_reject_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"recommended_review_action": "review_or_reject"},
+            headers=headers,
+        )
         invalid_summary = client.get(
             "/knowledge/assets/quality-summary",
             params={"quality_status": "not-a-status"},
+            headers=headers,
+        )
+        invalid_priority_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"review_priority": "urgent"},
+            headers=headers,
+        )
+        invalid_action_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"recommended_review_action": "auto_publish"},
             headers=headers,
         )
 
@@ -759,9 +779,32 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             {item["quality_status"] for item in unused_payload["items"]},
             {"unused"},
         )
+        self.assertEqual(medium_priority_summary.status_code, 200, medium_priority_summary.text)
+        medium_payload = medium_priority_summary.json()
+        self.assertEqual(medium_payload["review_priority_filter"], "medium")
+        self.assertIn(active_asset_id, [item["asset_id"] for item in medium_payload["items"]])
+        self.assertEqual({item["review_priority"] for item in medium_payload["items"]}, {"medium"})
+        self.assertEqual(review_or_reject_summary.status_code, 200, review_or_reject_summary.text)
+        action_payload = review_or_reject_summary.json()
+        self.assertEqual(action_payload["recommended_review_action_filter"], "review_or_reject")
+        self.assertIn(unused_asset_id, [item["asset_id"] for item in action_payload["items"]])
+        self.assertEqual(
+            {item["recommended_review_action"] for item in action_payload["items"]},
+            {"review_or_reject"},
+        )
         self.assertEqual(invalid_summary.status_code, 400, invalid_summary.text)
         self.assertEqual(
             invalid_summary.json()["detail"]["code"],
+            "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_priority_summary.status_code, 400, invalid_priority_summary.text)
+        self.assertEqual(
+            invalid_priority_summary.json()["detail"]["code"],
+            "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_action_summary.status_code, 400, invalid_action_summary.text)
+        self.assertEqual(
+            invalid_action_summary.json()["detail"]["code"],
             "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
         )
 

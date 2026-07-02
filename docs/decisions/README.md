@@ -264,6 +264,13 @@ Current active ADRs:
     ff-only merge to `main@816cb3e`; `make ci` and PostgreSQL
     `ci-local-full` passed with 585 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not pushed, not released.
+- `P1-23-knowledge-quality-review-filter.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of internal reviewer queue filters on
+    `GET /knowledge/assets/quality-summary`: `review_priority` and
+    `recommended_review_action` can now be used as safe read-only filters and
+    are echoed in the response. Branch-local `make ci` plus PostgreSQL
+    `ci-local-full` passed with 585 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
