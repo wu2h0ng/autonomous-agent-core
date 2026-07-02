@@ -1286,6 +1286,76 @@ def knowledge_publish_service(
     }
 
 
+def knowledge_deprecate_service(
+    runtime: Any,
+    *,
+    asset_id: str,
+    reviewer: str,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Deprecate a reviewed KnowledgeAsset so it is no longer consumed by default.
+
+    Deprecation is the correction counterpart to review/publish: it can only
+    retire assets that already passed review (`active`) or internal publish
+    (`published`). Draft candidates must still go through the review queue.
+    """
+    target = None
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.asset_id == asset_id:
+            target = asset
+            break
+
+    if target is None:
+        raise KeyError(asset_id)
+
+    if target.source_trace_id is None:
+        raise ValueError("KnowledgeAsset.source_trace_id is required for deprecate")
+
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(target.source_trace_id) if trace_store is not None else None
+    if persisted_trace is None:
+        raise RuntimeError(
+            f"KnowledgeAsset '{asset_id}' source trace is not persisted: {target.source_trace_id}"
+        )
+
+    if target.state not in {LifecycleState.ACTIVE, LifecycleState.PUBLISHED}:
+        raise RuntimeError(
+            f"KnowledgeAsset '{asset_id}' is not active or published: {target.state.value}"
+        )
+
+    deprecated = replace(target, state=LifecycleState.DEPRECATED)
+    runtime.knowledge_store.register_version(deprecated)
+    knowledge_version = runtime.knowledge_store.version_of(target.source_trace_id)
+    audit_event = TraceEvent(
+        trace_id=target.source_trace_id,
+        step="knowledge_deprecate_decision",
+        payload={
+            "asset_id": deprecated.asset_id,
+            "action": "deprecate",
+            "previous_state": target.state.value,
+            "state": deprecated.state.value,
+            "reviewer": reviewer,
+            "knowledge_version": knowledge_version,
+            "reason_present": reason is not None,
+        },
+    )
+    trace_store.save(replace(persisted_trace, events=persisted_trace.events + (audit_event,)))
+
+    return {
+        "status": "ok",
+        "asset_id": deprecated.asset_id,
+        "source_trace_id": deprecated.source_trace_id,
+        "action": "deprecate",
+        "previous_state": target.state.value,
+        "state": deprecated.state.value,
+        "reviewer": reviewer,
+        "reason": reason,
+        "knowledge_version": knowledge_version,
+        "result_weight": deprecated.result_weight,
+        "outcome": deprecated.outcome,
+    }
+
+
 def attest_adoption_service(
     runtime: Any,
     adoption_ingest: Any,

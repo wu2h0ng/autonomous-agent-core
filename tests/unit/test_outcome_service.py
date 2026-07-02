@@ -868,5 +868,86 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             outcome_service.knowledge_asset_catalog_service(runtime, lifecycle_state="external")
 
 
+class KnowledgeDeprecateServiceTest(unittest.TestCase):
+    def test_deprecates_published_asset_without_value_promotion(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV asset to deprecate", parameters=RUN_PARAMS)
+        trace_id = run["trace_id"]
+        asset = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        knowledge_publish_service(
+            runtime,
+            asset_id=asset.asset_id,
+            reviewer="founder",
+        )
+        published = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(published)
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_deprecate_service"),
+            "knowledge_deprecate_service is required for internal correction of reviewed assets",
+        )
+        result = outcome_service.knowledge_deprecate_service(
+            runtime,
+            asset_id=asset.asset_id,
+            reviewer="founder",
+            reason="superseded by stronger evidence",
+        )
+
+        stored = runtime.knowledge_store.get_by_trace(trace_id)
+        self.assertIsNotNone(stored)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["asset_id"], asset.asset_id)
+        self.assertEqual(result["action"], "deprecate")
+        self.assertEqual(result["previous_state"], "published")
+        self.assertEqual(result["state"], "deprecated")
+        self.assertEqual(result["knowledge_version"], 4)
+        self.assertEqual(stored.state, LifecycleState.DEPRECATED)
+        self.assertEqual(stored.result_weight, published.result_weight)
+        self.assertEqual(stored.outcome, published.outcome)
+        self.assertEqual(
+            outcome_service.knowledge_asset_catalog_service(runtime)["count"],
+            0,
+        )
+
+        stored_trace = runtime.trace_store.get(trace_id)
+        self.assertIsNotNone(stored_trace)
+        deprecate_events = [
+            event for event in stored_trace.events if event.step == "knowledge_deprecate_decision"
+        ]
+        self.assertEqual(len(deprecate_events), 1)
+        payload = deprecate_events[0].payload
+        self.assertEqual(payload["asset_id"], asset.asset_id)
+        self.assertEqual(payload["previous_state"], "published")
+        self.assertEqual(payload["state"], "deprecated")
+        self.assertTrue(payload["reason_present"])
+        self.assertNotIn("reason", payload)
+        self.assertNotIn("superseded by stronger evidence", str(payload))
+
+    def test_deprecate_rejects_draft_asset(self) -> None:
+        runtime = _build_runtime()
+        run = run_service(runtime, question="GMV draft cannot deprecate", parameters=RUN_PARAMS)
+        asset = runtime.knowledge_store.get_by_trace(run["trace_id"])
+        self.assertIsNotNone(asset)
+
+        self.assertTrue(
+            hasattr(outcome_service, "knowledge_deprecate_service"),
+            "knowledge_deprecate_service is required for internal correction of reviewed assets",
+        )
+        with self.assertRaisesRegex(RuntimeError, "is not active or published"):
+            outcome_service.knowledge_deprecate_service(
+                runtime,
+                asset_id=asset.asset_id,
+                reviewer="founder",
+                reason="must pass review first",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

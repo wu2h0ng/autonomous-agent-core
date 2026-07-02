@@ -50,6 +50,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/agent-runtime/runs/{runtime_run_id}/resume",
                 "/approvals/{approval_id}/execute",
                 "/knowledge/assets",
+                "/knowledge/assets/{asset_id}/deprecate",
                 "/knowledge/assets/{asset_id}/publish",
                 "/knowledge/review-queue",
                 "/knowledge/review-queue/{asset_id}/decision",

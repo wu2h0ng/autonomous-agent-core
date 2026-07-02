@@ -321,6 +321,76 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_deprecate_requires_reviewed_asset(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        asset_id = client.get("/knowledge/review-queue", headers=headers).json()["items"][0][
+            "asset_id"
+        ]
+
+        draft_deprecate = client.post(
+            f"/knowledge/assets/{asset_id}/deprecate",
+            json={"reviewer": "founder", "reason": "skip review"},
+            headers=headers,
+        )
+        self.assertEqual(draft_deprecate.status_code, 409, draft_deprecate.text)
+
+        approve_resp = client.post(
+            f"/knowledge/review-queue/{asset_id}/decision",
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "safe reusable lesson",
+            },
+            headers=headers,
+        )
+        self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+
+        deprecate_resp = client.post(
+            f"/knowledge/assets/{asset_id}/deprecate",
+            json={"reviewer": "founder", "reason": "superseded"},
+            headers=headers,
+        )
+        self.assertEqual(deprecate_resp.status_code, 200, deprecate_resp.text)
+        payload = deprecate_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["asset_id"], asset_id)
+        self.assertEqual(payload["action"], "deprecate")
+        self.assertEqual(payload["previous_state"], "active")
+        self.assertEqual(payload["state"], "deprecated")
+        self.assertEqual(payload["knowledge_version"], 3)
+
+        catalog_resp = client.get("/knowledge/assets", headers=headers)
+        self.assertEqual(catalog_resp.status_code, 200, catalog_resp.text)
+        self.assertEqual(catalog_resp.json()["count"], 0)
+        all_resp = client.get("/knowledge/assets", params={"state": "all"}, headers=headers)
+        self.assertEqual(all_resp.status_code, 200, all_resp.text)
+        self.assertEqual(all_resp.json()["items"][0]["state"], "deprecated")
+
+        trace_resp = client.get(f"/traces/{run_resp.json()['trace_id']}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        deprecate_events = [
+            event
+            for event in trace_resp.json()["events"]
+            if event["step"] == "knowledge_deprecate_decision"
+        ]
+        self.assertEqual(len(deprecate_events), 1)
+        deprecate_payload = deprecate_events[0]["payload"]
+        self.assertEqual(deprecate_payload["asset_id"], asset_id)
+        self.assertEqual(deprecate_payload["previous_state"], "active")
+        self.assertEqual(deprecate_payload["state"], "deprecated")
+        self.assertTrue(deprecate_payload["reason_present"])
+        self.assertNotIn("superseded", str(deprecate_payload))
+
+        external_resp = client.post(
+            f"/knowledge/assets/{asset_id}/deprecate",
+            json={"reviewer": "external"},
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_knowledge_review_action_is_visible_in_persisted_trace_without_raw_reason(
         self,
     ) -> None:

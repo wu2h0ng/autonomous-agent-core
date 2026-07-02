@@ -134,6 +134,14 @@ Current active ADRs:
     ff-only merge to `main@85d527d`; `make ci` and PostgreSQL `ci-local-full`
     passed with 560 primary unittest tests OK / 4 skipped plus 12 eval OK.
     Not pushed, not released.
+- `P1-13-knowledge-deprecate-lifecycle.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of an internal `POST
+    /knowledge/assets/{asset_id}/deprecate` lifecycle transition: only
+    reviewed `active` or `published` KnowledgeAssets can become `deprecated`;
+    raw deprecation reasons are not written into trace payloads, default
+    consumption excludes deprecated assets, and branch-local `make ci` plus
+    PostgreSQL `ci-local-full` passed with 563 primary unittest tests OK / 4
+    skipped plus 12 eval OK. Not merged, not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
