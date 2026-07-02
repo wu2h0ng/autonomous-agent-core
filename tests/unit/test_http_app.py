@@ -985,6 +985,21 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(adoption_resp.json()["knowledge_context_refs"], [first_asset_id])
         self.assertNotIn("related_knowledge", outcome_resp.json())
         self.assertNotIn("related_knowledge", adoption_resp.json())
+        trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
+        self.assertEqual(trace_resp.status_code, 200, trace_resp.text)
+        trace_events = trace_resp.json()["events"]
+        correction_success_events = [
+            event
+            for event in trace_events
+            if event["step"] == "agent_runtime.tool_succeeded"
+            and event["payload"].get("tool_name")
+            in {"trusted_loop.record_outcome", "trusted_loop.attest_adoption"}
+        ]
+        self.assertEqual(len(correction_success_events), 2)
+        self.assertEqual(
+            [event["payload"].get("knowledge_context_refs") for event in correction_success_events],
+            [[first_asset_id], [first_asset_id]],
+        )
 
     def test_outcomes_traverse_agent_runtime_envelope_without_knowledge_promotion(self) -> None:
         client = _make_client(API_KEY)

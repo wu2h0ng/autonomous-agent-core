@@ -42,6 +42,7 @@ from agent_os_core.agent_runtime import (
 from .outcome_service import (
     InMemoryReportSnapshotStore,
     TrustedLoopCorrectionRuntimeAdapter,
+    _knowledge_context_refs_from_output,
     _persist_agent_runtime_appended_trace,
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
@@ -1197,6 +1198,7 @@ def create_app(
             app.state.runtime,
             trace_id=body.trace_id,
             agent_runtime_adapter=agent_runtime_adapter,
+            knowledge_context_refs=_knowledge_context_refs_from_output(agent_result.output),
         )
         return agent_result.output if isinstance(agent_result.output, dict) else {}
 
@@ -1274,6 +1276,7 @@ def create_app(
             app.state.runtime,
             trace_id=body.trace_id,
             agent_runtime_adapter=agent_runtime_adapter,
+            knowledge_context_refs=_knowledge_context_refs_from_output(agent_result.output),
         )
         return agent_result.output if isinstance(agent_result.output, dict) else {}
 

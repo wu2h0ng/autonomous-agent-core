@@ -302,21 +302,24 @@ def _safe_agent_runtime_events(
     *,
     trace_id: str,
     agent_runtime_adapter: Any,
+    knowledge_context_refs: tuple[str, ...] = (),
 ) -> list[TraceEvent]:
     adapter_runtime = getattr(agent_runtime_adapter, "runtime", None)
     trace_writer = getattr(adapter_runtime, "trace_writer", None)
     raw_events = getattr(trace_writer, "events", ())
-    return [
-        TraceEvent(
-            trace_id=trace_id,
-            step=event["step"],
-            payload=_safe_agent_runtime_trace_payload(event.get("payload")),
-        )
-        for event in raw_events
-        if isinstance(event, dict)
-        and isinstance(event.get("step"), str)
-        and event["step"].startswith("agent_runtime.")
-    ]
+    events: list[TraceEvent] = []
+    for event in raw_events:
+        if (
+            not isinstance(event, dict)
+            or not isinstance(event.get("step"), str)
+            or not event["step"].startswith("agent_runtime.")
+        ):
+            continue
+        payload = _safe_agent_runtime_trace_payload(event.get("payload"))
+        if event["step"] == "agent_runtime.tool_succeeded" and knowledge_context_refs:
+            payload["knowledge_context_refs"] = list(knowledge_context_refs)
+        events.append(TraceEvent(trace_id=trace_id, step=event["step"], payload=payload))
+    return events
 
 
 def _persist_agent_runtime_success_trace(
@@ -352,6 +355,7 @@ def _persist_agent_runtime_appended_trace(
     *,
     trace_id: str,
     agent_runtime_adapter: Any,
+    knowledge_context_refs: tuple[str, ...] = (),
 ) -> None:
     trace_store = getattr(runtime, "trace_store", None)
     if trace_store is None:
@@ -360,6 +364,7 @@ def _persist_agent_runtime_appended_trace(
         _safe_agent_runtime_events(
             trace_id=trace_id,
             agent_runtime_adapter=agent_runtime_adapter,
+            knowledge_context_refs=knowledge_context_refs,
         )
     )
     if not runtime_events:
@@ -369,6 +374,15 @@ def _persist_agent_runtime_appended_trace(
         trace_store.save(RunTrace(trace_id=trace_id, status="ok", events=runtime_events))
         return
     trace_store.save(replace(existing, events=existing.events + runtime_events))
+
+
+def _knowledge_context_refs_from_output(output: Any) -> tuple[str, ...]:
+    if not isinstance(output, dict):
+        return ()
+    refs = output.get("knowledge_context_refs")
+    if not isinstance(refs, list):
+        return ()
+    return tuple(ref for ref in refs if isinstance(ref, str))
 
 
 def _persist_agent_runtime_terminal_trace(
