@@ -81,6 +81,42 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertIn("agent_runtime.tool_started", runtime_steps)
         self.assertIn("agent_runtime.tool_succeeded", runtime_steps)
 
+    def test_internal_knowledge_review_queue_lists_draft_candidates(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        trace_ids = []
+        for index in range(3):
+            run_resp = client.post(
+                "/runs",
+                json={
+                    "question": f"GMV review candidate {index}",
+                    "parameters": {**RUN_BODY["parameters"], "limit": 10 + index},
+                },
+                headers=headers,
+            )
+            self.assertEqual(run_resp.status_code, 200, run_resp.text)
+            trace_ids.append(run_resp.json()["trace_id"])
+
+        queue_resp = client.get("/knowledge/review-queue", headers=headers)
+
+        self.assertEqual(queue_resp.status_code, 200, queue_resp.text)
+        payload = queue_resp.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["review_state"], "draft")
+        self.assertEqual(payload["count"], 3)
+        self.assertEqual(
+            [item["source_trace_id"] for item in payload["items"]],
+            trace_ids,
+        )
+        self.assertEqual({item["state"] for item in payload["items"]}, {"draft"})
+        self.assertEqual({item["knowledge_version"] for item in payload["items"]}, {1})
+
+        external_resp = client.get(
+            "/knowledge/review-queue",
+            headers={"X-API-Key": EXTERNAL_API_KEY},
+        )
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
     def test_post_run_persists_agent_runtime_envelope_in_run_trace(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}

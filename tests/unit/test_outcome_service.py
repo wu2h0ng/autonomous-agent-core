@@ -23,6 +23,7 @@ from agent_os_api.outcome_service import (
     _build_user_result_artifact,
     approve_and_execute_service,
     attest_adoption_service,
+    knowledge_review_queue_service,
     record_outcome_service,
     run_service,
 )
@@ -585,6 +586,47 @@ class RecordOutcomeServiceTest(unittest.TestCase):
         # No prior run for this trace: no asset fabricated, version stays 0.
         self.assertIsNone(result["knowledge_asset_id"])
         self.assertEqual(result["knowledge_version"], 0)
+
+
+class KnowledgeReviewQueueServiceTest(unittest.TestCase):
+    def test_lists_three_draft_candidates_without_mutating_store(self) -> None:
+        runtime = _build_runtime()
+        trace_ids = [
+            run_service(
+                runtime,
+                question=f"GMV review candidate {index}",
+                parameters={**RUN_PARAMS, "limit": 10 + index},
+            )["trace_id"]
+            for index in range(3)
+        ]
+        before_versions = {
+            trace_id: runtime.knowledge_store.version_of(trace_id) for trace_id in trace_ids
+        }
+
+        result = knowledge_review_queue_service(runtime)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(result["review_state"], "draft")
+        self.assertEqual(
+            [item["source_trace_id"] for item in result["items"]],
+            trace_ids,
+        )
+        self.assertEqual(
+            {item["state"] for item in result["items"]},
+            {"draft"},
+        )
+        self.assertTrue(all(item["asset_id"].startswith("knowledge-") for item in result["items"]))
+        self.assertTrue(all(item["owner"] for item in result["items"]))
+        self.assertEqual(
+            {item["knowledge_version"] for item in result["items"]},
+            {1},
+        )
+        self.assertEqual(len(runtime.knowledge_store.all_assets()), 3)
+        self.assertEqual(
+            {trace_id: runtime.knowledge_store.version_of(trace_id) for trace_id in trace_ids},
+            before_versions,
+        )
 
 
 if __name__ == "__main__":

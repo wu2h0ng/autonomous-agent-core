@@ -573,6 +573,101 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "KnowledgeReviewQueueItem": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "asset_type": {
+            "title": "Asset Type",
+            "type": "string"
+          },
+          "knowledge_version": {
+            "title": "Knowledge Version",
+            "type": "integer"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "owner": {
+            "title": "Owner",
+            "type": "string"
+          },
+          "result_weight": {
+            "title": "Result Weight",
+            "type": "number"
+          },
+          "source_trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Trace Id"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id",
+          "title",
+          "asset_type",
+          "owner",
+          "state",
+          "result_weight",
+          "knowledge_version"
+        ],
+        "title": "KnowledgeReviewQueueItem",
+        "type": "object"
+      },
+      "KnowledgeReviewQueueResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeReviewQueueItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "review_state": {
+            "title": "Review State",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "review_state",
+          "count"
+        ],
+        "title": "KnowledgeReviewQueueResponse",
+        "type": "object"
+      },
       "MetricContractEvidenceCard": {
         "properties": {
           "card_id": {
@@ -2227,6 +2322,52 @@
           }
         },
         "summary": "Post Approval Execute"
+      }
+    },
+    "/knowledge/review-queue": {
+      "get": {
+        "operationId": "get_knowledge_review_queue_knowledge_review_queue_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeReviewQueueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Knowledge Review Queue"
       }
     },
     "/knowledge/search": {

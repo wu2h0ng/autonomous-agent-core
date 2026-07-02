@@ -47,8 +47,9 @@ Current active ADRs:
   - Merge readiness: `ADR-0004-governed-decision-seam.MERGE-READINESS-20260702.md`
   - Post-merge verification: `ADR-0004-governed-decision-seam.POST-MERGE-VERIFY-20260703.md`
 - `P1-04-eval-threshold-report.IMPLEMENTATION-20260703.md`
-  - Branch-local eval threshold report surface on
-    `codex/eval-threshold-report-20260703`; not merged, pushed, or released.
+  - Eval threshold report surface originally implemented on
+    `codex/eval-threshold-report-20260703`; locally merged to deployment
+    `main` on 2026-07-03. Not pushed or released.
 - `P1-04-eval-threshold-report.MERGE-READINESS-20260703.md`
   - Merge-decision packet for branch-local P1-04 eval threshold report;
     fast-forward readiness checked from local `main@f56054c` to implementation
@@ -58,6 +59,10 @@ Current active ADRs:
   - Local-main post-merge verification for P1-04 after founder/CTO-authorized
     ff-only merge to `main@4fb4591`; `make ci` and PostgreSQL `ci-local-full`
     passed. Not pushed, not released.
+- `P1-05-knowledge-review-queue.IMPLEMENTATION-20260703.md`
+  - Branch-local read-only KnowledgeAsset review queue on
+    `codex/p1-05-knowledge-review-queue-20260703`; not merged, pushed, or
+    released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

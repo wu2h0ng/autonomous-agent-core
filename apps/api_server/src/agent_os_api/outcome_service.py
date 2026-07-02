@@ -1040,6 +1040,43 @@ def record_outcome_service(
     }
 
 
+def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
+    """Return DRAFT KnowledgeAsset candidates awaiting human review.
+
+    P1-05 starts as a read-only queue over the existing Trusted Loop knowledge
+    store. It must not create assets, promote versions, or infer realized value.
+    """
+    items: list[dict[str, Any]] = []
+    for asset in runtime.knowledge_store.all_assets():
+        if asset.state.value != "draft":
+            continue
+        source_trace_id = asset.source_trace_id
+        items.append(
+            {
+                "asset_id": asset.asset_id,
+                "title": asset.title,
+                "asset_type": asset.asset_type,
+                "source_trace_id": source_trace_id,
+                "owner": asset.owner,
+                "state": asset.state.value,
+                "outcome": asset.outcome,
+                "result_weight": asset.result_weight,
+                "knowledge_version": (
+                    runtime.knowledge_store.version_of(source_trace_id)
+                    if source_trace_id is not None
+                    else 0
+                ),
+            }
+        )
+
+    return {
+        "status": "ok",
+        "review_state": "draft",
+        "count": len(items),
+        "items": items,
+    }
+
+
 def attest_adoption_service(
     runtime: Any,
     adoption_ingest: Any,

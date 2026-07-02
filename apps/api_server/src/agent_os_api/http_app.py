@@ -45,6 +45,7 @@ from .outcome_service import (
     _persist_agent_runtime_appended_trace,
     _persist_agent_runtime_terminal_trace,
     approval_execution_response_payload,
+    knowledge_review_queue_service,
     report_snapshot_service,
     run_service,
     search_service,
@@ -63,6 +64,7 @@ API_SCOPE_RUN_EXTERNAL = "runs:external"
 API_SCOPE_OUTCOME_WRITE = "outcomes:write"
 API_SCOPE_ADOPTION_WRITE = "adoptions:write"
 API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
+API_SCOPE_KNOWLEDGE_REVIEW = "knowledge:review"
 API_SCOPE_TRACE_READ = "traces:read"
 API_SCOPE_REPORT_READ = "reports:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
@@ -88,6 +90,7 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
             API_SCOPE_OUTCOME_WRITE,
             API_SCOPE_ADOPTION_WRITE,
             API_SCOPE_KNOWLEDGE_SEARCH,
+            API_SCOPE_KNOWLEDGE_REVIEW,
             API_SCOPE_TRACE_READ,
             API_SCOPE_REPORT_READ,
             API_SCOPE_RUNTIME_RESUME,
@@ -561,6 +564,25 @@ class AdoptionResponse(BaseModel):
     knowledge_asset_id: str | None = None
     knowledge_version: int
     result_weight: float | None = None
+
+
+class KnowledgeReviewQueueItem(BaseModel):
+    asset_id: str
+    title: str
+    asset_type: str
+    source_trace_id: str | None = None
+    owner: str
+    state: str
+    outcome: str | None = None
+    result_weight: float
+    knowledge_version: int
+
+
+class KnowledgeReviewQueueResponse(BaseModel):
+    status: str
+    review_state: str
+    count: int
+    items: list[KnowledgeReviewQueueItem] = Field(default_factory=list)
 
 
 class ApprovalExecuteRequest(BaseModel):
@@ -1268,6 +1290,14 @@ def create_app(
                 "approval_id": approval_id,
             },
         )
+
+    @app.get("/knowledge/review-queue", response_model=KnowledgeReviewQueueResponse)
+    def get_knowledge_review_queue(
+        _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+    ) -> dict[str, Any]:
+        # P1-05 review queue is read-only: it lists DRAFT candidates that the
+        # Trusted Loop already produced. It does not promote or publish assets.
+        return knowledge_review_queue_service(app.state.runtime)
 
     @app.get("/knowledge/search", response_model=SearchResponse)
     def get_knowledge_search(
