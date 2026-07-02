@@ -27,6 +27,7 @@ from agent_os_contracts import (  # noqa: E402
     MetricContract,
     ProviderContract,
     ProviderKind,
+    RiskLevel,
     SQLTemplate,
 )
 from agent_os_core import (  # noqa: E402
@@ -148,6 +149,31 @@ class KnowledgeRecallInRunTest(unittest.TestCase):
         self.assertIn("total", second.related_knowledge[0].score_breakdown)
         (event,) = _recall_events(second)
         self.assertIn(active_asset.asset_id, event.payload.get("asset_ids", []))
+
+    def test_recalled_reviewed_knowledge_is_bound_to_proposal_without_lowering_governance(
+        self,
+    ) -> None:
+        runtime, _ = self._wired_runtime()
+        first = runtime.run("GMV", dict(PARAMS))
+        first_asset = first.knowledge_asset_candidate
+        self.assertIsNotNone(first_asset)
+        active_asset = replace(first_asset, state=LifecycleState.ACTIVE)
+        runtime.knowledge_store.register_version(active_asset)
+
+        second = runtime.run("GMV", dict(PARAMS))
+
+        self.assertEqual(
+            getattr(second.action_proposal, "knowledge_context_refs", ()),
+            (active_asset.asset_id,),
+        )
+        proposal_events = [e for e in second.trace_events if e.step == "action_proposal"]
+        self.assertEqual(len(proposal_events), 1)
+        self.assertEqual(
+            proposal_events[0].payload.get("knowledge_context_refs"),
+            [active_asset.asset_id],
+        )
+        self.assertEqual(second.action_proposal.risk_level, RiskLevel.R2)
+        self.assertFalse(second.action_proposal.approval_required)
 
     def test_without_retriever_behavior_unchanged(self) -> None:
         runtime = _runtime()

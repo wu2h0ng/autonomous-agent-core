@@ -139,6 +139,7 @@ class ActionProposal:
     action_type: str = "propose"
     action_parameters: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str | None = None
+    knowledge_context_refs: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

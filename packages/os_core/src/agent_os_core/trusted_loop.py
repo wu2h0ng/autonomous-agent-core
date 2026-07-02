@@ -485,12 +485,16 @@ class TrustedLoopRuntime:
             proposal_id=f"proposal-{uuid4().hex[:12]}",
             evidence=evidence,
         )
+        knowledge_context_refs = tuple(r.asset.asset_id for r in related_knowledge)
+        if knowledge_context_refs:
+            proposal = replace(proposal, knowledge_context_refs=knowledge_context_refs)
         trace.record(
             "action_proposal",
             {
                 "proposal_id": proposal.proposal_id,
                 "risk_level": proposal.risk_level.value,
                 "approval_required": proposal.approval_required,
+                "knowledge_context_refs": list(proposal.knowledge_context_refs),
             },
         )
 
