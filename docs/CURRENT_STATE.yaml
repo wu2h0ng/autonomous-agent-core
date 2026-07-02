@@ -6,10 +6,10 @@ remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
 status: "Stage 1 complete; P5 substrate harvest underway; ADR-0002 governed-action outcome-loop upper-half, user-facing data-agent result artifact, audience-aware redaction, operator-only approval execution, durable approval-context resume, connector-side durable action_record ledger, typed execution-audit projection, connector-declared execution semantics, and OpenAPI operator-key/execution-audit contract hardening are merged to main and pushed to origin/main after AR-20260624 acceptance; ADR-0003 Agent Runtime v0 trusted substrate plus correction-channel runtime envelope and internal-only public resume API are on deployment local main@91ae01c after founder/CTO-authorized local merges, not pushed or released. Branch feature/governance-decision-seam-2026-07-01 now carries branch-local ADR-0004 governed-decision injection seam: an optional R0-R3 RPC boundary in TrustedLoopRuntime where the OS verifies candidate actions locally and an injected governed-decision client can only tighten the proposal by DENY or approval escalation. Default None preserves the Trusted Loop. The branch includes the native 1.1.0 seam contract, remote-client stub with injected transport, response validation for task/version/verdict/audit_ref, HTTP transport helper, never-block fallback wrapper, local reference client, fail-closed unknown-verdict handling, safe reason projection, and BlockCode.GOVERNANCE_DENIED. It imports no autonomous-agent-core code, wires no deployed remote service, does not bypass SQL Safety/EvidenceChain/Approval/connectors, does not auto-execute R4/R5, and does not claim autonomous-core evidence as product validation. Rebased onto deployment local main@91ae01c, independently reviewed/remediated, and verified on 2026-07-02; not merged to main, not pushed after rebase, not released."
 
 current_stage:
-  label: "P5 deployment projection / substrate harvest"
+  label: "P5 phase-1 governed product vertical / substrate harvest"
   interpretation_boundary:
-    - "P5 is a necessary deployment projection of validated safety/governance substrate, not proof that true autonomous intelligence, RSI, AGI, or a complete Agent OS product has been achieved."
-    - "P5 harvests non-bypassable mediation, corrigibility, and organ-not-subject separation into the enterprise OS."
+    - "P5 builds the phase-1 governed data-agent OS product vertical and harvests validated safety/governance patterns where they have product contracts and tests; it is not proof that true autonomous intelligence, RSI, AGI, or a complete Agent OS product has been achieved."
+    - "P5 brings non-bypassable mediation, corrigibility, and organ-not-subject separation into the enterprise OS through self-developed product runtime paths, not through autonomous-core imports or autonomy claims."
     - "G10-style subject-side belief-to-action coupling remains a core research result; any enterprise analogue needs a fresh enterprise-domain preregistered validation gate before being claimed."
   completed:
     - "Stage 1 Trusted Business Loop MVP complete as of 2026-06-11"
@@ -172,7 +172,7 @@ scope:
   owns:
     - "Enterprise Trusted Loop product implementation"
     - "Contracts, SQL Safety, EvidenceChain, Eval, Trace, Provider, ActionProposal, Approval, Feedback, KnowledgeAsset"
-    - "Deployment-layer projection of validated autonomous-core substrate"
+    - "Phase-1 governed product vertical substrate: self-developed runtime contracts, policy gates, trace/checkpoint envelopes, approval/correction channels, and approved contract-only research intake boundaries"
   does_not_own:
     - "Autonomous-core falsification gates"
     - "Proof of general autonomy, RSI, or AGI product completion"
