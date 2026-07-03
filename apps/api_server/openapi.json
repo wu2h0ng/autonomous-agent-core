@@ -985,6 +985,10 @@
             "title": "Knowledge Version",
             "type": "integer"
           },
+          "lifecycle_event_count": {
+            "title": "Lifecycle Event Count",
+            "type": "integer"
+          },
           "outcome": {
             "anyOf": [
               {
@@ -1096,7 +1100,8 @@
           "recommended_review_action",
           "review_rationale_codes",
           "status",
-          "has_source_trace"
+          "has_source_trace",
+          "lifecycle_event_count"
         ],
         "title": "KnowledgeAssetDetailResponse",
         "type": "object"

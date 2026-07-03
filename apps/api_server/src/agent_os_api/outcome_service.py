@@ -75,6 +75,13 @@ REDACTED_RESULT_FIELDS = [
     "chart_fields",
     "metric_values",
 ]
+KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS = frozenset(
+    {
+        "knowledge_review_decision",
+        "knowledge_publish_decision",
+        "knowledge_deprecate_decision",
+    }
+)
 
 
 def _causal_attribution_to_payload(
@@ -1350,6 +1357,14 @@ def knowledge_asset_detail_service(
     persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
     quality = knowledge_asset_decision_quality_service(runtime, asset_id=target.asset_id)
     quality_status = _knowledge_asset_quality_status(quality)
+    lifecycle_event_count = 0
+    if persisted_trace is not None:
+        lifecycle_event_count = sum(
+            1
+            for event in persisted_trace.events
+            if event.step in KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS
+            and event.payload.get("asset_id") == target.asset_id
+        )
     return {
         "status": "ok",
         "asset_id": target.asset_id,
@@ -1366,6 +1381,7 @@ def knowledge_asset_detail_service(
             else 0
         ),
         "has_source_trace": persisted_trace is not None,
+        "lifecycle_event_count": lifecycle_event_count,
         "proposal_usage_count": quality["proposal_usage_count"],
         "correction_usage_count": quality["correction_usage_count"],
         "outcome_correction_count": quality["outcome_correction_count"],
@@ -1416,14 +1432,9 @@ def knowledge_asset_lifecycle_events_service(
             "events": [],
         }
 
-    lifecycle_steps = {
-        "knowledge_review_decision",
-        "knowledge_publish_decision",
-        "knowledge_deprecate_decision",
-    }
     projected_events: list[dict[str, Any]] = []
     for event in persisted_trace.events:
-        if event.step not in lifecycle_steps:
+        if event.step not in KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS:
             continue
         payload = event.payload
         if payload.get("asset_id") != target.asset_id:

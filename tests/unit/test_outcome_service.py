@@ -1291,6 +1291,13 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
             asset_id=asset.asset_id,
             action="approve",
             reviewer="founder",
+            reason="sensitive lifecycle reason",
+        )
+        knowledge_publish_service(
+            runtime,
+            asset_id=asset.asset_id,
+            reviewer="founder",
+            reason="sensitive publish reason",
         )
         before_version = runtime.knowledge_store.version_of(trace_id)
 
@@ -1309,9 +1316,10 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
         self.assertEqual(detail["asset_type"], asset.asset_type)
         self.assertEqual(detail["source_trace_id"], trace_id)
         self.assertEqual(detail["owner"], asset.owner)
-        self.assertEqual(detail["state"], "active")
+        self.assertEqual(detail["state"], "published")
         self.assertEqual(detail["knowledge_version"], before_version)
         self.assertTrue(detail["has_source_trace"])
+        self.assertEqual(detail["lifecycle_event_count"], 2)
         self.assertEqual(detail["proposal_usage_count"], 0)
         self.assertEqual(detail["correction_usage_count"], 0)
         self.assertEqual(detail["outcome_correction_count"], 0)
@@ -1323,6 +1331,8 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
         self.assertEqual(detail["review_rationale_codes"], ["unused_context_candidate"])
         self.assertNotIn("events", detail)
         self.assertNotIn("reason", detail)
+        self.assertNotIn("sensitive lifecycle reason", str(detail))
+        self.assertNotIn("sensitive publish reason", str(detail))
         self.assertNotIn("usage_trace_ids", detail)
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), before_version)
 

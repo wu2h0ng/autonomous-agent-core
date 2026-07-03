@@ -714,10 +714,20 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         ]
         approve_resp = client.post(
             f"/knowledge/review-queue/{asset_id}/decision",
-            json={"action": "approve", "reviewer": "founder"},
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "sensitive lifecycle reason",
+            },
             headers=headers,
         )
         self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
+        publish_resp = client.post(
+            f"/knowledge/assets/{asset_id}/publish",
+            json={"reviewer": "founder", "reason": "sensitive publish reason"},
+            headers=headers,
+        )
+        self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
 
         detail_resp = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
 
@@ -726,9 +736,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["asset_id"], asset_id)
         self.assertEqual(payload["source_trace_id"], trace_id)
-        self.assertEqual(payload["state"], "active")
-        self.assertEqual(payload["knowledge_version"], 2)
+        self.assertEqual(payload["state"], "published")
+        self.assertEqual(payload["knowledge_version"], 3)
         self.assertTrue(payload["has_source_trace"])
+        self.assertEqual(payload["lifecycle_event_count"], 2)
         self.assertEqual(payload["proposal_usage_count"], 0)
         self.assertEqual(payload["correction_usage_count"], 0)
         self.assertEqual(payload["outcome_correction_count"], 0)
@@ -739,11 +750,14 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["recommended_review_action"], "review_or_reject")
         self.assertEqual(payload["review_rationale_codes"], ["unused_context_candidate"])
         self.assertNotIn("events", payload)
+        self.assertNotIn("reason", payload)
+        self.assertNotIn("sensitive lifecycle reason", str(payload))
+        self.assertNotIn("sensitive publish reason", str(payload))
         self.assertNotIn("usage_trace_ids", payload)
 
         repeat_resp = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
         self.assertEqual(repeat_resp.status_code, 200, repeat_resp.text)
-        self.assertEqual(repeat_resp.json()["knowledge_version"], 2)
+        self.assertEqual(repeat_resp.json()["knowledge_version"], 3)
 
         missing_resp = client.get("/knowledge/assets/knowledge-missing", headers=headers)
         self.assertEqual(missing_resp.status_code, 404, missing_resp.text)

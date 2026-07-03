@@ -728,6 +728,7 @@ class KnowledgeAssetCatalogResponse(BaseModel):
 class KnowledgeAssetDetailResponse(KnowledgeAssetCatalogItem):
     status: str
     has_source_trace: bool
+    lifecycle_event_count: int
     proposal_usage_count: int
     correction_usage_count: int
     outcome_correction_count: int
