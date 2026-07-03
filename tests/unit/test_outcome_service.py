@@ -968,6 +968,69 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             )
             outcome_service.knowledge_asset_catalog_service(runtime, lifecycle_state="external")
 
+    def test_catalog_paginates_visible_assets_and_counts_current_page(self) -> None:
+        runtime = _build_runtime()
+        runs = [
+            run_service(runtime, question=f"GMV catalog page {idx}", parameters=RUN_PARAMS)
+            for idx in range(3)
+        ]
+        asset_ids: list[str] = []
+        for run in runs:
+            asset = runtime.knowledge_store.get_by_trace(run["trace_id"])
+            self.assertIsNotNone(asset)
+            asset_ids.append(asset.asset_id)
+            knowledge_review_action_service(
+                runtime,
+                asset_id=asset.asset_id,
+                action="approve",
+                reviewer="founder",
+            )
+
+        first_page = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            limit=1,
+            offset=0,
+        )
+        second_page = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            limit=1,
+            offset=1,
+        )
+        final_page = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            limit=1,
+            offset=2,
+        )
+
+        self.assertEqual(first_page["total_count"], 3)
+        self.assertEqual(first_page["limit"], 1)
+        self.assertEqual(first_page["offset"], 0)
+        self.assertEqual(first_page["count"], 1)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(first_page["items"][0]["asset_id"], asset_ids[0])
+        self.assertEqual(
+            first_page["recommended_review_action_counts"],
+            {
+                "review_or_reject": 1,
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": 0,
+                "consider_publish": 0,
+            },
+        )
+        self.assertEqual(second_page["total_count"], 3)
+        self.assertEqual(second_page["offset"], 1)
+        self.assertEqual(second_page["items"][0]["asset_id"], asset_ids[1])
+        self.assertTrue(second_page["has_more"])
+        self.assertEqual(final_page["total_count"], 3)
+        self.assertEqual(final_page["offset"], 2)
+        self.assertEqual(final_page["items"][0]["asset_id"], asset_ids[2])
+        self.assertFalse(final_page["has_more"])
+
+        with self.assertRaisesRegex(ValueError, "Unsupported limit"):
+            outcome_service.knowledge_asset_catalog_service(runtime, limit=0)
+        with self.assertRaisesRegex(ValueError, "Unsupported offset"):
+            outcome_service.knowledge_asset_catalog_service(runtime, offset=-1)
+
     def test_catalog_filters_safe_review_state_fields(self) -> None:
         runtime = _build_runtime()
         active = run_service(runtime, question="GMV catalog filter", parameters=RUN_PARAMS)

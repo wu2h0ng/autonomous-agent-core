@@ -689,6 +689,10 @@ class KnowledgeAssetCatalogResponse(BaseModel):
         ]
         | None
     )
+    limit: int | None
+    offset: int
+    total_count: int
+    has_more: bool
     count: int
     recommended_review_action_counts: dict[str, int]
     review_rationale_code_counts: dict[str, int]
@@ -1617,6 +1621,14 @@ def create_app(
             description="safe review rationale filter",
             enum=KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES,
         ),
+        limit: int | None = Query(
+            default=None,
+            description="maximum number of catalog items to return",
+        ),
+        offset: int | None = Query(
+            default=None,
+            description="zero-based catalog item offset",
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         try:
@@ -1626,6 +1638,8 @@ def create_app(
                 review_priority=review_priority,
                 recommended_review_action=recommended_review_action,
                 review_rationale_code=review_rationale_code,
+                limit=limit,
+                offset=offset,
             )
         except ValueError as exc:
             raise HTTPException(

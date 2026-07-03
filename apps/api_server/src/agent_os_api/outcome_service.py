@@ -1150,6 +1150,8 @@ def knowledge_asset_catalog_service(
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
     review_rationale_code: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> dict[str, Any]:
     """Return an internal, read-only KnowledgeAsset lifecycle catalog.
 
@@ -1181,6 +1183,8 @@ def knowledge_asset_catalog_service(
     review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
         review_rationale_code
     )
+    limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
+    offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
 
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
@@ -1233,14 +1237,24 @@ def knowledge_asset_catalog_service(
             }
         )
 
+    total_count = len(items)
+    if limit_filter is None:
+        page_items = items[offset_filter:]
+    else:
+        page_items = items[offset_filter : offset_filter + limit_filter]
+
     return {
         "status": "ok",
         "catalog_state": catalog_state,
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "review_rationale_code_filter": review_rationale_code_filter,
+        "limit": limit_filter,
+        "offset": offset_filter,
+        "total_count": total_count,
+        "has_more": offset_filter + len(page_items) < total_count,
         "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="recommended_review_action",
             allowed_values=[
                 "review_or_reject",
@@ -1249,9 +1263,11 @@ def knowledge_asset_catalog_service(
                 "consider_publish",
             ],
         ),
-        "review_rationale_code_counts": _knowledge_asset_quality_summary_rationale_counts(items),
-        "count": len(items),
-        "items": items,
+        "review_rationale_code_counts": _knowledge_asset_quality_summary_rationale_counts(
+            page_items
+        ),
+        "count": len(page_items),
+        "items": page_items,
     }
 
 

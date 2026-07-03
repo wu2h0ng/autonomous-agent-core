@@ -332,6 +332,82 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_catalog_paginates_visible_assets(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        asset_ids: list[str] = []
+        for idx in range(3):
+            run = client.post(
+                "/runs",
+                json={
+                    "question": f"GMV catalog pagination {idx}",
+                    "parameters": RUN_BODY["parameters"],
+                },
+                headers=headers,
+            )
+            self.assertEqual(run.status_code, 200, run.text)
+            asset_id = run.json()["knowledge_asset_id"]
+            asset_ids.append(asset_id)
+        for asset_id in asset_ids:
+            approve = client.post(
+                f"/knowledge/review-queue/{asset_id}/decision",
+                json={"action": "approve", "reviewer": "founder"},
+                headers=headers,
+            )
+            self.assertEqual(approve.status_code, 200, approve.text)
+
+        page = client.get(
+            "/knowledge/assets",
+            params={"limit": 1, "offset": 1},
+            headers=headers,
+        )
+        final_page = client.get(
+            "/knowledge/assets",
+            params={"limit": 1, "offset": 2},
+            headers=headers,
+        )
+        invalid_limit = client.get(
+            "/knowledge/assets",
+            params={"limit": 0},
+            headers=headers,
+        )
+        invalid_offset = client.get(
+            "/knowledge/assets",
+            params={"offset": -1},
+            headers=headers,
+        )
+
+        self.assertEqual(page.status_code, 200, page.text)
+        payload = page.json()
+        self.assertEqual(payload["total_count"], 3)
+        self.assertEqual(payload["limit"], 1)
+        self.assertEqual(payload["offset"], 1)
+        self.assertEqual(payload["count"], 1)
+        self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["items"][0]["asset_id"], asset_ids[1])
+        self.assertEqual(
+            payload["recommended_review_action_counts"],
+            {
+                "review_or_reject": 1,
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": 0,
+                "consider_publish": 0,
+            },
+        )
+        self.assertEqual(final_page.status_code, 200, final_page.text)
+        self.assertFalse(final_page.json()["has_more"])
+        self.assertEqual(final_page.json()["items"][0]["asset_id"], asset_ids[2])
+        self.assertEqual(invalid_limit.status_code, 400, invalid_limit.text)
+        self.assertEqual(
+            invalid_limit.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_offset.status_code, 400, invalid_offset.text)
+        self.assertEqual(
+            invalid_offset.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+
     def test_internal_knowledge_asset_catalog_filters_review_state(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

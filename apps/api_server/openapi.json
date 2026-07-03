@@ -726,12 +726,31 @@
             "title": "Count",
             "type": "integer"
           },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/KnowledgeAssetCatalogItem"
             },
             "title": "Items",
             "type": "array"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
           },
           "recommended_review_action_counts": {
             "additionalProperties": {
@@ -800,6 +819,10 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
           }
         },
         "required": [
@@ -808,6 +831,10 @@
           "review_priority_filter",
           "recommended_review_action_filter",
           "review_rationale_code_filter",
+          "limit",
+          "offset",
+          "total_count",
+          "has_more",
           "count",
           "recommended_review_action_counts",
           "review_rationale_code_counts"
@@ -3538,6 +3565,42 @@
                 "adoption_supported_context"
               ],
               "title": "Review Rationale Code"
+            }
+          },
+          {
+            "description": "maximum number of catalog items to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "maximum number of catalog items to return",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "zero-based catalog item offset",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "zero-based catalog item offset",
+              "title": "Offset"
             }
           },
           {

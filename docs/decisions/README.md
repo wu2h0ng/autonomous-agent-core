@@ -477,6 +477,13 @@ Current active ADRs:
   - Local-main post-merge verification for P1-37 after cautious ff-only merge
     to `main@1b0e706`; `make ci` and PostgreSQL `ci-local-full` passed. Not
     pushed, not released.
+- `P1-38-knowledge-catalog-pagination.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe `limit`/`offset` pagination on internal
+    `GET /knowledge/assets`, with `limit`, `offset`, `total_count`, `has_more`,
+    and page-local counts. Branch-local targeted RED/GREEN, related
+    KnowledgeAsset/API/OpenAPI tests, `make ci`, and PostgreSQL
+    `ci-local-full` passed with 596 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
