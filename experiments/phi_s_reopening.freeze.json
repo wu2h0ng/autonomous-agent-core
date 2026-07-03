@@ -1,0 +1,10 @@
+{
+  "adr": "ADR-0040",
+  "kind": "phi_S reopening falsifier prereg freeze",
+  "date": "2026-06-29",
+  "spec_sha256": "f82834da831fe9cbc364d48c39ef82587d3d81210b52232d9507ca9d494ef6e3",
+  "spec_file": "docs/adr/ADR-0040-phi-s-reopening-falsifier.md",
+  "prereg_review": {"reviewer": "kimi (cross-model)", "r1": "REVISE (7 fixes)", "r2": "APPROVE / freeze_ready:yes", "builder_id": "claude", "reviewed_by": "kimi"},
+  "frozen": {"obs_dim": 8, "buffer_M": 8, "archive": ["A1","A2","A3","A4"], "learner": "degree<=3 monomial perceptron, lr 0.05", "delta": 0.10, "epsilon": 0.05, "eta": 0.05, "ggB_star_proxy": "8*B*", "conditions": ["ALIGNED","MISALIGNED(neg-control)"], "cal_seeds": "2000..2019", "rfinal_seeds": "2100..2129"},
+  "discipline": "No arm/threshold/phi*/budget/seed retune after freeze without a new founder ADR + fresh seeds. H1b claimable only in ALIGNED. MISALIGNED is a negative control."
+}
