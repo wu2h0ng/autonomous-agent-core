@@ -1188,9 +1188,28 @@
             "title": "Events",
             "type": "array"
           },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
           "has_source_trace": {
             "title": "Has Source Trace",
             "type": "boolean"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
           },
           "source_trace_id": {
             "anyOf": [
@@ -1206,13 +1225,21 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
           }
         },
         "required": [
           "status",
           "asset_id",
           "has_source_trace",
-          "count"
+          "count",
+          "total_count",
+          "has_more",
+          "limit",
+          "offset"
         ],
         "title": "KnowledgeAssetLifecycleEventsResponse",
         "type": "object"
@@ -4162,6 +4189,45 @@
             "schema": {
               "title": "Asset Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "optional bounded page size for lifecycle events",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional bounded page size for lifecycle events",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "optional zero-based page offset for lifecycle events",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional zero-based page offset for lifecycle events",
+              "minimum": 0,
+              "title": "Offset"
             }
           },
           {

@@ -791,6 +791,16 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             f"/knowledge/assets/{asset_id}/lifecycle-events",
             headers=headers,
         )
+        page_resp = client.get(
+            f"/knowledge/assets/{asset_id}/lifecycle-events",
+            params={"limit": 1, "offset": 1},
+            headers=headers,
+        )
+        invalid_limit_resp = client.get(
+            f"/knowledge/assets/{asset_id}/lifecycle-events",
+            params={"limit": 0},
+            headers=headers,
+        )
 
         self.assertEqual(events_resp.status_code, 200, events_resp.text)
         payload = events_resp.json()
@@ -799,6 +809,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["source_trace_id"], trace_id)
         self.assertTrue(payload["has_source_trace"])
         self.assertEqual(payload["count"], 3)
+        self.assertEqual(payload["total_count"], 3)
+        self.assertFalse(payload["has_more"])
+        self.assertIsNone(payload["limit"])
+        self.assertEqual(payload["offset"], 0)
         self.assertEqual(
             [event["step"] for event in payload["events"]],
             [
@@ -813,6 +827,19 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             self.assertTrue(event["reason_present"])
             self.assertNotIn("reason", event)
             self.assertNotIn("sensitive", str(event))
+        self.assertEqual(page_resp.status_code, 200, page_resp.text)
+        page_payload = page_resp.json()
+        self.assertEqual(page_payload["count"], 1)
+        self.assertEqual(page_payload["total_count"], 3)
+        self.assertTrue(page_payload["has_more"])
+        self.assertEqual(page_payload["limit"], 1)
+        self.assertEqual(page_payload["offset"], 1)
+        self.assertEqual(page_payload["events"][0]["step"], "knowledge_publish_decision")
+        self.assertEqual(invalid_limit_resp.status_code, 400, invalid_limit_resp.text)
+        self.assertEqual(
+            invalid_limit_resp.json()["detail"]["code"],
+            "KNOWLEDGE_LIFECYCLE_EVENTS_INVALID_REQUEST",
+        )
 
         repeat_detail = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
         self.assertEqual(repeat_detail.status_code, 200, repeat_detail.text)

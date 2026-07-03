@@ -1373,12 +1373,40 @@ class KnowledgeAssetLifecycleEventsServiceTest(unittest.TestCase):
             runtime,
             asset_id=asset.asset_id,
         )
+        first_page = outcome_service.knowledge_asset_lifecycle_events_service(
+            runtime,
+            asset_id=asset.asset_id,
+            limit=1,
+            offset=0,
+        )
+        second_page = outcome_service.knowledge_asset_lifecycle_events_service(
+            runtime,
+            asset_id=asset.asset_id,
+            limit=1,
+            offset=1,
+        )
+        with self.assertRaisesRegex(ValueError, "limit"):
+            outcome_service.knowledge_asset_lifecycle_events_service(
+                runtime,
+                asset_id=asset.asset_id,
+                limit=0,
+            )
+        with self.assertRaisesRegex(ValueError, "offset"):
+            outcome_service.knowledge_asset_lifecycle_events_service(
+                runtime,
+                asset_id=asset.asset_id,
+                offset=-1,
+            )
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["asset_id"], asset.asset_id)
         self.assertEqual(result["source_trace_id"], trace_id)
         self.assertTrue(result["has_source_trace"])
         self.assertEqual(result["count"], 3)
+        self.assertEqual(result["total_count"], 3)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["limit"])
+        self.assertEqual(result["offset"], 0)
         self.assertEqual(
             [event["step"] for event in result["events"]],
             [
@@ -1395,6 +1423,18 @@ class KnowledgeAssetLifecycleEventsServiceTest(unittest.TestCase):
             [event["knowledge_version"] for event in result["events"]],
             [2, 3, 4],
         )
+        self.assertEqual(first_page["count"], 1)
+        self.assertEqual(first_page["total_count"], 3)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(first_page["limit"], 1)
+        self.assertEqual(first_page["offset"], 0)
+        self.assertEqual(first_page["events"][0]["step"], "knowledge_review_decision")
+        self.assertEqual(second_page["count"], 1)
+        self.assertEqual(second_page["total_count"], 3)
+        self.assertTrue(second_page["has_more"])
+        self.assertEqual(second_page["limit"], 1)
+        self.assertEqual(second_page["offset"], 1)
+        self.assertEqual(second_page["events"][0]["step"], "knowledge_publish_decision")
         for event in result["events"]:
             self.assertEqual(event["asset_id"], asset.asset_id)
             self.assertEqual(event["trace_id"], trace_id)

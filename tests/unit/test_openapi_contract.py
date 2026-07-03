@@ -383,6 +383,55 @@ class OpenApiContractTest(unittest.TestCase):
                 },
             )
 
+    def test_knowledge_asset_lifecycle_events_contract_is_declared(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        lifecycle = spec["paths"]["/knowledge/assets/{asset_id}/lifecycle-events"]["get"]
+        self.assertEqual(
+            lifecycle["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/KnowledgeAssetLifecycleEventsResponse"},
+        )
+        limit_param = next(
+            parameter
+            for parameter in lifecycle["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "limit"
+        )
+        offset_param = next(
+            parameter
+            for parameter in lifecycle["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "offset"
+        )
+        self.assertFalse(limit_param["required"])
+        self.assertFalse(offset_param["required"])
+        self.assertEqual(limit_param["schema"]["minimum"], 1)
+        self.assertEqual(limit_param["schema"]["maximum"], 100)
+        self.assertEqual(offset_param["schema"]["minimum"], 0)
+        response_schema = spec["components"]["schemas"]["KnowledgeAssetLifecycleEventsResponse"]
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {"status", "asset_id", "count", "total_count", "has_more", "limit", "offset"},
+        )
+        self.assertIn({"type": "integer"}, response_schema["properties"]["limit"]["anyOf"])
+        self.assertEqual(response_schema["properties"]["offset"]["type"], "integer")
+        self.assertEqual(
+            response_schema["properties"]["source_trace_id"]["anyOf"],
+            [{"type": "string"}, {"type": "null"}],
+        )
+        item_schema = spec["components"]["schemas"]["KnowledgeAssetLifecycleEvent"]
+        self.assertEqual(
+            set(item_schema["properties"]),
+            {
+                "trace_id",
+                "step",
+                "asset_id",
+                "action",
+                "previous_state",
+                "state",
+                "reviewer",
+                "knowledge_version",
+                "reason_present",
+            },
+        )
+
     def test_knowledge_asset_usage_events_contract_is_declared(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         usage = spec["paths"]["/knowledge/assets/{asset_id}/usage-events"]["get"]
