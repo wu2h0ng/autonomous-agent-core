@@ -883,6 +883,12 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             reviewer="founder",
             reason="sensitive active reason",
         )
+        active_usage = run_service(
+            runtime,
+            question="GMV active catalog reuse",
+            parameters=RUN_PARAMS,
+        )
+        active_usage_trace_id = active_usage["trace_id"]
         knowledge_review_action_service(
             runtime,
             asset_id=published_asset.asset_id,
@@ -907,6 +913,7 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             for trace_id in (
                 draft["trace_id"],
                 active["trace_id"],
+                active_usage["trace_id"],
                 published["trace_id"],
                 deprecated["trace_id"],
             )
@@ -952,17 +959,38 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
                 item["knowledge_version"],
             )
             self.assertTrue(item["latest_lifecycle_event"]["reason_present"])
-            self.assertEqual(item["proposal_usage_count"], 0)
             self.assertEqual(item["correction_usage_count"], 0)
             self.assertEqual(item["outcome_correction_count"], 0)
             self.assertEqual(item["adoption_correction_count"], 0)
-            self.assertEqual(item["distinct_usage_trace_count"], 0)
-            self.assertEqual(item["quality_status"], "unused")
-            self.assertEqual(item["review_priority"], "high")
-            self.assertEqual(item["recommended_review_action"], "review_or_reject")
-            self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            if item["asset_id"] == active_asset.asset_id:
+                self.assertEqual(
+                    item["latest_usage_event"],
+                    {
+                        "trace_id": active_usage_trace_id,
+                        "step": "action_proposal",
+                        "usage_kind": "proposal_context",
+                        "asset_id": active_asset.asset_id,
+                        "knowledge_context_refs": [active_asset.asset_id],
+                    },
+                )
+                self.assertEqual(item["proposal_usage_count"], 1)
+                self.assertEqual(item["distinct_usage_trace_count"], 1)
+                self.assertEqual(item["quality_status"], "proposal_only")
+                self.assertEqual(item["review_priority"], "medium")
+                self.assertEqual(item["recommended_review_action"], "collect_outcome_feedback")
+                self.assertEqual(item["review_rationale_codes"], ["proposal_context_needs_outcome"])
+            else:
+                self.assertIsNone(item["latest_usage_event"])
+                self.assertEqual(item["proposal_usage_count"], 0)
+                self.assertEqual(item["distinct_usage_trace_count"], 0)
+                self.assertEqual(item["quality_status"], "unused")
+                self.assertEqual(item["review_priority"], "high")
+                self.assertEqual(item["recommended_review_action"], "review_or_reject")
+                self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
             self.assertNotIn("events", item)
             self.assertNotIn("reviewer", item["latest_lifecycle_event"])
+            if item["latest_usage_event"] is not None:
+                self.assertNotIn("tool_name", item["latest_usage_event"])
             self.assertNotIn("reason", item)
             self.assertNotIn("sensitive", str(item))
             self.assertNotIn("usage_trace_ids", item)
@@ -970,7 +998,7 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
         all_catalog = outcome_service.knowledge_asset_catalog_service(
             runtime, lifecycle_state="all"
         )
-        self.assertEqual(all_catalog["count"], 4)
+        self.assertEqual(all_catalog["count"], 5)
         self.assertEqual(
             {item["state"] for item in all_catalog["items"]},
             {"draft", "active", "published", "deprecated"},

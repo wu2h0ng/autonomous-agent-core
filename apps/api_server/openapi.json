@@ -616,6 +616,16 @@
               }
             ]
           },
+          "latest_usage_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lifecycle_event_count": {
             "title": "Lifecycle Event Count",
             "type": "integer"
@@ -719,6 +729,7 @@
           "knowledge_version",
           "lifecycle_event_count",
           "latest_lifecycle_event",
+          "latest_usage_event",
           "proposal_usage_count",
           "correction_usage_count",
           "outcome_correction_count",
@@ -1128,6 +1139,7 @@
           "knowledge_version",
           "lifecycle_event_count",
           "latest_lifecycle_event",
+          "latest_usage_event",
           "proposal_usage_count",
           "correction_usage_count",
           "outcome_correction_count",
@@ -1138,8 +1150,7 @@
           "recommended_review_action",
           "review_rationale_codes",
           "status",
-          "has_source_trace",
-          "latest_usage_event"
+          "has_source_trace"
         ],
         "title": "KnowledgeAssetDetailResponse",
         "type": "object"

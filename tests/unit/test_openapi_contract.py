@@ -237,6 +237,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "knowledge_version",
                 "lifecycle_event_count",
                 "latest_lifecycle_event",
+                "latest_usage_event",
                 "proposal_usage_count",
                 "correction_usage_count",
                 "outcome_correction_count",
@@ -256,6 +257,13 @@ class OpenApiContractTest(unittest.TestCase):
             item_schema["properties"]["latest_lifecycle_event"]["anyOf"],
             [
                 {"$ref": "#/components/schemas/KnowledgeAssetLifecycleEventSummary"},
+                {"type": "null"},
+            ],
+        )
+        self.assertEqual(
+            item_schema["properties"]["latest_usage_event"]["anyOf"],
+            [
+                {"$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"},
                 {"type": "null"},
             ],
         )

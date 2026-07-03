@@ -272,6 +272,14 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             },
             headers=headers,
         )
+        self.assertEqual(active_approve.status_code, 200, active_approve.text)
+        active_usage = client.post(
+            "/runs",
+            json={"question": "GMV active catalog reuse", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(active_usage.status_code, 200, active_usage.text)
+        active_usage_trace_id = active_usage.json()["trace_id"]
         published_approve = client.post(
             f"/knowledge/review-queue/{published_asset_id}/decision",
             json={
@@ -281,7 +289,6 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             },
             headers=headers,
         )
-        self.assertEqual(active_approve.status_code, 200, active_approve.text)
         self.assertEqual(published_approve.status_code, 200, published_approve.text)
         publish_resp = client.post(
             f"/knowledge/assets/{published_asset_id}/publish",
@@ -320,24 +327,45 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                 item["knowledge_version"],
             )
             self.assertTrue(item["latest_lifecycle_event"]["reason_present"])
-            self.assertEqual(item["proposal_usage_count"], 0)
             self.assertEqual(item["correction_usage_count"], 0)
             self.assertEqual(item["outcome_correction_count"], 0)
             self.assertEqual(item["adoption_correction_count"], 0)
-            self.assertEqual(item["distinct_usage_trace_count"], 0)
-            self.assertEqual(item["quality_status"], "unused")
-            self.assertEqual(item["review_priority"], "high")
-            self.assertEqual(item["recommended_review_action"], "review_or_reject")
-            self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            if item["asset_id"] == active_asset_id:
+                self.assertEqual(
+                    item["latest_usage_event"],
+                    {
+                        "trace_id": active_usage_trace_id,
+                        "step": "action_proposal",
+                        "usage_kind": "proposal_context",
+                        "asset_id": active_asset_id,
+                        "knowledge_context_refs": [active_asset_id],
+                    },
+                )
+                self.assertEqual(item["proposal_usage_count"], 1)
+                self.assertEqual(item["distinct_usage_trace_count"], 1)
+                self.assertEqual(item["quality_status"], "proposal_only")
+                self.assertEqual(item["review_priority"], "medium")
+                self.assertEqual(item["recommended_review_action"], "collect_outcome_feedback")
+                self.assertEqual(item["review_rationale_codes"], ["proposal_context_needs_outcome"])
+            else:
+                self.assertIsNone(item["latest_usage_event"])
+                self.assertEqual(item["proposal_usage_count"], 0)
+                self.assertEqual(item["distinct_usage_trace_count"], 0)
+                self.assertEqual(item["quality_status"], "unused")
+                self.assertEqual(item["review_priority"], "high")
+                self.assertEqual(item["recommended_review_action"], "review_or_reject")
+                self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
             self.assertNotIn("events", item)
             self.assertNotIn("reviewer", item["latest_lifecycle_event"])
+            if item["latest_usage_event"] is not None:
+                self.assertNotIn("tool_name", item["latest_usage_event"])
             self.assertNotIn("reason", item)
             self.assertNotIn("sensitive", str(item))
             self.assertNotIn("usage_trace_ids", item)
 
         all_resp = client.get("/knowledge/assets", params={"state": "all"}, headers=headers)
         self.assertEqual(all_resp.status_code, 200, all_resp.text)
-        self.assertEqual(all_resp.json()["count"], 3)
+        self.assertEqual(all_resp.json()["count"], 4)
         self.assertIn(
             draft_run.json()["knowledge_asset_id"],
             [item["asset_id"] for item in all_resp.json()["items"]],

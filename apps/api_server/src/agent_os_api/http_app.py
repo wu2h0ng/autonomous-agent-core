@@ -646,6 +646,14 @@ class KnowledgeAssetLifecycleEventSummary(BaseModel):
     reason_present: bool
 
 
+class KnowledgeAssetUsageEventSummary(BaseModel):
+    trace_id: str
+    step: Literal["action_proposal", "agent_runtime.tool_succeeded"]
+    usage_kind: Literal["proposal_context", "correction_context"]
+    asset_id: str
+    knowledge_context_refs: list[str] = Field(default_factory=list)
+
+
 class KnowledgeAssetCatalogItem(BaseModel):
     asset_id: str
     title: str
@@ -658,6 +666,7 @@ class KnowledgeAssetCatalogItem(BaseModel):
     knowledge_version: int
     lifecycle_event_count: int
     latest_lifecycle_event: KnowledgeAssetLifecycleEventSummary | None
+    latest_usage_event: KnowledgeAssetUsageEventSummary | None
     proposal_usage_count: int
     correction_usage_count: int
     outcome_correction_count: int
@@ -736,14 +745,6 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     recommended_review_action_counts: dict[str, int]
     review_rationale_code_counts: dict[str, int]
     items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
-
-
-class KnowledgeAssetUsageEventSummary(BaseModel):
-    trace_id: str
-    step: Literal["action_proposal", "agent_runtime.tool_succeeded"]
-    usage_kind: Literal["proposal_context", "correction_context"]
-    asset_id: str
-    knowledge_context_refs: list[str] = Field(default_factory=list)
 
 
 class KnowledgeAssetDetailResponse(KnowledgeAssetCatalogItem):
