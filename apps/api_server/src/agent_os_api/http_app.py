@@ -88,6 +88,7 @@ KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES = [
     "outcome_supported_context",
     "adoption_supported_context",
 ]
+KNOWLEDGE_CATALOG_ORDER_BY_VALUES = ["quality_status", "review_priority"]
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
@@ -698,7 +699,7 @@ class KnowledgeAssetCatalogResponse(BaseModel):
         ]
         | None
     )
-    order_by: Literal["review_priority"] | None
+    order_by: Literal["quality_status", "review_priority"] | None
     limit: int | None
     offset: int
     total_count: int
@@ -1641,7 +1642,7 @@ def create_app(
         order_by: str | None = Query(
             default=None,
             description="optional deterministic catalog ordering",
-            json_schema_extra={"enum": KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES},
+            json_schema_extra={"enum": KNOWLEDGE_CATALOG_ORDER_BY_VALUES},
         ),
         limit: int | None = Query(
             default=None,

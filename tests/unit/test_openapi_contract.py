@@ -171,7 +171,7 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertFalse(order_by_param["required"])
         self.assertFalse(limit_param["required"])
         self.assertFalse(offset_param["required"])
-        self.assertEqual(order_by_param["schema"]["enum"], ["review_priority"])
+        self.assertEqual(order_by_param["schema"]["enum"], ["quality_status", "review_priority"])
         self.assertIn({"type": "integer"}, limit_param["schema"]["anyOf"])
         self.assertIn({"type": "integer"}, offset_param["schema"]["anyOf"])
         self.assertEqual(
@@ -245,7 +245,7 @@ class OpenApiContractTest(unittest.TestCase):
         for field in ("order_by", "total_count", "has_more", "limit", "offset"):
             self.assertIn(field, response_schema["required"])
         self.assertIn(
-            {"const": "review_priority", "type": "string"},
+            {"enum": ["quality_status", "review_priority"], "type": "string"},
             response_schema["properties"]["order_by"]["anyOf"],
         )
         self.assertIn("quality_status_filter", response_schema["required"])

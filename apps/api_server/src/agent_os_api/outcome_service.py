@@ -1186,7 +1186,7 @@ def knowledge_asset_catalog_service(
     review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
         review_rationale_code
     )
-    order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
+    order_by_filter = _normalize_knowledge_asset_catalog_order_by(order_by)
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
 
@@ -1243,7 +1243,15 @@ def knowledge_asset_catalog_service(
             }
         )
 
-    if order_by_filter == "review_priority":
+    if order_by_filter == "quality_status":
+        items.sort(
+            key=lambda item: (
+                _KNOWLEDGE_ASSET_QUALITY_STATUS_ORDER[item["quality_status"]],
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
+    elif order_by_filter == "review_priority":
         items.sort(
             key=lambda item: (
                 _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER[item["review_priority"]],
@@ -1585,8 +1593,15 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_B
 _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES = {
     code for codes in _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS.values() for code in codes
 }
+_KNOWLEDGE_ASSET_CATALOG_ORDER_BY = {"quality_status", "review_priority"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT = 100
+_KNOWLEDGE_ASSET_QUALITY_STATUS_ORDER = {
+    "unused": 0,
+    "proposal_only": 1,
+    "outcome_observed": 2,
+    "adoption_observed": 3,
+}
 _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER = {
     "high": 0,
     "medium": 1,
@@ -1642,6 +1657,16 @@ def _normalize_knowledge_asset_review_rationale_code_filter(
         raise ValueError(
             f"Unsupported review_rationale_code filter: {review_rationale_code}. Allowed: {allowed}"
         )
+    return normalized
+
+
+def _normalize_knowledge_asset_catalog_order_by(order_by: str | None) -> str | None:
+    if order_by is None:
+        return None
+    normalized = order_by.strip().lower()
+    if normalized not in _KNOWLEDGE_ASSET_CATALOG_ORDER_BY:
+        allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_CATALOG_ORDER_BY))
+        raise ValueError(f"Unsupported order_by: {order_by}. Allowed: {allowed}")
     return normalized
 
 

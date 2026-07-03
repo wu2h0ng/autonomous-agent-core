@@ -755,7 +755,10 @@
           "order_by": {
             "anyOf": [
               {
-                "const": "review_priority",
+                "enum": [
+                  "quality_status",
+                  "review_priority"
+                ],
                 "type": "string"
               },
               {
@@ -3654,6 +3657,7 @@
               ],
               "description": "optional deterministic catalog ordering",
               "enum": [
+                "quality_status",
                 "review_priority"
               ],
               "title": "Order By"

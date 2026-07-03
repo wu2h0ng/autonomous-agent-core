@@ -465,6 +465,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"order_by": "review_priority", "limit": 1},
             headers=headers,
         )
+        quality_ordered = client.get(
+            "/knowledge/assets",
+            params={"order_by": "quality_status", "limit": 1},
+            headers=headers,
+        )
         invalid_order = client.get(
             "/knowledge/assets",
             params={"order_by": "auto_publish"},
@@ -479,6 +484,14 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertTrue(payload["has_more"])
         self.assertEqual(payload["items"][0]["asset_id"], high_asset_id)
         self.assertEqual(payload["items"][0]["review_priority"], "high")
+        self.assertEqual(quality_ordered.status_code, 200, quality_ordered.text)
+        quality_payload = quality_ordered.json()
+        self.assertEqual(quality_payload["order_by"], "quality_status")
+        self.assertEqual(quality_payload["total_count"], 2)
+        self.assertEqual(quality_payload["count"], 1)
+        self.assertTrue(quality_payload["has_more"])
+        self.assertEqual(quality_payload["items"][0]["asset_id"], high_asset_id)
+        self.assertEqual(quality_payload["items"][0]["quality_status"], "unused")
         self.assertEqual(invalid_order.status_code, 400, invalid_order.text)
         self.assertEqual(
             invalid_order.json()["detail"]["code"],
