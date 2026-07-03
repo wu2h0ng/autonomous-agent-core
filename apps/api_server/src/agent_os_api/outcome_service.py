@@ -1956,6 +1956,10 @@ def knowledge_asset_quality_summary_service(
                     persisted_trace,
                     asset_id=asset.asset_id,
                 ),
+                "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
+                    runtime,
+                    asset_id=asset.asset_id,
+                ),
                 "proposal_usage_count": quality["proposal_usage_count"],
                 "correction_usage_count": quality["correction_usage_count"],
                 "outcome_correction_count": quality["outcome_correction_count"],

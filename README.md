@@ -60,7 +60,7 @@ BusinessIntent → SemanticObject → MetricContract → ProviderContract
 **KnowledgeAsset Review Surfaces**:
 - Internal-only review queue, review decisions, lifecycle audit trail, publish/deprecate gates, catalog, detail, usage events, decision-quality summary, and quality-summary triage surfaces
 - Catalog/detail responses expose safe review-state fields plus `lifecycle_event_count` and nullable `latest_lifecycle_event` summaries for review/publish/deprecate transitions
-- Catalog/detail responses expose nullable `latest_usage_event` summaries for safe proposal/correction reuse visibility
+- Catalog/detail/quality-summary responses expose nullable `latest_usage_event` summaries for safe proposal/correction reuse visibility
 - Safe projections exclude raw lifecycle reasons, reviewer identity on detail summaries, raw trace payloads, related knowledge content, correction payloads, metric deltas, and secret-like fields
 
 **Observability** (RunTrace):

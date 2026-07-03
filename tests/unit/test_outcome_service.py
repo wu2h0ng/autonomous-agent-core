@@ -1890,12 +1890,23 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertEqual(active_item["review_priority"], "medium")
         self.assertEqual(active_item["recommended_review_action"], "monitor_for_adoption")
         self.assertEqual(active_item["review_rationale_codes"], ["outcome_supported_context"])
+        self.assertEqual(
+            active_item["latest_usage_event"],
+            {
+                "trace_id": outcome_run["trace_id"],
+                "step": "agent_runtime.tool_succeeded",
+                "usage_kind": "correction_context",
+                "asset_id": active_asset.asset_id,
+                "knowledge_context_refs": [active_asset.asset_id],
+            },
+        )
         unused_item = items[unused_asset.asset_id]
         self.assertEqual(unused_item["source_trace_id"], unused["trace_id"])
         self.assertEqual(unused_item["state"], "draft")
         self.assertEqual(unused_item["lifecycle_event_count"], 0)
         self.assertEqual(unused_item["proposal_usage_count"], 0)
         self.assertEqual(unused_item["correction_usage_count"], 0)
+        self.assertIsNone(unused_item["latest_usage_event"])
         self.assertEqual(unused_item["quality_status"], "unused")
         self.assertEqual(unused_item["review_priority"], "high")
         self.assertEqual(unused_item["recommended_review_action"], "review_or_reject")
@@ -1925,8 +1936,11 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                     "review_priority",
                     "recommended_review_action",
                     "review_rationale_codes",
+                    "latest_usage_event",
                 },
             )
+            if item["latest_usage_event"] is not None:
+                self.assertNotIn("tool_name", item["latest_usage_event"])
         self.assertEqual(
             runtime.knowledge_store.version_of(first["trace_id"]),
             before_versions[first["trace_id"]],

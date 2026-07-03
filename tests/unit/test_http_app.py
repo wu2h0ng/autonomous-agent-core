@@ -1237,11 +1237,22 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             items[active_asset_id]["review_rationale_codes"],
             ["outcome_supported_context"],
         )
+        self.assertEqual(
+            items[active_asset_id]["latest_usage_event"],
+            {
+                "trace_id": outcome_run.json()["trace_id"],
+                "step": "agent_runtime.tool_succeeded",
+                "usage_kind": "correction_context",
+                "asset_id": active_asset_id,
+                "knowledge_context_refs": [active_asset_id],
+            },
+        )
         self.assertEqual(items[unused_asset_id]["source_trace_id"], unused.json()["trace_id"])
         self.assertEqual(items[unused_asset_id]["state"], "draft")
         self.assertEqual(items[unused_asset_id]["lifecycle_event_count"], 0)
         self.assertEqual(items[unused_asset_id]["proposal_usage_count"], 0)
         self.assertEqual(items[unused_asset_id]["correction_usage_count"], 0)
+        self.assertIsNone(items[unused_asset_id]["latest_usage_event"])
         self.assertEqual(items[unused_asset_id]["quality_status"], "unused")
         self.assertEqual(items[unused_asset_id]["review_priority"], "high")
         self.assertEqual(
@@ -1277,8 +1288,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                     "review_priority",
                     "recommended_review_action",
                     "review_rationale_codes",
+                    "latest_usage_event",
                 },
             )
+            if item["latest_usage_event"] is not None:
+                self.assertNotIn("tool_name", item["latest_usage_event"])
 
         external_resp = client.get(
             "/knowledge/assets/quality-summary",

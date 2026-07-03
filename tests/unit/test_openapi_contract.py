@@ -247,7 +247,15 @@ class OpenApiContractTest(unittest.TestCase):
                 "review_priority",
                 "recommended_review_action",
                 "review_rationale_codes",
+                "latest_usage_event",
             },
+        )
+        self.assertEqual(
+            item_schema["properties"]["latest_usage_event"]["anyOf"],
+            [
+                {"$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"},
+                {"type": "null"},
+            ],
         )
         self.assertEqual(
             item_schema["properties"]["lifecycle_event_count"]["type"],
@@ -721,7 +729,15 @@ class OpenApiContractTest(unittest.TestCase):
                 "review_priority",
                 "recommended_review_action",
                 "review_rationale_codes",
+                "latest_usage_event",
             },
+        )
+        self.assertEqual(
+            item_schema["properties"]["latest_usage_event"]["anyOf"],
+            [
+                {"$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"},
+                {"type": "null"},
+            ],
         )
         self.assertEqual(
             item_schema["properties"]["lifecycle_event_count"]["type"],

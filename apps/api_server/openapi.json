@@ -1388,6 +1388,16 @@
             "title": "Distinct Usage Trace Count",
             "type": "integer"
           },
+          "latest_usage_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lifecycle_event_count": {
             "title": "Lifecycle Event Count",
             "type": "integer"
@@ -1462,6 +1472,7 @@
           "asset_id",
           "state",
           "lifecycle_event_count",
+          "latest_usage_event",
           "proposal_usage_count",
           "correction_usage_count",
           "outcome_correction_count",
