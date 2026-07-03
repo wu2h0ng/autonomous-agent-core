@@ -1,0 +1,32 @@
+{
+ "formal_model": "docs/pre_spec/STAGE1-FAILURE-ATTRIBUTION.FORMAL-MODEL-2026-07-03.md",
+ "seeds": 120,
+ "eps": 0.25,
+ "scarce_budget": 5,
+ "arms": {
+  "attributor": {
+   "recovered_rate": 0.5667,
+   "family_b_interventions": 3114,
+   "retry_same_acts": 0,
+   "audit_ok": true
+  },
+  "knockout": {
+   "recovered_rate": 0.5417,
+   "family_b_interventions": 3090,
+   "retry_same_acts": 29,
+   "audit_ok": true
+  },
+  "frozen_ledger": {
+   "recovered_rate": 0.5417,
+   "family_b_interventions": 3090,
+   "retry_same_acts": 29,
+   "audit_ok": true
+  },
+  "decay_all": {
+   "recovered_rate": 0.5333,
+   "family_b_interventions": 3540,
+   "retry_same_acts": 0,
+   "audit_ok": true
+  }
+ }
+}

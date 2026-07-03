@@ -36,6 +36,7 @@ from .governed_gate import GovernedDecisionGate, ALLOW, VERIFY_MORE, ESCALATE, D
 class Candidate:
     action: str   # tool/action id, e.g. "apply_lever:3"
     target: int   # the lever/feature index this candidate acts on
+    cited_claim_ids: tuple = ()   # belief-ledger claims justifying this candidate (Stage-1)
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,7 @@ class StepRecord:
     verified_effective: bool
     verdict: str
     reason: str
+    cited_claim_ids: tuple = ()   # threaded from the candidate (Stage-1 attribution input)
 
 
 @dataclass(frozen=True)
@@ -123,7 +125,8 @@ class GovernedLoop:
                 action_index=cand.target,  # checked against the C7 shell's forbidden set
             )
             d = self.gate.decide(req, shell_view=self.shell_view, llm_reliability=reliability)
-            steps.append(StepRecord(cand.action, True, d.verdict, d.reason))
+            steps.append(StepRecord(cand.action, True, d.verdict, d.reason,
+                                    getattr(cand, "cited_claim_ids", ())))
             self._observe({"event": "decide", "action": cand.action, "verdict": d.verdict})
 
             if d.verdict == ALLOW:
@@ -192,7 +195,8 @@ class GovernedLoop:
                 action_index=cand.target,
             )
             d = self.gate.decide(req, shell_view=self.shell_view, llm_reliability=reliability)
-            steps.append(StepRecord(cand.action, True, d.verdict, d.reason))
+            steps.append(StepRecord(cand.action, True, d.verdict, d.reason,
+                                    getattr(cand, "cited_claim_ids", ())))
             self._observe({"event": "decide", "action": cand.action, "verdict": d.verdict})
             if d.verdict == ALLOW:
                 outcome = self.actuator.apply(cand)
