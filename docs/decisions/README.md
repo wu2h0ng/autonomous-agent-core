@@ -348,6 +348,12 @@ Current active ADRs:
     quality status, not raw traces or KnowledgeAsset content. Branch-local
     `make ci` plus PostgreSQL `ci-local-full` passed with 590 primary unittest
     tests OK / 4 skipped plus 12 eval OK. Not merged, pushed, or released.
+- `P1-29-knowledge-rationale-review-surface.MERGE-READINESS-20260703.md`
+  - Merge-readiness packet for branch-local P1-29. Current deployment `main`
+    is an ancestor of the branch (`ancestor=0`, `0 1`), both worktrees only
+    had untracked `.agent_runs/`, and branch-local `make ci` plus PostgreSQL
+    `ci-local-full` evidence is recorded. Not merge authorization, not pushed,
+    not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
