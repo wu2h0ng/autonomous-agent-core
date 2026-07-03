@@ -81,8 +81,24 @@ class OpenApiContractTest(unittest.TestCase):
                 "review_priority",
                 "recommended_review_action",
                 "order_by",
+                "limit",
+                "offset",
             },
         )
+        limit_param = next(
+            parameter
+            for parameter in queue["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "limit"
+        )
+        offset_param = next(
+            parameter
+            for parameter in queue["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "offset"
+        )
+        self.assertFalse(limit_param["required"])
+        self.assertFalse(offset_param["required"])
+        self.assertIn({"type": "integer"}, limit_param["schema"]["anyOf"])
+        self.assertIn({"type": "integer"}, offset_param["schema"]["anyOf"])
         item_schema = spec["components"]["schemas"]["KnowledgeReviewQueueItem"]
         self.assertGreaterEqual(
             set(item_schema["required"]),
@@ -113,6 +129,10 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status_counts",
                 "review_priority_counts",
                 "recommended_review_action_counts",
+                "limit",
+                "offset",
+                "total_count",
+                "has_more",
             },
         )
         self.assertEqual(

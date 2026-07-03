@@ -1220,6 +1220,8 @@ def knowledge_review_queue_service(
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
     order_by: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> dict[str, Any]:
     """Return DRAFT KnowledgeAsset candidates awaiting human review.
 
@@ -1232,6 +1234,8 @@ def knowledge_review_queue_service(
         recommended_review_action
     )
     order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
+    limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
+    offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         if asset.state.value != "draft":
@@ -1292,6 +1296,12 @@ def knowledge_review_queue_service(
             )
         )
 
+    total_count = len(items)
+    if limit_filter is None:
+        page_items = items[offset_filter:]
+    else:
+        page_items = items[offset_filter : offset_filter + limit_filter]
+
     return {
         "status": "ok",
         "review_state": "draft",
@@ -1299,8 +1309,12 @@ def knowledge_review_queue_service(
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "order_by": order_by_filter,
+        "limit": limit_filter,
+        "offset": offset_filter,
+        "total_count": total_count,
+        "has_more": offset_filter + len(page_items) < total_count,
         "quality_status_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="quality_status",
             allowed_values=[
                 "unused",
@@ -1310,12 +1324,12 @@ def knowledge_review_queue_service(
             ],
         ),
         "review_priority_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="review_priority",
             allowed_values=["high", "medium", "low"],
         ),
         "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="recommended_review_action",
             allowed_values=[
                 "review_or_reject",
@@ -1324,8 +1338,8 @@ def knowledge_review_queue_service(
                 "consider_publish",
             ],
         ),
-        "count": len(items),
-        "items": items,
+        "count": len(page_items),
+        "items": page_items,
     }
 
 

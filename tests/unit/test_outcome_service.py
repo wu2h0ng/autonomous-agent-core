@@ -856,6 +856,65 @@ class KnowledgeReviewQueueServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported review_priority"):
             knowledge_review_queue_service(runtime, review_priority="urgent")
 
+    def test_paginates_draft_candidates_after_filters(self) -> None:
+        runtime = _build_runtime()
+        trace_ids = [
+            run_service(
+                runtime,
+                question=f"GMV review queue page {index}",
+                parameters={**RUN_PARAMS, "limit": 30 + index},
+            )["trace_id"]
+            for index in range(3)
+        ]
+
+        first_page = knowledge_review_queue_service(
+            runtime,
+            review_priority="high",
+            limit=1,
+            offset=0,
+        )
+        second_page = knowledge_review_queue_service(
+            runtime,
+            review_priority="high",
+            limit=1,
+            offset=1,
+        )
+        final_page = knowledge_review_queue_service(
+            runtime,
+            review_priority="high",
+            limit=1,
+            offset=2,
+        )
+
+        self.assertEqual(first_page["total_count"], 3)
+        self.assertEqual(first_page["limit"], 1)
+        self.assertEqual(first_page["offset"], 0)
+        self.assertEqual(first_page["count"], 1)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(first_page["items"][0]["source_trace_id"], trace_ids[0])
+        self.assertEqual(
+            first_page["quality_status_counts"],
+            {
+                "unused": 1,
+                "proposal_only": 0,
+                "outcome_observed": 0,
+                "adoption_observed": 0,
+            },
+        )
+        self.assertEqual(second_page["total_count"], 3)
+        self.assertEqual(second_page["offset"], 1)
+        self.assertEqual(second_page["items"][0]["source_trace_id"], trace_ids[1])
+        self.assertTrue(second_page["has_more"])
+        self.assertEqual(final_page["total_count"], 3)
+        self.assertEqual(final_page["offset"], 2)
+        self.assertEqual(final_page["items"][0]["source_trace_id"], trace_ids[2])
+        self.assertFalse(final_page["has_more"])
+
+        with self.assertRaisesRegex(ValueError, "Unsupported limit"):
+            knowledge_review_queue_service(runtime, limit=0)
+        with self.assertRaisesRegex(ValueError, "Unsupported offset"):
+            knowledge_review_queue_service(runtime, offset=-1)
+
 
 class KnowledgeReviewActionServiceTest(unittest.TestCase):
     def test_approve_marks_draft_asset_active_without_value_promotion(self) -> None:

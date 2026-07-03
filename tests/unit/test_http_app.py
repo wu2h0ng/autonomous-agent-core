@@ -262,6 +262,66 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("tool_name", rendered)
         self.assertNotIn("parameters", rendered)
 
+    def test_internal_knowledge_review_queue_paginates_filtered_candidates(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        trace_ids = []
+        for index in range(3):
+            run_resp = client.post(
+                "/runs",
+                json={
+                    "question": f"GMV review queue page {index}",
+                    "parameters": {**RUN_BODY["parameters"], "limit": 30 + index},
+                },
+                headers=headers,
+            )
+            self.assertEqual(run_resp.status_code, 200, run_resp.text)
+            trace_ids.append(run_resp.json()["trace_id"])
+
+        page_resp = client.get(
+            "/knowledge/review-queue",
+            params={"review_priority": "high", "limit": 1, "offset": 1},
+            headers=headers,
+        )
+        final_resp = client.get(
+            "/knowledge/review-queue",
+            params={"review_priority": "high", "limit": 1, "offset": 2},
+            headers=headers,
+        )
+        invalid_limit = client.get(
+            "/knowledge/review-queue",
+            params={"limit": 0},
+            headers=headers,
+        )
+        invalid_offset = client.get(
+            "/knowledge/review-queue",
+            params={"offset": -1},
+            headers=headers,
+        )
+
+        self.assertEqual(page_resp.status_code, 200, page_resp.text)
+        payload = page_resp.json()
+        self.assertEqual(payload["total_count"], 3)
+        self.assertEqual(payload["limit"], 1)
+        self.assertEqual(payload["offset"], 1)
+        self.assertEqual(payload["count"], 1)
+        self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["items"][0]["source_trace_id"], trace_ids[1])
+        self.assertEqual(payload["review_priority_filter"], "high")
+        self.assertEqual(payload["review_priority_counts"], {"high": 1, "medium": 0, "low": 0})
+        self.assertEqual(final_resp.status_code, 200, final_resp.text)
+        self.assertFalse(final_resp.json()["has_more"])
+        self.assertEqual(invalid_limit.status_code, 400, invalid_limit.text)
+        self.assertEqual(
+            invalid_limit.json()["detail"]["code"],
+            "KNOWLEDGE_REVIEW_QUEUE_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_offset.status_code, 400, invalid_offset.text)
+        self.assertEqual(
+            invalid_offset.json()["detail"]["code"],
+            "KNOWLEDGE_REVIEW_QUEUE_INVALID_REQUEST",
+        )
+
     def test_internal_knowledge_review_action_approves_candidate(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}
