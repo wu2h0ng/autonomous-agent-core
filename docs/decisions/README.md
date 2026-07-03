@@ -741,6 +741,10 @@ Current active ADRs:
   - Merge-readiness packet for branch-local P1-54 quality usage summary; local
     `main@119ece9` was confirmed as an ancestor, branch was `0 1` ahead, and
     only `.agent_runs/` remained untracked. Not merged, pushed, or released.
+- `P1-54-knowledge-quality-usage-summary.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-54 after cautious ff-only merge
+    to `main@053dc3c`; `make ci` and PostgreSQL `ci-local-full` passed. Not
+    pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
