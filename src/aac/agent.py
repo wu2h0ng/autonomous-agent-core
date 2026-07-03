@@ -225,7 +225,7 @@ class Agent:
 
     def governed_step(
         self, env: Any, task: TaskSpec, *, verify_budget: int | None = None,
-        max_interventions: int | None = None,
+        max_interventions: int | None = None, selection: str = "argmax",
     ) -> Any:
         """Run ONE governed decision as a formal Agent capability (REF-ARCH-03 §4).
 
@@ -236,6 +236,10 @@ class Agent:
 
         This is the slice (ADR-0048/0049) wired into the subject: the Agent no longer just picks an
         action — it proposes, VERIFIES, decides under stakes, and escalates instead of acting blind.
+
+        ``selection`` defaults to "argmax" at THIS entry point (Stage-0 result 3b4bf9d: verify-all-
+        then-argmax-then-gate matches the ungoverned optimum with full governance retained; the
+        legacy "first_passer" remains available and is the GovernedLoop-level default).
         """
         if self.governed_gate is None or self.verifier is None:
             raise ValueError("governed_step requires governed_gate and verifier")
@@ -280,6 +284,7 @@ class Agent:
             verify_budget=verify_budget if verify_budget is not None else self.model.n_actions,
             memory=self.governed_memory,
             max_interventions=max_interventions,
+            selection=selection,
         )
         return loop.run_task(task)
 

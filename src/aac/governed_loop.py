@@ -82,9 +82,17 @@ class GovernedLoop:
     on_outcome: Optional[Any] = None  # feedback record hook: called (target, outcome) on act
     max_interventions: Optional[int] = None  # hard budget cap; exceeded -> escalate (REF-ARCH-04 §4)
     memory: Optional[Any] = None      # has .remember(action); written on act -> memory-driven re-ranking
+    selection: str = "first_passer"   # "first_passer" (legacy) | "argmax" (Stage-0-validated:
+    #   verify-all-within-budget, then act on the highest-confidence verified survivor the gate
+    #   allows. Stage-0 result 3b4bf9d: argmax-then-gate matches the ungoverned optimum
+    #   value-for-value in the noisy-verifier regime WITH full governance retained; first-passer
+    #   leaves capability on the table. Default stays first_passer so the frozen Stage-0 harness
+    #   reproduces byte-identically.)
 
     def run_task(self, task: TaskSpec) -> TaskResult:
         self._observe({"event": "task_start", "task": task.name, "risk_tier": task.risk_tier})
+        if self.selection == "argmax":
+            return self._run_argmax(task)
         steps: list[StepRecord] = []
         total_interv = 0
         ranked = self.proposer.rank(task)
@@ -135,6 +143,73 @@ class GovernedLoop:
             # VERIFY_MORE -> keep looking (try the next candidate)
 
         # no verified-effective, gate-approved action within budget -> ESCALATE (never silently act)
+        self._observe({"event": "escalate", "reason": "no verified-effective action found"})
+        return TaskResult("escalated", None, None, total_interv, steps)
+
+    def _run_argmax(self, task: TaskSpec) -> TaskResult:
+        """Stage-0-validated selection semantics: verify all candidates within the budget, then
+        walk the verified survivors in DESCENDING confidence order through the gate.
+
+        Two structural properties (locked by tests/test_governed_loop_argmax.py):
+          - dominance pruning: once a survivor verifies at confidence 1.0 nothing can beat it,
+            so verification stops early — in the perfect-verifier (DET) regime this makes argmax
+            spend exactly the first-passer intervention budget (memory-rerank savings preserved);
+          - the gate keeps FULL authority: ESCALATE/DENY on a survivor ends the task (stop
+            authority), VERIFY_MORE skips to the next survivor (selective authority). Governance
+            is applied to the BEST verified candidate first, not the first verified candidate.
+        """
+        steps: list[StepRecord] = []
+        total_interv = 0
+        ranked = self.proposer.rank(task)
+        reliability = getattr(self.proposer, "reliability", None)
+
+        # --- phase 1: VERIFY all candidates within budget (collect survivors) ---
+        survivors: list[tuple[Candidate, VerifyResult]] = []
+        for cand in ranked[: self.verify_budget]:
+            if self.max_interventions is not None and total_interv >= self.max_interventions:
+                self._observe({"event": "verify_phase_capped", "reason": "intervention budget"})
+                break
+            vr: VerifyResult = self.verifier.verify(cand)
+            total_interv += vr.interventions
+            if not vr.is_effective:
+                steps.append(StepRecord(cand.action, False, "SKIP", "intervention: not effective"))
+                self._observe({"event": "verify_reject", "action": cand.action})
+                continue
+            survivors.append((cand, vr))
+            if vr.confidence >= 1.0:   # dominance pruning: nothing can beat perfect confidence
+                self._observe({"event": "verify_prune", "action": cand.action})
+                break
+
+        # --- phase 2: DECIDE over survivors, best-confidence first (stable sort) ---
+        for cand, vr in sorted(survivors, key=lambda cv: -cv[1].confidence):
+            req = ActionRequest(
+                action=cand.action,
+                risk_tier=task.risk_tier,
+                confidence=vr.confidence,
+                verified=True,
+                evidence_count=vr.evidence_count,
+                approved=task.approved,
+                action_index=cand.target,
+            )
+            d = self.gate.decide(req, shell_view=self.shell_view, llm_reliability=reliability)
+            steps.append(StepRecord(cand.action, True, d.verdict, d.reason))
+            self._observe({"event": "decide", "action": cand.action, "verdict": d.verdict})
+            if d.verdict == ALLOW:
+                outcome = self.actuator.apply(cand)
+                self._observe({"event": "act", "action": cand.action, "outcome": outcome})
+                if self.on_outcome is not None:
+                    self.on_outcome(cand.target, outcome)
+                if self.memory is not None and outcome and outcome > 0:
+                    self.memory.remember(cand.action)
+                return TaskResult("acted", cand.target, outcome, total_interv, steps)
+            if d.verdict == ESCALATE:
+                self._observe({"event": "escalate", "action": cand.action, "reason": d.reason})
+                return TaskResult("escalated", None, None, total_interv, steps)
+            if d.verdict == DENY:
+                self._observe({"event": "deny", "action": cand.action, "reason": d.reason})
+                return TaskResult("denied", None, None, total_interv, steps)
+            # VERIFY_MORE -> try the next-best survivor
+
         self._observe({"event": "escalate", "reason": "no verified-effective action found"})
         return TaskResult("escalated", None, None, total_interv, steps)
 
