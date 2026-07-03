@@ -279,6 +279,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status_counts",
                 "review_priority_counts",
                 "recommended_review_action_counts",
+                "review_rationale_code_counts",
                 "limit",
                 "offset",
                 "total_count",
@@ -356,6 +357,10 @@ class OpenApiContractTest(unittest.TestCase):
             response_schema["properties"]["recommended_review_action_counts"][
                 "additionalProperties"
             ],
+            {"type": "integer"},
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_rationale_code_counts"]["additionalProperties"],
             {"type": "integer"},
         )
         item_ref = response_schema["properties"]["items"]["items"]

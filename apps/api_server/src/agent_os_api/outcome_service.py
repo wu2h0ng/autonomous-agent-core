@@ -1572,6 +1572,16 @@ def _knowledge_asset_quality_summary_counts(
     return counts
 
 
+def _knowledge_asset_quality_summary_rationale_counts(
+    items: list[dict[str, Any]],
+) -> dict[str, int]:
+    counts = {value: 0 for value in _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES}
+    for item in items:
+        for code in item["review_rationale_codes"]:
+            counts[code] += 1
+    return counts
+
+
 def knowledge_asset_quality_summary_service(
     runtime: Any,
     *,
@@ -1681,6 +1691,9 @@ def knowledge_asset_quality_summary_service(
                 "monitor_for_adoption",
                 "consider_publish",
             ],
+        ),
+        "review_rationale_code_counts": _knowledge_asset_quality_summary_rationale_counts(
+            page_items
         ),
         "count": len(page_items),
         "items": page_items,

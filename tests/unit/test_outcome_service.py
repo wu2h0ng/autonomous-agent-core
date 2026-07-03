@@ -1361,6 +1361,15 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                 "consider_publish": 0,
             },
         )
+        self.assertEqual(
+            result["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 2,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": 1,
+                "adoption_supported_context": 0,
+            },
+        )
         items = {item["asset_id"]: item for item in result["items"]}
         self.assertTrue({active_asset.asset_id, unused_asset.asset_id}.issubset(set(items)))
         active_item = items[active_asset.asset_id]
@@ -1498,6 +1507,15 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             {"high": 0, "medium": medium_priority["count"], "low": 0},
         )
         self.assertEqual(
+            medium_priority["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": medium_priority["count"],
+                "adoption_supported_context": 0,
+            },
+        )
+        self.assertEqual(
             outcome_rationale["review_rationale_code_filter"],
             "outcome_supported_context",
         )
@@ -1510,6 +1528,15 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                 for code in item["review_rationale_codes"]
             },
             {"outcome_supported_context"},
+        )
+        self.assertEqual(
+            outcome_rationale["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": outcome_rationale["count"],
+                "adoption_supported_context": 0,
+            },
         )
         self.assertEqual(
             review_or_reject["recommended_review_action_filter"],
@@ -1645,6 +1672,8 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertEqual([item["asset_id"] for item in second_page["items"]], ordered_asset_ids[2:])
         self.assertEqual(first_page["quality_status_counts"]["unused"], 2)
         self.assertEqual(second_page["quality_status_counts"]["unused"], 1)
+        self.assertEqual(first_page["review_rationale_code_counts"]["unused_context_candidate"], 2)
+        self.assertEqual(second_page["review_rationale_code_counts"]["unused_context_candidate"], 1)
         with self.assertRaises(ValueError):
             outcome_service.knowledge_asset_quality_summary_service(runtime, limit=0)
         with self.assertRaises(ValueError):

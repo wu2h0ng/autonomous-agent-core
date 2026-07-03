@@ -1142,6 +1142,13 @@
             ],
             "title": "Review Priority Filter"
           },
+          "review_rationale_code_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Review Rationale Code Counts",
+            "type": "object"
+          },
           "review_rationale_code_filter": {
             "anyOf": [
               {
@@ -1182,6 +1189,7 @@
           "quality_status_counts",
           "review_priority_counts",
           "recommended_review_action_counts",
+          "review_rationale_code_counts",
           "count",
           "items"
         ],

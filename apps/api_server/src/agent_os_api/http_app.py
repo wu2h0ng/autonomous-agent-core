@@ -777,6 +777,7 @@ class KnowledgeAssetQualitySummaryResponse(BaseModel):
     quality_status_counts: dict[str, int]
     review_priority_counts: dict[str, int]
     recommended_review_action_counts: dict[str, int]
+    review_rationale_code_counts: dict[str, int]
     count: int
     items: list[KnowledgeAssetQualitySummaryItem]
 

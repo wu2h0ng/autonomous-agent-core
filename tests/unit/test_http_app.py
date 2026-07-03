@@ -656,6 +656,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                 "consider_publish": 0,
             },
         )
+        self.assertEqual(
+            payload["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 2,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": 1,
+                "adoption_supported_context": 0,
+            },
+        )
         items = {item["asset_id"]: item for item in payload["items"]}
         self.assertTrue({active_asset_id, unused_asset_id}.issubset(set(items)))
         self.assertEqual(items[active_asset_id]["source_trace_id"], first.json()["trace_id"])
@@ -851,6 +860,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             medium_payload["review_priority_counts"],
             {"high": 0, "medium": medium_payload["count"], "low": 0},
         )
+        self.assertEqual(
+            medium_payload["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": medium_payload["count"],
+                "adoption_supported_context": 0,
+            },
+        )
         self.assertEqual(outcome_rationale_summary.status_code, 200, outcome_rationale_summary.text)
         rationale_payload = outcome_rationale_summary.json()
         self.assertEqual(
@@ -866,6 +884,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                 for code in item["review_rationale_codes"]
             },
             {"outcome_supported_context"},
+        )
+        self.assertEqual(
+            rationale_payload["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": rationale_payload["count"],
+                "adoption_supported_context": 0,
+            },
         )
         self.assertEqual(review_or_reject_summary.status_code, 200, review_or_reject_summary.text)
         action_payload = review_or_reject_summary.json()
@@ -900,6 +927,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(paged_payload["count"], 2)
         self.assertTrue(paged_payload["has_more"])
         self.assertEqual(paged_payload["items"][0]["review_priority"], "high")
+        self.assertEqual(
+            paged_payload["review_rationale_code_counts"]["unused_context_candidate"],
+            2,
+        )
         self.assertEqual(invalid_summary.status_code, 400, invalid_summary.text)
         self.assertEqual(
             invalid_summary.json()["detail"]["code"],
