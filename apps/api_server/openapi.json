@@ -1011,6 +1011,16 @@
               }
             ]
           },
+          "latest_usage_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lifecycle_event_count": {
             "title": "Lifecycle Event Count",
             "type": "integer"
@@ -1128,7 +1138,8 @@
           "recommended_review_action",
           "review_rationale_codes",
           "status",
-          "has_source_trace"
+          "has_source_trace",
+          "latest_usage_event"
         ],
         "title": "KnowledgeAssetDetailResponse",
         "type": "object"
@@ -1674,6 +1685,49 @@
           "asset_id"
         ],
         "title": "KnowledgeAssetUsageEventItem",
+        "type": "object"
+      },
+      "KnowledgeAssetUsageEventSummary": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "knowledge_context_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Knowledge Context Refs",
+            "type": "array"
+          },
+          "step": {
+            "enum": [
+              "action_proposal",
+              "agent_runtime.tool_succeeded"
+            ],
+            "title": "Step",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "usage_kind": {
+            "enum": [
+              "proposal_context",
+              "correction_context"
+            ],
+            "title": "Usage Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "step",
+          "usage_kind",
+          "asset_id"
+        ],
+        "title": "KnowledgeAssetUsageEventSummary",
         "type": "object"
       },
       "KnowledgeAssetUsageEventsResponse": {

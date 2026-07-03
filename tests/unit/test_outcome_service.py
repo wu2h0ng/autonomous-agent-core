@@ -1325,6 +1325,8 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
             reviewer="founder",
             reason="sensitive publish reason",
         )
+        usage_run = run_service(runtime, question="GMV asset detail reuse", parameters=RUN_PARAMS)
+        usage_trace_id = usage_run["trace_id"]
         before_version = runtime.knowledge_store.version_of(trace_id)
 
         self.assertTrue(
@@ -1359,21 +1361,35 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
                 "reason_present": True,
             },
         )
-        self.assertEqual(detail["proposal_usage_count"], 0)
+        self.assertEqual(
+            detail["latest_usage_event"],
+            {
+                "trace_id": usage_trace_id,
+                "step": "action_proposal",
+                "usage_kind": "proposal_context",
+                "asset_id": asset.asset_id,
+                "knowledge_context_refs": [asset.asset_id],
+            },
+        )
+        self.assertEqual(detail["proposal_usage_count"], 1)
         self.assertEqual(detail["correction_usage_count"], 0)
         self.assertEqual(detail["outcome_correction_count"], 0)
         self.assertEqual(detail["adoption_correction_count"], 0)
-        self.assertEqual(detail["distinct_usage_trace_count"], 0)
-        self.assertEqual(detail["quality_status"], "unused")
-        self.assertEqual(detail["review_priority"], "high")
-        self.assertEqual(detail["recommended_review_action"], "review_or_reject")
-        self.assertEqual(detail["review_rationale_codes"], ["unused_context_candidate"])
+        self.assertEqual(detail["distinct_usage_trace_count"], 1)
+        self.assertEqual(detail["quality_status"], "proposal_only")
+        self.assertEqual(detail["review_priority"], "medium")
+        self.assertEqual(detail["recommended_review_action"], "collect_outcome_feedback")
+        self.assertEqual(detail["review_rationale_codes"], ["proposal_context_needs_outcome"])
         self.assertNotIn("events", detail)
         self.assertNotIn("reviewer", detail["latest_lifecycle_event"])
+        self.assertNotIn("tool_name", detail["latest_usage_event"])
         self.assertNotIn("reason", detail)
         self.assertNotIn("sensitive lifecycle reason", str(detail))
         self.assertNotIn("sensitive publish reason", str(detail))
         self.assertNotIn("usage_trace_ids", detail)
+        self.assertNotIn("content", str(detail["latest_usage_event"]))
+        self.assertNotIn("parameters", str(detail["latest_usage_event"]))
+        self.assertNotIn("raw", str(detail["latest_usage_event"]))
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), before_version)
 
     def test_unknown_asset_detail_raises_key_error(self) -> None:

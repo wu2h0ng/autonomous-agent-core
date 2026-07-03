@@ -1116,6 +1116,65 @@ def _knowledge_asset_latest_lifecycle_event_summary(
     return None
 
 
+def _knowledge_asset_usage_event_projection(
+    event: TraceEvent,
+    *,
+    asset_id: str,
+    include_tool_name: bool,
+) -> dict[str, Any] | None:
+    payload = event.payload
+    refs = payload.get("knowledge_context_refs")
+    if not isinstance(refs, list) or asset_id not in refs:
+        return None
+    safe_refs = [ref for ref in refs if isinstance(ref, str)]
+    if event.step == "action_proposal":
+        usage_kind = "proposal_context"
+        tool_name = None
+    elif event.step == "agent_runtime.tool_succeeded":
+        usage_kind = "correction_context"
+        tool_name = payload.get("tool_name")
+        if tool_name not in {
+            TrustedLoopCorrectionRuntimeAdapter.RECORD_OUTCOME_TOOL_NAME,
+            TrustedLoopCorrectionRuntimeAdapter.ATTEST_ADOPTION_TOOL_NAME,
+        }:
+            return None
+    else:
+        return None
+
+    projected = {
+        "trace_id": event.trace_id,
+        "step": event.step,
+        "usage_kind": usage_kind,
+        "asset_id": asset_id,
+        "knowledge_context_refs": safe_refs,
+    }
+    if include_tool_name:
+        projected["tool_name"] = tool_name
+    return projected
+
+
+def _knowledge_asset_latest_usage_event_summary(
+    runtime: Any,
+    *,
+    asset_id: str,
+) -> dict[str, Any] | None:
+    trace_store = getattr(runtime, "trace_store", None)
+    all_traces = getattr(trace_store, "all_traces", None)
+    traces = all_traces() if callable(all_traces) else ()
+
+    latest: dict[str, Any] | None = None
+    for run_trace in traces:
+        for event in run_trace.events:
+            projected = _knowledge_asset_usage_event_projection(
+                event,
+                asset_id=asset_id,
+                include_tool_name=False,
+            )
+            if projected is not None:
+                latest = projected
+    return latest
+
+
 def record_outcome_service(
     runtime: Any,
     *,
@@ -1434,6 +1493,10 @@ def knowledge_asset_detail_service(
             persisted_trace,
             asset_id=target.asset_id,
         ),
+        "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
+            runtime,
+            asset_id=target.asset_id,
+        ),
         "proposal_usage_count": quality["proposal_usage_count"],
         "correction_usage_count": quality["correction_usage_count"],
         "outcome_correction_count": quality["outcome_correction_count"],
@@ -1551,35 +1614,14 @@ def knowledge_asset_usage_events_service(
     projected_events: list[dict[str, Any]] = []
     for run_trace in traces:
         for event in run_trace.events:
-            payload = event.payload
-            refs = payload.get("knowledge_context_refs")
-            if not isinstance(refs, list) or asset_id not in refs:
-                continue
-            safe_refs = [ref for ref in refs if isinstance(ref, str)]
-            if event.step == "action_proposal":
-                usage_kind = "proposal_context"
-                tool_name = None
-            elif event.step == "agent_runtime.tool_succeeded":
-                usage_kind = "correction_context"
-                tool_name = payload.get("tool_name")
-                if tool_name not in {
-                    TrustedLoopCorrectionRuntimeAdapter.RECORD_OUTCOME_TOOL_NAME,
-                    TrustedLoopCorrectionRuntimeAdapter.ATTEST_ADOPTION_TOOL_NAME,
-                }:
-                    continue
-            else:
-                continue
-
-            projected_events.append(
-                {
-                    "trace_id": event.trace_id,
-                    "step": event.step,
-                    "usage_kind": usage_kind,
-                    "asset_id": asset_id,
-                    "knowledge_context_refs": safe_refs,
-                    "tool_name": tool_name,
-                }
+            projected = _knowledge_asset_usage_event_projection(
+                event,
+                asset_id=asset_id,
+                include_tool_name=True,
             )
+            if projected is None:
+                continue
+            projected_events.append(projected)
 
     total_count = len(projected_events)
     if limit_filter is None:

@@ -756,6 +756,13 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             headers=headers,
         )
         self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
+        usage_resp = client.post(
+            "/runs",
+            json={"question": "GMV detail reused context", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(usage_resp.status_code, 200, usage_resp.text)
+        usage_trace_id = usage_resp.json()["trace_id"]
 
         detail_resp = client.get(f"/knowledge/assets/{asset_id}", headers=headers)
 
@@ -781,17 +788,28 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                 "reason_present": True,
             },
         )
-        self.assertEqual(payload["proposal_usage_count"], 0)
+        self.assertEqual(
+            payload["latest_usage_event"],
+            {
+                "trace_id": usage_trace_id,
+                "step": "action_proposal",
+                "usage_kind": "proposal_context",
+                "asset_id": asset_id,
+                "knowledge_context_refs": [asset_id],
+            },
+        )
+        self.assertEqual(payload["proposal_usage_count"], 1)
         self.assertEqual(payload["correction_usage_count"], 0)
         self.assertEqual(payload["outcome_correction_count"], 0)
         self.assertEqual(payload["adoption_correction_count"], 0)
-        self.assertEqual(payload["distinct_usage_trace_count"], 0)
-        self.assertEqual(payload["quality_status"], "unused")
-        self.assertEqual(payload["review_priority"], "high")
-        self.assertEqual(payload["recommended_review_action"], "review_or_reject")
-        self.assertEqual(payload["review_rationale_codes"], ["unused_context_candidate"])
+        self.assertEqual(payload["distinct_usage_trace_count"], 1)
+        self.assertEqual(payload["quality_status"], "proposal_only")
+        self.assertEqual(payload["review_priority"], "medium")
+        self.assertEqual(payload["recommended_review_action"], "collect_outcome_feedback")
+        self.assertEqual(payload["review_rationale_codes"], ["proposal_context_needs_outcome"])
         self.assertNotIn("events", payload)
         self.assertNotIn("reviewer", payload["latest_lifecycle_event"])
+        self.assertNotIn("tool_name", payload["latest_usage_event"])
         self.assertNotIn("reason", payload)
         self.assertNotIn("sensitive lifecycle reason", str(payload))
         self.assertNotIn("sensitive publish reason", str(payload))
