@@ -671,6 +671,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             items[active_asset_id]["recommended_review_action"],
             "monitor_for_adoption",
         )
+        self.assertEqual(
+            items[active_asset_id]["review_rationale_codes"],
+            ["outcome_supported_context"],
+        )
         self.assertEqual(items[unused_asset_id]["source_trace_id"], unused.json()["trace_id"])
         self.assertEqual(items[unused_asset_id]["state"], "draft")
         self.assertEqual(items[unused_asset_id]["proposal_usage_count"], 0)
@@ -680,6 +684,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(
             items[unused_asset_id]["recommended_review_action"],
             "review_or_reject",
+        )
+        self.assertEqual(
+            items[unused_asset_id]["review_rationale_codes"],
+            ["unused_context_candidate"],
         )
         rendered = str(payload)
         self.assertNotIn("related_knowledge", rendered)
@@ -703,6 +711,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                     "quality_status",
                     "review_priority",
                     "recommended_review_action",
+                    "review_rationale_codes",
                 },
             )
 

@@ -345,7 +345,17 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status",
                 "review_priority",
                 "recommended_review_action",
+                "review_rationale_codes",
             },
+        )
+        self.assertEqual(
+            item_schema["properties"]["review_rationale_codes"]["items"]["enum"],
+            [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context",
+            ],
         )
         self.assertEqual(
             item_schema["properties"]["review_priority"]["enum"],

@@ -1374,6 +1374,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertEqual(active_item["quality_status"], "outcome_observed")
         self.assertEqual(active_item["review_priority"], "medium")
         self.assertEqual(active_item["recommended_review_action"], "monitor_for_adoption")
+        self.assertEqual(active_item["review_rationale_codes"], ["outcome_supported_context"])
         unused_item = items[unused_asset.asset_id]
         self.assertEqual(unused_item["source_trace_id"], unused["trace_id"])
         self.assertEqual(unused_item["state"], "draft")
@@ -1382,6 +1383,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertEqual(unused_item["quality_status"], "unused")
         self.assertEqual(unused_item["review_priority"], "high")
         self.assertEqual(unused_item["recommended_review_action"], "review_or_reject")
+        self.assertEqual(unused_item["review_rationale_codes"], ["unused_context_candidate"])
         rendered = str(result)
         self.assertNotIn("title", rendered)
         self.assertNotIn("content", rendered)
@@ -1404,6 +1406,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                     "quality_status",
                     "review_priority",
                     "recommended_review_action",
+                    "review_rationale_codes",
                 },
             )
         self.assertEqual(
@@ -1623,6 +1626,73 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             outcome_service.knowledge_asset_quality_summary_service(runtime, limit=0)
         with self.assertRaises(ValueError):
             outcome_service.knowledge_asset_quality_summary_service(runtime, offset=-1)
+
+    def test_quality_catalog_projects_review_rationale_codes_for_context_states(self) -> None:
+        runtime = _build_runtime()
+        proposal_seed = run_service(
+            runtime, question="GMV rationale proposal seed", parameters=RUN_PARAMS
+        )
+        adoption_seed = run_service(
+            runtime, question="GMV rationale adoption seed", parameters=RUN_PARAMS
+        )
+        proposal_asset = runtime.knowledge_store.get_by_trace(proposal_seed["trace_id"])
+        adoption_asset = runtime.knowledge_store.get_by_trace(adoption_seed["trace_id"])
+        self.assertIsNotNone(proposal_asset)
+        self.assertIsNotNone(adoption_asset)
+        for asset in (proposal_asset, adoption_asset):
+            knowledge_review_action_service(
+                runtime,
+                asset_id=asset.asset_id,
+                action="approve",
+                reviewer="founder",
+            )
+
+        run_service(runtime, question="GMV rationale proposal seed", parameters=RUN_PARAMS)
+        adoption_run = run_service(
+            runtime, question="GMV rationale adoption seed", parameters=RUN_PARAMS
+        )
+        stored_trace = runtime.trace_store.get(adoption_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=adoption_run["trace_id"],
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.attest_adoption",
+                            "knowledge_context_refs": [adoption_asset.asset_id],
+                            "reason": "do-not-project",
+                        },
+                    ),
+                ),
+            )
+        )
+
+        result = outcome_service.knowledge_asset_quality_summary_service(runtime)
+        items = {item["asset_id"]: item for item in result["items"]}
+
+        self.assertEqual(
+            items[proposal_asset.asset_id]["quality_status"],
+            "proposal_only",
+        )
+        self.assertEqual(
+            items[proposal_asset.asset_id]["review_rationale_codes"],
+            ["proposal_context_needs_outcome"],
+        )
+        self.assertEqual(
+            items[adoption_asset.asset_id]["quality_status"],
+            "adoption_observed",
+        )
+        self.assertEqual(
+            items[adoption_asset.asset_id]["review_rationale_codes"],
+            ["adoption_supported_context"],
+        )
+        rendered = str(result)
+        self.assertNotIn("reason", rendered)
+        self.assertNotIn("do-not-project", rendered)
 
 
 class KnowledgeDeprecateServiceTest(unittest.TestCase):

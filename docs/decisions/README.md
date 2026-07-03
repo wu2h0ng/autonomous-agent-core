@@ -341,6 +341,13 @@ Current active ADRs:
     ff-only merge to `main@f5d901d`; `make ci` and PostgreSQL
     `ci-local-full` passed with 589 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not pushed, not released.
+- `P1-29-knowledge-rationale-review-surface.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe internal
+    `review_rationale_codes` on `GET /knowledge/assets/quality-summary`
+    items. The codes are allowlisted and derived from existing aggregate
+    quality status, not raw traces or KnowledgeAsset content. Branch-local
+    `make ci` plus PostgreSQL `ci-local-full` passed with 590 primary unittest
+    tests OK / 4 skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

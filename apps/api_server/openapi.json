@@ -982,6 +982,19 @@
             "title": "Review Priority",
             "type": "string"
           },
+          "review_rationale_codes": {
+            "items": {
+              "enum": [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context"
+              ],
+              "type": "string"
+            },
+            "title": "Review Rationale Codes",
+            "type": "array"
+          },
           "source_trace_id": {
             "anyOf": [
               {
@@ -1008,7 +1021,8 @@
           "distinct_usage_trace_count",
           "quality_status",
           "review_priority",
-          "recommended_review_action"
+          "recommended_review_action",
+          "review_rationale_codes"
         ],
         "title": "KnowledgeAssetQualitySummaryItem",
         "type": "object"

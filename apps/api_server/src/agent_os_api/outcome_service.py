@@ -1459,6 +1459,12 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS = {
     "outcome_observed": "monitor_for_adoption",
     "adoption_observed": "consider_publish",
 }
+_KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS = {
+    "unused": ("unused_context_candidate",),
+    "proposal_only": ("proposal_context_needs_outcome",),
+    "outcome_observed": ("outcome_supported_context",),
+    "adoption_observed": ("adoption_supported_context",),
+}
 
 _KNOWLEDGE_ASSET_REVIEW_PRIORITIES = set(_KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS.values())
 _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS.values())
@@ -1574,6 +1580,7 @@ def knowledge_asset_quality_summary_service(
         derived_status = _knowledge_asset_quality_status(quality)
         derived_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[derived_status]
         derived_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[derived_status]
+        rationale_codes = list(_KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[derived_status])
         if quality_status_filter is not None and derived_status != quality_status_filter:
             continue
         if review_priority_filter is not None and derived_priority != review_priority_filter:
@@ -1596,6 +1603,7 @@ def knowledge_asset_quality_summary_service(
                 "quality_status": derived_status,
                 "review_priority": derived_priority,
                 "recommended_review_action": derived_action,
+                "review_rationale_codes": rationale_codes,
             }
         )
     if order_by_filter == "review_priority":

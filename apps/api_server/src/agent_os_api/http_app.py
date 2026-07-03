@@ -723,6 +723,14 @@ class KnowledgeAssetQualitySummaryItem(BaseModel):
         "monitor_for_adoption",
         "consider_publish",
     ]
+    review_rationale_codes: list[
+        Literal[
+            "unused_context_candidate",
+            "proposal_context_needs_outcome",
+            "outcome_supported_context",
+            "adoption_supported_context",
+        ]
+    ]
 
 
 class KnowledgeAssetQualitySummaryResponse(BaseModel):
