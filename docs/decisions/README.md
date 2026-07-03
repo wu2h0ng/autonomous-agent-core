@@ -490,6 +490,10 @@ Current active ADRs:
     the feature worktree only had untracked `.agent_runs/`, and branch-local
     `make ci` plus PostgreSQL `ci-local-full` evidence is recorded. Not merge
     authorization, not pushed, not released.
+- `P1-38-knowledge-catalog-pagination.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-38 after cautious ff-only merge
+    to `main@289713a`; `make ci` and PostgreSQL `ci-local-full` passed. Not
+    pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
