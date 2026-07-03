@@ -2706,6 +2706,11 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
             third.json()["user_result"]["decision"].get("knowledge_context_refs"),
             [first.json()["knowledge_asset_id"]],
         )
+        rationale = third.json()["user_result"]["decision"]["knowledge_context_rationale"]
+        self.assertEqual(rationale[0]["asset_id"], first.json()["knowledge_asset_id"])
+        self.assertIn("score", rationale[0])
+        self.assertIn("context_quality_boost", rationale[0])
+        self.assertEqual(rationale[0]["reason_code"], "retrieved_reviewed_context")
 
         external = client.post(
             "/runs",
@@ -2715,6 +2720,10 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
         self.assertEqual(external.status_code, 200, external.text)
         self.assertEqual(
             external.json()["user_result"]["decision"].get("knowledge_context_refs"),
+            [],
+        )
+        self.assertEqual(
+            external.json()["user_result"]["decision"].get("knowledge_context_rationale"),
             [],
         )
 

@@ -13,10 +13,12 @@ from agent_os_contracts import (
     CausalOutcomeAttribution,
     DataClassification,
     EvidenceChain,
+    KnowledgeAsset,
     LifecycleState,
     MetricContract,
     QueryPlan,
     QueryResult,
+    RetrievalResult,
     RiskLevel,
     SQLSafetyResult,
 )
@@ -102,6 +104,7 @@ def _build_result_for_classification(classification: DataClassification) -> Simp
         evidence_chain=evidence,
         action_proposal=proposal,
         action_result={},
+        related_knowledge=(),
     )
 
 
@@ -367,6 +370,56 @@ class RunServiceTest(unittest.TestCase):
         rendered_cards = json.dumps(artifact["report"]["evidence_cards"], sort_keys=True)
         self.assertNotIn(query_plan.sql, rendered_cards)
         self.assertNotIn("do-not-leak", rendered_cards)
+
+    def test_internal_decision_projects_safe_knowledge_context_rationale(self) -> None:
+        result = _build_result_for_classification(DataClassification.INTERNAL)
+        asset = KnowledgeAsset(
+            asset_id="knowledge-safe-rationale",
+            title="[orders] do-not-project-title",
+            asset_type="decision_loop",
+            source_trace_id="trace-do-not-project",
+            owner="RevOps",
+            state=LifecycleState.ACTIVE,
+        )
+        related = RetrievalResult(
+            asset=asset,
+            score=1.2,
+            score_breakdown={
+                "context_quality_boost": 0.2,
+                "total": 1.2,
+                "raw_reason": "do-not-project",
+            },
+        )
+        result = SimpleNamespace(
+            evidence_chain=result.evidence_chain,
+            action_proposal=replace(
+                result.action_proposal,
+                knowledge_context_refs=(asset.asset_id,),
+            ),
+            action_result={},
+            related_knowledge=(related,),
+        )
+
+        internal = _build_user_result_artifact(result, audience="internal")
+        external = _build_user_result_artifact(result, audience="external")
+
+        self.assertEqual(
+            internal["decision"]["knowledge_context_rationale"],
+            [
+                {
+                    "asset_id": asset.asset_id,
+                    "score": 1.2,
+                    "context_quality_boost": 0.2,
+                    "reason_code": "prior_outcome_or_adoption_context",
+                }
+            ],
+        )
+        self.assertEqual(external["decision"]["knowledge_context_rationale"], [])
+        rendered = json.dumps(internal["decision"], sort_keys=True)
+        self.assertNotIn("do-not-project-title", rendered)
+        self.assertNotIn("trace-do-not-project", rendered)
+        self.assertNotIn("raw_reason", rendered)
+        self.assertNotIn("do-not-project", rendered)
 
     def test_dashboard_chart_fields_are_derived_from_rows_and_metric_contract(self) -> None:
         runtime = ContentCommerceRuntimeFactory(

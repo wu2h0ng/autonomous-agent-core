@@ -400,6 +400,16 @@ class UserResultDashboard(BaseModel):
     widgets: list[UserResultDashboardWidget] = Field(default_factory=list)
 
 
+class KnowledgeContextRationaleItem(BaseModel):
+    asset_id: str
+    score: float
+    context_quality_boost: float
+    reason_code: Literal[
+        "retrieved_reviewed_context",
+        "prior_outcome_or_adoption_context",
+    ]
+
+
 class UserResultRedaction(BaseModel):
     audience: Literal["internal", "external"]
     applied: bool
@@ -418,6 +428,7 @@ class UserResultDecision(BaseModel):
     action_proposal_id: str
     confidence: float
     knowledge_context_refs: list[str] = Field(default_factory=list)
+    knowledge_context_rationale: list[KnowledgeContextRationaleItem]
 
 
 class UserResultBusinessAction(BaseModel):

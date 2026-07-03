@@ -1251,6 +1251,38 @@
         "title": "KnowledgeAssetUsageEventsResponse",
         "type": "object"
       },
+      "KnowledgeContextRationaleItem": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "context_quality_boost": {
+            "title": "Context Quality Boost",
+            "type": "number"
+          },
+          "reason_code": {
+            "enum": [
+              "retrieved_reviewed_context",
+              "prior_outcome_or_adoption_context"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "asset_id",
+          "score",
+          "context_quality_boost",
+          "reason_code"
+        ],
+        "title": "KnowledgeContextRationaleItem",
+        "type": "object"
+      },
       "KnowledgePublishRequest": {
         "properties": {
           "reason": {
@@ -2714,6 +2746,13 @@
             "title": "Expected Impact",
             "type": "string"
           },
+          "knowledge_context_rationale": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeContextRationaleItem"
+            },
+            "title": "Knowledge Context Rationale",
+            "type": "array"
+          },
           "knowledge_context_refs": {
             "items": {
               "type": "string"
@@ -2741,7 +2780,8 @@
           "risk_level",
           "approval_required",
           "action_proposal_id",
-          "confidence"
+          "confidence",
+          "knowledge_context_rationale"
         ],
         "title": "UserResultDecision",
         "type": "object"

@@ -612,6 +612,33 @@ def _report_evidence_cards(
     ]
 
 
+def _knowledge_context_rationale(result: Any, *, audience: str) -> list[dict[str, Any]]:
+    if audience == "external":
+        return []
+    proposal_refs = set(getattr(result.action_proposal, "knowledge_context_refs", ()))
+    rationale: list[dict[str, Any]] = []
+    for related in getattr(result, "related_knowledge", ()):
+        asset_id = related.asset.asset_id
+        if asset_id not in proposal_refs:
+            continue
+        score_breakdown = dict(getattr(related, "score_breakdown", {}) or {})
+        context_quality_boost = float(score_breakdown.get("context_quality_boost") or 0.0)
+        reason_code = (
+            "prior_outcome_or_adoption_context"
+            if context_quality_boost > 0.0
+            else "retrieved_reviewed_context"
+        )
+        rationale.append(
+            {
+                "asset_id": asset_id,
+                "score": float(related.score),
+                "context_quality_boost": context_quality_boost,
+                "reason_code": reason_code,
+            }
+        )
+    return rationale
+
+
 def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> dict[str, Any]:
     """Build the user-facing data-agent result bundle from grounded runtime output.
 
@@ -760,6 +787,10 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
             "action_proposal_id": proposal.proposal_id,
             "confidence": evidence.confidence,
             "knowledge_context_refs": knowledge_context_refs,
+            "knowledge_context_rationale": _knowledge_context_rationale(
+                result,
+                audience=audience,
+            ),
         },
         "business_action": {
             "connector_name": proposal.connector_name,

@@ -491,6 +491,21 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertEqual(len(evidence_items["oneOf"]), 3)
 
         schemas = spec["components"]["schemas"]
+        decision = schemas["UserResultDecision"]
+        self.assertIn("knowledge_context_rationale", decision["required"])
+        self.assertEqual(
+            decision["properties"]["knowledge_context_rationale"]["items"],
+            {"$ref": "#/components/schemas/KnowledgeContextRationaleItem"},
+        )
+        rationale_item = schemas["KnowledgeContextRationaleItem"]
+        self.assertEqual(
+            set(rationale_item["required"]),
+            {"asset_id", "score", "context_quality_boost", "reason_code"},
+        )
+        self.assertEqual(
+            rationale_item["properties"]["reason_code"]["enum"],
+            ["retrieved_reviewed_context", "prior_outcome_or_adoption_context"],
+        )
         metric_card = schemas["MetricContractEvidenceCard"]
         self.assertGreaterEqual(
             set(metric_card["required"]),
