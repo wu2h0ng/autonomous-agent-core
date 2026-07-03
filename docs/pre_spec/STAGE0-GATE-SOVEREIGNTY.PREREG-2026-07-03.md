@@ -89,6 +89,22 @@
 - **冻结协议**:spec v2 + harness + tests 在 sweep 之前 commit 到 `research/stage0-gate-sovereignty-2026-07-03`;§8 记录 freeze commit hash,使"run 可证晚于 freeze"。
 - 结果段追加于本文件 §8(跑后唯一可写区;判据/预测区不可动)。
 
-## 8. RESULT(跑后填写;初始为空)
+## 8. RESULT(2026-07-03;freeze commit = `9647ddb`,run 晚于 freeze;命令 = `PYTHONPATH=src python -m experiments.stage0_gate_sovereignty`;工件 = `experiments/stage0_gate_sovereignty.result.json`)
 
-_(frozen empty until run)_
+**总判(机械,§5 规则):`SCOPED_SOVEREIGNTY`。安全不变量全绿,无 VOID。**
+
+| cell | verdict | selΔ | out A | out B | sign p | ovrd(VM/ED) | 1-cand | decoy A/B | inert A/B |
+|---|---|---|---|---|---|---|---|---|---|
+| DET | TIE | 0.000 | 1.000 | 1.000 | 1.0 | 0.00/0.00 | 1.00 | 0.00/0.00 | 0.00/0.00 |
+| NOISY-10 | SOVEREIGNTY_CONFIRMED | 0.200 | 0.935 | 0.845 | 0.00001 | 0.20/0.00 | 0.07 | 0.04/0.18 | 0.09/0.09 |
+| NOISY-25 | SOVEREIGNTY_CONFIRMED | 0.120 | 0.850 | 0.820 | 0.03125 | 0.12/0.00 | 0.00 | 0.20/0.29 | 0.10/0.04 |
+
+A vs B'(最强公平无门 argmax 基线):DET 1.000/1.000(0-0);NOISY-10 **0.935 vs 1.000**(0-13,p=0.000244);NOISY-25 **0.850 vs 0.955**(1-22,p=6e-6)→ **两个 NOISY 格 `gate_privileged_over_argmax = False`**。A'(argmax-then-gate,report-only)= **1.000 / 1.000 / 0.955 —— 与 B' 逐值相同**。投毒序 C vs C_B decoy:DET 0.00/0.00;NOISY-10 0.07/**0.43**;NOISY-25 0.46/**0.76**。高风险 A auto-act 全格 0;B(DET)=1.0(knockout 真实)。
+
+**三条诚实读法(全部为冻结预测所涵盖,零事后重释):**
+
+1. **主权存在但被双重限定。** gate 的 per-action sovereignty 真实(两 NOISY 格确认;overrides 全部经 VERIFY_MORE=选择性,零 ESCALATE/DENY 混入),scope = 中 ε 窗 + 不完美器官;完美 verifier 格(DET)里选择集被预塌缩(1-cand=1.00),gate 结构上无选择可做。NOISY-25 的确认是**最小边际**(6-0 discordants,恰为统计评审预计算的最低可确认构型)——如实记,不外推。
+2. **gate 未证明优于对同一信号的最佳无治理使用(冻结解释规则触发)。** B' 在两个 NOISY 格显著胜 A → 任何 Stage-1 引用必须带 scope:「阈值选择胜过无选择;gate 未证明优于通用置信 argmax」。
+3. **Stage-1 设计载荷(A',report-only):argmax-then-gate 逐值追平 B' 的全部能力(1.000/0.955)且保留全部治理**(高风险 stop、C7、审计)。当前 `GovernedLoop` 的 first-passer-over-threshold 语义把能力留在了桌上;候选选择语义应改为 **verify-all-then-argmax-then-gate**。这是 Stage-0 给 Stage-1 的具体、可执行、非 rescue 的实现输入——且投毒序下 gate 仍把 decoy 执行近乎减半(0.07/0.43, 0.46/0.76),治理的边际安全价值独立成立。
+
+**授权效果(按 §5,不多不少):** SCOPED_SOVEREIGNTY → Stage-1(FailureAttributor + belief invalidation 第一片)可入 founder 决策面,**携带读法 2 的 scope**;不解锁 Stage-2/3 的 blanket 授权(per-mechanism formal-model gate 仍在,RR-0035 critic);不构成任何 autonomy 证据(RR-0034 措辞纪律:以上全部为 capability-under-governance / workflow-proof 读数)。
