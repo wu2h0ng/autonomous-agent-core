@@ -767,6 +767,95 @@ class KnowledgeReviewQueueServiceTest(unittest.TestCase):
             before_versions,
         )
 
+    def test_filters_and_orders_draft_candidates_by_quality_triage(self) -> None:
+        runtime = _build_runtime()
+        medium_run = run_service(runtime, question="GMV draft used", parameters=RUN_PARAMS)
+        medium_asset = runtime.knowledge_store.get_by_trace(medium_run["trace_id"])
+        self.assertIsNotNone(medium_asset)
+        high_run = run_service(runtime, question="GMV draft unused", parameters=RUN_PARAMS)
+        high_asset = runtime.knowledge_store.get_by_trace(high_run["trace_id"])
+        self.assertIsNotNone(high_asset)
+        usage_run = run_service(runtime, question="GMV draft usage trace", parameters=RUN_PARAMS)
+        stored_trace = runtime.trace_store.get(usage_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=usage_run["trace_id"],
+                        step="action_proposal",
+                        payload={"knowledge_context_refs": [medium_asset.asset_id]},
+                    ),
+                ),
+            )
+        )
+
+        medium_queue = knowledge_review_queue_service(runtime, review_priority="medium")
+        high_ordered = knowledge_review_queue_service(
+            runtime,
+            quality_status="unused",
+            order_by="review_priority",
+        )
+        action_queue = knowledge_review_queue_service(
+            runtime,
+            recommended_review_action="collect_outcome_feedback",
+        )
+
+        self.assertEqual(medium_queue["review_priority_filter"], "medium")
+        self.assertEqual(medium_queue["quality_status_filter"], None)
+        self.assertEqual(medium_queue["recommended_review_action_filter"], None)
+        self.assertEqual(medium_queue["order_by"], None)
+        self.assertEqual(medium_queue["count"], 1)
+        self.assertEqual(medium_queue["items"][0]["asset_id"], medium_asset.asset_id)
+        self.assertEqual(medium_queue["items"][0]["quality_status"], "proposal_only")
+        self.assertEqual(
+            medium_queue["items"][0]["latest_usage_event"]["trace_id"], usage_run["trace_id"]
+        )
+        self.assertEqual(
+            medium_queue["quality_status_counts"],
+            {
+                "unused": 0,
+                "proposal_only": 1,
+                "outcome_observed": 0,
+                "adoption_observed": 0,
+            },
+        )
+        self.assertEqual(
+            medium_queue["review_priority_counts"],
+            {"high": 0, "medium": 1, "low": 0},
+        )
+        self.assertEqual(
+            medium_queue["recommended_review_action_counts"],
+            {
+                "review_or_reject": 0,
+                "collect_outcome_feedback": 1,
+                "monitor_for_adoption": 0,
+                "consider_publish": 0,
+            },
+        )
+        self.assertEqual(high_ordered["quality_status_filter"], "unused")
+        self.assertEqual(high_ordered["order_by"], "review_priority")
+        self.assertEqual(high_ordered["count"], 2)
+        self.assertIn(high_asset.asset_id, {item["asset_id"] for item in high_ordered["items"]})
+        self.assertEqual({item["quality_status"] for item in high_ordered["items"]}, {"unused"})
+        self.assertEqual({item["review_priority"] for item in high_ordered["items"]}, {"high"})
+        self.assertEqual(
+            action_queue["recommended_review_action_filter"], "collect_outcome_feedback"
+        )
+        self.assertEqual(action_queue["items"][0]["asset_id"], medium_asset.asset_id)
+        self.assertNotIn("usage_trace_ids", str(medium_queue))
+        self.assertEqual(
+            runtime.knowledge_store.get_by_trace(medium_run["trace_id"]).state.value, "draft"
+        )
+        self.assertEqual(
+            runtime.knowledge_store.get_by_trace(high_run["trace_id"]).state.value, "draft"
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsupported review_priority"):
+            knowledge_review_queue_service(runtime, review_priority="urgent")
+
 
 class KnowledgeReviewActionServiceTest(unittest.TestCase):
     def test_approve_marks_draft_asset_active_without_value_promotion(self) -> None:

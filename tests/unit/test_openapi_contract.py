@@ -74,6 +74,15 @@ class OpenApiContractTest(unittest.TestCase):
             queue["responses"]["200"]["content"]["application/json"]["schema"],
             {"$ref": "#/components/schemas/KnowledgeReviewQueueResponse"},
         )
+        self.assertGreaterEqual(
+            {param["name"] for param in queue["parameters"]},
+            {
+                "quality_status",
+                "review_priority",
+                "recommended_review_action",
+                "order_by",
+            },
+        )
         item_schema = spec["components"]["schemas"]["KnowledgeReviewQueueItem"]
         self.assertGreaterEqual(
             set(item_schema["required"]),
@@ -91,6 +100,19 @@ class OpenApiContractTest(unittest.TestCase):
                 "review_priority",
                 "recommended_review_action",
                 "review_rationale_codes",
+            },
+        )
+        response_schema = spec["components"]["schemas"]["KnowledgeReviewQueueResponse"]
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {
+                "quality_status_filter",
+                "review_priority_filter",
+                "recommended_review_action_filter",
+                "order_by",
+                "quality_status_counts",
+                "review_priority_counts",
+                "recommended_review_action_counts",
             },
         )
         self.assertEqual(

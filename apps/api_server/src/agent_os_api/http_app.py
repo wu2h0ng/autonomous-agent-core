@@ -658,6 +658,29 @@ class KnowledgeReviewQueueItem(BaseModel):
 class KnowledgeReviewQueueResponse(BaseModel):
     status: str
     review_state: str
+    quality_status_filter: (
+        Literal[
+            "unused",
+            "proposal_only",
+            "outcome_observed",
+            "adoption_observed",
+        ]
+        | None
+    )
+    review_priority_filter: Literal["high", "medium", "low"] | None
+    recommended_review_action_filter: (
+        Literal[
+            "review_or_reject",
+            "collect_outcome_feedback",
+            "monitor_for_adoption",
+            "consider_publish",
+        ]
+        | None
+    )
+    order_by: Literal["review_priority"] | None
+    quality_status_counts: dict[str, int]
+    review_priority_counts: dict[str, int]
+    recommended_review_action_counts: dict[str, int]
     count: int
     items: list[KnowledgeReviewQueueItem] = Field(default_factory=list)
 
@@ -1682,11 +1705,46 @@ def create_app(
 
     @app.get("/knowledge/review-queue", response_model=KnowledgeReviewQueueResponse)
     def get_knowledge_review_queue(
+        quality_status: str | None = Query(
+            default=None,
+            description="safe quality status filter",
+            enum=KNOWLEDGE_QUALITY_STATUS_VALUES,
+        ),
+        review_priority: str | None = Query(
+            default=None,
+            description="safe review priority filter: high|medium|low",
+            enum=KNOWLEDGE_REVIEW_PRIORITY_VALUES,
+        ),
+        recommended_review_action: str | None = Query(
+            default=None,
+            description="safe recommended review action filter",
+            enum=KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES,
+        ),
+        order_by: str | None = Query(
+            default=None,
+            description="optional deterministic review-queue ordering",
+            json_schema_extra={"enum": KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES},
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         # P1-05 review queue is read-only: it lists DRAFT candidates that the
         # Trusted Loop already produced. It does not promote or publish assets.
-        return knowledge_review_queue_service(app.state.runtime)
+        try:
+            return knowledge_review_queue_service(
+                app.state.runtime,
+                quality_status=quality_status,
+                review_priority=review_priority,
+                recommended_review_action=recommended_review_action,
+                order_by=order_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "KNOWLEDGE_REVIEW_QUEUE_INVALID_REQUEST",
+                    "message": str(exc),
+                },
+            ) from exc
 
     @app.get("/knowledge/assets", response_model=KnowledgeAssetCatalogResponse)
     def get_knowledge_assets(

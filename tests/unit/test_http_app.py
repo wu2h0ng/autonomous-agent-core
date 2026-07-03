@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import importlib.util
 import unittest
 from pathlib import Path
@@ -156,6 +157,110 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             headers={"X-API-Key": EXTERNAL_API_KEY},
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
+    def test_internal_knowledge_review_queue_filters_quality_triage(self) -> None:
+        from agent_os_api import outcome_service
+
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        medium_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV draft used",
+                "parameters": {**RUN_BODY["parameters"], "limit": 21},
+            },
+            headers=headers,
+        )
+        self.assertEqual(medium_resp.status_code, 200, medium_resp.text)
+        medium_trace_id = medium_resp.json()["trace_id"]
+        medium_asset = client.app.state.runtime.knowledge_store.get_by_trace(medium_trace_id)
+        self.assertIsNotNone(medium_asset)
+        high_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV draft unused",
+                "parameters": {**RUN_BODY["parameters"], "limit": 22},
+            },
+            headers=headers,
+        )
+        self.assertEqual(high_resp.status_code, 200, high_resp.text)
+        usage_resp = client.post(
+            "/runs",
+            json={
+                "question": "GMV draft usage trace",
+                "parameters": {**RUN_BODY["parameters"], "limit": 23},
+            },
+            headers=headers,
+        )
+        self.assertEqual(usage_resp.status_code, 200, usage_resp.text)
+        usage_trace_id = usage_resp.json()["trace_id"]
+        stored_trace = client.app.state.runtime.trace_store.get(usage_trace_id)
+        self.assertIsNotNone(stored_trace)
+        client.app.state.runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=usage_trace_id,
+                        step="action_proposal",
+                        payload={"knowledge_context_refs": [medium_asset.asset_id]},
+                    ),
+                ),
+            )
+        )
+
+        medium_queue = client.get(
+            "/knowledge/review-queue",
+            params={"review_priority": "medium"},
+            headers=headers,
+        )
+        ordered_unused = client.get(
+            "/knowledge/review-queue",
+            params={"quality_status": "unused", "order_by": "review_priority"},
+            headers=headers,
+        )
+        invalid = client.get(
+            "/knowledge/review-queue",
+            params={"recommended_review_action": "auto_publish"},
+            headers=headers,
+        )
+
+        self.assertEqual(medium_queue.status_code, 200, medium_queue.text)
+        medium_payload = medium_queue.json()
+        self.assertEqual(medium_payload["review_priority_filter"], "medium")
+        self.assertEqual(medium_payload["count"], 1)
+        self.assertEqual(medium_payload["items"][0]["asset_id"], medium_asset.asset_id)
+        self.assertEqual(medium_payload["items"][0]["quality_status"], "proposal_only")
+        self.assertEqual(
+            medium_payload["items"][0]["recommended_review_action"],
+            "collect_outcome_feedback",
+        )
+        self.assertEqual(
+            medium_payload["items"][0]["latest_usage_event"]["trace_id"], usage_trace_id
+        )
+        self.assertEqual(
+            medium_payload["review_priority_counts"], {"high": 0, "medium": 1, "low": 0}
+        )
+        self.assertEqual(
+            medium_payload["recommended_review_action_counts"],
+            {
+                "review_or_reject": 0,
+                "collect_outcome_feedback": 1,
+                "monitor_for_adoption": 0,
+                "consider_publish": 0,
+            },
+        )
+        self.assertEqual(ordered_unused.status_code, 200, ordered_unused.text)
+        ordered_payload = ordered_unused.json()
+        self.assertEqual(ordered_payload["quality_status_filter"], "unused")
+        self.assertEqual(ordered_payload["order_by"], "review_priority")
+        self.assertTrue(all(item["review_priority"] == "high" for item in ordered_payload["items"]))
+        self.assertEqual(invalid.status_code, 400, invalid.text)
+        rendered = str(medium_payload)
+        self.assertNotIn("usage_trace_ids", rendered)
+        self.assertNotIn("tool_name", rendered)
+        self.assertNotIn("parameters", rendered)
 
     def test_internal_knowledge_review_action_approves_candidate(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)

@@ -762,6 +762,14 @@ Current active ADRs:
   - Local-main post-merge verification for P1-55 after cautious ff-only merge
     to `main@1b24d36`; `make ci` and PostgreSQL `ci-local-full` passed. Not
     pushed, not released.
+- `P1-56-knowledge-review-queue-filters.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe triage filters and
+    `order_by=review_priority` for internal `GET /knowledge/review-queue`.
+    The DRAFT review queue now echoes normalized filters and returns safe
+    quality/priority/action counts without making draft assets consumable;
+    branch-local `make ci` and PostgreSQL `ci-local-full` passed with 602
+    primary unittest tests OK / 4 skipped plus 12 eval OK. Not merged, pushed,
+    or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

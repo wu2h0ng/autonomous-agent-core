@@ -1213,12 +1213,25 @@ def record_outcome_service(
     }
 
 
-def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
+def knowledge_review_queue_service(
+    runtime: Any,
+    *,
+    quality_status: str | None = None,
+    review_priority: str | None = None,
+    recommended_review_action: str | None = None,
+    order_by: str | None = None,
+) -> dict[str, Any]:
     """Return DRAFT KnowledgeAsset candidates awaiting human review.
 
     P1-05 starts as a read-only queue over the existing Trusted Loop knowledge
     store. It must not create assets, promote versions, or infer realized value.
     """
+    quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
+    review_priority_filter = _normalize_knowledge_asset_review_priority_filter(review_priority)
+    recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
+        recommended_review_action
+    )
+    order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         if asset.state.value != "draft":
@@ -1226,6 +1239,17 @@ def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
         source_trace_id = asset.source_trace_id
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
         quality_status = _knowledge_asset_quality_status(quality)
+        derived_review_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status]
+        derived_recommended_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[quality_status]
+        if quality_status_filter is not None and quality_status != quality_status_filter:
+            continue
+        if review_priority_filter is not None and derived_review_priority != review_priority_filter:
+            continue
+        if (
+            recommended_review_action_filter is not None
+            and derived_recommended_action != recommended_review_action_filter
+        ):
+            continue
         items.append(
             {
                 "asset_id": asset.asset_id,
@@ -1251,19 +1275,55 @@ def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
                 "adoption_correction_count": quality["adoption_correction_count"],
                 "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
                 "quality_status": quality_status,
-                "review_priority": _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status],
-                "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[
-                    quality_status
-                ],
+                "review_priority": derived_review_priority,
+                "recommended_review_action": derived_recommended_action,
                 "review_rationale_codes": list(
                     _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
                 ),
             }
         )
 
+    if order_by_filter == "review_priority":
+        items.sort(
+            key=lambda item: (
+                _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER[item["review_priority"]],
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
+
     return {
         "status": "ok",
         "review_state": "draft",
+        "quality_status_filter": quality_status_filter,
+        "review_priority_filter": review_priority_filter,
+        "recommended_review_action_filter": recommended_review_action_filter,
+        "order_by": order_by_filter,
+        "quality_status_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="quality_status",
+            allowed_values=[
+                "unused",
+                "proposal_only",
+                "outcome_observed",
+                "adoption_observed",
+            ],
+        ),
+        "review_priority_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="review_priority",
+            allowed_values=["high", "medium", "low"],
+        ),
+        "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="recommended_review_action",
+            allowed_values=[
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        ),
         "count": len(items),
         "items": items,
     }
