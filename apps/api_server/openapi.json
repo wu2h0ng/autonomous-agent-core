@@ -788,6 +788,13 @@
             ],
             "title": "Recommended Review Action Filter"
           },
+          "review_priority_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Review Priority Counts",
+            "type": "object"
+          },
           "review_priority_filter": {
             "anyOf": [
               {
@@ -849,6 +856,7 @@
           "total_count",
           "has_more",
           "count",
+          "review_priority_counts",
           "recommended_review_action_counts",
           "review_rationale_code_counts"
         ],

@@ -385,6 +385,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertTrue(payload["has_more"])
         self.assertEqual(payload["items"][0]["asset_id"], asset_ids[1])
+        self.assertEqual(payload["review_priority_counts"], {"high": 1, "medium": 0, "low": 0})
         self.assertEqual(
             payload["recommended_review_action_counts"],
             {

@@ -1017,6 +1017,7 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
                 "consider_publish": 0,
             },
         )
+        self.assertEqual(first_page["review_priority_counts"], {"high": 1, "medium": 0, "low": 0})
         self.assertEqual(second_page["total_count"], 3)
         self.assertEqual(second_page["offset"], 1)
         self.assertEqual(second_page["items"][0]["asset_id"], asset_ids[1])

@@ -1265,6 +1265,11 @@ def knowledge_asset_catalog_service(
         "offset": offset_filter,
         "total_count": total_count,
         "has_more": offset_filter + len(page_items) < total_count,
+        "review_priority_counts": _knowledge_asset_quality_summary_counts(
+            page_items,
+            field="review_priority",
+            allowed_values=["high", "medium", "low"],
+        ),
         "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
             page_items,
             field="recommended_review_action",
