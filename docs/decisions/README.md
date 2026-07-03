@@ -866,6 +866,20 @@ Current active ADRs:
     rechecked immediately before local merge. Branch `make ci` and PostgreSQL
     `ci-local-full` passed with 609 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not merged, pushed, or released.
+- `P1-61-knowledge-usage-rationale-events.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-61 after cautious ff-only merge
+    to `main@55da9a7`; focused usage-events rationale/OpenAPI regressions
+    passed 4 tests OK, related usage-events/decision-quality/quality-summary
+    regression passed 14 tests OK, and post-merge `make ci` plus PostgreSQL
+    `ci-local-full` passed with 609 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not pushed, not released.
+- `PR-08-deployment-local-main-release-gap-audit-20260703.md`
+  - Aggregate deployment audit for the current local-only mainline:
+    `origin/main` remains at `dba87bc`, local `main` is `55da9a7`, and the
+    repository is ahead by 172 commits as of 2026-07-03. Current verdict:
+    local-main post-merge verified is the claim ceiling; push and release are
+    separate gates requiring an aggregate release packet plus explicit
+    founder/CTO authorization.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
