@@ -689,6 +689,7 @@ class KnowledgeAssetCatalogResponse(BaseModel):
         ]
         | None
     )
+    order_by: Literal["review_priority"] | None
     limit: int | None
     offset: int
     total_count: int
@@ -1621,6 +1622,11 @@ def create_app(
             description="safe review rationale filter",
             enum=KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES,
         ),
+        order_by: str | None = Query(
+            default=None,
+            description="optional deterministic catalog ordering",
+            json_schema_extra={"enum": KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES},
+        ),
         limit: int | None = Query(
             default=None,
             description="maximum number of catalog items to return",
@@ -1638,6 +1644,7 @@ def create_app(
                 review_priority=review_priority,
                 recommended_review_action=recommended_review_action,
                 review_rationale_code=review_rationale_code,
+                order_by=order_by,
                 limit=limit,
                 offset=offset,
             )

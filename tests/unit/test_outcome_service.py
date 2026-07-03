@@ -1031,6 +1031,61 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported offset"):
             outcome_service.knowledge_asset_catalog_service(runtime, offset=-1)
 
+    def test_catalog_orders_visible_assets_by_review_priority_before_pagination(self) -> None:
+        runtime = _build_runtime()
+        medium = run_service(runtime, question="GMV catalog order", parameters=RUN_PARAMS)
+        medium_asset = runtime.knowledge_store.get_by_trace(medium["trace_id"])
+        self.assertIsNotNone(medium_asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=medium_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        outcome_run = run_service(runtime, question="GMV catalog order", parameters=RUN_PARAMS)
+        stored_trace = runtime.trace_store.get(outcome_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=outcome_run["trace_id"],
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [medium_asset.asset_id],
+                        },
+                    ),
+                ),
+            )
+        )
+        high = run_service(runtime, question="GMV catalog order unused", parameters=RUN_PARAMS)
+        high_asset = runtime.knowledge_store.get_by_trace(high["trace_id"])
+        self.assertIsNotNone(high_asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=high_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+
+        ordered = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            order_by="review_priority",
+            limit=1,
+        )
+
+        self.assertEqual(ordered["order_by"], "review_priority")
+        self.assertEqual(ordered["total_count"], 2)
+        self.assertEqual(ordered["count"], 1)
+        self.assertTrue(ordered["has_more"])
+        self.assertEqual(ordered["items"][0]["asset_id"], high_asset.asset_id)
+        self.assertEqual(ordered["items"][0]["review_priority"], "high")
+        with self.assertRaisesRegex(ValueError, "Unsupported order_by"):
+            outcome_service.knowledge_asset_catalog_service(runtime, order_by="auto_publish")
+
     def test_catalog_filters_safe_review_state_fields(self) -> None:
         runtime = _build_runtime()
         active = run_service(runtime, question="GMV catalog filter", parameters=RUN_PARAMS)

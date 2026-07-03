@@ -408,6 +408,73 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             "KNOWLEDGE_CATALOG_INVALID_REQUEST",
         )
 
+    def test_internal_knowledge_asset_catalog_orders_by_review_priority(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        medium = client.post(
+            "/runs",
+            json={"question": "GMV catalog order", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(medium.status_code, 200, medium.text)
+        medium_asset_id = medium.json()["knowledge_asset_id"]
+        approve_medium = client.post(
+            f"/knowledge/review-queue/{medium_asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_medium.status_code, 200, approve_medium.text)
+        outcome_run = client.post(
+            "/runs",
+            json={"question": "GMV catalog order", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(outcome_run.status_code, 200, outcome_run.text)
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": outcome_run.json()["trace_id"], "outcome": "observed"},
+            headers=headers,
+        )
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+        high = client.post(
+            "/runs",
+            json={"question": "GMV catalog order unused", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(high.status_code, 200, high.text)
+        high_asset_id = high.json()["knowledge_asset_id"]
+        approve_high = client.post(
+            f"/knowledge/review-queue/{high_asset_id}/decision",
+            json={"action": "approve", "reviewer": "founder"},
+            headers=headers,
+        )
+        self.assertEqual(approve_high.status_code, 200, approve_high.text)
+
+        ordered = client.get(
+            "/knowledge/assets",
+            params={"order_by": "review_priority", "limit": 1},
+            headers=headers,
+        )
+        invalid_order = client.get(
+            "/knowledge/assets",
+            params={"order_by": "auto_publish"},
+            headers=headers,
+        )
+
+        self.assertEqual(ordered.status_code, 200, ordered.text)
+        payload = ordered.json()
+        self.assertEqual(payload["order_by"], "review_priority")
+        self.assertEqual(payload["total_count"], 2)
+        self.assertEqual(payload["count"], 1)
+        self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["items"][0]["asset_id"], high_asset_id)
+        self.assertEqual(payload["items"][0]["review_priority"], "high")
+        self.assertEqual(invalid_order.status_code, 400, invalid_order.text)
+        self.assertEqual(
+            invalid_order.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+
     def test_internal_knowledge_asset_catalog_filters_review_state(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

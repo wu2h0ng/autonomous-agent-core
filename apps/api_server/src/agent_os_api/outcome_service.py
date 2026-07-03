@@ -1150,6 +1150,7 @@ def knowledge_asset_catalog_service(
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
     review_rationale_code: str | None = None,
+    order_by: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
@@ -1183,6 +1184,7 @@ def knowledge_asset_catalog_service(
     review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
         review_rationale_code
     )
+    order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
 
@@ -1237,6 +1239,15 @@ def knowledge_asset_catalog_service(
             }
         )
 
+    if order_by_filter == "review_priority":
+        items.sort(
+            key=lambda item: (
+                _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER[item["review_priority"]],
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
+
     total_count = len(items)
     if limit_filter is None:
         page_items = items[offset_filter:]
@@ -1249,6 +1260,7 @@ def knowledge_asset_catalog_service(
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "review_rationale_code_filter": review_rationale_code_filter,
+        "order_by": order_by_filter,
         "limit": limit_filter,
         "offset": offset_filter,
         "total_count": total_count,

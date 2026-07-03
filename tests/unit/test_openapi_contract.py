@@ -144,6 +144,11 @@ class OpenApiContractTest(unittest.TestCase):
             for parameter in catalog_params
             if parameter["in"] == "query" and parameter["name"] == "review_rationale_code"
         )
+        order_by_param = next(
+            parameter
+            for parameter in catalog_params
+            if parameter["in"] == "query" and parameter["name"] == "order_by"
+        )
         limit_param = next(
             parameter
             for parameter in catalog_params
@@ -157,8 +162,10 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertFalse(review_priority_param["required"])
         self.assertFalse(recommended_review_action_param["required"])
         self.assertFalse(review_rationale_code_param["required"])
+        self.assertFalse(order_by_param["required"])
         self.assertFalse(limit_param["required"])
         self.assertFalse(offset_param["required"])
+        self.assertEqual(order_by_param["schema"]["enum"], ["review_priority"])
         self.assertIn({"type": "integer"}, limit_param["schema"]["anyOf"])
         self.assertIn({"type": "integer"}, offset_param["schema"]["anyOf"])
         self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
@@ -225,8 +232,12 @@ class OpenApiContractTest(unittest.TestCase):
             ],
         )
         response_schema = spec["components"]["schemas"]["KnowledgeAssetCatalogResponse"]
-        for field in ("total_count", "has_more", "limit", "offset"):
+        for field in ("order_by", "total_count", "has_more", "limit", "offset"):
             self.assertIn(field, response_schema["required"])
+        self.assertIn(
+            {"const": "review_priority", "type": "string"},
+            response_schema["properties"]["order_by"]["anyOf"],
+        )
         self.assertIn("recommended_review_action_counts", response_schema["required"])
         self.assertEqual(
             response_schema["properties"]["recommended_review_action_counts"][

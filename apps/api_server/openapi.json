@@ -752,6 +752,18 @@
             "title": "Offset",
             "type": "integer"
           },
+          "order_by": {
+            "anyOf": [
+              {
+                "const": "review_priority",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By"
+          },
           "recommended_review_action_counts": {
             "additionalProperties": {
               "type": "integer"
@@ -831,6 +843,7 @@
           "review_priority_filter",
           "recommended_review_action_filter",
           "review_rationale_code_filter",
+          "order_by",
           "limit",
           "offset",
           "total_count",
@@ -3565,6 +3578,27 @@
                 "adoption_supported_context"
               ],
               "title": "Review Rationale Code"
+            }
+          },
+          {
+            "description": "optional deterministic catalog ordering",
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional deterministic catalog ordering",
+              "enum": [
+                "review_priority"
+              ],
+              "title": "Order By"
             }
           },
           {

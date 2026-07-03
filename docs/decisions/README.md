@@ -494,6 +494,13 @@ Current active ADRs:
   - Local-main post-merge verification for P1-38 after cautious ff-only merge
     to `main@289713a`; `make ci` and PostgreSQL `ci-local-full` passed. Not
     pushed, not released.
+- `P1-39-knowledge-catalog-review-order.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe `order_by=review_priority` ordering on
+    internal `GET /knowledge/assets`, sorting filtered catalog results before
+    pagination so high-priority review work can be paged first. Branch-local
+    targeted RED/GREEN, related KnowledgeAsset/API/OpenAPI tests, `make ci`,
+    and PostgreSQL `ci-local-full` passed with 598 primary unittest tests OK /
+    4 skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
