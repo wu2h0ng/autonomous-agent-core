@@ -1147,6 +1147,7 @@ def knowledge_asset_catalog_service(
     runtime: Any,
     *,
     lifecycle_state: str | None = None,
+    quality_status: str | None = None,
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
     review_rationale_code: str | None = None,
@@ -1177,6 +1178,7 @@ def knowledge_asset_catalog_service(
         allowed_states = {requested}
         catalog_state = requested.value
 
+    quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
     review_priority_filter = _normalize_knowledge_asset_review_priority_filter(review_priority)
     recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
         recommended_review_action
@@ -1200,6 +1202,8 @@ def knowledge_asset_catalog_service(
         derived_review_rationale_codes = list(
             _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
         )
+        if quality_status_filter is not None and quality_status != quality_status_filter:
+            continue
         if review_priority_filter is not None and derived_review_priority != review_priority_filter:
             continue
         if (
@@ -1257,6 +1261,7 @@ def knowledge_asset_catalog_service(
     return {
         "status": "ok",
         "catalog_state": catalog_state,
+        "quality_status_filter": quality_status_filter,
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "review_rationale_code_filter": review_rationale_code_filter,
@@ -1265,6 +1270,16 @@ def knowledge_asset_catalog_service(
         "offset": offset_filter,
         "total_count": total_count,
         "has_more": offset_filter + len(page_items) < total_count,
+        "quality_status_counts": _knowledge_asset_quality_summary_counts(
+            page_items,
+            field="quality_status",
+            allowed_values=[
+                "unused",
+                "proposal_only",
+                "outcome_observed",
+                "adoption_observed",
+            ],
+        ),
         "review_priority_counts": _knowledge_asset_quality_summary_counts(
             page_items,
             field="review_priority",

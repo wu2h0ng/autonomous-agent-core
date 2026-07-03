@@ -670,6 +670,15 @@ class KnowledgeAssetCatalogItem(BaseModel):
 class KnowledgeAssetCatalogResponse(BaseModel):
     status: str
     catalog_state: str
+    quality_status_filter: (
+        Literal[
+            "unused",
+            "proposal_only",
+            "outcome_observed",
+            "adoption_observed",
+        ]
+        | None
+    )
     review_priority_filter: Literal["high", "medium", "low"] | None
     recommended_review_action_filter: (
         Literal[
@@ -695,6 +704,7 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     total_count: int
     has_more: bool
     count: int
+    quality_status_counts: dict[str, int]
     review_priority_counts: dict[str, int]
     recommended_review_action_counts: dict[str, int]
     review_rationale_code_counts: dict[str, int]
@@ -1608,6 +1618,11 @@ def create_app(
             default=None,
             description="lifecycle filter: draft|active|published|deprecated|all",
         ),
+        quality_status: str | None = Query(
+            default=None,
+            description="safe quality status filter",
+            enum=KNOWLEDGE_QUALITY_STATUS_VALUES,
+        ),
         review_priority: str | None = Query(
             default=None,
             description="safe review priority filter: high|medium|low",
@@ -1642,6 +1657,7 @@ def create_app(
             return knowledge_asset_catalog_service(
                 app.state.runtime,
                 lifecycle_state=state,
+                quality_status=quality_status,
                 review_priority=review_priority,
                 recommended_review_action=recommended_review_action,
                 review_rationale_code=review_rationale_code,

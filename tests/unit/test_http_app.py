@@ -387,6 +387,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["items"][0]["asset_id"], asset_ids[1])
         self.assertEqual(payload["review_priority_counts"], {"high": 1, "medium": 0, "low": 0})
         self.assertEqual(
+            payload["quality_status_counts"],
+            {
+                "unused": 1,
+                "proposal_only": 0,
+                "outcome_observed": 0,
+                "adoption_observed": 0,
+            },
+        )
+        self.assertEqual(
             payload["recommended_review_action_counts"],
             {
                 "review_or_reject": 1,
@@ -531,6 +540,16 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"recommended_review_action": "monitor_for_adoption"},
             headers=headers,
         )
+        outcome_status_catalog = client.get(
+            "/knowledge/assets",
+            params={"quality_status": "outcome_observed"},
+            headers=headers,
+        )
+        invalid_status = client.get(
+            "/knowledge/assets",
+            params={"quality_status": "raw_trace"},
+            headers=headers,
+        )
         invalid_priority = client.get(
             "/knowledge/assets",
             params={"review_priority": "urgent"},
@@ -597,6 +616,32 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                 "monitor_for_adoption": action_payload["count"],
                 "consider_publish": 0,
             },
+        )
+        self.assertEqual(outcome_status_catalog.status_code, 200, outcome_status_catalog.text)
+        outcome_status_payload = outcome_status_catalog.json()
+        self.assertEqual(outcome_status_payload["quality_status_filter"], "outcome_observed")
+        self.assertGreaterEqual(outcome_status_payload["count"], 1)
+        self.assertIn(
+            active_asset_id,
+            [item["asset_id"] for item in outcome_status_payload["items"]],
+        )
+        self.assertEqual(
+            {item["quality_status"] for item in outcome_status_payload["items"]},
+            {"outcome_observed"},
+        )
+        self.assertEqual(
+            outcome_status_payload["quality_status_counts"],
+            {
+                "unused": 0,
+                "proposal_only": 0,
+                "outcome_observed": outcome_status_payload["count"],
+                "adoption_observed": 0,
+            },
+        )
+        self.assertEqual(invalid_status.status_code, 400, invalid_status.text)
+        self.assertEqual(
+            invalid_status.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
         )
         self.assertEqual(invalid_priority.status_code, 400, invalid_priority.text)
         self.assertEqual(

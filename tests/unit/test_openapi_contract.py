@@ -129,6 +129,11 @@ class OpenApiContractTest(unittest.TestCase):
             {"$ref": "#/components/schemas/KnowledgeAssetCatalogResponse"},
         )
         catalog_params = catalog["parameters"]
+        quality_status_param = next(
+            parameter
+            for parameter in catalog_params
+            if parameter["in"] == "query" and parameter["name"] == "quality_status"
+        )
         review_priority_param = next(
             parameter
             for parameter in catalog_params
@@ -159,6 +164,7 @@ class OpenApiContractTest(unittest.TestCase):
             for parameter in catalog_params
             if parameter["in"] == "query" and parameter["name"] == "offset"
         )
+        self.assertFalse(quality_status_param["required"])
         self.assertFalse(review_priority_param["required"])
         self.assertFalse(recommended_review_action_param["required"])
         self.assertFalse(review_rationale_code_param["required"])
@@ -168,6 +174,10 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertEqual(order_by_param["schema"]["enum"], ["review_priority"])
         self.assertIn({"type": "integer"}, limit_param["schema"]["anyOf"])
         self.assertIn({"type": "integer"}, offset_param["schema"]["anyOf"])
+        self.assertEqual(
+            quality_status_param["schema"]["enum"],
+            ["unused", "proposal_only", "outcome_observed", "adoption_observed"],
+        )
         self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
         self.assertEqual(
             recommended_review_action_param["schema"]["enum"],
@@ -237,6 +247,19 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertIn(
             {"const": "review_priority", "type": "string"},
             response_schema["properties"]["order_by"]["anyOf"],
+        )
+        self.assertIn("quality_status_filter", response_schema["required"])
+        self.assertIn(
+            {
+                "enum": ["unused", "proposal_only", "outcome_observed", "adoption_observed"],
+                "type": "string",
+            },
+            response_schema["properties"]["quality_status_filter"]["anyOf"],
+        )
+        self.assertIn("quality_status_counts", response_schema["required"])
+        self.assertEqual(
+            response_schema["properties"]["quality_status_counts"]["additionalProperties"],
+            {"type": "integer"},
         )
         self.assertIn("review_priority_counts", response_schema["required"])
         self.assertEqual(

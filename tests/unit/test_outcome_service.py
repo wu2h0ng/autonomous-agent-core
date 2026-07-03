@@ -1018,6 +1018,15 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             },
         )
         self.assertEqual(first_page["review_priority_counts"], {"high": 1, "medium": 0, "low": 0})
+        self.assertEqual(
+            first_page["quality_status_counts"],
+            {
+                "unused": 1,
+                "proposal_only": 0,
+                "outcome_observed": 0,
+                "adoption_observed": 0,
+            },
+        )
         self.assertEqual(second_page["total_count"], 3)
         self.assertEqual(second_page["offset"], 1)
         self.assertEqual(second_page["items"][0]["asset_id"], asset_ids[1])
@@ -1143,6 +1152,10 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             runtime,
             recommended_review_action="monitor_for_adoption",
         )
+        outcome_status = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            quality_status="outcome_observed",
+        )
 
         self.assertEqual(medium_priority["review_priority_filter"], "medium")
         self.assertGreaterEqual(medium_priority["count"], 1)
@@ -1198,8 +1211,22 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
                 "consider_publish": 0,
             },
         )
+        self.assertEqual(outcome_status["quality_status_filter"], "outcome_observed")
+        self.assertEqual(outcome_status["count"], 1)
+        self.assertEqual(outcome_status["items"][0]["asset_id"], active_asset.asset_id)
+        self.assertEqual(
+            outcome_status["quality_status_counts"],
+            {
+                "unused": 0,
+                "proposal_only": 0,
+                "outcome_observed": 1,
+                "adoption_observed": 0,
+            },
+        )
         self.assertNotIn("usage_trace_ids", medium_priority["items"][0])
 
+        with self.assertRaisesRegex(ValueError, "Unsupported quality_status filter"):
+            outcome_service.knowledge_asset_catalog_service(runtime, quality_status="raw_trace")
         with self.assertRaisesRegex(ValueError, "Unsupported review_priority filter"):
             outcome_service.knowledge_asset_catalog_service(runtime, review_priority="urgent")
         with self.assertRaisesRegex(ValueError, "Unsupported recommended_review_action filter"):

@@ -764,6 +764,30 @@
             ],
             "title": "Order By"
           },
+          "quality_status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Quality Status Counts",
+            "type": "object"
+          },
+          "quality_status_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unused",
+                  "proposal_only",
+                  "outcome_observed",
+                  "adoption_observed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Status Filter"
+          },
           "recommended_review_action_counts": {
             "additionalProperties": {
               "type": "integer"
@@ -847,6 +871,7 @@
         "required": [
           "status",
           "catalog_state",
+          "quality_status_filter",
           "review_priority_filter",
           "recommended_review_action_filter",
           "review_rationale_code_filter",
@@ -856,6 +881,7 @@
           "total_count",
           "has_more",
           "count",
+          "quality_status_counts",
           "review_priority_counts",
           "recommended_review_action_counts",
           "review_rationale_code_counts"
@@ -3515,6 +3541,30 @@
               ],
               "description": "lifecycle filter: draft|active|published|deprecated|all",
               "title": "State"
+            }
+          },
+          {
+            "description": "safe quality status filter",
+            "in": "query",
+            "name": "quality_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "safe quality status filter",
+              "enum": [
+                "unused",
+                "proposal_only",
+                "outcome_observed",
+                "adoption_observed"
+              ],
+              "title": "Quality Status"
             }
           },
           {
