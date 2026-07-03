@@ -84,6 +84,8 @@ class GovernedLoop:
     on_outcome: Optional[Any] = None  # feedback record hook: called (target, outcome) on act
     max_interventions: Optional[int] = None  # hard budget cap; exceeded -> escalate (REF-ARCH-04 §4)
     memory: Optional[Any] = None      # has .remember(action); written on act -> memory-driven re-ranking
+    evidence_fn: Optional[Any] = None  # (cand, vr, task) -> int; stratified assembly (Stage-2).
+    #   Default None = the verifier's own evidence_count (legacy). See evidence_assembly.py.
     selection: str = "first_passer"   # "first_passer" (legacy) | "argmax" (Stage-0-validated:
     #   verify-all-within-budget, then act on the highest-confidence verified survivor the gate
     #   allows. Stage-0 result 3b4bf9d: argmax-then-gate matches the ungoverned optimum
@@ -120,7 +122,8 @@ class GovernedLoop:
                 risk_tier=task.risk_tier,
                 confidence=vr.confidence,
                 verified=True,
-                evidence_count=vr.evidence_count,
+                evidence_count=(self.evidence_fn(cand, vr, task)
+                                if self.evidence_fn is not None else vr.evidence_count),
                 approved=task.approved,
                 action_index=cand.target,  # checked against the C7 shell's forbidden set
             )
@@ -190,7 +193,8 @@ class GovernedLoop:
                 risk_tier=task.risk_tier,
                 confidence=vr.confidence,
                 verified=True,
-                evidence_count=vr.evidence_count,
+                evidence_count=(self.evidence_fn(cand, vr, task)
+                                if self.evidence_fn is not None else vr.evidence_count),
                 approved=task.approved,
                 action_index=cand.target,
             )
