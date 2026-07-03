@@ -1108,11 +1108,13 @@ def _knowledge_context_rationale_for_trace(runtime: Any, trace_id: str) -> list[
 
     rationale: list[dict[str, Any]] = []
     for asset_id in refs:
+        if asset_id not in scores_by_asset:
+            continue
         context_quality_boost = boosts_by_asset.get(asset_id, 0.0)
         rationale.append(
             {
                 "asset_id": asset_id,
-                "score": scores_by_asset.get(asset_id, 0.0),
+                "score": scores_by_asset[asset_id],
                 "context_quality_boost": context_quality_boost,
                 "reason_code": (
                     "prior_outcome_or_adoption_context"

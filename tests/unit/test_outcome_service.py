@@ -691,6 +691,73 @@ class RecordOutcomeServiceTest(unittest.TestCase):
         self.assertEqual(outcome["knowledge_version"], 1)
         self.assertEqual(adoption["knowledge_version"], 2)
 
+    def test_correction_responses_skip_rationale_without_recall_metadata(self) -> None:
+        factory = ContentCommerceRuntimeFactory(RuntimeFactoryConfig(domain_pack_path=DOMAIN_PACK))
+        runtime = factory.build()
+        first = run_service(runtime, question="GMV reusable context", parameters=RUN_PARAMS)
+        first_asset_id = first["knowledge_asset_id"]
+        knowledge_review_action_service(
+            runtime,
+            asset_id=first_asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        third = run_service(runtime, question="GMV reusable context", parameters=RUN_PARAMS)
+        trace_id = third["trace_id"]
+        stored_trace = runtime.trace_store.get(trace_id)
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=trace_id,
+                        step="action_proposal",
+                        payload={
+                            "knowledge_context_refs": [
+                                first_asset_id,
+                                "asset-without-recall-metadata",
+                            ]
+                        },
+                    ),
+                ),
+            )
+        )
+
+        outcome = record_outcome_service(
+            runtime,
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops@example.com",
+        )
+        adoption = attest_adoption_service(
+            runtime,
+            factory.adoption_ingest(),
+            trace_id=trace_id,
+            outcome="adopted",
+            reviewer="ops@example.com",
+        )
+
+        self.assertEqual(
+            outcome["knowledge_context_refs"],
+            [first_asset_id, "asset-without-recall-metadata"],
+        )
+        self.assertEqual(
+            adoption["knowledge_context_refs"],
+            [first_asset_id, "asset-without-recall-metadata"],
+        )
+        expected_rationale = [
+            {
+                "asset_id": first_asset_id,
+                "score": 1.05,
+                "context_quality_boost": 0.0,
+                "reason_code": "retrieved_reviewed_context",
+            }
+        ]
+        self.assertEqual(outcome["knowledge_context_rationale"], expected_rationale)
+        self.assertEqual(adoption["knowledge_context_rationale"], expected_rationale)
+
 
 class KnowledgeReviewQueueServiceTest(unittest.TestCase):
     def test_lists_three_draft_candidates_without_mutating_store(self) -> None:
