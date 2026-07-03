@@ -936,6 +936,22 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
         for item in default_catalog["items"]:
             expected_lifecycle_count = 1 if item["asset_id"] == active_asset.asset_id else 2
             self.assertEqual(item["lifecycle_event_count"], expected_lifecycle_count)
+            expected_latest_step = (
+                "knowledge_review_decision"
+                if item["asset_id"] == active_asset.asset_id
+                else "knowledge_publish_decision"
+            )
+            expected_latest_action = (
+                "approve" if item["asset_id"] == active_asset.asset_id else "publish"
+            )
+            self.assertEqual(item["latest_lifecycle_event"]["step"], expected_latest_step)
+            self.assertEqual(item["latest_lifecycle_event"]["action"], expected_latest_action)
+            self.assertEqual(item["latest_lifecycle_event"]["asset_id"], item["asset_id"])
+            self.assertEqual(
+                item["latest_lifecycle_event"]["knowledge_version"],
+                item["knowledge_version"],
+            )
+            self.assertTrue(item["latest_lifecycle_event"]["reason_present"])
             self.assertEqual(item["proposal_usage_count"], 0)
             self.assertEqual(item["correction_usage_count"], 0)
             self.assertEqual(item["outcome_correction_count"], 0)
@@ -946,6 +962,7 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             self.assertEqual(item["recommended_review_action"], "review_or_reject")
             self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
             self.assertNotIn("events", item)
+            self.assertNotIn("reviewer", item["latest_lifecycle_event"])
             self.assertNotIn("reason", item)
             self.assertNotIn("sensitive", str(item))
             self.assertNotIn("usage_trace_ids", item)

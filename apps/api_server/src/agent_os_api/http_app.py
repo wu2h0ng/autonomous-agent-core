@@ -635,6 +635,17 @@ class KnowledgeReviewQueueResponse(BaseModel):
     items: list[KnowledgeReviewQueueItem] = Field(default_factory=list)
 
 
+class KnowledgeAssetLifecycleEventSummary(BaseModel):
+    trace_id: str
+    step: str
+    asset_id: str
+    action: str | None = None
+    previous_state: str | None = None
+    state: str | None = None
+    knowledge_version: int | None = None
+    reason_present: bool
+
+
 class KnowledgeAssetCatalogItem(BaseModel):
     asset_id: str
     title: str
@@ -646,6 +657,7 @@ class KnowledgeAssetCatalogItem(BaseModel):
     result_weight: float
     knowledge_version: int
     lifecycle_event_count: int
+    latest_lifecycle_event: KnowledgeAssetLifecycleEventSummary | None
     proposal_usage_count: int
     correction_usage_count: int
     outcome_correction_count: int
@@ -724,17 +736,6 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     recommended_review_action_counts: dict[str, int]
     review_rationale_code_counts: dict[str, int]
     items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
-
-
-class KnowledgeAssetLifecycleEventSummary(BaseModel):
-    trace_id: str
-    step: str
-    asset_id: str
-    action: str | None = None
-    previous_state: str | None = None
-    state: str | None = None
-    knowledge_version: int | None = None
-    reason_present: bool
 
 
 class KnowledgeAssetDetailResponse(KnowledgeAssetCatalogItem):
