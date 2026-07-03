@@ -736,6 +736,9 @@ class KnowledgeAssetQualitySummaryResponse(BaseModel):
         | None
     )
     order_by: Literal["review_priority"] | None
+    quality_status_counts: dict[str, int]
+    review_priority_counts: dict[str, int]
+    recommended_review_action_counts: dict[str, int]
     count: int
     items: list[KnowledgeAssetQualitySummaryItem]
 

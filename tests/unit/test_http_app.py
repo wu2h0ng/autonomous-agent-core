@@ -637,6 +637,25 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         payload = summary_resp.json()
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["count"], 3)
+        self.assertEqual(
+            payload["quality_status_counts"],
+            {
+                "unused": 2,
+                "proposal_only": 0,
+                "outcome_observed": 1,
+                "adoption_observed": 0,
+            },
+        )
+        self.assertEqual(payload["review_priority_counts"], {"high": 2, "medium": 1, "low": 0})
+        self.assertEqual(
+            payload["recommended_review_action_counts"],
+            {
+                "review_or_reject": 2,
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": 1,
+                "consider_publish": 0,
+            },
+        )
         items = {item["asset_id"]: item for item in payload["items"]}
         self.assertTrue({active_asset_id, unused_asset_id}.issubset(set(items)))
         self.assertEqual(items[active_asset_id]["source_trace_id"], first.json()["trace_id"])
@@ -794,6 +813,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(medium_payload["review_priority_filter"], "medium")
         self.assertIn(active_asset_id, [item["asset_id"] for item in medium_payload["items"]])
         self.assertEqual({item["review_priority"] for item in medium_payload["items"]}, {"medium"})
+        self.assertEqual(
+            medium_payload["review_priority_counts"],
+            {"high": 0, "medium": medium_payload["count"], "low": 0},
+        )
         self.assertEqual(review_or_reject_summary.status_code, 200, review_or_reject_summary.text)
         action_payload = review_or_reject_summary.json()
         self.assertEqual(action_payload["recommended_review_action_filter"], "review_or_reject")
@@ -801,6 +824,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(
             {item["recommended_review_action"] for item in action_payload["items"]},
             {"review_or_reject"},
+        )
+        self.assertEqual(
+            action_payload["recommended_review_action_counts"],
+            {
+                "review_or_reject": action_payload["count"],
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": 0,
+                "consider_publish": 0,
+            },
         )
         self.assertEqual(ordered_summary.status_code, 200, ordered_summary.text)
         ordered_payload = ordered_summary.json()

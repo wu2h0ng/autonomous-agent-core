@@ -1289,6 +1289,25 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["count"], 3)
+        self.assertEqual(
+            result["quality_status_counts"],
+            {
+                "unused": 2,
+                "proposal_only": 0,
+                "outcome_observed": 1,
+                "adoption_observed": 0,
+            },
+        )
+        self.assertEqual(result["review_priority_counts"], {"high": 2, "medium": 1, "low": 0})
+        self.assertEqual(
+            result["recommended_review_action_counts"],
+            {
+                "review_or_reject": 2,
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": 1,
+                "consider_publish": 0,
+            },
+        )
         items = {item["asset_id"]: item for item in result["items"]}
         self.assertTrue({active_asset.asset_id, unused_asset.asset_id}.issubset(set(items)))
         active_item = items[active_asset.asset_id]
@@ -1415,6 +1434,10 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             {"medium"},
         )
         self.assertEqual(
+            medium_priority["review_priority_counts"],
+            {"high": 0, "medium": medium_priority["count"], "low": 0},
+        )
+        self.assertEqual(
             review_or_reject["recommended_review_action_filter"],
             "review_or_reject",
         )
@@ -1425,6 +1448,15 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertEqual(
             {item["recommended_review_action"] for item in review_or_reject["items"]},
             {"review_or_reject"},
+        )
+        self.assertEqual(
+            review_or_reject["recommended_review_action_counts"],
+            {
+                "review_or_reject": review_or_reject["count"],
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": 0,
+                "consider_publish": 0,
+            },
         )
 
         with self.assertRaises(ValueError):

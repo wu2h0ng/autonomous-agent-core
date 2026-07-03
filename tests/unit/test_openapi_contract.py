@@ -245,6 +245,9 @@ class OpenApiContractTest(unittest.TestCase):
                 "review_priority_filter",
                 "recommended_review_action_filter",
                 "order_by",
+                "quality_status_counts",
+                "review_priority_counts",
+                "recommended_review_action_counts",
             },
         )
         self.assertEqual(
@@ -290,6 +293,20 @@ class OpenApiContractTest(unittest.TestCase):
                 {"const": "review_priority", "type": "string"},
                 {"type": "null"},
             ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["quality_status_counts"]["additionalProperties"],
+            {"type": "integer"},
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_priority_counts"]["additionalProperties"],
+            {"type": "integer"},
+        )
+        self.assertEqual(
+            response_schema["properties"]["recommended_review_action_counts"][
+                "additionalProperties"
+            ],
+            {"type": "integer"},
         )
         item_ref = response_schema["properties"]["items"]["items"]
         self.assertEqual(

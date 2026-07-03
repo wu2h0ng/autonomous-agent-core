@@ -1486,6 +1486,18 @@ def _normalize_knowledge_asset_quality_summary_order_by(order_by: str | None) ->
     return normalized
 
 
+def _knowledge_asset_quality_summary_counts(
+    items: list[dict[str, Any]],
+    *,
+    field: str,
+    allowed_values: list[str],
+) -> dict[str, int]:
+    counts = {value: 0 for value in allowed_values}
+    for item in items:
+        counts[item[field]] += 1
+    return counts
+
+
 def knowledge_asset_quality_summary_service(
     runtime: Any,
     *,
@@ -1546,6 +1558,31 @@ def knowledge_asset_quality_summary_service(
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "order_by": order_by_filter,
+        "quality_status_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="quality_status",
+            allowed_values=[
+                "unused",
+                "proposal_only",
+                "outcome_observed",
+                "adoption_observed",
+            ],
+        ),
+        "review_priority_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="review_priority",
+            allowed_values=["high", "medium", "low"],
+        ),
+        "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="recommended_review_action",
+            allowed_values=[
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        ),
         "count": len(items),
         "items": items,
     }

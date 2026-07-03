@@ -289,6 +289,13 @@ Current active ADRs:
     ff-only merge to `main@e5fa33f`; `make ci` and PostgreSQL
     `ci-local-full` passed with 586 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not pushed, not released.
+- `P1-25-knowledge-quality-review-counts.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe internal reviewer queue facet counts on
+    `GET /knowledge/assets/quality-summary`: `quality_status_counts`,
+    `review_priority_counts`, and `recommended_review_action_counts` summarize
+    the currently returned items with stable allowlisted keys. Branch-local
+    `make ci` plus PostgreSQL `ci-local-full` passed with 586 primary unittest
+    tests OK / 4 skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

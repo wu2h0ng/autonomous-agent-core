@@ -1038,6 +1038,13 @@
             ],
             "title": "Order By"
           },
+          "quality_status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Quality Status Counts",
+            "type": "object"
+          },
           "quality_status_filter": {
             "anyOf": [
               {
@@ -1055,6 +1062,13 @@
             ],
             "title": "Quality Status Filter"
           },
+          "recommended_review_action_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Recommended Review Action Counts",
+            "type": "object"
+          },
           "recommended_review_action_filter": {
             "anyOf": [
               {
@@ -1071,6 +1085,13 @@
               }
             ],
             "title": "Recommended Review Action Filter"
+          },
+          "review_priority_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Review Priority Counts",
+            "type": "object"
           },
           "review_priority_filter": {
             "anyOf": [
@@ -1099,6 +1120,9 @@
           "review_priority_filter",
           "recommended_review_action_filter",
           "order_by",
+          "quality_status_counts",
+          "review_priority_counts",
+          "recommended_review_action_counts",
           "count",
           "items"
         ],
