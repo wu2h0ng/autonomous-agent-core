@@ -265,19 +265,27 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
 
         active_approve = client.post(
             f"/knowledge/review-queue/{active_asset_id}/decision",
-            json={"action": "approve", "reviewer": "founder"},
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "sensitive active reason",
+            },
             headers=headers,
         )
         published_approve = client.post(
             f"/knowledge/review-queue/{published_asset_id}/decision",
-            json={"action": "approve", "reviewer": "founder"},
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "sensitive published reason",
+            },
             headers=headers,
         )
         self.assertEqual(active_approve.status_code, 200, active_approve.text)
         self.assertEqual(published_approve.status_code, 200, published_approve.text)
         publish_resp = client.post(
             f"/knowledge/assets/{published_asset_id}/publish",
-            json={"reviewer": "founder"},
+            json={"reviewer": "founder", "reason": "sensitive publish reason"},
             headers=headers,
         )
         self.assertEqual(publish_resp.status_code, 200, publish_resp.text)
@@ -296,6 +304,8 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual({item["state"] for item in payload["items"]}, {"active", "published"})
         self.assertEqual({item["knowledge_version"] for item in payload["items"]}, {2, 3})
         for item in payload["items"]:
+            expected_lifecycle_count = 1 if item["asset_id"] == active_asset_id else 2
+            self.assertEqual(item["lifecycle_event_count"], expected_lifecycle_count)
             self.assertEqual(item["proposal_usage_count"], 0)
             self.assertEqual(item["correction_usage_count"], 0)
             self.assertEqual(item["outcome_correction_count"], 0)
@@ -305,6 +315,9 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             self.assertEqual(item["review_priority"], "high")
             self.assertEqual(item["recommended_review_action"], "review_or_reject")
             self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            self.assertNotIn("events", item)
+            self.assertNotIn("reason", item)
+            self.assertNotIn("sensitive", str(item))
             self.assertNotIn("usage_trace_ids", item)
 
         all_resp = client.get("/knowledge/assets", params={"state": "all"}, headers=headers)

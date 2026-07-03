@@ -881,17 +881,20 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             asset_id=active_asset.asset_id,
             action="approve",
             reviewer="founder",
+            reason="sensitive active reason",
         )
         knowledge_review_action_service(
             runtime,
             asset_id=published_asset.asset_id,
             action="approve",
             reviewer="founder",
+            reason="sensitive published reason",
         )
         knowledge_publish_service(
             runtime,
             asset_id=published_asset.asset_id,
             reviewer="founder",
+            reason="sensitive publish reason",
         )
         knowledge_review_action_service(
             runtime,
@@ -931,6 +934,8 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             {2, 3},
         )
         for item in default_catalog["items"]:
+            expected_lifecycle_count = 1 if item["asset_id"] == active_asset.asset_id else 2
+            self.assertEqual(item["lifecycle_event_count"], expected_lifecycle_count)
             self.assertEqual(item["proposal_usage_count"], 0)
             self.assertEqual(item["correction_usage_count"], 0)
             self.assertEqual(item["outcome_correction_count"], 0)
@@ -940,6 +945,9 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             self.assertEqual(item["review_priority"], "high")
             self.assertEqual(item["recommended_review_action"], "review_or_reject")
             self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            self.assertNotIn("events", item)
+            self.assertNotIn("reason", item)
+            self.assertNotIn("sensitive", str(item))
             self.assertNotIn("usage_trace_ids", item)
 
         all_catalog = outcome_service.knowledge_asset_catalog_service(

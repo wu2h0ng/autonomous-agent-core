@@ -645,6 +645,7 @@ class KnowledgeAssetCatalogItem(BaseModel):
     outcome: str | None = None
     result_weight: float
     knowledge_version: int
+    lifecycle_event_count: int
     proposal_usage_count: int
     correction_usage_count: int
     outcome_correction_count: int

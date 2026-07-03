@@ -1075,6 +1075,21 @@ def _knowledge_context_refs_for_trace(runtime: Any, trace_id: str) -> list[str]:
     return []
 
 
+def _knowledge_asset_lifecycle_event_count(
+    persisted_trace: RunTrace | None,
+    *,
+    asset_id: str,
+) -> int:
+    if persisted_trace is None:
+        return 0
+    return sum(
+        1
+        for event in persisted_trace.events
+        if event.step in KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS
+        and event.payload.get("asset_id") == asset_id
+    )
+
+
 def record_outcome_service(
     runtime: Any,
     *,
@@ -1223,6 +1238,10 @@ def knowledge_asset_catalog_service(
             and review_rationale_code_filter not in derived_review_rationale_codes
         ):
             continue
+        trace_store = getattr(runtime, "trace_store", None)
+        persisted_trace = (
+            trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+        )
         items.append(
             {
                 "asset_id": asset.asset_id,
@@ -1237,6 +1256,10 @@ def knowledge_asset_catalog_service(
                     runtime.knowledge_store.version_of(source_trace_id)
                     if source_trace_id is not None
                     else 0
+                ),
+                "lifecycle_event_count": _knowledge_asset_lifecycle_event_count(
+                    persisted_trace,
+                    asset_id=asset.asset_id,
                 ),
                 "proposal_usage_count": quality["proposal_usage_count"],
                 "correction_usage_count": quality["correction_usage_count"],
@@ -1357,14 +1380,6 @@ def knowledge_asset_detail_service(
     persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
     quality = knowledge_asset_decision_quality_service(runtime, asset_id=target.asset_id)
     quality_status = _knowledge_asset_quality_status(quality)
-    lifecycle_event_count = 0
-    if persisted_trace is not None:
-        lifecycle_event_count = sum(
-            1
-            for event in persisted_trace.events
-            if event.step in KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS
-            and event.payload.get("asset_id") == target.asset_id
-        )
     return {
         "status": "ok",
         "asset_id": target.asset_id,
@@ -1381,7 +1396,10 @@ def knowledge_asset_detail_service(
             else 0
         ),
         "has_source_trace": persisted_trace is not None,
-        "lifecycle_event_count": lifecycle_event_count,
+        "lifecycle_event_count": _knowledge_asset_lifecycle_event_count(
+            persisted_trace,
+            asset_id=target.asset_id,
+        ),
         "proposal_usage_count": quality["proposal_usage_count"],
         "correction_usage_count": quality["correction_usage_count"],
         "outcome_correction_count": quality["outcome_correction_count"],
