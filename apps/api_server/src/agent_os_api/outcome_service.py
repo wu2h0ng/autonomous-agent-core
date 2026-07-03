@@ -1237,7 +1237,7 @@ def knowledge_review_queue_service(
     review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
         review_rationale_code
     )
-    order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
+    order_by_filter = _normalize_knowledge_review_queue_order_by(order_by)
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     items: list[dict[str, Any]] = []
@@ -1301,6 +1301,17 @@ def knowledge_review_queue_service(
         items.sort(
             key=lambda item: (
                 _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER[item["review_priority"]],
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
+    elif order_by_filter == "review_rationale_code":
+        items.sort(
+            key=lambda item: (
+                min(
+                    _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODE_ORDER[code]
+                    for code in item["review_rationale_codes"]
+                ),
                 item["asset_id"],
                 item["source_trace_id"] or "",
             )
@@ -1866,6 +1877,7 @@ _KNOWLEDGE_ASSET_CATALOG_ORDER_BY = {
     "review_priority",
     "review_rationale_code",
 }
+_KNOWLEDGE_REVIEW_QUEUE_ORDER_BY = {"review_priority", "review_rationale_code"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT = 100
 _KNOWLEDGE_ASSET_QUALITY_STATUS_ORDER = {
@@ -1950,6 +1962,16 @@ def _normalize_knowledge_asset_catalog_order_by(order_by: str | None) -> str | N
     normalized = order_by.strip().lower()
     if normalized not in _KNOWLEDGE_ASSET_CATALOG_ORDER_BY:
         allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_CATALOG_ORDER_BY))
+        raise ValueError(f"Unsupported order_by: {order_by}. Allowed: {allowed}")
+    return normalized
+
+
+def _normalize_knowledge_review_queue_order_by(order_by: str | None) -> str | None:
+    if order_by is None:
+        return None
+    normalized = order_by.strip().lower()
+    if normalized not in _KNOWLEDGE_REVIEW_QUEUE_ORDER_BY:
+        allowed = ", ".join(sorted(_KNOWLEDGE_REVIEW_QUEUE_ORDER_BY))
         raise ValueError(f"Unsupported order_by: {order_by}. Allowed: {allowed}")
     return normalized
 

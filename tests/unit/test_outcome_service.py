@@ -993,6 +993,71 @@ class KnowledgeReviewQueueServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported review_rationale_code filter"):
             knowledge_review_queue_service(runtime, review_rationale_code="raw_trace_reason")
 
+    def test_orders_draft_candidates_by_review_rationale_code_before_pagination(self) -> None:
+        runtime = _build_runtime()
+        proposal_run = run_service(
+            runtime, question="GMV draft rationale ordered proposal", parameters=RUN_PARAMS
+        )
+        proposal_asset = runtime.knowledge_store.get_by_trace(proposal_run["trace_id"])
+        self.assertIsNotNone(proposal_asset)
+        unused_run = run_service(
+            runtime, question="GMV draft rationale ordered unused", parameters=RUN_PARAMS
+        )
+        unused_asset = runtime.knowledge_store.get_by_trace(unused_run["trace_id"])
+        self.assertIsNotNone(unused_asset)
+        usage_run = run_service(
+            runtime, question="GMV draft rationale ordered usage", parameters=RUN_PARAMS
+        )
+        stored_trace = runtime.trace_store.get(usage_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=usage_run["trace_id"],
+                        step="action_proposal",
+                        payload={"knowledge_context_refs": [proposal_asset.asset_id]},
+                    ),
+                ),
+            )
+        )
+
+        rationale_ordered = knowledge_review_queue_service(
+            runtime,
+            order_by="review_rationale_code",
+            limit=1,
+        )
+
+        self.assertEqual(rationale_ordered["order_by"], "review_rationale_code")
+        self.assertEqual(rationale_ordered["total_count"], 3)
+        self.assertEqual(rationale_ordered["count"], 1)
+        self.assertTrue(rationale_ordered["has_more"])
+        self.assertNotEqual(rationale_ordered["items"][0]["asset_id"], proposal_asset.asset_id)
+        self.assertIn(
+            rationale_ordered["items"][0]["asset_id"],
+            {
+                unused_asset.asset_id,
+                runtime.knowledge_store.get_by_trace(usage_run["trace_id"]).asset_id,
+            },
+        )
+        self.assertEqual(
+            rationale_ordered["items"][0]["review_rationale_codes"],
+            ["unused_context_candidate"],
+        )
+        self.assertEqual(
+            rationale_ordered["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 1,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": 0,
+                "adoption_supported_context": 0,
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "Unsupported order_by"):
+            knowledge_review_queue_service(runtime, order_by="raw_trace_reason")
+
 
 class KnowledgeReviewActionServiceTest(unittest.TestCase):
     def test_approve_marks_draft_asset_active_without_value_promotion(self) -> None:

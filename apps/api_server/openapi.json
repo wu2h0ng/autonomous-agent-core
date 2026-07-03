@@ -2174,7 +2174,10 @@
           "order_by": {
             "anyOf": [
               {
-                "const": "review_priority",
+                "enum": [
+                  "review_priority",
+                  "review_rationale_code"
+                ],
                 "type": "string"
               },
               {
@@ -4956,7 +4959,8 @@
               ],
               "description": "optional deterministic review-queue ordering",
               "enum": [
-                "review_priority"
+                "review_priority",
+                "review_rationale_code"
               ],
               "title": "Order By"
             }

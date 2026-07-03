@@ -94,6 +94,7 @@ KNOWLEDGE_CATALOG_ORDER_BY_VALUES = [
     "review_priority",
     "review_rationale_code",
 ]
+KNOWLEDGE_REVIEW_QUEUE_ORDER_BY_VALUES = ["review_priority", "review_rationale_code"]
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
@@ -686,7 +687,7 @@ class KnowledgeReviewQueueResponse(BaseModel):
         ]
         | None
     )
-    order_by: Literal["review_priority"] | None
+    order_by: Literal["review_priority", "review_rationale_code"] | None
     limit: int | None
     offset: int
     total_count: int
@@ -1742,7 +1743,7 @@ def create_app(
         order_by: str | None = Query(
             default=None,
             description="optional deterministic review-queue ordering",
-            json_schema_extra={"enum": KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES},
+            json_schema_extra={"enum": KNOWLEDGE_REVIEW_QUEUE_ORDER_BY_VALUES},
         ),
         limit: int | None = Query(
             default=None,
