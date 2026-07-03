@@ -28,7 +28,9 @@ from agent_os_contracts import (  # noqa: E402
     ProviderContract,
     ProviderKind,
     RiskLevel,
+    RunTrace,
     SQLTemplate,
+    TraceEvent,
 )
 from agent_os_core import (  # noqa: E402
     HashingEmbedder,
@@ -174,6 +176,65 @@ class KnowledgeRecallInRunTest(unittest.TestCase):
         )
         self.assertEqual(second.action_proposal.risk_level, RiskLevel.R2)
         self.assertFalse(second.action_proposal.approval_required)
+
+    def test_recall_prefers_prior_context_with_observed_outcome_feedback(self) -> None:
+        runtime, _ = self._wired_runtime()
+        high_quality = KnowledgeAsset(
+            asset_id="knowledge-high-quality",
+            title="[gmv] governed gmv review context",
+            asset_type="decision_loop",
+            source_trace_id="trace-high-quality",
+            owner="revenue_ops",
+            state=LifecycleState.ACTIVE,
+        )
+        merely_active = replace(
+            high_quality,
+            asset_id="knowledge-merely-active",
+            source_trace_id="trace-merely-active",
+        )
+        runtime.knowledge_store.register_version(high_quality)
+        runtime.knowledge_store.register_version(merely_active)
+        runtime.trace_store.save(
+            RunTrace(
+                trace_id="trace-observed-outcome",
+                status="ok",
+                events=(
+                    TraceEvent(
+                        trace_id="trace-observed-outcome",
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [high_quality.asset_id],
+                            "metric_deltas": {"secret_token": "do-not-project"},
+                            "reason": "do-not-project",
+                        },
+                    ),
+                ),
+            )
+        )
+
+        result = runtime.run("governed gmv review context", dict(PARAMS))
+
+        self.assertEqual(result.related_knowledge[0].asset.asset_id, high_quality.asset_id)
+        self.assertEqual(
+            result.action_proposal.knowledge_context_refs[0],
+            high_quality.asset_id,
+        )
+        (event,) = _recall_events(result)
+        self.assertEqual(event.payload["asset_ids"][0], high_quality.asset_id)
+        self.assertEqual(
+            event.payload["quality_boosts"][0],
+            {
+                "asset_id": high_quality.asset_id,
+                "outcome_correction_count": 1,
+                "adoption_correction_count": 0,
+                "quality_boost": 0.2,
+            },
+        )
+        rendered = str(event.payload)
+        self.assertNotIn("secret_token", rendered)
+        self.assertNotIn("do-not-project", rendered)
+        self.assertNotIn("trace-observed-outcome", rendered)
 
     def test_without_retriever_behavior_unchanged(self) -> None:
         runtime = _runtime()

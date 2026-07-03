@@ -315,6 +315,13 @@ Current active ADRs:
     ff-only merge to `main@d931b63`; `make ci` and PostgreSQL
     `ci-local-full` passed with 587 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not pushed, not released.
+- `P1-27-knowledge-context-quality-recall.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe context-quality reranking for recalled
+    KnowledgeAssets. Prior outcome/adoption correction usage can now boost a
+    recalled asset before it is bound into `ActionProposal.knowledge_context_refs`,
+    while only aggregate quality boost metadata is traced. Branch-local
+    `make ci` plus PostgreSQL `ci-local-full` passed with 588 primary unittest
+    tests OK / 4 skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

@@ -73,6 +73,11 @@ _GOVERNANCE_DECISION_INVALID_VERDICT = "governance decision invalid verdict"
 _GOVERNANCE_DECISION_ALLOWED_VERDICTS = frozenset(
     (_GD_ALLOW, _GD_DENY, _GD_ESCALATE, _GD_VERIFY_MORE)
 )
+_OUTCOME_CONTEXT_QUALITY_BOOST = 0.2
+_ADOPTION_CONTEXT_QUALITY_BOOST = 0.3
+_MAX_CONTEXT_QUALITY_BOOST = 0.5
+_RECORD_OUTCOME_TOOL_NAME = "trusted_loop.record_outcome"
+_ATTEST_ADOPTION_TOOL_NAME = "trusted_loop.attest_adoption"
 
 
 class TrustedLoopBlocked(Exception):
@@ -358,11 +363,15 @@ class TrustedLoopRuntime:
             except Exception as exc:  # noqa: BLE001 - advisory path, traced below
                 trace.record("knowledge_recall", {"error": str(exc)})
             else:
+                related_knowledge, context_quality_boosts = (
+                    self._rank_related_knowledge_by_context_quality(related_knowledge)
+                )
                 trace.record(
                     "knowledge_recall",
                     {
                         "asset_ids": [r.asset.asset_id for r in related_knowledge],
                         "scores": [r.score for r in related_knowledge],
+                        "quality_boosts": context_quality_boosts,
                     },
                 )
 
@@ -1318,3 +1327,71 @@ class TrustedLoopRuntime:
             for event in operation_trace.events
         )
         self.trace_store.save(replace(existing, events=existing.events + appended_events))
+
+    def _rank_related_knowledge_by_context_quality(
+        self, related_knowledge: tuple[RetrievalResult, ...]
+    ) -> tuple[tuple[RetrievalResult, ...], list[dict[str, Any]]]:
+        if not related_knowledge:
+            return related_knowledge, []
+
+        asset_ids = {result.asset.asset_id for result in related_knowledge}
+        usage_quality = {
+            asset_id: {
+                "outcome_correction_count": 0,
+                "adoption_correction_count": 0,
+            }
+            for asset_id in asset_ids
+        }
+        for run_trace in self.trace_store.all_traces():
+            for event in run_trace.events:
+                payload = event.payload
+                refs = payload.get("knowledge_context_refs")
+                if not isinstance(refs, list):
+                    continue
+                referenced_asset_ids = asset_ids.intersection(
+                    ref for ref in refs if isinstance(ref, str)
+                )
+                if not referenced_asset_ids or event.step != "agent_runtime.tool_succeeded":
+                    continue
+                tool_name = payload.get("tool_name")
+                if tool_name == _RECORD_OUTCOME_TOOL_NAME:
+                    counter = "outcome_correction_count"
+                elif tool_name == _ATTEST_ADOPTION_TOOL_NAME:
+                    counter = "adoption_correction_count"
+                else:
+                    continue
+                for asset_id in referenced_asset_ids:
+                    usage_quality[asset_id][counter] += 1
+
+        ranked: list[RetrievalResult] = []
+        quality_boosts: list[dict[str, Any]] = []
+        for result in related_knowledge:
+            counts = usage_quality[result.asset.asset_id]
+            quality_boost = min(
+                _MAX_CONTEXT_QUALITY_BOOST,
+                counts["outcome_correction_count"] * _OUTCOME_CONTEXT_QUALITY_BOOST
+                + counts["adoption_correction_count"] * _ADOPTION_CONTEXT_QUALITY_BOOST,
+            )
+            if quality_boost:
+                quality_boosts.append(
+                    {
+                        "asset_id": result.asset.asset_id,
+                        "outcome_correction_count": counts["outcome_correction_count"],
+                        "adoption_correction_count": counts["adoption_correction_count"],
+                        "quality_boost": quality_boost,
+                    }
+                )
+            score_breakdown = dict(result.score_breakdown)
+            score_breakdown["context_quality_boost"] = quality_boost
+            score_breakdown["total"] = result.score + quality_boost
+            ranked.append(
+                replace(
+                    result,
+                    score=result.score + quality_boost,
+                    score_breakdown=score_breakdown,
+                )
+            )
+
+        ranked.sort(key=lambda result: result.score, reverse=True)
+        quality_boosts.sort(key=lambda item: item["quality_boost"], reverse=True)
+        return tuple(ranked), quality_boosts
