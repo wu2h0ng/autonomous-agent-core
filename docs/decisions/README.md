@@ -282,8 +282,13 @@ Current active ADRs:
     ordering on `GET /knowledge/assets/quality-summary`: `order_by=review_priority`
     returns high-priority items before medium/low items and echoes `order_by`.
     Branch-local `make ci` plus PostgreSQL `ci-local-full` passed with 586
-    primary unittest tests OK / 4 skipped plus 12 eval OK. Not merged, pushed,
-    or released.
+    primary unittest tests OK / 4 skipped plus 12 eval OK. Later locally merged
+    to deployment `main@e5fa33f`; not pushed or released.
+- `P1-24-knowledge-quality-review-order.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-24 after founder/CTO-authorized
+    ff-only merge to `main@e5fa33f`; `make ci` and PostgreSQL
+    `ci-local-full` passed with 586 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
