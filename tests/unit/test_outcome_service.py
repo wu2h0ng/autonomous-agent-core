@@ -1524,6 +1524,53 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                 order_by="auto_publish",
             )
 
+    def test_quality_catalog_paginates_review_queue(self) -> None:
+        runtime = _build_runtime()
+        first = run_service(runtime, question="GMV quality page 1", parameters=RUN_PARAMS)
+        second = run_service(runtime, question="GMV quality page 2", parameters=RUN_PARAMS)
+        third = run_service(runtime, question="GMV quality page 3", parameters=RUN_PARAMS)
+        first_asset = runtime.knowledge_store.get_by_trace(first["trace_id"])
+        second_asset = runtime.knowledge_store.get_by_trace(second["trace_id"])
+        third_asset = runtime.knowledge_store.get_by_trace(third["trace_id"])
+        self.assertIsNotNone(first_asset)
+        self.assertIsNotNone(second_asset)
+        self.assertIsNotNone(third_asset)
+
+        first_page = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            order_by="review_priority",
+            limit=2,
+            offset=0,
+        )
+        second_page = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            order_by="review_priority",
+            limit=2,
+            offset=2,
+        )
+
+        self.assertEqual(first_page["limit"], 2)
+        self.assertEqual(first_page["offset"], 0)
+        self.assertEqual(first_page["total_count"], 3)
+        self.assertEqual(first_page["count"], 2)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(second_page["limit"], 2)
+        self.assertEqual(second_page["offset"], 2)
+        self.assertEqual(second_page["total_count"], 3)
+        self.assertEqual(second_page["count"], 1)
+        self.assertFalse(second_page["has_more"])
+        ordered_asset_ids = sorted(
+            [first_asset.asset_id, second_asset.asset_id, third_asset.asset_id]
+        )
+        self.assertEqual([item["asset_id"] for item in first_page["items"]], ordered_asset_ids[:2])
+        self.assertEqual([item["asset_id"] for item in second_page["items"]], ordered_asset_ids[2:])
+        self.assertEqual(first_page["quality_status_counts"]["unused"], 2)
+        self.assertEqual(second_page["quality_status_counts"]["unused"], 1)
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(runtime, limit=0)
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(runtime, offset=-1)
+
 
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:

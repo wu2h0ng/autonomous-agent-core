@@ -793,6 +793,21 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"order_by": "auto_publish"},
             headers=headers,
         )
+        paged_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"order_by": "review_priority", "limit": 2, "offset": 0},
+            headers=headers,
+        )
+        invalid_limit_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"limit": 0},
+            headers=headers,
+        )
+        invalid_offset_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"offset": -1},
+            headers=headers,
+        )
 
         self.assertEqual(outcome_summary.status_code, 200, outcome_summary.text)
         outcome_payload = outcome_summary.json()
@@ -842,6 +857,14 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         }
         self.assertLess(ordered_positions[unused_asset_id], ordered_positions[active_asset_id])
         self.assertEqual(ordered_payload["items"][0]["review_priority"], "high")
+        self.assertEqual(paged_summary.status_code, 200, paged_summary.text)
+        paged_payload = paged_summary.json()
+        self.assertEqual(paged_payload["limit"], 2)
+        self.assertEqual(paged_payload["offset"], 0)
+        self.assertEqual(paged_payload["total_count"], 3)
+        self.assertEqual(paged_payload["count"], 2)
+        self.assertTrue(paged_payload["has_more"])
+        self.assertEqual(paged_payload["items"][0]["review_priority"], "high")
         self.assertEqual(invalid_summary.status_code, 400, invalid_summary.text)
         self.assertEqual(
             invalid_summary.json()["detail"]["code"],
@@ -860,6 +883,16 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(invalid_order_summary.status_code, 400, invalid_order_summary.text)
         self.assertEqual(
             invalid_order_summary.json()["detail"]["code"],
+            "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_limit_summary.status_code, 400, invalid_limit_summary.text)
+        self.assertEqual(
+            invalid_limit_summary.json()["detail"]["code"],
+            "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_offset_summary.status_code, 400, invalid_offset_summary.text)
+        self.assertEqual(
+            invalid_offset_summary.json()["detail"]["code"],
             "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
         )
 

@@ -215,9 +215,21 @@ class OpenApiContractTest(unittest.TestCase):
             for parameter in summary["parameters"]
             if parameter["in"] == "query" and parameter["name"] == "order_by"
         )
+        limit_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "limit"
+        )
+        offset_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "offset"
+        )
         self.assertFalse(review_priority_param["required"])
         self.assertFalse(recommended_action_param["required"])
         self.assertFalse(order_by_param["required"])
+        self.assertFalse(limit_param["required"])
+        self.assertFalse(offset_param["required"])
         self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
         self.assertEqual(
             recommended_action_param["schema"]["enum"],
@@ -229,6 +241,9 @@ class OpenApiContractTest(unittest.TestCase):
             ],
         )
         self.assertEqual(order_by_param["schema"]["enum"], ["review_priority"])
+        self.assertEqual(limit_param["schema"]["minimum"], 1)
+        self.assertEqual(limit_param["schema"]["maximum"], 100)
+        self.assertEqual(offset_param["schema"]["minimum"], 0)
         self.assertIn("400", summary["responses"])
         self.assertEqual(
             summary["responses"]["200"]["content"]["application/json"]["schema"],
@@ -248,6 +263,10 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status_counts",
                 "review_priority_counts",
                 "recommended_review_action_counts",
+                "limit",
+                "offset",
+                "total_count",
+                "has_more",
             },
         )
         self.assertEqual(

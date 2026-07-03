@@ -1432,6 +1432,7 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS = {
 _KNOWLEDGE_ASSET_REVIEW_PRIORITIES = set(_KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS.values())
 _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS.values())
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
+_KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT = 100
 _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER = {
     "high": 0,
     "medium": 1,
@@ -1486,6 +1487,25 @@ def _normalize_knowledge_asset_quality_summary_order_by(order_by: str | None) ->
     return normalized
 
 
+def _normalize_knowledge_asset_quality_summary_limit(limit: int | None) -> int | None:
+    if limit is None:
+        return None
+    if limit < 1 or limit > _KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT:
+        raise ValueError(
+            "Unsupported limit: "
+            f"{limit}. Allowed range: 1-{_KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT}"
+        )
+    return limit
+
+
+def _normalize_knowledge_asset_quality_summary_offset(offset: int | None) -> int:
+    if offset is None:
+        return 0
+    if offset < 0:
+        raise ValueError(f"Unsupported offset: {offset}. Allowed range: 0 or greater")
+    return offset
+
+
 def _knowledge_asset_quality_summary_counts(
     items: list[dict[str, Any]],
     *,
@@ -1505,6 +1525,8 @@ def knowledge_asset_quality_summary_service(
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
     order_by: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> dict[str, Any]:
     """Return a safe, read-only quality catalog for all KnowledgeAssets."""
     quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
@@ -1513,6 +1535,8 @@ def knowledge_asset_quality_summary_service(
         recommended_review_action
     )
     order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
+    limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
+    offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
@@ -1551,6 +1575,11 @@ def knowledge_asset_quality_summary_service(
                 item["source_trace_id"] or "",
             )
         )
+    total_count = len(items)
+    if limit_filter is None:
+        page_items = items[offset_filter:]
+    else:
+        page_items = items[offset_filter : offset_filter + limit_filter]
 
     return {
         "status": "ok",
@@ -1558,8 +1587,12 @@ def knowledge_asset_quality_summary_service(
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "order_by": order_by_filter,
+        "limit": limit_filter,
+        "offset": offset_filter,
+        "total_count": total_count,
+        "has_more": offset_filter + len(page_items) < total_count,
         "quality_status_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="quality_status",
             allowed_values=[
                 "unused",
@@ -1569,12 +1602,12 @@ def knowledge_asset_quality_summary_service(
             ],
         ),
         "review_priority_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="review_priority",
             allowed_values=["high", "medium", "low"],
         ),
         "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
-            items,
+            page_items,
             field="recommended_review_action",
             allowed_values=[
                 "review_or_reject",
@@ -1583,8 +1616,8 @@ def knowledge_asset_quality_summary_service(
                 "consider_publish",
             ],
         ),
-        "count": len(items),
-        "items": items,
+        "count": len(page_items),
+        "items": page_items,
     }
 
 

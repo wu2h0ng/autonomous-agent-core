@@ -1019,12 +1019,31 @@
             "title": "Count",
             "type": "integer"
           },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/KnowledgeAssetQualitySummaryItem"
             },
             "title": "Items",
             "type": "array"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
           },
           "order_by": {
             "anyOf": [
@@ -1112,6 +1131,10 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
           }
         },
         "required": [
@@ -1120,6 +1143,10 @@
           "review_priority_filter",
           "recommended_review_action_filter",
           "order_by",
+          "limit",
+          "offset",
+          "total_count",
+          "has_more",
           "quality_status_counts",
           "review_priority_counts",
           "recommended_review_action_counts",
@@ -3287,6 +3314,45 @@
                 "review_priority"
               ],
               "title": "Order By"
+            }
+          },
+          {
+            "description": "optional bounded page size for quality summary items",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional bounded page size for quality summary items",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "optional zero-based page offset for quality summary items",
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional zero-based page offset for quality summary items",
+              "minimum": 0,
+              "title": "Offset"
             }
           },
           {

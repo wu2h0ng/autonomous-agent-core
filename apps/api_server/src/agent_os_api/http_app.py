@@ -736,6 +736,10 @@ class KnowledgeAssetQualitySummaryResponse(BaseModel):
         | None
     )
     order_by: Literal["review_priority"] | None
+    limit: int | None
+    offset: int
+    total_count: int
+    has_more: bool
     quality_status_counts: dict[str, int]
     review_priority_counts: dict[str, int]
     recommended_review_action_counts: dict[str, int]
@@ -1529,6 +1533,16 @@ def create_app(
             description="optional deterministic quality summary ordering",
             json_schema_extra={"enum": KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES},
         ),
+        limit: int | None = Query(
+            default=None,
+            description="optional bounded page size for quality summary items",
+            json_schema_extra={"minimum": 1, "maximum": 100},
+        ),
+        offset: int | None = Query(
+            default=None,
+            description="optional zero-based page offset for quality summary items",
+            json_schema_extra={"minimum": 0},
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         try:
@@ -1538,6 +1552,8 @@ def create_app(
                 review_priority=review_priority,
                 recommended_review_action=recommended_review_action,
                 order_by=order_by,
+                limit=limit,
+                offset=offset,
             )
         except ValueError as exc:
             raise HTTPException(
