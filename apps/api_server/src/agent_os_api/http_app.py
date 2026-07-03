@@ -824,6 +824,7 @@ class KnowledgeAssetQualitySummaryItem(BaseModel):
     asset_id: str
     source_trace_id: str | None = None
     state: str
+    lifecycle_event_count: int
     proposal_usage_count: int
     correction_usage_count: int
     outcome_correction_count: int

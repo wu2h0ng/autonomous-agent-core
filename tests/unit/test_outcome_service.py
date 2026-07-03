@@ -1159,6 +1159,7 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             asset_id=active_asset.asset_id,
             action="approve",
             reviewer="founder",
+            reason="sensitive active reason",
         )
         knowledge_review_action_service(
             runtime,
@@ -1804,6 +1805,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         active_item = items[active_asset.asset_id]
         self.assertEqual(active_item["source_trace_id"], first["trace_id"])
         self.assertEqual(active_item["state"], "active")
+        self.assertEqual(active_item["lifecycle_event_count"], 1)
         self.assertEqual(active_item["proposal_usage_count"], 1)
         self.assertEqual(active_item["correction_usage_count"], 1)
         self.assertEqual(active_item["outcome_correction_count"], 1)
@@ -1816,6 +1818,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         unused_item = items[unused_asset.asset_id]
         self.assertEqual(unused_item["source_trace_id"], unused["trace_id"])
         self.assertEqual(unused_item["state"], "draft")
+        self.assertEqual(unused_item["lifecycle_event_count"], 0)
         self.assertEqual(unused_item["proposal_usage_count"], 0)
         self.assertEqual(unused_item["correction_usage_count"], 0)
         self.assertEqual(unused_item["quality_status"], "unused")
@@ -1828,6 +1831,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertNotIn("related_knowledge", rendered)
         self.assertNotIn("metric_deltas", rendered)
         self.assertNotIn("reason", rendered)
+        self.assertNotIn("sensitive", rendered)
         self.assertNotIn("secret_token", rendered)
         for item in result["items"]:
             self.assertLessEqual(
@@ -1836,6 +1840,7 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                     "asset_id",
                     "source_trace_id",
                     "state",
+                    "lifecycle_event_count",
                     "proposal_usage_count",
                     "correction_usage_count",
                     "outcome_correction_count",

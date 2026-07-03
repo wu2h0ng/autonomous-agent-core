@@ -648,6 +648,13 @@ Current active ADRs:
   - Local-main post-merge verification for P1-48 after cautious ff-only merge
     to `main@f3cc0ec`; `make ci` and PostgreSQL `ci-local-full` passed. Not
     pushed, not released.
+- `P1-49-knowledge-quality-lifecycle-count.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe `lifecycle_event_count` on internal
+    `GET /knowledge/assets/quality-summary` items, counting lifecycle audit
+    events without returning event bodies or raw reasons. Branch-local
+    targeted RED/GREEN, related KnowledgeAsset/API/OpenAPI tests, `make ci`,
+    and PostgreSQL `ci-local-full` passed with 599 primary unittest tests OK /
+    4 skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

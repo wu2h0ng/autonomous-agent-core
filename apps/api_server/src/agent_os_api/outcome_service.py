@@ -1862,11 +1862,20 @@ def knowledge_asset_quality_summary_service(
             and review_rationale_code_filter not in rationale_codes
         ):
             continue
+        source_trace_id = asset.source_trace_id
+        trace_store = getattr(runtime, "trace_store", None)
+        persisted_trace = (
+            trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+        )
         items.append(
             {
                 "asset_id": asset.asset_id,
-                "source_trace_id": asset.source_trace_id,
+                "source_trace_id": source_trace_id,
                 "state": asset.state.value,
+                "lifecycle_event_count": _knowledge_asset_lifecycle_event_count(
+                    persisted_trace,
+                    asset_id=asset.asset_id,
+                ),
                 "proposal_usage_count": quality["proposal_usage_count"],
                 "correction_usage_count": quality["correction_usage_count"],
                 "outcome_correction_count": quality["outcome_correction_count"],

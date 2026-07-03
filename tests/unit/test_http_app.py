@@ -1087,7 +1087,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         unused_asset_id = unused.json()["knowledge_asset_id"]
         approve_resp = client.post(
             f"/knowledge/review-queue/{active_asset_id}/decision",
-            json={"action": "approve", "reviewer": "founder"},
+            json={
+                "action": "approve",
+                "reviewer": "founder",
+                "reason": "sensitive active reason",
+            },
             headers=headers,
         )
         self.assertEqual(approve_resp.status_code, 200, approve_resp.text)
@@ -1142,6 +1146,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertTrue({active_asset_id, unused_asset_id}.issubset(set(items)))
         self.assertEqual(items[active_asset_id]["source_trace_id"], first.json()["trace_id"])
         self.assertEqual(items[active_asset_id]["state"], "active")
+        self.assertEqual(items[active_asset_id]["lifecycle_event_count"], 1)
         self.assertEqual(items[active_asset_id]["proposal_usage_count"], 1)
         self.assertEqual(items[active_asset_id]["correction_usage_count"], 1)
         self.assertEqual(items[active_asset_id]["outcome_correction_count"], 1)
@@ -1159,6 +1164,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(items[unused_asset_id]["source_trace_id"], unused.json()["trace_id"])
         self.assertEqual(items[unused_asset_id]["state"], "draft")
+        self.assertEqual(items[unused_asset_id]["lifecycle_event_count"], 0)
         self.assertEqual(items[unused_asset_id]["proposal_usage_count"], 0)
         self.assertEqual(items[unused_asset_id]["correction_usage_count"], 0)
         self.assertEqual(items[unused_asset_id]["quality_status"], "unused")
@@ -1175,6 +1181,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("related_knowledge", rendered)
         self.assertNotIn("metric_deltas", rendered)
         self.assertNotIn("reason", rendered)
+        self.assertNotIn("sensitive", rendered)
         self.assertNotIn("title", rendered)
         self.assertNotIn("content", rendered)
         for item in payload["items"]:
@@ -1185,6 +1192,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                     "asset_id",
                     "source_trace_id",
                     "state",
+                    "lifecycle_event_count",
                     "proposal_usage_count",
                     "correction_usage_count",
                     "outcome_correction_count",

@@ -677,6 +677,7 @@ class OpenApiContractTest(unittest.TestCase):
             {
                 "asset_id",
                 "state",
+                "lifecycle_event_count",
                 "proposal_usage_count",
                 "correction_usage_count",
                 "outcome_correction_count",
@@ -687,6 +688,10 @@ class OpenApiContractTest(unittest.TestCase):
                 "recommended_review_action",
                 "review_rationale_codes",
             },
+        )
+        self.assertEqual(
+            item_schema["properties"]["lifecycle_event_count"]["type"],
+            "integer",
         )
         self.assertEqual(
             item_schema["properties"]["review_rationale_codes"]["items"]["enum"],
