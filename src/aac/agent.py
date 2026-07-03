@@ -5,6 +5,8 @@ from typing import Any, Mapping
 
 from .governed_gate import GovernedDecisionGate
 from .governed_loop import Candidate, GovernedLoop, TaskSpec
+from .evidence_assembly import make_evidence_fn
+from .failure_attributor import FeedbackUpdater
 from .idle_drives import IdleDrives
 from .policy import PolicySelector
 from .prior_organ import PriorOrgan, merge_organ_advice, snapshot_belief
@@ -52,6 +54,7 @@ class Agent:
         governed_gate: GovernedDecisionGate | None = None,
         verifier: Any | None = None,
         governed_memory: Any | None = None,
+        belief_ledger: Any | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -94,6 +97,7 @@ class Agent:
         self.governed_gate = governed_gate
         self.verifier = verifier
         self.governed_memory = governed_memory
+        self.belief_ledger = belief_ledger
         self.steps = 0
         self._reflex_engaged = False
 
@@ -263,6 +267,14 @@ class Agent:
                     (a for a in range(agent.model.n_actions) if a not in forbidden),
                     key=lambda a: -agent.model.mu[a],
                 )
+                if agent.belief_ledger is not None:
+                    led = agent.belief_ledger
+                    return [Candidate(
+                        action=f"action:{a}", target=a,
+                        cited_claim_ids=((f"causal:{_task.name}:{a}",)
+                                         if led.get(f"causal:{_task.name}:{a}") is not None
+                                         else ()),
+                    ) for a in order]
                 return [Candidate(action=f"action:{a}", target=a) for a in order]
 
         class _AgentActuator:
@@ -285,8 +297,20 @@ class Agent:
             memory=self.governed_memory,
             max_interventions=max_interventions,
             selection=selection,
+            evidence_fn=(make_evidence_fn(self.belief_ledger)
+                         if self.belief_ledger is not None else None),
         )
-        return loop.run_task(task)
+        result = loop.run_task(task)
+        # --- Stage-1/2 chain closed on the subject: verified success writes a fresh VI
+        # claim; failure demotes exactly the cited claims (FeedbackUpdater, I1/I2) ---
+        if self.belief_ledger is not None and result is not None and result.status == "acted":
+            claim = f"causal:{task.name}:{result.applied_target}"
+            if result.outcome is not None and result.outcome > 0:
+                self.belief_ledger.record_verified(claim, evidence=1)
+            else:
+                FeedbackUpdater(self.belief_ledger,
+                                observe=self.shell.observe).after_task(result)
+        return result
 
     def _organ_situation(self, env: Any, *, idle: bool) -> Mapping[str, Any]:
         situation = getattr(env, "situation", None)
