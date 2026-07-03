@@ -1,6 +1,6 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-06-23
+> Last updated: 2026-07-03
 > Status: Active handoff document
 > First read: `docs/CURRENT_STATE.yaml` -> this file -> `codebase_index.md` -> `ROADMAP.md` -> current ADRs.
 
@@ -11,7 +11,7 @@ This repository is the object-layer primary artifact: a domain-agnostic autonomo
 Current branch:
 
 ```text
-main
+research/causal-world-model-2026-06-30
 ```
 
 Current stage:
@@ -25,13 +25,14 @@ P6 consolidated
   -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
   -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
   -> ADR-0036: bounded consequence-prior G13 r-final complete, NOT MET; not a G12 rescue
-  -> ADR-0038: Route C / G-Eco lower-half mechanism implemented; F1-F6 discipline fixes landed; pre-Gate-2 candidate writer/verifier exists; no co-signed freeze/Gate-2/r-final/verdict has run
+  -> ADR-0038: Route C / G-Eco lower-half mechanism and later r-final harness artifacts exist as historical scaffold/context; the current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt; no Gate-2/r-final/verdict has run
+  -> R-CSL-1: PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; no empirical verdict exists
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
   -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
   -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
-  -> next: continue Route C only through the frozen G-Eco protocol; Gate-2/freeze/r-final/verdict remain founder-reserved
+  -> next: Direction 1 policy-side commitment-conversion cheap falsifier remains pre-ADR/pre-build; the first tracked 30-seed run-local sweep on seeds 2400..2429 returned NO_NEW_DIRECTION_1_MECHANISM, so no new mechanism/ADR/freeze/r-final follows from this artifact alone
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -40,12 +41,58 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-454 tests OK
+583 tests OK (13 skipped)
 ```
 
-The 454-test result was verified by Codex on 2026-06-23 after implementing the ADR-0038 G-Eco lower-half discipline fixes plus pre-Gate-2 freeze-candidate writer, mechanical candidate verifier, and audit guards. Re-run before code submission if you change code.
+The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The 13 skips are the intentional Temporal Options PRE_SPEC_DRAFT sentinels, not hidden failures. This is suite/gate verification only, not a Direction 1 experiment result.
 
 ## 2. Immediate Task
+
+### T-R-D1 - Direction 1 Cheap Falsifier (Pre-ADR / Pre-Build)
+
+Authority:
+
+- `docs/CURRENT_STATE.yaml`
+- `../docs/research/route-selection-direction-1-policy-conversion-2026-06-27.md`
+- `../docs/research/r-csl-1-PARK-reduces-to-memory-2026-06-27.md`
+- `../docs/research/paradigm-learning-record-3-route-reduction-2026-06-27.md`
+
+Goal:
+
+Run or design the near-free falsifier over the existing G10/P0 substrate: sweep confidence-to-temperature coupling against non-stationarity rate. If the optimum is flat/insensitive, record and stop. Only a rate-sensitive result earns a new ADR/prereg/mechanism.
+
+Tracked exploratory readout:
+
+```text
+Artifacts:
+  experiments/direction1_rate_sensitivity.py
+  tests/test_direction1_rate_sensitivity.py
+  experiments/direction1_rate_sensitivity.spec.json
+  experiments/direction1_rate_sensitivity.seeds.json
+  experiments/direction1_rate_sensitivity.lock.json
+  experiments/direction1_rate_sensitivity.development.json
+
+30-seed run-local exploratory artifact:
+  seeds: 2400..2429
+  verdict: NO_NEW_DIRECTION_1_MECHANISM
+  FAST:    best fixed BT_COLD 2484.4203 | best gated K025 1418.6127
+  DEFAULT: best fixed A1_O1  1249.0454 | best gated P0_FROZEN 749.5643
+  SLOW:    best fixed A1_O1   604.3839 | best gated K025 354.4753
+
+Disposition:
+  The gated family wins on mean post-shift regret area in all three cells, but
+  FAST and SLOW share the same best gated arm (K025), so the current cheap
+  falsifier does not separate a new mechanism. Record and stop at exploratory
+  status; do not open ADR/prereg/freeze/r-final from this artifact alone.
+```
+
+Non-authority:
+
+- no R-CSL-1 rescue;
+- no VH/G-Eco retune, reseed, Gate-2, r-final, or verdict;
+- no C6/C7 change;
+- no ADR-0037 decision;
+- no autonomy or product claim.
 
 ### T-P6.4 - P6 Consolidation And Handoff
 

@@ -1,16 +1,16 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-06-24
+> Last updated: 2026-07-03
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
 ## Current Snapshot
 
 ```yaml
-branch: feat/g-eco-pre-gate2-hardening
-stage: P7.x verdict unchanged; Route C / G-Eco lower-half mechanism plus hardened pre-Gate-2 freeze-candidate writer/verifier implemented on feature branch, not merged to main
-immediate_next: G-Eco Gate-2 co-sign and r-final remain locked; candidate JSON existence/verifier pass is not unlock
-tests: 457 OK
+branch: research/causal-world-model-2026-06-30
+stage: Direction 1 policy-side commitment-conversion cheap falsifier is the live Track R next action; R-CSL-1 is PARKED by reduction; current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED
+immediate_next: record the tracked 30-seed run-local Direction 1 exploratory artifact; it returned NO_NEW_DIRECTION_1_MECHANISM, so no ADR/prereg/freeze/r-final or route promotion follows from this artifact alone
+tests: 583 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -51,7 +51,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0035-p7-ecological-environment-axis.md` | Completed, inconclusive | P7/G12 mixed pattern; C01/C10/C11 win, C00 misses threshold, so no distinct ecological-irreversible axis isolated |
 | `ADR-0036-bounded-consequence-prior-gate.md` | Completed, NOT MET | G13 tested a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 | `ADR-0037-self-determination-depth-vs-corrigibility.md` | Proposed, docs-only / OPEN | Registers SD0-SD4 and the open SD4-separability question; parent SD4 VAL-DISENT-1 read-out adds negative H1 evidence but does not decide the ADR |
-| `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + hardened pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer, calibration-selected VH parameter provenance, recursive AST static firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves, and integrity/firewall verifier; no co-signed freeze, no r-final, no verdict |
+| `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + hardened pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer, calibration-selected VH parameter provenance, recursive AST static firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves, and integrity/firewall verifier; current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED; no co-signed freeze, no r-final, no verdict |
 
 ## Current Code Map
 
@@ -105,6 +105,12 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/consequence_prior_g13.freeze.json` | ADR-0036/G13 | Founder unlock artifact for the one r-final |
 | `experiments/consequence_prior_g13.result.json` | ADR-0036/G13 | R-final artifact; G13 NOT MET |
 | `tests/test_consequence_prior_g13.py` | ADR-0036/G13 | CP interface, C6/C7, scar env, collapse, denominator, r-final guard tests |
+| `experiments/direction1_rate_sensitivity.py` | Direction 1 pre-build cheap falsifier | Tracked rate-sensitivity scaffold only; digest-verifying CLI, no default seeds/freeze/r-final |
+| `experiments/direction1_rate_sensitivity.spec.json` | Direction 1 exploratory input | Locked pre-build spec for FAST/DEFAULT/SLOW period cells and gated/fixed arm table |
+| `experiments/direction1_rate_sensitivity.seeds.json` | Direction 1 exploratory input | Tracked not-r-final seed list for the 30-seed run-local sweep (`2400..2429`) |
+| `experiments/direction1_rate_sensitivity.lock.json` | Direction 1 exploratory input | Run-local digest lock over spec, implementation, tests, and seed list |
+| `experiments/direction1_rate_sensitivity.development.json` | Direction 1 exploratory artifact | 30-seed run-local readout; verdict `NO_NEW_DIRECTION_1_MECHANISM`, not an ADR/prereg/freeze/r-final artifact |
+| `tests/test_direction1_rate_sensitivity.py` | Direction 1 pre-build cheap falsifier | Spec surface, digest-verifying CLI, result-schema, and C6/C7 guard tests |
 | `experiments/g_eco.py` | ADR-0038/G-Eco + r-final harness | Lower-half smoke/mechanism-check + `pregate2-candidates`/`pregate2-verify` + `gate2-cosign`. r-final harness: `assert_gate2_unlocked` (founder-cosign-gated verifier), `run_rfinal` (faithful frozen-candidate replay -> RAW only, C6/C7 + Stage-2 prereg.lock double-bind), `verify_prereg_lock` (mechanism-code drift gate), `build_adjudication_packet` + `verify_adjudication_integrity` (kimicode handoff + Claude verify-and-narrate incl. gate-4 Wilcoxon/bootstrap). freeze/r-final/verdict CLI still refuse; verdict is kimicode's |
 | `tests/test_g_eco.py` | ADR-0038/G-Eco | Shared substrate, r-final cheat-ref firewall, truth-state separation, frozen-source battery adapters, de-complete observation, active lookahead, VH_noStake, deterministic replay, reset boundary, calibration-selected VH params, recursive static firewalls, C3 verdict-mechanics leaves, pre-Gate-2 candidate writer/verifier/audit guards, C6/C7, Gate-2 refusal guards |
 | `tests/test_gate2_unlock.py` | G-Eco r-final harness | Gate-2 unlock verifier: locked-by-default, founder co-sign exact-bytes binding, audit-halt/incomplete, seed-band, tamper guards |
@@ -131,7 +137,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-457 tests OK
+583 tests OK (13 skipped)
 ```
 
 Important current test files:

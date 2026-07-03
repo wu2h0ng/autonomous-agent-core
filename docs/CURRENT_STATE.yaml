@@ -1,20 +1,20 @@
-updated: "2026-06-27"  # Reconcile-merge (founder-cast option A, 2026-06-27): feat/g-eco-pre-gate2-hardening landed into main — G-Eco pre-Gate-2 hardening now ON main (calibration-grid-selected VH params w/ provenance, recursive AST §9 region/rate/threshold firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves); assert_gate2_unlocked STILL hard-fails (r-final harness not yet written). SD4 VAL-DISENT-1 read-out (negative H1, recommend-only; does not decide ADR-0037, modify C6/C7, cross G-Eco Gate-2, run r-final, or unlock autonomy) preserved. r-final adjudication reassigned to independent kimicode per docs/research/founder-decision-2026-06-27-geco-writer-reassignment-kimicode-adjudication.md. NOTE: the 2026-06-25..27 R-CSL-1-PARK / Direction-1 narrative lives on branch probe/r-csl-1 + parent docs/research/ and is NOT yet reconciled onto this current_stage block (separate finalization-debt item). Engineering verdict P7.x / ADR-0036·G13 NOT MET UNCHANGED until G-Eco produces a gated result.
+updated: "2026-07-03"  # Reconciles the 2026-06-25..27 R-CSL-1-PARK / Direction-1 parent research narrative into this live state anchor and records the first tracked Direction 1 run-local exploratory artifact. R-CSL-1 is PARKED by reduction to generic structured memory before freeze/run. The current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt; no Gate-2, r-final, verdict, ADR-0037 decision, C6/C7 change, or autonomy narrative unlock follows. Direction 1 remains pre-ADR/pre-build: the tracked 30-seed run-local cheap falsifier on seeds 2400..2429 returned NO_NEW_DIRECTION_1_MECHANISM and does not authorize a new mechanism, ADR, freeze, or r-final.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
-branch: "main"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; G-Eco pre-Gate-2 hardening + r-final HARNESS MERGED to main 2026-06-27 (feat/geco-rfinal-harness, kimicode-reviewed each piece incl. one BLOCK->APPROVE). assert_gate2_unlocked is now a REAL founder-cosign-gated verifier (not hard-fail); run_rfinal replays the frozen candidate -> RAW data only; build_adjudication_packet + verify_adjudication_integrity hand off to kimicode; Stage-2 prereg.lock double-bind gates adjudication_ready. Gate-2 freeze/r-final/verdict STILL founder-reserved and NOT run; 4-agent firewall Codex(mechanism)/Claude(harness)/opencode(freeze)/kimicode(adjudication)/founder(conclusion) per 2026-06-27 founder decisions; machine prereg spec docs/research/G-Eco.prereg.yaml ready"
+branch: "research/causal-world-model-2026-06-30"
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; R-CSL-1 PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; current VH/G-Eco operationalization PARK_BY_§7A_C_NOT_SUPPORTED after pre-Gate-2 halt; Direction 1 remains pre-ADR/pre-build as the only active next falsifier over G10/P0 policy-side commitment conversion, and its first tracked 30-seed run-local exploratory artifact returned NO_NEW_DIRECTION_1_MECHANISM. No Gate-2, r-final, verdict, ADR-0037 decision, C6/C7 change, autonomy claim, or product claim is authorized."
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 489
-  result: "OK"
-  source: "Full suite verified by Codex on 2026-06-24 after G-Eco pre-Gate-2 hardening for calibration-selected VH params, recursive AST static firewalls, calibration-ref-only rate witness, and C3 verdict-mechanics leaves"
+  count: 583
+  result: "OK (skipped=13)"
+  source: "Full suite verified by Codex on 2026-07-03 after landing Direction 1 cheap-falsifier scaffold plus tracked exploratory artifacts, and converting Temporal Options PRE_SPEC_DRAFT contract tests into skip-only sentinels under explicit non-authorization"
 
 current_stage:
-  label: "P7.x bounded consequence-prior admission: test one scar-specific B-channel candidate over P0"
+  label: "Direction 1 policy-side commitment-conversion cheap falsifier"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Record ADR-0036/G13 as NOT MET; do not rerun, retune, or rescue this candidate. Any new consequence-prior attempt requires a new ADR and fresh seeds."
-  after_next: "Do not revive G11/C1 or open another core gate unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first"
-  route_c_status: "QUEUED (2026-06-22, founder approved D1): G-Eco is now scheduled as the NEXT core ADR (Route C committed 2026-06-22, docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md). ADR-0038 lower-half mechanism is implemented in this repo; F1-F6 discipline fixes landed on 2026-06-23 (real r-final cheat-ref firewall, truth-privileged oracle/WCREF, frozen-source P0/RSTAR/O1/BT adapters, de-complete observation, active lookahead_depth + VH trajectory pressure, non-vacuous C7 test); pre-Gate-2 freeze-candidate generation writes candidate rates/battery/thresholds/audit JSON with hashes plus a mechanical pregate2 verifier for content-hash integrity and firewall leak checks; and the 2026-06-24 hardening makes the battery candidate freeze select VH params from a finite calibration grid with provenance/performance withheld, adds recursive AST static firewalls for region/rate/threshold code, splits the rate-grid witness onto a calibration-ref-only runner so it cannot reach VH/battery arms through a generic helper, and records G-Eco-4 bootstrap/tie-break/epsilon leaves in thresholds. assert_gate2_unlocked still hard-fails. Mechanism implementation THROUGH theta-lock is delegated to Codex single-writer per docs/research/G-Eco-codex-handoff.md (spec v4 Gate-1 co-signed); Claude adjudicates r-final ONLY per the frozen docs/research/G-Eco-rfinal-adjudication-protocol.md. FOUNDER-RESERVED, not delegated by D1: (1) Gate-2 freeze co-sign (region/rates/battery/seeds/criteria/thresholds hash-locked) BEFORE any r-final seed runs; (2) proposer-adjudicator max-hardening activation at real Gate-2 — ELECTED 2026-06-22 by founder, Codex mechanically emits the verdict row and Claude verify-and-narrate, conditional on C1-C7 per docs/research/founder-decision-2026-06-22-geco-gate2-maxhardening-election.md; (3) every R4/halt/inconclusive disposition — no variant/retune/re-seed without a NEW founder ADR + fresh seeds, halt report lands in messages.jsonl; (4) the r-final verdict and any 'autonomous' narrative unlock. A 'scheduled' status, lower-half code, or pre-Gate-2 candidate JSON/verifier pass do NOT make the verdict delegable: this repo's engineering verdict legitimately remains P7.x / ADR-0036·G13 NOT MET until G-Eco produces a gated result. Codex must HALT at every armed exit and never cross Gate-2 autonomously."
+  immediate_next: "Record and hold the tracked 30-seed run-local cheap falsifier on seeds 2400..2429: it returned NO_NEW_DIRECTION_1_MECHANISM because FAST and SLOW share the same best gated arm (K025). This remains pre-ADR/pre-build: no new mechanism, no freeze, no r-final, and no route promotion follows from this artifact alone."
+  after_next: "Do not revive G11/C1, R-CSL-1, VH/G-Eco, or another belief/memory/model organ route unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first, or explicitly authorizes a different cheap falsifier. Direction 2 long-horizon/POMDP remains untested and gated behind the paper-reconstruction falsifier plus R1-R5."
+  route_c_status: "PARK_BY_§7A_C_NOT_SUPPORTED for the current VH/G-Eco operationalization after the 2026-06-27 pre-Gate-2 halt: stake ablation hitchhiked and VH≈MINIMAX, so no Gate-2, r-final, verdict, ADR-0037 closure, retune, reseed, or rescue is authorized without a new founder ADR and fresh seeds. Earlier G-Eco lower-half/harness artifacts are preserved as historical scaffold/context only."
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -25,6 +25,8 @@ current_stage:
     - "ADR-0036/G13 pending or locked"
     - "ADR-0036/G13 rerun, retune, or rescue after NOT MET"
     - "G11/C1 freeze or implementation"
+    - "R-CSL-1 re-freeze, re-review, rescue, or empirical run"
+    - "VH/G-Eco Gate-2, r-final, verdict, retune, reseed, or rescue"
 
 authoritative_adrs:
   latest_committed:
@@ -51,6 +53,9 @@ authoritative_adrs:
     - "ADR-0035/G12 completed inconclusive: P0 wins C01/C10/C11 but not C00, so the 2x2 does not isolate a distinct ecological-irreversible axis."
     - "ADR-0036/G13 r-final completed NOT MET: scar validity passes and CP reduces irreversible damage, but net R1 advantage misses the +0.10 threshold and R0 stale-prior harm fails."
     - "ADR-0038 G-Eco lower-half implemented and F1-F6 discipline fixes landed; pre-Gate-2 freeze-candidate writer + mechanical verifier/audit guards now exist and were hardened on 2026-06-24 (MERGED to main 2026-06-27) with calibration-selected VH params, recursive AST static firewalls, a calibration-ref-only rate witness, and C3 verdict-mechanics leaves: candidate JSON integrity/firewall verification only, no founder/CTO co-signed freeze, no Gate-2 crossing, no r-final, no verdict."
+    - "R-CSL-1 is PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; no empirical MET/NOT_MET/INCONCLUSIVE/INVALID result exists for it."
+    - "Direction 1 is the live Track R next action: a pre-ADR/pre-build confidence-to-temperature coupling sweep against non-stationarity rate over the existing G10/P0 substrate."
+    - "The first tracked Direction 1 run-local exploratory artifact is `experiments/direction1_rate_sensitivity.development.json` on seeds 2400..2429 with verdict NO_NEW_DIRECTION_1_MECHANISM; FAST and SLOW share the same best gated arm (K025), so this artifact does not earn a new mechanism, ADR, preregistration, freeze, or r-final."
     - "Parent research read-out for the isolated SD4 VAL-DISENT-1 kill-test records negative H1 evidence (N_SHADOW, N_STAKE_FREE_RIDE, N_DECEPTION_MI) and keeps ADR-0037 OPEN / founder-reserved; do not rerun, reseed, retune, or reinterpret that packet without a new founder ADR and fresh seeds."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"
@@ -286,6 +291,46 @@ current_truth:
       - "CP has real damage-reduction signal in irreversible cells, but it does not clear net loss advantage and harms reversible cells."
       - "The result repeats the prior-organ stale-harm pattern and strengthens the view that P0's subject-side coupling remains the dominant lever."
       - "Any future consequence-prior candidate must be a new ADR with a theory of why it escapes the belief-channel ceiling, not a retune of G13."
+  direction1:
+    status: "EXPLORATORY ONLY / NOT_R_FINAL"
+    environment_family: "StructuredRegimeEnv"
+    implementation_files:
+      - "experiments/direction1_rate_sensitivity.py"
+      - "tests/test_direction1_rate_sensitivity.py"
+      - "experiments/direction1_rate_sensitivity.spec.json"
+      - "experiments/direction1_rate_sensitivity.seeds.json"
+      - "experiments/direction1_rate_sensitivity.lock.json"
+      - "experiments/direction1_rate_sensitivity.development.json"
+    seeds:
+      development: "2400..2429"
+    development_audit:
+      result_path: "experiments/direction1_rate_sensitivity.development.json"
+      lock_path: "experiments/direction1_rate_sensitivity.lock.json"
+      spec_path: "experiments/direction1_rate_sensitivity.spec.json"
+      seed_list_path: "experiments/direction1_rate_sensitivity.seeds.json"
+      verdict: "NO_NEW_DIRECTION_1_MECHANISM"
+      spec_sha256: "e5863d54ed4983eb5a3324bb6ac03241431c71ffdbd1aeec8c0656c26d777aa3"
+      implementation_sha256: "84c5cc7a8dbe2f20ee90b37911d07071025f3c7679a3856a017984a1030a3558"
+      tests_sha256: "703c3422c3a92610e8cd3b5a43789e2dde5676b3e02cb973040e983d4ddc87ff"
+      seed_sha256: "07a26c3f64ab9d2fe13aef6173fd347394fdb2b0cfcc325dfe0ccc1730806f65"
+      fast_best_fixed_arm: "BT_COLD"
+      fast_best_fixed_mean_area: 2484.4203
+      fast_best_gated_arm: "K025"
+      fast_best_gated_mean_area: 1418.6127
+      default_best_fixed_arm: "A1_O1"
+      default_best_fixed_mean_area: 1249.0454
+      default_best_gated_arm: "P0_FROZEN"
+      default_best_gated_mean_area: 749.5643
+      slow_best_fixed_arm: "A1_O1"
+      slow_best_fixed_mean_area: 604.3839
+      slow_best_gated_arm: "K025"
+      slow_best_gated_mean_area: 354.4753
+      verdict_consequence: "cheap_falsifier_only_not_r_final"
+    interpretation:
+      - "The gated family beats the best fixed baseline on mean post-shift regret area in FAST, DEFAULT, and SLOW."
+      - "The current cheap falsifier still does not separate a new mechanism because FAST and SLOW share the same best gated arm (K025)."
+      - "DEFAULT prefers P0_FROZEN, but that alone does not earn a new ADR, preregistration, freeze, or mechanism promotion."
+      - "This artifact is run-local exploratory evidence only and must not be upgraded into an autonomy, product, or route claim."
 
 research_constraints:
   - "Do not claim C1/G11 as ready: there is no second independent vs-cheap-baseline winning axis."
@@ -295,6 +340,7 @@ research_constraints:
   - "Do not relax C6: organs remain belief-only; subject-side gate reads the agent's own ActionOutcomeModel."
   - "Do not treat ADR-0036 as a G12 rescue; it may only test a single-variable bounded consequence-prior candidate over P0."
   - "Do not rerun, retune, or rescue G13 after the completed r-final; any successor consequence-prior requires a new ADR and fresh seeds."
+  - "Do not upgrade the current Direction 1 run-local artifact into a mechanism claim: the tracked 30-seed sweep returned NO_NEW_DIRECTION_1_MECHANISM."
   - "No LLM in control path, no business semantics, no cross-repo imports."
   - "Apply ADR-0032 before importing frontier systems: classify every candidate by channel/lane, keep self-recursive systems external, and score P4.x organs by recovery, transition consistency, regret, stale-prior harm, and calibration."
   - "Apply ADR-0033 before using HyperAgents/DGM-style systems: only external candidate generation is allowed; runtime self-modification and safety-substrate self-editing are forbidden."
@@ -308,6 +354,8 @@ handoff_read_order:
   - "../docs/research/G-Eco-rfinal-adjudication-protocol.md"
   - "docs/P6-research-synthesis.md"
   - "docs/PROJECT_PLAN.md"
+  - "experiments/direction1_rate_sensitivity.development.json"
+  - "experiments/direction1_rate_sensitivity.lock.json"
   - "codebase_index.md"
   - "ROADMAP.md"
   - "docs/G9-G10-subject-side-coupling-synthesis.md"

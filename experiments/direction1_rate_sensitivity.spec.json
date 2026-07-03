@@ -1,0 +1,121 @@
+{
+  "arms": [
+    {
+      "base_temperature": 0.3,
+      "gate": true,
+      "gate_kappa": 0.5,
+      "gate_temp_floor": 0.1,
+      "id": "P0_FROZEN",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": true,
+      "gate_kappa": 0.25,
+      "gate_temp_floor": 0.1,
+      "id": "K025",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": true,
+      "gate_kappa": 1.0,
+      "gate_temp_floor": 0.1,
+      "id": "K100",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": true,
+      "gate_kappa": 2.0,
+      "gate_temp_floor": 0.1,
+      "id": "K200",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": true,
+      "gate_kappa": 0.5,
+      "gate_temp_floor": 0.03,
+      "id": "F003",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": true,
+      "gate_kappa": 0.5,
+      "gate_temp_floor": 0.2,
+      "id": "F020",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": false,
+      "gate_kappa": null,
+      "gate_temp_floor": null,
+      "id": "A0_DEFAULT",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.03,
+      "gate": false,
+      "gate_kappa": null,
+      "gate_temp_floor": null,
+      "id": "BT_COLD",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.05,
+      "gate": false,
+      "gate_kappa": null,
+      "gate_temp_floor": null,
+      "id": "COLD_005",
+      "organ": null
+    },
+    {
+      "base_temperature": 2.0,
+      "gate": false,
+      "gate_kappa": null,
+      "gate_temp_floor": null,
+      "id": "BROAD_200",
+      "organ": null
+    },
+    {
+      "base_temperature": 0.3,
+      "gate": false,
+      "gate_kappa": null,
+      "gate_temp_floor": null,
+      "id": "A1_O1",
+      "organ": "O1"
+    }
+  ],
+  "artifact_type": "direction1_rate_sensitivity_cheap_falsifier_spec",
+  "environment_family": "StructuredRegimeEnv",
+  "not_r_final": true,
+  "period_cells": [
+    {
+      "id": "FAST",
+      "period": 20
+    },
+    {
+      "id": "DEFAULT",
+      "period": 40
+    },
+    {
+      "id": "SLOW",
+      "period": 80
+    }
+  ],
+  "shared_constants": {
+    "n_actions": 8,
+    "noise": 0.3,
+    "steps": 2000,
+    "window": 15
+  },
+  "tie_margin_pct": 0.05,
+  "verdicts": [
+    "RATE_SENSITIVE_CANDIDATE",
+    "NO_NEW_DIRECTION_1_MECHANISM",
+    "INVALID"
+  ]
+}

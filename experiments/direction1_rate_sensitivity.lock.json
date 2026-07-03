@@ -1,0 +1,23 @@
+{
+  "artifact_type": "direction1_rate_sensitivity_run_local_lock",
+  "bound_files": {
+    "implementation": {
+      "path": "experiments/direction1_rate_sensitivity.py",
+      "sha256": "84c5cc7a8dbe2f20ee90b37911d07071025f3c7679a3856a017984a1030a3558"
+    },
+    "seed_list": {
+      "path": "experiments/direction1_rate_sensitivity.seeds.json",
+      "sha256": "07a26c3f64ab9d2fe13aef6173fd347394fdb2b0cfcc325dfe0ccc1730806f65"
+    },
+    "tests": {
+      "path": "tests/test_direction1_rate_sensitivity.py",
+      "sha256": "703c3422c3a92610e8cd3b5a43789e2dde5676b3e02cb973040e983d4ddc87ff"
+    }
+  },
+  "not_r_final": true,
+  "spec": {
+    "path": "experiments/direction1_rate_sensitivity.spec.json",
+    "sha256": "e5863d54ed4983eb5a3324bb6ac03241431c71ffdbd1aeec8c0656c26d777aa3"
+  },
+  "status": "RUN_LOCAL_LOCK_DRAFT_ONLY"
+}
