@@ -758,7 +758,8 @@
                 "enum": [
                   "quality_status",
                   "recommended_review_action",
-                  "review_priority"
+                  "review_priority",
+                  "review_rationale_code"
                 ],
                 "type": "string"
               },
@@ -3660,7 +3661,8 @@
               "enum": [
                 "quality_status",
                 "recommended_review_action",
-                "review_priority"
+                "review_priority",
+                "review_rationale_code"
               ],
               "title": "Order By"
             }

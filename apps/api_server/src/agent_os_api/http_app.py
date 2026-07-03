@@ -92,6 +92,7 @@ KNOWLEDGE_CATALOG_ORDER_BY_VALUES = [
     "quality_status",
     "recommended_review_action",
     "review_priority",
+    "review_rationale_code",
 ]
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
@@ -703,7 +704,15 @@ class KnowledgeAssetCatalogResponse(BaseModel):
         ]
         | None
     )
-    order_by: Literal["quality_status", "recommended_review_action", "review_priority"] | None
+    order_by: (
+        Literal[
+            "quality_status",
+            "recommended_review_action",
+            "review_priority",
+            "review_rationale_code",
+        ]
+        | None
+    )
     limit: int | None
     offset: int
     total_count: int

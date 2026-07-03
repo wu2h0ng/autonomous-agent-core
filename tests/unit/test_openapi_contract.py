@@ -173,7 +173,12 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertFalse(offset_param["required"])
         self.assertEqual(
             order_by_param["schema"]["enum"],
-            ["quality_status", "recommended_review_action", "review_priority"],
+            [
+                "quality_status",
+                "recommended_review_action",
+                "review_priority",
+                "review_rationale_code",
+            ],
         )
         self.assertIn({"type": "integer"}, limit_param["schema"]["anyOf"])
         self.assertIn({"type": "integer"}, offset_param["schema"]["anyOf"])
@@ -253,6 +258,7 @@ class OpenApiContractTest(unittest.TestCase):
                     "quality_status",
                     "recommended_review_action",
                     "review_priority",
+                    "review_rationale_code",
                 ],
                 "type": "string",
             },

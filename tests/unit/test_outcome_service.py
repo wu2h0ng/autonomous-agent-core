@@ -1096,6 +1096,11 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             order_by="recommended_review_action",
             limit=1,
         )
+        rationale_ordered = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            order_by="review_rationale_code",
+            limit=1,
+        )
 
         self.assertEqual(ordered["order_by"], "review_priority")
         self.assertEqual(ordered["total_count"], 2)
@@ -1116,6 +1121,15 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
         self.assertEqual(action_ordered["items"][0]["asset_id"], high_asset.asset_id)
         self.assertEqual(
             action_ordered["items"][0]["recommended_review_action"], "review_or_reject"
+        )
+        self.assertEqual(rationale_ordered["order_by"], "review_rationale_code")
+        self.assertEqual(rationale_ordered["total_count"], 2)
+        self.assertEqual(rationale_ordered["count"], 1)
+        self.assertTrue(rationale_ordered["has_more"])
+        self.assertEqual(rationale_ordered["items"][0]["asset_id"], high_asset.asset_id)
+        self.assertEqual(
+            rationale_ordered["items"][0]["review_rationale_codes"],
+            ["unused_context_candidate"],
         )
         with self.assertRaisesRegex(ValueError, "Unsupported order_by"):
             outcome_service.knowledge_asset_catalog_service(runtime, order_by="auto_publish")

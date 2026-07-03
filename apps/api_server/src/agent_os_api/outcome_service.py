@@ -1267,6 +1267,17 @@ def knowledge_asset_catalog_service(
                 item["source_trace_id"] or "",
             )
         )
+    elif order_by_filter == "review_rationale_code":
+        items.sort(
+            key=lambda item: (
+                min(
+                    _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODE_ORDER[code]
+                    for code in item["review_rationale_codes"]
+                ),
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
 
     total_count = len(items)
     if limit_filter is None:
@@ -1605,6 +1616,7 @@ _KNOWLEDGE_ASSET_CATALOG_ORDER_BY = {
     "quality_status",
     "recommended_review_action",
     "review_priority",
+    "review_rationale_code",
 }
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT = 100
@@ -1624,6 +1636,12 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_ORDER = {
     "collect_outcome_feedback": 1,
     "monitor_for_adoption": 2,
     "consider_publish": 3,
+}
+_KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODE_ORDER = {
+    "unused_context_candidate": 0,
+    "proposal_context_needs_outcome": 1,
+    "outcome_supported_context": 2,
+    "adoption_supported_context": 3,
 }
 
 
