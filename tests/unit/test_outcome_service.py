@@ -716,6 +716,51 @@ class KnowledgeReviewQueueServiceTest(unittest.TestCase):
             {item["knowledge_version"] for item in result["items"]},
             {1},
         )
+        items = {item["source_trace_id"]: item for item in result["items"]}
+        for trace_id in trace_ids:
+            item = items[trace_id]
+            self.assertIsNone(item["latest_usage_event"])
+            self.assertEqual(item["proposal_usage_count"], 0)
+            self.assertEqual(item["correction_usage_count"], 0)
+            self.assertEqual(item["outcome_correction_count"], 0)
+            self.assertEqual(item["adoption_correction_count"], 0)
+            self.assertEqual(item["distinct_usage_trace_count"], 0)
+            self.assertEqual(item["quality_status"], "unused")
+            self.assertEqual(item["review_priority"], "high")
+            self.assertEqual(item["recommended_review_action"], "review_or_reject")
+            self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+        for item in result["items"]:
+            self.assertNotIn("usage_trace_ids", item)
+            self.assertLessEqual(
+                set(item),
+                {
+                    "asset_id",
+                    "title",
+                    "asset_type",
+                    "source_trace_id",
+                    "owner",
+                    "state",
+                    "outcome",
+                    "result_weight",
+                    "knowledge_version",
+                    "latest_usage_event",
+                    "proposal_usage_count",
+                    "correction_usage_count",
+                    "outcome_correction_count",
+                    "adoption_correction_count",
+                    "distinct_usage_trace_count",
+                    "quality_status",
+                    "review_priority",
+                    "recommended_review_action",
+                    "review_rationale_codes",
+                },
+            )
+            if item["latest_usage_event"] is not None:
+                self.assertNotIn("tool_name", item["latest_usage_event"])
+        rendered = str(result)
+        self.assertNotIn("usage_trace_ids", rendered)
+        self.assertNotIn("raw", rendered)
+        self.assertNotIn("parameters", rendered)
         self.assertEqual(len(runtime.knowledge_store.all_assets()), 3)
         self.assertEqual(
             {trace_id: runtime.knowledge_store.version_of(trace_id) for trace_id in trace_ids},

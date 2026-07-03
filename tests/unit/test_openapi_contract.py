@@ -67,6 +67,57 @@ class OpenApiContractTest(unittest.TestCase):
             ],
         )
 
+    def test_knowledge_review_queue_contract_declares_quality_triage_fields(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        queue = spec["paths"]["/knowledge/review-queue"]["get"]
+        self.assertEqual(
+            queue["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/KnowledgeReviewQueueResponse"},
+        )
+        item_schema = spec["components"]["schemas"]["KnowledgeReviewQueueItem"]
+        self.assertGreaterEqual(
+            set(item_schema["required"]),
+            {
+                "asset_id",
+                "state",
+                "knowledge_version",
+                "latest_usage_event",
+                "proposal_usage_count",
+                "correction_usage_count",
+                "outcome_correction_count",
+                "adoption_correction_count",
+                "distinct_usage_trace_count",
+                "quality_status",
+                "review_priority",
+                "recommended_review_action",
+                "review_rationale_codes",
+            },
+        )
+        self.assertEqual(
+            item_schema["properties"]["latest_usage_event"]["anyOf"],
+            [
+                {"$ref": "#/components/schemas/KnowledgeAssetUsageEventSummary"},
+                {"type": "null"},
+            ],
+        )
+        self.assertEqual(
+            item_schema["properties"]["quality_status"]["enum"],
+            ["unused", "proposal_only", "outcome_observed", "adoption_observed"],
+        )
+        self.assertEqual(
+            item_schema["properties"]["review_priority"]["enum"],
+            ["high", "medium", "low"],
+        )
+        self.assertEqual(
+            item_schema["properties"]["recommended_review_action"]["enum"],
+            [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        )
+
     def test_knowledge_asset_detail_contract_declares_review_state(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         detail = spec["paths"]["/knowledge/assets/{asset_id}"]["get"]

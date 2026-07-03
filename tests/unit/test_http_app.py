@@ -110,6 +110,46 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual({item["state"] for item in payload["items"]}, {"draft"})
         self.assertEqual({item["knowledge_version"] for item in payload["items"]}, {1})
+        for item in payload["items"]:
+            self.assertIsNone(item["latest_usage_event"])
+            self.assertEqual(item["proposal_usage_count"], 0)
+            self.assertEqual(item["correction_usage_count"], 0)
+            self.assertEqual(item["outcome_correction_count"], 0)
+            self.assertEqual(item["adoption_correction_count"], 0)
+            self.assertEqual(item["distinct_usage_trace_count"], 0)
+            self.assertEqual(item["quality_status"], "unused")
+            self.assertEqual(item["review_priority"], "high")
+            self.assertEqual(item["recommended_review_action"], "review_or_reject")
+            self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            self.assertNotIn("usage_trace_ids", item)
+            self.assertLessEqual(
+                set(item),
+                {
+                    "asset_id",
+                    "title",
+                    "asset_type",
+                    "source_trace_id",
+                    "owner",
+                    "state",
+                    "outcome",
+                    "result_weight",
+                    "knowledge_version",
+                    "latest_usage_event",
+                    "proposal_usage_count",
+                    "correction_usage_count",
+                    "outcome_correction_count",
+                    "adoption_correction_count",
+                    "distinct_usage_trace_count",
+                    "quality_status",
+                    "review_priority",
+                    "recommended_review_action",
+                    "review_rationale_codes",
+                },
+            )
+        rendered = str(payload)
+        self.assertNotIn("usage_trace_ids", rendered)
+        self.assertNotIn("raw", rendered)
+        self.assertNotIn("parameters", rendered)
 
         external_resp = client.get(
             "/knowledge/review-queue",

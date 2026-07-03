@@ -1224,6 +1224,8 @@ def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
         if asset.state.value != "draft":
             continue
         source_trace_id = asset.source_trace_id
+        quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
+        quality_status = _knowledge_asset_quality_status(quality)
         items.append(
             {
                 "asset_id": asset.asset_id,
@@ -1238,6 +1240,23 @@ def knowledge_review_queue_service(runtime: Any) -> dict[str, Any]:
                     runtime.knowledge_store.version_of(source_trace_id)
                     if source_trace_id is not None
                     else 0
+                ),
+                "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
+                    runtime,
+                    asset_id=asset.asset_id,
+                ),
+                "proposal_usage_count": quality["proposal_usage_count"],
+                "correction_usage_count": quality["correction_usage_count"],
+                "outcome_correction_count": quality["outcome_correction_count"],
+                "adoption_correction_count": quality["adoption_correction_count"],
+                "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
+                "quality_status": quality_status,
+                "review_priority": _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status],
+                "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[
+                    quality_status
+                ],
+                "review_rationale_codes": list(
+                    _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
                 ),
             }
         )
