@@ -1431,6 +1431,12 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS = {
 
 _KNOWLEDGE_ASSET_REVIEW_PRIORITIES = set(_KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS.values())
 _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS.values())
+_KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
+_KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER = {
+    "high": 0,
+    "medium": 1,
+    "low": 2,
+}
 
 
 def _normalize_knowledge_asset_quality_status_filter(quality_status: str | None) -> str | None:
@@ -1470,12 +1476,23 @@ def _normalize_knowledge_asset_recommended_action_filter(
     return normalized
 
 
+def _normalize_knowledge_asset_quality_summary_order_by(order_by: str | None) -> str | None:
+    if order_by is None:
+        return None
+    normalized = order_by.strip().lower()
+    if normalized not in _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY:
+        allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY))
+        raise ValueError(f"Unsupported order_by: {order_by}. Allowed: {allowed}")
+    return normalized
+
+
 def knowledge_asset_quality_summary_service(
     runtime: Any,
     *,
     quality_status: str | None = None,
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
+    order_by: str | None = None,
 ) -> dict[str, Any]:
     """Return a safe, read-only quality catalog for all KnowledgeAssets."""
     quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
@@ -1483,6 +1500,7 @@ def knowledge_asset_quality_summary_service(
     recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
         recommended_review_action
     )
+    order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
@@ -1513,12 +1531,21 @@ def knowledge_asset_quality_summary_service(
                 "recommended_review_action": derived_action,
             }
         )
+    if order_by_filter == "review_priority":
+        items.sort(
+            key=lambda item: (
+                _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER[item["review_priority"]],
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
 
     return {
         "status": "ok",
         "quality_status_filter": quality_status_filter,
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
+        "order_by": order_by_filter,
         "count": len(items),
         "items": items,
     }

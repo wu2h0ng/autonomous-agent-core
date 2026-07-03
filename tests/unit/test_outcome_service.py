@@ -1443,6 +1443,55 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
                 recommended_review_action="auto_publish",
             )
 
+    def test_quality_catalog_orders_review_queue_by_priority(self) -> None:
+        runtime = _build_runtime()
+        first = run_service(runtime, question="GMV quality order", parameters=RUN_PARAMS)
+        unused = run_service(runtime, question="GMV quality order unused", parameters=RUN_PARAMS)
+        active_asset = runtime.knowledge_store.get_by_trace(first["trace_id"])
+        unused_asset = runtime.knowledge_store.get_by_trace(unused["trace_id"])
+        self.assertIsNotNone(active_asset)
+        self.assertIsNotNone(unused_asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=active_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        outcome_run = run_service(runtime, question="GMV quality order", parameters=RUN_PARAMS)
+        stored_trace = runtime.trace_store.get(outcome_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=outcome_run["trace_id"],
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [active_asset.asset_id],
+                        },
+                    ),
+                ),
+            )
+        )
+
+        ordered = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            order_by="review_priority",
+        )
+
+        self.assertEqual(ordered["order_by"], "review_priority")
+        positions = {item["asset_id"]: index for index, item in enumerate(ordered["items"])}
+        self.assertLess(positions[unused_asset.asset_id], positions[active_asset.asset_id])
+        self.assertEqual(ordered["items"][0]["review_priority"], "high")
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(
+                runtime,
+                order_by="auto_publish",
+            )
+
 
 class KnowledgeDeprecateServiceTest(unittest.TestCase):
     def test_deprecates_published_asset_without_value_promotion(self) -> None:

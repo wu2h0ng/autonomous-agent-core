@@ -1026,6 +1026,18 @@
             "title": "Items",
             "type": "array"
           },
+          "order_by": {
+            "anyOf": [
+              {
+                "const": "review_priority",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order By"
+          },
           "quality_status_filter": {
             "anyOf": [
               {
@@ -1086,6 +1098,7 @@
           "quality_status_filter",
           "review_priority_filter",
           "recommended_review_action_filter",
+          "order_by",
           "count",
           "items"
         ],
@@ -3229,6 +3242,27 @@
                 "consider_publish"
               ],
               "title": "Recommended Review Action"
+            }
+          },
+          {
+            "description": "optional deterministic quality summary ordering",
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional deterministic quality summary ordering",
+              "enum": [
+                "review_priority"
+              ],
+              "title": "Order By"
             }
           },
           {

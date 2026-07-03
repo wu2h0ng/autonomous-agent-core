@@ -749,6 +749,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"recommended_review_action": "review_or_reject"},
             headers=headers,
         )
+        ordered_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"order_by": "review_priority"},
+            headers=headers,
+        )
         invalid_summary = client.get(
             "/knowledge/assets/quality-summary",
             params={"quality_status": "not-a-status"},
@@ -762,6 +767,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         invalid_action_summary = client.get(
             "/knowledge/assets/quality-summary",
             params={"recommended_review_action": "auto_publish"},
+            headers=headers,
+        )
+        invalid_order_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"order_by": "auto_publish"},
             headers=headers,
         )
 
@@ -792,6 +802,14 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             {item["recommended_review_action"] for item in action_payload["items"]},
             {"review_or_reject"},
         )
+        self.assertEqual(ordered_summary.status_code, 200, ordered_summary.text)
+        ordered_payload = ordered_summary.json()
+        self.assertEqual(ordered_payload["order_by"], "review_priority")
+        ordered_positions = {
+            item["asset_id"]: index for index, item in enumerate(ordered_payload["items"])
+        }
+        self.assertLess(ordered_positions[unused_asset_id], ordered_positions[active_asset_id])
+        self.assertEqual(ordered_payload["items"][0]["review_priority"], "high")
         self.assertEqual(invalid_summary.status_code, 400, invalid_summary.text)
         self.assertEqual(
             invalid_summary.json()["detail"]["code"],
@@ -805,6 +823,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(invalid_action_summary.status_code, 400, invalid_action_summary.text)
         self.assertEqual(
             invalid_action_summary.json()["detail"]["code"],
+            "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_order_summary.status_code, 400, invalid_order_summary.text)
+        self.assertEqual(
+            invalid_order_summary.json()["detail"]["code"],
             "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
         )
 

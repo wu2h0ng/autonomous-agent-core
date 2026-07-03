@@ -82,6 +82,7 @@ KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES = [
     "monitor_for_adoption",
     "consider_publish",
 ]
+KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
 API_SCOPE_OUTCOME_WRITE = "outcomes:write"
@@ -734,6 +735,7 @@ class KnowledgeAssetQualitySummaryResponse(BaseModel):
         ]
         | None
     )
+    order_by: Literal["review_priority"] | None
     count: int
     items: list[KnowledgeAssetQualitySummaryItem]
 
@@ -1519,6 +1521,11 @@ def create_app(
             description="optional recommended review action filter",
             json_schema_extra={"enum": KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES},
         ),
+        order_by: str | None = Query(
+            default=None,
+            description="optional deterministic quality summary ordering",
+            json_schema_extra={"enum": KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES},
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         try:
@@ -1527,6 +1534,7 @@ def create_app(
                 quality_status=quality_status,
                 review_priority=review_priority,
                 recommended_review_action=recommended_review_action,
+                order_by=order_by,
             )
         except ValueError as exc:
             raise HTTPException(

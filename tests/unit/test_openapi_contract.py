@@ -210,8 +210,14 @@ class OpenApiContractTest(unittest.TestCase):
             for parameter in summary["parameters"]
             if parameter["in"] == "query" and parameter["name"] == "recommended_review_action"
         )
+        order_by_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "order_by"
+        )
         self.assertFalse(review_priority_param["required"])
         self.assertFalse(recommended_action_param["required"])
+        self.assertFalse(order_by_param["required"])
         self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
         self.assertEqual(
             recommended_action_param["schema"]["enum"],
@@ -222,6 +228,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "consider_publish",
             ],
         )
+        self.assertEqual(order_by_param["schema"]["enum"], ["review_priority"])
         self.assertIn("400", summary["responses"])
         self.assertEqual(
             summary["responses"]["200"]["content"]["application/json"]["schema"],
@@ -237,6 +244,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status_filter",
                 "review_priority_filter",
                 "recommended_review_action_filter",
+                "order_by",
             },
         )
         self.assertEqual(
@@ -273,6 +281,13 @@ class OpenApiContractTest(unittest.TestCase):
                     ],
                     "type": "string",
                 },
+                {"type": "null"},
+            ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["order_by"]["anyOf"],
+            [
+                {"const": "review_priority", "type": "string"},
                 {"type": "null"},
             ],
         )
