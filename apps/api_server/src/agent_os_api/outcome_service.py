@@ -1075,6 +1075,55 @@ def _knowledge_context_refs_for_trace(runtime: Any, trace_id: str) -> list[str]:
     return []
 
 
+def _knowledge_context_rationale_for_trace(runtime: Any, trace_id: str) -> list[dict[str, Any]]:
+    trace_store = getattr(runtime, "trace_store", None)
+    persisted_trace = trace_store.get(trace_id) if trace_store is not None else None
+    if persisted_trace is None:
+        return []
+
+    refs = _knowledge_context_refs_for_trace(runtime, trace_id)
+    if not refs:
+        return []
+
+    scores_by_asset: dict[str, float] = {}
+    boosts_by_asset: dict[str, float] = {}
+    for event in persisted_trace.events:
+        if event.step != "knowledge_recall":
+            continue
+        asset_ids = event.payload.get("asset_ids")
+        scores = event.payload.get("scores")
+        quality_boosts = event.payload.get("quality_boosts")
+        if isinstance(asset_ids, list) and isinstance(scores, list):
+            for asset_id, score in zip(asset_ids, scores, strict=False):
+                if isinstance(asset_id, str) and isinstance(score, int | float):
+                    scores_by_asset[asset_id] = float(score)
+        if isinstance(quality_boosts, list):
+            for boost in quality_boosts:
+                if not isinstance(boost, dict):
+                    continue
+                asset_id = boost.get("asset_id")
+                quality_boost = boost.get("quality_boost")
+                if isinstance(asset_id, str) and isinstance(quality_boost, int | float):
+                    boosts_by_asset[asset_id] = float(quality_boost)
+
+    rationale: list[dict[str, Any]] = []
+    for asset_id in refs:
+        context_quality_boost = boosts_by_asset.get(asset_id, 0.0)
+        rationale.append(
+            {
+                "asset_id": asset_id,
+                "score": scores_by_asset.get(asset_id, 0.0),
+                "context_quality_boost": context_quality_boost,
+                "reason_code": (
+                    "prior_outcome_or_adoption_context"
+                    if context_quality_boost > 0.0
+                    else "retrieved_reviewed_context"
+                ),
+            }
+        )
+    return rationale
+
+
 def _knowledge_asset_lifecycle_event_count(
     persisted_trace: RunTrace | None,
     *,
@@ -1210,6 +1259,10 @@ def record_outcome_service(
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
         "knowledge_version": runtime.knowledge_store.version_of(trace_id),
         "knowledge_context_refs": _knowledge_context_refs_for_trace(runtime, trace_id),
+        "knowledge_context_rationale": _knowledge_context_rationale_for_trace(
+            runtime,
+            trace_id,
+        ),
     }
 
 
@@ -2413,4 +2466,8 @@ def attest_adoption_service(
         "knowledge_version": runtime.knowledge_store.version_of(trace_id),
         "result_weight": revised.result_weight if revised is not None else None,
         "knowledge_context_refs": _knowledge_context_refs_for_trace(runtime, trace_id),
+        "knowledge_context_rationale": _knowledge_context_rationale_for_trace(
+            runtime,
+            trace_id,
+        ),
     }

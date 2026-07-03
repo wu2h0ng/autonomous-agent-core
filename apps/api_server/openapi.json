@@ -71,6 +71,13 @@
             ],
             "title": "Knowledge Asset Id"
           },
+          "knowledge_context_rationale": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeContextRationaleItem"
+            },
+            "title": "Knowledge Context Rationale",
+            "type": "array"
+          },
           "knowledge_context_refs": {
             "items": {
               "type": "string"
@@ -117,7 +124,8 @@
           "adoption_id",
           "trace_id",
           "outcome",
-          "knowledge_version"
+          "knowledge_version",
+          "knowledge_context_rationale"
         ],
         "title": "AdoptionResponse",
         "type": "object"
@@ -2463,6 +2471,13 @@
             ],
             "title": "Knowledge Asset Id"
           },
+          "knowledge_context_rationale": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeContextRationaleItem"
+            },
+            "title": "Knowledge Context Rationale",
+            "type": "array"
+          },
           "knowledge_context_refs": {
             "items": {
               "type": "string"
@@ -2498,7 +2513,8 @@
           "feedback_id",
           "trace_id",
           "outcome",
-          "knowledge_version"
+          "knowledge_version",
+          "knowledge_context_rationale"
         ],
         "title": "OutcomeResponse",
         "type": "object"

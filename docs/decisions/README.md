@@ -828,6 +828,13 @@ Current active ADRs:
   - Local-main post-merge verification for P1-59 after cautious ff-only merge
     to `main@57537a1`; `make ci` and PostgreSQL `ci-local-full` passed. Not
     pushed, not released.
+- `P1-60-correction-knowledge-rationale.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe `knowledge_context_rationale` on
+    `/outcomes` and `/adoptions` responses. The projection is derived from
+    persisted proposal/recall metadata and exposes only asset id, score,
+    context-quality boost, and an allowlisted reason code; branch `make ci` and
+    PostgreSQL `ci-local-full` passed with 608 primary unittest tests OK / 4
+    skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

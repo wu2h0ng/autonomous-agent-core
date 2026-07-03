@@ -678,6 +678,16 @@ class RecordOutcomeServiceTest(unittest.TestCase):
 
         self.assertEqual(outcome["knowledge_context_refs"], [first_asset_id])
         self.assertEqual(adoption["knowledge_context_refs"], [first_asset_id])
+        expected_rationale = [
+            {
+                "asset_id": first_asset_id,
+                "score": 1.05,
+                "context_quality_boost": 0.0,
+                "reason_code": "retrieved_reviewed_context",
+            }
+        ]
+        self.assertEqual(outcome["knowledge_context_rationale"], expected_rationale)
+        self.assertEqual(adoption["knowledge_context_rationale"], expected_rationale)
         self.assertEqual(outcome["knowledge_version"], 1)
         self.assertEqual(adoption["knowledge_version"], 2)
 

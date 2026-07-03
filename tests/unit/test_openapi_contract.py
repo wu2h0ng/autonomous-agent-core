@@ -560,6 +560,8 @@ class OpenApiContractTest(unittest.TestCase):
 
         for response_schema in (outcome_response, adoption_response):
             self.assertIn("knowledge_context_refs", response_schema["properties"])
+            self.assertIn("knowledge_context_rationale", response_schema["required"])
+            self.assertIn("knowledge_context_rationale", response_schema["properties"])
             self.assertEqual(
                 response_schema["properties"]["knowledge_context_refs"],
                 {
@@ -567,6 +569,10 @@ class OpenApiContractTest(unittest.TestCase):
                     "type": "array",
                     "title": "Knowledge Context Refs",
                 },
+            )
+            self.assertEqual(
+                response_schema["properties"]["knowledge_context_rationale"]["items"],
+                {"$ref": "#/components/schemas/KnowledgeContextRationaleItem"},
             )
 
     def test_knowledge_asset_lifecycle_events_contract_is_declared(self) -> None:

@@ -567,6 +567,7 @@ class OutcomeResponse(BaseModel):
     knowledge_asset_id: str | None = None
     knowledge_version: int
     knowledge_context_refs: list[str] = Field(default_factory=list)
+    knowledge_context_rationale: list[KnowledgeContextRationaleItem]
 
 
 class CausalAttributionRequest(BaseModel):
@@ -615,6 +616,7 @@ class AdoptionResponse(BaseModel):
     knowledge_version: int
     result_weight: float | None = None
     knowledge_context_refs: list[str] = Field(default_factory=list)
+    knowledge_context_rationale: list[KnowledgeContextRationaleItem]
 
 
 class KnowledgeReviewQueueItem(BaseModel):

@@ -2455,6 +2455,22 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(adoption_resp.status_code, 200, adoption_resp.text)
         self.assertEqual(outcome_resp.json()["knowledge_context_refs"], [first_asset_id])
         self.assertEqual(adoption_resp.json()["knowledge_context_refs"], [first_asset_id])
+        expected_rationale = [
+            {
+                "asset_id": first_asset_id,
+                "score": 1.05,
+                "context_quality_boost": 0.0,
+                "reason_code": "retrieved_reviewed_context",
+            }
+        ]
+        self.assertEqual(
+            outcome_resp.json()["knowledge_context_rationale"],
+            expected_rationale,
+        )
+        self.assertEqual(
+            adoption_resp.json()["knowledge_context_rationale"],
+            expected_rationale,
+        )
         self.assertNotIn("related_knowledge", outcome_resp.json())
         self.assertNotIn("related_knowledge", adoption_resp.json())
         trace_resp = client.get(f"/traces/{trace_id}", headers=headers)
