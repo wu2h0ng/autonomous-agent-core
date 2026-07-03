@@ -833,12 +833,19 @@ Current active ADRs:
     `/outcomes` and `/adoptions` responses. The projection is derived from
     persisted proposal/recall metadata and exposes only asset id, score,
     context-quality boost, and an allowlisted reason code; branch `make ci` and
-    PostgreSQL `ci-local-full` passed with 608 primary unittest tests OK / 4
+    PostgreSQL `ci-local-full` passed with 609 primary unittest tests OK / 4
     skipped plus 12 eval OK. Not merged, pushed, or released.
 - `P1-60-correction-knowledge-rationale.MERGE-READINESS-20260703.md`
-  - Branch-local merge-readiness for P1-60 after fast-forward checks
+  - Initial branch-local merge-readiness for P1-60 after fast-forward checks
     (`main...HEAD = 0 1`) and current branch `make ci` plus PostgreSQL
     `ci-local-full` verification at 608 primary unittest tests OK / 4 skipped
+    plus 12 eval OK. Superseded by the hardening refresh for final merge
+    readiness. Not merged, pushed, or released.
+- `P1-60-correction-knowledge-rationale.MERGE-READINESS-REFRESH-20260703.md`
+  - Branch-local merge-readiness refresh for P1-60 after recall-metadata
+    boundary hardening. Latest fast-forward check showed `main...HEAD = 0 3`
+    before the docs refresh commit, and current branch `make ci` plus PostgreSQL
+    `ci-local-full` verification at 609 primary unittest tests OK / 4 skipped
     plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

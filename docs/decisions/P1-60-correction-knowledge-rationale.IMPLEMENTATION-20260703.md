@@ -46,7 +46,7 @@ Focused GREEN:
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src .venv/bin/python -m unittest tests.unit.test_outcome_service.RecordOutcomeServiceTest.test_correction_responses_project_used_knowledge_context_refs tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_correction_responses_project_used_knowledge_context_refs tests.unit.test_openapi_contract.OpenApiContractTest.test_correction_responses_declare_knowledge_context_refs tests.unit.test_openapi_contract.OpenApiContractTest.test_snapshot_matches_live_schema -v
 ```
 
-Result: 4 tests OK.
+Result: 5 tests OK.
 
 Related regression set:
 
@@ -54,7 +54,7 @@ Related regression set:
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src .venv/bin/python -m unittest tests.unit.test_outcome_service.RecordOutcomeServiceTest tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_correction_responses_project_used_knowledge_context_refs tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_outcomes_traverse_agent_runtime_envelope_without_knowledge_promotion tests.unit.test_http_app.HttpAppSharedRuntimeTest.test_adoptions_traverse_runtime_envelope_and_preserve_writer_authority tests.unit.test_openapi_contract.OpenApiContractTest.test_correction_responses_declare_knowledge_context_refs tests.unit.test_openapi_contract.OpenApiContractTest.test_snapshot_matches_live_schema -v
 ```
 
-Result: 10 tests OK.
+Result: 11 tests OK.
 
 Full branch CI:
 
@@ -63,7 +63,7 @@ make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-da
 AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 ```
 
-Result: Ruff check passed; format check passed; 608 primary unittest tests OK /
+Result: Ruff check passed; format check passed; 609 primary unittest tests OK /
 4 skipped; 12 eval tests OK; threshold report passed for 5 golden cases across
 8 dimensions at 1.0 thresholds; OpenAPI contract was up to date; PostgreSQL full
 local parity checks passed.
