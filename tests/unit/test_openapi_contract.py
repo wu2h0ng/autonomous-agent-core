@@ -128,6 +128,29 @@ class OpenApiContractTest(unittest.TestCase):
             catalog["responses"]["200"]["content"]["application/json"]["schema"],
             {"$ref": "#/components/schemas/KnowledgeAssetCatalogResponse"},
         )
+        catalog_params = catalog["parameters"]
+        review_priority_param = next(
+            parameter
+            for parameter in catalog_params
+            if parameter["in"] == "query" and parameter["name"] == "review_priority"
+        )
+        review_rationale_code_param = next(
+            parameter
+            for parameter in catalog_params
+            if parameter["in"] == "query" and parameter["name"] == "review_rationale_code"
+        )
+        self.assertFalse(review_priority_param["required"])
+        self.assertFalse(review_rationale_code_param["required"])
+        self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
+        self.assertEqual(
+            review_rationale_code_param["schema"]["enum"],
+            [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context",
+            ],
+        )
         item_schema = spec["components"]["schemas"]["KnowledgeAssetCatalogItem"]
         self.assertGreaterEqual(
             set(item_schema["required"]),

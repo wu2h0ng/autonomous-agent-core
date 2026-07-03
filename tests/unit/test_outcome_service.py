@@ -968,6 +968,93 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             )
             outcome_service.knowledge_asset_catalog_service(runtime, lifecycle_state="external")
 
+    def test_catalog_filters_safe_review_state_fields(self) -> None:
+        runtime = _build_runtime()
+        active = run_service(runtime, question="GMV catalog filter", parameters=RUN_PARAMS)
+        unused = run_service(
+            runtime,
+            question="GMV catalog filter unused",
+            parameters=RUN_PARAMS,
+        )
+        active_asset = runtime.knowledge_store.get_by_trace(active["trace_id"])
+        unused_asset = runtime.knowledge_store.get_by_trace(unused["trace_id"])
+        self.assertIsNotNone(active_asset)
+        self.assertIsNotNone(unused_asset)
+        knowledge_review_action_service(
+            runtime,
+            asset_id=active_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        knowledge_review_action_service(
+            runtime,
+            asset_id=unused_asset.asset_id,
+            action="approve",
+            reviewer="founder",
+        )
+        outcome_run = run_service(runtime, question="GMV catalog filter", parameters=RUN_PARAMS)
+        stored_trace = runtime.trace_store.get(outcome_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=outcome_run["trace_id"],
+                        step="agent_runtime.tool_succeeded",
+                        payload={
+                            "tool_name": "trusted_loop.record_outcome",
+                            "knowledge_context_refs": [active_asset.asset_id],
+                        },
+                    ),
+                ),
+            )
+        )
+
+        medium_priority = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            review_priority="medium",
+        )
+        outcome_rationale = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            review_rationale_code="outcome_supported_context",
+        )
+
+        self.assertEqual(medium_priority["review_priority_filter"], "medium")
+        self.assertGreaterEqual(medium_priority["count"], 1)
+        self.assertIn(
+            active_asset.asset_id,
+            [item["asset_id"] for item in medium_priority["items"]],
+        )
+        self.assertEqual(
+            {item["review_priority"] for item in medium_priority["items"]},
+            {"medium"},
+        )
+        self.assertEqual(
+            outcome_rationale["review_rationale_code_filter"],
+            "outcome_supported_context",
+        )
+        self.assertEqual(outcome_rationale["count"], 1)
+        self.assertEqual(outcome_rationale["items"][0]["asset_id"], active_asset.asset_id)
+        self.assertEqual(
+            {
+                code
+                for item in outcome_rationale["items"]
+                for code in item["review_rationale_codes"]
+            },
+            {"outcome_supported_context"},
+        )
+        self.assertNotIn("usage_trace_ids", medium_priority["items"][0])
+
+        with self.assertRaisesRegex(ValueError, "Unsupported review_priority filter"):
+            outcome_service.knowledge_asset_catalog_service(runtime, review_priority="urgent")
+        with self.assertRaisesRegex(ValueError, "Unsupported review_rationale_code filter"):
+            outcome_service.knowledge_asset_catalog_service(
+                runtime,
+                review_rationale_code="raw_trace_reason",
+            )
+
 
 class KnowledgeAssetDetailServiceTest(unittest.TestCase):
     def test_returns_single_asset_detail_without_mutating_store(self) -> None:

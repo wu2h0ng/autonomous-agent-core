@@ -1147,6 +1147,8 @@ def knowledge_asset_catalog_service(
     runtime: Any,
     *,
     lifecycle_state: str | None = None,
+    review_priority: str | None = None,
+    review_rationale_code: str | None = None,
 ) -> dict[str, Any]:
     """Return an internal, read-only KnowledgeAsset lifecycle catalog.
 
@@ -1171,6 +1173,11 @@ def knowledge_asset_catalog_service(
         allowed_states = {requested}
         catalog_state = requested.value
 
+    review_priority_filter = _normalize_knowledge_asset_review_priority_filter(review_priority)
+    review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
+        review_rationale_code
+    )
+
     items: list[dict[str, Any]] = []
     for asset in runtime.knowledge_store.all_assets():
         if allowed_states is not None and asset.state not in allowed_states:
@@ -1178,6 +1185,17 @@ def knowledge_asset_catalog_service(
         source_trace_id = asset.source_trace_id
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
         quality_status = _knowledge_asset_quality_status(quality)
+        derived_review_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status]
+        derived_review_rationale_codes = list(
+            _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
+        )
+        if review_priority_filter is not None and derived_review_priority != review_priority_filter:
+            continue
+        if (
+            review_rationale_code_filter is not None
+            and review_rationale_code_filter not in derived_review_rationale_codes
+        ):
+            continue
         items.append(
             {
                 "asset_id": asset.asset_id,
@@ -1199,19 +1217,19 @@ def knowledge_asset_catalog_service(
                 "adoption_correction_count": quality["adoption_correction_count"],
                 "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
                 "quality_status": quality_status,
-                "review_priority": _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status],
+                "review_priority": derived_review_priority,
                 "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[
                     quality_status
                 ],
-                "review_rationale_codes": list(
-                    _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
-                ),
+                "review_rationale_codes": derived_review_rationale_codes,
             }
         )
 
     return {
         "status": "ok",
         "catalog_state": catalog_state,
+        "review_priority_filter": review_priority_filter,
+        "review_rationale_code_filter": review_rationale_code_filter,
         "count": len(items),
         "items": items,
     }

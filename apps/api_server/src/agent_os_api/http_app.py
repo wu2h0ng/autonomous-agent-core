@@ -670,6 +670,16 @@ class KnowledgeAssetCatalogItem(BaseModel):
 class KnowledgeAssetCatalogResponse(BaseModel):
     status: str
     catalog_state: str
+    review_priority_filter: Literal["high", "medium", "low"] | None
+    review_rationale_code_filter: (
+        Literal[
+            "unused_context_candidate",
+            "proposal_context_needs_outcome",
+            "outcome_supported_context",
+            "adoption_supported_context",
+        ]
+        | None
+    )
     count: int
     items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
 
@@ -1581,10 +1591,25 @@ def create_app(
             default=None,
             description="lifecycle filter: draft|active|published|deprecated|all",
         ),
+        review_priority: str | None = Query(
+            default=None,
+            description="safe review priority filter: high|medium|low",
+            enum=KNOWLEDGE_REVIEW_PRIORITY_VALUES,
+        ),
+        review_rationale_code: str | None = Query(
+            default=None,
+            description="safe review rationale filter",
+            enum=KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES,
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         try:
-            return knowledge_asset_catalog_service(app.state.runtime, lifecycle_state=state)
+            return knowledge_asset_catalog_service(
+                app.state.runtime,
+                lifecycle_state=state,
+                review_priority=review_priority,
+                review_rationale_code=review_rationale_code,
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=400,

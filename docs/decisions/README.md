@@ -411,6 +411,13 @@ Current active ADRs:
   - Local-main post-merge verification for P1-33 after user-authorized cautious
     ff-only merge to `main@ef074ee`; `make ci` and PostgreSQL
     `ci-local-full` passed. Not pushed, not released.
+- `P1-34-knowledge-catalog-review-filter.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe review-state filtering on internal
+    `GET /knowledge/assets`: `review_priority` and `review_rationale_code`
+    filters reuse existing allowlists, echo applied filters, and preserve the
+    internal-only/read-only/no-raw-trace boundary. Branch-local `make ci` plus
+    PostgreSQL `ci-local-full` passed with 594 primary unittest tests OK / 4
+    skipped plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

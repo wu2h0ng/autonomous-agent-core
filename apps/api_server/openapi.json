@@ -733,6 +733,39 @@
             "title": "Items",
             "type": "array"
           },
+          "review_priority_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Priority Filter"
+          },
+          "review_rationale_code_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unused_context_candidate",
+                  "proposal_context_needs_outcome",
+                  "outcome_supported_context",
+                  "adoption_supported_context"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Rationale Code Filter"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -741,6 +774,8 @@
         "required": [
           "status",
           "catalog_state",
+          "review_priority_filter",
+          "review_rationale_code_filter",
           "count"
         ],
         "title": "KnowledgeAssetCatalogResponse",
@@ -3398,6 +3433,53 @@
               ],
               "description": "lifecycle filter: draft|active|published|deprecated|all",
               "title": "State"
+            }
+          },
+          {
+            "description": "safe review priority filter: high|medium|low",
+            "in": "query",
+            "name": "review_priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "safe review priority filter: high|medium|low",
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "title": "Review Priority"
+            }
+          },
+          {
+            "description": "safe review rationale filter",
+            "in": "query",
+            "name": "review_rationale_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "safe review rationale filter",
+              "enum": [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context"
+              ],
+              "title": "Review Rationale Code"
             }
           },
           {

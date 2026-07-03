@@ -332,6 +332,103 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(external_resp.status_code, 403, external_resp.text)
 
+    def test_internal_knowledge_asset_catalog_filters_review_state(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        active = client.post(
+            "/runs",
+            json={"question": "GMV catalog review filter", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        unused = client.post(
+            "/runs",
+            json={
+                "question": "GMV catalog review filter unused",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(active.status_code, 200, active.text)
+        self.assertEqual(unused.status_code, 200, unused.text)
+        active_asset_id = active.json()["knowledge_asset_id"]
+        unused_asset_id = unused.json()["knowledge_asset_id"]
+        for asset_id in (active_asset_id, unused_asset_id):
+            approve = client.post(
+                f"/knowledge/review-queue/{asset_id}/decision",
+                json={"action": "approve", "reviewer": "founder"},
+                headers=headers,
+            )
+            self.assertEqual(approve.status_code, 200, approve.text)
+        outcome_run = client.post(
+            "/runs",
+            json={"question": "GMV catalog review filter", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(outcome_run.status_code, 200, outcome_run.text)
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": outcome_run.json()["trace_id"], "outcome": "observed"},
+            headers=headers,
+        )
+        self.assertEqual(outcome_resp.status_code, 200, outcome_resp.text)
+
+        medium_catalog = client.get(
+            "/knowledge/assets",
+            params={"review_priority": "medium"},
+            headers=headers,
+        )
+        rationale_catalog = client.get(
+            "/knowledge/assets",
+            params={"review_rationale_code": "outcome_supported_context"},
+            headers=headers,
+        )
+        invalid_priority = client.get(
+            "/knowledge/assets",
+            params={"review_priority": "urgent"},
+            headers=headers,
+        )
+        invalid_rationale = client.get(
+            "/knowledge/assets",
+            params={"review_rationale_code": "raw_trace_reason"},
+            headers=headers,
+        )
+
+        self.assertEqual(medium_catalog.status_code, 200, medium_catalog.text)
+        medium_payload = medium_catalog.json()
+        self.assertEqual(medium_payload["review_priority_filter"], "medium")
+        self.assertGreaterEqual(medium_payload["count"], 1)
+        self.assertIn(active_asset_id, [item["asset_id"] for item in medium_payload["items"]])
+        self.assertEqual(
+            {item["review_priority"] for item in medium_payload["items"]},
+            {"medium"},
+        )
+        self.assertEqual(rationale_catalog.status_code, 200, rationale_catalog.text)
+        rationale_payload = rationale_catalog.json()
+        self.assertEqual(
+            rationale_payload["review_rationale_code_filter"],
+            "outcome_supported_context",
+        )
+        self.assertGreaterEqual(rationale_payload["count"], 1)
+        self.assertIn(active_asset_id, [item["asset_id"] for item in rationale_payload["items"]])
+        self.assertEqual(
+            {
+                code
+                for item in rationale_payload["items"]
+                for code in item["review_rationale_codes"]
+            },
+            {"outcome_supported_context"},
+        )
+        self.assertEqual(invalid_priority.status_code, 400, invalid_priority.text)
+        self.assertEqual(
+            invalid_priority.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_rationale.status_code, 400, invalid_rationale.text)
+        self.assertEqual(
+            invalid_rationale.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+
     def test_internal_knowledge_asset_detail_is_read_only_and_guarded(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}
