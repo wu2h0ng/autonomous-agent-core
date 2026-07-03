@@ -886,6 +886,10 @@ Current active ADRs:
     `55da9a7`, `origin/main` remains `dba87bc`, and the repo is now ahead by
     173 commits. The packet asks for an explicit founder/CTO push decision and
     keeps release as a separate post-push gate.
+- `PR-10-deployment-push-hold-decision-20260704.md`
+  - Explicit recorded decision for the current deployment packet:
+    `DEPLOYMENT_PUSH: HOLD`. Local main remains verified and packeted, but no
+    push authorization is granted and no release claim follows.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
