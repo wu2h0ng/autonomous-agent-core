@@ -67,6 +67,60 @@ class OpenApiContractTest(unittest.TestCase):
             ],
         )
 
+    def test_knowledge_asset_detail_contract_declares_review_state(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        detail = spec["paths"]["/knowledge/assets/{asset_id}"]["get"]
+        self.assertEqual(
+            detail["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/KnowledgeAssetDetailResponse"},
+        )
+        response_schema = spec["components"]["schemas"]["KnowledgeAssetDetailResponse"]
+        self.assertGreaterEqual(
+            set(response_schema["required"]),
+            {
+                "status",
+                "asset_id",
+                "state",
+                "knowledge_version",
+                "has_source_trace",
+                "proposal_usage_count",
+                "correction_usage_count",
+                "outcome_correction_count",
+                "adoption_correction_count",
+                "distinct_usage_trace_count",
+                "quality_status",
+                "review_priority",
+                "recommended_review_action",
+                "review_rationale_codes",
+            },
+        )
+        self.assertEqual(
+            response_schema["properties"]["quality_status"]["enum"],
+            ["unused", "proposal_only", "outcome_observed", "adoption_observed"],
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_priority"]["enum"],
+            ["high", "medium", "low"],
+        )
+        self.assertEqual(
+            response_schema["properties"]["recommended_review_action"]["enum"],
+            [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_rationale_codes"]["items"]["enum"],
+            [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context",
+            ],
+        )
+
     def test_approval_execution_contract_is_declared(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         approval_execute = spec["paths"]["/approvals/{approval_id}/execute"]["post"]

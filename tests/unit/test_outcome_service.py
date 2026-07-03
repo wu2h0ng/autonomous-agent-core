@@ -991,8 +991,18 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
         self.assertEqual(detail["state"], "active")
         self.assertEqual(detail["knowledge_version"], before_version)
         self.assertTrue(detail["has_source_trace"])
+        self.assertEqual(detail["proposal_usage_count"], 0)
+        self.assertEqual(detail["correction_usage_count"], 0)
+        self.assertEqual(detail["outcome_correction_count"], 0)
+        self.assertEqual(detail["adoption_correction_count"], 0)
+        self.assertEqual(detail["distinct_usage_trace_count"], 0)
+        self.assertEqual(detail["quality_status"], "unused")
+        self.assertEqual(detail["review_priority"], "high")
+        self.assertEqual(detail["recommended_review_action"], "review_or_reject")
+        self.assertEqual(detail["review_rationale_codes"], ["unused_context_candidate"])
         self.assertNotIn("events", detail)
         self.assertNotIn("reason", detail)
+        self.assertNotIn("usage_trace_ids", detail)
         self.assertEqual(runtime.knowledge_store.version_of(trace_id), before_version)
 
     def test_unknown_asset_detail_raises_key_error(self) -> None:

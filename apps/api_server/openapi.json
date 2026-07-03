@@ -738,6 +738,10 @@
       },
       "KnowledgeAssetDetailResponse": {
         "properties": {
+          "adoption_correction_count": {
+            "title": "Adoption Correction Count",
+            "type": "integer"
+          },
           "asset_id": {
             "title": "Asset Id",
             "type": "string"
@@ -745,6 +749,14 @@
           "asset_type": {
             "title": "Asset Type",
             "type": "string"
+          },
+          "correction_usage_count": {
+            "title": "Correction Usage Count",
+            "type": "integer"
+          },
+          "distinct_usage_trace_count": {
+            "title": "Distinct Usage Trace Count",
+            "type": "integer"
           },
           "has_source_trace": {
             "title": "Has Source Trace",
@@ -765,13 +777,63 @@
             ],
             "title": "Outcome"
           },
+          "outcome_correction_count": {
+            "title": "Outcome Correction Count",
+            "type": "integer"
+          },
           "owner": {
             "title": "Owner",
+            "type": "string"
+          },
+          "proposal_usage_count": {
+            "title": "Proposal Usage Count",
+            "type": "integer"
+          },
+          "quality_status": {
+            "enum": [
+              "unused",
+              "proposal_only",
+              "outcome_observed",
+              "adoption_observed"
+            ],
+            "title": "Quality Status",
+            "type": "string"
+          },
+          "recommended_review_action": {
+            "enum": [
+              "review_or_reject",
+              "collect_outcome_feedback",
+              "monitor_for_adoption",
+              "consider_publish"
+            ],
+            "title": "Recommended Review Action",
             "type": "string"
           },
           "result_weight": {
             "title": "Result Weight",
             "type": "number"
+          },
+          "review_priority": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "title": "Review Priority",
+            "type": "string"
+          },
+          "review_rationale_codes": {
+            "items": {
+              "enum": [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context"
+              ],
+              "type": "string"
+            },
+            "title": "Review Rationale Codes",
+            "type": "array"
           },
           "source_trace_id": {
             "anyOf": [
@@ -806,7 +868,16 @@
           "result_weight",
           "knowledge_version",
           "status",
-          "has_source_trace"
+          "has_source_trace",
+          "proposal_usage_count",
+          "correction_usage_count",
+          "outcome_correction_count",
+          "adoption_correction_count",
+          "distinct_usage_trace_count",
+          "quality_status",
+          "review_priority",
+          "recommended_review_action",
+          "review_rationale_codes"
         ],
         "title": "KnowledgeAssetDetailResponse",
         "type": "object"

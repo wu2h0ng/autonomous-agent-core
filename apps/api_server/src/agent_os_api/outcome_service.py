@@ -1220,6 +1220,8 @@ def knowledge_asset_detail_service(
     source_trace_id = target.source_trace_id
     trace_store = getattr(runtime, "trace_store", None)
     persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+    quality = knowledge_asset_decision_quality_service(runtime, asset_id=target.asset_id)
+    quality_status = _knowledge_asset_quality_status(quality)
     return {
         "status": "ok",
         "asset_id": target.asset_id,
@@ -1236,6 +1238,17 @@ def knowledge_asset_detail_service(
             else 0
         ),
         "has_source_trace": persisted_trace is not None,
+        "proposal_usage_count": quality["proposal_usage_count"],
+        "correction_usage_count": quality["correction_usage_count"],
+        "outcome_correction_count": quality["outcome_correction_count"],
+        "adoption_correction_count": quality["adoption_correction_count"],
+        "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
+        "quality_status": quality_status,
+        "review_priority": _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status],
+        "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[quality_status],
+        "review_rationale_codes": list(
+            _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
+        ),
     }
 
 
