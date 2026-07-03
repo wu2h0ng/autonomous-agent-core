@@ -870,6 +870,16 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             f"/knowledge/assets/{asset_id}/usage-events",
             headers=headers,
         )
+        page_resp = client.get(
+            f"/knowledge/assets/{asset_id}/usage-events",
+            params={"limit": 1, "offset": 1},
+            headers=headers,
+        )
+        invalid_limit_resp = client.get(
+            f"/knowledge/assets/{asset_id}/usage-events",
+            params={"limit": 0},
+            headers=headers,
+        )
 
         self.assertEqual(usage_resp.status_code, 200, usage_resp.text)
         payload = usage_resp.json()
@@ -877,6 +887,10 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["asset_id"], asset_id)
         self.assertEqual(payload["source_trace_id"], source_trace_id)
         self.assertEqual(payload["count"], 2)
+        self.assertEqual(payload["total_count"], 2)
+        self.assertFalse(payload["has_more"])
+        self.assertIsNone(payload["limit"])
+        self.assertEqual(payload["offset"], 0)
         self.assertEqual(
             [event["usage_kind"] for event in payload["events"]],
             ["proposal_context", "correction_context"],
@@ -892,6 +906,19 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         rendered = str(payload)
         self.assertNotIn("related_knowledge", rendered)
         self.assertNotIn("metric_deltas", rendered)
+        self.assertEqual(page_resp.status_code, 200, page_resp.text)
+        page_payload = page_resp.json()
+        self.assertEqual(page_payload["count"], 1)
+        self.assertEqual(page_payload["total_count"], 2)
+        self.assertFalse(page_payload["has_more"])
+        self.assertEqual(page_payload["limit"], 1)
+        self.assertEqual(page_payload["offset"], 1)
+        self.assertEqual(page_payload["events"][0]["usage_kind"], "correction_context")
+        self.assertEqual(invalid_limit_resp.status_code, 400, invalid_limit_resp.text)
+        self.assertEqual(
+            invalid_limit_resp.json()["detail"]["code"],
+            "KNOWLEDGE_USAGE_EVENTS_INVALID_REQUEST",
+        )
 
         missing_resp = client.get(
             "/knowledge/assets/knowledge-missing/usage-events",

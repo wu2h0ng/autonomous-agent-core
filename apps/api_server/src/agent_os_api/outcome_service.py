@@ -1448,8 +1448,12 @@ def knowledge_asset_usage_events_service(
     runtime: Any,
     *,
     asset_id: str,
+    limit: int | None = None,
+    offset: int | None = None,
 ) -> dict[str, Any]:
     """Return safe, read-only usage audit events for a KnowledgeAsset."""
+    limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
+    offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     target = None
     for asset in runtime.knowledge_store.all_assets():
         if asset.asset_id == asset_id:
@@ -1496,12 +1500,22 @@ def knowledge_asset_usage_events_service(
                 }
             )
 
+    total_count = len(projected_events)
+    if limit_filter is None:
+        page_events = projected_events[offset_filter:]
+    else:
+        page_events = projected_events[offset_filter : offset_filter + limit_filter]
+
     return {
         "status": "ok",
         "asset_id": target.asset_id,
         "source_trace_id": target.source_trace_id,
-        "count": len(projected_events),
-        "events": projected_events,
+        "count": len(page_events),
+        "total_count": total_count,
+        "has_more": offset_filter + len(page_events) < total_count,
+        "limit": limit_filter,
+        "offset": offset_filter,
+        "events": page_events,
     }
 
 

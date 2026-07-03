@@ -795,6 +795,10 @@ class KnowledgeAssetUsageEventsResponse(BaseModel):
     asset_id: str
     source_trace_id: str | None = None
     count: int
+    total_count: int
+    has_more: bool
+    limit: int | None
+    offset: int
     events: list[KnowledgeAssetUsageEventItem] = Field(default_factory=list)
 
 
@@ -1797,12 +1801,24 @@ def create_app(
     )
     def get_knowledge_asset_usage_events(
         asset_id: str,
+        limit: int | None = Query(
+            default=None,
+            description="optional bounded page size for usage events",
+            json_schema_extra={"minimum": 1, "maximum": 100},
+        ),
+        offset: int | None = Query(
+            default=None,
+            description="optional zero-based page offset for usage events",
+            json_schema_extra={"minimum": 0},
+        ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_usage_events_service(
                 app.state.runtime,
                 asset_id=asset_id,
+                limit=limit,
+                offset=offset,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -1811,6 +1827,14 @@ def create_app(
                     "code": "KNOWLEDGE_ASSET_NOT_FOUND",
                     "message": "KnowledgeAsset was not found.",
                     "asset_id": asset_id,
+                },
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "KNOWLEDGE_USAGE_EVENTS_INVALID_REQUEST",
+                    "message": str(exc),
                 },
             ) from exc
 

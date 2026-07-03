@@ -1476,15 +1476,55 @@ class KnowledgeAssetUsageEventsServiceTest(unittest.TestCase):
             runtime,
             asset_id=asset.asset_id,
         )
+        first_page = outcome_service.knowledge_asset_usage_events_service(
+            runtime,
+            asset_id=asset.asset_id,
+            limit=1,
+            offset=0,
+        )
+        second_page = outcome_service.knowledge_asset_usage_events_service(
+            runtime,
+            asset_id=asset.asset_id,
+            limit=1,
+            offset=1,
+        )
+        with self.assertRaisesRegex(ValueError, "limit"):
+            outcome_service.knowledge_asset_usage_events_service(
+                runtime,
+                asset_id=asset.asset_id,
+                limit=0,
+            )
+        with self.assertRaisesRegex(ValueError, "offset"):
+            outcome_service.knowledge_asset_usage_events_service(
+                runtime,
+                asset_id=asset.asset_id,
+                offset=-1,
+            )
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["asset_id"], asset.asset_id)
         self.assertEqual(result["source_trace_id"], source_trace_id)
         self.assertEqual(result["count"], 2)
+        self.assertEqual(result["total_count"], 2)
+        self.assertFalse(result["has_more"])
+        self.assertIsNone(result["limit"])
+        self.assertEqual(result["offset"], 0)
         self.assertEqual(
             [event["usage_kind"] for event in result["events"]],
             ["proposal_context", "correction_context"],
         )
+        self.assertEqual(first_page["count"], 1)
+        self.assertEqual(first_page["total_count"], 2)
+        self.assertTrue(first_page["has_more"])
+        self.assertEqual(first_page["limit"], 1)
+        self.assertEqual(first_page["offset"], 0)
+        self.assertEqual(first_page["events"][0]["usage_kind"], "proposal_context")
+        self.assertEqual(second_page["count"], 1)
+        self.assertEqual(second_page["total_count"], 2)
+        self.assertFalse(second_page["has_more"])
+        self.assertEqual(second_page["limit"], 1)
+        self.assertEqual(second_page["offset"], 1)
+        self.assertEqual(second_page["events"][0]["usage_kind"], "correction_context")
         self.assertEqual(
             [event["step"] for event in result["events"]],
             ["action_proposal", "agent_runtime.tool_succeeded"],

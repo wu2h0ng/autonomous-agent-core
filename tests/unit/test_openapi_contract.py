@@ -390,11 +390,28 @@ class OpenApiContractTest(unittest.TestCase):
             usage["responses"]["200"]["content"]["application/json"]["schema"],
             {"$ref": "#/components/schemas/KnowledgeAssetUsageEventsResponse"},
         )
+        limit_param = next(
+            parameter
+            for parameter in usage["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "limit"
+        )
+        offset_param = next(
+            parameter
+            for parameter in usage["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "offset"
+        )
+        self.assertFalse(limit_param["required"])
+        self.assertFalse(offset_param["required"])
+        self.assertEqual(limit_param["schema"]["minimum"], 1)
+        self.assertEqual(limit_param["schema"]["maximum"], 100)
+        self.assertEqual(offset_param["schema"]["minimum"], 0)
         response_schema = spec["components"]["schemas"]["KnowledgeAssetUsageEventsResponse"]
         self.assertGreaterEqual(
             set(response_schema["required"]),
-            {"status", "asset_id", "count"},
+            {"status", "asset_id", "count", "total_count", "has_more", "limit", "offset"},
         )
+        self.assertIn({"type": "integer"}, response_schema["properties"]["limit"]["anyOf"])
+        self.assertEqual(response_schema["properties"]["offset"]["type"], "integer")
         self.assertEqual(
             response_schema["properties"]["source_trace_id"]["anyOf"],
             [{"type": "string"}, {"type": "null"}],
