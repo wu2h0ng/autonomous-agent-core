@@ -21,6 +21,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 |---|---|
 | `docs/CURRENT_STATE.yaml` | Machine-readable current state, read order, latest tests, active gate |
 | `docs/P6-research-synthesis.md` | P6 synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, publication outline |
+| `docs/P6-no-gate2-hold-brief-20260703.md` | Minimal founder/CTO decision brief for why research remains at `No Gate-2` and what kind of authorization could legitimately change that state |
 | `docs/PROJECT_PLAN.md` | Human handoff plan and task cards |
 | `ROADMAP.md` | Phase ledger and gate sequence |
 | `ENGINEERING.md` | Engineering and experiment discipline, especially statistical rules |
