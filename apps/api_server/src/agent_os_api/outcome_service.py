@@ -1251,6 +1251,14 @@ def knowledge_asset_catalog_service(
                 item["source_trace_id"] or "",
             )
         )
+    elif order_by_filter == "recommended_review_action":
+        items.sort(
+            key=lambda item: (
+                _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_ORDER[item["recommended_review_action"]],
+                item["asset_id"],
+                item["source_trace_id"] or "",
+            )
+        )
     elif order_by_filter == "review_priority":
         items.sort(
             key=lambda item: (
@@ -1593,7 +1601,11 @@ _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_B
 _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES = {
     code for codes in _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS.values() for code in codes
 }
-_KNOWLEDGE_ASSET_CATALOG_ORDER_BY = {"quality_status", "review_priority"}
+_KNOWLEDGE_ASSET_CATALOG_ORDER_BY = {
+    "quality_status",
+    "recommended_review_action",
+    "review_priority",
+}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT = 100
 _KNOWLEDGE_ASSET_QUALITY_STATUS_ORDER = {
@@ -1606,6 +1618,12 @@ _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER = {
     "high": 0,
     "medium": 1,
     "low": 2,
+}
+_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_ORDER = {
+    "review_or_reject": 0,
+    "collect_outcome_feedback": 1,
+    "monitor_for_adoption": 2,
+    "consider_publish": 3,
 }
 
 

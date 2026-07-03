@@ -88,7 +88,11 @@ KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES = [
     "outcome_supported_context",
     "adoption_supported_context",
 ]
-KNOWLEDGE_CATALOG_ORDER_BY_VALUES = ["quality_status", "review_priority"]
+KNOWLEDGE_CATALOG_ORDER_BY_VALUES = [
+    "quality_status",
+    "recommended_review_action",
+    "review_priority",
+]
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
@@ -699,7 +703,7 @@ class KnowledgeAssetCatalogResponse(BaseModel):
         ]
         | None
     )
-    order_by: Literal["quality_status", "review_priority"] | None
+    order_by: Literal["quality_status", "recommended_review_action", "review_priority"] | None
     limit: int | None
     offset: int
     total_count: int

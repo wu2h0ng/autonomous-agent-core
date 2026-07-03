@@ -757,6 +757,7 @@
               {
                 "enum": [
                   "quality_status",
+                  "recommended_review_action",
                   "review_priority"
                 ],
                 "type": "string"
@@ -3658,6 +3659,7 @@
               "description": "optional deterministic catalog ordering",
               "enum": [
                 "quality_status",
+                "recommended_review_action",
                 "review_priority"
               ],
               "title": "Order By"
