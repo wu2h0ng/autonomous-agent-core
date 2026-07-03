@@ -28,3 +28,22 @@
 
 ## 6. RESULT(跑后填)
 _(frozen empty until run)_
+
+## 6. RESULT v1 = INVALID(2026-07-03,泄漏,由作者对抗审计抓出)
+
+v1 机械报 MET(LearnedCWM recall 1.000 vs STAT 0.867,δ+0.133,p=0.002,permute 负控制塌 chance)。**但对抗审计发现泄漏 → INVALID(按 §4 INVALID 分支):** LearnedCWM 特征含**被干预节点 X 自身的值**,do(X) 钳住 X → 模型对**每一对**(X,T)都能从 X 的钳位值检测"这是 do(X) 样本"。诊断:祖先对 AUC 0.988(15/15 过 0.60)**且非祖先对 AUC 0.852(17/17 也过 0.60)**——模型全判"祖先",recall 1.0 是"全判祖先"产物,检测的是**干预**不是**祖先**。permute 负控制只证"非记忆",没证"是祖先信号"——是错的控制。recall-only 冻结判据太松,抓不到 all-ancestor。STAT 无此泄漏(边际只在真祖先时移动,0.867 诚实)。**如实记 INVALID,不 claim MET。**
+
+## 7. v2 RE-SPEC(收严,先冻结预测再跑;非 spec-shopping:剔特征+改判别,更难非更易)
+- **特征剔除**:LearnedCWM 特征剔除**被干预节点 X 自身**(及 target T)——只用 mediators;这样"检测干预"的捷径被封,只有 X→T 有真机制路径时,mediators 才带 do(X) 签名。
+- **判据改判别(非 recall)**:两臂都对全部 (X,T) 对打分(STAT=边际效应量;CWM=剔 X 后的 held-out AUC),算**判别 AUC** = 各自的分数把真祖先排在非祖先之上的能力。**MET**:CWM 判别 AUC 显著 > STAT 判别 AUC(δ≥0.05,10 seeds 配对 p<0.05)。**NULL**:TIE 或不显著 → 保留统计实现。
+- **v2 冻结预测**:泄漏封死后,**预期 NULL**(承 RR-0038 + Sachs 边际强传播;剔除 X 后学习模型难超边际)。若仍 MET = 真捕到 mediated 结构,是"智能在自建模型上"的真证据。
+
+## 8. RESULT v2 = NULL(2026-07-03,泄漏封死后,诚实)
+
+剔除被干预节点 X 自身 + 改测判别 AUC 后:**STAT 判别 AUC 0.831 vs LearnedCWM 0.772,delta −0.059,10/10 seeds STAT 全胜(p=0.002)→ NULL**(且我们的学习模型实际**更差**)。与 v2 冻结预测(NULL)一致。
+
+**净裁决(CWM-LEARN-1 = NULL):** 在 Sachs 规模,我们自建的最小学习型 CWM(多变量 logistic 机制签名)**没有统计基线之外的能力增量,反而更差**。边际效应量法在强传播的 Sachs 网络上近饱和,最小学习模型难超。**保留统计实现**(现 verifier),不 rescue。
+
+**对 founder steer("智能要在我们自己的模型上")的诚实含义:** 今天可 demonstrable 的能力仍是 (a) 借来的 LLM 器官,(b) CWM = 统计**方法**(非学习结构)。**我们自建的学习模型此刻尚无可证的学习智能增量。** 这不是"我们的模型不能智能",而是"最小版在此规模/数据上 ties-or-loses";让它真正超统计 = phase-2 研究程序(更富机制结构/更难数据/更好表示),即 H-P2 准入门 S5-3 **未满足**,phase-2 继续不排期。**这正是本门要诚实回答的问题:phase-2 的"规划大脑"今天还没有脑。**
+
+**方法学胜利(承 SD4 线纪律):** v1 机械 MET → 作者对抗审计抓出"检测干预非祖先"的泄漏 → v2 收严 → NULL。author≠adjudicator + 对着冻结 NULL 预测跑 + 收严非放松,防住了一次高危假阳性(founder 最易被此误导之处)。

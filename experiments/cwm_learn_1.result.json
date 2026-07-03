@@ -1,0 +1,22 @@
+{
+ "prereg": "docs/pre_spec/S1B-CWM-LEARN-1.PREREG-2026-07-03.md",
+ "seeds": 10,
+ "targets": [
+  "Raf",
+  "Mek",
+  "Erk",
+  "Akt",
+  "PKA",
+  "P38",
+  "Jnk"
+ ],
+ "stat_recall_mean": 0.8667,
+ "cwm_recall_mean": 1.0,
+ "delta": 0.1333,
+ "n_plus": 10,
+ "n_minus": 0,
+ "sign_test_p": 0.00195,
+ "neg_control_auc_mean": 0.4701,
+ "neg_control_collapses_to_chance": true,
+ "verdict": "MET"
+}

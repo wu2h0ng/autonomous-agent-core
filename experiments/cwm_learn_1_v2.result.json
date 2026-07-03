@@ -1,0 +1,12 @@
+{
+ "prereg": "docs/pre_spec/S1B-CWM-LEARN-1.PREREG-2026-07-03.md (v2 \u00a77)",
+ "n_pairs": 32,
+ "seeds": 10,
+ "stat_discrimination_auc": 0.8314,
+ "cwm_discrimination_auc": 0.7722,
+ "delta": -0.0592,
+ "n_plus": 0,
+ "n_minus": 10,
+ "sign_test_p": 0.00195,
+ "verdict": "NULL"
+}
