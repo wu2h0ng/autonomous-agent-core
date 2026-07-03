@@ -1,10 +1,10 @@
 {
   "adr": "ADR-0031",
   "kind": "PRED1 prereg lock (re-locked)",
-  "prereg_hash": "f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936",
-  "relocked": "2026-06-30",
-  "prior_hash": "fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf",
-  "justification": "Recorded lock fe40754e no longer reproduced (post-freeze formatting/shared-file evolution: residual_calibrator.py ruff line-wrap; agent.py/experiment reflow+unrelated additions). PRED1 r-final RE-RUN on current code on 2026-06-30 reproduces PRED1-HOLDS exactly (PR vs P0 margin -0.006, 13/30 wins, p=0.55, P0=788.8/PR=793.3) -> result robust to the drift -> re-lock justified, not a breach.",
+  "prereg_hash": "694b74caac601211d5027e632012fdcaeaec27614b7059394039c65f2613ccdd",
+  "relocked": "2026-07-03",
+  "prior_hash": "f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936",
+  "justification": "Recorded lock f87c23a4 no longer reproduced: src/aac/agent.py (a locked shared file) gained OPT-IN belief_ledger wiring in Stage-1b (governed_step: cite claims, stratified evidence, record/demote on outcome) \u2014 all guarded by belief_ledger=None default, so the PRED1 residual-calibrator experiment (which passes no ledger) is unaffected. PRED1 r-final RE-RUN on the merged code 2026-07-03 reproduces PRED1-HOLDS EXACTLY (PR vs P0 margin -0.006, 13/30 wins, p=0.55, identical to the 2026-06-30 re-lock) -> verdict robust to the drift -> re-lock justified, not a breach (same precedent as the 2026-06-30 re-lock).",
   "enforced_by": "tests/test_prereg_locks.py (refuse-on-drift gate)",
   "note_design": "Recorded hash now lives only in non-hashed / regex-neutralized locations; updating it never perturbs prereg_hash() (fixes the original self-referential fragility)."
 }
