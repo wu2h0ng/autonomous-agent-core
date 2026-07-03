@@ -726,10 +726,22 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
 
 
+class KnowledgeAssetLifecycleEventSummary(BaseModel):
+    trace_id: str
+    step: str
+    asset_id: str
+    action: str | None = None
+    previous_state: str | None = None
+    state: str | None = None
+    knowledge_version: int | None = None
+    reason_present: bool
+
+
 class KnowledgeAssetDetailResponse(KnowledgeAssetCatalogItem):
     status: str
     has_source_trace: bool
     lifecycle_event_count: int
+    latest_lifecycle_event: KnowledgeAssetLifecycleEventSummary | None
     proposal_usage_count: int
     correction_usage_count: int
     outcome_correction_count: int

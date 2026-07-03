@@ -753,6 +753,19 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["knowledge_version"], 3)
         self.assertTrue(payload["has_source_trace"])
         self.assertEqual(payload["lifecycle_event_count"], 2)
+        self.assertEqual(
+            payload["latest_lifecycle_event"],
+            {
+                "trace_id": trace_id,
+                "step": "knowledge_publish_decision",
+                "asset_id": asset_id,
+                "action": "publish",
+                "previous_state": "active",
+                "state": "published",
+                "knowledge_version": 3,
+                "reason_present": True,
+            },
+        )
         self.assertEqual(payload["proposal_usage_count"], 0)
         self.assertEqual(payload["correction_usage_count"], 0)
         self.assertEqual(payload["outcome_correction_count"], 0)
@@ -763,6 +776,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["recommended_review_action"], "review_or_reject")
         self.assertEqual(payload["review_rationale_codes"], ["unused_context_candidate"])
         self.assertNotIn("events", payload)
+        self.assertNotIn("reviewer", payload["latest_lifecycle_event"])
         self.assertNotIn("reason", payload)
         self.assertNotIn("sensitive lifecycle reason", str(payload))
         self.assertNotIn("sensitive publish reason", str(payload))

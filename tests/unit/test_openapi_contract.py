@@ -84,6 +84,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "knowledge_version",
                 "has_source_trace",
                 "lifecycle_event_count",
+                "latest_lifecycle_event",
                 "proposal_usage_count",
                 "correction_usage_count",
                 "outcome_correction_count",
@@ -98,6 +99,14 @@ class OpenApiContractTest(unittest.TestCase):
         self.assertEqual(
             response_schema["properties"]["lifecycle_event_count"]["type"],
             "integer",
+        )
+        latest_schema = response_schema["properties"]["latest_lifecycle_event"]
+        self.assertEqual(
+            latest_schema["anyOf"],
+            [
+                {"$ref": "#/components/schemas/KnowledgeAssetLifecycleEventSummary"},
+                {"type": "null"},
+            ],
         )
         self.assertEqual(
             response_schema["properties"]["quality_status"]["enum"],

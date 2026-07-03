@@ -990,6 +990,16 @@
             "title": "Knowledge Version",
             "type": "integer"
           },
+          "latest_lifecycle_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeAssetLifecycleEventSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "lifecycle_event_count": {
             "title": "Lifecycle Event Count",
             "type": "integer"
@@ -1106,7 +1116,8 @@
           "recommended_review_action",
           "review_rationale_codes",
           "status",
-          "has_source_trace"
+          "has_source_trace",
+          "latest_lifecycle_event"
         ],
         "title": "KnowledgeAssetDetailResponse",
         "type": "object"
@@ -1179,6 +1190,78 @@
           "reason_present"
         ],
         "title": "KnowledgeAssetLifecycleEvent",
+        "type": "object"
+      },
+      "KnowledgeAssetLifecycleEventSummary": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "knowledge_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Version"
+          },
+          "previous_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous State"
+          },
+          "reason_present": {
+            "title": "Reason Present",
+            "type": "boolean"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "step",
+          "asset_id",
+          "reason_present"
+        ],
+        "title": "KnowledgeAssetLifecycleEventSummary",
         "type": "object"
       },
       "KnowledgeAssetLifecycleEventsResponse": {

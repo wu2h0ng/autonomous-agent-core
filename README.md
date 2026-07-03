@@ -57,6 +57,11 @@ BusinessIntent → SemanticObject → MetricContract → ProviderContract
 - `GET /knowledge/search` (API key boundary, 503 when no retriever)
 - uow-transactional re-embed on record_outcome
 
+**KnowledgeAsset Review Surfaces**:
+- Internal-only review queue, review decisions, lifecycle audit trail, publish/deprecate gates, catalog, detail, usage events, decision-quality summary, and quality-summary triage surfaces
+- Detail responses expose safe review-state fields plus `lifecycle_event_count` and nullable `latest_lifecycle_event` summaries for review/publish/deprecate transitions
+- Safe projections exclude raw lifecycle reasons, reviewer identity on detail summaries, raw trace payloads, related knowledge content, correction payloads, metric deltas, and secret-like fields
+
 **Observability** (RunTrace):
 - TraceStorePort (InMemory default / SqlTraceStore + Alembic 0005)
 - `run()` dual-exit persistence (answers AND refusals equally auditable)

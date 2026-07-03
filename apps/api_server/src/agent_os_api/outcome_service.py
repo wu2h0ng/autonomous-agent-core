@@ -1090,6 +1090,32 @@ def _knowledge_asset_lifecycle_event_count(
     )
 
 
+def _knowledge_asset_latest_lifecycle_event_summary(
+    persisted_trace: RunTrace | None,
+    *,
+    asset_id: str,
+) -> dict[str, Any] | None:
+    if persisted_trace is None:
+        return None
+    for event in reversed(persisted_trace.events):
+        if event.step not in KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS:
+            continue
+        payload = event.payload
+        if payload.get("asset_id") != asset_id:
+            continue
+        return {
+            "trace_id": event.trace_id,
+            "step": event.step,
+            "asset_id": payload.get("asset_id"),
+            "action": payload.get("action"),
+            "previous_state": payload.get("previous_state"),
+            "state": payload.get("state"),
+            "knowledge_version": payload.get("knowledge_version"),
+            "reason_present": bool(payload.get("reason_present")),
+        }
+    return None
+
+
 def record_outcome_service(
     runtime: Any,
     *,
@@ -1397,6 +1423,10 @@ def knowledge_asset_detail_service(
         ),
         "has_source_trace": persisted_trace is not None,
         "lifecycle_event_count": _knowledge_asset_lifecycle_event_count(
+            persisted_trace,
+            asset_id=target.asset_id,
+        ),
+        "latest_lifecycle_event": _knowledge_asset_latest_lifecycle_event_summary(
             persisted_trace,
             asset_id=target.asset_id,
         ),

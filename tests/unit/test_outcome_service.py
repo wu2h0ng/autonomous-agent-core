@@ -1329,6 +1329,19 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
         self.assertEqual(detail["knowledge_version"], before_version)
         self.assertTrue(detail["has_source_trace"])
         self.assertEqual(detail["lifecycle_event_count"], 2)
+        self.assertEqual(
+            detail["latest_lifecycle_event"],
+            {
+                "trace_id": trace_id,
+                "step": "knowledge_publish_decision",
+                "asset_id": asset.asset_id,
+                "action": "publish",
+                "previous_state": "active",
+                "state": "published",
+                "knowledge_version": before_version,
+                "reason_present": True,
+            },
+        )
         self.assertEqual(detail["proposal_usage_count"], 0)
         self.assertEqual(detail["correction_usage_count"], 0)
         self.assertEqual(detail["outcome_correction_count"], 0)
@@ -1339,6 +1352,7 @@ class KnowledgeAssetDetailServiceTest(unittest.TestCase):
         self.assertEqual(detail["recommended_review_action"], "review_or_reject")
         self.assertEqual(detail["review_rationale_codes"], ["unused_context_candidate"])
         self.assertNotIn("events", detail)
+        self.assertNotIn("reviewer", detail["latest_lifecycle_event"])
         self.assertNotIn("reason", detail)
         self.assertNotIn("sensitive lifecycle reason", str(detail))
         self.assertNotIn("sensitive publish reason", str(detail))
