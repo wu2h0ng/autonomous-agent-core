@@ -22,3 +22,15 @@ no-narrowing 设计下预期**通过**:planner 是 advisory 排序(如 relevance
 
 ## 4. RESULT(跑后填)
 _(frozen empty until run)_
+
+## 5. RESULT(2026-07-03,`experiments/stage5_planner_sovereignty.result.json`)
+
+**总判:`PROPOSAL_FORM_ADMISSIBLE_AUTHORITY_STILL_FOUNDER_RESERVED`。SD4-shadow 签名 S1/S2 在两个 NOISY 格均**不**触发。**
+
+| cell | out A/P | single A/P | override A/P | S1 | S2 |
+|---|---|---|---|---|---|
+| DET | 1.000/1.000 | 1.000/1.000 | 0.000/0.000 | — | — |
+| NOISY-10 | 0.935/0.935 | 0.070/0.070 | 0.200/0.200 | 否 | 否 |
+| NOISY-25 | 0.850/0.850 | 0.000/0.000 | 0.120/0.120 | 否 | 否 |
+
+**诚实读法(P≡A 逐值相同,这是发现不是 bug):** no-narrowing proposal-form 的 planner 消费**同一器官信号**、产出**全候选集的同一排列**,故 loop 行为与无 planner 逐位相同——single_candidate/override/outcome 全相等。**双重结论:(1)** proposal-form + no-narrowing + disposer-between 的结构设计**不引入 SD4-shadow**(门通过);**(2) 诚实天花板**:proposal-form planning 相对现有 advisory 排序**买不到新能力**(它就是重新包装)。真正的能力增量只会来自**授权形态**——让 plan 跳过逐步重验证 / 多步一次提交——而那**正是 SD4-shadow 所在**,也正是 packet 冻结为 founder-reserved 的东西。**本 cast 交付 proposal-form 底座 + 证明其安全;planner 授权(authority-form)仍 founder-reserved,且是下一个真正的 could-fail 门。** 与 RR-0034 一致:整合不生第三轴,能力触底于器官;planning 的价值悬在被禁的 authority 形态上。
