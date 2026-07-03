@@ -1669,6 +1669,13 @@
             "title": "Asset Id",
             "type": "string"
           },
+          "knowledge_context_rationale": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeContextRationaleItem"
+            },
+            "title": "Knowledge Context Rationale",
+            "type": "array"
+          },
           "knowledge_context_refs": {
             "items": {
               "type": "string"

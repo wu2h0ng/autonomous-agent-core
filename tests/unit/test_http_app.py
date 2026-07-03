@@ -1406,6 +1406,18 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             [event["knowledge_context_refs"] for event in payload["events"]],
             [[asset_id], [asset_id]],
         )
+        self.assertEqual(payload["events"][0]["knowledge_context_rationale"], [])
+        self.assertEqual(
+            payload["events"][1]["knowledge_context_rationale"],
+            [
+                {
+                    "asset_id": asset_id,
+                    "score": 1.05,
+                    "context_quality_boost": 0.0,
+                    "reason_code": "retrieved_reviewed_context",
+                }
+            ],
+        )
         rendered = str(payload)
         self.assertNotIn("related_knowledge", rendered)
         self.assertNotIn("metric_deltas", rendered)
@@ -1417,6 +1429,17 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(page_payload["limit"], 1)
         self.assertEqual(page_payload["offset"], 1)
         self.assertEqual(page_payload["events"][0]["usage_kind"], "correction_context")
+        self.assertEqual(
+            page_payload["events"][0]["knowledge_context_rationale"],
+            [
+                {
+                    "asset_id": asset_id,
+                    "score": 1.05,
+                    "context_quality_boost": 0.0,
+                    "reason_code": "retrieved_reviewed_context",
+                }
+            ],
+        )
         self.assertEqual(invalid_limit_resp.status_code, 400, invalid_limit_resp.text)
         self.assertEqual(
             invalid_limit_resp.json()["detail"]["code"],

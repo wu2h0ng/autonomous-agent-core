@@ -2060,18 +2060,42 @@ class KnowledgeAssetUsageEventsServiceTest(unittest.TestCase):
             [event["usage_kind"] for event in result["events"]],
             ["proposal_context", "correction_context"],
         )
+        self.assertEqual(result["events"][0]["knowledge_context_rationale"], [])
+        self.assertEqual(
+            result["events"][1]["knowledge_context_rationale"],
+            [
+                {
+                    "asset_id": asset.asset_id,
+                    "score": 1.05,
+                    "context_quality_boost": 0.0,
+                    "reason_code": "retrieved_reviewed_context",
+                }
+            ],
+        )
         self.assertEqual(first_page["count"], 1)
         self.assertEqual(first_page["total_count"], 2)
         self.assertTrue(first_page["has_more"])
         self.assertEqual(first_page["limit"], 1)
         self.assertEqual(first_page["offset"], 0)
         self.assertEqual(first_page["events"][0]["usage_kind"], "proposal_context")
+        self.assertEqual(first_page["events"][0]["knowledge_context_rationale"], [])
         self.assertEqual(second_page["count"], 1)
         self.assertEqual(second_page["total_count"], 2)
         self.assertFalse(second_page["has_more"])
         self.assertEqual(second_page["limit"], 1)
         self.assertEqual(second_page["offset"], 1)
         self.assertEqual(second_page["events"][0]["usage_kind"], "correction_context")
+        self.assertEqual(
+            second_page["events"][0]["knowledge_context_rationale"],
+            [
+                {
+                    "asset_id": asset.asset_id,
+                    "score": 1.05,
+                    "context_quality_boost": 0.0,
+                    "reason_code": "retrieved_reviewed_context",
+                }
+            ],
+        )
         self.assertEqual(
             [event["step"] for event in result["events"]],
             ["action_proposal", "agent_runtime.tool_succeeded"],
@@ -2093,6 +2117,7 @@ class KnowledgeAssetUsageEventsServiceTest(unittest.TestCase):
                     "usage_kind",
                     "asset_id",
                     "knowledge_context_refs",
+                    "knowledge_context_rationale",
                     "tool_name",
                 },
             )

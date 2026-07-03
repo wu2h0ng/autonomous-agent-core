@@ -853,6 +853,19 @@ Current active ADRs:
     to `main@4f8e2fb`; post-merge `make ci` and PostgreSQL `ci-local-full`
     passed with 609 primary unittest tests OK / 4 skipped plus 12 eval OK. Not
     pushed, not released.
+- `P1-61-knowledge-usage-rationale-events.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe `knowledge_context_rationale` on
+    internal `GET /knowledge/assets/{asset_id}/usage-events` correction-context
+    events. It derives allowlisted rationale from persisted proposal/recall
+    metadata, keeps proposal-context rationale empty, and does not expand
+    catalog/latest-summary surfaces. Branch `make ci` and PostgreSQL
+    `ci-local-full` passed with 609 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not merged, pushed, or released.
+- `P1-61-knowledge-usage-rationale-events.MERGE-READINESS-20260703.md`
+  - Branch-local merge-readiness for P1-61; final ff-only linearness must be
+    rechecked immediately before local merge. Branch `make ci` and PostgreSQL
+    `ci-local-full` passed with 609 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

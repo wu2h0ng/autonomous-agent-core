@@ -1065,6 +1065,10 @@ def _knowledge_context_refs_for_trace(runtime: Any, trace_id: str) -> list[str]:
     persisted_trace = trace_store.get(trace_id) if trace_store is not None else None
     if persisted_trace is None:
         return []
+    return _knowledge_context_refs_from_trace_events(persisted_trace)
+
+
+def _knowledge_context_refs_from_trace_events(persisted_trace: RunTrace) -> list[str]:
     for event in reversed(persisted_trace.events):
         if event.step != "action_proposal":
             continue
@@ -1082,6 +1086,14 @@ def _knowledge_context_rationale_for_trace(runtime: Any, trace_id: str) -> list[
         return []
 
     refs = _knowledge_context_refs_for_trace(runtime, trace_id)
+    return _knowledge_context_rationale_for_persisted_trace(persisted_trace, refs=refs)
+
+
+def _knowledge_context_rationale_for_persisted_trace(
+    persisted_trace: RunTrace,
+    *,
+    refs: list[str],
+) -> list[dict[str, Any]]:
     if not refs:
         return []
 
@@ -1172,6 +1184,8 @@ def _knowledge_asset_usage_event_projection(
     *,
     asset_id: str,
     include_tool_name: bool,
+    include_rationale: bool = False,
+    knowledge_context_rationale: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     payload = event.payload
     refs = payload.get("knowledge_context_refs")
@@ -1199,6 +1213,10 @@ def _knowledge_asset_usage_event_projection(
         "asset_id": asset_id,
         "knowledge_context_refs": safe_refs,
     }
+    if include_rationale:
+        projected["knowledge_context_rationale"] = [
+            item for item in (knowledge_context_rationale or []) if item.get("asset_id") == asset_id
+        ]
     if include_tool_name:
         projected["tool_name"] = tool_name
     return projected
@@ -1220,6 +1238,7 @@ def _knowledge_asset_latest_usage_event_summary(
                 event,
                 asset_id=asset_id,
                 include_tool_name=False,
+                include_rationale=False,
             )
             if projected is not None:
                 latest = projected
@@ -1790,11 +1809,19 @@ def knowledge_asset_usage_events_service(
 
     projected_events: list[dict[str, Any]] = []
     for run_trace in traces:
+        trace_rationale = _knowledge_context_rationale_for_persisted_trace(
+            run_trace,
+            refs=_knowledge_context_refs_from_trace_events(run_trace),
+        )
         for event in run_trace.events:
             projected = _knowledge_asset_usage_event_projection(
                 event,
                 asset_id=asset_id,
                 include_tool_name=True,
+                include_rationale=True,
+                knowledge_context_rationale=(
+                    trace_rationale if event.step == "agent_runtime.tool_succeeded" else []
+                ),
             )
             if projected is None:
                 continue

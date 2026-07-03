@@ -666,8 +666,13 @@ class OpenApiContractTest(unittest.TestCase):
                 "usage_kind",
                 "asset_id",
                 "knowledge_context_refs",
+                "knowledge_context_rationale",
                 "tool_name",
             },
+        )
+        self.assertEqual(
+            item_schema["properties"]["knowledge_context_rationale"]["items"],
+            {"$ref": "#/components/schemas/KnowledgeContextRationaleItem"},
         )
         rendered_schema = json.dumps(item_schema)
         self.assertNotIn("related_knowledge", rendered_schema)

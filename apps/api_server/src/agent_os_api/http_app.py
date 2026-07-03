@@ -883,6 +883,7 @@ class KnowledgeAssetUsageEventItem(BaseModel):
     usage_kind: Literal["proposal_context", "correction_context"]
     asset_id: str
     knowledge_context_refs: list[str] = Field(default_factory=list)
+    knowledge_context_rationale: list[KnowledgeContextRationaleItem] = Field(default_factory=list)
     tool_name: str | None = None
 
 
