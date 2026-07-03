@@ -835,6 +835,11 @@ Current active ADRs:
     context-quality boost, and an allowlisted reason code; branch `make ci` and
     PostgreSQL `ci-local-full` passed with 608 primary unittest tests OK / 4
     skipped plus 12 eval OK. Not merged, pushed, or released.
+- `P1-60-correction-knowledge-rationale.MERGE-READINESS-20260703.md`
+  - Branch-local merge-readiness for P1-60 after fast-forward checks
+    (`main...HEAD = 0 1`) and current branch `make ci` plus PostgreSQL
+    `ci-local-full` verification at 608 primary unittest tests OK / 4 skipped
+    plus 12 eval OK. Not merged, pushed, or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
