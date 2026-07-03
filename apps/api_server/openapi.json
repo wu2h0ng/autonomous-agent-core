@@ -2254,6 +2254,30 @@
             ],
             "title": "Review Priority Filter"
           },
+          "review_rationale_code_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Review Rationale Code Counts",
+            "type": "object"
+          },
+          "review_rationale_code_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unused_context_candidate",
+                  "proposal_context_needs_outcome",
+                  "outcome_supported_context",
+                  "adoption_supported_context"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Rationale Code Filter"
+          },
           "review_state": {
             "title": "Review State",
             "type": "string"
@@ -2273,6 +2297,7 @@
           "quality_status_filter",
           "review_priority_filter",
           "recommended_review_action_filter",
+          "review_rationale_code_filter",
           "order_by",
           "limit",
           "offset",
@@ -2281,6 +2306,7 @@
           "quality_status_counts",
           "review_priority_counts",
           "recommended_review_action_counts",
+          "review_rationale_code_counts",
           "count"
         ],
         "title": "KnowledgeReviewQueueResponse",
@@ -4888,6 +4914,30 @@
                 "consider_publish"
               ],
               "title": "Recommended Review Action"
+            }
+          },
+          {
+            "description": "safe review rationale filter",
+            "in": "query",
+            "name": "review_rationale_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "safe review rationale filter",
+              "enum": [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context"
+              ],
+              "title": "Review Rationale Code"
             }
           },
           {

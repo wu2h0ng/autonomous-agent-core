@@ -80,10 +80,16 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status",
                 "review_priority",
                 "recommended_review_action",
+                "review_rationale_code",
                 "order_by",
                 "limit",
                 "offset",
             },
+        )
+        review_rationale_code_param = next(
+            parameter
+            for parameter in queue["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "review_rationale_code"
         )
         limit_param = next(
             parameter
@@ -94,6 +100,16 @@ class OpenApiContractTest(unittest.TestCase):
             parameter
             for parameter in queue["parameters"]
             if parameter["in"] == "query" and parameter["name"] == "offset"
+        )
+        self.assertFalse(review_rationale_code_param["required"])
+        self.assertEqual(
+            review_rationale_code_param["schema"]["enum"],
+            [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context",
+            ],
         )
         self.assertFalse(limit_param["required"])
         self.assertFalse(offset_param["required"])
@@ -125,10 +141,12 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status_filter",
                 "review_priority_filter",
                 "recommended_review_action_filter",
+                "review_rationale_code_filter",
                 "order_by",
                 "quality_status_counts",
                 "review_priority_counts",
                 "recommended_review_action_counts",
+                "review_rationale_code_counts",
                 "limit",
                 "offset",
                 "total_count",
@@ -158,6 +176,19 @@ class OpenApiContractTest(unittest.TestCase):
                 "monitor_for_adoption",
                 "consider_publish",
             ],
+        )
+        self.assertEqual(
+            item_schema["properties"]["review_rationale_codes"]["items"]["enum"],
+            [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context",
+            ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_rationale_code_counts"]["additionalProperties"],
+            {"type": "integer"},
         )
 
     def test_knowledge_asset_detail_contract_declares_review_state(self) -> None:

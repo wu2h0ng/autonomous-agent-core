@@ -322,6 +322,91 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             "KNOWLEDGE_REVIEW_QUEUE_INVALID_REQUEST",
         )
 
+    def test_internal_knowledge_review_queue_filters_review_rationale_code(self) -> None:
+        from agent_os_api import outcome_service
+
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        proposal_run = client.post(
+            "/runs",
+            json={
+                "question": "GMV review queue rationale proposal",
+                "parameters": RUN_BODY["parameters"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(proposal_run.status_code, 200, proposal_run.text)
+        proposal_asset_id = proposal_run.json()["knowledge_asset_id"]
+        unused_run = client.post(
+            "/runs",
+            json={
+                "question": "GMV review queue rationale unused",
+                "parameters": {**RUN_BODY["parameters"], "limit": 35},
+            },
+            headers=headers,
+        )
+        self.assertEqual(unused_run.status_code, 200, unused_run.text)
+
+        usage_run = client.post(
+            "/runs",
+            json={
+                "question": "GMV review queue rationale usage",
+                "parameters": {**RUN_BODY["parameters"], "limit": 40},
+            },
+            headers=headers,
+        )
+        self.assertEqual(usage_run.status_code, 200, usage_run.text)
+        stored_trace = client.app.state.runtime.trace_store.get(usage_run.json()["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        client.app.state.runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=usage_run.json()["trace_id"],
+                        step="action_proposal",
+                        payload={"knowledge_context_refs": [proposal_asset_id]},
+                    ),
+                ),
+            )
+        )
+
+        rationale_resp = client.get(
+            "/knowledge/review-queue",
+            params={"review_rationale_code": "proposal_context_needs_outcome"},
+            headers=headers,
+        )
+        invalid_resp = client.get(
+            "/knowledge/review-queue",
+            params={"review_rationale_code": "raw_trace_reason"},
+            headers=headers,
+        )
+
+        self.assertEqual(rationale_resp.status_code, 200, rationale_resp.text)
+        payload = rationale_resp.json()
+        self.assertEqual(
+            payload["review_rationale_code_filter"],
+            "proposal_context_needs_outcome",
+        )
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["total_count"], 1)
+        self.assertEqual(payload["items"][0]["asset_id"], proposal_asset_id)
+        self.assertEqual(
+            payload["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 1,
+                "outcome_supported_context": 0,
+                "adoption_supported_context": 0,
+            },
+        )
+        self.assertEqual(invalid_resp.status_code, 400, invalid_resp.text)
+        self.assertEqual(
+            invalid_resp.json()["detail"]["code"],
+            "KNOWLEDGE_REVIEW_QUEUE_INVALID_REQUEST",
+        )
+
     def test_internal_knowledge_review_action_approves_candidate(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         headers = {"X-API-Key": API_KEY}

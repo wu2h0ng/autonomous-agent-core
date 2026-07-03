@@ -915,6 +915,84 @@ class KnowledgeReviewQueueServiceTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported offset"):
             knowledge_review_queue_service(runtime, offset=-1)
 
+    def test_filters_draft_candidates_by_review_rationale_code(self) -> None:
+        runtime = _build_runtime()
+        proposal_run = run_service(
+            runtime, question="GMV draft rationale proposal", parameters=RUN_PARAMS
+        )
+        proposal_asset = runtime.knowledge_store.get_by_trace(proposal_run["trace_id"])
+        self.assertIsNotNone(proposal_asset)
+        unused_run = run_service(
+            runtime, question="GMV draft rationale unused", parameters=RUN_PARAMS
+        )
+        unused_asset = runtime.knowledge_store.get_by_trace(unused_run["trace_id"])
+        self.assertIsNotNone(unused_asset)
+        usage_run = run_service(
+            runtime, question="GMV draft rationale usage", parameters=RUN_PARAMS
+        )
+        stored_trace = runtime.trace_store.get(usage_run["trace_id"])
+        self.assertIsNotNone(stored_trace)
+        runtime.trace_store.save(
+            replace(
+                stored_trace,
+                events=stored_trace.events
+                + (
+                    outcome_service.TraceEvent(
+                        trace_id=usage_run["trace_id"],
+                        step="action_proposal",
+                        payload={"knowledge_context_refs": [proposal_asset.asset_id]},
+                    ),
+                ),
+            )
+        )
+
+        proposal_rationale = knowledge_review_queue_service(
+            runtime,
+            review_rationale_code="proposal_context_needs_outcome",
+        )
+        unused_rationale = knowledge_review_queue_service(
+            runtime,
+            review_rationale_code="unused_context_candidate",
+            limit=1,
+        )
+
+        self.assertEqual(
+            proposal_rationale["review_rationale_code_filter"],
+            "proposal_context_needs_outcome",
+        )
+        self.assertEqual(proposal_rationale["count"], 1)
+        self.assertEqual(proposal_rationale["total_count"], 1)
+        self.assertEqual(proposal_rationale["items"][0]["asset_id"], proposal_asset.asset_id)
+        self.assertEqual(
+            proposal_rationale["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 1,
+                "outcome_supported_context": 0,
+                "adoption_supported_context": 0,
+            },
+        )
+        self.assertEqual(
+            unused_rationale["review_rationale_code_filter"],
+            "unused_context_candidate",
+        )
+        self.assertEqual(unused_rationale["total_count"], 2)
+        self.assertEqual(unused_rationale["count"], 1)
+        self.assertTrue(unused_rationale["has_more"])
+        self.assertEqual(
+            unused_rationale["review_rationale_code_counts"]["unused_context_candidate"],
+            1,
+        )
+        self.assertNotIn(
+            proposal_asset.asset_id, {item["asset_id"] for item in unused_rationale["items"]}
+        )
+        self.assertIn(
+            unused_asset.asset_id, {item["asset_id"] for item in unused_rationale["items"]}
+        )
+
+        with self.assertRaisesRegex(ValueError, "Unsupported review_rationale_code filter"):
+            knowledge_review_queue_service(runtime, review_rationale_code="raw_trace_reason")
+
 
 class KnowledgeReviewActionServiceTest(unittest.TestCase):
     def test_approve_marks_draft_asset_active_without_value_promotion(self) -> None:

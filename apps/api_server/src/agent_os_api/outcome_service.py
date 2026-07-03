@@ -1219,6 +1219,7 @@ def knowledge_review_queue_service(
     quality_status: str | None = None,
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
+    review_rationale_code: str | None = None,
     order_by: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
@@ -1233,6 +1234,9 @@ def knowledge_review_queue_service(
     recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
         recommended_review_action
     )
+    review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
+        review_rationale_code
+    )
     order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
@@ -1245,6 +1249,9 @@ def knowledge_review_queue_service(
         quality_status = _knowledge_asset_quality_status(quality)
         derived_review_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status]
         derived_recommended_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[quality_status]
+        derived_review_rationale_codes = list(
+            _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
+        )
         if quality_status_filter is not None and quality_status != quality_status_filter:
             continue
         if review_priority_filter is not None and derived_review_priority != review_priority_filter:
@@ -1252,6 +1259,11 @@ def knowledge_review_queue_service(
         if (
             recommended_review_action_filter is not None
             and derived_recommended_action != recommended_review_action_filter
+        ):
+            continue
+        if (
+            review_rationale_code_filter is not None
+            and review_rationale_code_filter not in derived_review_rationale_codes
         ):
             continue
         items.append(
@@ -1281,9 +1293,7 @@ def knowledge_review_queue_service(
                 "quality_status": quality_status,
                 "review_priority": derived_review_priority,
                 "recommended_review_action": derived_recommended_action,
-                "review_rationale_codes": list(
-                    _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
-                ),
+                "review_rationale_codes": derived_review_rationale_codes,
             }
         )
 
@@ -1308,6 +1318,7 @@ def knowledge_review_queue_service(
         "quality_status_filter": quality_status_filter,
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
+        "review_rationale_code_filter": review_rationale_code_filter,
         "order_by": order_by_filter,
         "limit": limit_filter,
         "offset": offset_filter,
@@ -1337,6 +1348,9 @@ def knowledge_review_queue_service(
                 "monitor_for_adoption",
                 "consider_publish",
             ],
+        ),
+        "review_rationale_code_counts": _knowledge_asset_quality_summary_rationale_counts(
+            page_items
         ),
         "count": len(page_items),
         "items": page_items,
