@@ -436,6 +436,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             {item["recommended_review_action"] for item in action_payload["items"]},
             {"monitor_for_adoption"},
         )
+        self.assertEqual(
+            action_payload["recommended_review_action_counts"],
+            {
+                "review_or_reject": 0,
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": action_payload["count"],
+                "consider_publish": 0,
+            },
+        )
         self.assertEqual(invalid_priority.status_code, 400, invalid_priority.text)
         self.assertEqual(
             invalid_priority.json()["detail"]["code"],

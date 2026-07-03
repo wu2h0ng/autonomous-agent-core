@@ -210,6 +210,14 @@ class OpenApiContractTest(unittest.TestCase):
                 "adoption_supported_context",
             ],
         )
+        response_schema = spec["components"]["schemas"]["KnowledgeAssetCatalogResponse"]
+        self.assertIn("recommended_review_action_counts", response_schema["required"])
+        self.assertEqual(
+            response_schema["properties"]["recommended_review_action_counts"][
+                "additionalProperties"
+            ],
+            {"type": "integer"},
+        )
 
     def test_approval_execution_contract_is_declared(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))

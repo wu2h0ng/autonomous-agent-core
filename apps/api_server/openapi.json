@@ -733,6 +733,13 @@
             "title": "Items",
             "type": "array"
           },
+          "recommended_review_action_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Recommended Review Action Counts",
+            "type": "object"
+          },
           "recommended_review_action_filter": {
             "anyOf": [
               {
@@ -794,7 +801,8 @@
           "review_priority_filter",
           "recommended_review_action_filter",
           "review_rationale_code_filter",
-          "count"
+          "count",
+          "recommended_review_action_counts"
         ],
         "title": "KnowledgeAssetCatalogResponse",
         "type": "object"

@@ -1239,6 +1239,16 @@ def knowledge_asset_catalog_service(
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
         "review_rationale_code_filter": review_rationale_code_filter,
+        "recommended_review_action_counts": _knowledge_asset_quality_summary_counts(
+            items,
+            field="recommended_review_action",
+            allowed_values=[
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        ),
         "count": len(items),
         "items": items,
     }

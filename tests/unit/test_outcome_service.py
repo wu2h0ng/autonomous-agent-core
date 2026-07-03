@@ -1061,6 +1061,15 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             {item["recommended_review_action"] for item in monitor_for_adoption["items"]},
             {"monitor_for_adoption"},
         )
+        self.assertEqual(
+            monitor_for_adoption["recommended_review_action_counts"],
+            {
+                "review_or_reject": 0,
+                "collect_outcome_feedback": 0,
+                "monitor_for_adoption": monitor_for_adoption["count"],
+                "consider_publish": 0,
+            },
+        )
         self.assertNotIn("usage_trace_ids", medium_priority["items"][0])
 
         with self.assertRaisesRegex(ValueError, "Unsupported review_priority filter"):
