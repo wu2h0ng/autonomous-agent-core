@@ -639,6 +639,32 @@ class KnowledgeAssetCatalogItem(BaseModel):
     outcome: str | None = None
     result_weight: float
     knowledge_version: int
+    proposal_usage_count: int
+    correction_usage_count: int
+    outcome_correction_count: int
+    adoption_correction_count: int
+    distinct_usage_trace_count: int
+    quality_status: Literal[
+        "unused",
+        "proposal_only",
+        "outcome_observed",
+        "adoption_observed",
+    ]
+    review_priority: Literal["high", "medium", "low"]
+    recommended_review_action: Literal[
+        "review_or_reject",
+        "collect_outcome_feedback",
+        "monitor_for_adoption",
+        "consider_publish",
+    ]
+    review_rationale_codes: list[
+        Literal[
+            "unused_context_candidate",
+            "proposal_context_needs_outcome",
+            "outcome_supported_context",
+            "adoption_supported_context",
+        ]
+    ]
 
 
 class KnowledgeAssetCatalogResponse(BaseModel):

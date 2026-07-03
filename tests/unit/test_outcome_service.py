@@ -930,6 +930,17 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             {item["knowledge_version"] for item in default_catalog["items"]},
             {2, 3},
         )
+        for item in default_catalog["items"]:
+            self.assertEqual(item["proposal_usage_count"], 0)
+            self.assertEqual(item["correction_usage_count"], 0)
+            self.assertEqual(item["outcome_correction_count"], 0)
+            self.assertEqual(item["adoption_correction_count"], 0)
+            self.assertEqual(item["distinct_usage_trace_count"], 0)
+            self.assertEqual(item["quality_status"], "unused")
+            self.assertEqual(item["review_priority"], "high")
+            self.assertEqual(item["recommended_review_action"], "review_or_reject")
+            self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            self.assertNotIn("usage_trace_ids", item)
 
         all_catalog = outcome_service.knowledge_asset_catalog_service(
             runtime, lifecycle_state="all"

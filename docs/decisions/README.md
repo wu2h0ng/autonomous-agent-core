@@ -392,6 +392,14 @@ Current active ADRs:
     (`ancestor=0`, `0 7`), both worktrees only had untracked `.agent_runs/`,
     and branch-local `make ci` plus PostgreSQL `ci-local-full` evidence is
     recorded. Not merge authorization, not pushed, not released.
+- `P1-33-knowledge-catalog-review-state.IMPLEMENTATION-20260703.md`
+  - Branch-local implementation of safe review-state fields on internal
+    `GET /knowledge/assets` catalog items. The route now includes aggregate
+    usage counts, quality status, review priority, recommended review action,
+    and allowlisted rationale codes without exposing raw usage trace ids.
+    Branch-local `make ci` plus PostgreSQL `ci-local-full` passed with 592
+    primary unittest tests OK / 4 skipped plus 12 eval OK. Not merged, pushed,
+    or released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

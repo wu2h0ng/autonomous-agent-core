@@ -295,6 +295,17 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         )
         self.assertEqual({item["state"] for item in payload["items"]}, {"active", "published"})
         self.assertEqual({item["knowledge_version"] for item in payload["items"]}, {2, 3})
+        for item in payload["items"]:
+            self.assertEqual(item["proposal_usage_count"], 0)
+            self.assertEqual(item["correction_usage_count"], 0)
+            self.assertEqual(item["outcome_correction_count"], 0)
+            self.assertEqual(item["adoption_correction_count"], 0)
+            self.assertEqual(item["distinct_usage_trace_count"], 0)
+            self.assertEqual(item["quality_status"], "unused")
+            self.assertEqual(item["review_priority"], "high")
+            self.assertEqual(item["recommended_review_action"], "review_or_reject")
+            self.assertEqual(item["review_rationale_codes"], ["unused_context_candidate"])
+            self.assertNotIn("usage_trace_ids", item)
 
         all_resp = client.get("/knowledge/assets", params={"state": "all"}, headers=headers)
         self.assertEqual(all_resp.status_code, 200, all_resp.text)
