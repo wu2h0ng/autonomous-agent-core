@@ -1142,6 +1142,23 @@
             ],
             "title": "Review Priority Filter"
           },
+          "review_rationale_code_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "unused_context_candidate",
+                  "proposal_context_needs_outcome",
+                  "outcome_supported_context",
+                  "adoption_supported_context"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Rationale Code Filter"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -1156,6 +1173,7 @@
           "quality_status_filter",
           "review_priority_filter",
           "recommended_review_action_filter",
+          "review_rationale_code_filter",
           "order_by",
           "limit",
           "offset",
@@ -3347,6 +3365,30 @@
                 "consider_publish"
               ],
               "title": "Recommended Review Action"
+            }
+          },
+          {
+            "description": "optional review rationale code filter",
+            "in": "query",
+            "name": "review_rationale_code",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "optional review rationale code filter",
+              "enum": [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context"
+              ],
+              "title": "Review Rationale Code"
             }
           },
           {

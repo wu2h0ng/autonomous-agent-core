@@ -1464,6 +1464,10 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             runtime,
             review_priority="medium",
         )
+        outcome_rationale = outcome_service.knowledge_asset_quality_summary_service(
+            runtime,
+            review_rationale_code="outcome_supported_context",
+        )
         review_or_reject = outcome_service.knowledge_asset_quality_summary_service(
             runtime,
             recommended_review_action="review_or_reject",
@@ -1492,6 +1496,20 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
         self.assertEqual(
             medium_priority["review_priority_counts"],
             {"high": 0, "medium": medium_priority["count"], "low": 0},
+        )
+        self.assertEqual(
+            outcome_rationale["review_rationale_code_filter"],
+            "outcome_supported_context",
+        )
+        self.assertEqual(outcome_rationale["count"], 1)
+        self.assertEqual(outcome_rationale["items"][0]["asset_id"], active_asset.asset_id)
+        self.assertEqual(
+            {
+                code
+                for item in outcome_rationale["items"]
+                for code in item["review_rationale_codes"]
+            },
+            {"outcome_supported_context"},
         )
         self.assertEqual(
             review_or_reject["recommended_review_action_filter"],
@@ -1529,6 +1547,11 @@ class KnowledgeAssetQualitySummaryServiceTest(unittest.TestCase):
             outcome_service.knowledge_asset_quality_summary_service(
                 runtime,
                 recommended_review_action="auto_publish",
+            )
+        with self.assertRaises(ValueError):
+            outcome_service.knowledge_asset_quality_summary_service(
+                runtime,
+                review_rationale_code="raw_trace_reason",
             )
 
     def test_quality_catalog_orders_review_queue_by_priority(self) -> None:

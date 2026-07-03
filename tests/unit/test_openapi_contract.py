@@ -210,6 +210,11 @@ class OpenApiContractTest(unittest.TestCase):
             for parameter in summary["parameters"]
             if parameter["in"] == "query" and parameter["name"] == "recommended_review_action"
         )
+        review_rationale_code_param = next(
+            parameter
+            for parameter in summary["parameters"]
+            if parameter["in"] == "query" and parameter["name"] == "review_rationale_code"
+        )
         order_by_param = next(
             parameter
             for parameter in summary["parameters"]
@@ -227,6 +232,7 @@ class OpenApiContractTest(unittest.TestCase):
         )
         self.assertFalse(review_priority_param["required"])
         self.assertFalse(recommended_action_param["required"])
+        self.assertFalse(review_rationale_code_param["required"])
         self.assertFalse(order_by_param["required"])
         self.assertFalse(limit_param["required"])
         self.assertFalse(offset_param["required"])
@@ -238,6 +244,15 @@ class OpenApiContractTest(unittest.TestCase):
                 "collect_outcome_feedback",
                 "monitor_for_adoption",
                 "consider_publish",
+            ],
+        )
+        self.assertEqual(
+            review_rationale_code_param["schema"]["enum"],
+            [
+                "unused_context_candidate",
+                "proposal_context_needs_outcome",
+                "outcome_supported_context",
+                "adoption_supported_context",
             ],
         )
         self.assertEqual(order_by_param["schema"]["enum"], ["review_priority"])
@@ -259,6 +274,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "quality_status_filter",
                 "review_priority_filter",
                 "recommended_review_action_filter",
+                "review_rationale_code_filter",
                 "order_by",
                 "quality_status_counts",
                 "review_priority_counts",
@@ -300,6 +316,21 @@ class OpenApiContractTest(unittest.TestCase):
                         "collect_outcome_feedback",
                         "monitor_for_adoption",
                         "consider_publish",
+                    ],
+                    "type": "string",
+                },
+                {"type": "null"},
+            ],
+        )
+        self.assertEqual(
+            response_schema["properties"]["review_rationale_code_filter"]["anyOf"],
+            [
+                {
+                    "enum": [
+                        "unused_context_candidate",
+                        "proposal_context_needs_outcome",
+                        "outcome_supported_context",
+                        "adoption_supported_context",
                     ],
                     "type": "string",
                 },

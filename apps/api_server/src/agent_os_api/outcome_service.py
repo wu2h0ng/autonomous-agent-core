@@ -1468,6 +1468,9 @@ _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS = {
 
 _KNOWLEDGE_ASSET_REVIEW_PRIORITIES = set(_KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS.values())
 _KNOWLEDGE_ASSET_RECOMMENDED_ACTIONS = set(_KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS.values())
+_KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES = {
+    code for codes in _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS.values() for code in codes
+}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_ORDER_BY = {"review_priority"}
 _KNOWLEDGE_ASSET_QUALITY_SUMMARY_MAX_LIMIT = 100
 _KNOWLEDGE_ASSET_REVIEW_PRIORITY_ORDER = {
@@ -1510,6 +1513,20 @@ def _normalize_knowledge_asset_recommended_action_filter(
         raise ValueError(
             "Unsupported recommended_review_action filter: "
             f"{recommended_review_action}. Allowed: {allowed}"
+        )
+    return normalized
+
+
+def _normalize_knowledge_asset_review_rationale_code_filter(
+    review_rationale_code: str | None,
+) -> str | None:
+    if review_rationale_code is None:
+        return None
+    normalized = review_rationale_code.strip().lower()
+    if normalized not in _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES:
+        allowed = ", ".join(sorted(_KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES))
+        raise ValueError(
+            f"Unsupported review_rationale_code filter: {review_rationale_code}. Allowed: {allowed}"
         )
     return normalized
 
@@ -1561,6 +1578,7 @@ def knowledge_asset_quality_summary_service(
     quality_status: str | None = None,
     review_priority: str | None = None,
     recommended_review_action: str | None = None,
+    review_rationale_code: str | None = None,
     order_by: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
@@ -1570,6 +1588,9 @@ def knowledge_asset_quality_summary_service(
     review_priority_filter = _normalize_knowledge_asset_review_priority_filter(review_priority)
     recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
         recommended_review_action
+    )
+    review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
+        review_rationale_code
     )
     order_by_filter = _normalize_knowledge_asset_quality_summary_order_by(order_by)
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
@@ -1588,6 +1609,11 @@ def knowledge_asset_quality_summary_service(
         if (
             recommended_review_action_filter is not None
             and derived_action != recommended_review_action_filter
+        ):
+            continue
+        if (
+            review_rationale_code_filter is not None
+            and review_rationale_code_filter not in rationale_codes
         ):
             continue
         items.append(
@@ -1625,6 +1651,7 @@ def knowledge_asset_quality_summary_service(
         "quality_status_filter": quality_status_filter,
         "review_priority_filter": review_priority_filter,
         "recommended_review_action_filter": recommended_review_action_filter,
+        "review_rationale_code_filter": review_rationale_code_filter,
         "order_by": order_by_filter,
         "limit": limit_filter,
         "offset": offset_filter,

@@ -82,6 +82,12 @@ KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES = [
     "monitor_for_adoption",
     "consider_publish",
 ]
+KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES = [
+    "unused_context_candidate",
+    "proposal_context_needs_outcome",
+    "outcome_supported_context",
+    "adoption_supported_context",
+]
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
@@ -751,6 +757,15 @@ class KnowledgeAssetQualitySummaryResponse(BaseModel):
             "collect_outcome_feedback",
             "monitor_for_adoption",
             "consider_publish",
+        ]
+        | None
+    )
+    review_rationale_code_filter: (
+        Literal[
+            "unused_context_candidate",
+            "proposal_context_needs_outcome",
+            "outcome_supported_context",
+            "adoption_supported_context",
         ]
         | None
     )
@@ -1547,6 +1562,11 @@ def create_app(
             description="optional recommended review action filter",
             json_schema_extra={"enum": KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES},
         ),
+        review_rationale_code: str | None = Query(
+            default=None,
+            description="optional review rationale code filter",
+            json_schema_extra={"enum": KNOWLEDGE_REVIEW_RATIONALE_CODE_VALUES},
+        ),
         order_by: str | None = Query(
             default=None,
             description="optional deterministic quality summary ordering",
@@ -1570,6 +1590,7 @@ def create_app(
                 quality_status=quality_status,
                 review_priority=review_priority,
                 recommended_review_action=recommended_review_action,
+                review_rationale_code=review_rationale_code,
                 order_by=order_by,
                 limit=limit,
                 offset=offset,

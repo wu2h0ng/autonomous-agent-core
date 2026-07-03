@@ -772,6 +772,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"review_priority": "medium"},
             headers=headers,
         )
+        outcome_rationale_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"review_rationale_code": "outcome_supported_context"},
+            headers=headers,
+        )
         review_or_reject_summary = client.get(
             "/knowledge/assets/quality-summary",
             params={"recommended_review_action": "review_or_reject"},
@@ -795,6 +800,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         invalid_action_summary = client.get(
             "/knowledge/assets/quality-summary",
             params={"recommended_review_action": "auto_publish"},
+            headers=headers,
+        )
+        invalid_rationale_summary = client.get(
+            "/knowledge/assets/quality-summary",
+            params={"review_rationale_code": "raw_trace_reason"},
             headers=headers,
         )
         invalid_order_summary = client.get(
@@ -840,6 +850,22 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(
             medium_payload["review_priority_counts"],
             {"high": 0, "medium": medium_payload["count"], "low": 0},
+        )
+        self.assertEqual(outcome_rationale_summary.status_code, 200, outcome_rationale_summary.text)
+        rationale_payload = outcome_rationale_summary.json()
+        self.assertEqual(
+            rationale_payload["review_rationale_code_filter"],
+            "outcome_supported_context",
+        )
+        self.assertEqual(rationale_payload["count"], 1)
+        self.assertEqual(rationale_payload["items"][0]["asset_id"], active_asset_id)
+        self.assertEqual(
+            {
+                code
+                for item in rationale_payload["items"]
+                for code in item["review_rationale_codes"]
+            },
+            {"outcome_supported_context"},
         )
         self.assertEqual(review_or_reject_summary.status_code, 200, review_or_reject_summary.text)
         action_payload = review_or_reject_summary.json()
@@ -887,6 +913,11 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(invalid_action_summary.status_code, 400, invalid_action_summary.text)
         self.assertEqual(
             invalid_action_summary.json()["detail"]["code"],
+            "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_rationale_summary.status_code, 400, invalid_rationale_summary.text)
+        self.assertEqual(
+            invalid_rationale_summary.json()["detail"]["code"],
             "KNOWLEDGE_QUALITY_SUMMARY_INVALID_REQUEST",
         )
         self.assertEqual(invalid_order_summary.status_code, 400, invalid_order_summary.text)
