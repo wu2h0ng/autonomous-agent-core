@@ -758,6 +758,10 @@ Current active ADRs:
     `main...HEAD` is `0 1`, the latest focused review-queue/OpenAPI regression
     set passed, and only `.agent_runs/` remains untracked. Not merged, pushed,
     or released.
+- `P1-55-knowledge-review-queue-triage-fields.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-55 after cautious ff-only merge
+    to `main@1b24d36`; `make ci` and PostgreSQL `ci-local-full` passed. Not
+    pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
