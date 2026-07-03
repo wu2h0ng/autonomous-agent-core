@@ -880,6 +880,12 @@ Current active ADRs:
     local-main post-merge verified is the claim ceiling; push and release are
     separate gates requiring an aggregate release packet plus explicit
     founder/CTO authorization.
+- `PR-09-deployment-local-main-aggregate-release-packet-20260703.md`
+  - Aggregate authorization packet for the current deployment local mainline.
+    Current packet head is `f27fd99`, latest code-bearing product head is
+    `55da9a7`, `origin/main` remains `dba87bc`, and the repo is now ahead by
+    173 commits. The packet asks for an explicit founder/CTO push decision and
+    keeps release as a separate post-push gate.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
