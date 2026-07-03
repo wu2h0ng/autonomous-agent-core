@@ -1148,6 +1148,7 @@ def knowledge_asset_catalog_service(
     *,
     lifecycle_state: str | None = None,
     review_priority: str | None = None,
+    recommended_review_action: str | None = None,
     review_rationale_code: str | None = None,
 ) -> dict[str, Any]:
     """Return an internal, read-only KnowledgeAsset lifecycle catalog.
@@ -1174,6 +1175,9 @@ def knowledge_asset_catalog_service(
         catalog_state = requested.value
 
     review_priority_filter = _normalize_knowledge_asset_review_priority_filter(review_priority)
+    recommended_review_action_filter = _normalize_knowledge_asset_recommended_action_filter(
+        recommended_review_action
+    )
     review_rationale_code_filter = _normalize_knowledge_asset_review_rationale_code_filter(
         review_rationale_code
     )
@@ -1186,10 +1190,16 @@ def knowledge_asset_catalog_service(
         quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
         quality_status = _knowledge_asset_quality_status(quality)
         derived_review_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status]
+        derived_recommended_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[quality_status]
         derived_review_rationale_codes = list(
             _KNOWLEDGE_ASSET_REVIEW_RATIONALE_CODES_BY_STATUS[quality_status]
         )
         if review_priority_filter is not None and derived_review_priority != review_priority_filter:
+            continue
+        if (
+            recommended_review_action_filter is not None
+            and derived_recommended_action != recommended_review_action_filter
+        ):
             continue
         if (
             review_rationale_code_filter is not None
@@ -1218,9 +1228,7 @@ def knowledge_asset_catalog_service(
                 "distinct_usage_trace_count": quality["distinct_usage_trace_count"],
                 "quality_status": quality_status,
                 "review_priority": derived_review_priority,
-                "recommended_review_action": _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[
-                    quality_status
-                ],
+                "recommended_review_action": derived_recommended_action,
                 "review_rationale_codes": derived_review_rationale_codes,
             }
         )
@@ -1229,6 +1237,7 @@ def knowledge_asset_catalog_service(
         "status": "ok",
         "catalog_state": catalog_state,
         "review_priority_filter": review_priority_filter,
+        "recommended_review_action_filter": recommended_review_action_filter,
         "review_rationale_code_filter": review_rationale_code_filter,
         "count": len(items),
         "items": items,

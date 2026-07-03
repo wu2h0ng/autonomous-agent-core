@@ -1020,6 +1020,10 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             runtime,
             review_rationale_code="outcome_supported_context",
         )
+        monitor_for_adoption = outcome_service.knowledge_asset_catalog_service(
+            runtime,
+            recommended_review_action="monitor_for_adoption",
+        )
 
         self.assertEqual(medium_priority["review_priority_filter"], "medium")
         self.assertGreaterEqual(medium_priority["count"], 1)
@@ -1045,10 +1049,27 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             },
             {"outcome_supported_context"},
         )
+        self.assertEqual(
+            monitor_for_adoption["recommended_review_action_filter"],
+            "monitor_for_adoption",
+        )
+        self.assertIn(
+            active_asset.asset_id,
+            [item["asset_id"] for item in monitor_for_adoption["items"]],
+        )
+        self.assertEqual(
+            {item["recommended_review_action"] for item in monitor_for_adoption["items"]},
+            {"monitor_for_adoption"},
+        )
         self.assertNotIn("usage_trace_ids", medium_priority["items"][0])
 
         with self.assertRaisesRegex(ValueError, "Unsupported review_priority filter"):
             outcome_service.knowledge_asset_catalog_service(runtime, review_priority="urgent")
+        with self.assertRaisesRegex(ValueError, "Unsupported recommended_review_action filter"):
+            outcome_service.knowledge_asset_catalog_service(
+                runtime,
+                recommended_review_action="auto_publish",
+            )
         with self.assertRaisesRegex(ValueError, "Unsupported review_rationale_code filter"):
             outcome_service.knowledge_asset_catalog_service(
                 runtime,

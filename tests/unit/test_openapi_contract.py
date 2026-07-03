@@ -134,14 +134,29 @@ class OpenApiContractTest(unittest.TestCase):
             for parameter in catalog_params
             if parameter["in"] == "query" and parameter["name"] == "review_priority"
         )
+        recommended_review_action_param = next(
+            parameter
+            for parameter in catalog_params
+            if parameter["in"] == "query" and parameter["name"] == "recommended_review_action"
+        )
         review_rationale_code_param = next(
             parameter
             for parameter in catalog_params
             if parameter["in"] == "query" and parameter["name"] == "review_rationale_code"
         )
         self.assertFalse(review_priority_param["required"])
+        self.assertFalse(recommended_review_action_param["required"])
         self.assertFalse(review_rationale_code_param["required"])
         self.assertEqual(review_priority_param["schema"]["enum"], ["high", "medium", "low"])
+        self.assertEqual(
+            recommended_review_action_param["schema"]["enum"],
+            [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish",
+            ],
+        )
         self.assertEqual(
             review_rationale_code_param["schema"]["enum"],
             [

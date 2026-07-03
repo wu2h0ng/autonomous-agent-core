@@ -671,6 +671,15 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     status: str
     catalog_state: str
     review_priority_filter: Literal["high", "medium", "low"] | None
+    recommended_review_action_filter: (
+        Literal[
+            "review_or_reject",
+            "collect_outcome_feedback",
+            "monitor_for_adoption",
+            "consider_publish",
+        ]
+        | None
+    )
     review_rationale_code_filter: (
         Literal[
             "unused_context_candidate",
@@ -1596,6 +1605,11 @@ def create_app(
             description="safe review priority filter: high|medium|low",
             enum=KNOWLEDGE_REVIEW_PRIORITY_VALUES,
         ),
+        recommended_review_action: str | None = Query(
+            default=None,
+            description="safe recommended review action filter",
+            enum=KNOWLEDGE_RECOMMENDED_REVIEW_ACTION_VALUES,
+        ),
         review_rationale_code: str | None = Query(
             default=None,
             description="safe review rationale filter",
@@ -1608,6 +1622,7 @@ def create_app(
                 app.state.runtime,
                 lifecycle_state=state,
                 review_priority=review_priority,
+                recommended_review_action=recommended_review_action,
                 review_rationale_code=review_rationale_code,
             )
         except ValueError as exc:

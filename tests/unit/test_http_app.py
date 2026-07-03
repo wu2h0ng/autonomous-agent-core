@@ -382,9 +382,19 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             params={"review_rationale_code": "outcome_supported_context"},
             headers=headers,
         )
+        action_catalog = client.get(
+            "/knowledge/assets",
+            params={"recommended_review_action": "monitor_for_adoption"},
+            headers=headers,
+        )
         invalid_priority = client.get(
             "/knowledge/assets",
             params={"review_priority": "urgent"},
+            headers=headers,
+        )
+        invalid_action = client.get(
+            "/knowledge/assets",
+            params={"recommended_review_action": "auto_publish"},
             headers=headers,
         )
         invalid_rationale = client.get(
@@ -418,9 +428,22 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             },
             {"outcome_supported_context"},
         )
+        self.assertEqual(action_catalog.status_code, 200, action_catalog.text)
+        action_payload = action_catalog.json()
+        self.assertEqual(action_payload["recommended_review_action_filter"], "monitor_for_adoption")
+        self.assertIn(active_asset_id, [item["asset_id"] for item in action_payload["items"]])
+        self.assertEqual(
+            {item["recommended_review_action"] for item in action_payload["items"]},
+            {"monitor_for_adoption"},
+        )
         self.assertEqual(invalid_priority.status_code, 400, invalid_priority.text)
         self.assertEqual(
             invalid_priority.json()["detail"]["code"],
+            "KNOWLEDGE_CATALOG_INVALID_REQUEST",
+        )
+        self.assertEqual(invalid_action.status_code, 400, invalid_action.text)
+        self.assertEqual(
+            invalid_action.json()["detail"]["code"],
             "KNOWLEDGE_CATALOG_INVALID_REQUEST",
         )
         self.assertEqual(invalid_rationale.status_code, 400, invalid_rationale.text)

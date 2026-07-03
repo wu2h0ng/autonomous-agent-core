@@ -733,6 +733,23 @@
             "title": "Items",
             "type": "array"
           },
+          "recommended_review_action_filter": {
+            "anyOf": [
+              {
+                "enum": [
+                  "review_or_reject",
+                  "collect_outcome_feedback",
+                  "monitor_for_adoption",
+                  "consider_publish"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Review Action Filter"
+          },
           "review_priority_filter": {
             "anyOf": [
               {
@@ -775,6 +792,7 @@
           "status",
           "catalog_state",
           "review_priority_filter",
+          "recommended_review_action_filter",
           "review_rationale_code_filter",
           "count"
         ],
@@ -3456,6 +3474,30 @@
                 "low"
               ],
               "title": "Review Priority"
+            }
+          },
+          {
+            "description": "safe recommended review action filter",
+            "in": "query",
+            "name": "recommended_review_action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "safe recommended review action filter",
+              "enum": [
+                "review_or_reject",
+                "collect_outcome_feedback",
+                "monitor_for_adoption",
+                "consider_publish"
+              ],
+              "title": "Recommended Review Action"
             }
           },
           {
