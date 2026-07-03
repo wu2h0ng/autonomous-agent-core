@@ -308,7 +308,13 @@ Current active ADRs:
     now accepts `limit` and `offset`, returns `total_count` and `has_more`, and
     preserves safe page-scoped count maps. Branch-local `make ci` plus
     PostgreSQL `ci-local-full` passed with 587 primary unittest tests OK plus
-    12 eval OK. Not merged, pushed, or released.
+    12 eval OK. Later locally merged to deployment `main@d931b63`; not pushed
+    or released.
+- `P1-26-knowledge-quality-review-pagination.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-26 after founder/CTO-authorized
+    ff-only merge to `main@d931b63`; `make ci` and PostgreSQL
+    `ci-local-full` passed with 587 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
