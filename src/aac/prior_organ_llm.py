@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutureTimeout
+from typing import Any, Mapping, Optional, Protocol
 
 from .prior_organ import BeliefSnapshot, OrganAdvice
 
@@ -60,6 +61,8 @@ class LLMPriorOrgan:
 
     backend: LLMBackend
     max_abs_delta: float = 10.0  # clamp; a runaway LLM cannot blow up the belief
+    wall_clock_cap_s: float = 8.0   # S1a guard: hard per-call cap; over-cap -> typed refusal
+    last_refusal_reason: Optional[str] = None
 
     def _prompt(self, situation: Mapping[str, Any], belief: BeliefSnapshot) -> str:
         # Render a parseable prompt. Semantic envs expose a category cue + word
@@ -83,7 +86,25 @@ class LLMPriorOrgan:
     def advise(
         self, situation: Mapping[str, Any], belief_readonly: BeliefSnapshot
     ) -> OrganAdvice:
-        raw = self.backend.propose(self._prompt(situation, belief_readonly))
+        # S1a guard (RR-0037; ADR-0047 hang lesson): the organ may be slow, wrong, or dead —
+        # it may NEVER block the loop. Over-cap or raising backends degrade to a typed
+        # REFUSAL (empty delta, uncertainty 1.0, reason recorded): organ absence, not blockage.
+        self.last_refusal_reason: Optional[str] = None
+        prompt = self._prompt(situation, belief_readonly)
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            raw = pool.submit(self.backend.propose, prompt).result(
+                timeout=self.wall_clock_cap_s)
+        except _FutureTimeout:
+            # non-blocking shutdown: the stuck worker is abandoned, the LOOP moves on
+            pool.shutdown(wait=False, cancel_futures=True)
+            self.last_refusal_reason = "wall-clock cap exceeded"
+            return OrganAdvice(belief_delta={}, uncertainty=1.0)
+        except Exception as exc:  # noqa: BLE001 - organ failure must degrade, never propagate
+            pool.shutdown(wait=False, cancel_futures=True)
+            self.last_refusal_reason = f"{exc.__class__.__name__}: {exc}"
+            return OrganAdvice(belief_delta={}, uncertainty=1.0)
+        pool.shutdown(wait=False)
         # STRICT: only belief_delta + uncertainty survive; all else is discarded,
         # so no action / policy / shell channel can be smuggled through the LLM.
         delta = _safe_belief_delta(
