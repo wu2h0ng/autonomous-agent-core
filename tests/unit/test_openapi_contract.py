@@ -218,6 +218,11 @@ class OpenApiContractTest(unittest.TestCase):
             ],
             {"type": "integer"},
         )
+        self.assertIn("review_rationale_code_counts", response_schema["required"])
+        self.assertEqual(
+            response_schema["properties"]["review_rationale_code_counts"]["additionalProperties"],
+            {"type": "integer"},
+        )
 
     def test_approval_execution_contract_is_declared(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))

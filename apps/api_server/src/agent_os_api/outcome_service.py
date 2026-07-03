@@ -1249,6 +1249,7 @@ def knowledge_asset_catalog_service(
                 "consider_publish",
             ],
         ),
+        "review_rationale_code_counts": _knowledge_asset_quality_summary_rationale_counts(items),
         "count": len(items),
         "items": items,
     }

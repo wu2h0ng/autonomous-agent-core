@@ -428,6 +428,15 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             },
             {"outcome_supported_context"},
         )
+        self.assertEqual(
+            rationale_payload["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": rationale_payload["count"],
+                "adoption_supported_context": 0,
+            },
+        )
         self.assertEqual(action_catalog.status_code, 200, action_catalog.text)
         action_payload = action_catalog.json()
         self.assertEqual(action_payload["recommended_review_action_filter"], "monitor_for_adoption")

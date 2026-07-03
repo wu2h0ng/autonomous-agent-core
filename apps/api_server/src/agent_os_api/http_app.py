@@ -691,6 +691,7 @@ class KnowledgeAssetCatalogResponse(BaseModel):
     )
     count: int
     recommended_review_action_counts: dict[str, int]
+    review_rationale_code_counts: dict[str, int]
     items: list[KnowledgeAssetCatalogItem] = Field(default_factory=list)
 
 

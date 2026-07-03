@@ -1050,6 +1050,15 @@ class KnowledgeAssetCatalogServiceTest(unittest.TestCase):
             {"outcome_supported_context"},
         )
         self.assertEqual(
+            outcome_rationale["review_rationale_code_counts"],
+            {
+                "unused_context_candidate": 0,
+                "proposal_context_needs_outcome": 0,
+                "outcome_supported_context": outcome_rationale["count"],
+                "adoption_supported_context": 0,
+            },
+        )
+        self.assertEqual(
             monitor_for_adoption["recommended_review_action_filter"],
             "monitor_for_adoption",
         )
