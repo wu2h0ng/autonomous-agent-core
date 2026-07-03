@@ -522,6 +522,10 @@ Current active ADRs:
   - Merge-readiness packet for branch-local P1-40 priority counts; local
     `main` was confirmed as an ancestor and only `.agent_runs/` remained
     untracked. Not merged, pushed, or released.
+- `P1-40-knowledge-catalog-priority-counts.POST-MERGE-VERIFY-20260703.md`
+  - Local-main post-merge verification for P1-40 after cautious ff-only merge
+    to `main@f7c4f1f`; `make ci` and PostgreSQL `ci-local-full` passed. Not
+    pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
