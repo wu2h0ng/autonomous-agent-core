@@ -1,6 +1,6 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-07-03
+> Last updated: 2026-07-04
 > Status: Active handoff document
 > First read: `docs/CURRENT_STATE.yaml` -> this file -> `codebase_index.md` -> `ROADMAP.md` -> current ADRs.
 
@@ -44,7 +44,7 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 583 tests OK (13 skipped)
 ```
 
-The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The 13 skips are the intentional Temporal Options PRE_SPEC_DRAFT sentinels, not hidden failures. This is suite/gate verification only, not a Direction 1 experiment result.
+The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The 13 skips are the intentional Temporal Options PRE_SPEC_DRAFT sentinels, not hidden failures, and on 2026-07-04 the sentinel was re-hardened to self-skip before importing any local draft implementation. This is suite/gate verification only, not a Direction 1 experiment result.
 
 ## 2. Immediate Task
 

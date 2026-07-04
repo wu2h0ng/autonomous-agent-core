@@ -1,4 +1,4 @@
-updated: "2026-07-03"  # Reconciles the 2026-06-25..27 R-CSL-1-PARK / Direction-1 parent research narrative into this live state anchor and records the first tracked Direction 1 run-local exploratory artifact. R-CSL-1 is PARKED by reduction to generic structured memory before freeze/run. The current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt; no Gate-2, r-final, verdict, ADR-0037 decision, C6/C7 change, or autonomy narrative unlock follows. Direction 1 remains pre-ADR/pre-build: the tracked 30-seed run-local cheap falsifier on seeds 2400..2429 returned NO_NEW_DIRECTION_1_MECHANISM and does not authorize a new mechanism, ADR, freeze, or r-final.
+updated: "2026-07-04"  # Preserves the same P6/Direction-1/HOLD route truth while tightening evidence fidelity: the ADR-0031 historical result artifact is restored to its committed prereg hash, and Temporal Options PRE_SPEC_DRAFT tests now self-skip before importing any local draft implementation. R-CSL-1 stays PARKED by reduction to generic structured memory before freeze/run. The current VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt; no Gate-2, r-final, verdict, ADR-0037 decision, C6/C7 change, or autonomy narrative unlock follows. Direction 1 remains pre-ADR/pre-build: the tracked 30-seed run-local cheap falsifier on seeds 2400..2429 returned NO_NEW_DIRECTION_1_MECHANISM and does not authorize a new mechanism, ADR, freeze, or r-final.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "research/causal-world-model-2026-06-30"
@@ -7,7 +7,7 @@ test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
   count: 583
   result: "OK (skipped=13)"
-  source: "Full suite verified by Codex on 2026-07-03 after landing Direction 1 cheap-falsifier scaffold plus tracked exploratory artifacts, and converting Temporal Options PRE_SPEC_DRAFT contract tests into skip-only sentinels under explicit non-authorization"
+  source: "Full suite verified by Codex on 2026-07-04 after restoring the ADR-0031 historical result artifact and re-hardening Temporal Options PRE_SPEC_DRAFT contract tests so they self-skip before importing any local draft implementation"
 
 current_stage:
   label: "Direction 1 policy-side commitment-conversion cheap falsifier"
@@ -57,7 +57,8 @@ authoritative_adrs:
     - "Direction 1 is the live Track R next action: a pre-ADR/pre-build confidence-to-temperature coupling sweep against non-stationarity rate over the existing G10/P0 substrate."
     - "The first tracked Direction 1 run-local exploratory artifact is `experiments/direction1_rate_sensitivity.development.json` on seeds 2400..2429 with verdict NO_NEW_DIRECTION_1_MECHANISM; FAST and SLOW share the same best gated arm (K025), so this artifact does not earn a new mechanism, ADR, preregistration, freeze, or r-final."
     - "2026-07-04 explicit next-step decision: RESEARCH_NEXT is HOLD. Keep No Gate-2, do not authorize a new cheap falsifier packet, and do not authorize a new founder-level ADR route packet until a later explicit decision replaces this hold."
-    - "ADR-0031 worktree drift warning: committed docs still cite prereg hash `fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf`, the current worktree result artifact `experiments/prediction1_residual_calibrator.result.json` carries `806a41a4467de6478c2601d17f296de57e6b7049e136246e386f9b840c7ac665`, and current code computes `47b05e6455f542b0ee04b4d894766672272ed0cdd156a7417dac4b73438cf424`; preserve ADR-0031 as historical committed authority only and do not treat the current worktree as fresh verification until separate adjudication."
+    - "Temporal Options remains PRE_SPEC_DRAFT only: contract tests now self-skip before importing any local draft module, so stray local implementation drafts do not constitute authorized implementation, passed tests, state-doc edits, or route movement."
+    - "ADR-0031 historical result authority has been restored in `experiments/prediction1_residual_calibrator.result.json` with the committed prereg hash `fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf`; current code still computes `47b05e6455f542b0ee04b4d894766672272ed0cdd156a7417dac4b73438cf424`, so preserve ADR-0031 as historical committed authority only and do not treat the current code/worktree as fresh verification until separate adjudication."
     - "Parent research read-out for the isolated SD4 VAL-DISENT-1 kill-test records negative H1 evidence (N_SHADOW, N_STAKE_FREE_RIDE, N_DECEPTION_MI) and keeps ADR-0037 OPEN / founder-reserved; do not rerun, reseed, retune, or reinterpret that packet without a new founder ADR and fresh seeds."
   published_boundary:
     - "ADR-0032 frontier intake lanes and structured-environment route"

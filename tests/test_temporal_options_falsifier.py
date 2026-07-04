@@ -1,8 +1,8 @@
 """Temporal Options falsifier contract tests.
 
 These tests are intentionally written before the implementation. They pin the
-approved Temporal Options contract and should fail until
-``experiments.temporal_options_falsifier`` exists with the required behavior.
+approved Temporal Options contract and self-skip while PRE_SPEC_DRAFT remains
+active, even if a local draft module exists.
 
 They do not select seeds, create locks, write result artifacts, run an
 experiment, or authorize any autonomy/product claim.
@@ -48,14 +48,14 @@ def temporal_options_pre_spec_blocks_tests() -> bool:
 
 
 def load_temporal_options_module():
+    if temporal_options_pre_spec_blocks_tests():
+        raise unittest.SkipTest(
+            "Temporal Options remains PRE_SPEC_DRAFT and explicitly does not "
+            "authorize tests or implementation."
+        )
     try:
         return importlib.import_module("experiments.temporal_options_falsifier")
     except ModuleNotFoundError as exc:
-        if temporal_options_pre_spec_blocks_tests():
-            raise unittest.SkipTest(
-                "Temporal Options remains PRE_SPEC_DRAFT and explicitly does not "
-                "authorize tests or implementation."
-            ) from exc
         raise AssertionError(
             "Expected experiments.temporal_options_falsifier to exist before "
             "Temporal Options tests can pass."
