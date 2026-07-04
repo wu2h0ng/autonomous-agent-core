@@ -1,0 +1,75 @@
+{
+  "experiment": "CWM-LEARN-5a",
+  "route": "multi-env augmentation + curriculum",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "learn4_anchors": {
+    "vrex3_novelA": 0.4947,
+    "erm3_novelA": 0.6229,
+    "supplied_novelA": 0.8939,
+    "oracle_novelA": 0.8813
+  },
+  "novelA_means": {
+    "direct8": 0.5074,
+    "curriculum8": 0.5217,
+    "erm8": 0.724
+  },
+  "novelC_means": {
+    "direct8": 0.4589,
+    "curriculum8": 0.5142,
+    "erm8": 0.6829
+  },
+  "per_seed_novelA": {
+    "direct8": [
+      0.5818,
+      0.4259,
+      0.533,
+      0.5128,
+      0.4923,
+      0.5029,
+      0.544,
+      0.4765,
+      0.5441,
+      0.4611
+    ],
+    "curriculum8": [
+      0.5086,
+      0.5108,
+      0.5288,
+      0.5401,
+      0.5415,
+      0.4897,
+      0.5284,
+      0.5302,
+      0.5111,
+      0.5277
+    ],
+    "erm8": [
+      0.4845,
+      0.6671,
+      0.795,
+      0.8354,
+      0.8303,
+      0.8387,
+      0.5182,
+      0.6861,
+      0.7955,
+      0.7888
+    ]
+  },
+  "best_arm": "erm8",
+  "curriculum_minus_direct": 0.0143,
+  "curriculum_sign_test": "5/10",
+  "curriculum_claim": false,
+  "verdict": "IMPROVED"
+}

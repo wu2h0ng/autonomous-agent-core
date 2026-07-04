@@ -47,6 +47,42 @@ invariance penalty; itself the industry-consistent finding worth recording). Ver
 **No-tuning pledge:** couplings, epochs, λ schedule, anchor range/counts, and bands are frozen herein; I will
 not adjust them to move a verdict after any scored output. Author ≠ adjudicator; founder casts final.
 
-## Results
+## Results (scored 2026-07-04, digests rechecked no-drift; both frozen predictions PARTIALLY WRONG — recorded)
 
-_(appended by the scored runs)_
+### 5b — mechanical verdict **ANCHORS-PARTIAL**; honest delta-reading **FLAT** (band blind spot disclosed)
+
+NOVEL-B (primary): vrex N16/64/256 = 0.499/0.410/0.489 (chance at every N); erm N16/64/256 =
+0.611/**0.678**/0.638 vs the cited N=0 erm **0.6745** → anchor delta at best N = **+0.003 ≈ 0**.
+NOVEL-A secondary: same shape (erm 0.626 at N=256 vs 0.623 at N=0). penalty_superfluous = false
+(vrex ≪ erm everywhere).
+
+- **Frozen prediction (ANCHORS-WORK by N=256) was WRONG.** Naive anchor-appending (a small do()-randomized
+  4th environment, equal env weight) delivers ~zero transfer gain on our stack — the founder-cited
+  "数量级提升" evidently requires STRUCTURED exploitation of interventional data (constraints/reweighting/
+  counterfactual regularisation), not mere appending. That is a NEW design, founder-gated; not a rerun.
+- **Band blind spot (disclosed, not repaired post-hoc):** the frozen band graded absolute level (≥0.60 →
+  PARTIAL) without referencing the N=0 anchor, so the mechanical PARTIAL reflects ERM's pre-existing 0.67,
+  not any anchor effect. Honest reading: **FLAT**. Mechanical verdict stands as frozen; adjudicator should
+  weigh the delta reading.
+
+### 5a — mechanical verdict **IMPROVED**; attribution: **diversity×ERM — NOT the penalty, NOT curriculum**
+
+NOVEL-A: direct8 0.507 / curriculum8 0.522 (both chance) / **erm8 0.724**; strict NOVEL-C: 0.459 / 0.514 /
+**0.683**. Curriculum claim FALSE (+0.014, 5/10). LEARN-4 anchors: vrex3 0.495, erm3 0.623, oracle 0.881,
+supplied 0.894.
+
+- **Frozen prediction (curriculum8 > direct8 > 0.495) was WRONG** for the invariance arms — both stayed at
+  chance. The real effect: **environment diversity improved plain ERM** by ~+0.10 (erm3 0.623 → erm8 0.724
+  on NOVEL-A; 0.683 on the strictly isolated NOVEL-C). Per-seed erm8 is bimodal (≈7/10 seeds find the
+  interaction at 0.79–0.84; ≈3/10 stay ≈0.5). The mechanical IMPROVED band triggered on best-arm erm8; the
+  apples-to-apples improvement claim is **erm3→erm8 (+0.10)**, not vs the vrex anchor.
+
+### Program-level takeaway (recommended; founder casts)
+
+1. **The V-REx penalty is now 0-for-3 on our stack** (LEARN-4; 5a both arms; 5b all N): it never helps and
+   consistently destroys signal plain ERM finds. Recommend: drop the penalty-based invariance-learning family
+   from further LEARN-5 iterations (industry-consistent; no more spend).
+2. The one learned-arm lever that moved: **diversity×ERM (+0.10 → 0.68–0.72)** — real, but still far below
+   the supplied-basis ceiling (0.89). The selection-vs-discovery boundary (RR-0040) STANDS.
+3. Naive anchors: flat. A structured-anchor design (consistency constraints on do()-samples) is the honest
+   next candidate on this route — new experiment, founder-gated.
