@@ -56,3 +56,29 @@ halt 100%. Frozen prediction: reachability 0.70-0.90 (lineage 0.375 -> 0.469 -> 
 achievement tracks it; PASS ~65%. Live risk: 2*SE underestimates deep-chain bias (SE captures variance,
 not residual bias) -> reachability lands 0.6-0.7 = honest FAIL, then the axis needs bias-aware (not just
 variance-aware) goal grounding.
+
+### E2E-3c (scored 2026-07-04): **FAIL by 0.044 — and the axis CONVERGES ON THE LAW**
+
+reachability lineage **0.375 → 0.469 → 0.656** (bar 0.70); mean band half-width 0.3585 ≈ the 0.35 floor —
+the K-fold SE was tiny because fold estimates share the identified structure and the same obs draw:
+**deep-chain BIAS is systematic and invisible to fold-to-fold variance** (the pre-named live risk fired
+verbatim). Achievement 0.3125 < reachability: the predicted-best action's true mean deviates from the
+estimate by more than the width even when SOME action could reach the band.
+
+**Terminal insight for the axis (typed-routing convergence):** three increasingly principled calibrations
+of MODEL-EXTRAPOLATED goal commitment failed (fixed band / cross-fit / variance-widened). RR-0044 predicted
+this shape from day one: goal COMMITMENT is a structure-type decision and was being routed through the
+continuous channel (extrapolation). The constitutional mechanism is discrete: **the model NOMINATES
+candidate goals; the WORLD confirms them (trial-grounded commitment); only demonstrated outcomes become
+adopted goals.** E2E-3d (next session) freezes that form — by the law it should pass, and the axis then
+closes in its honest shape: goal-formation = nominate-by-model + commit-by-demonstration, under principal
+boundary. Ledger: MISS #3 on this axis mechanically, but the pre-named risk fired exactly (risk-naming
+credit), and the law's routing prediction is now 3-for-3 on this axis.
+
+### E2E-2c pilot (2026-07-04): **arena infeasible at toy scale — recorded, not forced**
+
+No config makes discovery both expensive AND identifiable (A: 2.67 dos / id 0.17; B: 7 dos / id 0.08;
+C: 2.5 dos / id 0.33): when the verifier works discovery is cheap; when discovery is dear the verifier
+dies. The compounding-SAVING question requires qualitatively larger hypothesis spaces with many
+low-information-but-sound experiments (n>=12, MEC in the hundreds, budget 15+) — deferred to scale work.
+The staleness half of compounding STANDS demonstrated (1.000 refutation / 0.812 re-identification).
