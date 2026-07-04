@@ -1,0 +1,26 @@
+{
+  "gate": "openworld-verified-gate",
+  "n": 6,
+  "n_domains": 24,
+  "status_counts": {
+    "VERIFIED": 4,
+    "UNVERIFIED_MINIMAL": 18,
+    "UNIDENTIFIED": 2
+  },
+  "verified_singleton_correct": 4,
+  "verified_singleton_wrong": 0,
+  "action_outcomes": {
+    "ACT_correct": 4,
+    "ACT_wrong_minimality": 0,
+    "ACT_wrong_prunedtruth": 0,
+    "APPROVAL_correct": 16,
+    "APPROVAL_wrong": 2,
+    "APPROVAL_abstain": 2
+  },
+  "confidently_wrong_ACTIONS": 0,
+  "invariant_never_confidently_wrong_ACTION": true,
+  "autonomous_act_rate": 0.167,
+  "approval_gated_rate": 0.833,
+  "finding": "the seam's verified-only invariant routes every UNVERIFIED_MINIMAL pick to APPROVAL, so minimality's confidently-wrong picks NEVER drive an action (ACT_wrong_minimality should be 0). BUT a forced singleton can still be WRONG if the truth was PRUNED (ACT_wrong_prunedtruth) \u2014 the gate does NOT catch that; the never-confidently-wrong-ACTION invariant additionally requires a SOUND prune (never false-reject the truth). If ACT_wrong_prunedtruth>0, the verified/unverified gate is necessary but NOT sufficient; prune soundness (fit-bias false-rejection, the big-n finding) is the second required guard. Measured, not assumed.",
+  "verdict": "INVARIANT-HELD-AT-ACTION"
+}
