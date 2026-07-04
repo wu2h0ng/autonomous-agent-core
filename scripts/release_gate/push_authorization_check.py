@@ -15,6 +15,10 @@ AUTHORIZED_TOKEN = "DEPLOYMENT_PUSH: AUTHORIZED"
 HOLD_TOKEN = "DEPLOYMENT_PUSH: HOLD"
 
 
+def _is_full_commit_hash(value: str) -> bool:
+    return len(value) == 40 and all(char in "0123456789abcdefABCDEF" for char in value)
+
+
 def check_push_authorization(
     decision_file: Path, expected_head: str | None = None
 ) -> tuple[int, str]:
@@ -38,6 +42,11 @@ def check_push_authorization(
             return (
                 2,
                 f"{AUTHORIZED_TOKEN} - expected head required; push is not authorized.",
+            )
+        if not _is_full_commit_hash(expected_head):
+            return (
+                2,
+                f"{AUTHORIZED_TOKEN} - expected head must be a full 40-character commit hash.",
             )
         expected_line = f"candidate_head: {expected_head}"
         if expected_line not in decision_lines:

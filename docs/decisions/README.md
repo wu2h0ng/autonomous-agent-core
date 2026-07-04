@@ -900,14 +900,14 @@ Current active ADRs:
   - Local executable push authorization gate for the current HOLD decision.
     `make push-authorization-check` reads the deployment push decision record
     and fails closed while `DEPLOYMENT_PUSH: HOLD` is active; the Make target
-    binds the current short HEAD by default, future AUTHORIZED records must
-    be checked with expected head and name the matching exact-line
-    `candidate_head`; unbound AUTHORIZED, prefix-only candidate_head matches,
-    prose-only token mentions, and conflicting exact-line HOLD/AUTHORIZED
-    tokens fail closed. The target is not part of `make ci`. Focused gate tests
-    passed with 9 tests OK, the target
+    binds the full current HEAD by default, future AUTHORIZED records must
+    be checked with a full expected head and name the matching exact-line
+    `candidate_head`; unbound AUTHORIZED, short/non-hex expected heads,
+    prefix-only candidate_head matches, prose-only token mentions, and
+    conflicting exact-line HOLD/AUTHORIZED tokens fail closed. The target is
+    not part of `make ci`. Focused gate tests passed with 10 tests OK, the target
     exits 2 under HOLD, and `make ci` plus PostgreSQL `ci-local-full` passed
-    with 618 primary unittest tests OK / 4 skipped plus 12 eval OK. Not pushed,
+    with 619 primary unittest tests OK / 4 skipped plus 12 eval OK. Not pushed,
     not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

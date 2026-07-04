@@ -11,6 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release_gate" / "push_authorization_check.py"
 HOLD_DECISION = ROOT / "docs" / "decisions" / "PR-10-deployment-push-hold-decision-20260704.md"
+FULL_HEAD = "a" * 40
+OTHER_FULL_HEAD = "b" * 40
 
 
 class PushAuthorizationGateTest(unittest.TestCase):
@@ -37,7 +39,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
                     ```text
                     DEPLOYMENT_PUSH: AUTHORIZED
-                    candidate_head: abc1234
+                    candidate_head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     ```
                     """
                 ),
@@ -51,7 +53,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
                     "--decision-file",
                     str(decision_file),
                     "--expected-head",
-                    "abc1234",
+                    FULL_HEAD,
                 ],
                 cwd=ROOT,
                 text=True,
@@ -61,7 +63,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("DEPLOYMENT_PUSH: AUTHORIZED", result.stdout)
-        self.assertIn("candidate_head: abc1234", result.stdout)
+        self.assertIn(f"candidate_head: {FULL_HEAD}", result.stdout)
 
     def test_conflicting_push_decision_tokens_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -144,9 +146,9 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expected head required", result.stdout + result.stderr)
 
-    def test_authorization_can_be_bound_to_expected_head(self) -> None:
+    def test_short_expected_head_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            decision_file = Path(tmpdir) / "push-authorized.md"
+            decision_file = Path(tmpdir) / "push-short-head.md"
             decision_file.write_text(
                 textwrap.dedent(
                     """
@@ -176,10 +178,10 @@ class PushAuthorizationGateTest(unittest.TestCase):
                 check=False,
             )
 
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("candidate_head: abc1234", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("full 40-character", result.stdout + result.stderr)
 
-    def test_authorization_head_mismatch_fails_closed(self) -> None:
+    def test_authorization_can_be_bound_to_expected_head(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             decision_file = Path(tmpdir) / "push-authorized.md"
             decision_file.write_text(
@@ -189,7 +191,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
                     ```text
                     DEPLOYMENT_PUSH: AUTHORIZED
-                    candidate_head: abc1234
+                    candidate_head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     ```
                     """
                 ),
@@ -203,7 +205,42 @@ class PushAuthorizationGateTest(unittest.TestCase):
                     "--decision-file",
                     str(decision_file),
                     "--expected-head",
-                    "def5678",
+                    FULL_HEAD,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"candidate_head: {FULL_HEAD}", result.stdout)
+
+    def test_authorization_head_mismatch_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_file = Path(tmpdir) / "push-authorized.md"
+            decision_file.write_text(
+                textwrap.dedent(
+                    """
+                    # Deployment Push Decision
+
+                    ```text
+                    DEPLOYMENT_PUSH: AUTHORIZED
+                    candidate_head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                    ```
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--decision-file",
+                    str(decision_file),
+                    "--expected-head",
+                    OTHER_FULL_HEAD,
                 ],
                 cwd=ROOT,
                 text=True,
@@ -224,7 +261,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
                     ```text
                     DEPLOYMENT_PUSH: AUTHORIZED
-                    candidate_head: abc12345
+                    candidate_head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                     ```
                     """
                 ),
@@ -238,7 +275,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
                     "--decision-file",
                     str(decision_file),
                     "--expected-head",
-                    "abc1234",
+                    "a" * 39,
                 ],
                 cwd=ROOT,
                 text=True,
@@ -247,7 +284,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
             )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("candidate head mismatch", result.stdout + result.stderr)
+        self.assertIn("full 40-character", result.stdout + result.stderr)
 
     def test_makefile_exposes_push_authorization_check_outside_ci(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
@@ -255,9 +292,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertRegex(makefile, r"(?m)^push-authorization-check:")
         self.assertIn("push_authorization_check.py", makefile)
         self.assertIn("PUSH_EXPECTED_HEAD", makefile)
-        self.assertRegex(
-            makefile, r"(?m)^PUSH_EXPECTED_HEAD \?= \$\(shell git rev-parse --short HEAD"
-        )
+        self.assertRegex(makefile, r"(?m)^PUSH_EXPECTED_HEAD \?= \$\(shell git rev-parse HEAD")
         ci_line = next(line for line in makefile.splitlines() if line.startswith("ci:"))
         self.assertNotIn("push-authorization-check", ci_line)
 
