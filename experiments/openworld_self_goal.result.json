@@ -1,0 +1,16 @@
+{
+  "gate": "openworld-self-goal",
+  "n": 6,
+  "n_domains": 24,
+  "commitment_rate": 1.0,
+  "struct_correct_rate_when_committed": 0.833,
+  "achievement_DEMONSTRATED": 1.0,
+  "achievement_EXTRAPOLATED_contrast": 1.0,
+  "truth_consistency": 1.0,
+  "correctability_halt_100pct": true,
+  "demonstration_grounding_advantage": 0.0,
+  "verdict": "SELF-GOAL-INTEGRATED",
+  "contrast_verdict": "NULL-CONTRAST (both succeed; prediction not stressed in this regime)",
+  "finding": "SELF-GOAL INTEGRATION SUCCEEDS: the agent, placed in a new environment with NO handed skeleton and NO handed target, self-generates its hypothesis space, discovers the structure by its own governed interventions, FORMS ITS OWN GOAL from the discovered model, commits only to what a world TRIAL demonstrates achievable, achieves it, and a paused shell halts everything (commitment 1.0, achievement 1.0, correctable). HONEST on the contrast: demonstration vs extrapolation is NULL here (both 1.0) \u2014 the generous +-0.35 band and accurate single-do linear prediction do not stress extrapolation, so E2E-3d's demonstration-grounding ADVANTAGE does not reproduce in this easy regime. The self-formation + achievement + correctability result stands; the grounding-advantage claim requires a stressed-prediction regime (tighter band / deeper action chains) not present here \u2014 do NOT claim it from this run.",
+  "scope": "both structure AND goal self-generated in ONE governed loop at toy scale (synthetic linear-Gaussian). Still: goal drive is a fixed competence ordering (not open-ended preference), no language/perception, no real actuation. Attacks the \u81ea\u4e3b 'goals pre-specified' gap directly; the demonstration-vs-extrapolation distinction is untested here."
+}
