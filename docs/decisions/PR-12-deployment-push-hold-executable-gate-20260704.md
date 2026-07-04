@@ -22,13 +22,13 @@ The script is read-only. By default it reads:
 Behavior:
 
 - `DEPLOYMENT_PUSH: HOLD` -> non-zero exit and "push is not authorized".
-- `DEPLOYMENT_PUSH: AUTHORIZED` -> zero exit.
+- `DEPLOYMENT_PUSH: AUTHORIZED` without `--expected-head` -> non-zero exit.
+- `DEPLOYMENT_PUSH: AUTHORIZED` with `--expected-head` -> zero only when the
+  decision record also contains an exact stripped line `candidate_head: <hash>`.
 - Decision tokens are recognized only as exact stripped lines; prose-only token
   mentions do not authorize push or create ambiguity.
 - `make push-authorization-check` binds `--expected-head` to the current
   `git rev-parse --short HEAD` by default.
-- `DEPLOYMENT_PUSH: AUTHORIZED` plus an expected head -> zero only when the
-  decision record also contains an exact stripped line `candidate_head: <hash>`.
 - Authorized decision with mismatched or prefix-only `candidate_head` ->
   non-zero exit.
 - Missing decision token or conflicting HOLD/AUTHORIZED tokens -> non-zero
@@ -61,6 +61,10 @@ TDD evidence:
   exact decision-token line incorrectly authorized push.
 - FOLLOW-UP GREEN: HOLD/AUTHORIZED decisions are now recognized only as exact
   stripped lines; prose-only token mentions fail closed as UNKNOWN.
+- FOLLOW-UP RED: an exact-line AUTHORIZED decision without `--expected-head`
+  incorrectly authorized push.
+- FOLLOW-UP GREEN: AUTHORIZED now requires caller-supplied expected head and a
+  matching exact-line `candidate_head`.
 
 Commands:
 
@@ -73,7 +77,7 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 Observed results:
 
-- Focused gate tests: 8 tests OK.
+- Focused gate tests: 9 tests OK.
 - `make push-authorization-check`: exits 2 under current HOLD with
   `DEPLOYMENT_PUSH: HOLD - push is not authorized.` The command line includes
   `--expected-head <current-head>`, proving the bare Make target binds the

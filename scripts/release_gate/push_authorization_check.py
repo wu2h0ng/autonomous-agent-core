@@ -34,15 +34,18 @@ def check_push_authorization(
             "DEPLOYMENT_PUSH: UNKNOWN - ambiguous decision tokens; push is not authorized.",
         )
     if has_authorized:
-        if expected_head:
-            expected_line = f"candidate_head: {expected_head}"
-            if expected_line not in decision_lines:
-                return (
-                    2,
-                    f"{AUTHORIZED_TOKEN} - candidate head mismatch; expected {expected_line}.",
-                )
-            return 0, f"{AUTHORIZED_TOKEN} - {expected_line} - push authorization check passed."
-        return 0, f"{AUTHORIZED_TOKEN} - push authorization check passed."
+        if not expected_head:
+            return (
+                2,
+                f"{AUTHORIZED_TOKEN} - expected head required; push is not authorized.",
+            )
+        expected_line = f"candidate_head: {expected_head}"
+        if expected_line not in decision_lines:
+            return (
+                2,
+                f"{AUTHORIZED_TOKEN} - candidate head mismatch; expected {expected_line}.",
+            )
+        return 0, f"{AUTHORIZED_TOKEN} - {expected_line} - push authorization check passed."
     if has_hold:
         return 2, f"{HOLD_TOKEN} - push is not authorized."
     return (
@@ -61,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--expected-head",
-        help="Optional candidate commit hash that must be named as candidate_head.",
+        help="Candidate commit hash that an AUTHORIZED decision must name as candidate_head.",
     )
     args = parser.parse_args(argv)
 

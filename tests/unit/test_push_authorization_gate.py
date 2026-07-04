@@ -37,6 +37,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
                     ```text
                     DEPLOYMENT_PUSH: AUTHORIZED
+                    candidate_head: abc1234
                     ```
                     """
                 ),
@@ -44,7 +45,14 @@ class PushAuthorizationGateTest(unittest.TestCase):
             )
 
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), "--decision-file", str(decision_file)],
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--decision-file",
+                    str(decision_file),
+                    "--expected-head",
+                    "abc1234",
+                ],
                 cwd=ROOT,
                 text=True,
                 capture_output=True,
@@ -53,6 +61,7 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("DEPLOYMENT_PUSH: AUTHORIZED", result.stdout)
+        self.assertIn("candidate_head: abc1234", result.stdout)
 
     def test_conflicting_push_decision_tokens_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -107,6 +116,33 @@ class PushAuthorizationGateTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("UNKNOWN", result.stdout + result.stderr)
+
+    def test_authorization_without_expected_head_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_file = Path(tmpdir) / "push-unbound-authorized.md"
+            decision_file.write_text(
+                textwrap.dedent(
+                    """
+                    # Deployment Push Decision
+
+                    ```text
+                    DEPLOYMENT_PUSH: AUTHORIZED
+                    ```
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--decision-file", str(decision_file)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected head required", result.stdout + result.stderr)
 
     def test_authorization_can_be_bound_to_expected_head(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
