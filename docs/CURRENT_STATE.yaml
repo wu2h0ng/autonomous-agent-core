@@ -172,6 +172,7 @@ authoritative_records:
     - "docs/architecture_reviews/AR-20260614-p5.2-corrigibility-shell.md"
     - "docs/architecture_reviews/AR-20260615-critical-fix-cleanup.md"
     - "docs/architecture_reviews/AR-20260624-http-principal-scope-and-redaction.md"
+    - "docs/architecture_reviews/AR-20260704-external-theory-to-trusted-loop-mapping.md"
   accepted_or_active_decisions:
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.md"
     - "docs/decisions/ADR-0002-governed-action-outcome-loop-v0.goal-card.md"
