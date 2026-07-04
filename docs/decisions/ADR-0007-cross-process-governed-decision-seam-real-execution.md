@@ -26,7 +26,11 @@ that sibling checkout, so a test bound to it would skip in OS CI.
    contract ("OS verifies → core governs") — it does not re-run verification (the remote side has no OS
    data) and never auto-allows an unverified candidate. It is the OS's **own** reference implementation of
    the remote contract side; it imports **no** `autonomous-agent-core` code (#19). The production research
-   brain is a drop-in on the same wire.
+   brain is a drop-in on the same **contract/wire** — but not necessarily verdict-identical: the reference
+   server (like `LocalGovernanceDecisionClient`) applies a flat `confidence_floor` (0.2), whereas the real
+   `aac` brain applies per-tier confidence thresholds (e.g. R3=0.5) and is therefore *stricter* on moderate
+   confidence. Both honor tighten-only, so swapping brains can only tighten a verdict, never loosen it; the
+   S3 tests use unambiguous strong-effect cohorts where both return ALLOW.
 2. **Full runtime across a real process boundary (CI-verifiable).**
    `tests/integration/test_s3_cross_process_seam_real_action.py` boots that server as a **separate
    process** and drives the full `TrustedLoopRuntime` through `RemoteGovernanceDecisionClient` — real
