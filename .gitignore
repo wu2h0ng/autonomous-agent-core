@@ -13,5 +13,8 @@ node_modules/
 .env.*
 !.env.example
 
+# Local agent and CI run artifacts
+.agent_runs/
+
 # macOS
 .DS_Store
