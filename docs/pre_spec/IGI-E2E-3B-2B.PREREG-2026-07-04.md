@@ -105,3 +105,14 @@ continuous channel (model extrapolation) degrades it, the discrete channel (gove
 preserves it. **Terminal form of governed goal-formation: the model NOMINATES, the world CONFIRMS,
 the principal BOUNDS — and the agent commits only to what it has demonstrably done.** Ledger: HIT
 (bet PASS ~85%; both quantities at the top of their frozen bands).
+
+## E2E-2c FREEZE (2026-07-04) — compounding saving on the pilot-validated space-lever arena
+
+Pilot (seeds 3000+): MEC 75, t1 4.833 dos, identification 1.000 -> arena VALID (the noise lever failed;
+the SPACE lever works: big clean hypothesis spaces). `experiments/igi_e2e_2c.py` = `8d426fd642a5f9e3`; scored seeds
+3500+ (disjoint), runs {85,86}. Protocol: 2-confirm corrigible reuse (cache trusted only after surviving
+two max-discriminating fresh do()s among ~75 hypotheses); staleness arm re-roots a path (structure
+change, truth index moves). Decision: ARENA-VALID (t1>=3.5, id>=0.7 on scored) else INVALID(ARENA);
+PASS iff saving >= 2.0 AND achievement drop <= 0.10 AND stale-refuted >= 0.8 AND new-truth id >= 0.7 AND
+halt 100%. Frozen prediction: t1 ~4.8, t2 ~2.3 (trust path 2 + occasional rediscovery) -> saving
+~2.3-2.8; stale-refuted ~0.9; PASS ~70%.
