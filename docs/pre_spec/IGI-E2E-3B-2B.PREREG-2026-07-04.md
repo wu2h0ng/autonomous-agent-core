@@ -172,3 +172,14 @@ favorably).
 Constitutional compounding, demonstrated at toy scale: knowledge is earned by demonstration, trusted
 only after the world re-answers the same, savings are real (2.2-2.9 dos), stale knowledge dies at 1.000,
 recovery at 0.938.
+
+## E2E-2f FREEZE (2026-07-04) — cross-ENVIRONMENT class-knowledge + cross-CLASS harm bound
+
+`experiments/igi_e2e_2f.py` = `7c3474ddefe5b315`. Class = biased path-root regularity (70% modal); prior learned
+from 10 SOLVED class-A envs; enters fresh envs ONLY as a nominated candidate verified by the 2-confirm
+protocol (priors are corrigible; wrong nominations die by the world's answer). Scored: 8 fresh class-A +
+8 class-B (opposite bias) x 2 runs, seeds 5200+/5400+ disjoint from learning 5000+. PASS iff class-A
+saving >= 1.0 do AND prior-run correctness >= 0.90 AND cross-class correctness drop <= 0.05 AND
+cross-class cost penalty <= 1.0 do AND halt 100%. Frozen prediction: saving ~1.6, correctness ~0.95,
+cross-drop ~0, penalty ~+1.0-1.8 (LIVE RISK: refutation cost may exceed the 1.0 bar -> honest FAIL).
+PASS ~55%.
