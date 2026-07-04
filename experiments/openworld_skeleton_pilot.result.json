@@ -1,0 +1,41 @@
+{
+  "gate": "openworld-skeleton-pilot",
+  "n": 6,
+  "c_nobs": 240,
+  "per_threshold": {
+    "0.05": {
+      "skeleton_contains_true": 1.0,
+      "truth_in_selfmade_pool": 0.167,
+      "openworld_end_to_end_id": 0.167,
+      "pool_size_median": 72.0
+    },
+    "0.08": {
+      "skeleton_contains_true": 0.917,
+      "truth_in_selfmade_pool": 0.375,
+      "openworld_end_to_end_id": 0.375,
+      "pool_size_median": 72.0
+    },
+    "0.12": {
+      "skeleton_contains_true": 0.875,
+      "truth_in_selfmade_pool": 0.333,
+      "openworld_end_to_end_id": 0.333,
+      "pool_size_median": 72.0
+    },
+    "0.18": {
+      "skeleton_contains_true": 0.708,
+      "truth_in_selfmade_pool": 0.292,
+      "openworld_end_to_end_id": 0.292,
+      "pool_size_median": 48.0
+    }
+  },
+  "handed_skeleton_baseline_id": 1.0,
+  "best_openworld_id_orient_only": 0.375,
+  "generous_subset_pool_thresh0.05": {
+    "truth_in_pool": 0.917,
+    "openworld_end_to_end_id": 0.167,
+    "pool_size_median": 1869.0
+  },
+  "price_of_no_crutch": 0.625,
+  "finding": "removing the handed-skeleton crutch costs ~0.6-0.8 id at toy scale, and the cost has TWO faces: (orient-only) needs EXACT skeleton recovery -> truth_in_pool 0.375, id==truth_in_pool (governed loop resolves cleanly); (generous subset pool) makes truth reachable (truth_in_pool 0.917) but the ~1900-DAG self-made space overwhelms fixed-budget resolution -> id drops to 0.167. The GOVERNED DISCOVERY LOOP is not the bottleneck; HYPOTHESIS-SPACE GENERATION is. Next mechanism: governed intervention that PRUNES spurious edges directly (edge-effect test), turning a generous proposal into the truth.",
+  "scope": "world still synthetic (linear-Gaussian SCM), but the HANDED-SKELETON crutch is removed: the agent self-generates its hypothesis space from observation. Next open-world layers: governed edge-pruning, nonlinear/non-Gaussian mechanisms, latent confounders, semantic (LLM) structure proposal."
+}
