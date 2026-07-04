@@ -1,20 +1,20 @@
-updated: "2026-07-04"  # Preserves the same P6/Direction-1/HOLD route truth while tightening evidence fidelity: the ADR-0031 historical result artifact is restored to its committed prereg hash, and Temporal Options PRE_SPEC_DRAFT tests now self-skip before importing any local draft implementation. R-CSL-1 stays PARKED by reduction to generic structured memory before freeze/run. The current VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt; no Gate-2, r-final, verdict, ADR-0037 decision, C6/C7 change, or autonomy narrative unlock follows. Direction 1 remains pre-ADR/pre-build: the tracked 30-seed run-local cheap falsifier on seeds 2400..2429 returned NO_NEW_DIRECTION_1_MECHANISM and does not authorize a new mechanism, ADR, freeze, or r-final.
+updated: "2026-07-04"  # G-ECO-REOPEN-1 ran through fresh founder ADR/spec, RR-0029 review, RR-0031 independent delta review, prereg review/freeze, r-final seeds 7500..7529, and adjudication. Verdict: R_FINAL_COMPLETED_NOT_MET. This closes the reopened NBSC variant without retune/reseed/metric rescue. Old VH/G-Eco remains PARK_BY_§7A_C_NOT_SUPPORTED; no autonomy/product/SD4/C6/C7 claim is unlocked.
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
 branch: "research/causal-world-model-2026-06-30"
-status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; R-CSL-1 PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; current VH/G-Eco operationalization PARK_BY_§7A_C_NOT_SUPPORTED after pre-Gate-2 halt; Direction 1 remains pre-ADR/pre-build as the only active next falsifier over G10/P0 policy-side commitment conversion, and its first tracked 30-seed run-local exploratory artifact returned NO_NEW_DIRECTION_1_MECHANISM. No Gate-2, r-final, verdict, ADR-0037 decision, C6/C7 change, autonomy claim, or product claim is authorized."
+status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; R-CSL-1 PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; old VH/G-Eco operationalization PARK_BY_§7A_C_NOT_SUPPORTED after pre-Gate-2 halt. G-ECO-REOPEN-1 fresh NBSC variant completed r-final on 2026-07-04 and is NOT_MET: fair MINIMAX absorbs the candidate probe path. No Gate-2 revival, ADR-0037 decision, C6/C7 change, autonomy claim, or product claim is authorized."
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
 last_verified_tests:
-  count: 583
+  count: 593
   result: "OK (skipped=13)"
-  source: "Full suite verified by Codex on 2026-07-04 after restoring the ADR-0031 historical result artifact and re-hardening Temporal Options PRE_SPEC_DRAFT contract tests so they self-skip before importing any local draft implementation"
+  source: "Full suite verified by Codex on 2026-07-04 after G-ECO-REOPEN-1 remediation and r-final closure"
 
 current_stage:
-  label: "Direction 1 policy-side commitment-conversion cheap falsifier"
+  label: "G-ECO-REOPEN-1 r-final completed NOT_MET"
   synthesis_artifact: "docs/P6-research-synthesis.md"
-  immediate_next: "Maintain HOLD after recording the tracked 30-seed run-local cheap falsifier on seeds 2400..2429: it returned NO_NEW_DIRECTION_1_MECHANISM because FAST and SLOW share the same best gated arm (K025). Current explicit decision is RESEARCH_NEXT: HOLD, so no new cheap falsifier packet, no new ADR packet, no freeze, no r-final, and no route promotion are authorized."
-  after_next: "Do not revive G11/C1, R-CSL-1, VH/G-Eco, or another belief/memory/model organ route unless a new founder-level ADR proves a fresh independent vs-cheap-baseline winning axis first, or explicitly authorizes a different cheap falsifier. Direction 2 long-horizon/POMDP remains untested and gated behind the paper-reconstruction falsifier plus R1-R5."
-  route_c_status: "PARK_BY_§7A_C_NOT_SUPPORTED for the current VH/G-Eco operationalization after the 2026-06-27 pre-Gate-2 halt: stake ablation hitchhiked and VH≈MINIMAX, so no Gate-2, r-final, verdict, ADR-0037 closure, retune, reseed, or rescue is authorized without a new founder ADR and fresh seeds. Earlier G-Eco lower-half/harness artifacts are preserved as historical scaffold/context only."
+  immediate_next: "Record and preserve G-ECO-REOPEN-1 as NOT_MET. Do not retune, reseed, weaken MINIMAX_FAIR, change the overlap/no-stake metrics, rerun r-final, or reinterpret smoke output. Any future G-Eco-like work requires a new founder ADR, a different non-minimax-consumable channel, fresh seeds, and a new preregistration."
+  after_next: "Use the negative lesson only as route-pressure: public active probe under hidden basin dynamics is consumed by same-budget fair MINIMAX. Direction 2 long-horizon/POMDP remains untested and separately gated behind paper-reconstruction falsifier plus R1-R5."
+  route_c_status: "OLD VH/G-Eco remains PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt: stake ablation hitchhiked and VH≈MINIMAX. NEW G-ECO-REOPEN-1 ran as a fresh variant and is R_FINAL_COMPLETED_NOT_MET because fair MINIMAX matches the candidate probe path. Earlier G-Eco lower-half/harness artifacts are preserved as historical scaffold/context only."
   not_current:
     - "P1/T1-T3"
     - "P2"
@@ -26,7 +26,8 @@ current_stage:
     - "ADR-0036/G13 rerun, retune, or rescue after NOT MET"
     - "G11/C1 freeze or implementation"
     - "R-CSL-1 re-freeze, re-review, rescue, or empirical run"
-    - "VH/G-Eco Gate-2, r-final, verdict, retune, reseed, or rescue"
+    - "old VH/G-Eco Gate-2, r-final, verdict, retune, reseed, or rescue"
+    - "G-ECO-REOPEN-1 retune, reseed, metric swap, weakened-baseline rerun, or result rescue"
 
 authoritative_adrs:
   latest_committed:
@@ -45,6 +46,7 @@ authoritative_adrs:
     - "docs/adr/ADR-0035-p7-ecological-environment-axis.md"
     - "docs/adr/ADR-0036-bounded-consequence-prior-gate.md"
     - "docs/adr/ADR-0038-g-eco-mechanism-lower-half.md"
+    - "docs/adr/ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md"
   current_decision:
     - "ADR-0031 PRED1-HOLDS corroborates RR-0019 Claim 1/3 under a powered attack; ADR-0029 still closes the natural multi-axis hunt."
     - "ADR-0032 accepts frontier architecture intake lanes: self-recursive systems stay external, LLM/world-model organs stay P4.x bounded advisers, and structured semantic/hierarchical environments are the next admissible experiment family."
@@ -54,9 +56,12 @@ authoritative_adrs:
     - "ADR-0036/G13 r-final completed NOT MET: scar validity passes and CP reduces irreversible damage, but net R1 advantage misses the +0.10 threshold and R0 stale-prior harm fails."
     - "ADR-0038 G-Eco lower-half implemented and F1-F6 discipline fixes landed; pre-Gate-2 freeze-candidate writer + mechanical verifier/audit guards now exist and were hardened on 2026-06-24 (MERGED to main 2026-06-27) with calibration-selected VH params, recursive AST static firewalls, a calibration-ref-only rate witness, and C3 verdict-mechanics leaves: candidate JSON integrity/firewall verification only, no founder/CTO co-signed freeze, no Gate-2 crossing, no r-final, no verdict."
     - "R-CSL-1 is PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; no empirical MET/NOT_MET/INCONCLUSIVE/INVALID result exists for it."
-    - "Direction 1 is the live Track R next action: a pre-ADR/pre-build confidence-to-temperature coupling sweep against non-stationarity rate over the existing G10/P0 substrate."
+    - "Direction 1's pre-ADR/pre-build confidence-to-temperature coupling sweep against non-stationarity rate over the existing G10/P0 substrate is recorded but no longer the immediate next action after the 2026-07-04 G-Eco reopen cast."
     - "The first tracked Direction 1 run-local exploratory artifact is `experiments/direction1_rate_sensitivity.development.json` on seeds 2400..2429 with verdict NO_NEW_DIRECTION_1_MECHANISM; FAST and SLOW share the same best gated arm (K025), so this artifact does not earn a new mechanism, ADR, preregistration, freeze, or r-final."
-    - "2026-07-04 explicit next-step decision: RESEARCH_NEXT is HOLD. Keep No Gate-2, do not authorize a new cheap falsifier packet, and do not authorize a new founder-level ADR route packet until a later explicit decision replaces this hold."
+    - "2026-07-04 earlier explicit next-step decision recorded RESEARCH_NEXT: HOLD; founder request `重开G-ECO` superseded that HOLD only for the fresh `G-ECO-REOPEN-1` NBSC packet, now completed NOT_MET."
+    - "2026-07-04 G-Eco reopen authority: `docs/research/founder-decision-2026-07-04-reopen-g-eco.md`, `docs/research/G-ECO-REOPEN-1-foundational-problem-lock-2026-07-04.md`, and accepted `docs/adr/ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md`. This authorized one fresh preregistered attempt only; it does not authorize retune/reseed/rerun/rescue or any autonomy/product/SD4/C6/C7 claim."
+    - "2026-07-04 G-ECO-REOPEN-1 completed full pre-freeze path: RR-0029 architecture-review accepted, RR-0031 blind+delta independent review accepted freeze readiness after remediation, prereg review accepted with exact-content manifest, freeze succeeded at `.agent_runs/geco-reopen-2026-07-04/prereg.lock`, r-final seeds 7500..7529 ran once, and adjudication returned NOT_MET."
+    - "2026-07-04 G-ECO-REOPEN-1 result: candidate_mean_loss_advantage_vs_best_non_oracle=0.0, candidate_vs_minimax_action_overlap=1.0, no_stake_retained_advantage_share=1.0. Interpretation: fair MINIMAX consumes the candidate public-probe path. Authority: `docs/research/G-ECO-REOPEN-1-rfinal-report-2026-07-04.md`, `docs/research/architecture-lesson-G-ECO-REOPEN-1-2026-07-04.md`, `docs/research/paradigm-learning-G-ECO-REOPEN-1-2026-07-04.md`, and `docs/research/route-product-projection-update-G-ECO-REOPEN-1-2026-07-04.md`."
     - "Temporal Options remains PRE_SPEC_DRAFT only: contract tests now self-skip before importing any local draft module, so stray local implementation drafts do not constitute authorized implementation, passed tests, state-doc edits, or route movement."
     - "ADR-0031 historical result authority has been restored in `experiments/prediction1_residual_calibrator.result.json` with the committed prereg hash `fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf`; current code still computes `47b05e6455f542b0ee04b4d894766672272ed0cdd156a7417dac4b73438cf424`, so preserve ADR-0031 as historical committed authority only and do not treat the current code/worktree as fresh verification until separate adjudication."
     - "Parent research read-out for the isolated SD4 VAL-DISENT-1 kill-test records negative H1 evidence (N_SHADOW, N_STAKE_FREE_RIDE, N_DECEPTION_MI) and keeps ADR-0037 OPEN / founder-reserved; do not rerun, reseed, retune, or reinterpret that packet without a new founder ADR and fresh seeds."

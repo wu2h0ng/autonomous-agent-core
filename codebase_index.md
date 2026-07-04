@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-03
+> Last updated: 2026-07-04
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
@@ -8,9 +8,9 @@
 
 ```yaml
 branch: research/causal-world-model-2026-06-30
-stage: Direction 1 policy-side commitment-conversion cheap falsifier is the live Track R next action; R-CSL-1 is PARKED by reduction; current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED
-immediate_next: record the tracked 30-seed run-local Direction 1 exploratory artifact; it returned NO_NEW_DIRECTION_1_MECHANISM, so no ADR/prereg/freeze/r-final or route promotion follows from this artifact alone
-tests: 583 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED
+immediate_next: preserve G-ECO-REOPEN-1 as NOT_MET; no retune, reseed, weakened-baseline rerun, metric swap, autonomy claim, product claim, or old VH rescue
+tests: 593 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -23,7 +23,22 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `docs/P6-research-synthesis.md` | P6 synthesis package: claim ledger, negative-result map, mechanism lineage, reproducibility appendix, publication outline |
 | `docs/P6-no-gate2-hold-brief-20260703.md` | Minimal founder/CTO decision brief for why research remains at `No Gate-2` and what kind of authorization could legitimately change that state |
 | `docs/P6-adr0031-prereg-hash-drift-audit-20260703.md` | Drift audit showing that ADR-0031 historical authority is preserved, but the current worktree result/code/doc prereg-hash lineage is split and therefore not fresh verification |
-| `docs/P6-research-next-hold-decision-20260704.md` | Explicit recorded decision that `RESEARCH_NEXT: HOLD`; no new cheap falsifier or new ADR packet is authorized now |
+| `docs/P6-research-next-hold-decision-20260704.md` | Historical recorded decision that `RESEARCH_NEXT: HOLD`; later superseded only for `G-ECO-REOPEN-1` packet preparation |
+| `../docs/research/founder-decision-2026-07-04-reopen-g-eco.md` | Founder cast superseding HOLD only for `RESEARCH_NEXT: REOPEN_G_ECO_PACKET`; old VH/G-Eco halt remains binding |
+| `../docs/research/G-ECO-REOPEN-1-foundational-problem-lock-2026-07-04.md` | Fresh-variant problem lock for the reopened G-Eco route; authorizes architecture-theory review only |
+| `../docs/research/architecture-theory-review-G-ECO-REOPEN-1-2026-07-04.md` | RR-0029 review for G-ECO-REOPEN-1; machine architecture-review accepted before freeze |
+| `docs/adr/ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md` | Accepted founder ADR for the one fresh NBSC attempt; result closed NOT_MET |
+| `../docs/research/formal-model-spec-G-ECO-REOPEN-1-2026-07-04.md` | Frozen formal model spec bound into prereg lock |
+| `../docs/research/algorithm-spec-G-ECO-REOPEN-1-2026-07-04.md` | Frozen algorithm spec bound into prereg lock |
+| `../docs/research/implementation-cast-G-ECO-REOPEN-1-2026-07-04.md` | Implementation cast for the four NBSC code/test files |
+| `../docs/research/G-ECO-REOPEN-1.PREREG-DRAFT-2026-07-04.yaml` | Frozen preregistration source; lock in `.agent_runs/geco-reopen-2026-07-04/prereg.lock` |
+| `../docs/research/G-ECO-REOPEN-1-seed-allocation-2026-07-04.json` | Fresh seed allocation bands 7400..7629; r-final used 7500..7529 once |
+| `../docs/research/G-ECO-REOPEN-1-rfinal-report-2026-07-04.md` | R-final report: NOT_MET, fair MINIMAX absorbs candidate probe path |
+| `../docs/research/architecture-lesson-G-ECO-REOPEN-1-2026-07-04.md` | Negative architecture lesson from G-ECO-REOPEN-1 |
+| `../docs/research/paradigm-learning-G-ECO-REOPEN-1-2026-07-04.md` | Loop learning record for the failed NBSC route |
+| `../docs/research/route-product-projection-update-G-ECO-REOPEN-1-2026-07-04.md` | Route/product projection update: no product projection |
+| `../.agent_runs/geco-reopen-2026-07-04/independent-review-019f2bc8-80ff-7fa3-8206-0bd9a7e586a2.md` | Run-local read-only independent review; `ACCEPT_FOR_SPEC`, no implementation/freeze/run |
+| `../.agent_runs/geco-reopen-2026-07-04/cli-review-attempts-2026-07-04.md` | Run-local CLI review attempt log; runner review remains blocked by missing RR-0031 reviewer calibration and absent mechanism files |
 | `docs/PROJECT_PLAN.md` | Human handoff plan and task cards |
 | `ROADMAP.md` | Phase ledger and gate sequence |
 | `ENGINEERING.md` | Engineering and experiment discipline, especially statistical rules |
@@ -55,6 +70,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `ADR-0036-bounded-consequence-prior-gate.md` | Completed, NOT MET | G13 tested a belief-only bounded consequence prior over P0 for scar-specific irreversible benefit |
 | `ADR-0037-self-determination-depth-vs-corrigibility.md` | Proposed, docs-only / OPEN | Registers SD0-SD4 and the open SD4-separability question; parent SD4 VAL-DISENT-1 read-out adds negative H1 evidence but does not decide the ADR |
 | `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + hardened pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer, calibration-selected VH parameter provenance, recursive AST static firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves, and integrity/firewall verifier; current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED; no co-signed freeze, no r-final, no verdict |
+| `ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md` | Accepted, completed NOT_MET | Fresh NBSC reopen attempt; r-final seeds 7500..7529 show fair MINIMAX matches candidate probe path, so no distinct mechanism |
 
 ## Current Code Map
 
@@ -75,6 +91,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/aac/prior_organ_llm.py` | LLM organ scaffold, no live key/control path | `LLMPriorOrgan`, `DeterministicStubBackend` |
 | `src/aac/consequence_prior.py` | ADR-0036 bounded consequence-prior organ and cheap CAUTIOUS control | `ConsequencePriorRecord`, `BoundedConsequencePriorOrgan`, `CautiousScarOrgan` |
 | `src/aac/g_eco.py` | ADR-0038 G-Eco lower-half shared substrate, value aggregators, frozen-source battery adapters, truth-privileged cheat refs, metrics, pre-Gate-2 candidate freezes, content-hash verifier, recursive AST static firewalls, calibration-ref-only rate witness, audit guards, Gate-2 guards | `GEcoSharedSubstrate`, `GEcoArm`, `GEcoArmSource`, `GEcoVHParams`, `build_g_eco_arms`, `scan_rate_grid`, `select_vh_parameters`, `freeze_battery_parameters`, `derive_threshold_freeze`, `build_baseline_audit`, `verify_content_hash`, `assert_g_eco_static_firewalls`, `assert_static_firewall`, `assert_no_calibration_refs_in_rfinal`, `GEcoMetrics` |
+| `src/aac/g_eco_reopen.py` | ADR-0039/G-ECO-REOPEN-1 NBSC battery, fair cheap baselines, seed guards, static C6/C7 scanner, and adjudicator | `build_nbsc_battery`, `run_nbsc_battery`, `adjudicate_nbsc_result`, `finalize_locked_nbsc_result`, `assert_fresh_seed_allocation`, `assert_c6_c7_static_boundary` |
 | `src/aac/rap.py` | RAP field/messages, archived after G4 | `Need`, `Bid`, `Bond`, `Trace`, `Dissolve`, `RAPField` |
 | `src/aac/rap_coordinator.py` | RAP coordinator, archived after G4 | `RAPCoordinator` |
 | `src/aac/outcome_judge.py` | Grounded RAP outcome judge | `OutcomeJudge` |
@@ -87,6 +104,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/envs/ecological_regime.py` | ADR-0035/G12 2x2 environment cells | `EcologicalRegimeEnv` |
 | `src/envs/consequence_scar.py` | ADR-0036/G13 public-affordance scar environment | `ConsequenceScarEnv`, `ConsequenceFeature` |
 | `src/envs/ecological_4cond.py` | ADR-0038 G-Eco four-condition environment with partial/lagged/noisy observation; no rate-grid scan or divergence detector | `Ecological4CondEnv`, `GEcoState`, `GEcoRates`, `GEcoObservation`, `transition_state` |
+| `src/envs/geco_nonbijective_stake.py` | ADR-0039 NBSC hidden-basin environment with public probe action and non-bijective visible stake | `NonBijectiveStakeEnv`, `NBSCState`, `NBSCObservation`, `NBSCOutcome` |
 
 ## Current Experiments
 
@@ -120,6 +138,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_rfinal_runner.py` | G-Eco r-final harness | run_rfinal: refuses-when-locked, faithful-replay drift, RAW-only no-verdict, determinism, C6/C7 (multi-seed, non-acting-arm rejected) |
 | `tests/test_adjudication.py` | G-Eco r-final harness | Packet assembly + verify-and-narrate integrity (fabrication/non-frozen-theta/ragged-rows/alpha-drift caught); gate-4 Wilcoxon+bootstrap known-answers |
 | `tests/test_prereg_lock.py` | G-Eco r-final harness Stage-2 | prereg.lock double-bind: no-lock-not-ready, verified-lock-ready, mechanism drift / traversal / non-object / missing rejected |
+| `experiments/g_eco_reopen_1.py` | ADR-0039/G-ECO-REOPEN-1 | Smoke / r-final / adjudication CLI; r-final requires prereg lock, source spec, seed-allocation lock coverage; result NOT_MET |
+| `tests/test_g_eco_reopen_1.py` | ADR-0039/G-ECO-REOPEN-1 | NBSC env tests, fair MINIMAX, fresh seed allocation, static C6/C7 scanner, prereg metrics, final result hash coverage, NOT_MET overlap guard |
 | `experiments/idle_productivity_c3.py` | C3 | RED; DIRECTED/RANDOM/POLICY statistically indistinguishable |
 | `tests/test_idle_productivity_c3.py` | C3 | determinism and C6/C7 guards |
 | `experiments/survival_axis_c1.py` | ADR-0028 | RED; survival shadows adaptation speed |
@@ -140,7 +160,7 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 Current full suite:
 
 ```text
-583 tests OK (13 skipped)
+593 tests OK (13 skipped)
 ```
 
 Important current test files:
@@ -155,6 +175,7 @@ Important current test files:
 | `tests/test_idle_productivity_c3.py` | C3 idle-productivity de-risk guards |
 | `tests/test_consequence_prior_g13.py` | ADR-0036 bounded consequence-prior organ, scar env, r-final lock, collapse/denominator guards |
 | `tests/test_g_eco.py` | ADR-0038 lower-half G-Eco mechanism, pre-Gate-2 verifier/recursive static-firewall hardening, and Gate-2 refusal guards |
+| `tests/test_g_eco_reopen_1.py` | ADR-0039 NBSC reopen guard tests and NOT_MET cheap-baseline kill condition |
 | `tests/test_survival_axis_c1.py` | ADR-0028 survival-axis de-risk guards |
 | `tests/test_risk_calibration_c1.py` | ADR-0029 stationary risk-axis de-risk guards |
 | `tests/test_prior_organ_ensemble.py` | G8 ensemble organ |

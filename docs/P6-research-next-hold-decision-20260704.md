@@ -5,6 +5,8 @@
 - Decision authority observed: user/founder reply on 2026-07-04
 - Decision: `RESEARCH_NEXT: HOLD`
 
+> Supersession note, later on 2026-07-04: founder request `重开G-ECO` supersedes this HOLD only for preparing `G-ECO-REOPEN-1` as a fresh-variant Track R packet. The historical HOLD still explains the prior `No Gate-2` stance and still blocks unrelated route expansion. See `../../docs/research/founder-decision-2026-07-04-reopen-g-eco.md` and `../../docs/research/G-ECO-REOPEN-1-foundational-problem-lock-2026-07-04.md`.
+
 ## Decision
 
 The research line remains on explicit hold for any new next-step authorization.

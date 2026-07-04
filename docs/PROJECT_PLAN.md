@@ -25,14 +25,15 @@ P6 consolidated
   -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
   -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
   -> ADR-0036: bounded consequence-prior G13 r-final complete, NOT MET; not a G12 rescue
-  -> ADR-0038: Route C / G-Eco lower-half mechanism and later r-final harness artifacts exist as historical scaffold/context; the current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt; no Gate-2/r-final/verdict has run
+  -> ADR-0038: Route C / G-Eco lower-half mechanism and later r-final harness artifacts exist as historical scaffold/context; the old VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt
+  -> ADR-0039 / G-ECO-REOPEN-1: fresh NBSC reopen attempt completed r-final on 2026-07-04, NOT_MET; fair MINIMAX absorbs the candidate probe path
   -> R-CSL-1: PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; no empirical verdict exists
   -> C3: idle-productivity de-risk returned RED
   -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
   -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
   -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
   -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
-  -> next: Direction 1 policy-side commitment-conversion cheap falsifier remains pre-ADR/pre-build; the first tracked 30-seed run-local sweep on seeds 2400..2429 returned NO_NEW_DIRECTION_1_MECHANISM, so no new mechanism/ADR/freeze/r-final follows from this artifact alone
+  -> next: preserve G-ECO-REOPEN-1 as NOT_MET; no retune/reseed/metric rescue or weakened-baseline rerun. Direction 1's first tracked 30-seed run-local sweep remains recorded as NO_NEW_DIRECTION_1_MECHANISM and does not authorize a new mechanism/ADR/freeze/r-final by itself
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -41,12 +42,56 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-583 tests OK (13 skipped)
+593 tests OK (13 skipped)
 ```
 
 The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The 13 skips are the intentional Temporal Options PRE_SPEC_DRAFT sentinels, not hidden failures, and on 2026-07-04 the sentinel was re-hardened to self-skip before importing any local draft implementation. This is suite/gate verification only, not a Direction 1 experiment result.
 
 ## 2. Immediate Task
+
+### T-R-GECO-REOPEN-1 - G-Eco Fresh-Variant Reopen Packet (Completed NOT_MET)
+
+Authority:
+
+- `docs/CURRENT_STATE.yaml`
+- `../docs/research/founder-decision-2026-07-04-reopen-g-eco.md`
+- `../docs/research/G-ECO-REOPEN-1-foundational-problem-lock-2026-07-04.md`
+- `../docs/research/architecture-theory-review-G-ECO-REOPEN-1-2026-07-04.md`
+- `docs/adr/ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md`
+- `../docs/research/formal-model-spec-G-ECO-REOPEN-1-2026-07-04.md`
+- `../docs/research/algorithm-spec-G-ECO-REOPEN-1-2026-07-04.md`
+- `../docs/research/implementation-cast-G-ECO-REOPEN-1-2026-07-04.md`
+- `../docs/research/G-ECO-REOPEN-1.PREREG-DRAFT-2026-07-04.yaml`
+- `../docs/research/G-ECO-REOPEN-1-seed-allocation-2026-07-04.json`
+- `../docs/research/G-ECO-REOPEN-1-rfinal-report-2026-07-04.md`
+- `../docs/research/architecture-lesson-G-ECO-REOPEN-1-2026-07-04.md`
+- `../docs/research/paradigm-learning-G-ECO-REOPEN-1-2026-07-04.md`
+- `../docs/research/route-product-projection-update-G-ECO-REOPEN-1-2026-07-04.md`
+- `../docs/research/architecture-lesson-geco-vh-halt-2026-06-27.md`
+- `../docs/research/paradigm-learning-geco-vh-halt-2026-06-27.md`
+
+Goal:
+
+Preserve the completed G-ECO-REOPEN-1 result as a negative result. The fresh non-bijective / longer-horizon stake-channel variant was run through RR-0029 review, accepted ADR/spec, implementation cast, RR-0031 independent review, prereg review/freeze, and r-final. It failed against the strengthened cheap baseline: fair `MINIMAX_FAIR` consumes the same public probe path as the candidate.
+
+Final status:
+
+```text
+RR-0029 architecture-theory review: accepted by machine gate before freeze
+ADR: ADR-0039 accepted for one fresh attempt only
+RR-0031 independent review: blind calibration + controlled delta re-review, ACCEPT_FOR_FREEZE
+Prereg review/freeze: accepted and frozen at .agent_runs/geco-reopen-2026-07-04/prereg.lock
+R-final seeds: 7500..7529, count 30
+Verdict: NOT_MET
+Failure reasons: candidate_mean_loss_advantage_vs_best_non_oracle, candidate_vs_minimax_action_overlap, no_stake_retained_advantage_share
+```
+
+Non-authority:
+
+- no old VH/G-Eco rescue;
+- no reuse of old calibration/rate/threshold/r-final seed bands as fresh evidence;
+- no retune, reseed, metric swap, weakened `MINIMAX_FAIR`, or r-final rerun;
+- no Gate-2 revival, ADR-0037 movement, C6/C7 change, autonomy claim, or product claim.
 
 ### T-R-D1 - Direction 1 Cheap Falsifier (Pre-ADR / Pre-Build)
 
@@ -60,6 +105,10 @@ Authority:
 Goal:
 
 Run or design the near-free falsifier over the existing G10/P0 substrate: sweep confidence-to-temperature coupling against non-stationarity rate. If the optimum is flat/insensitive, record and stop. Only a rate-sensitive result earns a new ADR/prereg/mechanism.
+
+Current disposition:
+
+This is no longer the immediate next task after the 2026-07-04 founder G-Eco reopen cast. Its tracked exploratory artifact remains useful negative pressure but does not authorize a new mechanism by itself.
 
 Tracked exploratory readout:
 
