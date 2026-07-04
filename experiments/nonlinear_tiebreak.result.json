@@ -1,0 +1,26 @@
+{
+  "gate": "nonlinear-tiebreak",
+  "n": 5,
+  "n_domains": 20,
+  "id_baseline": 0.15,
+  "id_targeted_tiebreak": 0.2,
+  "tiebreak_lift": 0.05,
+  "tie_resolution": {
+    "broken_by_targeted": 3,
+    "genuinely_equivalent": 2,
+    "no_tie": 12,
+    "truth_pruned": 3
+  },
+  "expanded_grid": [
+    -3.0,
+    -2.0,
+    -1.0,
+    -0.5,
+    0.5,
+    1.0,
+    2.0,
+    3.0
+  ],
+  "verdict": "PARTIAL",
+  "finding": "targeted governed intervention over an expanded value grid, aimed at the TIED minimal-edge survivors, does NOT materially lift id -> the dominant ties are GENUINELY interventionally-equivalent under the available action space (an honest identifiability limit). Correct behavior is abstain, which is SAFE (never wrong). The truth is identifiable only up to this equivalence class here."
+}
