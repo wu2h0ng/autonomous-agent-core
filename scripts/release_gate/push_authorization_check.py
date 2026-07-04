@@ -25,7 +25,14 @@ def check_push_authorization(
         )
 
     decision_text = decision_file.read_text(encoding="utf-8")
-    if AUTHORIZED_TOKEN in decision_text:
+    has_authorized = AUTHORIZED_TOKEN in decision_text
+    has_hold = HOLD_TOKEN in decision_text
+    if has_authorized and has_hold:
+        return (
+            2,
+            "DEPLOYMENT_PUSH: UNKNOWN - ambiguous decision tokens; push is not authorized.",
+        )
+    if has_authorized:
         if expected_head:
             expected_line = f"candidate_head: {expected_head}"
             if expected_line not in decision_text:
@@ -35,7 +42,7 @@ def check_push_authorization(
                 )
             return 0, f"{AUTHORIZED_TOKEN} - {expected_line} - push authorization check passed."
         return 0, f"{AUTHORIZED_TOKEN} - push authorization check passed."
-    if HOLD_TOKEN in decision_text:
+    if has_hold:
         return 2, f"{HOLD_TOKEN} - push is not authorized."
     return (
         2,

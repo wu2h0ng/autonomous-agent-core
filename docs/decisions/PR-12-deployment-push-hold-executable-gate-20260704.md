@@ -26,7 +26,8 @@ Behavior:
 - `DEPLOYMENT_PUSH: AUTHORIZED` plus `PUSH_EXPECTED_HEAD=<hash>` -> zero only
   when the decision record also contains `candidate_head: <hash>`.
 - Authorized decision with mismatched `candidate_head` -> non-zero exit.
-- Missing or ambiguous decision token -> non-zero exit.
+- Missing decision token or conflicting HOLD/AUTHORIZED tokens -> non-zero
+  exit.
 
 The target is intentionally not part of `make ci`, because current HOLD should
 block push attempts without making ordinary local verification impossible.
@@ -38,6 +39,10 @@ TDD evidence:
 - RED: `tests.unit.test_push_authorization_gate` failed because the script and
   Makefile target did not exist.
 - GREEN: the focused suite passed after adding the script and target.
+- FOLLOW-UP RED: a decision record containing both HOLD and AUTHORIZED tokens
+  was incorrectly accepted.
+- FOLLOW-UP GREEN: conflicting HOLD/AUTHORIZED tokens now fail closed with an
+  ambiguous-decision message.
 
 Commands:
 
@@ -51,16 +56,16 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 Observed results:
 
-- Focused gate tests: 5 tests OK.
+- Focused gate tests: 6 tests OK.
 - `make push-authorization-check`: exits 2 under current HOLD with
   `DEPLOYMENT_PUSH: HOLD - push is not authorized.`
 - `make push-authorization-check PUSH_EXPECTED_HEAD=<current-head>`: still
   exits 2 under current HOLD, proving HOLD remains the primary blocker even
   when a candidate head is supplied.
-- `make ci`: passed with ruff clean, format clean, 614 primary unittest tests
+- `make ci`: passed with ruff clean, format clean, 615 primary unittest tests
   OK / 4 skipped, 12 eval tests OK, threshold report passed, and OpenAPI up to
   date.
-- PostgreSQL `ci-local-full`: passed with 614 primary unittest tests OK / 4
+- PostgreSQL `ci-local-full`: passed with 615 primary unittest tests OK / 4
   skipped, 12 eval tests OK, threshold report passed, OpenAPI up to date, and
   full local CI parity checks passed.
 

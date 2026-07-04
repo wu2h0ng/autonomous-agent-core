@@ -54,6 +54,34 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("DEPLOYMENT_PUSH: AUTHORIZED", result.stdout)
 
+    def test_conflicting_push_decision_tokens_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_file = Path(tmpdir) / "push-ambiguous.md"
+            decision_file.write_text(
+                textwrap.dedent(
+                    """
+                    # Deployment Push Decision
+
+                    ```text
+                    DEPLOYMENT_PUSH: HOLD
+                    DEPLOYMENT_PUSH: AUTHORIZED
+                    ```
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--decision-file", str(decision_file)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ambiguous", result.stdout + result.stderr)
+
     def test_authorization_can_be_bound_to_expected_head(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             decision_file = Path(tmpdir) / "push-authorized.md"
