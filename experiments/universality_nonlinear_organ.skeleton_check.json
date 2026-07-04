@@ -1,6 +1,14 @@
 {
-  "purpose": "localize the nonlinear id bottleneck: is it the precision-matrix skeleton proposer?",
-  "gaussian_linear": {"skeleton_contains_true": 1.0, "truth_in_pool": 0.833},
-  "tanh_nonlinear":  {"skeleton_contains_true": 1.0, "truth_in_pool": 0.917},
-  "conclusion": "ASSUMPTION OVERTURNED: skeleton proposer is NOT the nonlinear id bottleneck (truth_in_pool 0.917 on tanh, HIGHER than linear). Truth is in-pool 92% but id=0.167 -> the bottleneck is INTERVENTIONAL RESOLUTION under SATURATION: tanh saturates under do(X=2.0), collapsing the discrimination signal so distinct structures predict similar do-outcomes. Mechanism organ swap improves PREDICTION (err 0.454->0.279) but not DISCOVERY. Next mechanism: intervention-VALUE selection that avoids saturation (stay in the informative regime) — a third pluggable organ, currently fixed at C=2.0."
+  "purpose": "localize the nonlinear id bottleneck; two candidate fixes TESTED and both REFUTED by measurement",
+  "hypothesis_1_skeleton_proposer": {
+    "gaussian_linear": {"skeleton_contains_true": 1.0, "truth_in_pool": 0.833},
+    "tanh_nonlinear":  {"skeleton_contains_true": 1.0, "truth_in_pool": 0.917},
+    "verdict": "REFUTED — precision-matrix skeleton proposer WORKS on tanh (truth_in_pool 0.917, HIGHER than linear). Truth is reachable; the bottleneck is downstream RESOLUTION."
+  },
+  "hypothesis_2_saturation_smaller_interventions": {
+    "tanh_id_by_do_value": {"C=0.5": 0.0, "C=1.0": 0.083, "C=2.0": 0.333},
+    "verdict": "REFUTED (opposite) — SMALLER do-values give WORSE id. Larger interventions create larger between-structure prediction differences -> better discrimination. Nonlinear id is NOT saturation-limited fixable by smaller C."
+  },
+  "honest_state": "nonlinear DISCOVERY gap is real and OPEN: truth reachable (0.917), discrimination improves with LARGER interventions, organ swap fixes PREDICTION (err 0.454->0.279, advantage +0.174) but not DISCOVERY (id ~0.17-0.33, noisy at n=5/12-domains). Remaining candidates NOT yet tested: mean-field do-propagation inaccuracy (E[f(X)]!=f(E[X])), and minimality breakdown under nonlinearity (spurious edges get small-but-nonzero basis weights, so 'truth=unique minimal' may not hold). Requires a fresh, careful measurement pass — not more end-of-context guessing.",
+  "id_estimate_noise_caveat": "id at n=5/12-domains is noisy (do-sampling randomness gave 0.167 vs 0.333 for the same tanh+nonlinear-organ config across two runs); qualitative conclusion (nonlinear id << linear 0.83; organ swap doesn't fix discovery; smaller C worse) is robust, point estimates are not."
 }
