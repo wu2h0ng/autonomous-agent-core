@@ -965,6 +965,10 @@ Current active ADRs:
     are no longer merely branch-local: they landed through the P1-33 stacked
     local merge to `main@ef074ee` and are covered by the P1-33 post-merge
     verification record. Origin/main push remains HOLD; no release.
+- `PR-21-candidate-maintenance-p1-stack-gate-clarification-20260704.md`
+  - Current docs-only maintenance anchor aligning P1-29 through P1-32 gate
+    strings with their landed state: local-main only, still no push/release
+    claim. Origin/main push remains HOLD; no release.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
