@@ -1,0 +1,6 @@
+{
+  "purpose": "localize the nonlinear id bottleneck: is it the precision-matrix skeleton proposer?",
+  "gaussian_linear": {"skeleton_contains_true": 1.0, "truth_in_pool": 0.833},
+  "tanh_nonlinear":  {"skeleton_contains_true": 1.0, "truth_in_pool": 0.917},
+  "conclusion": "ASSUMPTION OVERTURNED: skeleton proposer is NOT the nonlinear id bottleneck (truth_in_pool 0.917 on tanh, HIGHER than linear). Truth is in-pool 92% but id=0.167 -> the bottleneck is INTERVENTIONAL RESOLUTION under SATURATION: tanh saturates under do(X=2.0), collapsing the discrimination signal so distinct structures predict similar do-outcomes. Mechanism organ swap improves PREDICTION (err 0.454->0.279) but not DISCOVERY. Next mechanism: intervention-VALUE selection that avoids saturation (stay in the informative regime) — a third pluggable organ, currently fixed at C=2.0."
+}
