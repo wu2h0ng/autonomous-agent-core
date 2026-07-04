@@ -128,3 +128,16 @@ information-feasible point; B=5 adds nothing) · measured reference points activ
 Five-pilot lineage: predictor bug -> verifier sound -> separation deficit -> nesting root-cause ->
 minimality green. Next session: set capture-relative bars from these numbers, freeze, score on fresh
 families (9100+), runs fresh.
+
+## VARIANCE EXPANSION (2026-07-04, 21 families): **seventh catch — family-level BIMODALITY**
+
+active_id mean 0.571 (6-family pilot's 0.750 was small-sample luck), SD 0.444, per-family BIMODAL
+(1.0-or-0.0; several families 0/0 for BOTH policies = residual equivalences survive minimality in some
+SVAR draws). Formulaic bars from raw heterogeneity would be weak (active 0.378 / gap 0.186).
+NEXT-SESSION DESIGN (AGDE-1 precedent): add a MACHINE family-validity screen — separability pre-check
+under TRUE weights at frozen (c, tol, minimality): a family is arena-valid iff its truth is uniquely
+reachable in principle; invalid families excluded BY CONSTRUCTION pre-freeze. Then re-derive reference
+points on valid families (expect the bimodal zeros to vanish), THEN formulaic bars, THEN freeze.
+T3 pilot lineage now SEVEN catches: predictor bug / verifier sound / separation deficit / nesting
+root-cause / minimality green / (5e-2 zero-shot empty) / family bimodality. Every one bought with
+calibration compute; every one would have been a broken frozen gate.
