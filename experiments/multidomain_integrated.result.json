@@ -35,9 +35,27 @@
       "governed_verdict": "act",
       "paused_halts": true,
       "all_organs_composed": true
+    },
+    "agriculture_nonlinear": {
+      "domain": "agriculture_nonlinear",
+      "n_vars": 6,
+      "mec_size": 6,
+      "n_data_ambiguous": 5,
+      "data_skeleton_recall": 1.0,
+      "orientation_data_alone": "0/5",
+      "orientation_data+language": "5/5",
+      "composition_gain": 5,
+      "verify_confirmed": "5/5",
+      "goal_sink": "farm_revenue",
+      "goal_action": "crop_yield",
+      "goal_achieved": true,
+      "governed_verdict": "act",
+      "paused_halts": true,
+      "all_organs_composed": true
     }
   },
   "both_compose_no_rebuild": true,
-  "verdict": "TRANSFERS-NO-REBUILD-2-DOMAINS",
-  "finding": "the SAME loop function composes all 5 organs end-to-end on TWO structurally + semantically DISSIMILAR novel domains (a pure chain and an epidemiology graph with a collider), with ZERO code change -> the loop is the invariant, the domain is config. This is the minimum evidence for \u901a\u7528's 'no rebuild across domains': >1 dissimilar domain, identical code. Honest scope: 2 toy synthetic domains, small; NOT the full 'arbitrary domains at human level' -- but it moves from 'one domain' to 'transfers'."
+  "nonlinear_domain_composes": true,
+  "verdict": "TRANSFERS-NO-REBUILD-3-DOMAINS-INCL-NONLINEAR",
+  "finding": "the SAME loop function composes all 5 organs end-to-end on THREE structurally + semantically DISSIMILAR novel domains (a linear chain, an epidemiology graph with a collider, and a NONLINEAR/tanh-saturating agriculture chain), with ZERO code change -> the loop is the invariant, the domain is config. The nonlinear domain stresses the DATA organ (precision-matrix skeleton + interventional verify are derived under linearity); whether it still composes is the honest test. Scope: 3 toy synthetic domains, small; NOT 'arbitrary domains at human level' -- but linear->nonlinear + chain->collider transfer, same code, is the strongest no-rebuild evidence this session."
 }
