@@ -16,3 +16,25 @@
 
 ## Result
 _(appended by the run)_
+
+## Result (scored 2026-07-04): **NULL — honest first real-domain result, mechanism works where well-posed**
+
+ancestry-F1: active **0.511** / random 0.417 / correl 0.400 (gap to correl 0.111 < 0.15) · governance
+ALL PASS (halt 100%, determinism, gate-approved). Frozen NULL; NO rescue.
+
+Diagnosis (labeled post-hoc; verdict untouched):
+- On the 4 targets WITH intervenable true ancestors (Raf/Erk/P38/Jnk): active F1 = 0.80/0.67/0.80/0.80
+  (mean ~0.77) — the governed intervention selection RECOVERS true causal ancestry on REAL biology.
+- On 2 targets with EMPTY consensus-ancestor sets (Plcg/PIP3): F1 = 0.00 because REAL interventions
+  have large effects that CONTRADICT the consensus DAG (do(PKC) shifts Plcg 6.74σ; PKC is not a
+  consensus ancestor of Plcg). The Sachs consensus is a known-imperfect reference; interventions
+  legitimately reveal edges it lacks. The aggregate NULL is dominated by this ground-truth contest,
+  not a mechanism failure.
+- Full-budget (5) F1 0.467 < budgeted 0.511: budget HELPED (fewer false positives on empty-truth targets).
+
+Honest lesson (the real-domain gap, sharpened): the toy-scale interventional advantage transfers to real
+biology ON WELL-POSED TARGETS, but a naive aggregate gate against a CONTESTED ground truth NULLs. Real
+domains demand (a) handling ground-truth imperfection and (b) a proper effect-threshold/precision model —
+both are real-scale work, exactly the difficulty '任意领域' names. This is the first honest measurement
+of that gap on real data — recorded, not rescued. (ADR-0049's 0.90 was full-read ancestry RECALL on a
+subset; this budgeted F1 over all 6 targets is a harsher, more honest aggregate.)

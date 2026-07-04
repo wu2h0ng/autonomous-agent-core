@@ -1,0 +1,24 @@
+{
+  "gate": "IGI-REAL-SACHS",
+  "targets": [
+    "Raf",
+    "Plcg",
+    "PIP3",
+    "Erk",
+    "P38",
+    "Jnk"
+  ],
+  "budget": 3,
+  "ancestry_F1": {
+    "active": 0.511,
+    "random": 0.417,
+    "correl": 0.4
+  },
+  "n_targets": 6,
+  "controls": {
+    "halt_100pct": true,
+    "determinism": true,
+    "gate_all_approved": true
+  },
+  "verdict": "NULL"
+}
