@@ -140,10 +140,10 @@ export AGENT_OS_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5
 make ci-local-full
 
 # Push authorization gate. This intentionally fails while the current decision
-# record says DEPLOYMENT_PUSH: HOLD; it is not part of make ci. When asking for
-# push authorization, bind the check to the candidate head so stale approvals
+# record says DEPLOYMENT_PUSH: HOLD; it is not part of make ci. The Make target
+# binds the check to the current candidate head by default, so stale approvals
 # cannot be reused silently.
-make push-authorization-check PUSH_EXPECTED_HEAD="$(git rev-parse --short HEAD)"
+make push-authorization-check
 
 # Or directly:
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \

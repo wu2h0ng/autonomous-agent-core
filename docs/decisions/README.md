@@ -899,11 +899,11 @@ Current active ADRs:
 - `PR-12-deployment-push-hold-executable-gate-20260704.md`
   - Local executable push authorization gate for the current HOLD decision.
     `make push-authorization-check` reads the deployment push decision record
-    and fails closed while `DEPLOYMENT_PUSH: HOLD` is active; with
-    `PUSH_EXPECTED_HEAD`, future AUTHORIZED records must also name the matching
-    `candidate_head`, and conflicting HOLD/AUTHORIZED tokens are rejected as
-    ambiguous. The target is not part of `make ci`. Focused gate tests
-    passed with 6 tests OK, the target exits 2 under HOLD, and `make ci` plus PostgreSQL
+    and fails closed while `DEPLOYMENT_PUSH: HOLD` is active; the Make target
+    binds the current short HEAD by default, future AUTHORIZED records must
+    name the matching `candidate_head`, and conflicting HOLD/AUTHORIZED tokens
+    are rejected as ambiguous. The target is not part of `make ci`. Focused gate
+    tests passed with 6 tests OK, the target exits 2 under HOLD, and `make ci` plus PostgreSQL
     `ci-local-full` passed with 615 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`

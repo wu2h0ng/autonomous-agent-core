@@ -23,8 +23,10 @@ Behavior:
 
 - `DEPLOYMENT_PUSH: HOLD` -> non-zero exit and "push is not authorized".
 - `DEPLOYMENT_PUSH: AUTHORIZED` -> zero exit.
-- `DEPLOYMENT_PUSH: AUTHORIZED` plus `PUSH_EXPECTED_HEAD=<hash>` -> zero only
-  when the decision record also contains `candidate_head: <hash>`.
+- `make push-authorization-check` binds `--expected-head` to the current
+  `git rev-parse --short HEAD` by default.
+- `DEPLOYMENT_PUSH: AUTHORIZED` plus an expected head -> zero only when the
+  decision record also contains `candidate_head: <hash>`.
 - Authorized decision with mismatched `candidate_head` -> non-zero exit.
 - Missing decision token or conflicting HOLD/AUTHORIZED tokens -> non-zero
   exit.
@@ -43,13 +45,17 @@ TDD evidence:
   was incorrectly accepted.
 - FOLLOW-UP GREEN: conflicting HOLD/AUTHORIZED tokens now fail closed with an
   ambiguous-decision message.
+- FOLLOW-UP RED: the Make target exposed `PUSH_EXPECTED_HEAD` but defaulted it
+  to empty, so a bare `make push-authorization-check` did not bind the
+  candidate commit.
+- FOLLOW-UP GREEN: the Make target now defaults `PUSH_EXPECTED_HEAD` to the
+  current short HEAD while preserving explicit override.
 
 Commands:
 
 ```bash
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_push_authorization_gate -v
 make push-authorization-check PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
-make push-authorization-check PUSH_EXPECTED_HEAD="$(git rev-parse --short HEAD)" PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 ```
@@ -58,10 +64,9 @@ Observed results:
 
 - Focused gate tests: 6 tests OK.
 - `make push-authorization-check`: exits 2 under current HOLD with
-  `DEPLOYMENT_PUSH: HOLD - push is not authorized.`
-- `make push-authorization-check PUSH_EXPECTED_HEAD=<current-head>`: still
-  exits 2 under current HOLD, proving HOLD remains the primary blocker even
-  when a candidate head is supplied.
+  `DEPLOYMENT_PUSH: HOLD - push is not authorized.` The command line includes
+  `--expected-head <current-head>`, proving the bare Make target binds the
+  candidate head before the HOLD decision blocks.
 - `make ci`: passed with ruff clean, format clean, 615 primary unittest tests
   OK / 4 skipped, 12 eval tests OK, threshold report passed, and OpenAPI up to
   date.

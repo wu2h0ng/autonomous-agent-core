@@ -158,6 +158,9 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertRegex(makefile, r"(?m)^push-authorization-check:")
         self.assertIn("push_authorization_check.py", makefile)
         self.assertIn("PUSH_EXPECTED_HEAD", makefile)
+        self.assertRegex(
+            makefile, r"(?m)^PUSH_EXPECTED_HEAD \?= \$\(shell git rev-parse --short HEAD"
+        )
         ci_line = next(line for line in makefile.splitlines() if line.startswith("ci:"))
         self.assertNotIn("push-authorization-check", ci_line)
 
