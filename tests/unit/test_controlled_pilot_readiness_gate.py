@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release_gate" / "controlled_pilot_readiness_check.py"
 CURRENT_STATE = ROOT / "docs" / "CURRENT_STATE.yaml"
 CURRENT_VERIFICATION_RECORD = (
-    ROOT / "docs" / "decisions" / "PR-22-controlled-pilot-readiness-gate-20260704.md"
+    ROOT / "docs" / "decisions" / "PR-23-controlled-pilot-readiness-full-ci-refresh-20260704.md"
 )
 HOLD_DECISION = ROOT / "docs" / "decisions" / "PR-10-deployment-push-hold-decision-20260704.md"
 RC_RECORD = ROOT / "docs" / "decisions" / "PR-15-controlled-pilot-rc-branch-20260704.md"
@@ -117,6 +117,15 @@ class ControlledPilotReadinessGateTest(unittest.TestCase):
         self.assertIn("controlled_pilot_readiness_check.py", makefile)
         ci_line = next(line for line in makefile.splitlines() if line.startswith("ci:"))
         self.assertNotIn("controlled-pilot-readiness-check", ci_line)
+
+    def test_readme_documents_controlled_pilot_gate_boundaries(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("make controlled-pilot-readiness-check", readme)
+        self.assertIn("DEPLOYMENT_PUSH: HOLD", readme)
+        self.assertIn("does not authorize origin/main push", readme)
+        self.assertIn("does not authorize release", readme)
+        self.assertIn("does not authorize automatic R4/R5 execution", readme)
 
 
 if __name__ == "__main__":

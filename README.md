@@ -148,6 +148,12 @@ make current-state-verification-check
 # against remote RC/main heads and absence of release/rc tags.
 make rc-branch-verification-check
 
+# controlled-pilot-readiness-check aggregates CURRENT_STATE freshness, the
+# controlled-pilot RC branch, absence of release/rc tags, and the active
+# DEPLOYMENT_PUSH: HOLD block. It does not authorize origin/main push,
+# does not authorize release, and does not authorize automatic R4/R5 execution.
+make controlled-pilot-readiness-check
+
 # push-authorization-check intentionally fails while the current decision record
 # says DEPLOYMENT_PUSH: HOLD. The Make target binds the check to the current
 # candidate head by default, so stale approvals cannot be reused silently.
