@@ -981,6 +981,11 @@ Current active ADRs:
     PostgreSQL `ci-local-full` passed at `33e9c69`; controlled-pilot readiness
     remains bounded by RC branch handoff, `DEPLOYMENT_PUSH: HOLD`, no release
     tag, no external claim, and no R4/R5 automatic execution.
+- `PR-24-controlled-pilot-readiness-readme-boundary-sync-20260704.md`
+  - Current README boundary sync for the controlled-pilot readiness gate:
+    documents `make controlled-pilot-readiness-check` in the command list and
+    states it does not authorize origin/main push, release, or automatic R4/R5
+    execution.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
