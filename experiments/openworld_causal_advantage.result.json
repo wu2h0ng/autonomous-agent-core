@@ -1,0 +1,35 @@
+{
+  "gate": "openworld-causal-advantage",
+  "n": 6,
+  "shift_value": 3.0,
+  "n_domains": 24,
+  "causal_mean_abs_err": 0.154,
+  "correlational_mean_abs_err": 1.194,
+  "advantage_all_pairs": {
+    "mean": 1.041,
+    "median": 0.968,
+    "win_rate": 0.867,
+    "n": 120
+  },
+  "advantage_confounded_subset": {
+    "mean": 1.527,
+    "median": 1.365,
+    "win_rate": 1.0,
+    "n": 85
+  },
+  "advantage_when_discovery_WRONG": {
+    "mean": 0.696,
+    "median": 0.958,
+    "win_rate": 0.85,
+    "n": 20
+  },
+  "oracle_structure_advantage_ceiling": {
+    "mean": 1.094,
+    "median": 0.968,
+    "win_rate": 0.875,
+    "n": 120
+  },
+  "n_confounded_pairs": 85,
+  "verdict": "STRONG-CONFIRMED",
+  "finding": "tests \u5f3a end-to-end: SELF-DISCOVERED (not oracle) causal structure predicts a shifted intervention's outcome vs the best correlational guess. Positive advantage on the confounded subset = causal stays right where correlation lies; that is the bet that distinguishes this route from a bigger predictor. World synthetic linear-Gaussian; advantage_when_discovery_WRONG measures graceful degradation."
+}
