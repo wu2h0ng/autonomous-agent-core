@@ -948,6 +948,12 @@ Current active ADRs:
     no longer pollute plain `git status`. Current-state, RC-branch, and
     push-HOLD gates passed; the tracked worktree was clean at `bfcc0ce`.
     Origin/main push remains HOLD; no release.
+- `PR-18-candidate-maintenance-docs-refresh-20260704.md`
+  - Current docs-only maintenance anchor after indexing the controlled-pilot RC
+    records in `docs/decisions/README.md` and documenting the three candidate
+    maintenance gates in `README.md`. Current-state and RC-branch gates passed;
+    push authorization still exits 2 under `DEPLOYMENT_PUSH: HOLD` at
+    `201d582`. Origin/main push remains HOLD; no release.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
