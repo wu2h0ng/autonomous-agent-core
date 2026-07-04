@@ -46,7 +46,7 @@ class _ShellView:
 
 
 def run(n, pool, truth_index, obs_rows, env_do, env_act, target, band, discovery_budget,
-        action_grid, seed=0, tol=0.6, c=2.0, shell=None):
+        action_grid, seed=0, tol=0.6, c=2.0, shell=None, cached_structure=None):
     """env_do(k, step)->rows (discovery); env_act(node, value)->realized target value (single governed
     action in the world). pool = hypothesis space (from the skeleton, no env constants). shell = C7 view;
     if paused at any point, the agent halts (correctability is unconditional)."""
@@ -60,6 +60,30 @@ def run(n, pool, truth_index, obs_rows, env_do, env_act, target, band, discovery
         ledger.record_unidentified(cid, group="structure")
     alive = list(range(len(pool)))
     trace, done = [], []
+
+    # ---- KNOWLEDGE REUSE (corrigible, never blind): a cached VERIFIED structure from a previous task
+    # in this environment is re-confirmed with ONE do() (the chooser's best split) before being trusted;
+    # if the world changed, the confirmation prunes the cache away and full discovery resumes. ----
+    if cached_structure is not None and cached_structure in alive and discovery_budget >= 1:
+        k = choose(n, [pool[i] for i in alive], [mechs[i] for i in alive], list(range(n)), c,
+                   [baselines[i] for i in alive], tol)
+        d = gate.decide(ActionRequest(action="do_node", risk_tier=1, confidence=1.0,
+                                      verified=True, evidence_count=1), shell_view=shell)
+        trace.append(f"confirm-do({k})->{d.verdict}")
+        if d.verdict != ALLOW:
+            return E2EResult(False, False, False, False, None, done, None, trace,
+                             halted_by_shell=getattr(shell, "paused", False), ledger=ledger)
+        rows = env_do(k, 0)
+        try:
+            keep, kill = prune(n, [pool[i] for i in alive], [mechs[i] for i in alive], k, c, rows, tol)
+        except Exhausted:
+            keep, kill = [], list(range(len(alive)))
+        ledger.demote(tuple(ids[alive[i]] for i in kill))
+        alive = [alive[i] for i in keep]
+        done.append(k)
+        if alive == [cached_structure]:
+            pass                     # cache CONFIRMED with 1 intervention -> skip to action
+        # else: cache refuted or not isolated -> fall through to full discovery on the survivors
 
     # ---- epistemic subgoal: identify structure by choosing own experiments ----
     for step in range(discovery_budget):
