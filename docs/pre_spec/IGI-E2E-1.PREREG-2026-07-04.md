@@ -23,3 +23,18 @@
 
 ## Result
 _(appended by the scored run)_
+
+## Result (scored 2026-07-04, 20 novel envs x 3 runs, digests no-drift): **PASS**
+
+identification **1.000** (60/60) · achievement **0.950** · achievement|identified 0.950 · random-action
+null 0.0167 · **coupling gap 0.933** · controls ALL PASS (paused-C7 halt 100%, budget never exceeded,
+ledger terminal-readable every run).
+
+First end-to-end integrated run of the thesis at toy scale: ONE environment-agnostic loop self-generates
+its epistemic subgoal (chooses its own experiments), identifies causal structure through governed do(),
+self-generates the instrumental subgoal, acts, records the consequence — unconditionally correctable at
+every station — on an environment class never used by any scored gate, zero code changes. Honest scope
+unchanged: toy scale; bounded goal-formation (terminal preference supplied); cross-domain knowledge
+compounding and real-world actuation NOT claimed (next gates / seam lane). RR-0044 ledger: verdict HIT,
+but 3/3 quantities landed OUTSIDE predicted bands in the favorable direction (1.000 vs 0.85-0.95; 0.95
+vs 0.75-0.90; 0.017 vs 0.1-0.3) — ledger calibration conservative; recorded as verdict-HIT/bands-miss.
