@@ -1,0 +1,23 @@
+{
+  "per_form": {
+    "threshold": {
+      "oracle_form_auc": 0.714,
+      "product_proxy_auc": 0.685,
+      "wrong_form_auc": 0.689,
+      "exclusive_gap": 0.029
+    },
+    "saturation": {
+      "oracle_form_auc": 0.919,
+      "product_proxy_auc": 0.916,
+      "wrong_form_auc": 0.808,
+      "exclusive_gap": 0.003
+    },
+    "ratio": {
+      "oracle_form_auc": 0.899,
+      "product_proxy_auc": 0.892,
+      "wrong_form_auc": 0.891,
+      "exclusive_gap": 0.006
+    }
+  },
+  "arena_legitimate_forms": []
+}

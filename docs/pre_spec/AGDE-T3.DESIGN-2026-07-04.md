@@ -141,3 +141,11 @@ points on valid families (expect the bimodal zeros to vanish), THEN formulaic ba
 T3 pilot lineage now SEVEN catches: predictor bug / verifier sound / separation deficit / nesting
 root-cause / minimality green / (5e-2 zero-shot empty) / family bimodality. Every one bought with
 calibration compute; every one would have been a broken frozen gate.
+
+## FREEZE (2026-07-04, founder cast; seven-pilot lineage complete)
+
+`experiments/agde_t3.py` = `d65038a33f1ee7ab`; `agde_t3_screen.py` = `52bc25071c82ec73`. Machine screen on calib: 9/21 valid;
+on valid: active 0.889 / random 0.278 / gap 0.611 -> FORMULAIC bars: active >= 0.679 (mean-2SE), gap >=
+0.367 (60%). Scored: first 10 machine-valid families from 9100 (fresh), runs {2,3} (fresh). Governance:
+every do() gate-approved, paused-C7 probe, byte-determinism. Frozen prediction: active 0.75-0.95, gap
+0.4-0.65, MET ~70% (fresh-family variance is the recurring tail; the screen should absorb most of it).
