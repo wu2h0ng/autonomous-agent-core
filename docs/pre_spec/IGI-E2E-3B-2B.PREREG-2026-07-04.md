@@ -200,3 +200,23 @@ Predicted cost: saving drops to ~1.5-1.8 (still >= 1.0), correctness -> ~1.0.
 runs {66,67}; only change vs 2f: trust iff the nominee is the UNIQUE survivor after confirms (the prior
 buys ordering; the world must isolate). Bars unchanged. Frozen prediction: correctness 0.95-1.0,
 saving 1.3-1.9 (>=1.0), cross-drop ~0, penalty <=0.5; PASS ~70%.
+
+### E2E-2g (scored 2026-07-04): **FAIL — the "fix" neutered the prior; and the correctness bar was
+likely set above the CLASS's own ceiling**
+
+saving -0.125 (4.562 vs 4.438: uniqueness-trust + generic confirms = the nomination changes NOTHING
+about which experiments run — prior path degenerates to full discovery). Correctness unchanged 0.8125 =
+plausibly the biased class's intrinsic identification ceiling at budget 10 (never measured pre-freeze —
+the "does the bar have room" checklist question skipped AGAIN, same-type miss #4). Two-part mechanism
+for E2E-2h: (1) the prior enters the CHOOSER OBJECTIVE (prior-weighted expected surviving-mass
+minimization — priors order experiments; pruning remains world-only; trust remains uniqueness);
+(2) the correctness bar becomes MEASURED-RELATIVE (prior must not degrade the class's own no-prior
+ceiling by > 0.05, measured in-run).
+
+## E2E-2h FREEZE (2026-07-04) — priors order EXPERIMENTS (weighted chooser); measured-relative bar
+
+`experiments/igi_e2e_2h.py` = `b102245e3b86f83f`; fresh seeds (learn 7000+, A 7200+, B 7400+). Chooser
+minimizes prior-weighted expected surviving mass (modal-nominated hypothesis weight 3.0, frozen);
+pruning world-only; trust uniqueness-only. Correctness bar measured-relative: prior-run correctness >=
+class no-prior ceiling (in-run) - 0.05. Other bars unchanged. Frozen prediction: saving 0.8-1.6 (live
+risk: below the 1.0 bar), correctness within 0.05 of ceiling, cross-class penalty <= 0.5; PASS ~55%.

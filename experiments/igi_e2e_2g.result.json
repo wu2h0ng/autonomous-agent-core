@@ -1,0 +1,18 @@
+{
+  "gate": "IGI-E2E-2g",
+  "prior": {
+    "modal_root": "head",
+    "strength": 0.792,
+    "learned_from": 10
+  },
+  "classA_noprior_cost": 4.438,
+  "classA_prior_cost": 4.562,
+  "cross_env_saving": -0.125,
+  "classA_prior_correctness": 0.8125,
+  "classB_correctness_drop": 0.0625,
+  "classB_cost_penalty": -0.062,
+  "controls": {
+    "halt_100pct": true
+  },
+  "verdict": "FAIL"
+}
