@@ -45,15 +45,20 @@ def _stream(seed: int, tag: str) -> random.Random:
     return random.Random(f"HD5e|{seed}|{tag}")
 
 
-def _gen(seed: int, tag: str, n: int, signs: list[int]) -> tuple[list[list[float]], list[int]]:
+def _gen(seed: int, tag: str, n: int, signs: list[int],
+         true_pairs=None, true_linear=None) -> tuple[list[list[float]], list[int]]:
+    """true_pairs/true_linear override the frozen defaults — condition-B (incongruent) generation for the
+    5e knowledge control: same schema/names, arbitrary true structure (frozen pre-proposal, see prereg)."""
     p = HD_PARAMS
-    rng = _stream(seed, tag)
+    tp = p["true_pairs"] if true_pairs is None else true_pairs
+    tl = p["true_linear"] if true_linear is None else true_linear
+    rng = _stream(seed, tag + ("" if true_pairs is None else "|B"))
     rows, labels = [], []
     for _ in range(n):
         g = rng.gauss(0, 1)
         x = [p["global_load"] * g + rng.gauss(0, 1) for _ in range(p["n_raw"])]
-        t = sum(p["beta_xor"] * x[a] * x[b] for a, b in p["true_pairs"])
-        t += sum(p["beta_lin"] * x[k] for k in p["true_linear"])
+        t = sum(p["beta_xor"] * x[a] * x[b] for a, b in tp)
+        t += sum(p["beta_lin"] * x[k] for k in tl)
         y = 1 if (t + rng.gauss(0, p["noise_sd"])) > 0 else 0
         for ci, k in enumerate(p["spurious"]):
             x[k] += signs[ci] * p["spur_strength"] * (2 * y - 1) + rng.gauss(0, p["spur_noise"])
@@ -62,14 +67,15 @@ def _gen(seed: int, tag: str, n: int, signs: list[int]) -> tuple[list[list[float
     return rows, labels
 
 
-def train_envs_hd(seed: int) -> list[tuple[list[list[float]], list[int]]]:
+def train_envs_hd(seed: int, true_pairs=None, true_linear=None) -> list[tuple[list[list[float]], list[int]]]:
     p = HD_PARAMS
-    return [_gen(seed, f"env{e}", p["n_train"], [p["spur_signs"][c][e] for c in range(len(p["spurious"]))])
+    return [_gen(seed, f"env{e}", p["n_train"], [p["spur_signs"][c][e] for c in range(len(p["spurious"]))],
+                 true_pairs, true_linear)
             for e in range(p["n_envs"])]
 
 
-def test_env_hd(seed: int) -> tuple[list[list[float]], list[int]]:
-    return _gen(seed, "test", HD_PARAMS["n_test"], HD_PARAMS["test_signs"])
+def test_env_hd(seed: int, true_pairs=None, true_linear=None) -> tuple[list[list[float]], list[int]]:
+    return _gen(seed, "test", HD_PARAMS["n_test"], HD_PARAMS["test_signs"], true_pairs, true_linear)
 
 
 def expand_pairs(rows: list[list[float]], pairs: list[list[int]]) -> list[list[float]]:

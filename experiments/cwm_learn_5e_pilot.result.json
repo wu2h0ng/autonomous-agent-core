@@ -1,0 +1,39 @@
+{
+  "pilot_seeds": [
+    100,
+    101,
+    102
+  ],
+  "per_seed": [
+    {
+      "seed": 100,
+      "oracle_auc": 0.896,
+      "exhaustive_auc": 0.5,
+      "exhaustive_found": false,
+      "exhaustive_kept_n": 0,
+      "normalized_score": 0.0,
+      "minutes": 1.4
+    },
+    {
+      "seed": 101,
+      "oracle_auc": 0.9406,
+      "exhaustive_auc": 0.7729,
+      "exhaustive_found": true,
+      "exhaustive_kept_n": 2,
+      "normalized_score": 0.6193,
+      "minutes": 1.5
+    },
+    {
+      "seed": 102,
+      "oracle_auc": 0.953,
+      "exhaustive_auc": 0.7554,
+      "exhaustive_found": true,
+      "exhaustive_kept_n": 2,
+      "normalized_score": 0.5639,
+      "minutes": 1.0
+    }
+  ],
+  "median_normalized": 0.5639,
+  "regime_confirmed": true,
+  "action": "FREEZE 5e at n_raw=60"
+}
