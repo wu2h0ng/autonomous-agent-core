@@ -149,3 +149,16 @@ on valid: active 0.889 / random 0.278 / gap 0.611 -> FORMULAIC bars: active >= 0
 0.367 (60%). Scored: first 10 machine-valid families from 9100 (fresh), runs {2,3} (fresh). Governance:
 every do() gate-approved, paused-C7 probe, byte-determinism. Frozen prediction: active 0.75-0.95, gap
 0.4-0.65, MET ~70% (fresh-family variance is the recurring tail; the screen should absorb most of it).
+
+## SCORED RESULT (2026-07-04, fresh machine-screened families 9100+, runs {2,3}): **MET**
+
+active_id **0.850** (bar 0.679) · random 0.300 · **gap 0.550** (bar 0.367) · 10 valid families (8
+screened out by the machine check) · governance ALL PASS (every do() gate-approved; paused-C7 halts
+everything; byte-determinism). RR-0044 ledger: HIT, both quantities in frozen bands (0.75-0.95 /
+0.4-0.65).
+
+Earned bounded sentence: *the governed discovery loop, on DYNAMICAL worlds (SVAR: contemporaneous MEC
+x lagged support under causal minimality), identifies structure through its own chosen window-clamp
+experiments, beating random choice at equal budget, with governance intact at every step.* The CWM
+static->dynamic upgrade (founder tier-1 item 8) has its first MET — earned through seven pilot catches,
+a machine validity screen, and formulaic bars with zero judgment residue.

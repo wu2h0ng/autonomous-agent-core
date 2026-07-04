@@ -1,0 +1,27 @@
+{
+  "per_form": {
+    "deadzone": {
+      "oracle_form_auc": 0.961,
+      "product_proxy_auc": 0.678,
+      "wrong_form_auc": 0.678,
+      "exclusive_gap": 0.283
+    },
+    "absdiff": {
+      "oracle_form_auc": 0.916,
+      "product_proxy_auc": 0.654,
+      "wrong_form_auc": 0.5,
+      "exclusive_gap": 0.262
+    },
+    "bandpass": {
+      "oracle_form_auc": 0.814,
+      "product_proxy_auc": 0.738,
+      "wrong_form_auc": 0.738,
+      "exclusive_gap": 0.075
+    }
+  },
+  "arena_legitimate_forms": [
+    "deadzone",
+    "absdiff",
+    "bandpass"
+  ]
+}
