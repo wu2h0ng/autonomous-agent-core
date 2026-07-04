@@ -14,7 +14,15 @@ from aac.intervention_chooser import signature
 from aac.structure_consistency import predict_do_means
 
 SCM_PARAMS = {
-    "n_nodes": 5,
+    # Scarcity construction (calibration K3 redesign, disclosed): random n=5 skeletons CANNOT satisfy
+    # MEC>=4 AND informative-fraction<=1/3 simultaneously (ambiguity spreads over most nodes at small n) —
+    # the first calibration run measured 0/400 valid families. Redesigned to Skeptic C's construction made
+    # explicit: a PINNED block (colliders fix all their edge orientations; do()s there are uninformative)
+    # plus a FREE 4-node path (MEC exactly 4). n=13 -> informative fraction ~3/13 <= 1/3. Favourable-to-
+    # active by design and openly disclosed: if active loses here, it loses everywhere.
+    "n_nodes": 13,
+    "n_colliders": 3,                   # pinned block: 3 colliders x 3 nodes = 9 nodes, 6 pinned edges
+    "path_len": 4,                      # free path: 4 nodes / 3 edges, MEC = 4
     "w_lo": 0.7, "w_hi": 1.3,          # |weight| range, sign random
     "noise_sd": 1.0,
     "do_value": 2.0,                    # frozen intervention value c
@@ -33,30 +41,29 @@ class Family:
         p = SCM_PARAMS
         n = p["n_nodes"]
         rng = _stream(f"fam|{family_seed}")
-        # skeleton: random spanning tree (+1 extra edge with prob 1/2), no multi-edges
-        nodes = list(range(n))
-        rng.shuffle(nodes)
-        edges = set()
-        for i in range(1, n):
-            a = nodes[i]
-            b = nodes[rng.randrange(i)]
-            edges.add(tuple(sorted((a, b))))
-        if rng.random() < 0.5:
-            for _ in range(20):
-                a, b = rng.sample(range(n), 2)
-                e = tuple(sorted((a, b)))
-                if e not in edges:
-                    edges.add(e)
-                    break
-        self.skeleton = sorted(edges)
-        # true orientation: random topological order
-        order = list(range(n))
-        rng.shuffle(order)
-        pos = {v: i for i, v in enumerate(order)}
+        # node labels permuted per family (so node index carries no structural information)
+        lab = list(range(n))
+        rng.shuffle(lab)
+        edges: list[tuple[int, int]] = []
         pa: dict[int, set] = {}
-        for a, b in self.skeleton:
-            src, dst = (a, b) if pos[a] < pos[b] else (b, a)
-            pa.setdefault(dst, set()).add(src)
+        i = 0
+        for _ in range(p["n_colliders"]):          # pinned block: a->c<-b per collider
+            a, b, c_ = lab[i], lab[i + 1], lab[i + 2]
+            i += 3
+            edges += [tuple(sorted((a, c_))), tuple(sorted((b, c_)))]
+            pa.setdefault(c_, set()).update((a, b))
+        path = lab[i:i + p["path_len"]]            # free path: truth orientation drawn from its MEC
+        # orient the path from a random "root" position outward (the 4 no-collider orientations of P4)
+        root = rng.randrange(len(path))
+        for idx in range(len(path) - 1):
+            edges.append(tuple(sorted((path[idx], path[idx + 1]))))
+        for idx in range(len(path) - 1):
+            a, b = path[idx], path[idx + 1]
+            if idx + 1 <= root:
+                pa.setdefault(a, set()).add(b)     # edge points backward toward index 0
+            else:
+                pa.setdefault(b, set()).add(a)     # forward
+        self.skeleton = sorted(set(edges))
         self.true_pa = {k: frozenset(v) for k, v in pa.items()}
         self.weights = {(src, dst): (rng.uniform(p["w_lo"], p["w_hi"]) * rng.choice((-1, 1)))
                         for dst, ps in self.true_pa.items() for src in ps}
