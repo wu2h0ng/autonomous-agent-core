@@ -1,6 +1,59 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from agent_os_contracts import ActionProposal, EvidenceChain, RiskLevel
+
+
+class UncertaintyDrivenProposer:
+    """Self-generates candidate experiments from the system's OWN uncertainty (S7, RR-0048 Option 2).
+
+    Given a domain-supplied ``driver_space`` and a ``resolved_provider`` (the drivers whose causal effect the
+    system has already DETERMINED via recorded interventional outcomes), this proposer emits the UNRESOLVED
+    drivers as the candidate experiments — the interventions worth running to reduce uncertainty. As outcomes
+    accumulate the resolved set grows and the proposed experiment set shifts: the system chooses its own
+    experiments from what it does not yet know (对世界开环,受治理闭环). The governed disposer then selects
+    causally among these candidates (the seam), a human approves, and C7 can stop the run.
+
+    Honest bound: this prioritizes WITHIN a known ``driver_space`` by heuristic uncertainty; it does NOT
+    discover the driver-space or hypothesize novel causal structure (open-world causal discovery lives in the
+    object layer and reaches the OS only through the governed-decision seam). It is self-directed
+    experimentation over known variables, governed and correctable — a bounded autonomy, never autonomy over
+    the correction gate.
+    """
+
+    def __init__(
+        self,
+        *,
+        driver_space: tuple[str, ...],
+        resolved_provider: Callable[[], set[str]],
+    ) -> None:
+        if not driver_space:
+            raise ValueError("driver_space must be non-empty")
+        self._driver_space = tuple(driver_space)
+        self._resolved_provider = resolved_provider
+
+    def build(self, *, proposal_id: str, evidence: EvidenceChain) -> ActionProposal:
+        resolved = self._resolved_provider() or set()
+        unresolved = tuple(driver for driver in self._driver_space if driver not in resolved)
+        # Never emit an empty experiment set (nothing to govern). If everything is resolved, re-offer the
+        # full space; a staleness / re-test policy is a deliberate future refinement, not silent emptiness.
+        candidates = unresolved or self._driver_space
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action=candidates[0],
+            reason="Self-generated experiments over unresolved drivers to reduce causal uncertainty.",
+            risk_level=RiskLevel.R2,
+            expected_impact="Determine which unconfirmed driver moves the metric under intervention.",
+            approval_required=False,
+            approver_role=None,
+            connector_name="manual_review",
+            action_type="propose",
+            action_parameters={},
+            candidate_actions=candidates,
+        )
 
 
 class ActionProposalBuilder:
