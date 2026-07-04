@@ -137,3 +137,23 @@ prediction (4.8) and saving band (2.3-2.8, actual 2.917 just above) were near-ba
 cache's WORST-CASE predicted separation from every surviving alternative (verification aimed at the
 claim under test — the typed-routing shape). Bars unchanged from 2c. Frozen prediction: saving ~2.9
 preserved; stale-refuted 0.85-1.0; new-truth id 0.6-0.8 (live risk); PASS ~65%.
+
+### E2E-2d (scored 2026-07-04): **FAIL — targeted confirmation made staleness WORSE (0.533 vs generic
+0.667); ledger MISS with WRONG DIRECTION (predicted 0.85-1.0)**
+
+Saving preserved (2.467, drop 0.000; t1 id 0.938). Mechanism diagnosis: the targeted rule maximizes
+cache-vs-RIVAL separation in PREDICTION space, but all hypotheses (incl. the stale cache) are refit on
+the perturbed world's obs — a wrong structure with refit parameters mimics right structures
+observationally, so the "most separating" do can sit on UNCHANGED paths and both confirms are wasted.
+**Staleness is a CHANGE-DETECTION problem, not a discrimination problem.** The constitutional mechanism
+(the demonstration principle, third appearance): REPLAY-BASED reverification — store task-1's measured
+intervention outcomes; confirm by replaying original dos and comparing MEASURED means old-vs-new
+(world-to-world; models excluded from the comparison entirely). E2E-2e freezes that form.
+
+## E2E-2e FREEZE (2026-07-04) — replay-based staleness (world-to-world comparison; models excluded)
+
+`experiments/igi_e2e_2e.py` = `36be8f804d69b2e9`; fresh seeds 4300+, runs {77,78}. Store task-1's DEMONSTRATED
+do-outcomes; task-2 replays <=2 original dos and compares MEASURED means old-vs-new (tol 0.6). Same ->
+trust; changed -> rediscover. Bars unchanged. Frozen prediction: stale-refuted 0.85-1.0 (replays probe
+exactly the dos that carried identification — they sit on the ambiguity paths), saving ~2.5, new-truth
+id 0.55-0.8 (live risk); PASS ~60%.
