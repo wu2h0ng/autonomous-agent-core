@@ -137,6 +137,39 @@ class CurrentStateVerificationGateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verification source mismatch", result.stdout + result.stderr)
 
+    def test_verification_source_without_verified_head_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            docs_dir = repo_root / "docs"
+            decisions_dir = docs_dir / "decisions"
+            decisions_dir.mkdir(parents=True)
+            shutil.copyfile(CURRENT_STATE, docs_dir / "CURRENT_STATE.yaml")
+            source_path = decisions_dir / "NO-HEAD-verification-record.md"
+            source_path.write_text(
+                "# Verification Record\n\nThis record has no verified-head marker.\n",
+                encoding="utf-8",
+            )
+            state_path = docs_dir / "CURRENT_STATE.yaml"
+            state_text = state_path.read_text(encoding="utf-8")
+            state_path.write_text(
+                state_text.replace(
+                    _current_verification_source(),
+                    "docs/decisions/NO-HEAD-verification-record.md",
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(repo_root)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("has no verified head", result.stdout + result.stderr)
+
     def test_makefile_exposes_current_state_verification_check_outside_ci(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 

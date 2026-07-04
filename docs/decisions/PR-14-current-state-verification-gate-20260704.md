@@ -49,6 +49,8 @@ release-candidate maintenance gate, like `make push-authorization-check`.
 - FOLLOW-UP GREEN: non-string source values fail closed without traceback.
 - FOLLOW-UP COVERAGE: tests now cover `last_verified_tests.source` and
   `last_verified_eval.source` mismatch fail-closed behavior.
+- FOLLOW-UP COVERAGE: tests now cover a referenced verification record that
+  exists but does not declare a `Verified local head` marker.
 
 ## Commands
 
@@ -62,16 +64,16 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 ## Observed Results
 
-- Focused current-state verification gate tests: 6 tests OK.
+- Focused current-state verification gate tests: 7 tests OK.
 - `make current-state-verification-check`: passed and confirmed
   `docs/decisions/PR-13-deployment-current-docs-head-verification-refresh-20260704.md`
   exists and declares verified head `7a4f391`.
 - `make push-authorization-check`: exits 2 under the current
   `DEPLOYMENT_PUSH: HOLD` decision with `push is not authorized`; the Make
   target binds `--expected-head` to `6f233eb10a71fa0ca1385fea895c065f8c9ab5e0`.
-- `make ci`: passed with 627 primary unittest tests OK / 4 skipped, 12 eval
+- `make ci`: passed with 628 primary unittest tests OK / 4 skipped, 12 eval
   tests OK, threshold report passed, and OpenAPI contract up to date.
-- PostgreSQL `ci-local-full`: passed with 627 primary unittest tests OK / 4
+- PostgreSQL `ci-local-full`: passed with 628 primary unittest tests OK / 4
   skipped, 12 eval tests OK, threshold report passed, OpenAPI contract up to
   date, and full local CI parity checks passed.
 
