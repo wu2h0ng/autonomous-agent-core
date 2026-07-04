@@ -2,7 +2,7 @@
 
 - Status: implemented and verified locally / no push authorization / no release
 - Layer: deployment / release-candidate maintenance tooling
-- Verified local head: `61fc74f`
+- Verified local head: `e2dcf51`
 - Scope: read-only verification of deployment truth-source references
 
 This record adds a local fail-closed verifier for `docs/CURRENT_STATE.yaml`
@@ -20,6 +20,7 @@ The verifier is read-only. It checks that:
 - `docs/CURRENT_STATE.yaml` can be parsed as a YAML mapping;
 - `last_verified_tests.source` and `last_verified_eval.source` are present and
   equal;
+- the referenced source path stays inside the repository root;
 - the referenced verification source file exists;
 - the source file declares a `Verified local head: <hash>` marker;
 - when run inside a git checkout, the declared verified head is an ancestor of
@@ -38,6 +39,10 @@ release-candidate maintenance gate, like `make push-authorization-check`.
   `current-state-verification-check` target.
 - FOLLOW-UP GREEN: the Make target now invokes the verifier and remains outside
   the normal `ci` target.
+- FOLLOW-UP RED: an absolute verification source path was only treated as a
+  missing file, not as an invalid outside-repository source.
+- FOLLOW-UP GREEN: absolute paths and `..` path traversal are rejected before
+  file existence checks.
 
 ## Commands
 
@@ -51,16 +56,16 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 ## Observed Results
 
-- Focused current-state verification gate tests: 3 tests OK.
+- Focused current-state verification gate tests: 4 tests OK.
 - `make current-state-verification-check`: passed and confirmed
   `docs/decisions/PR-13-deployment-current-docs-head-verification-refresh-20260704.md`
   exists and declares verified head `7a4f391`.
 - `make push-authorization-check`: exits 2 under the current
   `DEPLOYMENT_PUSH: HOLD` decision with `push is not authorized`; the Make
-  target binds `--expected-head` to `61fc74fbad87640c91438c6939b41393af14aaf2`.
-- `make ci`: passed with 624 primary unittest tests OK / 4 skipped, 12 eval
+  target binds `--expected-head` to `e2dcf5120212a6aa7d506df703a0e146acaf210f`.
+- `make ci`: passed with 625 primary unittest tests OK / 4 skipped, 12 eval
   tests OK, threshold report passed, and OpenAPI contract up to date.
-- PostgreSQL `ci-local-full`: passed with 624 primary unittest tests OK / 4
+- PostgreSQL `ci-local-full`: passed with 625 primary unittest tests OK / 4
   skipped, 12 eval tests OK, threshold report passed, OpenAPI contract up to
   date, and full local CI parity checks passed.
 
