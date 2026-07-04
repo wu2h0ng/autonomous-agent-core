@@ -159,8 +159,10 @@ def main():
             if envp.truth_index is None or canon(envp.true_pa) == canon(env.true_pa):
                 continue
             r3 = _run(envp, rs + 200, cached=env.truth_index)
-            refuted.append(0.0 if (r3.identified and r3.survivors and
-                                   canon(r3.survivors[0]) == canon(env.true_pa)) else 1.0)
+            # stale cache "survived wrongly" iff the run ended right after the single confirm-do
+            # having identified a WRONG structure (i.e. it trusted the old cache in the changed world)
+            stale_survived = (r3.identified and not r3.correct_structure and len(r3.interventions) <= 1)
+            refuted.append(0.0 if stale_survived else 1.0)
             new_id.append(1.0 if (r3.identified and r3.correct_structure) else 0.0)
             rp = run(env.n, env.pool, env.truth_index, env.obs(rs),
                      lambda k, st: env.do_rows(k, rs, st), lambda nd, vl: env.act(nd, vl, rs),
