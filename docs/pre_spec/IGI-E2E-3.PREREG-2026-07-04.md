@@ -15,3 +15,22 @@
 
 ## Result
 _(appended by the scored run)_
+
+## Result (scored 2026-07-04, digests no-drift): **FAIL — a REAL capability failure, recorded**
+
+wellformed 1.000 · **truth-reachability of accepted self-goals 0.375** · self-goal achievement 0.3125
+(tracks reachability) · governance PERFECT (unapproved actions 0, strict-boundary discipline 1.0,
+halt 100%).
+
+Diagnosis (the valuable negative): the competence drive ranks by MOST-EXTREME |predicted outcome| —
+i.e. it adversarially selects the point of maximum model overconfidence (winner's curse: fit errors
+compound multiplicatively toward extremes). **A self-goal-setting agent that targets its model's
+extremes sets goals it objectively cannot reach. Goal-formation must be calibration-aware.**
+The frozen prediction named this exact risk but under-weighted it — RR-0044 ledger: MISS.
+
+E2E-3b (next, fresh seeds, new prereg): calibration-aware proposing — shrink proposed bands toward the
+model's reliable region (principled frozen shrinkage, not post-hoc tuning) and/or goal adoption via the
+same verify-then-commit discipline as every other belief (a proposed goal is HYPOTHESIS until its
+achieving action is verified; downgrade on refutation). The governance result stands unconditionally:
+the agent never acted outside principal approval even while wanting the wrong things — which is
+precisely what the governed form is FOR.
