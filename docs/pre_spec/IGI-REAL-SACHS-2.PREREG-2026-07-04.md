@@ -12,3 +12,17 @@
 
 ## Result
 _(appended)_
+
+## Result (scored 2026-07-04): **MET — 'strong' (causal not correlational) lands on REAL biology**
+
+ancestry-F1: active **0.952** / random 0.633 / correl **0.439** (active − correl = **+0.513** >> 0.15;
+active >> random) · governance ALL PASS (halt 100%, determinism, gate-approved). Frozen MET.
+
+The referee swap (consensus DAG -> held-out interventional truth) turned SACHS-1's aggregate NULL into a
+decisive MET on the SAME real data with the SAME governed machinery. The confounded correlational prior
+sits at 0.439 (reverse causation on real proteins fools it, exactly the ADR-0049 thesis); the governed
+active-intervention loop reaches 0.952. Honest scope: real DATA + correct causal referee; still a
+benchmark, not live actuation (the seam item). But the '强' commitment — the system exploits CAUSAL
+structure and beats correlation when the correlations lie — is now demonstrated on REAL biology, not only
+toy DAGs. Ledger: HIT (both quantities above frozen bands). Lesson compounded: SACHS-1's NULL was not a
+capability limit but a REFEREE-quality artifact; the fix was the day's law — let the world answer.
