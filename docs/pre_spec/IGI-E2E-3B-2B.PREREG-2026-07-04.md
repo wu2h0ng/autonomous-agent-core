@@ -183,3 +183,20 @@ saving >= 1.0 do AND prior-run correctness >= 0.90 AND cross-class correctness d
 cross-class cost penalty <= 1.0 do AND halt 100%. Frozen prediction: saving ~1.6, correctness ~0.95,
 cross-drop ~0, penalty ~+1.0-1.8 (LIVE RISK: refutation cost may exceed the 1.0 bar -> honest FAIL).
 PASS ~55%.
+
+### E2E-2f (scored 2026-07-04): **FAIL — split: both compounding quantities LAND, trust semantics leak**
+
+cross-env saving **2.25** (5.0 -> 2.75; class knowledge pays) · cross-class penalty **-0.062** (wrong-class
+priors die free) · BUT prior-run correctness 0.8125 < 0.90 and cross-class drop 0.0625 marginally over —
+ONE shared cause: trusting a nominee that survived 2 generic confirms without being UNIQUELY isolated
+(learned prior strength 0.6; in non-modal envs a wrong nomination sometimes hides through the confirms —
+the 2c trust-weakness resurfacing in prior form). Fix is one semantic line (E2E-2g): the prior buys
+ORDERING only; TRUST requires the world to isolate the nominee UNIQUELY (continue discovery until unique).
+Predicted cost: saving drops to ~1.5-1.8 (still >= 1.0), correctness -> ~1.0.
+
+## E2E-2g FREEZE (2026-07-04) — uniqueness-required trust (2f's one-line semantic fix)
+
+`experiments/igi_e2e_2g.py` = `4a71d5e0e1c958d1`; FRESH seeds (learn 6000+, scored A 6200+, B 6400+),
+runs {66,67}; only change vs 2f: trust iff the nominee is the UNIQUE survivor after confirms (the prior
+buys ordering; the world must isolate). Bars unchanged. Frozen prediction: correctness 0.95-1.0,
+saving 1.3-1.9 (>=1.0), cross-drop ~0, penalty <=0.5; PASS ~70%.
