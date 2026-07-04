@@ -986,6 +986,12 @@ Current active ADRs:
     documents `make controlled-pilot-readiness-check` in the command list and
     states it does not authorize origin/main push, release, or automatic R4/R5
     execution.
+- `PR-25-controlled-pilot-current-head-full-ci-refresh-20260704.md`
+  - Current full local verification refresh after PR-24: `make ci` and
+    PostgreSQL `ci-local-full` passed at `65b9f4a` with 637 primary unittest
+    tests OK / 4 skipped, 12 eval tests OK, threshold report, OpenAPI, and
+    controlled-pilot readiness preserved. Origin/main push remains HOLD; no
+    release tag or R4/R5 automatic execution.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
