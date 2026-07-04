@@ -1,0 +1,20 @@
+{
+  "gate": "IGI-ARBITRARY-BATTERY",
+  "n_random_domains": 60,
+  "distinct_structures": 60,
+  "mec_range": [
+    3,
+    48
+  ],
+  "identification": 0.858,
+  "achievement_given_id": 0.981,
+  "id_by_node_count": {
+    "5": 1.0,
+    "6": 0.9,
+    "7": 0.808,
+    "8": 0.882,
+    "9": 0.727
+  },
+  "halt_100pct": true,
+  "verdict": "MET"
+}
