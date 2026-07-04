@@ -73,6 +73,61 @@ class CohortABVerifier(ABC):
     def verify(self, action: str) -> tuple[bool, float, int]: ...
 
 
+class MetricCohortABVerifier(CohortABVerifier):
+    """REAL cohort A/B verifier over the OS query path (M4: no more stub verifiers).
+
+    run_cohort_query(action) -> QueryResult whose rows carry {cohort: "A"|"B", metric: float}
+    (the composition layer owns the SQL/provider; SQL Safety applies on that path — OS Core
+    stays domain-independent, ports-and-adapters like the store ports). This class owns the
+    REAL decision logic: standardized mean difference between cohorts; is_effective iff the
+    absolute effect clears min_effect_size AND both cohorts have >= min_samples; confidence
+    is a bounded monotone map of the effect; evidence_count = min(nA, nB) bound samples.
+    Malformed rows, thin samples, or query errors FAIL CLOSED to (False, 0.0, 0) ->
+    VERIFY_MORE/ESCALATE upstream, never a silent ALLOW."""
+
+    def __init__(
+        self,
+        run_cohort_query: Callable[[str], Any],
+        *,
+        cohort_field: str = "cohort",
+        metric_field: str = "metric",
+        min_effect_size: float = 0.5,
+        min_samples: int = 3,
+    ) -> None:
+        self.run_cohort_query = run_cohort_query
+        self.cohort_field = cohort_field
+        self.metric_field = metric_field
+        self.min_effect_size = min_effect_size
+        self.min_samples = min_samples
+
+    def verify(self, action: str) -> tuple[bool, float, int]:
+        try:
+            result = self.run_cohort_query(action)
+            a: list[float] = []
+            b: list[float] = []
+            for row in result.rows:
+                cohort = row.get(self.cohort_field)
+                metric = row.get(self.metric_field)
+                if cohort not in ("A", "B") or not isinstance(metric, (int, float)):
+                    return (False, 0.0, 0)  # malformed -> fail closed
+                (a if cohort == "A" else b).append(float(metric))
+            n_a, n_b = len(a), len(b)
+            if n_a < self.min_samples or n_b < self.min_samples:
+                return (False, 0.0, 0)  # thin -> fail closed
+            mean_a = sum(a) / n_a
+            mean_b = sum(b) / n_b
+            var_a = sum((x - mean_a) ** 2 for x in a) / n_a
+            var_b = sum((x - mean_b) ** 2 for x in b) / n_b
+            pooled_sd = ((var_a + var_b) / 2) ** 0.5 or 1e-9
+            effect = abs(mean_a - mean_b) / pooled_sd
+            if effect < self.min_effect_size:
+                return (False, 0.0, min(n_a, n_b))
+            confidence = min(1.0, effect / (effect + 1.0) + 0.25)  # bounded monotone map
+            return (True, round(confidence, 4), min(n_a, n_b))
+        except Exception:  # noqa: BLE001 - verifier failures must degrade safely
+            return (False, 0.0, 0)
+
+
 class GovernanceDecisionClient(ABC):
     @abstractmethod
     def decide(self, request: GovernanceDecisionRequest) -> GovernanceDecisionResponse: ...
