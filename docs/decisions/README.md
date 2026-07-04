@@ -909,7 +909,8 @@ Current active ADRs:
     not part of `make ci`. Focused gate tests passed with 12 tests OK, the target
     exits 2 under HOLD, and `make ci` plus PostgreSQL `ci-local-full` passed
     with 621 primary unittest tests OK / 4 skipped plus 12 eval OK. Not pushed,
-    not released.
+    not released. Latest local candidate head after this gate hardening is
+    `fb88dab`, ahead of `origin/main` by 187 commits.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
