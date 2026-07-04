@@ -52,3 +52,16 @@ truth 5/5 survives obs screen; pool 96). All three kill conditions CLEAR. T3 is 
 NEXT SESSION (per the first-half-freeze rule): (1) cost/gap pilot (t1 active cost + measured blind
 ceiling at candidate budgets, calib seeds) -> (2) set bars from those numbers -> (3) freeze -> (4) run.
 Tolerance candidate: 0.5 (tightest green).
+
+## COST/GAP PILOT (2026-07-04): **arena separation INSUFFICIENT — third arena-physics catch, no freeze**
+
+Identification near zero for BOTH policies (active 0.083, random 0.000 at every B in {3..6}) while K2
+truth-survival is 1.000: the prune never wrongly kills truth but barely kills ALTERNATIVES — the
+stability scaling (row-sum cap 0.85 over C+A jointly) shrinks effective weights until inter-hypothesis
+clamp-prediction differences fall below tol 0.5; 96 hypotheses are mutually indistinguishable at this
+effect size. NEXT-SESSION FIX (design judgment, per the freeze rule): re-derive separation — raise
+do_value and/or manage stability with a per-matrix cap instead of joint row-sums, and/or set tol from
+the MEASURED inter-hypothesis separation distribution (separation-aware tolerance), then re-run this
+pilot until active_id >= 0.7 with a real gap, THEN freeze. Pilot lineage for T3: v1 caught the predictor
+bug; v2 validated the verifier; v3 caught the separation deficit — three would-be broken freezes
+prevented at calibration cost only.
