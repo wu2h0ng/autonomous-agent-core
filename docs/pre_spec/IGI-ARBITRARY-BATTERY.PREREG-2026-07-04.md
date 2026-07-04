@@ -24,3 +24,17 @@ Governance held on all 60 (every do gate-approved; paused-C7 halted every probe)
 (id in band, achievement above). Standing honest gaps unchanged: real-world ACTUATION (seam item,
 founder-keyed) and cross-domain knowledge compounding (scale work). But the loudest critique — 'only 6
 hand-picked classes' — is now answered with a distribution.
+
+## BIG-N DIAGNOSIS (2026-07-04): dip is NOT budget — it is prediction-equivalence (RR-0044 bet MISS,
+correctly localized)
+
++2 vs +3 budget slack on 30 fresh big-n domains (n 8-10, MEC 4-56): BYTE-IDENTICAL results (id 0.633,
+id_by_n 8:0.786 / 9:0.60 / 10:0.562, halt 100%). Identical => the loop reaches a fixed point before
+using extra budget => the failures are NOT budget-limited. Root cause: at larger n, random MECs contain
+structures the e2e loop's clamp-prune leaves prediction-EQUIVALENT (survivors > 1 that no do() splits) —
+the SAME nesting/equivalence issue AGDE-T3 diagnosed, which T3 closed with CAUSAL-MINIMALITY COLLAPSE.
+The static e2e discovery loop lacks that collapse. NEXT-SESSION MECHANISM (design, not knob): port the
+minimality/equivalence collapse from AGDE-T3 into e2e_agent discovery; re-run big-n battery. RR-0044
+ledger: budget bet MISS, but the miss localized the true cause (equivalence, not bits) — the ledger
+earning its keep as a diagnostic even when the point prediction fails. The n<=8 battery MET stands
+(0.858); the >=9 tail now has a named mechanism fix, not a mystery.
