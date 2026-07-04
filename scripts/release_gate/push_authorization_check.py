@@ -32,6 +32,11 @@ def check_push_authorization(
     decision_lines = {line.strip() for line in decision_text.splitlines()}
     has_authorized = AUTHORIZED_TOKEN in decision_lines
     has_hold = HOLD_TOKEN in decision_lines
+    candidate_head_lines = [
+        line.strip()
+        for line in decision_text.splitlines()
+        if line.strip().startswith("candidate_head:")
+    ]
     if has_authorized and has_hold:
         return (
             2,
@@ -48,8 +53,13 @@ def check_push_authorization(
                 2,
                 f"{AUTHORIZED_TOKEN} - expected head must be a full 40-character commit hash.",
             )
+        if len(candidate_head_lines) != 1:
+            return (
+                2,
+                f"{AUTHORIZED_TOKEN} - ambiguous candidate head; expected exactly one candidate_head line.",
+            )
         expected_line = f"candidate_head: {expected_head}"
-        if expected_line not in decision_lines:
+        if candidate_head_lines[0] != expected_line:
             return (
                 2,
                 f"{AUTHORIZED_TOKEN} - candidate head mismatch; expected {expected_line}.",

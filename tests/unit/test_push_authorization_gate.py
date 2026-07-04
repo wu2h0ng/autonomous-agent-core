@@ -251,6 +251,42 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("candidate head mismatch", result.stdout + result.stderr)
 
+    def test_multiple_candidate_head_lines_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_file = Path(tmpdir) / "push-multiple-heads.md"
+            decision_file.write_text(
+                textwrap.dedent(
+                    """
+                    # Deployment Push Decision
+
+                    ```text
+                    DEPLOYMENT_PUSH: AUTHORIZED
+                    candidate_head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                    candidate_head: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+                    ```
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--decision-file",
+                    str(decision_file),
+                    "--expected-head",
+                    FULL_HEAD,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ambiguous candidate head", result.stdout + result.stderr)
+
     def test_candidate_head_prefix_match_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             decision_file = Path(tmpdir) / "push-authorized.md"
