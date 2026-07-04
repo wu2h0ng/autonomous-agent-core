@@ -911,6 +911,14 @@ Current active ADRs:
     with 621 primary unittest tests OK / 4 skipped plus 12 eval OK. Not pushed,
     not released. Latest local candidate head after this gate hardening is
     `fb88dab`, ahead of `origin/main` by 187 commits.
+- `PR-13-deployment-current-docs-head-verification-refresh-20260704.md`
+  - Fresh verification refresh for local `main@7a4f391`, a docs-only head on
+    top of the PR-12 release-gate hardening line. Focused push gate tests
+    passed with 12 tests OK; `make push-authorization-check` exits 2 under
+    HOLD while binding `--expected-head` to the full current head; `make ci`
+    and PostgreSQL `ci-local-full` passed with 621 primary unittest tests OK /
+    4 skipped plus 12 eval OK. Not pushed, not released; the PR-13 record itself
+    is docs-only on top of the verified head.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
