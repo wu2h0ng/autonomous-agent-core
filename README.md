@@ -139,10 +139,18 @@ make ci
 export AGENT_OS_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/agent_os_test"
 make ci-local-full
 
-# Push authorization gate. This intentionally fails while the current decision
-# record says DEPLOYMENT_PUSH: HOLD; it is not part of make ci. The Make target
-# binds the check to the current candidate head by default, so stale approvals
-# cannot be reused silently.
+# Candidate maintenance gates. These are intentionally not part of make ci.
+# current-state-verification-check verifies CURRENT_STATE last_verified sources
+# resolve to a real verification record and a verified ancestor head.
+make current-state-verification-check
+
+# rc-branch-verification-check verifies the controlled-pilot RC branch record
+# against remote RC/main heads and absence of release/rc tags.
+make rc-branch-verification-check
+
+# push-authorization-check intentionally fails while the current decision record
+# says DEPLOYMENT_PUSH: HOLD. The Make target binds the check to the current
+# candidate head by default, so stale approvals cannot be reused silently.
 make push-authorization-check
 
 # Or directly:
