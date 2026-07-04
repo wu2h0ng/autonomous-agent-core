@@ -15,6 +15,7 @@ import unittest
 
 from aac.governed_loop import (
     GovernedLoop, Candidate, VerifyResult, TaskSpec, ActionMemory, MemoryReranker,
+    BoundaryAwareReranker,
 )
 from aac.governed_gate import GovernedDecisionGate
 from aac.self_model import AgentSelfModel
@@ -195,6 +196,94 @@ class BudgetCapAndMemory(unittest.TestCase):
             self.assertLessEqual(r2.interventions, r1.interventions)
             saved += r1.interventions - r2.interventions
         self.assertGreater(saved, 0)   # across seeds, memory strictly reduced total interventions
+
+
+class BoundaryAwareRerankerTests(unittest.TestCase):
+    def _make_proposer(self, env, seed=0):
+        return SimulatedProposer(env, 0.0, random.Random(seed + 7))
+
+    def test_forbidden_candidates_not_promoted(self):
+        env = CausalLeverEnv(random.Random(10))
+        mem = ActionMemory()
+        mem.remember(f"apply_lever:{env.c}")  # true cause known
+        reranker = BoundaryAwareReranker(base=self._make_proposer(env, 10), memory=mem)
+        reranker.update_boundaries(frozenset([env.c]))  # NOW forbidden
+
+        ranked = reranker.rank(TaskSpec("t", risk_tier=1))
+        first_target = ranked[0].target
+        self.assertNotEqual(first_target, env.c,
+                            "forbidden-but-known-effective must NOT be promoted to front")
+
+    def test_non_forbidden_known_still_promoted(self):
+        env = CausalLeverEnv(random.Random(11))
+        mem = ActionMemory()
+        mem.remember(f"apply_lever:{env.c}")
+        reranker = BoundaryAwareReranker(base=self._make_proposer(env, 11), memory=mem)
+        reranker.update_boundaries(frozenset())  # nothing forbidden
+
+        ranked = reranker.rank(TaskSpec("t", risk_tier=1))
+        self.assertEqual(ranked[0].target, env.c,
+                         "non-forbidden known-effective should still be first")
+
+    def test_dynamic_boundary_change(self):
+        env = CausalLeverEnv(random.Random(12))
+        mem = ActionMemory()
+        mem.remember(f"apply_lever:{env.c}")
+        reranker = BoundaryAwareReranker(base=self._make_proposer(env, 12), memory=mem)
+
+        reranker.update_boundaries(frozenset())
+        ranked1 = reranker.rank(TaskSpec("t", risk_tier=1))
+        self.assertEqual(ranked1[0].target, env.c)
+
+        reranker.update_boundaries(frozenset([env.c]))
+        ranked2 = reranker.rank(TaskSpec("t", risk_tier=1))
+        self.assertNotEqual(ranked2[0].target, env.c)
+
+    def test_governed_loop_with_boundary_aware_reranker_blocks_forbidden(self):
+        env = CausalLeverEnv(random.Random(13))
+        mem = ActionMemory()
+        mem.remember(f"apply_lever:{env.c}")
+        shell = CorrigibilityShell()
+        shell.op_tighten(env.c)
+
+        reranker = BoundaryAwareReranker(
+            base=self._make_proposer(env, 13), memory=mem)
+        reranker.update_boundaries(frozenset([env.c]))
+
+        loop = GovernedLoop(
+            gate=GovernedDecisionGate(_self_model()),
+            proposer=reranker,
+            verifier=InterventionVerifier(env, random.Random(13 + 13)),
+            actuator=LeverActuator(env),
+            shell_view=shell.view(), verify_budget=D, memory=mem,
+        )
+        res = loop.run_task(TaskSpec("t", risk_tier=1))
+        self.assertNotEqual(res.applied_target, env.c,
+                            "boundary-aware reranker should prevent forbidden from being first tried")
+
+    def test_adr0051_auto_boundary_notification(self):
+        """ADR-0051: GovernedLoop auto-calls update_boundaries before ranking."""
+        env = CausalLeverEnv(random.Random(14))
+        mem = ActionMemory()
+        mem.remember(f"apply_lever:{env.c}")
+        shell = CorrigibilityShell()
+        shell.op_tighten(env.c)
+
+        reranker = BoundaryAwareReranker(
+            base=self._make_proposer(env, 14), memory=mem)
+        # Do NOT manually call update_boundaries — GovernedLoop should do it
+
+        loop = GovernedLoop(
+            gate=GovernedDecisionGate(_self_model()),
+            proposer=reranker,
+            verifier=InterventionVerifier(env, random.Random(14 + 13)),
+            actuator=LeverActuator(env),
+            shell_view=shell.view(), verify_budget=D, memory=mem,
+        )
+        res = loop.run_task(TaskSpec("t", risk_tier=1))
+        # If auto-notification works, forbidden lever should NOT be first tried
+        self.assertNotEqual(res.applied_target, env.c,
+                            "ADR-0051: loop must auto-notify proposer of forbidden set")
 
 
 if __name__ == "__main__":

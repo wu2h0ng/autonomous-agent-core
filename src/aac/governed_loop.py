@@ -87,6 +87,12 @@ class GovernedLoop:
         self._observe({"event": "task_start", "task": task.name, "risk_tier": task.risk_tier})
         steps: list[StepRecord] = []
         total_interv = 0
+
+        # --- ADR-0051: notify proposer of current governance boundaries (T15) ---
+        if self.shell_view is not None and hasattr(self.proposer, "update_boundaries"):
+            forbidden = getattr(self.shell_view, "forbidden", frozenset())
+            self.proposer.update_boundaries(forbidden)
+
         ranked = self.proposer.rank(task)
         reliability = getattr(self.proposer, "reliability", None)
 
@@ -177,4 +183,36 @@ class MemoryReranker:
         known = self.memory.known()
         head = [c for c in cands if c.action in known]
         tail = [c for c in cands if c.action not in known]
+        return head + tail
+
+
+@dataclass
+class BoundaryAwareReranker:
+    """Memory reranker that respects current governance boundaries (T15/T16 fix).
+
+    MemoryReranker has a staleness hazard: it promotes previously-effective actions
+    to the front even when they are NOW forbidden. In a governed loop with
+    deny-terminates semantics, this causes immediate DENY → wasted round.
+
+    BoundaryAwareReranker filters memory-known candidates against the current
+    forbidden set before promoting them. Actions that are currently forbidden
+    are pushed to the back regardless of past effectiveness.
+    """
+
+    base: Any
+    memory: ActionMemory
+    reliability: Optional[float] = None
+    _forbidden_targets: frozenset = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        self.reliability = getattr(self.base, "reliability", None)
+
+    def update_boundaries(self, forbidden_targets: frozenset[int]) -> None:
+        self._forbidden_targets = forbidden_targets
+
+    def rank(self, task) -> list[Candidate]:
+        cands = self.base.rank(task)
+        known = self.memory.known()
+        head = [c for c in cands if c.action in known and c.target not in self._forbidden_targets]
+        tail = [c for c in cands if c.action not in known or c.target in self._forbidden_targets]
         return head + tail
