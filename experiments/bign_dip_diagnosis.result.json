@@ -1,0 +1,112 @@
+{
+  "n_domains": 24,
+  "id_rate": 0.708,
+  "n_fail": 7,
+  "tol_sweep_fixed_nobs": {
+    "0.6": {
+      "id_rate": 0.708,
+      "truth_alive_rate": 0.708
+    },
+    "0.9": {
+      "id_rate": 0.917,
+      "truth_alive_rate": 0.917
+    },
+    "1.2": {
+      "id_rate": 0.75,
+      "truth_alive_rate": 0.917
+    },
+    "1.5": {
+      "id_rate": 0.625,
+      "truth_alive_rate": 0.958
+    },
+    "2.0": {
+      "id_rate": 0.375,
+      "truth_alive_rate": 1.0
+    }
+  },
+  "DECISIVE": {
+    "fail_truth_PRUNED_false_reject": 7,
+    "fail_truth_survives_but_unsplittable": 0,
+    "fail_truth_would_be_fixed_by_minimality": 0
+  },
+  "interpretation": "if truth_PRUNED dominates -> minimality is WRONG/harmful (truth not among survivors); fix is fit-bias/n_obs. if survives_but_unsplittable dominates AND truth_unique_min -> minimality collapse is the correct fix.",
+  "fail_examples": [
+    {
+      "seed": 200,
+      "n": 10,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 0,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    },
+    {
+      "seed": 204,
+      "n": 10,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 0,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    },
+    {
+      "seed": 210,
+      "n": 10,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 2,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    },
+    {
+      "seed": 213,
+      "n": 10,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 1,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    },
+    {
+      "seed": 214,
+      "n": 8,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 0,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    },
+    {
+      "seed": 215,
+      "n": 10,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 0,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    },
+    {
+      "seed": 218,
+      "n": 10,
+      "alive": 0,
+      "reason": "exhausted",
+      "truth_alive": false,
+      "truth_pruned_step": 0,
+      "all_equal_edges": true,
+      "splittable": false,
+      "truth_is_unique_min_edges": false
+    }
+  ]
+}
