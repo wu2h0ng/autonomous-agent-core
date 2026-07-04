@@ -1,0 +1,75 @@
+{
+  "gate": "sachs-language-organ",
+  "domain": "REAL Sachs (LLM proposes structure from NAMES; real interventions verify)",
+  "data_only_skeleton_best_recall": 0.588,
+  "proposers": {
+    "proposer_1": {
+      "n_edges": 21,
+      "skeleton_vs_truth": {
+        "proposed": 21,
+        "recovered": 17,
+        "true": 17,
+        "recall": 1.0,
+        "precision": 0.81
+      },
+      "llm_ancestry_effect_accuracy": 0.58,
+      "correlation_effect_accuracy": 0.36,
+      "llm_direct_edges_confirmed_by_intervention": {
+        "confirmed": 11,
+        "refuted": 3
+      }
+    },
+    "proposer_2": {
+      "n_edges": 20,
+      "skeleton_vs_truth": {
+        "proposed": 19,
+        "recovered": 17,
+        "true": 17,
+        "recall": 1.0,
+        "precision": 0.895
+      },
+      "llm_ancestry_effect_accuracy": 0.68,
+      "correlation_effect_accuracy": 0.36,
+      "llm_direct_edges_confirmed_by_intervention": {
+        "confirmed": 11,
+        "refuted": 2
+      }
+    }
+  },
+  "union": {
+    "n_edges": 23,
+    "skeleton_vs_truth": {
+      "proposed": 21,
+      "recovered": 17,
+      "true": 17,
+      "recall": 1.0,
+      "precision": 0.81
+    },
+    "llm_ancestry_effect_accuracy": 0.68,
+    "correlation_effect_accuracy": 0.36,
+    "llm_direct_edges_confirmed_by_intervention": {
+      "confirmed": 12,
+      "refuted": 3
+    }
+  },
+  "headline": {
+    "language_organ_beats_correlation_on_real_interventions": true,
+    "llm_ancestry_acc": 0.68,
+    "correlation_acc": 0.36,
+    "ground_truth_ancestry_acc_ref": 0.62,
+    "llm_skeleton_recall": 1.0,
+    "data_skeleton_recall": 0.588,
+    "llm_edges_confirmed_by_world": {
+      "confirmed": 12,
+      "refuted": 3
+    }
+  },
+  "verdict": "MEMORIZATION-CONFOUNDED",
+  "what_holds_confound_robust": {
+    "structure_beats_correlation_on_real_interventions": true,
+    "world_corrects_expert_belief_(consensus_edges_refuted_by_intervention)": 3,
+    "consensus_direct_edges_confirmed": 12
+  },
+  "what_does_NOT_hold": "language-organ REASONING is NOT demonstrated: skeleton recall ~1.0 and BOTH proposers explicitly self-reported reciting the famous Sachs benchmark -> this is memorization/recall, not causal reasoning from semantics. The \u00a722 result (structure beats correlation) is replicated but with a MEMORIZED structure, so it adds no genuine language-organ evidence.",
+  "confound_disclosure": "Sachs is a famous benchmark and BOTH LLM proposers SELF-REPORTED reciting its consensus network -> memorization confound CONFIRMED, not merely possible. A genuine language-organ-reasoning test needs a domain NOT in training data (hard: any real domain the LLM knows is memorizable; a synthetic domain has no semantics to reason from) -- the same knowledge-vs-naturalness tension as 5e-3. The ONLY confound-robust value here is the COMPOSITION: real interventions refuted 3 of the consensus direct edges -> the world corrects even expert belief."
+}
