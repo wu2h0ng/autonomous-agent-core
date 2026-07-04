@@ -1,4 +1,4 @@
-"""AGDE-T3 PILOT (pre-freeze; pilots-before-bars rule). Measures on calib families (9000+):
+"""AGDE-T3 PILOT v2 (predictor rewritten: exact linear fixed-point solve, replacing the buggy nested iteration the first pilot caught). Measures on calib families (9000+):
 K1 stability-rejection rate; K2 tolerance (truth survival on own clamp data >= 0.99 at candidate tols);
 K3 Granger-vacuity: fraction of the pool resolvable from OBSERVATION alone (lag half expected to
 resolve; orientation must NOT — else vacuous); t1 active cost + id rate at budget 8 (room-for-choice).
@@ -37,36 +37,41 @@ def fit_hyp(env, hyp, obs_traj):
 
 
 def predict_clamp(env, hyp, coefs, k):
-    pa, lagset = hyp
+    """EXACT steady-state under clamp x_k=c: m = b0 + (C_hat + A_hat) m with m[k]=c.
+    One linear solve (Gaussian elimination) over the non-clamped coordinates. Deterministic."""
     n = env.n
+    c = SVAR_PARAMS["do_value"]
+    # build W (combined coefficient matrix) and b0 vector from the fitted hypothesis
+    W = [[0.0] * n for _ in range(n)]
+    b = [0.0] * n
+    for v in range(n):
+        b0, ws = coefs[v]
+        b[v] = b0
+        for (kind, src), w in ws.items():
+            W[v][src] += w                    # steady state: contemporaneous and lagged share the mean
+    free = [v for v in range(n) if v != k]
+    # (I - W_ff) m_f = b_f + W_fk * c
+    A = [[(1.0 if i == j else 0.0) - W[free[i]][free[j]] for j in range(len(free))]
+         for i in range(len(free))]
+    rhs = [b[free[i]] + W[free[i]][k] * c for i in range(len(free))]
+    d = len(free)
+    for col in range(d):
+        piv = max(range(col, d), key=lambda r_: abs(A[r_][col]))
+        A[col], A[piv] = A[piv], A[col]
+        rhs[col], rhs[piv] = rhs[piv], rhs[col]
+        p_ = A[col][col] or 1e-12
+        for r_ in range(col + 1, d):
+            f = A[r_][col] / p_
+            for j in range(col, d):
+                A[r_][j] -= f * A[col][j]
+            rhs[r_] -= f * rhs[col]
+    sol = [0.0] * d
+    for r_ in range(d - 1, -1, -1):
+        sol[r_] = (rhs[r_] - sum(A[r_][j] * sol[j] for j in range(r_ + 1, d))) / (A[r_][r_] or 1e-12)
     mean = [0.0] * n
-    for _ in range(80):
-        new = [0.0] * n
-        for v in range(n):
-            if v == k:
-                new[v] = SVAR_PARAMS["do_value"]
-            else:
-                b0, ws = coefs[v]
-                val = b0
-                for (kind, src), w in ws.items():
-                    val += w * (new[src] if kind == "c" and src != v else mean[src] if kind == "l" else
-                                new[src])
-                new[v] = val
-        # contemporaneous propagation needs topo consistency; iterate inner fixed point
-        for _ in range(6):
-            nxt = [0.0] * n
-            for v in range(n):
-                if v == k:
-                    nxt[v] = SVAR_PARAMS["do_value"]
-                else:
-                    b0, ws = coefs[v]
-                    val = b0
-                    for (kind, src), w in ws.items():
-                        val += w * (nxt[src] if kind == "c" else mean[src])
-                        # note: use current inner iterate for contemporaneous
-                    nxt[v] = val
-            new = nxt
-        mean = new
+    mean[k] = c
+    for i, v in enumerate(free):
+        mean[v] = sol[i]
     return mean
 
 
@@ -120,7 +125,7 @@ def main():
     out["K3_truth_survives_obs_screen"] = f"{truth_in}/{len(fams)}"
     out["K3_orientation_resolved_by_obs_VACUITY"] = f"{orient_resolved}/{len(fams)}"
     out["kill_fired"] = bool(orient_resolved > len(fams) / 2)
-    open("experiments/agde_t3_pilot.result.json", "w").write(json.dumps(out, indent=2))
+    open("experiments/agde_t3_pilot2.result.json", "w").write(json.dumps(out, indent=2))
     print(json.dumps(out, indent=2))
     return 0
 

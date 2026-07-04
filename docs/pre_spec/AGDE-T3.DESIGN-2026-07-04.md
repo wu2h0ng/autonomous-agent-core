@@ -43,3 +43,12 @@ interventional fraction is real AND controls (determinism, gate audit, perm-coll
   exists to catch). NEXT SESSION FIRST TASK: rewrite predict_clamp cleanly (solve the linear
   fixed point directly per hypothesis), re-pilot K2, THEN freeze. Tonight's freeze would have been
   checklist-miss #5; the pilot prevented it.
+
+## PILOT v2 (2026-07-04, predictor rewritten as EXACT linear fixed-point solve): **APPARATUS SOUND**
+
+K2 GREEN: truth survival on own clamp data **1.000 at every tol {0.5, 0.7, 0.9}** (buggy iterator gave
+0.72-0.83; the exact solve fixed it completely). K3 unchanged-clean (orientation 0/5 obs-resolved;
+truth 5/5 survives obs screen; pool 96). All three kill conditions CLEAR. T3 is freeze-ready.
+NEXT SESSION (per the first-half-freeze rule): (1) cost/gap pilot (t1 active cost + measured blind
+ceiling at candidate budgets, calib seeds) -> (2) set bars from those numbers -> (3) freeze -> (4) run.
+Tolerance candidate: 0.5 (tightest green).
