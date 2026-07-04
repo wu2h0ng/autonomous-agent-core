@@ -220,3 +220,19 @@ minimizes prior-weighted expected surviving mass (modal-nominated hypothesis wei
 pruning world-only; trust uniqueness-only. Correctness bar measured-relative: prior-run correctness >=
 class no-prior ceiling (in-run) - 0.05. Other bars unchanged. Frozen prediction: saving 0.8-1.6 (live
 risk: below the 1.0 bar), correctness within 0.05 of ceiling, cross-class penalty <= 0.5; PASS ~55%.
+
+### E2E-2h (scored 2026-07-04): **FAIL — and it measures the missing fact: the biased class's no-prior
+ceiling is 0.75** (vs 1.000 for unbiased paths: head-bias creates deep all-forward chains; ~25% of envs
+are unresolvable within budget/tol). The 2f/2g absolute 0.90 bar sat ABOVE the class ceiling from the
+start (checklist-miss #4 confirmed by measurement). Weighted chooser buys only 0.188 (multi-way splits
+leave marginal ordering value at these MEC sizes). Frozen verdicts all stand.
+
+## E2E-2i FREEZE (2026-07-04) — the axis's WELL-POSED closing gate
+
+Mechanism = 2f's confirm-trust (the only variant that actually paid: saving 2.25) + IN-RUN measured
+ceilings + RELATIVE bars everywhere. `experiments/igi_e2e_2i.py` = `1d4a00ea3b4afaba`. Fresh seeds (learn 8000+,
+A 8200+, B 8400+). PASS iff saving >= 1.5 AND prior-correctness >= classA-no-prior-ceiling - 0.05 AND
+classB prior-correctness >= classB-no-prior-ceiling - 0.05 AND classB penalty <= 1.0 AND halt 100%.
+Frozen prediction: saving ~2.0-2.5, correctness within 0.05 of ceilings (2f evidence), penalty ~0;
+PASS ~60%. This is the axis's final attempt this session; FAIL -> axis recorded as
+"class-prior compounding marginal/fragile at toy scale", no further re-cuts.
