@@ -77,3 +77,54 @@ minimality — collapse surviving prediction-equivalent hypotheses to the minima
 before scoring; re-pilot; THEN freeze. T3 pilot lineage now four catches: predictor bug -> verifier
 sound -> separation deficit -> NESTING/minimality — four would-be-broken freezes prevented at
 calibration cost. The freeze that eventually happens will be earned.
+
+## PILOT v5 (2026-07-04): **causal-minimality collapse makes T3 freeze-input-ready**
+
+Mechanism: after ordinary trajectory pruning, collapse survivors by the classical causal-minimality
+principle: if all survivors share one contemporaneous orientation and the minimal lag-subset is unique,
+score that minimal representative; otherwise remain unidentified. This does not make a prediction-only
+superset empirically separable. It makes the equivalence-class convention explicit before scoring.
+
+Calibration result (`experiments/agde_t3_pilot5.result.json`, families 9000..9005, runs 0..1, tol 0.5):
+
+| config | active_id | random_id | gap |
+|---|---:|---:|---:|
+| c=2.0, B=4 | 0.333 | 0.083 | 0.250 |
+| c=2.0, B=5 | 0.417 | 0.083 | 0.333 |
+| c=3.2, B=4 | **0.750** | 0.417 | **0.333** |
+| c=3.2, B=5 | **0.750** | 0.417 | **0.333** |
+
+Interpretation: v5 is still **calibration only, not freeze/r-final/verdict**. It clears the prior
+apparatus blocker and provides concrete freeze inputs: `do_value=3.2`, `budget=4` is the cheaper
+candidate setting; `budget=5` adds no pilot benefit. Next legitimate step is a prereg/freeze packet
+using fresh families/seeds, explicit blind-ceiling/random baselines, C7 halt guards, and a result schema
+that preserves `calibration_pilot_not_freeze` as non-claim evidence.
+
+## FRESH SCORED GATE (2026-07-04): **NULL**
+
+The freeze/scoring packet (`AGDE-T3.PREREG-2026-07-04.md`) used the v5 inputs on fresh families
+`9100..9111` and runs `{40,41}`. Controls passed: fresh-family exclusion, deterministic ACTIVE replay,
+budget/gate audit, and C7 halt guard. Mechanical result: ACTIVE `0.5000`, RANDOM `0.2083`,
+BLIND_CEILING `0.5000`, capture `1.0000`, ACTIVE > RANDOM on `8/9` decided cases.
+
+Verdict: **NULL**, because ACTIVE misses the absolute identification bar `0.70`. Honest reading:
+temporal active choice beats random, but the current temporal verifier/minimality convention only
+identifies half the fresh SVAR cases. Do not lower the bar, rescue seeds, reinterpret the pilot as a
+win, or promote a temporal-dynamics claim. The next route is failure diagnosis or the queued `5e-2`
+knowledge-channel gate.
+
+## PILOT v5 (2026-07-04): **GREEN — minimality collapse works; freeze inputs COMPLETE**
+
+| config | active_id | random_id | gap |
+|---|---|---|---|
+| c=2.0 B=4/5 | 0.333 / 0.417 | 0.083 | 0.25 / 0.33 |
+| **c=3.2 B=4** | **0.750** | 0.417 | **0.333** |
+| c=3.2 B=5 | 0.750 | 0.417 | 0.333 (no gain over B=4) |
+
+FROZEN-INPUT SET for next session's gate (all pilot-verified, zero judgment left):
+tol=0.5 (truth-survival 1.000) · do_value=3.2 (arithmetic-derived from measured separation, verified) ·
+causal-minimality collapse (classical frozen principle; kills the nesting ill-posedness) · B=4 (the
+information-feasible point; B=5 adds nothing) · measured reference points active 0.750 / random 0.417.
+Five-pilot lineage: predictor bug -> verifier sound -> separation deficit -> nesting root-cause ->
+minimality green. Next session: set capture-relative bars from these numbers, freeze, score on fresh
+families (9100+), runs fresh.

@@ -1,0 +1,248 @@
+{
+  "calibration_seed_source": [
+    30,
+    31,
+    32,
+    33
+  ],
+  "claim_scope": "hard_non_enumerable_function_forms_fresh_score",
+  "condA": {
+    "per_seed": [
+      {
+        "oracle_hard_forms": 0.8283,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8283,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 40
+      },
+      {
+        "oracle_hard_forms": 0.8242,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8242,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 41
+      },
+      {
+        "oracle_hard_forms": 0.8359,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8359,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 42
+      },
+      {
+        "oracle_hard_forms": 0.823,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.823,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 43
+      },
+      {
+        "oracle_hard_forms": 0.7732,
+        "pair_screening": 0.6236,
+        "proposed_hard_forms": 0.7732,
+        "random_hard_forms_median": 0.6236,
+        "s_pair_screening": 0.4527,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.4527,
+        "seed": 44
+      },
+      {
+        "oracle_hard_forms": 0.8338,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8338,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 45
+      }
+    ],
+    "summary": {
+      "median_s_pair_screening": 0.0,
+      "median_s_proposed_hard_forms": 1.0,
+      "median_s_random_hard_forms": 0.0,
+      "proposed_gt_pair_screening": "6/6",
+      "proposed_gt_random_hard_forms": "6/6"
+    },
+    "true_forms": [
+      {
+        "center": 0.0,
+        "gate": 0,
+        "kind": "bandpass_product",
+        "name": "near_nominal_load_gates_rpm",
+        "signal": 6,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 4,
+        "kind": "bandpass_product",
+        "name": "near_nominal_temp_gates_duty",
+        "signal": 9,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 2,
+        "kind": "bandpass_product",
+        "name": "near_nominal_current_gates_resistance",
+        "signal": 3,
+        "width": 0.55
+      }
+    ]
+  },
+  "condB": {
+    "per_seed": [
+      {
+        "oracle_hard_forms": 0.8471,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 40
+      },
+      {
+        "oracle_hard_forms": 0.817,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 41
+      },
+      {
+        "oracle_hard_forms": 0.838,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 42
+      },
+      {
+        "oracle_hard_forms": 0.8346,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 43
+      },
+      {
+        "oracle_hard_forms": 0.8498,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 44
+      },
+      {
+        "oracle_hard_forms": 0.8488,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 45
+      }
+    ],
+    "summary": {
+      "median_s_pair_screening": 0.0,
+      "median_s_proposed_hard_forms": 0.0,
+      "median_s_random_hard_forms": 0.0,
+      "proposed_gt_pair_screening": "0/6",
+      "proposed_gt_random_hard_forms": "0/6"
+    },
+    "true_forms": [
+      {
+        "center": 0.0,
+        "gate": 30,
+        "kind": "bandpass_product",
+        "name": "cable_band_gates_torque",
+        "signal": 31,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 34,
+        "kind": "bandpass_product",
+        "name": "cleaning_band_gates_coolant",
+        "signal": 35,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 40,
+        "kind": "bandpass_product",
+        "name": "brightness_band_gates_desk_height",
+        "signal": 41,
+        "width": 0.55
+      }
+    ]
+  },
+  "evidence_level": "fresh_scored_gate_not_r_final",
+  "form_kinds": [
+    "bandpass_product"
+  ],
+  "gate": "CWM-LEARN-5e-2",
+  "not_authorized": [
+    "r_final",
+    "autonomy_claim",
+    "product_claim",
+    "route_promotion",
+    "C6_C7_change",
+    "manual_threshold_rescue"
+  ],
+  "proposal_source": "manual_data_blind_bandpass_form_proposals_v0",
+  "proposed_form_count": 6,
+  "random_draws": 3,
+  "schema_version": "cwm_learn_5e2_hard_forms_fresh_scored_v1",
+  "scoring_seed_overlap_with_calibration": false,
+  "screening_baseline": "finite_pair_products_only",
+  "seeds": [
+    40,
+    41,
+    42,
+    43,
+    44,
+    45
+  ],
+  "summary": {
+    "candidate_freeze_region": true,
+    "condB_collapse_ok": true,
+    "decision_rule": {
+      "invalid": "Condition-B proposed exceeds random by >0.10",
+      "met": [
+        "median_s_proposed_hard_forms >= 0.80",
+        "median_s_pair_screening <= 0.60",
+        "median_s_random_hard_forms <= 0.20",
+        "proposed beats pair screening in >=80% seeds",
+        "proposed beats random hard forms in >=80% seeds",
+        "Condition-B proposed does not exceed random by >0.10"
+      ],
+      "otherwise": "NULL"
+    },
+    "pair_proxy_gap_observed": true,
+    "verdict": "MET"
+  }
+}

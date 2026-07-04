@@ -279,7 +279,7 @@ def run_rfinal(
     )
     _assert_current_mechanism_files_match_lock(
         lock=lock,
-        workspace_root=resolved_workspace_root,
+        repo_root=_default_repo_root(),
     )
     result = run_protocol(
         seeds=R_FINAL_SEEDS,
@@ -330,14 +330,13 @@ def _assert_current_prereg_spec_file_matches_lock(
 def _assert_current_mechanism_files_match_lock(
     *,
     lock: dict[str, object],
-    workspace_root: Path,
+    repo_root: Path,
 ) -> None:
     mechanism_files = lock.get("mechanism_files")
     if not isinstance(mechanism_files, dict):
         raise RunLockedError("runner prereg.lock requires mechanism_files.")
-    target_root = workspace_root / "autonomous-agent-core"
     for lock_ref in sorted(REQUIRED_PREREG_LOCK_MECHANISM_FILES):
-        mechanism_path = target_root / lock_ref
+        mechanism_path = repo_root / lock_ref
         if not mechanism_path.is_file():
             raise RunLockedError(f"current mechanism file is missing: {mechanism_path}")
         actual_hash = hashlib.sha256(mechanism_path.read_bytes()).hexdigest()
@@ -349,7 +348,15 @@ def _assert_current_mechanism_files_match_lock(
 
 
 def _default_workspace_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / PREREG_SPEC_RELATIVE_PATH).is_file():
+            return parent
+    return current.parents[2]
+
+
+def _default_repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
 
 def _policy_for_arm(arm: str) -> CommitmentLedgerPolicy:

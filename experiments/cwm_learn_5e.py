@@ -37,8 +37,10 @@ CAP = 30
 
 
 def _load():
-    schema = json.load(open("experiments/hd5e_schema.json"))
-    props = json.load(open("experiments/hd5e_proposals.json"))
+    with open("experiments/hd5e_schema.json", encoding="utf-8") as fh:
+        schema = json.load(fh)
+    with open("experiments/hd5e_proposals.json", encoding="utf-8") as fh:
+        props = json.load(fh)
     name_to_idx = {n: i for i, n in enumerate(schema["names"])}
     freq: dict[tuple[int, int], list] = {}
     for pi, prop in enumerate(props["proposals"]):
