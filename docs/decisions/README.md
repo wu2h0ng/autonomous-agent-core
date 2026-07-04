@@ -890,6 +890,12 @@ Current active ADRs:
   - Explicit recorded decision for the current deployment packet:
     `DEPLOYMENT_PUSH: HOLD`. Local main remains verified and packeted, but no
     push authorization is granted and no release claim follows.
+- `PR-11-deployment-current-head-verification-refresh-20260704.md`
+  - Fresh verification record for current local `main@c71dfef` after docs-only
+    truth commits on top of the latest code-bearing product head `55da9a7`.
+    `make ci` and PostgreSQL `ci-local-full` passed with 609 primary unittest
+    tests OK / 4 skipped plus 12 eval OK, threshold report passed, and OpenAPI
+    was up to date. Push remains HOLD and release remains absent.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
