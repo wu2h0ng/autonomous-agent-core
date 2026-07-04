@@ -53,6 +53,9 @@ def check_current_state_verification(repo_root: Path) -> tuple[int, str]:
     except (KeyError, TypeError, ValueError) as exc:
         return 2, f"CURRENT_STATE verification source invalid: {exc}"
 
+    if not isinstance(tests_source, str) or not isinstance(eval_source, str):
+        return 2, "CURRENT_STATE verification source invalid: source must be a string."
+
     if tests_source != eval_source:
         return 2, "CURRENT_STATE verification source mismatch between tests and eval."
 

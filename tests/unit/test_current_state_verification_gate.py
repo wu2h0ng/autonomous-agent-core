@@ -88,6 +88,30 @@ class CurrentStateVerificationGateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("outside repository", result.stdout + result.stderr)
 
+    def test_non_string_verification_source_fails_closed_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            docs_dir = repo_root / "docs"
+            docs_dir.mkdir(parents=True)
+            shutil.copyfile(CURRENT_STATE, docs_dir / "CURRENT_STATE.yaml")
+            state_path = docs_dir / "CURRENT_STATE.yaml"
+            current_state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+            current_state["last_verified_tests"]["source"] = ["not", "a", "path"]
+            current_state["last_verified_eval"]["source"] = ["not", "a", "path"]
+            state_path.write_text(yaml.safe_dump(current_state), encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(repo_root)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verification source invalid", result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+
     def test_makefile_exposes_current_state_verification_check_outside_ci(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
