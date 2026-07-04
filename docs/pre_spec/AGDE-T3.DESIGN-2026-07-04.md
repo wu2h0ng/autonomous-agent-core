@@ -65,3 +65,15 @@ the MEASURED inter-hypothesis separation distribution (separation-aware toleranc
 pilot until active_id >= 0.7 with a real gap, THEN freeze. Pilot lineage for T3: v1 caught the predictor
 bug; v2 validated the verifier; v3 caught the separation deficit — three would-be broken freezes
 prevented at calibration cost only.
+
+## SEPARATION MEASUREMENT + PILOT v4 (2026-07-04): **root cause = NESTED HYPOTHESES (textbook)**
+
+sep median 0.619 but **q25 = 0.001**: a quarter of hypothesis pairs are prediction-EQUIVALENT — a
+superset hypothesis (adding a lag edge the world lacks) fits coefficient ~0 and becomes empirically
+identical to the true structure. No do_value scaling can separate them (v4 at derived c=3.2: active_id
+only 0.25). **Unique identification against supersets is ILL-POSED for any prediction-based verifier —
+the classical causal-minimality issue.** NEXT-SESSION MECHANISM (frozen principle, not a knob): causal
+minimality — collapse surviving prediction-equivalent hypotheses to the minimal-edge representative
+before scoring; re-pilot; THEN freeze. T3 pilot lineage now four catches: predictor bug -> verifier
+sound -> separation deficit -> NESTING/minimality — four would-be-broken freezes prevented at
+calibration cost. The freeze that eventually happens will be earned.
