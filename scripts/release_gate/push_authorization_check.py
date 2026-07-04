@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+DEFAULT_DECISION_FILE = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "decisions"
+    / "PR-10-deployment-push-hold-decision-20260704.md"
+)
+
+AUTHORIZED_TOKEN = "DEPLOYMENT_PUSH: AUTHORIZED"
+HOLD_TOKEN = "DEPLOYMENT_PUSH: HOLD"
+
+
+def check_push_authorization(decision_file: Path) -> tuple[int, str]:
+    if not decision_file.exists():
+        return (
+            2,
+            f"DEPLOYMENT_PUSH: UNKNOWN - decision file missing: {decision_file}",
+        )
+
+    decision_text = decision_file.read_text(encoding="utf-8")
+    if AUTHORIZED_TOKEN in decision_text:
+        return 0, f"{AUTHORIZED_TOKEN} - push authorization check passed."
+    if HOLD_TOKEN in decision_text:
+        return 2, f"{HOLD_TOKEN} - push is not authorized."
+    return (
+        2,
+        "DEPLOYMENT_PUSH: UNKNOWN - push is not authorized without an explicit decision token.",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Fail-closed deployment push authorization gate.")
+    parser.add_argument(
+        "--decision-file",
+        type=Path,
+        default=DEFAULT_DECISION_FILE,
+        help="Markdown decision record containing DEPLOYMENT_PUSH token.",
+    )
+    args = parser.parse_args(argv)
+
+    status, message = check_push_authorization(args.decision_file)
+    print(message)
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

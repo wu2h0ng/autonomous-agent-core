@@ -139,6 +139,10 @@ make ci
 export AGENT_OS_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/agent_os_test"
 make ci-local-full
 
+# Push authorization gate. This intentionally fails while the current decision
+# record says DEPLOYMENT_PUSH: HOLD; it is not part of make ci.
+make push-authorization-check
+
 # Or directly:
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src \
   python -m unittest discover -s tests -v

@@ -896,6 +896,13 @@ Current active ADRs:
     `make ci` and PostgreSQL `ci-local-full` passed with 609 primary unittest
     tests OK / 4 skipped plus 12 eval OK, threshold report passed, and OpenAPI
     was up to date. Push remains HOLD and release remains absent.
+- `PR-12-deployment-push-hold-executable-gate-20260704.md`
+  - Local executable push authorization gate for the current HOLD decision.
+    `make push-authorization-check` reads the deployment push decision record
+    and fails closed while `DEPLOYMENT_PUSH: HOLD` is active; the target is not
+    part of `make ci`. Focused gate tests passed, the target exits 2 under
+    HOLD, and `make ci` plus PostgreSQL `ci-local-full` passed with 612 primary
+    unittest tests OK / 4 skipped plus 12 eval OK. Not pushed, not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
