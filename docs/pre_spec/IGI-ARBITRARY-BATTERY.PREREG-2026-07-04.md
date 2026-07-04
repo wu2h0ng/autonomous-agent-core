@@ -38,3 +38,20 @@ minimality/equivalence collapse from AGDE-T3 into e2e_agent discovery; re-run bi
 ledger: budget bet MISS, but the miss localized the true cause (equivalence, not bits) — the ledger
 earning its keep as a diagnostic even when the point prediction fails. The n<=8 battery MET stands
 (0.858); the >=9 tail now has a named mechanism fix, not a mystery.
+
+## BIG-N ROOT CAUSE — CORRECTED (2026-07-04): fit-bias FALSE-REJECTION of truth (NOT equivalence)
+
+Retraction of the prior 'prediction-equivalence / minimality' label (it was asserted, not verified — the
+e2e pool has no lag-nesting, so T3's minimality does not apply here). Two measurements settle it:
+- truth-unresolvable-competitors = **0/N for ALL 11 failing domains** — truth IS uniquely separable in
+  principle (so NOT equivalence, NOT non-identifiability, NOT budget).
+- truth SELF-rejects on 1-5 do-nodes in **11/11** failing domains — truth's own predicted clamp mean
+  deviates from its own MEASURED clamp mean beyond tol. **The truth is being FALSELY PRUNED by fit bias:**
+  per-node OLS on fixed 400 obs samples over MORE parents at larger n is biased; predict_do_means
+  propagates and compounds that bias; the loop prunes the truth against real measured data.
+NEXT-SESSION MECHANISM (design): scale n_obs with n (more samples for more parents) OR fit-uncertainty-
+aware prune tolerance (tol grows with fitted-coef SE). NOT minimality, NOT budget. This is the SAME
+FAMILY as T3's K2 predictor-soundness catch (fit/measurement quality), not T3's nesting catch.
+DISCIPLINE NOTE: the day's law applied to my OWN diagnosis — a structure-type claim ('cause = X') asserted
+without measurement was wrong; measuring truth-self-survival corrected it. Verify against the world,
+including one's own conclusions.
