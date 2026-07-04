@@ -21,3 +21,14 @@
 
 ## Result
 _(appended by the scored run)_
+
+## Result (scored 2026-07-04, fresh families 300-329 × runs 30-32, digest no-drift): **MET**
+
+A_tw **0.9556** / A_wr 0.6694 / R_tw 0.3806 / O_tw 0.9778; **WHEN value = 0.2862** (bar 0.15);
+A_tw>A_wr **22/23**; controls pass. All three frozen quantities landed IN BAND (predicted 0.95 /
+0.55–0.70 / 0.25–0.40) — RR-0044 ledger third consecutive HIT.
+
+Earned bounded sentence: *choosing WHEN to intervene carries identification value beyond choosing WHAT
+(+0.286 mean ID at equal budget) under the identical frozen verifier — the discovery engine composes
+with the temporal/regime axis (T2-minimal scope: segment-WHEN; lag-map class = T3).* No autonomy claim;
+capability-under-governance only.
