@@ -1,0 +1,22 @@
+{
+  "gate": "IGI-E2E-3d",
+  "classes": [
+    "tree6",
+    "star7"
+  ],
+  "episodes": 31,
+  "commitment_rate": 1.0,
+  "reproduction_achievement": 1.0,
+  "committed_band_truth_consistency": 1.0,
+  "PAIRED_contrast_extrapolated_reachability": 0.2581,
+  "axis_lineage_extrapolated": [
+    0.375,
+    0.4688,
+    0.6562
+  ],
+  "controls": {
+    "halt_100pct": true,
+    "unapproved_actions": 0
+  },
+  "verdict": "PASS"
+}

@@ -91,3 +91,17 @@ contrast arm carries the routing content (demonstration vs extrapolation). Proto
 reachable (bands = demonstrated outcomes), bar has room (arithmetic: act-SE 0.057 << 0.35), width matches
 uncertainty (demonstration collapses it). Frozen prediction: commitment 0.85-1.0, reproduction 0.95-1.0,
 contrast ~0.5-0.7; PASS ~85% — the law's 4th on-axis bet.
+
+### E2E-3d (scored 2026-07-04): **PASS — the goal axis CLOSES in its constitutional form**
+
+commitment **1.000** · reproduction **1.000** · committed-band truth-consistency **1.000** · paired
+same-env/seed extrapolation contrast **0.258** · governance clean (0 unapproved, halt 100%).
+
+The axis's full evidence chain (one model, one governance, one environment family):
+  model-EXTRAPOLATED commitment: 0.375 / 0.469 / 0.656 / 0.258 (four measurements, four failures)
+  DEMONSTRATION-grounded commitment: 1.000 / 1.000 / 1.000 (one gate, all bars cleared)
+RR-0044 typed routing is 4-for-4 on this axis: goal commitment is a structure-type decision; the
+continuous channel (model extrapolation) degrades it, the discrete channel (governed demonstration)
+preserves it. **Terminal form of governed goal-formation: the model NOMINATES, the world CONFIRMS,
+the principal BOUNDS — and the agent commits only to what it has demonstrably done.** Ledger: HIT
+(bet PASS ~85%; both quantities at the top of their frozen bands).
