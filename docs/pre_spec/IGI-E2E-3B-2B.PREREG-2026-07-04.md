@@ -82,3 +82,12 @@ C: 2.5 dos / id 0.33): when the verifier works discovery is cheap; when discover
 dies. The compounding-SAVING question requires qualitatively larger hypothesis spaces with many
 low-information-but-sound experiments (n>=12, MEC in the hundreds, budget 15+) — deferred to scale work.
 The staleness half of compounding STANDS demonstrated (1.000 refutation / 0.812 re-identification).
+
+## E2E-3d FREEZE (2026-07-04) — goal-axis closure: nominate-by-model + commit-by-demonstration
+
+`experiments/igi_e2e_3d.py` = `32d68a5c4d879834`. Decision: PASS iff commitment >= 0.80 AND reproduction >= 0.90
+AND committed-band truth-consistency >= 0.90 AND zero unapproved AND halt 100%. Paired same-env/seed
+contrast arm carries the routing content (demonstration vs extrapolation). Protocol self-check: referee
+reachable (bands = demonstrated outcomes), bar has room (arithmetic: act-SE 0.057 << 0.35), width matches
+uncertainty (demonstration collapses it). Frozen prediction: commitment 0.85-1.0, reproduction 0.95-1.0,
+contrast ~0.5-0.7; PASS ~85% — the law's 4th on-axis bet.
