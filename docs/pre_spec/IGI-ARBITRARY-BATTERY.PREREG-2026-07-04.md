@@ -52,6 +52,16 @@ e2e pool has no lag-nesting, so T3's minimality does not apply here). Two measur
 NEXT-SESSION MECHANISM (design): scale n_obs with n (more samples for more parents) OR fit-uncertainty-
 aware prune tolerance (tol grows with fitted-coef SE). NOT minimality, NOT budget. This is the SAME
 FAMILY as T3's K2 predictor-soundness catch (fit/measurement quality), not T3's nesting catch.
+
+> **UPDATE 2026-07-04 (alternative (ii) TESTED and the naive version REJECTED; see RR-0046 §11,**
+> **src/aac/structure_banded.py, experiments/bign_banded_fix.py).** The fit-uncertainty-aware prune band
+> was implemented (`structure_banded.prune_banded`) but the naive form propagates INDIVIDUAL-observation
+> residual variance where the mean-comparison prune needs PREDICTION-MEAN variance, giving a ~2.57 3σ band
+> that keeps everything alive and identifies nothing (id 0.0). Decomposition: the truth's do-miss (~1.0) is
+> clamp-amplified coefficient error (2σ leverage at c=2.0), a signal-to-noise limit (id_rate == truth_alive
+> at every n_obs). So the ROBUST fix is (i) n_obs scaling (0.667->0.875 at 300->2400, fixed tol) or a
+> smaller clamp; a leverage-aware prediction-mean band could help only at the margin and is SNR-bounded.
+> `structure_consistency.py` byte-unchanged; no frozen gate touched.
 DISCIPLINE NOTE: the day's law applied to my OWN diagnosis — a structure-type claim ('cause = X') asserted
 without measurement was wrong; measuring truth-self-survival corrected it. Verify against the world,
 including one's own conclusions.
