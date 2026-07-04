@@ -236,3 +236,19 @@ classB prior-correctness >= classB-no-prior-ceiling - 0.05 AND classB penalty <=
 Frozen prediction: saving ~2.0-2.5, correctness within 0.05 of ceilings (2f evidence), penalty ~0;
 PASS ~60%. This is the axis's final attempt this session; FAIL -> axis recorded as
 "class-prior compounding marginal/fragile at toy scale", no further re-cuts.
+
+### E2E-2i (scored 2026-07-04): **FAIL — axis CLOSED per pre-commitment, no further re-cuts**
+
+saving 0.812 < 1.5 · prior-correctness 0.6875 vs ceiling 0.75 (drop 0.0625, just over 0.05) · learned
+prior strength 0.63 (30-sample noise: the quadrilogy sampled 0.60/0.79/0.78/0.63) · **cross-class arm
+PERFECT (drop 0.000, penalty 0.000)**.
+
+**Axis verdict (2f/2g/2h/2i quadrilogy, honest):** the HARM BOUND half of class-prior knowledge is
+solid everywhere — wrong-domain priors die free (corrigibility of belief demonstrated consistently).
+The BENEFIT half is marginal/fragile at toy scale: large savings appeared only under leaky trust
+(2f: 2.25 with a correctness leak); under sound trust semantics savings shrink to 0.19–0.81 because
+(a) learned prior strength is small-sample-noisy, (b) discovery is already near its cost floor,
+(c) sound trust requires world-work that consumes the savings. **Meta-consistency with the day's law:
+belief-shaped speedups that do not cash out as world-verified shortcuts do not survive sound trust.
+The world's answers are what pay; priors only order the questions.** Cross-domain-class knowledge
+compounding at REAL scale remains the scale-work item it always honestly was.
