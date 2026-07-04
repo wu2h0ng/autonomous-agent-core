@@ -81,13 +81,15 @@ def run(n, pool, truth_index, obs_rows, env_do, env_act, target, band, discovery
         ledger.demote(tuple(ids[alive[i]] for i in kill))
         alive = [alive[i] for i in keep]
         done.append(k)
+        if not alive:                # confirmation refuted the ENTIRE pool -> fail closed, honest
+            return E2EResult(False, False, False, False, None, done, None, trace, ledger=ledger)
         if alive == [cached_structure]:
             pass                     # cache CONFIRMED with 1 intervention -> skip to action
         # else: cache refuted or not isolated -> fall through to full discovery on the survivors
 
     # ---- epistemic subgoal: identify structure by choosing own experiments ----
     for step in range(discovery_budget):
-        if len(alive) == 1:
+        if len(alive) <= 1:
             break
         k = choose(n, [pool[i] for i in alive], [mechs[i] for i in alive], list(range(n)), c,
                    [baselines[i] for i in alive], tol)

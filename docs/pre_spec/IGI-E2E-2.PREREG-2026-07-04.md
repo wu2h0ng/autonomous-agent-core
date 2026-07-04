@@ -1,7 +1,7 @@
 # IGI-E2E-2 preregistration — cross-domain-class generality + corrigible knowledge compounding
 
 - Date: 2026-07-04 · Hook work-order gaps: single-domain-class limitation + no knowledge compounding.
-- ONE loop (`aac/e2e_agent.py` = `1769c4dc0edcc76e`, now with CORRIGIBLE reuse: a cached VERIFIED structure is
+- ONE loop (`aac/e2e_agent.py` = `b6e3ae3582f74f3b`, now with CORRIGIBLE reuse: a cached VERIFIED structure is
   re-confirmed with ONE do() before trust; refuted caches fall back to full discovery — stale knowledge
   cannot survive). Harness `experiments/igi_e2e_2.py` = `64dced70f3393c4e`. Zero per-class code.
 - Four structurally different classes: tree6 / chain8 / dense7 / star7 (8 envs × 2 runs each, seeds
@@ -13,6 +13,10 @@
 - Frozen prediction (ledger): per-class id 0.85-1.0 (chooser validated; MECs 6-12 vs budget 3 — dense7
   is the risk class, MEC 12 may exceed 3-do resolution on some envs); compounding saving ~2.0 (3->1);
   refuted rate high (sign-flip moves do-means far beyond tol). PASS ~65% (dense7 is the live risk).
+
+> Pre-score crash fix (disclosed): the perturbed-arm confirmation could refute the ENTIRE pool
+> (Exhausted) and the empty survivor set crashed the discovery loop; fixed FAIL-CLOSED (returns honest
+> UNIDENTIFIED). No scored result existed before the fix; digest re-frozen.
 
 ## Result
 _(appended by the scored run)_
