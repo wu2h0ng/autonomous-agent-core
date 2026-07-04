@@ -928,6 +928,26 @@ Current active ADRs:
     passed with 6 tests OK; the target passed on local `main@6f233eb`; `make ci`
     and PostgreSQL `ci-local-full` passed with 627 primary unittest tests OK / 4 skipped plus
     12 eval OK. Not pushed, not released.
+- `PR-15-controlled-pilot-rc-branch-20260704.md`
+  - Founder-authorized bounded RC branch handoff for Phase-1 controlled-pilot
+    preparation. Remote `rc/phase-1-controlled-pilot-20260704` points to
+    verified candidate `b8834a6`, while `origin/main` remains `dba87bc`; no
+    release/rc tag was created. This record does not authorize `origin/main`
+    promotion, formal release, external claims, automatic R4/R5 execution, or
+    autonomous-core/G10/AGI/RSI claim expansion.
+- `PR-16-rc-verifier-current-head-refresh-20260704.md`
+  - Verification refresh after adding the executable RC branch verifier.
+    `make rc-branch-verification-check` confirms the PR-15 RC branch record
+    against remote RC/main heads plus absence of release/rc tags. Focused
+    verifier suites passed with 11 tests OK; `make ci` and PostgreSQL
+    `ci-local-full` passed with 632 primary unittest tests OK / 4 skipped plus
+    12 eval OK. Origin/main push remains HOLD; no release.
+- `PR-17-clean-worktree-agent-runs-ignore-20260704.md`
+  - Release-candidate maintenance hygiene: `.agent_runs/` is ignored after
+    confirming it has no tracked files, so generated local runner/CI artifacts
+    no longer pollute plain `git status`. Current-state, RC-branch, and
+    push-HOLD gates passed; the tracked worktree was clean at `bfcc0ce`.
+    Origin/main push remains HOLD; no release.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
