@@ -1,0 +1,27 @@
+{
+  "gate": "integrated-organs",
+  "domain": "NOVEL hydro-power->manufacturing chain (no handed structure)",
+  "mec_size": 7,
+  "n_data_ambiguous_edges": 6,
+  "organ_1_DATA_skeleton_recall": 1.0,
+  "organ_2_LANGUAGE_orientation": {
+    "data_alone_can_orient_of_recovered": "0/6",
+    "data+language_orients_correctly": "6/6",
+    "composition_gain": 6
+  },
+  "organ_3_VERIFY_orientations_confirmed": "6/6",
+  "organ_4_GOAL": {
+    "target": "daily_production_volume",
+    "chosen_action": "upstream_rainfall",
+    "effect": 9.67,
+    "achieved": true
+  },
+  "organ_5_GOVERNANCE": {
+    "action_confirmed_per_action": true,
+    "governed_verdict": "act",
+    "paused_shell_halts": true
+  },
+  "all_organs_composed": true,
+  "verdict": "ORGANS-COMPOSE-END-TO-END",
+  "finding": "one governed loop on a NOVEL domain, NO handed structure: DATA recovers the skeleton, LANGUAGE orients it (data alone orients 0/6 -> the DIRECTED structure requires BOTH organs; that is the composition, not glue), INTERVENTION verifies the orientations, a GOAL is formed from the discovered structure and the achieving action chosen, and GOVERNANCE lets it ACT only because the action's own intervention is confirmed while a paused shell HALTS it. The architecture is the invariant; the organs plug in. Honest scope: toy, one novel synthetic domain, small; NOT arbitrary domains / human level / real actuation."
+}
