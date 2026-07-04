@@ -8,7 +8,7 @@ EVAL_THRESHOLD_REPORT_OUT ?= .agent_runs/eval-threshold-report/golden-threshold-
 PUSH_EXPECTED_HEAD ?= $(shell git rev-parse HEAD 2>/dev/null)
 PUSH_EXPECTED_HEAD_ARG = $(if $(PUSH_EXPECTED_HEAD),--expected-head $(PUSH_EXPECTED_HEAD),)
 
-.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval eval-threshold-report test openapi-contract push-authorization-check current-state-verification-check ci ci-local-full
+.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval eval-threshold-report test openapi-contract push-authorization-check current-state-verification-check rc-branch-verification-check ci ci-local-full
 
 bootstrap-dev:
 	$(PYTHON) -m pip install -e ".[dev,http,postgres]"
@@ -44,6 +44,9 @@ push-authorization-check:
 
 current-state-verification-check:
 	$(PYTHON) scripts/release_gate/current_state_verification_check.py
+
+rc-branch-verification-check:
+	$(PYTHON) scripts/release_gate/rc_branch_verification_check.py
 
 ci: check-ci-env lint format-check unit eval eval-threshold-report openapi-contract
 	@echo "=== All CI checks passed ==="

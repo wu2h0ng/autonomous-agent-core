@@ -2,7 +2,7 @@
 
 - Status: RC branch pushed under founder authorization / no origin/main push / no release
 - Layer: deployment / Phase-1 controlled-pilot release-candidate handoff
-- Verified local head: `943defd`
+- Verified local head: `943defde786c633ea4273c636c260aefb75b2c77`
 - RC branch: `rc/phase-1-controlled-pilot-20260704`
 - RC branch head: `b8834a644018e070e372be149fb758a928c7a242`
 - Remote main head: `dba87bc35ae2c7be3dfbcc022c64c0a04cbf9171`
@@ -52,11 +52,13 @@ primary unittest tests OK / 4 skipped plus 12 eval OK, and PostgreSQL
 `ci-local-full` passed with the same 627 primary unittest tests OK / 4 skipped
 plus 12 eval OK.
 
-After local candidate-maintenance hardening, head `943defd` passed:
+After local candidate-maintenance hardening, the current local line anchored by
+verified ancestor `943defde786c633ea4273c636c260aefb75b2c77` passed:
 
 ```bash
 PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src /Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python -m unittest tests.unit.test_current_state_verification_gate -v
 make current-state-verification-check PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
+make rc-branch-verification-check PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 make push-authorization-check PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 make ci PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
 AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test make ci-local-full PYTHON=/Users/mima1234/Documents/AI-Agent-Projects/ai-native-business-data-agent-os/.venv/bin/python
@@ -64,10 +66,12 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 Observed result: focused current-state verification gate tests passed with 7
 tests OK; `make current-state-verification-check` passed; `make
-push-authorization-check` exited 2 under `DEPLOYMENT_PUSH: HOLD`, as expected
-for `origin/main` push; `make ci` passed with 628 primary unittest tests OK / 4
-skipped plus 12 eval OK; PostgreSQL `ci-local-full` passed with the same 628
-primary unittest tests OK / 4 skipped plus 12 eval OK.
+rc-branch-verification-check` passed against the remote RC branch, origin/main,
+and release/rc tag state; `make push-authorization-check` exited 2 under
+`DEPLOYMENT_PUSH: HOLD`, as expected for `origin/main` push; `make ci` passed
+with 632 primary unittest tests OK / 4 skipped plus 12 eval OK; PostgreSQL
+`ci-local-full` passed with the same 632 primary unittest tests OK / 4 skipped
+plus 12 eval OK.
 
 ## Non-Claims
 
