@@ -157,3 +157,18 @@ do-outcomes; task-2 replays <=2 original dos and compares MEASURED means old-vs-
 trust; changed -> rediscover. Bars unchanged. Frozen prediction: stale-refuted 0.85-1.0 (replays probe
 exactly the dos that carried identification — they sit on the ambiguity paths), saving ~2.5, new-truth
 id 0.55-0.8 (live risk); PASS ~60%.
+
+### E2E-2e (scored 2026-07-04): **PASS — the compounding axis CLOSES via the demonstration principle**
+
+saving 2.188 (bar 2.0) · t2-correct 0.9375 · **stale-refuted via REPLAY 1.000** (discrimination lineage:
+generic 0.667 → targeted 0.533 → replay **1.000**) · new-truth re-identification **0.938** (was 0.5/0.533)
+· t1 id 1.000 · arena valid · halt 100%. Ledger: HIT (bet ~60%; stale in-band top, new-truth above band
+favorably).
+
+**Both axes now close through the same law shape (RR-0044):**
+- goal axis: model-extrapolated commitment 4× fail → demonstration-grounded 1.000 (E2E-3d)
+- staleness axis: model-space discrimination 2× fail → world-to-world replay 1.000 (E2E-2e)
+- and the discovery engine itself is interventions-as-prune (the type fix for 5b).
+Constitutional compounding, demonstrated at toy scale: knowledge is earned by demonstration, trusted
+only after the world re-answers the same, savings are real (2.2-2.9 dos), stale knowledge dies at 1.000,
+recovery at 0.938.

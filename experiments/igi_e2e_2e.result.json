@@ -1,0 +1,20 @@
+{
+  "gate": "IGI-E2E-2e",
+  "envs": 8,
+  "t1_mean": 4.5,
+  "t1_identification": 1.0,
+  "t2_mean": 2.312,
+  "compounding_saving": 2.188,
+  "t2_correct_rate": 0.9375,
+  "stale_refuted_REPLAY": 1.0,
+  "lineage": {
+    "2c_generic": 0.667,
+    "2d_targeted": 0.533
+  },
+  "new_truth_identification": 0.938,
+  "controls": {
+    "halt_100pct": true,
+    "arena_valid": true
+  },
+  "verdict": "PASS"
+}
