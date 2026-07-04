@@ -32,3 +32,14 @@ ID score over (contemporaneous, lagged) joint structure; arms: ACTIVE (min-max o
 signatures) / RANDOM / GRANGER+ACTIVE-residual / measured blind ceiling. MET iff active captures >= 0.5
 of the (blind-ceiling - random) gap at the pilot-set budget AND Granger-arm gap confirms the
 interventional fraction is real AND controls (determinism, gate audit, perm-collapse, halt) pass.
+
+## PILOT RESULT (2026-07-04, calib families 9000-9004; NO freeze — the pilot did its job)
+
+- **K3 CLEAN (arena has real interventional content):** obs screen shrinks the 96-pool to 45% but
+  orientation resolved 0/5 (no vacuity), truth survives obs screen 5/5.
+- **K2 RED (apparatus not sound yet):** truth survival on its OWN clamp data only 0.72-0.83 even at
+  tol 0.9 (must be >= 0.99). Suspected implementation bug in predict_clamp's fixed-point propagation
+  (hasty inner/outer loop mixing — late-session code slip, exactly what the pilots-before-bars rule
+  exists to catch). NEXT SESSION FIRST TASK: rewrite predict_clamp cleanly (solve the linear
+  fixed point directly per hypothesis), re-pilot K2, THEN freeze. Tonight's freeze would have been
+  checklist-miss #5; the pilot prevented it.
