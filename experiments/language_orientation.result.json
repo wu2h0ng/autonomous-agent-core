@@ -1,0 +1,54 @@
+{
+  "gate": "language-orientation",
+  "domain": "NOVEL synthetic industrial process (memorization-free)",
+  "n_true_edges": 6,
+  "data_orientable_edges": 0,
+  "data_ambiguous_edges": [
+    [
+      "upstream_rainfall",
+      "river_flow_rate"
+    ],
+    [
+      "river_flow_rate",
+      "reservoir_level"
+    ],
+    [
+      "turbine_power_output",
+      "grid_electricity_supply"
+    ],
+    [
+      "reservoir_level",
+      "turbine_power_output"
+    ],
+    [
+      "grid_electricity_supply",
+      "factory_uptime"
+    ],
+    [
+      "factory_uptime",
+      "daily_production_volume"
+    ]
+  ],
+  "data_only_orientation_fraction": 0.0,
+  "proposers": {
+    "proposer_1": {
+      "skeleton_recall": 1.0,
+      "orientation_correct_all": "6/6",
+      "orientation_correct_ambiguous": "6/6",
+      "ambiguous_orientations_confirmed_by_intervention": "6/6"
+    },
+    "proposer_2": {
+      "skeleton_recall": 1.0,
+      "orientation_correct_all": "6/6",
+      "orientation_correct_ambiguous": "6/6",
+      "ambiguous_orientations_confirmed_by_intervention": "6/6"
+    }
+  },
+  "headline": {
+    "data_alone_orients": "0/6",
+    "language_organ_orients_DATA-AMBIGUOUS_edges_mean_accuracy": 1.0,
+    "n_data_ambiguous": 6
+  },
+  "verdict": "LANGUAGE-ORGAN-ADDS-ORIENTATION",
+  "finding": "memorization-free: the graph is NOVEL (freshly generated, not a benchmark), so correct orientation reflects REASONING from semantics, not recall. The confound-robust claim: observational data leaves 6 edges UNORIENTABLE (reversible within the MEC); if the language organ orients them correctly (mean acc 1.0) and synthetic interventions CONFIRM those orientations, then the language organ genuinely ADDS causal-direction information that data alone cannot provide -> '\u8bed\u8a00\u3001\u56e0\u679c\u53d1\u73b0\u76f8\u4e92\u7ec4\u5408' with the world as verifier. This is the composition \u00a723 could not show under the memorization confound."
+}

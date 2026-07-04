@@ -1,0 +1,66 @@
+{
+  "gate": "CWM-LEARN-4",
+  "task": "cross-family transfer of a LEARNED invariant representation",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "delta": 0.05,
+  "vrex_lambda": 10000.0,
+  "novelA_means": {
+    "vrex_LEARNED_ours": 0.4947,
+    "erm_capacity_matched": 0.6229,
+    "supplied_basis_LEARN3_positive": 0.8939,
+    "oracle_causal_only_positive": 0.8813,
+    "pooled_statistical": 0.4855
+  },
+  "novelB_means": {
+    "vrex": 0.4731,
+    "erm": 0.6745,
+    "supplied_basis": 0.8934
+  },
+  "vrex_minus_erm": -0.1282,
+  "sign_test_vrex_gt_erm": "0/10",
+  "vrex_minus_pooled": 0.0092,
+  "vrex_vs_supplied_gap": -0.3992,
+  "per_seed_vrex": [
+    0.4587,
+    0.5009,
+    0.4718,
+    0.5276,
+    0.5051,
+    0.4558,
+    0.5319,
+    0.5043,
+    0.5174,
+    0.4736
+  ],
+  "per_seed_supplied": [
+    0.8865,
+    0.9033,
+    0.9131,
+    0.8766,
+    0.8971,
+    0.9138,
+    0.86,
+    0.886,
+    0.9045,
+    0.8985
+  ],
+  "controls": {
+    "positive_oracle_ge_0.85": true,
+    "positive_supplied_ge_0.70": true,
+    "positives_hold": true,
+    "permute_collapses": true,
+    "permute_mean": 0.5154
+  },
+  "verdict": "NULL"
+}

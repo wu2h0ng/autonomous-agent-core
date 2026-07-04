@@ -1,0 +1,16 @@
+{
+  "n_pairs": 2280,
+  "sep_median": 0.619,
+  "sep_q25": 0.001,
+  "frac_above_tol_now": 0.547,
+  "c_now": 2.0,
+  "c_derived_for_2tol_median": 3.2,
+  "pilot_v4": {
+    "do_value_used": 3.2,
+    "budget": 5,
+    "active_id": 0.25,
+    "active_cost": 2.5,
+    "random_id": 0.0,
+    "gap": 0.25
+  }
+}

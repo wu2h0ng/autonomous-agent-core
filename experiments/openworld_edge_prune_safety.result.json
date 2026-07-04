@@ -1,0 +1,13 @@
+{
+  "config": "SECTION-13 open-world edge-prune, LINEAR organ, n=6, 24 domains (direct safety measurement)",
+  "categories": {
+    "correct": 20,
+    "confident_wrong": 1,
+    "abstain": 1,
+    "truth_pruned": 2
+  },
+  "id": 0.833,
+  "confident_wrong_smaller_than_truth": 1,
+  "confident_wrong_equal": 0,
+  "SAFETY_HELD_(never_confidently_wrong)": false
+}

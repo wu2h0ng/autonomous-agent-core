@@ -1,0 +1,21 @@
+{
+  "per_n": {
+    "40": {
+      "screening_recall@30": 0.583,
+      "given30_verified_auc": 0.684
+    },
+    "80": {
+      "screening_recall@30": 1.0,
+      "given30_verified_auc": 0.831
+    },
+    "160": {
+      "screening_recall@30": 1.0,
+      "given30_verified_auc": 0.913
+    },
+    "320": {
+      "screening_recall@30": 1.0,
+      "given30_verified_auc": 0.928
+    }
+  },
+  "zero_shot_arena_n_candidates": []
+}

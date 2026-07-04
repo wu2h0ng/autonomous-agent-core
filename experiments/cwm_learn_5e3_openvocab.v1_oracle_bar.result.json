@@ -1,0 +1,77 @@
+{
+  "gate": "CWM-LEARN-5e-3-openvocab",
+  "claim_scope": "open_vocabulary_compositional_llm_proposal_cwm_verify",
+  "evidence_level": "toy_scale_calibration_not_freeze",
+  "not_authorized": [
+    "freeze_verdict",
+    "r_final",
+    "autonomy_claim",
+    "product_claim",
+    "route_promotion",
+    "C6_C7_change"
+  ],
+  "prompt_sha256_16": "e52c5327d08b13d5",
+  "n_proposals": 16,
+  "n_safe_compilable": 16,
+  "median": {
+    "llm": 0.653,
+    "oracle": 0.97,
+    "menu": 0.5,
+    "random": 0.5
+  },
+  "condition_B": {
+    "llm_B": 0.5,
+    "menu_B": 0.5,
+    "collapse_ok": true
+  },
+  "per_seed_condA": [
+    {
+      "oracle": 0.978,
+      "llm": 0.692,
+      "menu": 0.5,
+      "random": 0.634,
+      "menu_raw_pooled_auc": 0.931,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.97,
+      "llm": 0.676,
+      "menu": 0.5,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.954,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.97,
+      "llm": 0.643,
+      "menu": 0.5,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.941,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.966,
+      "llm": 0.653,
+      "menu": 0.5,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.957,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.971,
+      "llm": 0.651,
+      "menu": 0.5,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.942,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    }
+  ],
+  "winning_expressions": [
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)"
+  ],
+  "verdict": "NULL"
+}

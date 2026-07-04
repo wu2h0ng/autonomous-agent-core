@@ -1,0 +1,16 @@
+{
+  "gate": "IGI-E2E-3b",
+  "classes": [
+    "tree6",
+    "star7"
+  ],
+  "episodes": 32,
+  "accepted_proposal_truth_reachability": 0.4688,
+  "baseline_e2e3": 0.375,
+  "adoption_rate_verify_then_commit": 0.4375,
+  "controls": {
+    "halt_100pct": true,
+    "unapproved_actions": 0
+  },
+  "verdict": "FAIL"
+}

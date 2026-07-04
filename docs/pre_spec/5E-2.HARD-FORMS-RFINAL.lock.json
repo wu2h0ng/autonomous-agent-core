@@ -1,0 +1,9 @@
+{
+  "files": {
+    "docs/pre_spec/5E-2.HARD-FORMS-RFINAL.PREREG-2026-07-04.md": "068f6c5b143b7a590c5cb8ae655ac8cc6820400d06b40b6a2e686f02cbea2059",
+    "experiments/cwm_learn_5e2_forms_hard.py": "ee5f7325ba2bcf7440c2f09f017e26fffbdd5a70e9533349027ec6881dc495ff",
+    "experiments/cwm_learn_5e2_forms_hard_rfinal.py": "4dc909c7a05c886c32ef2a067a86a1b9b693d7862d094c2155fd3194bd30c7dd",
+    "tests/test_cwm_learn_5e2_forms_hard_rfinal.py": "0795f9e94d6252c1fccf6c0a63b03b40779f5735cda3cec6da599d07897a07ed"
+  },
+  "prereg_id": "CWM-LEARN-5e-2-hard-forms-rfinal-2026-07-04"
+}

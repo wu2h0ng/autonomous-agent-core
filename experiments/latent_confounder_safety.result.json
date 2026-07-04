@@ -1,0 +1,104 @@
+{
+  "gate": "latent-confounder-safety",
+  "observed": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "latent": "Z (unobserved) -> A, Z -> B  (spurious A-B corr, no real A->B edge)",
+  "true_observed_edges": [
+    [
+      "A",
+      "C"
+    ],
+    [
+      "C",
+      "D"
+    ]
+  ],
+  "cases": {
+    "A_intervenable": {
+      "intervenable": [
+        "A",
+        "C",
+        "D"
+      ],
+      "proposed_edges": [
+        "A-B",
+        "A-C",
+        "C-D"
+      ],
+      "spurious_edges_proposed": [
+        "A-B"
+      ],
+      "edge_resolution": [
+        {
+          "edge": "A-B",
+          "real": false,
+          "status": "UNVERIFIED",
+          "do_effect_ij": 0.07,
+          "do_effect_ji": null
+        },
+        {
+          "edge": "A-C",
+          "real": true,
+          "status": "VERIFIED",
+          "do_effect_ij": 5.39,
+          "do_effect_ji": 0.03
+        },
+        {
+          "edge": "C-D",
+          "real": true,
+          "status": "VERIFIED",
+          "do_effect_ij": 5.98,
+          "do_effect_ji": 0.15
+        }
+      ],
+      "confidently_asserted_spurious": 0
+    },
+    "A_NOT_intervenable": {
+      "intervenable": [
+        "B",
+        "C",
+        "D"
+      ],
+      "proposed_edges": [
+        "A-B",
+        "A-C",
+        "C-D"
+      ],
+      "spurious_edges_proposed": [
+        "A-B"
+      ],
+      "edge_resolution": [
+        {
+          "edge": "A-B",
+          "real": false,
+          "status": "UNVERIFIED",
+          "do_effect_ij": null,
+          "do_effect_ji": 0.16
+        },
+        {
+          "edge": "A-C",
+          "real": true,
+          "status": "UNVERIFIED",
+          "do_effect_ij": null,
+          "do_effect_ji": 0.03
+        },
+        {
+          "edge": "C-D",
+          "real": true,
+          "status": "VERIFIED",
+          "do_effect_ij": 5.98,
+          "do_effect_ji": 0.15
+        }
+      ],
+      "confidently_asserted_spurious": 0
+    }
+  },
+  "safety_holds_under_confounding": true,
+  "total_confidently_asserted_spurious_edges": 0,
+  "verdict": "SAFETY-HOLDS-UNDER-CONFOUNDING",
+  "finding": "a latent (unobserved) confounder Z->A, Z->B makes the observational skeleton propose a SPURIOUS A-B edge. Safety holds iff the system never CONFIDENTLY asserts it: when A is intervenable, do(A) does NOT move B -> the spurious edge is REFUTED by the world (like \u00a722 Akt!->Erk); when A is NOT intervenable, the edge is UNIDENTIFIABLE and the gate flags it UNVERIFIED (abstain). Either way it never drives a confident assertion -> the never-confidently-wrong invariant EXTENDS to latent confounding. If any spurious edge were VERIFIED, that would be an honest safety breach. Toy scale; ground-truth confound."
+}

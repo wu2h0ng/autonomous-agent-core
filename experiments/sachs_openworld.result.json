@@ -1,0 +1,88 @@
+{
+  "gate": "sachs-openworld",
+  "domain": "REAL Sachs protein-signaling (11 nodes, 854 obs, 5400 int)",
+  "part1_skeleton_recovery_\u901a\u7528": {
+    "0.05": {
+      "proposed_edges": 16,
+      "true_edges": 17,
+      "recovered": 10,
+      "recall": 0.588,
+      "precision": 0.625
+    },
+    "0.1": {
+      "proposed_edges": 9,
+      "true_edges": 17,
+      "recovered": 8,
+      "recall": 0.471,
+      "precision": 0.889
+    },
+    "0.15": {
+      "proposed_edges": 8,
+      "true_edges": 17,
+      "recovered": 7,
+      "recall": 0.412,
+      "precision": 0.875
+    },
+    "0.2": {
+      "proposed_edges": 7,
+      "true_edges": 17,
+      "recovered": 7,
+      "recall": 0.412,
+      "precision": 1.0
+    }
+  },
+  "part2_causal_vs_correlation_\u5f3a": {
+    "n_pairs": 50,
+    "correlation_accuracy": 0.36,
+    "causal_ancestry_accuracy": 0.62,
+    "confusion": {
+      "corr_TP": 2,
+      "corr_FP": 4,
+      "corr_TN": 16,
+      "corr_FN": 28,
+      "caus_TP": 13,
+      "caus_FP": 2,
+      "caus_TN": 18,
+      "caus_FN": 17
+    },
+    "confounded_pairs_where_correlation_lies": [
+      {
+        "do": "Akt",
+        "target": "Erk",
+        "corr": 0.99,
+        "real_smd": 0.2,
+        "causal_ancestor": false
+      },
+      {
+        "do": "Akt",
+        "target": "PKA",
+        "corr": 0.44,
+        "real_smd": 0.1,
+        "causal_ancestor": false
+      },
+      {
+        "do": "PKA",
+        "target": "Erk",
+        "corr": 0.39,
+        "real_smd": 0.11,
+        "causal_ancestor": true
+      },
+      {
+        "do": "PKA",
+        "target": "Akt",
+        "corr": 0.44,
+        "real_smd": 0.12,
+        "causal_ancestor": true
+      }
+    ]
+  },
+  "headline": {
+    "skeleton_best_recall_on_real_biology": 0.588,
+    "causal_beats_correlation_on_real_interventions": true,
+    "causal_ancestry_acc": 0.62,
+    "correlation_acc": 0.36,
+    "n_confounded_pairs_correlation_lies": 4
+  },
+  "verdict": "STRONG-HOLDS-ON-REAL-BIOLOGY",
+  "scope": "REAL biology, real interventions \u2014 NOT synthetic. Part 2 causal predictor uses ground-truth ancestry (causal-knowledge vs correlation, the \u5f3a bet); full open-world would self-discover the 11-node structure (hard: nonlinear, confounded, my nonlinear discovery is weak). Part 1 measures the open-world skeleton organ UNCHANGED on real non-Gaussian data. Still: no language/perception; this is one real domain, not arbitrary domains."
+}

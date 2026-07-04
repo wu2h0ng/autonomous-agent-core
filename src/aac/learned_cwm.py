@@ -106,3 +106,119 @@ class LearnedCWM:
             te_scores.append(self._predict(w, x))
             te_labels.append(lab)
         return self._auc(te_scores, te_labels)
+
+    def transfer_auc(self, train_do: list[list[float]], train_base: list[list[float]],
+                     test_do: list[list[float]], test_base: list[list[float]],
+                     target_idx: int, seed: int, exclude: tuple = (),
+                     permute: bool = False) -> float:
+        """CWM-LEARN-2: fit the mechanism-signature classifier on the TRAIN regime and score the
+        TEST regime WITHOUT refit (standardize on train). Features exclude the target and the
+        `exclude` set (the intervened node's own clamped value — the S1b v2 leak fix). permute=True
+        shuffles train labels (confound negative control). Returns held-out TEST AUC."""
+        drop = {target_idx, *exclude}
+        feat = [j for j in range(len(train_do[0])) if j not in drop]
+        tr = [(r, 1) for r in train_do] + [(r, 0) for r in train_base]
+        random.Random(seed).shuffle(tr)
+        if len(tr) < 8:
+            return 0.5
+        cols = [[r[j] for r, _ in tr] for j in feat]
+        std, means, sds = _standardize(cols)
+        ytr = [lab for _, lab in tr]
+        if permute:
+            random.Random(seed + 1).shuffle(ytr)
+        w = self._fit_logistic(std, ytr)
+        te = [(r, 1) for r in test_do] + [(r, 0) for r in test_base]
+        scores = [self._predict(w, [(r[feat[k]] - means[k]) / sds[k] for k in range(len(feat))])
+                  for r, _ in te]
+        labels = [lab for _, lab in te]
+        return self._auc(scores, labels)
+
+    def invariant_predict_auc(self, train_envs, test_rows, test_labels, seed,
+                              mode="invariant", permute=False, return_kept=False):
+        """CWM-LEARN-2 environment-axis gate (invariant prediction under distribution shift, RR-0039 §5).
+
+        Fit on MULTIPLE training environments (each a (rows, labels) pair that shares the invariant
+        causal mechanism but differs in a sign-flipping spurious proxy), then predict the held-out TEST
+        environment's labels WITHOUT refit. Returns the held-out TEST AUC.
+
+        mode:
+          "invariant" — ICP-lite: fit a per-env logistic, KEEP only features whose coefficient sign is
+                        consistent across ALL training envs (the spurious proxy flips sign and is dropped;
+                        the invariant causal features survive), then refit pooled on the kept features.
+                        This is the CAUSAL arm — the ONLY difference from the baselines is the filter.
+          "pooled"    — multivariate statistical baseline: pool all envs, fit on ALL features (keeps the
+                        spurious proxy, which negative-transfers when its coupling flips OOD).
+          "marginal"  — marginal statistical baseline: the single feature with the largest pooled
+                        |standardized class mean-shift|, 1-feature logistic (keys hardest on the proxy).
+
+        permute=True shuffles labels within every env (confound negative control: all arms -> chance).
+        return_kept=True (invariant mode) also returns the list of kept feature indices (for the capacity
+        positive control: confirm the invariant causal features ARE kept)."""
+        if not train_envs:
+            return (0.5, []) if return_kept else 0.5
+        n_cols = len(train_envs[0][0][0])
+        feat = list(range(n_cols))
+
+        pooled_rows = [r for rows, _ in train_envs for r in rows]
+        cols = [[r[j] for r in pooled_rows] for j in feat]
+        _, means, sds = _standardize(cols)
+
+        def std_sub(r, sub, keep_idx):
+            return [(r[sub[k]] - means[keep_idx[k]]) / sds[keep_idx[k]] for k in range(len(sub))]
+
+        def std_row(r):
+            return [(r[feat[k]] - means[k]) / sds[k] for k in range(len(feat))]
+
+        def pooled_xy(salt):
+            allrows = [(r, lab) for rows, labs in train_envs for r, lab in zip(rows, labs)]
+            random.Random(seed + salt).shuffle(allrows)
+            y = [lab for _, lab in allrows]
+            if permute:
+                random.Random(seed + 8000 + salt).shuffle(y)
+            return allrows, y
+
+        if mode == "invariant":
+            signs = []
+            for i, (rows, labs) in enumerate(train_envs):
+                pairs = list(zip(rows, labs))
+                random.Random(seed + i + 1).shuffle(pairs)
+                X = [std_row(r) for r, _ in pairs]
+                y = [lab for _, lab in pairs]
+                if permute:
+                    random.Random(seed + 900 + i).shuffle(y)
+                w = self._fit_logistic(X, y)
+                signs.append([1 if w[k + 1] > 0 else (-1 if w[k + 1] < 0 else 0) for k in range(len(feat))])
+            keep = [k for k in range(len(feat))
+                    if all(signs[e][k] == signs[0][k] and signs[e][k] != 0 for e in range(len(signs)))]
+            if not keep:
+                return (0.5, []) if return_kept else 0.5
+            sub = [feat[k] for k in keep]
+            allrows, yp = pooled_xy(salt=7)
+            Xp = [std_sub(r, sub, keep) for r, _ in allrows]
+            w = self._fit_logistic(Xp, yp)
+            scores = [self._predict(w, std_sub(r, sub, keep)) for r in test_rows]
+            auc = self._auc(scores, list(test_labels))
+            return (auc, sub) if return_kept else auc
+
+        allrows, yp = pooled_xy(salt=7)
+        if mode == "marginal":
+            best_k, best_shift = 0, -1.0
+            for k in range(len(feat)):
+                # select on the SAME labels used to fit (yp) so the permute control is leak-free
+                a = [std_row(r)[k] for (r, _), lab in zip(allrows, yp) if lab == 1]
+                b = [std_row(r)[k] for (r, _), lab in zip(allrows, yp) if lab == 0]
+                if not a or not b:
+                    continue
+                shift = abs(sum(a) / len(a) - sum(b) / len(b))
+                if shift > best_shift:
+                    best_shift, best_k = shift, k
+            Xp = [[std_row(r)[best_k]] for r, _ in allrows]
+            w = self._fit_logistic(Xp, yp)
+            scores = [self._predict(w, [std_row(r)[best_k]]) for r in test_rows]
+            return self._auc(scores, list(test_labels))
+
+        # mode == "pooled"
+        Xp = [std_row(r) for r, _ in allrows]
+        w = self._fit_logistic(Xp, yp)
+        scores = [self._predict(w, std_row(r)) for r in test_rows]
+        return self._auc(scores, list(test_labels))

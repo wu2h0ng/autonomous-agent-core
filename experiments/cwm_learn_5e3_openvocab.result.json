@@ -1,0 +1,85 @@
+{
+  "gate": "CWM-LEARN-5e-3-openvocab",
+  "claim_scope": "open_vocabulary_compositional_llm_proposal_cwm_verify",
+  "evidence_level": "toy_scale_calibration_not_freeze",
+  "not_authorized": [
+    "freeze_verdict",
+    "r_final",
+    "autonomy_claim",
+    "product_claim",
+    "route_promotion",
+    "C6_C7_change"
+  ],
+  "prompt_sha256_16": "e52c5327d08b13d5",
+  "n_proposals": 16,
+  "n_safe_compilable": 16,
+  "median": {
+    "llm": 0.653,
+    "oracle": 0.97,
+    "menu": 0.612,
+    "random": 0.5
+  },
+  "exclusive_gap_llm_minus_fair_menu": 0.041,
+  "gap_captured_of_oracle": 0.326,
+  "knowledge_control": {
+    "advantage_A": 0.041,
+    "advantage_B": -0.077,
+    "advantage_vanishes_in_B": true
+  },
+  "condition_B": {
+    "llm_B": 0.5,
+    "menu_B": 0.577,
+    "collapse_ok": true
+  },
+  "per_seed_condA": [
+    {
+      "oracle": 0.978,
+      "llm": 0.692,
+      "menu": 0.634,
+      "random": 0.634,
+      "menu_raw_pooled_auc": 0.634,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.97,
+      "llm": 0.676,
+      "menu": 0.628,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.626,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.97,
+      "llm": 0.643,
+      "menu": 0.598,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.598,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.966,
+      "llm": 0.653,
+      "menu": 0.612,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.612,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    },
+    {
+      "oracle": 0.971,
+      "llm": 0.651,
+      "menu": 0.595,
+      "random": 0.5,
+      "menu_raw_pooled_auc": 0.595,
+      "best_expr": "x0 * x1 / (relu(x2) + 1)"
+    }
+  ],
+  "winning_expressions": [
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "x0 * x1 / (relu(x2) + 1)"
+  ],
+  "verdict": "NULL",
+  "finding": "open-vocab 3-way composition gives only a MARGINAL lift over a fairly-searched finite 2-way menu at toy scale; both fall far short of the oracle because the knowledge-natural true form retains a predictive 2-way shadow the menu captures. Exclusive-region-size and knowledge-naturalness conflict at this scale."
+}

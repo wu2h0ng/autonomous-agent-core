@@ -1,0 +1,34 @@
+{
+  "gate": "AGDE-T3",
+  "frozen": {
+    "tol": 0.5,
+    "c": 3.2,
+    "B": 4,
+    "bars": {
+      "active": 0.679,
+      "gap": 0.367
+    }
+  },
+  "families": [
+    9102,
+    9103,
+    9104,
+    9105,
+    9107,
+    9113,
+    9114,
+    9115,
+    9116,
+    9117
+  ],
+  "screened_out": 8,
+  "active_id": 0.85,
+  "random_id": 0.3,
+  "gap": 0.55,
+  "controls": {
+    "determinism": true,
+    "halt_100pct": true,
+    "gate_all_approved": true
+  },
+  "verdict": "MET"
+}

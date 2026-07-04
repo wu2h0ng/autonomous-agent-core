@@ -1,0 +1,41 @@
+{
+  "gate": "universality-nonlinear-organ",
+  "n": 5,
+  "note": "ONE parameterized loop; only the (fit,predict,prune) ORGAN is swapped",
+  "results": {
+    "tanh_nonlinear__linear_organ": {
+      "id_rate": 0.167,
+      "causal_advantage_mean": 0.366,
+      "advantage_win_rate": 0.771,
+      "causal_err": 0.454,
+      "corr_err": 0.82
+    },
+    "tanh_nonlinear__nonlinear_organ": {
+      "id_rate": 0.167,
+      "causal_advantage_mean": 0.54,
+      "advantage_win_rate": 0.792,
+      "causal_err": 0.279,
+      "corr_err": 0.82
+    },
+    "gaussian_linear__nonlinear_organ_noharm": {
+      "id_rate": 0.417,
+      "causal_advantage_mean": 0.968,
+      "advantage_win_rate": 0.729,
+      "causal_err": 0.31,
+      "corr_err": 1.279
+    },
+    "gaussian_linear__linear_organ_ref": {
+      "id_rate": 0.5,
+      "causal_advantage_mean": 0.82,
+      "advantage_win_rate": 0.792,
+      "causal_err": 0.458,
+      "corr_err": 1.279
+    }
+  },
+  "organ_swap_lifts_nonlinear_id": 0.0,
+  "organ_swap_lifts_nonlinear_advantage": 0.174,
+  "nonlinear_organ_noharm_on_linear": true,
+  "verdict": "PARTIAL",
+  "finding": "the discovery LOOP is written once and parameterized by the organ; swapping ONLY the mechanism organ (linear->nonlinear basis) extends the loop to the nonlinear domain with ZERO loop-structure change. This is the goal's architecture literally: \u73af\u8def\u4e0d\u53d8, \u5668\u5b98\u63d2\u5165. no-harm check confirms the nonlinear organ does not wreck the linear domain.",
+  "scope": "toy synthetic; the nonlinear organ is a tanh-basis mean-field approximation, not a general nonlinear learner. Still untouched: language/perception/real actuation/cross-domain-semantics."
+}

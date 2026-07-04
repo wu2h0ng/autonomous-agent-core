@@ -1,0 +1,16 @@
+{
+  "gate": "IGI-E2E-1",
+  "envs": 20,
+  "runs_per_env": 3,
+  "identification_rate": 1.0,
+  "achievement_rate": 0.95,
+  "achievement_given_identified": 0.95,
+  "random_action_null": 0.0167,
+  "coupling_gap": 0.9333,
+  "controls": {
+    "halt_100pct": true,
+    "budget_never_exceeded": true,
+    "ledger_terminal_state": true
+  },
+  "verdict": "PASS"
+}

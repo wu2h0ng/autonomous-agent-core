@@ -1,0 +1,63 @@
+{
+  "fresh_seeds": [
+    200,
+    201,
+    202,
+    203,
+    204,
+    205,
+    206,
+    207,
+    208,
+    209,
+    210,
+    211,
+    212,
+    213,
+    214,
+    215,
+    216,
+    217,
+    218,
+    219
+  ],
+  "V3_fresh_replication": {
+    "inv_interaction_mean": 0.8787,
+    "cap_pooled_mean": 0.7581,
+    "linear_invariance_mean": 0.5791,
+    "delta_A_vs_linear_invariance": 0.2997,
+    "delta_B_vs_cap_pooled": 0.1206
+  },
+  "V1_fair_baseline_stress": {
+    "cap_l2=0.01_ep=300": {
+      "mean": 0.7691,
+      "delta_B_ours_minus_this": 0.1097
+    },
+    "cap_l2=0.05_ep=300": {
+      "mean": 0.7458,
+      "delta_B_ours_minus_this": 0.1329
+    },
+    "cap_l2=0.1_ep=400": {
+      "mean": 0.7255,
+      "delta_B_ours_minus_this": 0.1532
+    }
+  },
+  "V2_mag_floor_robustness": {
+    "mag_floor_0.1": {
+      "inv_mean": 0.8842,
+      "delta_B_vs_frozen_cap": 0.126
+    },
+    "mag_floor_0.2": {
+      "inv_mean": 0.8729,
+      "delta_B_vs_frozen_cap": 0.1148
+    },
+    "mag_floor_0.25": {
+      "inv_mean": 0.872,
+      "delta_B_vs_frozen_cap": 0.1139
+    }
+  },
+  "V4_attribution": {
+    "xor_collapse_mean": 0.3378,
+    "spurious_help_max": 0.0
+  }
+}

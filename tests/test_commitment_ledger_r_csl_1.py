@@ -438,7 +438,7 @@ class TestRCSL1ExperimentBoundary(unittest.TestCase):
         }
 
     def _current_prereg_spec_hash(self) -> str:
-        workspace_root = Path(__file__).resolve().parents[2]
+        workspace_root = r_csl_1._default_workspace_root()
         spec_path = workspace_root / "docs/research/R-CSL-1.PREREG-2026-06-25.yaml"
         return hashlib.sha256(spec_path.read_bytes()).hexdigest()
 

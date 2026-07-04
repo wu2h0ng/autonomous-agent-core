@@ -1,0 +1,86 @@
+{
+  "gate": "CWM-LEARN-3",
+  "task": "invariant prediction over interaction structure under shift",
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "delta": 0.05,
+  "arm_means": {
+    "marginal": 0.0099,
+    "pooled_linear": 0.1217,
+    "linear_invariance_LEARN2": 0.5791,
+    "cap_pooled_nonlinear": 0.7512,
+    "inv_interaction_OURS": 0.8782
+  },
+  "delta_A_vs_linear_invariance": 0.2991,
+  "sign_test_A": "10/10",
+  "delta_B_vs_capacity_matched": 0.127,
+  "sign_test_B": "10/10",
+  "per_seed_inv_interaction": [
+    0.8775,
+    0.8924,
+    0.8812,
+    0.8704,
+    0.8684,
+    0.8677,
+    0.8787,
+    0.8672,
+    0.9,
+    0.8788
+  ],
+  "per_seed_cap_pooled": [
+    0.7508,
+    0.7563,
+    0.7502,
+    0.7399,
+    0.7584,
+    0.7238,
+    0.7436,
+    0.7642,
+    0.7768,
+    0.7485
+  ],
+  "per_seed_linear_invariance": [
+    0.5449,
+    0.5862,
+    0.5863,
+    0.6062,
+    0.5851,
+    0.5692,
+    0.5721,
+    0.6002,
+    0.5847,
+    0.5563
+  ],
+  "controls": {
+    "C1_noshift_parity": true,
+    "C2_causal_ablation": false,
+    "C3_permute": true,
+    "C4_capacity_positive": true,
+    "C5_capacity_confound": true,
+    "C6_env_validity": true,
+    "C7_attribution": true
+  },
+  "control_detail": {
+    "C1_noshift_gap": 0.0,
+    "C2_ablation_mean": 0.6099,
+    "C3_permute_mean": 0.5,
+    "C4a_ours_pure_interaction": 0.8851,
+    "C4b_linear_pure_interaction": 0.5707,
+    "C5_cap_pooled_drop": 0.2003,
+    "C6_pooled_linear_ood": 0.1217,
+    "C6_linear_invariance_ood": 0.5791,
+    "C7_xor_collapse_mean": 0.3468,
+    "C7_spurious_help_max": 0.0
+  },
+  "verdict": "INVALID"
+}

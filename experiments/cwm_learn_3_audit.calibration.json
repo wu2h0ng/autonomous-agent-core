@@ -1,0 +1,47 @@
+{
+  "A1_marginal_purity": {
+    "shifts": {
+      "Xc1": 0.0195,
+      "Xc2": 0.0277,
+      "Xc3": 0.2399,
+      "Xs1": 1.8783,
+      "Xs2": 0.0082,
+      "Xn1": 0.0059,
+      "Xn2": 0.0211
+    },
+    "n": 4000,
+    "zero_features_pure": true,
+    "xc3_in_band": true,
+    "pass": true
+  },
+  "A2_linear_ceiling": {
+    "pooled_linear_ood_mean": 0.1172,
+    "pass": true
+  },
+  "A3_sign_stability": {
+    "xor_kept": "10/10",
+    "xc3_kept_informational": "4/10",
+    "spurious_admitted": "0/10",
+    "pass": true
+  },
+  "A4_c5_drop_margin": {
+    "cap_pooled_indist_minus_ood_mean": 0.1998,
+    "pass": true
+  },
+  "A5_delta_b_stability": {
+    "delta_b_window_means": [
+      0.1247,
+      0.1205,
+      0.1275
+    ],
+    "delta_b_mean": 0.1242,
+    "se": 0.0016,
+    "mean_minus_2se": 0.1211,
+    "pass": true
+  },
+  "A6_rng_disjoint": {
+    "train_test_row_collisions": 0,
+    "pass": true
+  },
+  "all_pass": true
+}

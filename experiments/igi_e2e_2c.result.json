@@ -1,0 +1,26 @@
+{
+  "gate": "IGI-E2E-2c",
+  "envs": 8,
+  "mec_sizes": [
+    75,
+    75,
+    75,
+    75,
+    75,
+    75,
+    75,
+    75
+  ],
+  "t1_mean": 4.917,
+  "t1_identification": 0.75,
+  "t2_mean_with_cache": 2,
+  "compounding_saving": 2.917,
+  "achievement_drop": 0.0,
+  "stale_structure_cache_refuted": 0.667,
+  "new_truth_identification": 0.5,
+  "controls": {
+    "halt_100pct": true,
+    "arena_valid": true
+  },
+  "verdict": "FAIL"
+}

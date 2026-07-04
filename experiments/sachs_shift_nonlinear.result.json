@@ -1,0 +1,43 @@
+{
+  "gate": "sachs-shift-nonlinear",
+  "domain": "REAL Sachs, held-out do regimes (mechanism-fidelity test)",
+  "n_regimes": 5,
+  "per_regime": {
+    "do(Mek)": {
+      "linear_causal_mae": 1.24,
+      "nonlinear_causal_mae": 1.199,
+      "correlational_mae": 1.301
+    },
+    "do(PIP2)": {
+      "linear_causal_mae": 0.733,
+      "nonlinear_causal_mae": 0.713,
+      "correlational_mae": 0.683
+    },
+    "do(Akt)": {
+      "linear_causal_mae": 0.721,
+      "nonlinear_causal_mae": 0.718,
+      "correlational_mae": 0.687
+    },
+    "do(PKA)": {
+      "linear_causal_mae": 0.974,
+      "nonlinear_causal_mae": 1.127,
+      "correlational_mae": 0.889
+    },
+    "do(PKC)": {
+      "linear_causal_mae": 1.981,
+      "nonlinear_causal_mae": 1.958,
+      "correlational_mae": 1.555
+    }
+  },
+  "overall": {
+    "linear_causal_mae": 1.272,
+    "nonlinear_causal_mae": 1.279,
+    "correlational_mae": 1.112
+  },
+  "nonlinear_causal_beats_correlation": false,
+  "nonlinear_beats_linear": false,
+  "nonlinear_advantage_over_correlation": -0.167,
+  "regimes_nonlinear_beats_corr": 1,
+  "verdict": "DEEPER-LIMIT-NOT-JUST-MISSPECIFICATION",
+  "finding": "the \u00a728 diagnosis is NOT sufficient: even a NONLINEAR (tanh-basis) mechanism does not beat correlation under real distribution shift (nl 1.279 vs corr 1.112). The limit is deeper than linear-misspecification -- possible causes: the tanh basis is still wrong for the true biology, latent confounders, measurement, or the correlational model's flexibility. \u5f3a-value-prediction-under-shift on real biology is NOT restored by this mechanism organ. Honest negative sustained."
+}

@@ -1,0 +1,50 @@
+{
+  "tanh_nonlinear": {
+    "minimality": {
+      "cats": {
+        "correct": 3,
+        "confident_wrong": 5,
+        "abstain": 5,
+        "truth_pruned": 7
+      },
+      "id": 0.15,
+      "confident_wrong": 5,
+      "SAFE": false
+    },
+    "strict_singleton": {
+      "cats": {
+        "correct": 1,
+        "confident_wrong": 0,
+        "abstain": 12,
+        "truth_pruned": 7
+      },
+      "id": 0.05,
+      "confident_wrong": 0,
+      "SAFE": true
+    }
+  },
+  "gaussian_linear": {
+    "minimality": {
+      "cats": {
+        "correct": 10,
+        "confident_wrong": 3,
+        "abstain": 0,
+        "truth_pruned": 7
+      },
+      "id": 0.5,
+      "confident_wrong": 3,
+      "SAFE": false
+    },
+    "strict_singleton": {
+      "cats": {
+        "correct": 1,
+        "confident_wrong": 0,
+        "abstain": 12,
+        "truth_pruned": 7
+      },
+      "id": 0.05,
+      "confident_wrong": 0,
+      "SAFE": true
+    }
+  }
+}

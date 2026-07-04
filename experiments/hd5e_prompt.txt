@@ -1,0 +1,71 @@
+You are a senior reliability-engineering domain expert. A dataset tracks industrial equipment units. Binary outcome: unit_failed_within_observation_window.
+
+The 60 recorded variables (alphabetical order):
+- acoustic_noise_db
+- alarm_event_count
+- altitude_m
+- ambient_temp_c
+- badge_swipe_count
+- barometric_pressure_kpa
+- bearing_wear_index
+- box_recycled_pct
+- brochure_gloss_index
+- cable_length_m
+- cafeteria_visit_count
+- ceiling_height_m
+- chassis_color_code
+- cleaning_interval_days
+- coil_current_a
+- coolant_ph
+- desk_height_cm
+- duty_cycle_pct
+- equipment_age_months
+- error_log_rate
+- filter_color_index
+- fire_extinguisher_distance_m
+- firmware_minor_version
+- floor_number
+- hvac_vent_count
+- inspection_flag_rate
+- install_distance_from_wall_cm
+- invoice_amount_usd
+- label_print_density
+- load_mass_kg
+- logo_area_cm2
+- manual_page_count
+- monitor_brightness_pct
+- mounting_bolt_torque_nm
+- operator_shift_index
+- overtemp_warning_rate
+- packaging_weight_g
+- paint_thickness_um
+- pallet_weight_rating_kg
+- parking_lot_distance_m
+- plant_pot_count
+- qr_code_size_mm
+- relative_humidity_pct
+- room_light_lux
+- serial_digit_sum
+- shaft_rpm
+- shipping_days
+- sticker_count
+- supplier_batch_code
+- support_ticket_count
+- technician_callout_count
+- ui_language_id
+- unplanned_stop_count
+- vibration_amplitude_mm
+- wall_paint_year
+- warehouse_zone_id
+- warranty_months
+- wifi_signal_dbm
+- winding_resistance_ohm
+- window_count
+
+Task: propose up to 20 variable PAIRS, ordered by your confidence, whose MULTIPLICATIVE INTERACTION (product/synergy of the two variables) you judge most likely to be a CAUSAL driver of the failure outcome. Rules:
+- Causes only: avoid variables you judge to be consequences/symptoms of failure (e.g. alarms, tickets, callouts) rather than causes.
+- A pair means the PRODUCT of the two variables plausibly drives failure (synergistic stress), not that each is separately correlated.
+- Use exactly the variable names as listed. No variable may be paired with itself.
+
+Output STRICT JSON only, no other text:
+{"pairs": [["name_a","name_b"], ["name_c","name_d"], ...]}
