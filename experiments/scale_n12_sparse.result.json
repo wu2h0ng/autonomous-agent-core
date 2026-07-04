@@ -1,0 +1,35 @@
+{
+  "gate": "scale-n12-sparse",
+  "c_nobs": 240,
+  "per_n": {
+    "12": {
+      "n_domains": 10,
+      "id_rate": 0.9,
+      "governance_halt_rate": 1.0,
+      "mec_range": [
+        10,
+        24
+      ]
+    },
+    "13": {
+      "n_domains": 10,
+      "id_rate": 1.0,
+      "governance_halt_rate": 1.0,
+      "mec_range": [
+        12,
+        26
+      ]
+    },
+    "14": {
+      "n_domains": 10,
+      "id_rate": 1.0,
+      "governance_halt_rate": 1.0,
+      "mec_range": [
+        10,
+        28
+      ]
+    }
+  },
+  "verdict": "SCALE-FEASIBLE-SPARSE",
+  "scope": "sparse structures only; dense-skeleton n>=12 needs a non-enumerative pool (named scale blocker, not attempted); e2e_agent byte-unchanged (obs is caller-supplied)."
+}
