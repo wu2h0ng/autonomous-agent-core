@@ -140,6 +140,11 @@ class ActionProposal:
     action_parameters: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str | None = None
     knowledge_context_refs: tuple[str, ...] = field(default_factory=tuple)
+    # S5 (RR-0048 Option 2): enumerated candidate interventions for governed causal SELECTION. When
+    # non-empty, the governed-decision seam is consulted over ALL of them and returns the causally-chosen
+    # one; empty (the default) preserves single-recommendation behavior. These are labels the interventional
+    # verifier scores; enumeration source is the proposer/domain, not open-world self-generation.
+    candidate_actions: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

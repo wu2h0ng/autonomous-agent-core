@@ -513,11 +513,16 @@ class TrustedLoopRuntime:
         # ALLOW -> unchanged. Default None -> this block is skipped and the loop behaves exactly as before.
         if self.governance_decision_client is not None:
             try:
+                # S5: when the proposer enumerated candidate interventions, the governed disposer selects
+                # among ALL of them by interventional evidence (chosen_action); otherwise it verifies the
+                # single recommended action. The seam can still only tighten — it never loosens.
                 seam_decision = self.governance_decision_client.decide(
                     GovernanceDecisionRequest(
                         task_id=proposal.proposal_id,
                         risk_tier=proposal.risk_level.value,
-                        candidate_actions=(proposal.recommended_action,),
+                        candidate_actions=(
+                            proposal.candidate_actions or (proposal.recommended_action,)
+                        ),
                         evidence_count=1 if evidence.is_complete() else 0,
                         approved=False,  # the OS Approval lifecycle still owns approval; the seam only tightens
                     )
@@ -532,6 +537,7 @@ class TrustedLoopRuntime:
                         "trace_id": trace_id,
                         "evidence_chain_id": evidence.evidence_chain_id,
                         "client_error_code": exc.__class__.__name__,
+                        "chosen_action": None,  # degraded -> never a selection
                     },
                 )
                 if self.shell_view is not None:
@@ -554,6 +560,7 @@ class TrustedLoopRuntime:
                             "audit_ref": f"local-invalid-verdict:{proposal.proposal_id}",
                             "trace_id": trace_id,
                             "evidence_chain_id": evidence.evidence_chain_id,
+                            "chosen_action": None,  # rejected verdict -> never a selection
                         },
                     )
                     if self.shell_view is not None:
@@ -575,6 +582,9 @@ class TrustedLoopRuntime:
                             "audit_ref": seam_decision.audit_ref,
                             "trace_id": trace_id,
                             "evidence_chain_id": evidence.evidence_chain_id,
+                            # S5: which enumerated intervention the governed disposer causally selected
+                            # (None when nothing was verified-effective — the loop never auto-selects).
+                            "chosen_action": seam_decision.chosen_action,
                         },
                     )
                     if self.shell_view is not None:
