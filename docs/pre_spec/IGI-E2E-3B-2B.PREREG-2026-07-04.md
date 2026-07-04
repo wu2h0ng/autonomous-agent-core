@@ -116,3 +116,17 @@ change, truth index moves). Decision: ARENA-VALID (t1>=3.5, id>=0.7 on scored) e
 PASS iff saving >= 2.0 AND achievement drop <= 0.10 AND stale-refuted >= 0.8 AND new-truth id >= 0.7 AND
 halt 100%. Frozen prediction: t1 ~4.8, t2 ~2.3 (trust path 2 + occasional rediscovery) -> saving
 ~2.3-2.8; stale-refuted ~0.9; PASS ~70%.
+
+### E2E-2c (scored 2026-07-04): **FAIL — a SPLIT verdict that lands the missing half**
+
+arena VALID on scored seeds (t1 4.917 dos, id 0.75 — fresh-seed variance again, pilot was 1.000).
+**SAVING HALF DEMONSTRATED for the first time: compounding saving 2.917 (bar 2.0), achievement drop
+0.000, t2 = 2.0** — trusted knowledge makes the future strictly cheaper, and the trust was EARNED
+(cache survived two max-discriminating fresh interventions among 75 hypotheses every unperturbed time).
+**STALENESS HALF REGRESSED in the big arena: wrong-cache refuted only 0.667** (vs 1.000 at MEC<=28) —
+generic pool-min-max confirms do not specifically target the cache; a wrong-but-similar cache hides in
+a large surviving block; new-truth rediscovery 0.5. Mechanism for E2E-2d: CACHE-TARGETED confirmation
+(choose the do() maximizing predicted divergence between the cache and its nearest surviving
+alternatives) — again a typed-routing shape: verification must be aimed at the claim under test.
+Frozen verdict FAIL stands (both halves were required jointly). Ledger: bet PASS ~70% = MISS; the t1
+prediction (4.8) and saving band (2.3-2.8, actual 2.917 just above) were near-band.
