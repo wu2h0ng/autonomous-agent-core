@@ -969,6 +969,13 @@ Current active ADRs:
   - Current docs-only maintenance anchor aligning P1-29 through P1-32 gate
     strings with their landed state: local-main only, still no push/release
     claim. Origin/main push remains HOLD; no release.
+- `PR-22-controlled-pilot-readiness-gate-20260704.md`
+  - Current local maintenance gate adding
+    `make controlled-pilot-readiness-check`, which aggregates CURRENT_STATE
+    source freshness, immediate-next candidate-maintenance boundaries, RC branch
+    verification, absence of release/rc tags, and the active
+    `DEPLOYMENT_PUSH: HOLD` block. It does not authorize origin/main push or
+    release.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
