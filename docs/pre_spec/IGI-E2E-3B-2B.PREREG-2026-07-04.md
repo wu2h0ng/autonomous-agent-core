@@ -130,3 +130,10 @@ a large surviving block; new-truth rediscovery 0.5. Mechanism for E2E-2d: CACHE-
 alternatives) — again a typed-routing shape: verification must be aimed at the claim under test.
 Frozen verdict FAIL stands (both halves were required jointly). Ledger: bet PASS ~70% = MISS; the t1
 prediction (4.8) and saving band (2.3-2.8, actual 2.917 just above) were near-band.
+
+## E2E-2d FREEZE (2026-07-04) — cache-TARGETED confirmation (compounding-axis closure candidate)
+
+`experiments/igi_e2e_2d.py` = `159baa5fa089c044`; fresh seeds 3900+, runs {87,88}. Confirm rule: maximize the
+cache's WORST-CASE predicted separation from every surviving alternative (verification aimed at the
+claim under test — the typed-routing shape). Bars unchanged from 2c. Frozen prediction: saving ~2.9
+preserved; stale-refuted 0.85-1.0; new-truth id 0.6-0.8 (live risk); PASS ~65%.
