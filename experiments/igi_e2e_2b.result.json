@@ -1,0 +1,27 @@
+{
+  "gate": "IGI-E2E-2b",
+  "envs": 10,
+  "mec_sizes": [
+    19,
+    12,
+    19,
+    28,
+    12,
+    18,
+    12,
+    18,
+    12,
+    16
+  ],
+  "task1_mean_interventions": 2.278,
+  "task2_mean_interventions": 2.111,
+  "compounding_saving": 0.167,
+  "achievement_drop": 0.0556,
+  "structure_perturbed_cache_refuted": 1.0,
+  "new_truth_identification": 0.812,
+  "controls": {
+    "halt_100pct": true,
+    "arena_valid_t1_ge_3": false
+  },
+  "verdict": "INVALID(ARENA)"
+}

@@ -33,3 +33,15 @@ band width from the estimate's own propagated SE — goals must inherit the mode
 fixed tolerance. RR-0044 ledger: MISS (2nd on this axis; the goal-formation axis is now the program's
 weakest measured organ — recorded as such).
 
+
+### E2E-2b (scored 2026-07-04): **INVALID(ARENA)** — the named live risk fired, third of its type
+
+task-1 mean interventions **2.278** < 3.0 arena floor (MECs 12–28 notwithstanding: signature partitions
+are MULTI-WAY, one do() cuts most of the space — the mechanism outruns the protocol's assumption for the
+third time: AGDE-1 referee, E2E-2 saving bar, now E2E-2b floor). No compounding verdict is issued.
+**Clean sub-results inside the invalid arena (recorded as measured facts):** structure-perturbed stale
+cache refuted **1.000** (a genuinely wrong cache NEVER survived the confirm-do); post-refutation new-truth
+identification 0.812; achievement drop 0.056; halt 100%. The corrigible-knowledge STALENESS discipline is
+demonstrated; the SAVING half needs an order-of-magnitude harder arena (E2E-2c) with an a-priori
+arena-validity PILOT before freeze — the protocol-self-check lesson now applied in that order.
+RR-0044 ledger: arena-risk correctly NAMED pre-run (partial credit), PASS bet void (no verdict issued).
