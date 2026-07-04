@@ -960,6 +960,11 @@ Current active ADRs:
     verification docs head. Current-state and RC-branch gates passed; push
     authorization still exits 2 under `DEPLOYMENT_PUSH: HOLD` at `59efb2f`.
     Origin/main push remains HOLD; no release.
+- `PR-20-candidate-maintenance-p1-stack-state-clarification-20260704.md`
+  - Current docs-only maintenance anchor clarifying that P1-29 through P1-32
+    are no longer merely branch-local: they landed through the P1-33 stacked
+    local merge to `main@ef074ee` and are covered by the P1-33 post-merge
+    verification record. Origin/main push remains HOLD; no release.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
