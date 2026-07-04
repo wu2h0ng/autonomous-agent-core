@@ -55,3 +55,18 @@ FAMILY as T3's K2 predictor-soundness catch (fit/measurement quality), not T3's 
 DISCIPLINE NOTE: the day's law applied to my OWN diagnosis — a structure-type claim ('cause = X') asserted
 without measurement was wrong; measuring truth-self-survival corrected it. Verify against the world,
 including one's own conclusions.
+
+## BIG-N DIP CLOSED (2026-07-04): n_obs scaling confirms fit-bias root cause
+
+n_obs sweep on 20 big-n (n>=9) domains: id 0.625 (n_obs 400) -> 0.875 (1200) -> **0.900 (2400)**;
+truth self-reject 1.9 -> 1.12 -> 1.07 do-nodes. Identification recovers to 0.90 and self-rejection
+shrinks with samples => the dip WAS fit-bias false-rejection (corrected diagnosis CONFIRMED by the fix
+working), NOT equivalence/budget. RR-0044 ledger: bet direction HIT (fit bias ~ 1/sqrt(n_obs)).
+
+**Arbitrary-domain generality at toy scale, closed honestly:** the existing loop (zero mechanism code
+changes; obs is caller-supplied) identifies at 0.86 (n<=8, 60 random structures) and 0.90 (n=9-10 with
+n_obs=2400) across a DISTRIBUTION of never-seen random causal structures, governance 100% throughout.
+The one degradation was undersampling for more parameters, closed by the standard remedy n_obs proportional
+to structure complexity. Next-session hygiene: set n_obs=c*n in the battery config (a data setting, not a
+frozen-mechanism change). Standing gaps unchanged: real-world ACTUATION (seam, founder-keyed) and
+cross-domain knowledge compounding (scale work).
