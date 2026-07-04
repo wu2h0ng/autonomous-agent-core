@@ -33,3 +33,22 @@ then the next move is MORE families (power), not a lower bar, and the ledger tak
 ## Result
 
 _(appended by the scored run; mechanical verdict; founder may audit/override)_
+
+## Result (scored 2026-07-04, fresh families 200-229 × runs 20-22, digests no-drift): **MET**
+
+| quantity | value | frozen bar |
+|---|---|---|
+| mean ID: A / R / O | **0.9556** / 0.4009 / 0.9222 | A ≥ 0.90 ✓ |
+| capture vs truth-informed oracle | **1.0641** (A exceeds the greedy oracle) | ≥ 0.90 ✓ |
+| sign test A>R | **30/30 families** | ≥ 2/3 ✓ |
+| controls | ALL PASS (determinism, gate audit, E==A, D==R, perm 0.0) | ✓ |
+| secondary B=1: capture vs a-priori blind ceiling 0.75 | **0.9204** | report-only |
+
+Earned bounded sentence (packet vocabulary; no autonomy, no unbounded locus): *at the information-feasible
+budget (B = log₂|MEC| bits), the deterministic, contentless, disposer-compatible intervention chooser inside
+the governed loop — LLM absent, C7 untouched — fully identifies causal structure on fresh observation-
+unidentified families (0.956), matches/exceeds the truth-informed oracle, and beats random choice on 30/30
+families at equal total sample budget, attributable to choice of data alone (E==A, D==R replays exact).*
+Gate-1's claim AS POSED remains failed; gate-2 is the well-posed referee. RR-0044 ledger: prediction
+("MET ~70%; ID 0.90–0.97; capture ≥0.95") = **HIT**. Running tally: AGDE-1 capture MISS / blind-ceiling
+exact / 5e HIT / AGDE-2 HIT.
