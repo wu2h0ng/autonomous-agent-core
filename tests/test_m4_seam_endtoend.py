@@ -95,6 +95,8 @@ class FiveInvariantsAtTheWire(unittest.TestCase):
     def test_version_mismatch_fail_closed(self):
         resp = _producer().handle(_req(version="99.0.0"))
         self.assertEqual(resp.verdict, DENY)              # incompatible major -> DENY, never adapt
+        self.assertTrue(resp.audit_ref)                   # invariant 5 binds the reject too (b9c51ae); the OS
+                                                          # response validator crashes on audit_ref="" at the wire
 
     def test_low_stakes_verified_allows_and_acts(self):
         resp = _producer().handle(_req(risk="R1", conf=0.9, ev=3))

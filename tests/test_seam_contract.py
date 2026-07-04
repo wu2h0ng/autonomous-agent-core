@@ -85,6 +85,18 @@ class Invariant5_NoSilentBypass(unittest.TestCase):
         self.assertTrue(r.audit_ref)                # non-empty
         self.assertTrue(shell.audit.verify())       # the chain it points into is intact
 
+    def test_version_reject_response_also_carries_resolving_audit_ref(self):
+        # Regression guard for b9c51ae: the incompatible-major-version DENY is a RESPONSE too, so
+        # invariant 5 binds it — it must carry a resolving audit_ref, never "". This was caught LIVE
+        # by the OS-side response validator during the M4 deployment rehearsal (2026-07-03); without
+        # this assertion a revert to audit_ref="" passes every other seam test unnoticed.
+        shell = CorrigibilityShell()
+        r = _producer(shell=shell).handle(_req(contract_version="2.0.0"))
+        self.assertEqual(r.verdict, DENY)
+        self.assertTrue(r.audit_ref)                                       # NOT "" (invariant 5 for ALL responses)
+        self.assertTrue(shell.audit.verify())                             # the chain is intact
+        self.assertEqual(r.audit_ref, shell.audit.entries()[-1].entry_hash)  # the ref RESOLVES into that chain
+
 
 class ContractVersioning(unittest.TestCase):
     def test_incompatible_major_version_denied(self):
