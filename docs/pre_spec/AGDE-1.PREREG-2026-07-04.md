@@ -53,6 +53,28 @@ above 0.5 if the chooser reliably finds the split node. **Prediction: MET ~70%; 
 tail: fresh-family tie structure / per-family variance pushing the sign test under 2/3. If NULL: H0-CHOOSER
 stands, the locus claim dies at gate 1, recorded as boundary — no rescue, no re-cut of B or tol.
 
-## Result
+## Result (scored 2026-07-04, digests no-drift): **NULL — frozen rule stands, no rescue**
 
-_(appended by the scored run; mechanical verdict; founder may audit/override)_
+| quantity | value | frozen bar |
+|---|---|---|
+| A (active) / R (random) / RR / O (oracle) | 0.6611 / 0.3574 / 0.3861 / 0.9778 | — |
+| oracle−random gap | 0.6204 | — |
+| **capture ratio** | **0.4895** | **≥ 0.50 → FAIL by 0.0105** |
+| sign test A>R | 21/24 decided families | ≥ 2/3 ✓ |
+| controls | ALL PASS (determinism, gate audit, E==A, D==R, perm collapse 0.0) | ✓ |
+
+- **Verdict: NULL by the frozen mechanical rule.** The prereg pre-committed "no rescue, no re-cut" for the
+  primary quantity, and unlike LEARN-2's C4 / LEARN-3's C2 (mis-specified CONTROLS), capture ratio IS the
+  claim quantity — it does not get a post-hoc correction. The bounded locus claim ("≥50% of the
+  truth-informed-oracle gap at B=1") is NOT established.
+- **What the controls-clean data does show (measured, not claimed beyond its strength):** H0-CHOOSER
+  (active ≤ random) is refuted — A−R = +0.304 absolute, 21/24 families; round-robin also beaten (0.386).
+  The chooser is real; the frozen BAR was missed.
+- **RR-0044 ledger accounting (first cash test): MISS.** Frozen prediction was "MET ~70%, capture
+  0.5–0.7"; actual 0.4895 — recorded against the ledger per its own kill-tracking (one narrow miss ≠
+  systematic; the running tally decides).
+- Calibration-preview capture was 0.59 (calib families); scored fresh-family capture 0.4895 — the named
+  NULL-tail (fresh-family variance) is what fired.
+- Post-hoc DIAGNOSIS (labeled, does not touch this verdict): whether the truth-INFORMED oracle referee
+  set the bar above any truth-BLIND policy's structural ceiling at B=1, and the frozen-report-only B=2
+  arms — recorded in `agde_1_diagnosis.result.json` and the paradigm-learning record (#24).

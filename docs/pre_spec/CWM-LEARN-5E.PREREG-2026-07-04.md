@@ -62,3 +62,15 @@ outside the control path. Condition-B measures how the prior misleads on incongr
 ## Result
 
 _(appended by the scored run)_
+
+## Result (scored 2026-07-04, digests no-drift): **MET-weak — as frozen-predicted tier**
+
+median s: **llm 1.000** / screening 1.000 / exhaustive 0.446 / random 0.319. LLM > exhaustive 10/10,
+> random 10/10, > screening 2/10 → |s_a−s_e| = 0 ≤ 0.05 ⇒ **MET-weak**. Condition-B collapse clean
+(s_llm_B median 0.000 = random level) — the knowledge claim is knowledge, not leakage/luck.
+
+Honest reading: the proposer/verifier pipeline REACHES THE ORACLE CEILING where enumeration degrades
+(the p≫n value window is real and fully captured), but the cheapest data-using screener reaches it too —
+at this scale, data-free knowledge ≈ cheap screening. The knowledge channel's UNIQUE region (zero-shot
+pre-data pruning; non-enumerable functional forms) is where 5e-2 must be set, per RR-0044 §4.4.
+RR-0044 ledger: this bet HIT (predicted ~85% MET, s_llm≥0.8, s_exh≤0.65).

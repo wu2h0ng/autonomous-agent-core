@@ -1,0 +1,349 @@
+{
+  "gate": "CWM-LEARN-5e",
+  "union_size": 27,
+  "union_pairs_idx": [
+    [
+      1,
+      6
+    ],
+    [
+      0,
+      6
+    ],
+    [
+      6,
+      7
+    ],
+    [
+      0,
+      9
+    ],
+    [
+      8,
+      9
+    ],
+    [
+      0,
+      7
+    ],
+    [
+      4,
+      9
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      2,
+      9
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      2,
+      4
+    ],
+    [
+      4,
+      5
+    ],
+    [
+      9,
+      34
+    ],
+    [
+      4,
+      8
+    ],
+    [
+      6,
+      9
+    ],
+    [
+      1,
+      8
+    ],
+    [
+      5,
+      8
+    ],
+    [
+      0,
+      8
+    ],
+    [
+      4,
+      34
+    ],
+    [
+      4,
+      20
+    ],
+    [
+      2,
+      20
+    ],
+    [
+      9,
+      20
+    ],
+    [
+      1,
+      9
+    ],
+    [
+      2,
+      5
+    ],
+    [
+      1,
+      7
+    ],
+    [
+      5,
+      34
+    ],
+    [
+      4,
+      35
+    ]
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "condA": {
+    "per_seed": [
+      {
+        "seed": 0,
+        "oracle": 0.9311,
+        "llm": 0.9311,
+        "exhaustive": 0.6863,
+        "random_median": 0.6534,
+        "screening": 0.9311,
+        "s_llm": 1.0,
+        "s_exh": 0.432,
+        "s_rand": 0.3559,
+        "s_screen": 1.0
+      },
+      {
+        "seed": 1,
+        "oracle": 0.9581,
+        "llm": 0.9581,
+        "exhaustive": 0.685,
+        "random_median": 0.5,
+        "screening": 0.9581,
+        "s_llm": 1.0,
+        "s_exh": 0.4038,
+        "s_rand": 0.0,
+        "s_screen": 1.0
+      },
+      {
+        "seed": 2,
+        "oracle": 0.9569,
+        "llm": 0.9569,
+        "exhaustive": 0.7777,
+        "random_median": 0.6418,
+        "screening": 0.9569,
+        "s_llm": 1.0,
+        "s_exh": 0.6078,
+        "s_rand": 0.3104,
+        "s_screen": 1.0
+      },
+      {
+        "seed": 3,
+        "oracle": 0.9304,
+        "llm": 0.9304,
+        "exhaustive": 0.7656,
+        "random_median": 0.6366,
+        "screening": 0.9585,
+        "s_llm": 1.0,
+        "s_exh": 0.6171,
+        "s_rand": 0.3174,
+        "s_screen": 1.0654
+      },
+      {
+        "seed": 4,
+        "oracle": 0.9548,
+        "llm": 0.9548,
+        "exhaustive": 0.6771,
+        "random_median": 0.7021,
+        "screening": 0.9047,
+        "s_llm": 1.0,
+        "s_exh": 0.3895,
+        "s_rand": 0.4444,
+        "s_screen": 0.8899
+      },
+      {
+        "seed": 5,
+        "oracle": 0.9279,
+        "llm": 0.9279,
+        "exhaustive": 0.6767,
+        "random_median": 0.5,
+        "screening": 0.9279,
+        "s_llm": 1.0,
+        "s_exh": 0.4129,
+        "s_rand": 0.0,
+        "s_screen": 1.0
+      },
+      {
+        "seed": 6,
+        "oracle": 0.9543,
+        "llm": 0.9543,
+        "exhaustive": 0.7636,
+        "random_median": 0.5651,
+        "screening": 0.9243,
+        "s_llm": 1.0,
+        "s_exh": 0.5802,
+        "s_rand": 0.1434,
+        "s_screen": 0.9341
+      },
+      {
+        "seed": 7,
+        "oracle": 0.8803,
+        "llm": 0.8803,
+        "exhaustive": 0.671,
+        "random_median": 0.6326,
+        "screening": 0.8803,
+        "s_llm": 1.0,
+        "s_exh": 0.4497,
+        "s_rand": 0.3488,
+        "s_screen": 1.0
+      },
+      {
+        "seed": 8,
+        "oracle": 0.9292,
+        "llm": 0.9292,
+        "exhaustive": 0.7631,
+        "random_median": 0.6806,
+        "screening": 0.9292,
+        "s_llm": 1.0,
+        "s_exh": 0.6129,
+        "s_rand": 0.4209,
+        "s_screen": 1.0
+      },
+      {
+        "seed": 9,
+        "oracle": 0.9276,
+        "llm": 0.9276,
+        "exhaustive": 0.6892,
+        "random_median": 0.6366,
+        "screening": 0.9276,
+        "s_llm": 1.0,
+        "s_exh": 0.4425,
+        "s_rand": 0.3195,
+        "s_screen": 1.0
+      }
+    ]
+  },
+  "condB": {
+    "per_seed": [
+      {
+        "seed": 0,
+        "oracle_B": 0.8828,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 1,
+        "oracle_B": 0.9314,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 2,
+        "oracle_B": 0.9616,
+        "llm_B": 0.7107,
+        "random_median_B": 0.6423,
+        "s_llm_B": 0.4565,
+        "s_rand_B": 0.3082
+      },
+      {
+        "seed": 3,
+        "oracle_B": 0.8915,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 4,
+        "oracle_B": 0.9275,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 5,
+        "oracle_B": 0.9265,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 6,
+        "oracle_B": 0.8945,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 7,
+        "oracle_B": 0.9246,
+        "llm_B": 0.6489,
+        "random_median_B": 0.6489,
+        "s_llm_B": 0.3506,
+        "s_rand_B": 0.3506
+      },
+      {
+        "seed": 8,
+        "oracle_B": 0.8987,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      },
+      {
+        "seed": 9,
+        "oracle_B": 0.891,
+        "llm_B": 0.5,
+        "random_median_B": 0.5,
+        "s_llm_B": 0.0,
+        "s_rand_B": 0.0
+      }
+    ]
+  },
+  "summary": {
+    "median_s_llm": 1.0,
+    "median_s_exh": 0.4461,
+    "median_s_rand": 0.3185,
+    "median_s_screen": 1.0,
+    "wins_llm_gt_exh": "10/10",
+    "wins_llm_gt_rand": "10/10",
+    "wins_llm_gt_screen": "2/10",
+    "condB": {
+      "median_s_llm_B": 0.0,
+      "median_s_rand_B": 0.0,
+      "collapse_ok": true
+    },
+    "verdict": "MET-weak"
+  }
+}
