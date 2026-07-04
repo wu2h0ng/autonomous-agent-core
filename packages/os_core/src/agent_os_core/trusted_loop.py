@@ -833,6 +833,76 @@ class TrustedLoopRuntime:
             operation_trace = self.execute_pending_approved_operation(approval_id=approval_id)
             return approval, operation_trace
 
+    def _assert_execution_time_governance(
+        self,
+        *,
+        operation: OperationContract,
+        evidence_chain: EvidenceChain,
+        proposal_id: str,
+    ) -> None:
+        """ADR-0005: re-verify corrigibility (C7) and the governed-decision seam AT EXECUTION TIME, before any
+        connector side-effect. The proposal-time gate in ``run()`` can be stale by the time an approved action
+        executes: the operator may have PAUSED, or the disposer may have flipped to DENY, between approval and
+        execution. Fail-closed on those two state changes only; an already-approved action is NOT re-gated by
+        ESCALATE/VERIFY_MORE (redundant post-approval) or by the seam being unavailable (never block on the
+        organ, ADR-0047 — the human approval stands). The runtime holds a read-only ``ShellView`` and cannot
+        un-pause itself."""
+        # Corrigibility (C7) is absolute: a paused operator halts the action regardless of prior approval.
+        if self.shell_view is not None and self.shell_view.paused:
+            self.shell_view.observe(
+                {"event": "execution_refused_paused", "proposal_id": proposal_id}
+            )
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.PAUSED,
+                    message="The system is paused by the operator.",
+                    stage="corrigibility_pause_execution",
+                )
+            )
+        if self.governance_decision_client is None:
+            return
+        # Governed-decision seam re-consulted at execution time (closes the ADR-0004 gap). Only a fresh DENY
+        # blocks; the human approval already stands.
+        try:
+            seam_decision = self.governance_decision_client.decide(
+                GovernanceDecisionRequest(
+                    task_id=proposal_id,
+                    risk_tier=operation.risk_level,
+                    candidate_actions=(operation.action_type,),
+                    evidence_count=1 if evidence_chain.is_complete() else 0,
+                    approved=True,  # the OS Approval lifecycle has approved; the seam still governs at exec time
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - never block on the organ; the human approval stands
+            if self.shell_view is not None:
+                self.shell_view.observe(
+                    {
+                        "event": "execution_governed_decision",
+                        "proposal_id": proposal_id,
+                        "verdict": _GD_VERIFY_MORE,
+                        "reason": _GOVERNANCE_DECISION_CLIENT_UNAVAILABLE,
+                        "client_error_code": exc.__class__.__name__,
+                    }
+                )
+            return
+        if self.shell_view is not None:
+            self.shell_view.observe(
+                {
+                    "event": "execution_governed_decision",
+                    "proposal_id": proposal_id,
+                    "verdict": seam_decision.verdict,
+                }
+            )
+        if seam_decision.verdict == _GD_DENY:
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.GOVERNANCE_DENIED,
+                    message="External governed-decision seam denied the action at execution time.",
+                    stage="governed_decision_execution",
+                    details=(_GOVERNANCE_DECISION_REASON_WITHHELD,),
+                )
+            )
+
     def execute_approved_operation(
         self,
         *,
@@ -885,6 +955,13 @@ class TrustedLoopRuntime:
             )
 
         self._assert_grounded(evidence_chain.sql_safety, evidence_chain)
+        # ADR-0005: re-verify corrigibility (C7) and the governed-decision seam AT EXECUTION TIME, before any
+        # connector side-effect — proposal-time governance can be stale by the time an approved action executes.
+        self._assert_execution_time_governance(
+            operation=operation,
+            evidence_chain=evidence_chain,
+            proposal_id=proposal_id,
+        )
         self.state_machine.transition(OperationState.AWAITING_APPROVAL, OperationState.APPROVED)
         operation_trace = self.operation_trace_builder.open_trace(
             trace_id=f"optrace-{uuid4().hex[:12]}",
