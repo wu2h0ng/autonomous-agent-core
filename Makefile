@@ -5,6 +5,8 @@ PYTHON      ?= python
 PYTHONPATH   = packages/contracts/src:packages/os_core/src:packages/persistence/src:packages/sdk/src:action_connectors:apps/api_server/src
 EVAL_THRESHOLDS_FILE ?= tests/eval/golden_thresholds.json
 EVAL_THRESHOLD_REPORT_OUT ?= .agent_runs/eval-threshold-report/golden-threshold-report.json
+PUSH_EXPECTED_HEAD ?=
+PUSH_EXPECTED_HEAD_ARG = $(if $(PUSH_EXPECTED_HEAD),--expected-head $(PUSH_EXPECTED_HEAD),)
 
 .PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval eval-threshold-report test openapi-contract push-authorization-check ci ci-local-full
 
@@ -38,7 +40,7 @@ openapi-contract:
 	PYTHONPATH=$(PYTHONPATH) $(PYTHON) -m agent_os_api.openapi_contract --check
 
 push-authorization-check:
-	$(PYTHON) scripts/release_gate/push_authorization_check.py
+	$(PYTHON) scripts/release_gate/push_authorization_check.py $(PUSH_EXPECTED_HEAD_ARG)
 
 ci: check-ci-env lint format-check unit eval eval-threshold-report openapi-contract
 	@echo "=== All CI checks passed ==="
