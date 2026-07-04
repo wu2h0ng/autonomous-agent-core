@@ -20,3 +20,18 @@
 
 ## Result
 _(appended by the scored run)_
+
+## Result (scored 2026-07-04 after disclosed crash-fix; digests no-drift): **FAIL — frozen rule stands**
+
+- **Cross-class generality LANDED (measured fact):** identification **1.000 on all four classes**
+  (tree6/chain8/dense7/star7), achievement 0.938/0.938/0.938/1.000, halt probes 100%, zero per-class code.
+- **Compounding criterion failed by mis-pose:** task-1 discovery floor is already **1.5 interventions**
+  (the chooser resolves MECs 6-12 in 1-2 do()s) — the >=1.0-saving bar assumed ~3-do discovery; there was
+  no room to save (0.062). Protocol error, not a loop failure.
+- **Staleness arm tested the wrong object:** the perturbation flipped an edge WEIGHT, leaving STRUCTURE
+  unchanged — so the structure-cache was legitimately still true (refuted-rate 0.516 vs bar 0.8 reflects a
+  wrong expectation; post-refute identification 0.906 shows recovery works when it does refute).
+- Disposition: FAIL recorded, no rescue. **E2E-2b** (next, fresh seeds) fixes the protocol: compounding
+  measured on expensive-discovery envs (task-1 cost >= 3), staleness arm perturbs STRUCTURE (edge reversal
+  within skeleton -> truth index changes -> the cache is genuinely wrong and MUST be refuted).
+- RR-0044 ledger: bet ("PASS ~65%, per-class id 0.85-1.0") = verdict-MISS (FAIL), id-band edge (1.0).

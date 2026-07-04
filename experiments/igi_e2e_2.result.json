@@ -1,0 +1,31 @@
+{
+  "gate": "IGI-E2E-2",
+  "classes": [
+    "tree6",
+    "chain8",
+    "dense7",
+    "star7"
+  ],
+  "identification_by_class": {
+    "tree6": 1.0,
+    "chain8": 1.0,
+    "dense7": 1.0,
+    "star7": 1.0
+  },
+  "achievement_by_class": {
+    "tree6": 0.938,
+    "chain8": 0.938,
+    "dense7": 0.938,
+    "star7": 1.0
+  },
+  "task1_mean_interventions": 1.5,
+  "task2_mean_interventions": 1.438,
+  "compounding_saving": 0.062,
+  "task2_achievement_drop": 0.0781,
+  "perturbed_cache_refuted_rate": 0.516,
+  "post_refute_identification": 0.906,
+  "controls": {
+    "halt_100pct": true
+  },
+  "verdict": "FAIL"
+}
