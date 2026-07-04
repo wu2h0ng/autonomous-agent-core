@@ -23,6 +23,8 @@ Behavior:
 
 - `DEPLOYMENT_PUSH: HOLD` -> non-zero exit and "push is not authorized".
 - `DEPLOYMENT_PUSH: AUTHORIZED` -> zero exit.
+- Decision tokens are recognized only as exact stripped lines; prose-only token
+  mentions do not authorize push or create ambiguity.
 - `make push-authorization-check` binds `--expected-head` to the current
   `git rev-parse --short HEAD` by default.
 - `DEPLOYMENT_PUSH: AUTHORIZED` plus an expected head -> zero only when the
@@ -55,6 +57,10 @@ TDD evidence:
   `abc1234`.
 - FOLLOW-UP GREEN: expected head matching is now exact on stripped decision
   lines, not substring based.
+- FOLLOW-UP RED: prose containing `DEPLOYMENT_PUSH: AUTHORIZED` without an
+  exact decision-token line incorrectly authorized push.
+- FOLLOW-UP GREEN: HOLD/AUTHORIZED decisions are now recognized only as exact
+  stripped lines; prose-only token mentions fail closed as UNKNOWN.
 
 Commands:
 
@@ -67,15 +73,15 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 Observed results:
 
-- Focused gate tests: 7 tests OK.
+- Focused gate tests: 8 tests OK.
 - `make push-authorization-check`: exits 2 under current HOLD with
   `DEPLOYMENT_PUSH: HOLD - push is not authorized.` The command line includes
   `--expected-head <current-head>`, proving the bare Make target binds the
   candidate head before the HOLD decision blocks.
-- `make ci`: passed with ruff clean, format clean, 616 primary unittest tests
+- `make ci`: passed with ruff clean, format clean, 617 primary unittest tests
   OK / 4 skipped, 12 eval tests OK, threshold report passed, and OpenAPI up to
   date.
-- PostgreSQL `ci-local-full`: passed with 616 primary unittest tests OK / 4
+- PostgreSQL `ci-local-full`: passed with 617 primary unittest tests OK / 4
   skipped, 12 eval tests OK, threshold report passed, OpenAPI up to date, and
   full local CI parity checks passed.
 

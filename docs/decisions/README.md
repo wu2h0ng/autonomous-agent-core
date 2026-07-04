@@ -902,11 +902,12 @@ Current active ADRs:
     and fails closed while `DEPLOYMENT_PUSH: HOLD` is active; the Make target
     binds the current short HEAD by default, future AUTHORIZED records must
     name the matching exact-line `candidate_head`, prefix-only candidate_head
-    matches fail closed, and conflicting HOLD/AUTHORIZED tokens are rejected as
-    ambiguous. The target is not part of `make ci`. Focused gate tests passed
-    with 7 tests OK, the target exits 2 under HOLD, and `make ci` plus PostgreSQL
-    `ci-local-full` passed with 616 primary unittest tests OK / 4 skipped plus
-    12 eval OK. Not pushed, not released.
+    matches fail closed, prose-only token mentions fail closed, and conflicting
+    exact-line HOLD/AUTHORIZED tokens are rejected as ambiguous. The target is
+    not part of `make ci`. Focused gate tests passed with 8 tests OK, the target
+    exits 2 under HOLD, and `make ci` plus PostgreSQL `ci-local-full` passed
+    with 617 primary unittest tests OK / 4 skipped plus 12 eval OK. Not pushed,
+    not released.
 - `PR-07-product-integration-release-gate.REVIEW-20260624.md`
   - Current verdict: do not merge old F3 rehearsal `d46bd45`; fresh rehearsal from current local main `77c7b07` is recorded in `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`
 - `PR-07-frontend-workspace-f3-rerehearsal-current.VERIFICATION-20260624.md`

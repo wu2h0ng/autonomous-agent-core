@@ -82,6 +82,32 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ambiguous", result.stdout + result.stderr)
 
+    def test_authorization_token_in_prose_does_not_authorize_push(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_file = Path(tmpdir) / "push-prose-only.md"
+            decision_file.write_text(
+                textwrap.dedent(
+                    """
+                    # Deployment Push Decision
+
+                    This note mentions DEPLOYMENT_PUSH: AUTHORIZED as an example, not as
+                    an active decision token.
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--decision-file", str(decision_file)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("UNKNOWN", result.stdout + result.stderr)
+
     def test_authorization_can_be_bound_to_expected_head(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             decision_file = Path(tmpdir) / "push-authorized.md"

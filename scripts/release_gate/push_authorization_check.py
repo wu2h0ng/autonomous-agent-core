@@ -25,8 +25,9 @@ def check_push_authorization(
         )
 
     decision_text = decision_file.read_text(encoding="utf-8")
-    has_authorized = AUTHORIZED_TOKEN in decision_text
-    has_hold = HOLD_TOKEN in decision_text
+    decision_lines = {line.strip() for line in decision_text.splitlines()}
+    has_authorized = AUTHORIZED_TOKEN in decision_lines
+    has_hold = HOLD_TOKEN in decision_lines
     if has_authorized and has_hold:
         return (
             2,
@@ -35,7 +36,6 @@ def check_push_authorization(
     if has_authorized:
         if expected_head:
             expected_line = f"candidate_head: {expected_head}"
-            decision_lines = {line.strip() for line in decision_text.splitlines()}
             if expected_line not in decision_lines:
                 return (
                     2,

@@ -7,6 +7,10 @@
 
 ## Decision
 
+```text
+DEPLOYMENT_PUSH: HOLD
+```
+
 The current deployment local mainline remains on explicit hold for push.
 
 This means:
