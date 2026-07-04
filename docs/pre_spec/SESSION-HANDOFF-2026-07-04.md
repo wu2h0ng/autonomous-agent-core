@@ -27,3 +27,15 @@ seam-lane design, or park if the next gate cannot bind cheap baselines and disjo
 (4) founder-gated: seam-lane real-world execution; (5) scale arena (n>=12, cross-domain transfer).
 Branch research/stage0-gate-sovereignty-2026-07-03 (worktree), NOT pushed. Parent RR-0040..0046 NOT
 pushed. All raw results experiments/*.result.json; all preregs docs/pre_spec/ with digest chains.
+
+## LATE-SESSION EXECUTION (founder cast: four items)
+
+1. **AGDE-T3 = MET** (active 0.850 / random 0.300 / gap 0.550, fresh machine-screened families,
+   governance 100%; formulaic bars, seven-pilot lineage). Dynamics discovery LANDS.
+2. **5e-2 = honest disposition, NOT frozen**: knowledge-exclusive region failed cheap baselines 4x at
+   toy scale; only open-vocabulary form proposal remains (expression-proposal + safe-eval = next build).
+3. **SCALE first measurement = GREEN**: existing e2e loop, ZERO code changes, at n=12 (id 0.917 /
+   ach 0.909) and n=14 chains (id 0.750 / ach 1.000), halt 100% — no-rebuild now spans 6 domain classes
+   + SVAR. Deep-chain budget (+1 for chains) = first scale calibration datum.
+4. **SEAM real-world = the remaining founder-keyed item**: wire E2E agent env_act through the RR-0032
+   seam to OS governance on a real R0-R3 lever (OS worktree feat branch; push/release founder-held).
