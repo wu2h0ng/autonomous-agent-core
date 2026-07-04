@@ -36,6 +36,15 @@ def _load_current_state(repo_root: Path) -> dict:
     return data
 
 
+def _resolve_repo_path(repo_root: Path, source: str) -> Path:
+    source_path = (repo_root / source).resolve()
+    try:
+        source_path.relative_to(repo_root)
+    except ValueError as exc:
+        raise ValueError(f"verification source outside repository: {source}") from exc
+    return source_path
+
+
 def check_current_state_verification(repo_root: Path) -> tuple[int, str]:
     try:
         data = _load_current_state(repo_root)
@@ -47,7 +56,11 @@ def check_current_state_verification(repo_root: Path) -> tuple[int, str]:
     if tests_source != eval_source:
         return 2, "CURRENT_STATE verification source mismatch between tests and eval."
 
-    source_path = repo_root / tests_source
+    try:
+        source_path = _resolve_repo_path(repo_root, tests_source)
+    except ValueError as exc:
+        return 2, f"CURRENT_STATE verification source invalid: {exc}"
+
     if not source_path.exists():
         return 2, f"CURRENT_STATE verification source missing: {tests_source}"
 

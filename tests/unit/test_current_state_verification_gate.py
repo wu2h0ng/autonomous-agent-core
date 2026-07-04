@@ -7,10 +7,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release_gate" / "current_state_verification_check.py"
 CURRENT_STATE = ROOT / "docs" / "CURRENT_STATE.yaml"
+
+
+def _current_verification_source() -> str:
+    current_state = yaml.safe_load(CURRENT_STATE.read_text(encoding="utf-8"))
+    return current_state["last_verified_tests"]["source"]
 
 
 class CurrentStateVerificationGateTest(unittest.TestCase):
@@ -37,7 +44,7 @@ class CurrentStateVerificationGateTest(unittest.TestCase):
             state_text = state_path.read_text(encoding="utf-8")
             state_path.write_text(
                 state_text.replace(
-                    "docs/decisions/PR-13-deployment-current-docs-head-verification-refresh-20260704.md",
+                    _current_verification_source(),
                     "docs/decisions/MISSING-verification-record.md",
                 ),
                 encoding="utf-8",
@@ -53,6 +60,33 @@ class CurrentStateVerificationGateTest(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("verification source missing", result.stdout + result.stderr)
+
+    def test_absolute_verification_source_path_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            docs_dir = repo_root / "docs"
+            docs_dir.mkdir(parents=True)
+            shutil.copyfile(CURRENT_STATE, docs_dir / "CURRENT_STATE.yaml")
+            state_path = docs_dir / "CURRENT_STATE.yaml"
+            state_text = state_path.read_text(encoding="utf-8")
+            state_path.write_text(
+                state_text.replace(
+                    _current_verification_source(),
+                    "/tmp/outside-verification-record.md",
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(repo_root)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("outside repository", result.stdout + result.stderr)
 
     def test_makefile_exposes_current_state_verification_check_outside_ci(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
