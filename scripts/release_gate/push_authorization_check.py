@@ -35,7 +35,8 @@ def check_push_authorization(
     if has_authorized:
         if expected_head:
             expected_line = f"candidate_head: {expected_head}"
-            if expected_line not in decision_text:
+            decision_lines = {line.strip() for line in decision_text.splitlines()}
+            if expected_line not in decision_lines:
                 return (
                     2,
                     f"{AUTHORIZED_TOKEN} - candidate head mismatch; expected {expected_line}.",

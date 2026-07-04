@@ -26,8 +26,9 @@ Behavior:
 - `make push-authorization-check` binds `--expected-head` to the current
   `git rev-parse --short HEAD` by default.
 - `DEPLOYMENT_PUSH: AUTHORIZED` plus an expected head -> zero only when the
-  decision record also contains `candidate_head: <hash>`.
-- Authorized decision with mismatched `candidate_head` -> non-zero exit.
+  decision record also contains an exact stripped line `candidate_head: <hash>`.
+- Authorized decision with mismatched or prefix-only `candidate_head` ->
+  non-zero exit.
 - Missing decision token or conflicting HOLD/AUTHORIZED tokens -> non-zero
   exit.
 
@@ -50,6 +51,10 @@ TDD evidence:
   candidate commit.
 - FOLLOW-UP GREEN: the Make target now defaults `PUSH_EXPECTED_HEAD` to the
   current short HEAD while preserving explicit override.
+- FOLLOW-UP RED: `candidate_head: abc12345` incorrectly satisfied expected head
+  `abc1234`.
+- FOLLOW-UP GREEN: expected head matching is now exact on stripped decision
+  lines, not substring based.
 
 Commands:
 
@@ -62,15 +67,15 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 Observed results:
 
-- Focused gate tests: 6 tests OK.
+- Focused gate tests: 7 tests OK.
 - `make push-authorization-check`: exits 2 under current HOLD with
   `DEPLOYMENT_PUSH: HOLD - push is not authorized.` The command line includes
   `--expected-head <current-head>`, proving the bare Make target binds the
   candidate head before the HOLD decision blocks.
-- `make ci`: passed with ruff clean, format clean, 615 primary unittest tests
+- `make ci`: passed with ruff clean, format clean, 616 primary unittest tests
   OK / 4 skipped, 12 eval tests OK, threshold report passed, and OpenAPI up to
   date.
-- PostgreSQL `ci-local-full`: passed with 615 primary unittest tests OK / 4
+- PostgreSQL `ci-local-full`: passed with 616 primary unittest tests OK / 4
   skipped, 12 eval tests OK, threshold report passed, OpenAPI up to date, and
   full local CI parity checks passed.
 
