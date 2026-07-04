@@ -1,0 +1,43 @@
+{
+  "gate": "multidomain-integrated",
+  "claim": "SAME run_loop() code on TWO dissimilar novel domains, zero code change",
+  "domains": {
+    "hydro_power_manufacturing_chain": {
+      "domain": "hydro_power_manufacturing_chain",
+      "n_vars": 7,
+      "mec_size": 7,
+      "n_data_ambiguous": 6,
+      "data_skeleton_recall": 1.0,
+      "orientation_data_alone": "0/6",
+      "orientation_data+language": "6/6",
+      "composition_gain": 6,
+      "verify_confirmed": "6/6",
+      "goal_sink": "daily_production_volume",
+      "goal_action": "upstream_rainfall",
+      "goal_achieved": true,
+      "governed_verdict": "act",
+      "paused_halts": true,
+      "all_organs_composed": true
+    },
+    "epidemiology_public_health": {
+      "domain": "epidemiology_public_health",
+      "n_vars": 6,
+      "mec_size": 2,
+      "n_data_ambiguous": 1,
+      "data_skeleton_recall": 1.0,
+      "orientation_data_alone": "4/5",
+      "orientation_data+language": "5/5",
+      "composition_gain": 1,
+      "verify_confirmed": "5/5",
+      "goal_sink": "mortality_rate",
+      "goal_action": "public_health_funding",
+      "goal_achieved": true,
+      "governed_verdict": "act",
+      "paused_halts": true,
+      "all_organs_composed": true
+    }
+  },
+  "both_compose_no_rebuild": true,
+  "verdict": "TRANSFERS-NO-REBUILD-2-DOMAINS",
+  "finding": "the SAME loop function composes all 5 organs end-to-end on TWO structurally + semantically DISSIMILAR novel domains (a pure chain and an epidemiology graph with a collider), with ZERO code change -> the loop is the invariant, the domain is config. This is the minimum evidence for \u901a\u7528's 'no rebuild across domains': >1 dissimilar domain, identical code. Honest scope: 2 toy synthetic domains, small; NOT the full 'arbitrary domains at human level' -- but it moves from 'one domain' to 'transfers'."
+}
