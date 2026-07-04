@@ -29,6 +29,15 @@ governed disposer **select** among them by real interventional (cohort A/B) evid
 3. The disposer still only **tightens** (DENY/ESCALATE/VERIFY_MORE); the human Approval gate and the C7
    corrigibility pause are unchanged and take precedence (a paused shell still halts the run).
 
+## Amendment (2026-07-05, adversarial-review fix)
+
+Adversarial review of the shipped slice found a soundness gap: with the lure listed first,
+`recommended_action` stayed the lure while the disposer's ALLOW was justified by the causal candidate —
+the verdict did not bind to the action the human sees/approves. Fixed: on `ALLOW`, when the disposer's
+`chosen_action` is a candidate differing from `recommended_action`, the runtime rebinds
+`recommended_action` to `chosen_action`. The surfaced recommendation is now always the governed causal
+selection. (Redirecting the executed connector operation itself remains staged.)
+
 ## Scope / non-goals — honest bounds
 
 - **Enumerated, not self-generated.** The candidate interventions are supplied by the proposer/domain, not

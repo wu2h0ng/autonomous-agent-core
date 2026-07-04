@@ -609,6 +609,17 @@ class TrustedLoopRuntime:
                         and not proposal.approval_required
                     ):
                         proposal = replace(proposal, approval_required=True)
+                    # S5 soundness: when the disposer causally SELECTED a candidate, bind the surfaced
+                    # recommendation to that selection. Otherwise the loop could present a different
+                    # (possibly correlational) recommended_action than the one the ALLOW verdict actually
+                    # endorsed — misleading the approver and un-binding the verdict from the output.
+                    elif (
+                        seam_decision.verdict == _GD_ALLOW
+                        and seam_decision.chosen_action
+                        and seam_decision.chosen_action in proposal.candidate_actions
+                        and seam_decision.chosen_action != proposal.recommended_action
+                    ):
+                        proposal = replace(proposal, recommended_action=seam_decision.chosen_action)
 
         # ====== Governance gate: propose-only vs governed execution ======
         #

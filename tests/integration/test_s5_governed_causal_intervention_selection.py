@@ -16,9 +16,11 @@ Proven here:
   3. the default (no candidate interventions supplied) path is unchanged — backward compatible.
 
 Honest bound: the candidate interventions are ENUMERATED (supplied by the proposer/domain), not open-world
-self-generated; the disposer's selection is SURFACED in the trace, and wiring it to redirect the executed
-operation (vs. the recommended action) is a staged next slice. This is governed causal selection among
-enumerated interventions, not open-world causal discovery, and not autonomy over the correction gate.
+self-generated. The disposer's selection is surfaced in the trace AND bound to the proposal's
+recommended_action (so the recommendation the human sees IS the governed causal selection, never a
+correlational lure the verdict did not endorse); wiring it to redirect the executed connector operation
+(action_type/params, not just the recommendation label) is a staged next slice. This is governed causal
+selection among enumerated interventions, not open-world causal discovery, and not autonomy over the gate.
 """
 
 from __future__ import annotations
@@ -190,6 +192,17 @@ class GovernedCausalInterventionSelection(unittest.TestCase):
         self.assertEqual(
             payload["chosen_action"], _CAUSAL
         )  # causal beats correlational, regardless of order
+
+    def test_verdict_binds_surfaced_recommendation_to_the_causal_selection(self):
+        # soundness (adversarial-review fix): the LURE is listed FIRST, so recommended_action starts as the
+        # lure. An ALLOW justified by the causal candidate must REBIND the surfaced recommendation to the
+        # causal driver — the loop must never present a correlational recommendation the governed verdict
+        # did not endorse (that would un-bind the verdict from the action the human sees/approves).
+        result = _runtime((_LURE, _CAUSAL)).run("最近7天GMV是多少？", _PARAMS)
+        self.assertEqual(_governed_decision_event(result)["chosen_action"], _CAUSAL)
+        self.assertEqual(
+            result.action_proposal.recommended_action, _CAUSAL
+        )  # bound to the selection
 
     def test_all_lures_escalates_never_auto_selects(self):
         result = _runtime((_LURE, "raise_budget:another_lure")).run("最近7天GMV是多少？", _PARAMS)
