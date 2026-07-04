@@ -26,16 +26,17 @@ Behavior:
 - `DEPLOYMENT_PUSH: AUTHORIZED` with `--expected-head` -> zero only when
   `--expected-head` is a full 40-character commit hash and the decision record
   contains exactly one exact stripped line `candidate_head: <hash>`.
-- Decision tokens are recognized only as exact stripped lines; prose-only token
-  mentions do not authorize push or create ambiguity.
+- Decision tokens are recognized only as exact stripped lines; exactly one
+  decision token line must be present. Prose-only token mentions do not
+  authorize push or create ambiguity.
 - `make push-authorization-check` binds `--expected-head` to the full current
   `git rev-parse HEAD` by default.
 - Authorized decision with mismatched or prefix-only `candidate_head` ->
   non-zero exit.
 - Authorized decision with missing or multiple `candidate_head` lines ->
   non-zero exit.
-- Missing decision token or conflicting HOLD/AUTHORIZED tokens -> non-zero
-  exit.
+- Missing, duplicated, or conflicting HOLD/AUTHORIZED decision tokens ->
+  non-zero exit.
 
 The target is intentionally not part of `make ci`, because current HOLD should
 block push attempts without making ordinary local verification impossible.
@@ -74,6 +75,10 @@ TDD evidence:
 - FOLLOW-UP RED: a decision with multiple `candidate_head` lines still
   authorized push if one line matched.
 - FOLLOW-UP GREEN: AUTHORIZED now requires exactly one `candidate_head` line.
+- FOLLOW-UP RED: duplicated exact-line `DEPLOYMENT_PUSH: AUTHORIZED` tokens
+  still authorized push when the candidate head matched.
+- FOLLOW-UP GREEN: decision records now require exactly one exact decision
+  token line; duplicated or conflicting tokens fail closed.
 
 Commands:
 
@@ -86,15 +91,15 @@ AGENT_OS_DATABASE_URL=postgresql+psycopg://mima1234@127.0.0.1:5432/agent_os_test
 
 Observed results:
 
-- Focused gate tests: 11 tests OK.
+- Focused gate tests: 12 tests OK.
 - `make push-authorization-check`: exits 2 under current HOLD with
   `DEPLOYMENT_PUSH: HOLD - push is not authorized.` The command line includes
   `--expected-head <full-current-head>`, proving the bare Make target binds the
   candidate head before the HOLD decision blocks.
-- `make ci`: passed with ruff clean, format clean, 620 primary unittest tests
+- `make ci`: passed with ruff clean, format clean, 621 primary unittest tests
   OK / 4 skipped, 12 eval tests OK, threshold report passed, and OpenAPI up to
   date.
-- PostgreSQL `ci-local-full`: passed with 620 primary unittest tests OK / 4
+- PostgreSQL `ci-local-full`: passed with 621 primary unittest tests OK / 4
   skipped, 12 eval tests OK, threshold report passed, OpenAPI up to date, and
   full local CI parity checks passed.
 

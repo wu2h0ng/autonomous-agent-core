@@ -29,18 +29,21 @@ def check_push_authorization(
         )
 
     decision_text = decision_file.read_text(encoding="utf-8")
-    decision_lines = {line.strip() for line in decision_text.splitlines()}
-    has_authorized = AUTHORIZED_TOKEN in decision_lines
-    has_hold = HOLD_TOKEN in decision_lines
+    stripped_lines = [line.strip() for line in decision_text.splitlines()]
+    decision_token_lines = [
+        line for line in stripped_lines if line in {AUTHORIZED_TOKEN, HOLD_TOKEN}
+    ]
+    has_authorized = AUTHORIZED_TOKEN in decision_token_lines
+    has_hold = HOLD_TOKEN in decision_token_lines
     candidate_head_lines = [
         line.strip()
         for line in decision_text.splitlines()
         if line.strip().startswith("candidate_head:")
     ]
-    if has_authorized and has_hold:
+    if len(decision_token_lines) != 1 and decision_token_lines:
         return (
             2,
-            "DEPLOYMENT_PUSH: UNKNOWN - ambiguous decision tokens; push is not authorized.",
+            "DEPLOYMENT_PUSH: UNKNOWN - ambiguous decision token lines; push is not authorized.",
         )
     if has_authorized:
         if not expected_head:

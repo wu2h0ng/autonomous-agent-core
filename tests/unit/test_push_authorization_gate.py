@@ -93,6 +93,42 @@ class PushAuthorizationGateTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ambiguous", result.stdout + result.stderr)
 
+    def test_duplicate_authorized_tokens_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            decision_file = Path(tmpdir) / "push-duplicate-authorized.md"
+            decision_file.write_text(
+                textwrap.dedent(
+                    """
+                    # Deployment Push Decision
+
+                    ```text
+                    DEPLOYMENT_PUSH: AUTHORIZED
+                    candidate_head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                    DEPLOYMENT_PUSH: AUTHORIZED
+                    ```
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--decision-file",
+                    str(decision_file),
+                    "--expected-head",
+                    FULL_HEAD,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ambiguous decision token", result.stdout + result.stderr)
+
     def test_authorization_token_in_prose_does_not_authorize_push(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             decision_file = Path(tmpdir) / "push-prose-only.md"
