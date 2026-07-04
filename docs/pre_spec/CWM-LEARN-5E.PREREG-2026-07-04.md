@@ -14,7 +14,12 @@
 | `experiments/cwm_learn_5e.py` | `4b02e5a9fe6c2d41` |
 | `experiments/hd5e_schema.json` (names + cond-A/B maps) | `49e296bf68036569` |
 | `experiments/hd5e_prompt.txt` (data-blind proposer prompt) | `2994dea595c1a50a` |
-| `experiments/hd5e_proposals.json` (5 proposals VERBATIM) | `87ced6345e2932d8` |
+| `experiments/hd5e_proposals.json` (5 proposals VERBATIM) | `b0b106c04c0419dd` (file bytes) |
+
+> Hash-record correction (disclosed): the original freeze recorded the CANONICAL-JSON hash (`87ced634…`,
+> sort_keys serialization) instead of the file-bytes hash; the run-time drift guard checks file bytes and
+> correctly halted the scored run. Content verified UNCHANGED (canonical hash still `87ced6345e2932d8`);
+> only the recorded digest form is corrected. Guard behavior = working as designed.
 
 ## Leakage + integrity disclosures (frozen)
 
