@@ -112,6 +112,31 @@ class CurrentStateVerificationGateTest(unittest.TestCase):
         self.assertIn("verification source invalid", result.stdout + result.stderr)
         self.assertNotIn("Traceback", result.stdout + result.stderr)
 
+    def test_tests_and_eval_source_mismatch_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_root = Path(tmpdir)
+            docs_dir = repo_root / "docs"
+            decisions_dir = docs_dir / "decisions"
+            decisions_dir.mkdir(parents=True)
+            shutil.copyfile(CURRENT_STATE, docs_dir / "CURRENT_STATE.yaml")
+            state_path = docs_dir / "CURRENT_STATE.yaml"
+            current_state = yaml.safe_load(state_path.read_text(encoding="utf-8"))
+            current_state["last_verified_eval"]["source"] = (
+                "docs/decisions/DIFFERENT-verification-record.md"
+            )
+            state_path.write_text(yaml.safe_dump(current_state), encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--repo-root", str(repo_root)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("verification source mismatch", result.stdout + result.stderr)
+
     def test_makefile_exposes_current_state_verification_check_outside_ci(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
