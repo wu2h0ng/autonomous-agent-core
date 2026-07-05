@@ -8,7 +8,7 @@ DEFAULT_DECISION_FILE = (
     Path(__file__).resolve().parents[2]
     / "docs"
     / "decisions"
-    / "PR-10-deployment-push-hold-decision-20260704.md"
+    / "PR-11-deployment-push-authorization-20260705.md"
 )
 
 AUTHORIZED_TOKEN = "DEPLOYMENT_PUSH: AUTHORIZED"
