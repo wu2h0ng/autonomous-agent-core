@@ -10,7 +10,7 @@
 
 ```text
 DEPLOYMENT_PUSH: AUTHORIZED
-candidate_head: c34ecdb1c03163fb8b9109ec2dd467ec8d8fa02e
+candidate_head: de2f93a9d188529c891521c79e85e010c939761f
 ```
 
 ## Context
@@ -27,7 +27,7 @@ This authorization covers:
 
 ## Scope
 
-This authorization applies to the deployment local main packet at commit `c34ecdb1c03163fb8b9109ec2dd467ec8d8fa02e`, which includes:
+This authorization applies to the deployment local main packet at commit `de2f93a9d188529c891521c79e85e010c939761f`, which includes:
 
 - Stage 1 Trusted Business Loop MVP (PR-01 through PR-06)
 - ADR-0002 governed-action outcome-loop
@@ -48,7 +48,7 @@ Before this authorization:
 ## Effect
 
 ```text
-deployment local main = c34ecdb1c03163fb8b9109ec2dd467ec8d8fa02e
+deployment local main = de2f93a9d188529c891521c79e85e010c939761f
 push authorization    = AUTHORIZED
 release authorization = still separate gate (not granted by this decision)
 ```
