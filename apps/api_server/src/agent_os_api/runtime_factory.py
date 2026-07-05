@@ -33,6 +33,7 @@ from agent_os_core.query_runtime import SQLiteQueryExecutor, StaticQueryExecutor
 # Executor selection values accepted by RuntimeFactoryConfig.executor and --executor.
 EXECUTOR_STATIC = "static"
 EXECUTOR_SQLITE = "sqlite"
+EXECUTOR_POSTGRES = "postgres"
 
 # Store backend selection for the loop's stateful stores (feedback/knowledge/snapshot).
 STORE_MEMORY = "memory"
@@ -58,12 +59,16 @@ class RuntimeFactoryConfig:
     # agent_os_persistence.schema.DEFAULT_EMBEDDING_DIMENSIONS (the pgvector 0004 column);
     # changing it requires regenerating that migration.
     embedding_dimensions: int = 64
+    # PostgreSQL DSN for the postgres query executor (separate from the store DSN).
+    # The query executor reads business data; the store backend persists runtime state.
+    postgres_dsn: str | None = None
 
     # 12-factor environment wiring (AR-20260611). Same DSN convention as Alembic's env.py.
     ENV_DOMAIN_PACK = "AGENT_OS_DOMAIN_PACK"
     ENV_EXECUTOR = "AGENT_OS_EXECUTOR"
     ENV_STORE_BACKEND = "AGENT_OS_STORE_BACKEND"
     ENV_DATABASE_URL = "AGENT_OS_DATABASE_URL"
+    ENV_POSTGRES_DSN = "AGENT_OS_POSTGRES_DSN"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> RuntimeFactoryConfig:
@@ -74,10 +79,10 @@ class RuntimeFactoryConfig:
         """
         data: Mapping[str, str] = os.environ if env is None else env
         executor = data.get(cls.ENV_EXECUTOR, EXECUTOR_STATIC)
-        if executor not in (EXECUTOR_STATIC, EXECUTOR_SQLITE):
+        if executor not in (EXECUTOR_STATIC, EXECUTOR_SQLITE, EXECUTOR_POSTGRES):
             raise ValueError(
                 f"{cls.ENV_EXECUTOR}={executor!r} is not one of "
-                f"{EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}."
+                f"{EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}, {EXECUTOR_POSTGRES!r}."
             )
         backend = data.get(cls.ENV_STORE_BACKEND, STORE_MEMORY)
         if backend not in (STORE_MEMORY, STORE_POSTGRES):
@@ -90,11 +95,17 @@ class RuntimeFactoryConfig:
             raise ValueError(
                 f"{cls.ENV_STORE_BACKEND}={STORE_POSTGRES!r} requires {cls.ENV_DATABASE_URL}."
             )
+        postgres_dsn = data.get(cls.ENV_POSTGRES_DSN) or None
+        if executor == EXECUTOR_POSTGRES and not postgres_dsn:
+            raise ValueError(
+                f"{cls.ENV_EXECUTOR}={EXECUTOR_POSTGRES!r} requires {cls.ENV_POSTGRES_DSN}."
+            )
         return cls(
             domain_pack_path=Path(data.get(cls.ENV_DOMAIN_PACK, "domain_packs/content_commerce")),
             executor=executor,
             store_backend=backend,
             database_url=database_url,
+            postgres_dsn=postgres_dsn,
         )
 
 
@@ -366,22 +377,37 @@ class ContentCommerceRuntimeFactory:
 
     def _build_query_executor(
         self, providers: dict[str, ProviderContract]
-    ) -> StaticQueryExecutor | SQLiteQueryExecutor:
+    ) -> StaticQueryExecutor | SQLiteQueryExecutor | Any:
         """Select and construct the injected query executor.
 
         The static path (default) keeps the deterministic fixture rows. The sqlite
         path "rides the data plane": the application layer owns the data source,
         seeds the Customer-0 reference data behind ProviderContract, and hands a
-        generic SQLiteQueryExecutor a connection. OS Core never sees the data.
+        generic SQLiteQueryExecutor a connection. The postgres path creates a
+        PostgresQueryExecutor from the composition layer using the configured DSN.
+        OS Core never sees the data or imports database drivers.
         """
         if self.config.executor == EXECUTOR_STATIC:
             return StaticQueryExecutor(list(self.config.sample_rows))
         if self.config.executor == EXECUTOR_SQLITE:
             connection = self._build_seeded_connection(providers)
             return SQLiteQueryExecutor(connection)
+        if self.config.executor == EXECUTOR_POSTGRES:
+            from .postgres_executor import PostgresQueryExecutor
+
+            # When a store_engine is injected, reuse it for the query executor
+            # (same database, shared connection pool).  Otherwise use the DSN.
+            if self.config.store_engine is not None:
+                return PostgresQueryExecutor(engine=self.config.store_engine)
+            if not self.config.postgres_dsn:
+                raise ValueError(
+                    f"executor={EXECUTOR_POSTGRES!r} requires postgres_dsn or store_engine."
+                )
+            return PostgresQueryExecutor(self.config.postgres_dsn)
         raise ValueError(
             f"Unknown executor {self.config.executor!r}; "
-            f"expected {EXECUTOR_STATIC!r} or {EXECUTOR_SQLITE!r}."
+            f"expected {EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}, "
+            f"or {EXECUTOR_POSTGRES!r}."
         )
 
     def _build_seeded_connection(

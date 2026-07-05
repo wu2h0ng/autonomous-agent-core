@@ -1,4 +1,5 @@
 from .runtime_factory import (
+    EXECUTOR_POSTGRES,
     EXECUTOR_SQLITE,
     EXECUTOR_STATIC,
     ContentCommerceRuntimeFactory,
@@ -6,6 +7,7 @@ from .runtime_factory import (
 )
 
 __all__ = [
+    "EXECUTOR_POSTGRES",
     "EXECUTOR_SQLITE",
     "EXECUTOR_STATIC",
     "ContentCommerceRuntimeFactory",

@@ -66,7 +66,11 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
         )
         workspace_root = REPO_ROOT / "apps" / "workspace"
         for path in workspace_root.rglob("*"):
+            if "node_modules" in path.parts:
+                continue
             if path.suffix not in {".html", ".md", ".js", ".css", ".ts", ".tsx"}:
+                continue
+            if not path.is_file():
                 continue
             content = path.read_text(encoding="utf-8")
             for marker in forbidden_markers:

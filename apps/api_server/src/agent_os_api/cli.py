@@ -16,6 +16,7 @@ from .outcome_service import (
     trace_service,
 )
 from .runtime_factory import (
+    EXECUTOR_POSTGRES,
     EXECUTOR_SQLITE,
     EXECUTOR_STATIC,
     STORE_MEMORY,
@@ -33,13 +34,19 @@ def _add_domain_pack_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--executor",
-        choices=(EXECUTOR_STATIC, EXECUTOR_SQLITE),
+        choices=(EXECUTOR_STATIC, EXECUTOR_SQLITE, EXECUTOR_POSTGRES),
         default=None,
         help=(
-            "Query executor to use: 'static' (deterministic fixture rows) "
-            "or 'sqlite' (real SQL over the seeded Customer-0 data plane). "
+            "Query executor to use: 'static' (deterministic fixture rows), "
+            "'sqlite' (real SQL over the seeded Customer-0 data plane), "
+            "or 'postgres' (real SQL over a PostgreSQL database). "
             "Defaults to AGENT_OS_EXECUTOR or 'static'."
         ),
+    )
+    parser.add_argument(
+        "--postgres-dsn",
+        default=None,
+        help=("PostgreSQL DSN when executor is 'postgres'. Defaults to AGENT_OS_POSTGRES_DSN."),
     )
 
 
@@ -68,6 +75,9 @@ def _resolve_factory_config(args: argparse.Namespace) -> RuntimeFactoryConfig:
     executor = getattr(args, "executor", None)
     if executor is not None:
         env[RuntimeFactoryConfig.ENV_EXECUTOR] = executor
+    postgres_dsn = getattr(args, "postgres_dsn", None)
+    if postgres_dsn is not None:
+        env[RuntimeFactoryConfig.ENV_POSTGRES_DSN] = postgres_dsn
     store_backend = getattr(args, "store_backend", None)
     if store_backend is not None:
         env[RuntimeFactoryConfig.ENV_STORE_BACKEND] = store_backend
