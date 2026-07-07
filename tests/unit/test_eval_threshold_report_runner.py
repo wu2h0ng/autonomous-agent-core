@@ -32,12 +32,15 @@ class EvalThresholdReportRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertTrue(payload["passed"])
-        self.assertEqual(payload["case_count"], 5)
+        self.assertEqual(payload["case_count"], 20)
         dimensions = {item["name"]: item for item in payload["dimensions"]}
         self.assertEqual(dimensions["intent"]["pass_rate"], 1.0)
+        self.assertEqual(dimensions["nl_intent"]["pass_rate"], 1.0)
         self.assertEqual(dimensions["sql_safety"]["pass_rate"], 1.0)
         self.assertEqual(dimensions["evidence"]["pass_rate"], 1.0)
+        self.assertEqual(dimensions["evidence_typed"]["pass_rate"], 1.0)
         self.assertEqual(dimensions["action"]["pass_rate"], 1.0)
+        self.assertEqual(dimensions["feedback"]["pass_rate"], 1.0)
         self.assertEqual(payload["failures"], [])
 
     def test_golden_eval_report_runner_writes_output_file(self) -> None:
@@ -101,7 +104,7 @@ class EvalThresholdReportRunnerTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertFalse(payload["passed"])
-            self.assertEqual(payload["case_count"], 5)
+            self.assertEqual(payload["case_count"], 20)
             self.assertIn("gmv_daily:missing_gate missing", payload["failures"])
             self.assertEqual(json.loads(result.stdout), payload)
 
@@ -124,7 +127,7 @@ class EvalThresholdReportRunnerTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(output_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["passed"])
-            self.assertEqual(payload["case_count"], 5)
+            self.assertEqual(payload["case_count"], 20)
 
     def test_ci_target_includes_eval_threshold_report_gate(self) -> None:
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
@@ -143,13 +146,16 @@ class EvalThresholdReportRunnerTest(unittest.TestCase):
             thresholds,
             {
                 "intent": 1.0,
+                "nl_intent": 1.0,
                 "metric": 1.0,
                 "provider": 1.0,
                 "data_product": 1.0,
                 "sql_safety": 1.0,
                 "evidence": 1.0,
+                "evidence_typed": 1.0,
                 "action": 1.0,
                 "trace": 1.0,
+                "feedback": 1.0,
             },
         )
 

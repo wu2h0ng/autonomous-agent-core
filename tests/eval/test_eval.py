@@ -43,8 +43,9 @@ class GoldenQueryEvalTest(unittest.TestCase):
         report = build_golden_eval_threshold_report()
 
         self.assertTrue(report.passed, report.failures)
-        self.assertEqual(report.case_count, 5)
+        self.assertEqual(report.case_count, 20)
         self.assertEqual(report.dimension("evidence").pass_rate, 1.0)
+        self.assertEqual(report.dimension("evidence_typed").pass_rate, 1.0)
         self.assertEqual(report.dimension("trace").pass_rate, 1.0)
 
 

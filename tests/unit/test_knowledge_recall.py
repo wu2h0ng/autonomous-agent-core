@@ -244,7 +244,8 @@ class KnowledgeRecallInRunTest(unittest.TestCase):
 
     def test_failing_retriever_is_advisory_and_trace_visible(self) -> None:
         class ExplodingRetriever(KnowledgeRetriever):
-            def search(self, query: KnowledgeQuery):
+            def search(self, query: KnowledgeQuery, *, tenant_id: str = "default"):
+                del tenant_id
                 raise RuntimeError("index offline")
 
         runtime = _runtime(knowledge_retriever=ExplodingRetriever())
@@ -320,19 +321,24 @@ class IndexingKnowledgeStoreTest(unittest.TestCase):
         from agent_os_core import KnowledgeStorePort
 
         class PermissiveStore(KnowledgeStorePort):
-            def register(self, asset):
+            def register(self, asset, *, tenant_id: str = "default"):
+                del tenant_id
                 return asset
 
-            def register_version(self, asset):
+            def register_version(self, asset, *, tenant_id: str = "default"):
+                del tenant_id
                 return asset
 
-            def get_by_trace(self, trace_id):
+            def get_by_trace(self, trace_id, *, tenant_id: str = "default"):
+                del tenant_id
                 return None
 
-            def version_of(self, trace_id):
+            def version_of(self, trace_id, *, tenant_id: str = "default"):
+                del tenant_id
                 return 0
 
-            def all_assets(self):
+            def all_assets(self, *, tenant_id: str = "default"):
+                del tenant_id
                 return ()
 
         retriever = InMemoryKnowledgeRetriever(HashingEmbedder(64))

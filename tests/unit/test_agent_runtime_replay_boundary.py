@@ -41,10 +41,12 @@ def _context(**overrides: object) -> AgentRunContext:
 class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
     def test_checkpoint_store_failure_returns_structured_error_after_tool_execution(self) -> None:
         class FailingCheckpointStore:
-            def save(self, snapshot: RunStateSnapshot) -> None:
+            def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None:
+                del tenant_id
                 raise RuntimeError("database unavailable")
 
-            def get(self, run_id: str) -> RunStateSnapshot | None:
+            def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None:
+                del run_id, tenant_id
                 return None
 
         called: list[str] = []
@@ -80,10 +82,12 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
 
     def test_checkpoint_failure_can_preserve_result_for_irreversible_side_effects(self) -> None:
         class FailingCheckpointStore:
-            def save(self, snapshot: RunStateSnapshot) -> None:
+            def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None:
+                del tenant_id
                 raise RuntimeError("database unavailable")
 
-            def get(self, run_id: str) -> RunStateSnapshot | None:
+            def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None:
+                del run_id, tenant_id
                 return None
 
         called: list[str] = []
@@ -127,10 +131,12 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
 
     def test_checkpoint_store_failure_does_not_mask_policy_denial(self) -> None:
         class FailingCheckpointStore:
-            def save(self, snapshot: RunStateSnapshot) -> None:
+            def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None:
+                del tenant_id
                 raise RuntimeError("database unavailable")
 
-            def get(self, run_id: str) -> RunStateSnapshot | None:
+            def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None:
+                del run_id, tenant_id
                 return None
 
         called: list[str] = []
@@ -400,11 +406,11 @@ class AgentRuntimeReplayBoundaryTest(unittest.TestCase):
 
     def test_resume_checkpoint_store_read_failure_returns_structured_error(self) -> None:
         class FailingCheckpointStore:
-            def save(self, snapshot: RunStateSnapshot) -> None:
-                del snapshot
+            def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None:
+                del snapshot, tenant_id
 
-            def get(self, run_id: str) -> RunStateSnapshot | None:
-                del run_id
+            def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None:
+                del run_id, tenant_id
                 raise RuntimeError("dsn=postgres://secret-token@localhost/customer")
 
         trace_writer = AgentTraceWriter()

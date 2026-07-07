@@ -232,6 +232,34 @@ class PersistenceRepositoriesTest(unittest.TestCase):
         self.assertEqual(store.get("approval-1").status, "approved")
         self.assertEqual(store.get("approval-1").approved_by, "ops@example.com")
 
+    def test_approval_store_list_with_status_filter_and_pagination(self) -> None:
+        from agent_os_core import ApprovalLiteRuntime
+        from agent_os_persistence import SqlApprovalStore
+
+        store = SqlApprovalStore(self.engine)
+        runtime = ApprovalLiteRuntime(store=store)
+        runtime.create_pending(approval_id="a-pending-1", proposal_id="p-1", approver_role="ops")
+        runtime.create_pending(approval_id="a-pending-2", proposal_id="p-2", approver_role="ops")
+        runtime.approve("a-pending-1", reason="ok", approved_by="ops@example.com")
+        runtime.reject("a-pending-2", reason="no")
+
+        all_records = store.list(limit=10)
+        self.assertEqual(len(all_records), 2)
+
+        pending = store.list(status="pending", limit=10)
+        self.assertEqual(len(pending), 0)
+
+        approved = store.list(status="approved", limit=10)
+        self.assertEqual(len(approved), 1)
+        self.assertEqual(approved[0].approval_id, "a-pending-1")
+
+        rejected = store.list(status="rejected", limit=10)
+        self.assertEqual(len(rejected), 1)
+        self.assertEqual(rejected[0].approval_id, "a-pending-2")
+
+        paginated = store.list(limit=1, offset=1)
+        self.assertEqual(len(paginated), 1)
+
     def test_approval_context_round_trip_and_delete_over_sql_store(self) -> None:
         from agent_os_persistence import SqlApprovalContextStore
 

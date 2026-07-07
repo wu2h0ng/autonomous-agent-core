@@ -25,7 +25,7 @@ from agent_os_contracts import (  # noqa: E402
     TelemetryDimension,
 )
 from agent_os_core import ProviderRegistry, SemanticRegistry, TrustedLoopRuntime  # noqa: E402
-from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
+from agent_os_core.action_connectors import ActionConnector, ActionConnectorRegistry  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
 from action_record import ActionRecordConnector, ActionRecordStore  # noqa: E402
 from manual_review import ManualReviewConnector  # noqa: E402
@@ -71,6 +71,62 @@ class _ExecutionSpyConnector(ManualReviewConnector):
                 "connector.execute() must not be called for approval_required operations"
             )
         return super().execute(operation, parameters)
+
+
+class _DynamicAuditConnector(ActionConnector):
+    """A dynamically registered connector used to verify registry + audit routing."""
+
+    @property
+    def connector_name(self) -> str:
+        return "dynamic_audit"
+
+    def take_snapshot(self, operation: OperationContract):
+        return None
+
+    def dry_run(self, operation: OperationContract, parameters: dict) -> dict:
+        return {
+            "status": "dry_run",
+            "connector_name": self.connector_name,
+            "operation_id": operation.operation_id,
+        }
+
+    def execute(self, operation: OperationContract, parameters: dict) -> dict:
+        return {
+            "status": "executed",
+            "connector_name": self.connector_name,
+            "record_id": "dynamic-record-1",
+            "durability_scope": "connector_local_ledger",
+        }
+
+    def rollback(self, snapshot) -> dict:
+        return {"status": "rolled_back"}
+
+    def can_rollback(self) -> bool:
+        return False
+
+    def compensating_action(self) -> str | None:
+        return None
+
+
+class _DynamicNoApprovalBuilder:
+    """Builds a non-approval action proposal targeting the dynamic_audit connector."""
+
+    def build(self, *, proposal_id: str, evidence):
+        del evidence
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id="evidence-dynamic",
+            target_object="dynamic_target",
+            recommended_action="execute",
+            reason="Dynamic connector test proposal.",
+            risk_level=RiskLevel.R2,
+            expected_impact="Verify dynamic registration and audit routing.",
+            approval_required=False,
+            approver_role=None,
+            connector_name="dynamic_audit",
+            action_type="execute",
+            action_parameters={},
+        )
 
 
 class _FlakyDryRunActionRecordConnector(ActionRecordConnector):
@@ -140,6 +196,24 @@ class _ExternalWebhookActionBuilder:
                 "customer_id": "cust-1",
                 "secret_token": "must-not-leak",
             },
+        )
+
+
+class _ActionRecordNoApprovalBuilder:
+    def build(self, *, proposal_id: str, evidence):  # type: ignore[no-untyped-def]
+        return ActionProposal(
+            proposal_id=proposal_id,
+            evidence_chain_id=evidence.evidence_chain_id,
+            target_object=evidence.metric_contract.metric_name,
+            recommended_action="Record a reversible follow-up action without approval.",
+            reason=evidence.conclusion,
+            risk_level=RiskLevel.R2,
+            expected_impact="Exercise non-approval action_record feedback semantics.",
+            approval_required=False,
+            approver_role=None,
+            connector_name="action_record",
+            action_type="execute",
+            action_parameters={},
         )
 
 
@@ -307,6 +381,13 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
         self.assertIsNotNone(result.data_product_candidate)
         self.assertEqual(result.action_proposal.risk_level, RiskLevel.R2)
         self.assertFalse(result.action_proposal.approval_required)
+        self.assertIsNotNone(result.feedback_event)
+        self.assertEqual(result.feedback_event.outcome, "observed")
+        self.assertEqual(result.feedback_event.source, "runtime_self_report")
+        self.assertIn(
+            result.feedback_event,
+            runtime.feedback_store.get_by_trace(result.evidence_chain.trace_id),
+        )
         self.assertEqual(
             [event.step for event in result.trace_events],
             [
@@ -321,6 +402,7 @@ class TrustedLoopRuntimeTest(unittest.TestCase):
                 "operation_contract",
                 "connector_dry_run",
                 "connector_execute",
+                "feedback_event",
                 "knowledge_asset_candidate",
             ],
         )
@@ -425,6 +507,59 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         exec_trace_event = next(e for e in result.trace_events if e.step == "connector_execute")
         self.assertEqual(exec_trace_event.payload["connector_name"], "manual_review")
         self.assertIn("status", exec_trace_event.payload)
+
+    def test_dynamic_connector_registration_routes_execution_and_audit(self) -> None:
+        """A connector registered at runtime under a custom name is routed by
+        ``connector_name`` and its execution result is recorded in the
+        OperationTrace and trace events as a ``connector_execute`` audit.
+        """
+        registry = ActionConnectorRegistry()
+        connector = _DynamicAuditConnector()
+        registry.register(
+            connector,
+            ActionConnectorContract(
+                connector_name="dynamic_audit",
+                display_name="Dynamic Audit Connector",
+                supported_action_types=("execute",),
+                supports_snapshot=False,
+                supports_rollback=False,
+                compensating_action_description=None,
+                risk_ceiling="R2",
+                owner="test",
+                execution_semantics=ConnectorExecutionSemantics(
+                    durability_scope="connector_local_ledger",
+                    ledger_status="recorded",
+                    supports_idempotency=True,
+                ),
+            ),
+        )
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=registry,
+        )
+        runtime.action_builder = _DynamicNoApprovalBuilder()
+
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertEqual(result.operation_contract.connector_name, "dynamic_audit")
+        self.assertEqual(result.action_result.get("status"), "executed")
+        self.assertEqual(result.action_result.get("record_id"), "dynamic-record-1")
+
+        trace_event = next(e for e in result.trace_events if e.step == "connector_execute")
+        self.assertEqual(trace_event.payload["connector_name"], "dynamic_audit")
+        self.assertEqual(trace_event.payload["record_id"], "dynamic-record-1")
+        self.assertEqual(trace_event.payload["durability_scope"], "connector_local_ledger")
+
+        self.assertIsNotNone(result.operation_trace)
+        self.assertEqual(result.operation_trace.state, OperationState.EXECUTED)
+        audit_event = next(
+            e for e in result.operation_trace.events if e["step"] == "connector_executed"
+        )
+        self.assertEqual(audit_event["connector_name"], "dynamic_audit")
+        self.assertEqual(audit_event["record_id"], "dynamic-record-1")
 
     def test_governance_with_high_risk_triggers_approval(self) -> None:
         """High risk (row_count=0) should trigger approval_required and create pending record."""
@@ -581,6 +716,51 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
         trace_steps = [event.step for event in result.trace_events]
         self.assertIn("connector_execute", trace_steps)
         self.assertNotIn("awaiting_approval", trace_steps)
+
+    def test_non_approval_operation_auto_self_reports_feedback(self) -> None:
+        """A non-approval operation closes the loop: the runtime auto-emits a
+        RUNTIME_SELF_REPORT FeedbackEvent bound to the trace and stores it.
+        Real side-effect connectors (action_record) produce an ``executed`` outcome."""
+        store = ActionRecordStore()
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_action_record_connector_registry(store),
+        )
+        runtime.action_builder = _ActionRecordNoApprovalBuilder()
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertFalse(result.action_proposal.approval_required)
+        self.assertIsNotNone(result.feedback_event)
+        self.assertEqual(result.feedback_event.outcome, "executed")
+        self.assertEqual(result.feedback_event.source, "runtime_self_report")
+        self.assertEqual(result.feedback_event.reviewer, "trusted_loop_runtime")
+        self.assertIn(
+            result.feedback_event,
+            runtime.feedback_store.get_by_trace(result.evidence_chain.trace_id),
+        )
+        trace_steps = [event.step for event in result.trace_events]
+        self.assertIn("feedback_event", trace_steps)
+
+    def test_approval_required_operation_does_not_auto_self_report_feedback(self) -> None:
+        """Approval-required operations halt before execution; no runtime self-report
+        feedback is fabricated because the outcome has not been observed yet."""
+        runtime = self._build_runtime(
+            rows=[],  # empty => high risk => approval_required
+        )
+        result = runtime.run(
+            "最近7天GMV是多少？",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+
+        self.assertTrue(result.action_proposal.approval_required)
+        self.assertIsNone(result.feedback_event)
+        self.assertEqual(
+            runtime.feedback_store.get_by_trace(result.evidence_chain.trace_id),
+            (),
+        )
 
     def test_external_connector_execution_audit_uses_safe_reported_fields_only(self) -> None:
         runtime = self._build_runtime(
@@ -869,3 +1049,57 @@ class TrustedLoopGovernanceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrustedLoopRouterIntegrationTest(TrustedLoopGovernanceTest):
+    """TrustedLoopRuntime.run() consults the ApprovalRouter (AR-20260707 / ADR-0012).
+
+    When an injected router pre-approves an action (flag on + policy +
+    guardrails), the loop must execute the governed action directly (status
+    executed) instead of halting at awaiting_approval, and the proposal must
+    carry execution_mode=policy_pre_approved. With no router (default) the MVP
+    awaiting_approval behavior is unchanged (covered by the parent class tests).
+    """
+
+    def test_pre_approved_action_executes_not_awaiting(self) -> None:
+        from agent_os_contracts import (
+            AutoExecutionPolicy,
+            AutoExecutionRule,
+            RuntimeFeatureFlags,
+        )
+        from agent_os_core import ApprovalRouter
+        from agent_os_core.policy_engine import GuardrailInput, PolicyEngine
+
+        store = ActionRecordStore()
+        flags = RuntimeFeatureFlags(r4_r5_auto_execution=True)
+        rule = AutoExecutionRule(
+            rule_id="rule-1",
+            action_type="execute",
+            risk_levels=("R3",),
+            mode="policy_pre_approved",
+            guard_conditions={
+                "dry_run_success": True,
+                "evidence_complete": True,
+                "confidence_min": 0.9,
+            },
+            compensating_action="restore_action_record",
+        )
+        policy = AutoExecutionPolicy(version="v1", tenant_id="default", owner="o", rules=(rule,))
+        pe = PolicyEngine(flags)
+        pe.register_policy(policy)
+        router = ApprovalRouter(flags, policy_engine=pe)
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_action_record_connector_registry(store),
+        )
+        runtime.approval_router = router
+        runtime.policy_guardrails_provider = lambda proposal, operation: GuardrailInput(
+            dry_run_success=True, evidence_complete=True, confidence=0.95
+        )
+        result = runtime.run(
+            "记录行动：基于最近7天GMV创建一个跟进行动",
+            {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+        )
+        self.assertEqual(result.action_result["status"], "executed")
+        self.assertEqual(len(store.records()), 1)
+        self.assertEqual(result.action_proposal.execution_mode, "policy_pre_approved")

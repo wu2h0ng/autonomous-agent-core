@@ -128,7 +128,8 @@ class OperationStateMachineTest(unittest.TestCase):
         self.assertIn(OperationState.AWAITING_APPROVAL, allowed)
         self.assertIn(OperationState.APPROVED, allowed)
         self.assertIn(OperationState.REJECTED, allowed)
-        self.assertEqual(len(allowed), 3)
+        self.assertIn(OperationState.POLICY_EVALUATED, allowed)
+        self.assertEqual(len(allowed), 4)
 
     def test_allowed_transitions_from_awaiting_approval(self) -> None:
         allowed = self.sm.allowed_transitions(OperationState.AWAITING_APPROVAL)
@@ -172,3 +173,47 @@ class OperationStateMachineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OperationStatePolicyTransitionsTest(unittest.TestCase):
+    """ADR-0012 §3.4: policy-evaluation states for R4/R5 auto-execution."""
+
+    def setUp(self) -> None:
+        self.sm = OperationStateMachine()
+
+    def test_proposed_to_policy_evaluated(self) -> None:
+        result = self.sm.transition(OperationState.PROPOSED, OperationState.POLICY_EVALUATED)
+        self.assertEqual(result, OperationState.POLICY_EVALUATED)
+
+    def test_policy_evaluated_to_pre_approved(self) -> None:
+        result = self.sm.transition(
+            OperationState.POLICY_EVALUATED, OperationState.POLICY_PRE_APPROVED
+        )
+        self.assertEqual(result, OperationState.POLICY_PRE_APPROVED)
+
+    def test_policy_evaluated_to_rejected(self) -> None:
+        result = self.sm.transition(OperationState.POLICY_EVALUATED, OperationState.REJECTED)
+        self.assertEqual(result, OperationState.REJECTED)
+
+    def test_policy_evaluated_to_awaiting_approval(self) -> None:
+        result = self.sm.transition(
+            OperationState.POLICY_EVALUATED, OperationState.AWAITING_APPROVAL
+        )
+        self.assertEqual(result, OperationState.AWAITING_APPROVAL)
+
+    def test_policy_pre_approved_to_snapshotting(self) -> None:
+        result = self.sm.transition(OperationState.POLICY_PRE_APPROVED, OperationState.SNAPSHOTTING)
+        self.assertEqual(result, OperationState.SNAPSHOTTING)
+
+    def test_policy_pre_approved_to_executed(self) -> None:
+        result = self.sm.transition(OperationState.POLICY_PRE_APPROVED, OperationState.EXECUTED)
+        self.assertEqual(result, OperationState.EXECUTED)
+
+    def test_policy_pre_approved_to_rejected(self) -> None:
+        result = self.sm.transition(OperationState.POLICY_PRE_APPROVED, OperationState.REJECTED)
+        self.assertEqual(result, OperationState.REJECTED)
+
+    def test_executed_to_policy_pre_approved_invalid(self) -> None:
+        # a pre-approved record cannot resurrect after execution
+        with self.assertRaises(InvalidStateTransition):
+            self.sm.transition(OperationState.EXECUTED, OperationState.POLICY_PRE_APPROVED)

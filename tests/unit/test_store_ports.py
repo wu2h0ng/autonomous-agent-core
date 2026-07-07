@@ -59,31 +59,41 @@ class _RecordingKnowledgeStore(KnowledgeStorePort):
 
     def __init__(self) -> None:
         self.registered: list[KnowledgeAsset] = []
-        self._by_trace: dict[str, KnowledgeAsset] = {}
-        self._versions: dict[str, int] = {}
+        self._by_trace: dict[str, dict[str, KnowledgeAsset]] = {}
+        self._versions: dict[str, dict[str, int]] = {}
 
-    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+    def _tenant_maps(self, tenant_id: str) -> tuple[dict[str, KnowledgeAsset], dict[str, int]]:
+        return (
+            self._by_trace.setdefault(tenant_id, {}),
+            self._versions.setdefault(tenant_id, {}),
+        )
+
+    def register(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> KnowledgeAsset:
         self.registered.append(asset)
-        existing = self._by_trace.get(asset.source_trace_id)
+        by_trace, versions = self._tenant_maps(tenant_id)
+        existing = by_trace.get(asset.source_trace_id)
         if existing is not None:
             return existing
-        self._by_trace[asset.source_trace_id] = asset
-        self._versions[asset.source_trace_id] = 1
+        by_trace[asset.source_trace_id] = asset
+        versions[asset.source_trace_id] = 1
         return asset
 
-    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        self._by_trace[asset.source_trace_id] = asset
-        self._versions[asset.source_trace_id] = self._versions.get(asset.source_trace_id, 0) + 1
+    def register_version(
+        self, asset: KnowledgeAsset, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset:
+        by_trace, versions = self._tenant_maps(tenant_id)
+        by_trace[asset.source_trace_id] = asset
+        versions[asset.source_trace_id] = versions.get(asset.source_trace_id, 0) + 1
         return asset
 
-    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
-        return self._by_trace.get(trace_id)
+    def get_by_trace(self, trace_id: str, *, tenant_id: str = "default") -> KnowledgeAsset | None:
+        return self._by_trace.get(tenant_id, {}).get(trace_id)
 
-    def version_of(self, trace_id: str) -> int:
-        return self._versions.get(trace_id, 0)
+    def version_of(self, trace_id: str, *, tenant_id: str = "default") -> int:
+        return self._versions.get(tenant_id, {}).get(trace_id, 0)
 
-    def all_assets(self) -> tuple[KnowledgeAsset, ...]:
-        return tuple(self._by_trace.values())
+    def all_assets(self, *, tenant_id: str = "default") -> tuple[KnowledgeAsset, ...]:
+        return tuple(self._by_trace.get(tenant_id, {}).values())
 
 
 def _runtime(*, knowledge_store=None) -> TrustedLoopRuntime:

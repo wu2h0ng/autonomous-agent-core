@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import importlib.util
+from typing import Any
 import unittest
 from pathlib import Path
 
@@ -21,21 +22,21 @@ OPERATOR_KEY = "secret-operator-key"
 
 
 class _FailingCheckpointStore:
-    def save(self, snapshot: object) -> None:
-        del snapshot
+    def save(self, snapshot: object, *, tenant_id: str = "default") -> None:
+        del snapshot, tenant_id
         raise RuntimeError("checkpoint backend unavailable")
 
-    def get(self, run_id: str) -> None:
-        del run_id
+    def get(self, run_id: str, *, tenant_id: str = "default") -> None:
+        del run_id, tenant_id
         return None
 
 
 class _RaisingCheckpointReadStore:
-    def save(self, snapshot: object) -> None:
-        del snapshot
+    def save(self, snapshot: object, *, tenant_id: str = "default") -> None:
+        del snapshot, tenant_id
 
-    def get(self, run_id: str) -> None:
-        del run_id
+    def get(self, run_id: str, *, tenant_id: str = "default") -> None:
+        del run_id, tenant_id
         raise RuntimeError("dsn=postgres://secret-token@localhost/customer")
 
 
@@ -45,6 +46,10 @@ def _make_client(
     external_api_key: str | None = None,
     *,
     paused: bool = False,
+    viewer_api_key: str | None = None,
+    usage_store: Any | None = None,
+    quota_gate: Any | None = None,
+    retriever: Any | None = ...,  # Ellipsis default = build from factory
 ):
     from starlette.testclient import TestClient
 
@@ -55,13 +60,18 @@ def _make_client(
     runtime = factory.build()
     if paused:
         factory.corrigibility_shell().op_pause()
+    resolved_retriever = factory.build_knowledge_retriever() if retriever is ... else retriever
     app = create_app(
         runtime,
+        retriever=resolved_retriever,
         api_key=api_key,
         external_api_key=external_api_key,
         operator_api_key=operator_api_key,
+        viewer_api_key=viewer_api_key,
         adoption_ingest=factory.adoption_ingest(),
         agent_checkpoint_store=factory.build_agent_checkpoint_store(),
+        usage_store=usage_store,
+        quota_gate=quota_gate,
     )
     return TestClient(app)
 
@@ -3090,6 +3100,55 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["execution_audit"]["external_ack_status"], "not_applicable")
         self.assertIn("connector_executed", [event["step"] for event in payload["events"]])
 
+    def test_list_approvals_returns_pending_and_executed_records(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        list_resp = client.get("/approvals", headers=headers)
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        payload = list_resp.json()
+        self.assertIn("items", payload)
+        ids = {item["approval_id"] for item in payload["items"]}
+        self.assertIn(approval_id, ids)
+        pending = [item for item in payload["items"] if item["approval_id"] == approval_id]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["status"], "pending")
+
+        filtered = client.get("/approvals?status=pending", headers=headers)
+        self.assertEqual(filtered.status_code, 200, filtered.text)
+        self.assertTrue(
+            any(item["approval_id"] == approval_id for item in filtered.json()["items"])
+        )
+
+    def test_get_approval_returns_record_and_404_for_missing(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        detail_resp = client.get(f"/approvals/{approval_id}", headers=headers)
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        payload = detail_resp.json()
+        self.assertEqual(payload["approval_id"], approval_id)
+        self.assertEqual(payload["status"], "pending")
+
+        missing_resp = client.get("/approvals/does-not-exist", headers=headers)
+        self.assertEqual(missing_resp.status_code, 404, missing_resp.text)
+
     def test_approval_execute_traverses_agent_runtime_envelope(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}
@@ -3361,7 +3420,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
         self.assertTrue(internal.allows(http_app.API_SCOPE_REPORT_READ))
         self.assertTrue(internal.allows(http_app.API_SCOPE_RUNTIME_RESUME))
-        self.assertFalse(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
+        self.assertTrue(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
         self.assertTrue(external.allows(http_app.API_SCOPE_RUN_EXTERNAL))
@@ -3649,9 +3708,9 @@ class HttpKnowledgeSearchTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 422)
 
     def test_injected_runtime_without_retriever_returns_503(self) -> None:
-        # _make_client injects a runtime but no retriever -> search must refuse
-        # loudly, not pretend an empty index.
-        client = _make_client(API_KEY)
+        # Injected runtime without retriever -> search must refuse loudly,
+        # not pretend an empty index.
+        client = _make_client(API_KEY, retriever=None)
         resp = client.get("/knowledge/search", params={"q": "GMV"}, headers={"X-API-Key": API_KEY})
         self.assertEqual(resp.status_code, 503)
 
@@ -3780,6 +3839,369 @@ class HttpDefaultAppRecallTest(unittest.TestCase):
             external.json()["user_result"]["decision"].get("knowledge_context_rationale"),
             [],
         )
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class HttpAppRbacQuotaTenantTest(unittest.TestCase):
+    def test_viewer_key_can_run_and_read(self) -> None:
+        viewer_key = "secret-viewer-key"
+        client = _make_client(API_KEY, viewer_api_key=viewer_key)
+        headers = {"X-API-Key": viewer_key}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        self.assertEqual(client.get(f"/runs/{trace_id}/report", headers=headers).status_code, 200)
+        self.assertEqual(client.get(f"/traces/{trace_id}", headers=headers).status_code, 200)
+        self.assertEqual(client.get("/knowledge/search?q=gmv", headers=headers).status_code, 200)
+        self.assertEqual(client.get("/approvals", headers=headers).status_code, 200)
+
+    def test_viewer_key_cannot_write_or_execute(self) -> None:
+        viewer_key = "secret-viewer-key"
+        client = _make_client(API_KEY, viewer_api_key=viewer_key)
+        headers = {"X-API-Key": viewer_key}
+
+        self.assertEqual(
+            client.post(
+                "/outcomes", json={"trace_id": "t1", "outcome": "ok"}, headers=headers
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            client.post(
+                "/adoptions", json={"trace_id": "t1", "outcome": "ok"}, headers=headers
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            client.post(
+                "/agent-runtime/runs/r1/resume",
+                json={"runtime_trace_id": "t1", "question": "GMV"},
+                headers=headers,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            client.post(
+                "/knowledge/review-queue/a1/decision",
+                json={"action": "approve", "reviewer": "founder"},
+                headers=headers,
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            client.post(
+                "/approvals/a1/execute",
+                json={"reason": "ok", "approved_by": "ops"},
+                headers={**headers, "X-Operator-Key": OPERATOR_KEY},
+            ).status_code,
+            403,
+        )
+
+    def test_quota_gate_blocks_run_over_limit(self) -> None:
+        from agent_os_core import InMemoryUsageStore, QuotaGate
+
+        usage_store = InMemoryUsageStore()
+        quota_gate = QuotaGate(usage_store, limits={"run": (1, 3600)})
+        client = _make_client(API_KEY, usage_store=usage_store, quota_gate=quota_gate)
+        headers = {"X-API-Key": API_KEY}
+
+        first = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        second = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(second.status_code, 429, second.text)
+
+    def test_quota_gate_blocks_outcome_over_limit(self) -> None:
+        from agent_os_core import InMemoryUsageStore, QuotaGate
+
+        usage_store = InMemoryUsageStore()
+        quota_gate = QuotaGate(usage_store, limits={"outcome_record": (0, 3600)})
+        client = _make_client(API_KEY, usage_store=usage_store, quota_gate=quota_gate)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        outcome_resp = client.post(
+            "/outcomes",
+            json={"trace_id": trace_id, "outcome": "adopted"},
+            headers=headers,
+        )
+        self.assertEqual(outcome_resp.status_code, 429, outcome_resp.text)
+
+    def test_quota_gate_blocks_adoption_over_limit(self) -> None:
+        from agent_os_core import InMemoryUsageStore, QuotaGate
+
+        usage_store = InMemoryUsageStore()
+        quota_gate = QuotaGate(usage_store, limits={"adoption_record": (0, 3600)})
+        client = _make_client(API_KEY, usage_store=usage_store, quota_gate=quota_gate)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        adoption_resp = client.post(
+            "/adoptions",
+            json={"trace_id": trace_id, "outcome": "adopted"},
+            headers=headers,
+        )
+        self.assertEqual(adoption_resp.status_code, 429, adoption_resp.text)
+
+    def test_tenant_id_isolates_report_and_trace(self) -> None:
+        client = _make_client(API_KEY)
+        headers_a = {"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-a"}
+        headers_b = {"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-b"}
+
+        run_a = client.post("/runs", json=RUN_BODY, headers=headers_a)
+        self.assertEqual(run_a.status_code, 200, run_a.text)
+        trace_id = run_a.json()["trace_id"]
+
+        report_a = client.get(f"/runs/{trace_id}/report", headers=headers_a)
+        self.assertEqual(report_a.status_code, 200, report_a.text)
+        report_b = client.get(f"/runs/{trace_id}/report", headers=headers_b)
+        self.assertEqual(report_b.status_code, 404, report_b.text)
+        trace_b = client.get(f"/traces/{trace_id}", headers=headers_b)
+        self.assertEqual(trace_b.status_code, 404, trace_b.text)
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class HealthEndpointTest(unittest.TestCase):
+    def test_health_endpoint_is_public_and_reports_healthy(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.get("/health")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(payload["status"], "healthy")
+        self.assertTrue(payload["runtime_ready"])
+        self.assertEqual(payload["database"]["status"], "ok")
+        self.assertEqual(payload["database"]["backend"], "memory")
+
+    def test_health_endpoint_reports_postgres_backend(self) -> None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+
+        from agent_os_persistence import SqlUsageStore
+
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        usage_store = SqlUsageStore(engine)
+        client = _make_client(API_KEY, usage_store=usage_store)
+        resp = client.get("/health")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(payload["database"]["status"], "ok")
+        self.assertEqual(payload["database"]["backend"], "postgres")
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class ObservabilityTest(unittest.TestCase):
+    def test_metrics_endpoint_is_public_and_exposes_request_counters(self) -> None:
+        client = _make_client(API_KEY)
+
+        # Generate a request so the counter is non-zero.
+        health_resp = client.get("/health")
+        self.assertEqual(health_resp.status_code, 200, health_resp.text)
+
+        metrics_resp = client.get("/metrics")
+        self.assertEqual(metrics_resp.status_code, 200, metrics_resp.text)
+        self.assertEqual(metrics_resp.headers["content-type"], "text/plain; charset=utf-8")
+        body = metrics_resp.text
+        self.assertIn("agent_os_http_requests_total", body)
+        self.assertIn('method="GET"', body)
+        self.assertIn('path="/health"', body)
+        self.assertIn('status="200"', body)
+
+    def test_structured_log_emits_request_id_and_principal_kind(self) -> None:
+        import json
+        import logging
+
+        client = _make_client(API_KEY)
+        api_logger = logging.getLogger("agent_os.api")
+        original_level = api_logger.level
+        api_logger.setLevel(logging.INFO)
+        captured: list[logging.LogRecord] = []
+        handler = logging.Handler()
+        handler.emit = captured.append  # type: ignore[method-assign]
+        api_logger.addHandler(handler)
+        try:
+            resp = client.get("/health", headers={"X-Request-Id": "req-123"})
+            self.assertEqual(resp.status_code, 200, resp.text)
+            self.assertEqual(resp.headers.get("X-Request-Id"), "req-123")
+            self.assertTrue(captured, "expected at least one access log record")
+            access_record = next(
+                (r for r in captured if '"event": "http_access"' in r.getMessage()),
+                None,
+            )
+            self.assertIsNotNone(access_record)
+            log = json.loads(access_record.getMessage())
+            self.assertEqual(log["request_id"], "req-123")
+            self.assertEqual(log["principal_kind"], "anonymous")
+            self.assertEqual(log["method"], "GET")
+            self.assertEqual(log["path"], "/health")
+            self.assertEqual(log["status"], 200)
+            self.assertIn("duration_ms", log)
+        finally:
+            api_logger.removeHandler(handler)
+            api_logger.setLevel(original_level)
+
+    def test_nl_build_resolves_known_metric_and_suggests_chart_type(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        resp = client.post(
+            "/nl-build",
+            json={"question": "What was the GMV last week by channel?"},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(payload["metric_keyword"], "gmv")
+        self.assertEqual(payload["matched_metric"], "gmv")
+        self.assertEqual(payload["display_name"], "GMV")
+        self.assertIn("start_date", payload["parameters"])
+        self.assertIn("end_date", payload["parameters"])
+        self.assertEqual(payload["dimensions"], ["channel"])
+        # Time range present -> line under the rule-based chart policy.
+        self.assertEqual(payload["suggested_chart_type"], "line")
+        self.assertEqual(payload["raw_question"], "What was the GMV last week by channel?")
+
+    def test_nl_build_time_range_suggests_line_chart(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        resp = client.post(
+            "/nl-build",
+            json={"question": "GMV by date this month"},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["suggested_chart_type"], "line")
+
+    def test_nl_build_unknown_metric_returns_422(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        resp = client.post(
+            "/nl-build",
+            json={"question": "What is the weather today?"},
+            headers=headers,
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+        self.assertIn("Unknown metric", resp.text)
+
+    def test_metrics_catalog_lists_registered_metrics(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY, "Accept": "application/json"}
+        resp = client.get("/metrics", headers=headers)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        names = {item["metric_name"] for item in payload["items"]}
+        self.assertIn("gmv", names)
+        self.assertTrue(all("definition" in item for item in payload["items"]))
+        self.assertEqual(payload["total"], len(payload["items"]))
+
+    def test_metrics_catalog_supports_search_and_pagination(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY, "Accept": "application/json"}
+        resp = client.get("/metrics?q=gmv&limit=1&offset=0", headers=headers)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        payload = resp.json()
+        self.assertEqual(len(payload["items"]), 1)
+        self.assertEqual(payload["items"][0]["metric_name"], "gmv")
+
+    def test_dashboards_crud(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        create_resp = client.post(
+            "/dashboards",
+            json={
+                "title": "Weekly Review",
+                "cards": [
+                    {
+                        "title": "GMV Trend",
+                        "question": "What was the GMV last week?",
+                        "metric_name": "gmv",
+                        "chart_type": "line",
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        created = create_resp.json()
+        dashboard_id = created["dashboard_id"]
+        self.assertEqual(created["tenant_id"], "default")
+        self.assertEqual(created["title"], "Weekly Review")
+        self.assertEqual(len(created["cards"]), 1)
+        self.assertEqual(created["cards"][0]["metric_name"], "gmv")
+
+        get_resp = client.get(f"/dashboards/{dashboard_id}", headers=headers)
+        self.assertEqual(get_resp.status_code, 200, get_resp.text)
+        self.assertEqual(get_resp.json()["dashboard_id"], dashboard_id)
+
+        list_resp = client.get("/dashboards", headers=headers)
+        self.assertEqual(list_resp.status_code, 200, list_resp.text)
+        self.assertEqual(list_resp.json()["total"], 1)
+
+        missing = client.get("/dashboards/no-such-id", headers=headers)
+        self.assertEqual(missing.status_code, 404, missing.text)
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class TenantManagementTest(unittest.TestCase):
+    def test_internal_principal_can_create_and_retrieve_tenant(self) -> None:
+        client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        body = {
+            "tenant_id": "acme-corp",
+            "display_name": "Acme Corporation",
+            "status": "active",
+            "config": {"region": "us-east-1"},
+        }
+
+        create_resp = client.post("/tenants", json=body, headers=headers)
+        self.assertEqual(create_resp.status_code, 200, create_resp.text)
+        created = create_resp.json()
+        self.assertEqual(created["tenant_id"], "acme-corp")
+        self.assertEqual(created["display_name"], "Acme Corporation")
+        self.assertEqual(created["status"], "active")
+        self.assertEqual(created["config"], {"region": "us-east-1"})
+        self.assertIn("created_at", created)
+        self.assertIn("updated_at", created)
+
+        get_resp = client.get("/tenants/acme-corp", headers=headers)
+        self.assertEqual(get_resp.status_code, 200, get_resp.text)
+        self.assertEqual(get_resp.json()["tenant_id"], "acme-corp")
+
+    def test_duplicate_tenant_returns_conflict(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        body = {"tenant_id": "dup-tenant", "display_name": "Dup"}
+
+        first = client.post("/tenants", json=body, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        second = client.post("/tenants", json=body, headers=headers)
+        self.assertEqual(second.status_code, 409, second.text)
+
+    def test_missing_tenant_returns_404(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        resp = client.get("/tenants/no-such-tenant", headers=headers)
+        self.assertEqual(resp.status_code, 404, resp.text)
+
+    def test_external_and_viewer_keys_cannot_manage_tenants(self) -> None:
+        client = _make_client(
+            API_KEY, external_api_key=EXTERNAL_API_KEY, viewer_api_key="viewer-key"
+        )
+        body = {"tenant_id": "forbidden", "display_name": "Forbidden"}
+
+        external_resp = client.post("/tenants", json=body, headers={"X-API-Key": EXTERNAL_API_KEY})
+        self.assertEqual(external_resp.status_code, 403, external_resp.text)
+
+        viewer_resp = client.post("/tenants", json=body, headers={"X-API-Key": "viewer-key"})
+        self.assertEqual(viewer_resp.status_code, 403, viewer_resp.text)
+
+        external_get = client.get("/tenants/forbidden", headers={"X-API-Key": EXTERNAL_API_KEY})
+        self.assertEqual(external_get.status_code, 403, external_get.text)
 
 
 if __name__ == "__main__":

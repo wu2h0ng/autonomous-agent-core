@@ -30,7 +30,13 @@ class DevCiBootstrapTest(unittest.TestCase):
         self.assertIn("httpx>=0.27.0", pyproject)
         self.assertIn("sqlalchemy>=2.0", pyproject)
         self.assertIn("psycopg[binary]>=3.1", pyproject)
-        self.assertIn("dependencies = []", pyproject)
+        # sqlglot is the purchased SQL parser used by the self-developed SQL
+        # safety gate.  External agent frameworks must stay out of the runtime
+        # dependency set (boundary #7).
+        self.assertIn("sqlglot>=30.0", pyproject)
+        runtime_deps = pyproject.split("dependencies = [", 1)[1].split("]", 1)[0]
+        for forbidden in ("langchain", "langgraph", "crewai", "autogen"):
+            self.assertNotIn(forbidden, runtime_deps.lower())
 
     def test_readme_documents_local_full_ci_without_claiming_release(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

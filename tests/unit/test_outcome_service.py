@@ -1242,12 +1242,12 @@ class KnowledgeReviewActionServiceTest(unittest.TestCase):
 
     def test_review_action_fails_closed_when_source_trace_is_missing(self) -> None:
         class MissingTraceStore:
-            def get(self, trace_id: str) -> None:
-                del trace_id
+            def get(self, trace_id: str, *, tenant_id: str = "default") -> None:
+                del trace_id, tenant_id
                 return None
 
-            def save(self, run_trace: object) -> None:
-                del run_trace
+            def save(self, run_trace: object, *, tenant_id: str = "default") -> None:
+                del run_trace, tenant_id
                 raise AssertionError("review action must not save without a persisted trace")
 
         runtime = _build_runtime()

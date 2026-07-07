@@ -32,6 +32,7 @@ from agent_os_core import (  # noqa: E402
     thresholds_from_json,
 )
 from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
+from agent_os_core.nl_query import NLQueryEngine  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
 from manual_review import ManualReviewConnector  # noqa: E402
 
@@ -49,14 +50,27 @@ SAFE_SQL = (
 METRIC_NAMES = ("gmv", "roi", "conversion_rate", "revenue", "orders", "spend", "cac")
 DEFAULT_THRESHOLDS = {
     "intent": 1.0,
+    "nl_intent": 1.0,
     "metric": 1.0,
     "provider": 1.0,
     "data_product": 1.0,
     "sql_safety": 1.0,
     "evidence": 1.0,
+    "evidence_typed": 1.0,
     "action": 1.0,
     "trace": 1.0,
+    "feedback": 1.0,
 }
+
+
+def _verified_template(metric_name: str) -> SQLTemplate:
+    return SQLTemplate(
+        template_id=f"{metric_name}_daily",
+        metric_name=metric_name,
+        sql=SAFE_SQL,
+        required_parameters=("start_date", "end_date", "limit"),
+        required_time_parameters=("start_date", "end_date"),
+    )
 
 
 def _build_default_connector_registry() -> ActionConnectorRegistry:
@@ -90,6 +104,7 @@ def build_golden_eval_threshold_report(
             owner="content_commerce_ops",
             unit="CNY",
             allowed_schemas=("sales",),
+            verified_queries=(_verified_template(metric_name),),
         )
         for metric_name in METRIC_NAMES
     }
@@ -101,33 +116,43 @@ def build_golden_eval_threshold_report(
         allowed_schemas=("sales",),
     )
 
+    semantic_registry = SemanticRegistry(metric_contracts=tuple(metrics.values()))
+    nl_query_engine = NLQueryEngine(metric_registry=semantic_registry)
     outcomes: list[EvalCaseOutcome] = []
     for case in golden:
-        template = SQLTemplate(
-            f"{case['expected_metric']}_daily",
-            case["expected_metric"],
-            SAFE_SQL,
-            ("start_date", "end_date", "limit"),
-        )
-        result = TrustedLoopRuntime(
+        runtime = TrustedLoopRuntime(
             metric_contract=metrics["gmv"],
-            sql_template=template,
             query_executor=StaticQueryExecutor([{"order_date": "2026-05-31", "val": 100.0}]),
-            semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
+            semantic_registry=semantic_registry,
             provider_registry=ProviderRegistry((provider,)),
             connector_registry=_build_default_connector_registry(),
-        ).run(case["question"], dict(case["parameters"]))
+            nl_query_engine=nl_query_engine,
+        )
+        result = runtime.run(case["question"], dict(case["parameters"]))
+
+        # NL→Query intent check: when only the non-time parameter (limit) is
+        # supplied, the runtime must still extract start_date/end_date from the
+        # natural-language question via NLQueryEngine.
+        nl_only_parameters: dict[str, object] = {}
+        if "limit" in case["parameters"]:
+            nl_only_parameters["limit"] = case["parameters"]["limit"]
+        nl_result = runtime.run(case["question"], nl_only_parameters)
+        nl_parameters = nl_result.query_plan.parameters
 
         checks = {
             "intent": result.intent.metric_name == case["expected_metric"],
+            "nl_intent": "start_date" in nl_parameters and "end_date" in nl_parameters,
             "metric": result.evidence_chain.metric_contract.metric_name == case["expected_metric"],
             "provider": result.provider_contract is not None
             and result.provider_contract.provider_id == "provider-sales",
             "data_product": result.data_product_candidate is not None,
             "sql_safety": result.evidence_chain.sql_safety.allowed,
             "evidence": result.evidence_chain.is_complete(),
+            "evidence_typed": result.evidence_chain.is_typed_complete(),
             "action": result.action_proposal is not None,
             "trace": len(result.trace_events) >= 8,
+            "feedback": result.feedback_event is not None
+            and result.feedback_event.source == "runtime_self_report",
         }
         reasons = tuple(f"{name} check failed" for name, passed in checks.items() if not passed)
         outcomes.append(EvalCaseOutcome(case_id=case["id"], checks=checks, reasons=reasons))

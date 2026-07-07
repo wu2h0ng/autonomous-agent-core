@@ -128,13 +128,16 @@ class MultiMetricTemplateSelectionTest(unittest.TestCase):
         self.assertTrue(outcome.blocked)
         self.assertEqual(outcome.block.code, BlockCode.NO_TEMPLATE)
 
-    def test_requires_a_template_source(self) -> None:
-        with self.assertRaises(ValueError):
-            TrustedLoopRuntime(
-                metric_contract=_metric("gmv", "CNY"),
-                query_executor=StaticQueryExecutor([{"value": 1.0}]),
-                connector_registry=_connector_registry(),
-            )
+    def test_compiler_path_is_default_without_template_source(self) -> None:
+        runtime = TrustedLoopRuntime(
+            metric_contract=_metric("gmv", "CNY"),
+            query_executor=StaticQueryExecutor([{"value": 1.0}]),
+            connector_registry=_connector_registry(),
+        )
+        self.assertIsNone(runtime.template_registry)
+        outcome = runtime.evaluate("GMV last 7 days", dict(PARAMS))
+        self.assertTrue(outcome.blocked)
+        self.assertEqual(outcome.block.code, BlockCode.NO_TEMPLATE)
 
 
 class FactoryMultiMetricTest(unittest.TestCase):

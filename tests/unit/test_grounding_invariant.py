@@ -134,6 +134,7 @@ class _UngroundedEvidenceBuilder:
         sql_safety,
         query_result,
         trace_id,
+        provider_contract=None,
     ) -> EvidenceChain:
         return EvidenceChain(
             evidence_chain_id=evidence_chain_id,

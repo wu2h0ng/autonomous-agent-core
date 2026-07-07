@@ -230,5 +230,101 @@ class WorkspacePrototypeContractTest(unittest.TestCase):
         self.assertLess(report_error_path, submit_start)
 
 
+class WorkspaceFrontendLiveApiTest(unittest.TestCase):
+    """F3+ live API integration: API client, pages, and components."""
+
+    def setUp(self) -> None:
+        self.repo_root = REPO_ROOT
+        self.frontend_root = self.repo_root / "apps" / "workspace" / "frontend" / "src"
+        self.api_client = self.frontend_root / "lib" / "api.ts"
+        self.run_detail_client = (
+            self.frontend_root / "app" / "runs" / "[traceId]" / "RunDetailClient.tsx"
+        )
+        self.approval_detail = self.frontend_root / "components" / "ApprovalDetail.tsx"
+
+    def test_api_client_exports_required_functions(self) -> None:
+        source = self.api_client.read_text(encoding="utf-8")
+        required_functions = (
+            "export async function runQuestion",
+            "export async function getReport",
+            "export async function recordOutcome",
+            "export async function listApprovals",
+            "export async function getApproval",
+            "export async function executeApproval",
+            "export async function recordAdoption",
+            "export async function searchKnowledge",
+            "export async function getTrace",
+        )
+        for marker in required_functions:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+
+    def test_api_client_uses_correct_endpoints(self) -> None:
+        source = self.api_client.read_text(encoding="utf-8")
+        required_endpoints = (
+            "/runs",
+            "/runs/${encodeURIComponent(traceId)}/report",
+            "/outcomes",
+            "/approvals",
+            "/approvals/${encodeURIComponent(approvalId)}/execute",
+            "/adoptions",
+            "/knowledge/search",
+            "/traces/${traceId}",
+        )
+        for marker in required_endpoints:
+            with self.subTest(marker=marker):
+                self.assertIn(marker, source)
+
+    def test_api_client_uses_env_and_operator_key_header(self) -> None:
+        source = self.api_client.read_text(encoding="utf-8")
+        self.assertIn("process.env.NEXT_PUBLIC_API_URL", source)
+        self.assertIn("'X-API-Key': apiKey", source)
+        self.assertIn("X-Operator-Key", source)
+        self.assertIn("operatorKeyOverride", source)
+
+    def test_f3_pages_exist(self) -> None:
+        required_pages = (
+            self.frontend_root / "app" / "runs" / "page.tsx",
+            self.frontend_root / "app" / "runs" / "[traceId]" / "page.tsx",
+            self.frontend_root / "app" / "approvals" / "page.tsx",
+            self.frontend_root / "app" / "approvals" / "[approvalId]" / "page.tsx",
+        )
+        for page in required_pages:
+            with self.subTest(page=str(page)):
+                self.assertTrue(page.exists(), f"{page} must exist")
+
+    def test_f3_components_exist(self) -> None:
+        required_components = (
+            "EvidenceChainViewer.tsx",
+            "ActionProposalPanel.tsx",
+            "DataProductCard.tsx",
+            "ApprovalList.tsx",
+            "OutcomeForm.tsx",
+        )
+        for name in required_components:
+            with self.subTest(component=name):
+                self.assertTrue(
+                    (self.frontend_root / "components" / name).exists(),
+                    f"{name} must exist",
+                )
+
+    def test_run_detail_renders_evidence_action_dataproduct(self) -> None:
+        source = self.run_detail_client.read_text(encoding="utf-8")
+        self.assertIn("EvidenceChainViewer", source)
+        self.assertIn("ActionProposalPanel", source)
+        self.assertIn("DataProductCard", source)
+        self.assertIn("Business Context", source)
+        self.assertIn("artifact.report", source)
+        self.assertIn("artifact.business_action", source)
+
+    def test_approval_execute_uses_operator_key_header(self) -> None:
+        source = self.approval_detail.read_text(encoding="utf-8")
+        self.assertIn("executeApproval", source)
+        self.assertIn("operatorKey", source)
+        # The API client is responsible for the X-Operator-Key header.
+        api_source = self.api_client.read_text(encoding="utf-8")
+        self.assertIn("X-Operator-Key", api_source)
+
+
 if __name__ == "__main__":
     unittest.main()
