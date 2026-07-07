@@ -38,6 +38,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Approvals */
+        get: operations["list_approvals_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/approvals/{approval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Approval */
+        get: operations["get_approval_approvals__approval_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/approvals/{approval_id}/execute": {
         parameters: {
             query?: never;
@@ -49,6 +83,61 @@ export interface paths {
         put?: never;
         /** Post Approval Execute */
         post: operations["post_approval_execute_approvals__approval_id__execute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Dashboards */
+        get: operations["list_dashboards_dashboards_get"];
+        put?: never;
+        /** Create Dashboard */
+        post: operations["create_dashboard_dashboards_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dashboards/{dashboard_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dashboard */
+        get: operations["get_dashboard_dashboards__dashboard_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Health
+         * @description Public health probe for orchestrators and load balancers.
+         */
+        get: operations["get_health_health_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -242,6 +331,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Metrics
+         * @description Prometheus-compatible metrics, OR JSON metric catalog via content negotiation.
+         *
+         *     Observability scrapers call this with ``Accept: text/plain`` (or no explicit
+         *     Accept header) and receive Prometheus text. The NL Data Product Workspace
+         *     requests ``Accept: application/json`` and receives the authenticated metric
+         *     catalog.
+         */
+        get: operations["get_metrics_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nl-build": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Nl Build */
+        post: operations["nl_build_nl_build_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nl-parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Nl Parse */
+        post: operations["nl_parse_nl_parse_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/outcomes": {
         parameters: {
             query?: never;
@@ -285,6 +433,46 @@ export interface paths {
         };
         /** Get Run Report */
         get: operations["get_run_report_runs__trace_id__report_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Tenant
+         * @description Provision a new tenant (internal principal only).
+         */
+        post: operations["post_tenant_tenants_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tenant
+         * @description Retrieve tenant metadata (internal principal only).
+         */
+        get: operations["get_tenant_tenants__tenant_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -449,6 +637,32 @@ export interface components {
              */
             replay_status: string;
         };
+        /** ApprovalListItem */
+        ApprovalListItem: {
+            /** Approval Id */
+            approval_id: string;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Approver Role */
+            approver_role?: string | null;
+            /** Proposal Id */
+            proposal_id: string;
+            /** Reason */
+            reason?: string | null;
+            /** Status */
+            status: string;
+        };
+        /** ApprovalListResponse */
+        ApprovalListResponse: {
+            /** Items */
+            items?: components["schemas"]["ApprovalListItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
         /**
          * BlockDetail
          * @description The unified business-block contract (AR-20260606-unified-block-outcome).
@@ -501,6 +715,49 @@ export interface components {
             window_end: string;
             /** Window Start */
             window_start: string;
+        };
+        /** DashboardCreateCard */
+        DashboardCreateCard: {
+            /**
+             * Chart Type
+             * @default table
+             */
+            chart_type: string;
+            /** Metric Name */
+            metric_name: string;
+            /** Question */
+            question: string;
+            /** Title */
+            title: string;
+        };
+        /** DashboardCreateRequest */
+        DashboardCreateRequest: {
+            /** Cards */
+            cards?: components["schemas"]["DashboardCreateCard"][];
+            /** Title */
+            title: string;
+        };
+        /** DashboardListResponse */
+        DashboardListResponse: {
+            /** Items */
+            items?: components["schemas"]["DashboardResponse"][];
+            /** Total */
+            total: number;
+        };
+        /** DashboardResponse */
+        DashboardResponse: {
+            /** Cards */
+            cards?: {
+                [key: string]: string;
+            }[];
+            /** Created At */
+            created_at: string;
+            /** Dashboard Id */
+            dashboard_id: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Title */
+            title: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1081,6 +1338,56 @@ export interface components {
             /** Unit */
             unit: string;
         };
+        /** NLBuildRequest */
+        NLBuildRequest: {
+            /** Question */
+            question: string;
+            /** Session Id */
+            session_id?: string | null;
+        };
+        /** NLBuildResponse */
+        NLBuildResponse: {
+            /** Confidence */
+            confidence: number;
+            /** Dimensions */
+            dimensions?: string[];
+            /** Display Name */
+            display_name?: string | null;
+            /** Matched Metric */
+            matched_metric?: string | null;
+            /** Metric Keyword */
+            metric_keyword: string;
+            /** Parameters */
+            parameters: {
+                [key: string]: string;
+            };
+            /** Raw Question */
+            raw_question: string;
+            /** Suggested Chart Type */
+            suggested_chart_type: string;
+        };
+        /** NLParseRequest */
+        NLParseRequest: {
+            /** Question */
+            question: string;
+        };
+        /** NLParseResponse */
+        NLParseResponse: {
+            /** Confidence */
+            confidence: number;
+            /** Dimensions */
+            dimensions?: string[];
+            /** Matched Metric */
+            matched_metric?: string | null;
+            /** Metric Keyword */
+            metric_keyword: string;
+            /** Parameters */
+            parameters: {
+                [key: string]: string;
+            };
+            /** Raw Question */
+            raw_question: string;
+        };
         /** OutcomeRequest */
         OutcomeRequest: {
             /** Metric Deltas */
@@ -1348,6 +1655,40 @@ export interface components {
             /** Value */
             value: number;
         };
+        /** TenantCreateRequest */
+        TenantCreateRequest: {
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** Display Name */
+            display_name: string;
+            /**
+             * Status
+             * @default active
+             * @enum {string}
+             */
+            status: "active" | "inactive" | "suspended";
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /** TenantResponse */
+        TenantResponse: {
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Created At */
+            created_at: string;
+            /** Display Name */
+            display_name: string;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Updated At */
+            updated_at: string;
+        };
         /** TraceEventItem */
         TraceEventItem: {
             /** Payload */
@@ -1559,6 +1900,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -1594,6 +1936,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 runtime_run_id: string;
@@ -1662,11 +2005,91 @@ export interface operations {
             };
         };
     };
+    list_approvals_approvals_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_approval_approvals__approval_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalListItem"];
+                };
+            };
+            /** @description Approval not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalExecuteErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     post_approval_execute_approvals__approval_id__execute_post: {
         parameters: {
             query?: never;
             header: {
                 "X-Operator-Key": string;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 approval_id: string;
@@ -1717,6 +2140,133 @@ export interface operations {
             };
         };
     };
+    list_dashboards_dashboards_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_dashboard_dashboards_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DashboardCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dashboard_dashboards__dashboard_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                dashboard_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_health_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     get_knowledge_assets_knowledge_assets_get: {
         parameters: {
             query?: {
@@ -1739,6 +2289,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -1785,6 +2336,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -1823,6 +2375,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -1856,6 +2409,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -1889,6 +2443,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -1931,6 +2486,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -1964,6 +2520,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -2006,6 +2563,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -2054,6 +2612,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2085,6 +2644,7 @@ export interface operations {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 asset_id: string;
@@ -2130,6 +2690,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2156,11 +2717,117 @@ export interface operations {
             };
         };
     };
+    get_metrics_metrics_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    nl_build_nl_build_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NLBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NLBuildResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    nl_parse_nl_parse_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NLParseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NLParseResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     post_outcome_outcomes_post: {
         parameters: {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2195,7 +2862,9 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
+                "X-Session-Id"?: string | null;
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -2242,6 +2911,7 @@ export interface operations {
             };
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 trace_id: string;
@@ -2270,11 +2940,80 @@ export interface operations {
             };
         };
     };
+    post_tenant_tenants_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tenant_tenants__tenant_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_trace_traces__trace_id__get: {
         parameters: {
             query?: never;
             header?: {
                 "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
             };
             path: {
                 trace_id: string;

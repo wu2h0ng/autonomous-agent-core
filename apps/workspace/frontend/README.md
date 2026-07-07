@@ -47,9 +47,11 @@ NEXT_PUBLIC_RUN_KEY=development-key
 
 ## 开发状态
 
-Phase 0 初始脚手架。待实现：
-- OpenAPI 类型生成
-- Trace 页面
-- Knowledge 页面
-- Approval 工作流
-- E2E 测试 (Playwright)
+Phase 0 F1 工作区已实现：
+- ✅ OpenAPI 类型生成 (`src/lib/api/schema.d.ts`)
+- ✅ 查询页面 (`/`)
+- ✅ Trace 查询与详情页面 (`/trace`、`/trace/[traceId]`)
+- ✅ Knowledge 资产目录与详情页面 (`/knowledge`、`/knowledge/[assetId]`)
+- ✅ Dashboard、EvidenceCards、ActionProposal、GovernancePanel、FeedbackBar 组件
+- ⏳ Approval 工作流页面
+- ⏳ E2E 测试 (Playwright)

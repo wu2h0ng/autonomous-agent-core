@@ -3,7 +3,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { getKnowledgeAssets } from '@/lib/api';
+import { getKnowledgeAssets, searchKnowledge } from '@/lib/api';
+import type { components } from '@/lib/api/schema';
+
+type SearchResultItem = components['schemas']['SearchResultItem'];
 
 const STATE_OPTIONS = [
   { value: '', label: 'All States' },
@@ -32,6 +35,10 @@ export default function KnowledgePage() {
   const [stateFilter, setStateFilter] = useState('');
   const [qualityFilter, setQualityFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResultItem[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['knowledge', stateFilter, qualityFilter, priorityFilter],
@@ -43,6 +50,20 @@ export default function KnowledgePage() {
         limit: 50,
       }),
   });
+
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const response = await searchKnowledge(searchQuery.trim(), { k: 20 });
+      setSearchResults(response.results ?? []);
+    } catch (err) {
+      setSearchError(err instanceof Error ? err.message : 'Search failed');
+    } finally {
+      setSearching(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
@@ -91,12 +112,53 @@ export default function KnowledgePage() {
           ))}
         </select>
 
-        {data && (
+        {data && !searchResults && (
           <span className="text-xs text-gray-400 ml-auto">
             {data.count} of {data.total_count} assets
           </span>
         )}
       </div>
+
+      {/* Search */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSearch();
+            }
+          }}
+          placeholder="Search knowledge assets..."
+          className="flex-1 min-w-[200px] rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+        <button
+          onClick={handleSearch}
+          disabled={!searchQuery.trim() || searching}
+          className="rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          {searching ? 'Searching...' : 'Search'}
+        </button>
+        {searchResults && (
+          <button
+            onClick={() => {
+              setSearchResults(null);
+              setSearchQuery('');
+              setSearchError(null);
+            }}
+            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {searchError && (
+        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {searchError}
+        </div>
+      )}
 
       {/* Loading */}
       {isLoading && (
@@ -121,6 +183,55 @@ export default function KnowledgePage() {
           <p className="mt-1 text-sm text-red-700">
             {error instanceof Error ? error.message : 'Unknown error'}
           </p>
+        </div>
+      )}
+
+      {/* Search Results */}
+      {searchResults && searchResults.length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden mb-6">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Asset ID
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Title
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Score
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {searchResults.map((result) => (
+                  <tr key={result.asset_id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/knowledge/${result.asset_id}`}
+                        className="text-sm font-mono text-blue-600 hover:text-blue-800"
+                      >
+                        {result.asset_id.slice(0, 12)}...
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm text-gray-900">{result.title}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm text-gray-700">{result.score.toFixed(3)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {searchResults && searchResults.length === 0 && (
+        <div className="rounded-lg border border-dashed border-gray-300 bg-white p-8 text-center mb-6">
+          <p className="text-sm text-gray-500">No knowledge assets matched your search.</p>
         </div>
       )}
 

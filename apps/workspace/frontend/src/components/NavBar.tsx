@@ -7,20 +7,26 @@ import { useAppStore } from '@/lib/store';
 
 const navItems = [
   { href: '/', label: 'Workspace' },
+  { href: '/workspace', label: 'NL Workspace' },
+  { href: '/runs', label: 'Runs' },
   { href: '/trace', label: 'Trace' },
   { href: '/knowledge', label: 'Knowledge' },
+  { href: '/approvals', label: 'Approvals' },
+  { href: '/outcomes', label: 'Outcomes' },
 ];
 
 export function NavBar() {
   const pathname = usePathname();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { apiUrl, runKey, setApiUrl, setRunKey } = useAppStore();
+  const { apiUrl, apiKey, operatorKey, setApiUrl, setApiKey, setOperatorKey } = useAppStore();
   const [localApiUrl, setLocalApiUrl] = useState(apiUrl);
-  const [localRunKey, setLocalRunKey] = useState(runKey);
+  const [localApiKey, setLocalApiKey] = useState(apiKey);
+  const [localOperatorKey, setLocalOperatorKey] = useState(operatorKey);
 
   const handleSaveSettings = () => {
     setApiUrl(localApiUrl);
-    setRunKey(localRunKey);
+    setApiKey(localApiKey);
+    setOperatorKey(localOperatorKey);
     setSettingsOpen(false);
   };
 
@@ -98,14 +104,26 @@ export function NavBar() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1">
-                    Run Key
+                    API Key
                   </label>
                   <input
                     type="password"
-                    value={localRunKey}
-                    onChange={(e) => setLocalRunKey(e.target.value)}
+                    value={localApiKey}
+                    onChange={(e) => setLocalApiKey(e.target.value)}
                     className="w-full rounded-md border border-gray-600 bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="Your run key"
+                    placeholder="Your API key"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Operator Key
+                  </label>
+                  <input
+                    type="password"
+                    value={localOperatorKey}
+                    onChange={(e) => setLocalOperatorKey(e.target.value)}
+                    className="w-full rounded-md border border-gray-600 bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Your operator key"
                   />
                 </div>
                 <button

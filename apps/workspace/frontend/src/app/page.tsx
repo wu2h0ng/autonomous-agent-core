@@ -4,16 +4,13 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import Link from 'next/link';
 import { postRun } from '@/lib/api';
-import type { components } from '@/lib/api/schema';
 import { AnswerPanel } from '@/components/AnswerPanel';
 import { EvidenceCardList } from '@/components/EvidenceCards';
 import { DashboardPanel } from '@/components/DashboardChart';
 import { ActionProposal } from '@/components/ActionProposal';
 import { GovernancePanel } from '@/components/GovernancePanel';
-import { TraceTimeline } from '@/components/TraceTimeline';
 import { FeedbackBar } from '@/components/FeedbackBar';
-
-type RunResponse = components['schemas']['RunResponse'];
+import { addRecentRun } from '@/app/runs/page';
 
 const PRESETS = [
   { label: 'GMV last week', question: 'What was the GMV last week?' },
@@ -79,6 +76,9 @@ export default function QueryPage() {
 
   const runMutation = useMutation({
     mutationFn: (q: string) => postRun(q),
+    onSuccess: (payload, variables) => {
+      addRecentRun(payload.trace_id, variables);
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
