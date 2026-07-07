@@ -22,15 +22,28 @@ reject with 503 rather than silently allowing access; a wrong/missing key return
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import logging
 import os
 import secrets
+import time
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import PlainTextResponse
 
-from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution
+from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution, QuotaExceeded
+from agent_os_core import (
+    Dashboard,
+    DashboardCard,
+    DashboardStorePort,
+    InMemoryDashboardStore,
+    InMemoryTenantStore,
+    QuotaGate,
+)
 from agent_os_core.agent_runtime import (
     AgentRunContext,
     AgentToolCall,
@@ -39,6 +52,12 @@ from agent_os_core.agent_runtime import (
     TrustedLoopAgentRuntimeAdapter,
 )
 
+from agent_os_core.conversation import (
+    ContextResolver,
+    InMemoryConversationStore,
+)
+from agent_os_core.nl_query import NLQueryEngine
+from agent_os_core.semantic_runtime import SemanticRegistry
 from .outcome_service import (
     InMemoryReportSnapshotStore,
     TrustedLoopCorrectionRuntimeAdapter,
@@ -62,12 +81,15 @@ from .outcome_service import (
     trace_service,
 )
 from .runtime_factory import ContentCommerceRuntimeFactory, RuntimeFactoryConfig
+from . import staged_out_service
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
 EXTERNAL_API_KEY_ENV = "AGENT_OS_EXTERNAL_API_KEY"
 OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
+VIEWER_API_KEY_ENV = "AGENT_OS_VIEWER_API_KEY"
 API_KEY_HEADER = "X-API-Key"
 OPERATOR_API_KEY_HEADER = "X-Operator-Key"
+SESSION_ID_HEADER = "X-Session-Id"
 APPROVAL_EXECUTE_PATH = "/approvals/{approval_id}/execute"
 KNOWLEDGE_QUALITY_STATUS_VALUES = [
     "unused",
@@ -96,6 +118,71 @@ KNOWLEDGE_CATALOG_ORDER_BY_VALUES = [
 ]
 KNOWLEDGE_REVIEW_QUEUE_ORDER_BY_VALUES = ["review_priority", "review_rationale_code"]
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
+
+API_LOGGER = logging.getLogger("agent_os.api")
+
+
+class MetricsCollector:
+    """Thread-safe (GIL-backed) counters for the Prometheus /metrics endpoint."""
+
+    def __init__(self) -> None:
+        self._counters: dict[tuple[str, str, int], int] = {}
+
+    def record(self, method: str, path: str, status_code: int) -> None:
+        key = (method.upper(), path, status_code)
+        self._counters[key] = self._counters.get(key, 0) + 1
+
+    def render(self) -> str:
+        lines = ["# HELP agent_os_http_requests_total Total HTTP requests"]
+        lines.append("# TYPE agent_os_http_requests_total counter")
+        for (method, path, status), count in sorted(self._counters.items()):
+            safe_path = path.replace('"', '\\"')
+            lines.append(
+                f'agent_os_http_requests_total{{method="{method}",path="{safe_path}",status="{status}"}} {count}'
+            )
+        return "\n".join(lines)
+
+
+class StructuredAccessLogMiddleware(BaseHTTPMiddleware):
+    """Emit one JSON access log line per request with trust/observability fields."""
+
+    def __init__(self, app: Any, collector: MetricsCollector) -> None:
+        super().__init__(app)
+        self._collector = collector
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        request_id = request.headers.get("X-Request-Id") or uuid4().hex
+        request.state.request_id = request_id
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (time.perf_counter() - start) * 1000
+            self._emit(request, 500, duration_ms)
+            raise
+        duration_ms = (time.perf_counter() - start) * 1000
+        self._emit(request, response.status_code, duration_ms)
+        response.headers["X-Request-Id"] = request_id
+        return response
+
+    def _emit(self, request: Request, status_code: int, duration_ms: float) -> None:
+        principal = getattr(request.state, "principal", None)
+        route = request.scope.get("route")
+        path = getattr(route, "path", None) or request.url.path
+        self._collector.record(request.method, path, status_code)
+        log = {
+            "event": "http_access",
+            "request_id": getattr(request.state, "request_id", None),
+            "tenant_id": request.headers.get("X-Tenant-Id") or "default",
+            "principal_kind": principal.kind if principal is not None else "anonymous",
+            "method": request.method,
+            "path": path,
+            "status": status_code,
+            "duration_ms": round(duration_ms, 3),
+        }
+        API_LOGGER.info(json.dumps(log, default=str))
+
+
 API_SCOPE_RUN_INTERNAL = "runs:internal"
 API_SCOPE_RUN_EXTERNAL = "runs:external"
 API_SCOPE_OUTCOME_WRITE = "outcomes:write"
@@ -105,12 +192,14 @@ API_SCOPE_KNOWLEDGE_REVIEW = "knowledge:review"
 API_SCOPE_TRACE_READ = "traces:read"
 API_SCOPE_REPORT_READ = "reports:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
+API_SCOPE_APPROVAL_READ = "approvals:read"
 API_SCOPE_RUNTIME_RESUME = "runtime:resume"
+API_SCOPE_TENANT_MANAGE = "tenants:manage"
 
 
 @dataclass(frozen=True)
 class ApiPrincipal:
-    kind: Literal["internal", "external_report", "operator"]
+    kind: Literal["internal", "external_report", "operator", "viewer"]
     scopes: frozenset[str]
     audience_ceiling: Literal["internal", "external"] | None = None
 
@@ -130,7 +219,10 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
             API_SCOPE_KNOWLEDGE_REVIEW,
             API_SCOPE_TRACE_READ,
             API_SCOPE_REPORT_READ,
+            API_SCOPE_APPROVAL_READ,
+            API_SCOPE_APPROVAL_EXECUTE,
             API_SCOPE_RUNTIME_RESUME,
+            API_SCOPE_TENANT_MANAGE,
         }
     ),
     audience_ceiling="internal",
@@ -140,9 +232,27 @@ API_PRINCIPAL_EXTERNAL_REPORT = ApiPrincipal(
     scopes=frozenset({API_SCOPE_RUN_EXTERNAL, API_SCOPE_REPORT_READ}),
     audience_ceiling="external",
 )
+# Operator key principal: used only on the X-Operator-Key channel for approval
+# execution. It intentionally has no audience_ceiling because it does not drive
+# projection selection; the caller's X-API-Key principal controls that.
 API_PRINCIPAL_OPERATOR = ApiPrincipal(
     kind="operator",
     scopes=frozenset({API_SCOPE_APPROVAL_EXECUTE}),
+    audience_ceiling=None,
+)
+API_PRINCIPAL_VIEWER = ApiPrincipal(
+    kind="viewer",
+    scopes=frozenset(
+        {
+            API_SCOPE_RUN_INTERNAL,
+            API_SCOPE_RUN_EXTERNAL,
+            API_SCOPE_KNOWLEDGE_SEARCH,
+            API_SCOPE_TRACE_READ,
+            API_SCOPE_REPORT_READ,
+            API_SCOPE_APPROVAL_READ,
+        }
+    ),
+    audience_ceiling="internal",
 )
 
 
@@ -163,11 +273,13 @@ def _validate_distinct_configured_keys(
     api_key: str | None,
     external_api_key: str | None,
     operator_api_key: str | None,
+    viewer_api_key: str | None,
 ) -> None:
     configured = [
         ("api_key", api_key),
         ("external_api_key", external_api_key),
         ("operator_api_key", operator_api_key),
+        ("viewer_api_key", viewer_api_key),
     ]
     seen: dict[str, str] = {}
     for name, value in configured:
@@ -310,6 +422,74 @@ class RunRequest(BaseModel):
     question: str = Field(..., min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
     audience: Literal["internal", "external"] = "internal"
+
+
+class NLParseRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+
+
+class NLParseResponse(BaseModel):
+    metric_keyword: str
+    matched_metric: str | None = None
+    parameters: dict[str, str]
+    confidence: float
+    dimensions: list[str] = Field(default_factory=list)
+    raw_question: str
+
+
+class NLBuildRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    session_id: str | None = None
+
+
+class NLBuildResponse(BaseModel):
+    metric_keyword: str
+    matched_metric: str | None = None
+    display_name: str | None = None
+    parameters: dict[str, str]
+    dimensions: list[str] = Field(default_factory=list)
+    confidence: float
+    suggested_chart_type: str
+    raw_question: str
+
+
+class MetricCatalogItem(BaseModel):
+    metric_name: str
+    display_name: str
+    definition: str
+    unit: str
+    dimensions: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+
+
+class MetricCatalogResponse(BaseModel):
+    items: list[MetricCatalogItem] = Field(default_factory=list)
+    total: int
+
+
+class DashboardCreateCard(BaseModel):
+    title: str = Field(..., min_length=1)
+    question: str = Field(..., min_length=1)
+    metric_name: str = Field(..., min_length=1)
+    chart_type: str = Field(default="table")
+
+
+class DashboardCreateRequest(BaseModel):
+    title: str = Field(..., min_length=1)
+    cards: list[DashboardCreateCard] = Field(default_factory=list)
+
+
+class DashboardResponse(BaseModel):
+    dashboard_id: str
+    tenant_id: str
+    title: str
+    created_at: str
+    cards: list[dict[str, str]] = Field(default_factory=list)
+
+
+class DashboardListResponse(BaseModel):
+    items: list[DashboardResponse] = Field(default_factory=list)
+    total: int
 
 
 class RelatedKnowledgeItem(BaseModel):
@@ -502,6 +682,22 @@ class RunReportResponse(BaseModel):
     trace_id: str
     audience: Literal["internal", "external"]
     user_result: UserResultArtifact
+
+
+class TenantCreateRequest(BaseModel):
+    tenant_id: str = Field(..., min_length=1, max_length=128)
+    display_name: str = Field(..., min_length=1, max_length=256)
+    status: Literal["active", "inactive", "suspended"] = "active"
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class TenantResponse(BaseModel):
+    tenant_id: str
+    display_name: str
+    status: str
+    created_at: str
+    updated_at: str
+    config: dict[str, Any]
 
 
 class RuntimeResumeRequest(BaseModel):
@@ -1057,6 +1253,22 @@ class ApprovalExecuteErrorResponse(BaseModel):
     detail: ApprovalExecuteError
 
 
+class ApprovalListItem(BaseModel):
+    approval_id: str
+    proposal_id: str
+    status: str
+    approver_role: str | None = None
+    approved_by: str | None = None
+    reason: str | None = None
+
+
+class ApprovalListResponse(BaseModel):
+    items: list[ApprovalListItem] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int
+
+
 class SearchResultItem(BaseModel):
     asset_id: str
     title: str
@@ -1124,8 +1336,13 @@ def create_app(
     api_key: str | None = None,
     external_api_key: str | None = None,
     operator_api_key: str | None = None,
+    viewer_api_key: str | None = None,
     adoption_ingest: Any | None = None,
     report_store: Any | None = None,
+    usage_store: Any | None = None,
+    tenant_store: Any | None = None,
+    dashboard_store: DashboardStorePort | None = None,
+    quota_gate: QuotaGate | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to a single shared runtime.
 
@@ -1146,10 +1363,24 @@ def create_app(
         external_api_key: Optional report-only ``X-API-Key`` value for
             ``POST /runs``. Falls back to ``AGENT_OS_EXTERNAL_API_KEY``. It can
             only receive the external read-side projection.
+        viewer_api_key: Optional read-only ``X-API-Key`` value. Falls back to
+            ``AGENT_OS_VIEWER_API_KEY``.
+        usage_store: Optional ``UsageStorePort`` for quota accounting. Defaults
+            to the factory-selected backend when ``runtime`` is also defaulted;
+            otherwise an in-memory store is used.
+        tenant_store: Optional ``TenantStorePort`` for tenant provisioning.
+            Defaults to the factory-selected backend when ``runtime`` is also
+            defaulted; otherwise an in-memory store is used.
+        dashboard_store: Optional ``DashboardStorePort`` for the NL Data Product
+            Workspace. Defaults to the factory-selected backend when ``runtime``
+            is also defaulted; otherwise an in-memory store is used.
+        quota_gate: Optional ``QuotaGate``. Defaults to a gate over the
+            configured ``usage_store`` with the built-in generous limits.
     """
     if runtime is None:
         factory = _build_default_factory()
         shared_runtime = factory.build()
+        shared_factory = factory
         shared_retriever = (
             retriever if retriever is not None else factory.build_knowledge_retriever()
         )
@@ -1164,12 +1395,19 @@ def create_app(
             adoption_ingest if adoption_ingest is not None else factory.adoption_ingest()
         )
         default_report_store = factory.build_report_snapshot_store()
+        default_usage_store = factory.build_usage_store()
+        default_tenant_store = factory.build_tenant_store()
+        default_dashboard_store = factory.build_dashboard_store()
     else:
         shared_runtime = runtime
+        shared_factory = None
         shared_retriever = retriever
         shared_agent_checkpoint_store = agent_checkpoint_store
         shared_adoption_ingest = adoption_ingest
         default_report_store = None
+        default_usage_store = None
+        default_tenant_store = None
+        default_dashboard_store = None
     configured_key = api_key if api_key is not None else os.environ.get(API_KEY_ENV)
     configured_external_key = (
         external_api_key if external_api_key is not None else os.environ.get(EXTERNAL_API_KEY_ENV)
@@ -1177,19 +1415,28 @@ def create_app(
     configured_operator_key = (
         operator_api_key if operator_api_key is not None else os.environ.get(OPERATOR_API_KEY_ENV)
     )
+    configured_viewer_key = (
+        viewer_api_key if viewer_api_key is not None else os.environ.get(VIEWER_API_KEY_ENV)
+    )
     _validate_distinct_configured_keys(
         api_key=configured_key,
         external_api_key=configured_external_key,
         operator_api_key=configured_operator_key,
+        viewer_api_key=configured_viewer_key,
     )
     app = FastAPI(title="Agent OS API", version="0.1.0")
+    metrics_collector = MetricsCollector()
+    app.add_middleware(StructuredAccessLogMiddleware, collector=metrics_collector)
+    app.state.metrics_collector = metrics_collector
     app.state.runtime = shared_runtime
+    app.state.factory = shared_factory
     app.state.agent_runtime_trace_writer = AgentTraceWriter()
     app.state.agent_checkpoint_store = shared_agent_checkpoint_store
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
     app.state.external_api_key = configured_external_key
     app.state.operator_api_key = configured_operator_key
+    app.state.viewer_api_key = configured_viewer_key
     app.state.adoption_ingest = shared_adoption_ingest
     app.state.report_store = (
         report_store
@@ -1198,8 +1445,36 @@ def create_app(
         if default_report_store is not None
         else InMemoryReportSnapshotStore()
     )
+    app.state.usage_store = usage_store if usage_store is not None else default_usage_store
+    app.state.tenant_store = (
+        tenant_store
+        if tenant_store is not None
+        else default_tenant_store
+        if default_tenant_store is not None
+        else InMemoryTenantStore()
+    )
+    app.state.dashboard_store = (
+        dashboard_store
+        if dashboard_store is not None
+        else default_dashboard_store
+        if default_dashboard_store is not None
+        else InMemoryDashboardStore()
+    )
+    app.state.quota_gate = (
+        quota_gate
+        if quota_gate is not None
+        else QuotaGate(app.state.usage_store)
+        if app.state.usage_store is not None
+        else None
+    )
+    app.state.conversation_store = InMemoryConversationStore()
+    nl_registry = getattr(shared_runtime, "semantic_registry", None)
+    if nl_registry is None:
+        nl_registry = SemanticRegistry()
+    app.state.nl_query_engine = NLQueryEngine(metric_registry=nl_registry)
 
     def authenticate_api_key(
+        request: Request,
         x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
     ) -> ApiPrincipal:
         if not app.state.api_key:
@@ -1211,19 +1486,29 @@ def create_app(
                 ),
             )
         if _key_matches(x_api_key, app.state.api_key):
+            request.state.principal = API_PRINCIPAL_INTERNAL
             return API_PRINCIPAL_INTERNAL
         if _key_matches(x_api_key, app.state.external_api_key):
+            request.state.principal = API_PRINCIPAL_EXTERNAL_REPORT
             return API_PRINCIPAL_EXTERNAL_REPORT
+        if _key_matches(x_api_key, app.state.viewer_api_key):
+            request.state.principal = API_PRINCIPAL_VIEWER
+            return API_PRINCIPAL_VIEWER
         raise HTTPException(status_code=401, detail="Invalid or missing API key.")
 
     def require_api_scope(required_scope: str):
-        def dependency(principal: ApiPrincipal = Depends(authenticate_api_key)) -> ApiPrincipal:
+        def dependency(
+            request: Request,
+            principal: ApiPrincipal = Depends(authenticate_api_key),
+        ) -> ApiPrincipal:
             authorize_principal_scope(principal, required_scope)
+            request.state.principal = principal
             return principal
 
         return dependency
 
     def require_operator_api_key(
+        request: Request,
         x_operator_key: str | None = Header(default=None, alias=OPERATOR_API_KEY_HEADER),
     ) -> ApiPrincipal:
         if not app.state.operator_api_key:
@@ -1237,8 +1522,408 @@ def create_app(
             )
         if not _key_matches(x_operator_key, app.state.operator_api_key):
             raise HTTPException(status_code=401, detail="Invalid or missing operator key.")
+        # Defense-in-depth: if the caller also presents an X-API-Key, that principal
+        # must independently carry the approval-execute scope. This keeps the operator
+        # channel standalone while preventing a viewer/external key from piggybacking
+        # on a stolen or shared operator key.
+        x_api_key = request.headers.get(API_KEY_HEADER)
+        if x_api_key:
+            if _key_matches(x_api_key, app.state.api_key):
+                api_principal = API_PRINCIPAL_INTERNAL
+            elif _key_matches(x_api_key, app.state.external_api_key):
+                api_principal = API_PRINCIPAL_EXTERNAL_REPORT
+            elif _key_matches(x_api_key, app.state.viewer_api_key):
+                api_principal = API_PRINCIPAL_VIEWER
+            else:
+                raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+            authorize_principal_scope(api_principal, API_SCOPE_APPROVAL_EXECUTE)
         authorize_principal_scope(API_PRINCIPAL_OPERATOR, API_SCOPE_APPROVAL_EXECUTE)
+        request.state.principal = API_PRINCIPAL_OPERATOR
         return API_PRINCIPAL_OPERATOR
+
+    def require_tenant_id(
+        x_tenant_id: Annotated[str | None, Header(name="X-Tenant-Id")] = None,
+    ) -> str:
+        return x_tenant_id or "default"
+
+    def _check_quota(tenant_id: str, operation: str, trace_id: str) -> None:
+        gate = app.state.quota_gate
+        if gate is None:
+            return
+        try:
+            gate.record_and_check(tenant_id, operation, trace_id)
+        except QuotaExceeded as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    def _check_database_health() -> dict[str, Any]:
+        store = app.state.usage_store
+        bind = getattr(store, "_bind", None)
+        if bind is None:
+            return {"status": "ok", "backend": "memory"}
+        try:
+            from sqlalchemy import text
+
+            if hasattr(bind, "connect"):
+                with bind.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+            else:
+                bind.execute(text("SELECT 1"))
+            return {"status": "ok", "backend": "postgres"}
+        except Exception as exc:  # noqa: BLE001 - health endpoint must surface safe status
+            return {"status": "error", "backend": "postgres", "error": type(exc).__name__}
+
+    def _raise_for_staged_out_result(result: dict[str, Any]) -> None:
+        status = result.get("status")
+        if status == "not_found":
+            raise HTTPException(status_code=404, detail=result)
+        if status != "error":
+            return
+        code = result.get("code")
+        if code in {"FEATURE_DISABLED", "RUNTIME_UNAVAILABLE", "STORE_UNAVAILABLE"}:
+            raise HTTPException(status_code=503, detail=result)
+        if code == "INVALID_WORKFLOW_STATE":
+            raise HTTPException(status_code=409, detail=result)
+        raise HTTPException(status_code=400, detail=result)
+
+    @app.get("/health")
+    def get_health() -> dict[str, Any]:
+        """Public health probe for orchestrators and load balancers."""
+        runtime_ready = app.state.runtime is not None
+        db_health = _check_database_health()
+        healthy = runtime_ready and db_health["status"] == "ok"
+        return {
+            "status": "healthy" if healthy else "unhealthy",
+            "runtime_ready": runtime_ready,
+            "database": db_health,
+        }
+
+    @app.get("/metrics")
+    def get_metrics(
+        request: Request,
+        q: str | None = Query(default=None),
+        limit: int = Query(default=20, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> Any:
+        """Prometheus-compatible metrics, OR JSON metric catalog via content negotiation.
+
+        Observability scrapers call this with ``Accept: text/plain`` (or no explicit
+        Accept header) and receive Prometheus text. The NL Data Product Workspace
+        requests ``Accept: application/json`` and receives the authenticated metric
+        catalog.
+        """
+        accept = (request.headers.get("accept") or "").lower()
+        wants_json = "application/json" in accept
+        if not wants_json:
+            return PlainTextResponse(app.state.metrics_collector.render())
+
+        api_key_header = request.headers.get(API_KEY_HEADER)
+        principal = authenticate_api_key(request, x_api_key=api_key_header)
+        authorize_principal_scope(principal, API_SCOPE_RUN_INTERNAL)
+        require_tenant_id(request.headers.get("X-Tenant-Id"))
+        registry = app.state.nl_query_engine._registry
+        if q:
+            matches = registry.search_metrics(q, limit=1000)
+        else:
+            matches = tuple(
+                registry.resolve_metric(name) for name in sorted(registry.metric_names())
+            )
+        total = len(matches)
+        page = matches[offset : offset + limit]
+        aliases_by_metric: dict[str, set[str]] = {}
+        from agent_os_core._metric_aliases import DISPLAY_TO_METRIC
+
+        for alias, metric_name in DISPLAY_TO_METRIC.items():
+            aliases_by_metric.setdefault(metric_name, set()).add(alias)
+        items = [
+            MetricCatalogItem(
+                metric_name=metric.metric_name,
+                display_name=metric.display_name,
+                definition=metric.definition,
+                unit=metric.unit,
+                dimensions=list(metric.dimensions),
+                aliases=sorted(
+                    aliases_by_metric.get(metric.metric_name, set())
+                    - {metric.metric_name, metric.display_name.lower()}
+                ),
+            )
+            for metric in page
+        ]
+        return MetricCatalogResponse(items=items, total=total)
+
+    @app.post("/tenants", response_model=TenantResponse)
+    def post_tenant(
+        body: TenantCreateRequest,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        """Provision a new tenant (internal principal only)."""
+        del principal
+        try:
+            tenant = app.state.tenant_store.create(
+                body.tenant_id,
+                display_name=body.display_name,
+                status=body.status,
+                config=body.config,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return tenant.to_dict()
+
+    @app.get("/tenants/{tenant_id}", response_model=TenantResponse)
+    def get_tenant(
+        tenant_id: str,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        """Retrieve tenant metadata (internal principal only)."""
+        del principal
+        tenant = app.state.tenant_store.get(tenant_id)
+        if tenant is None:
+            raise HTTPException(status_code=404, detail=f"Tenant {tenant_id!r} not found.")
+        return tenant.to_dict()
+
+    @app.put("/tenants/{tenant_id}/auto-execution-policy")
+    def put_auto_execution_policy(
+        tenant_id: str,
+        body: dict[str, Any],
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.register_auto_execution_policy(
+            policy_engine=factory.build_policy_engine(),
+            policy_store=factory.build_auto_execution_policy_store(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            body=body,
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=503, detail=result)
+        return result
+
+    @app.get("/tenants/{tenant_id}/auto-execution-policy")
+    def get_auto_execution_policy(
+        tenant_id: str,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.get_auto_execution_policy(
+            policy_store=factory.build_auto_execution_policy_store(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=503, detail=result)
+        if result.get("status") == "not_found":
+            raise HTTPException(status_code=404, detail=result)
+        return result
+
+    @app.post("/workflows")
+    def post_workflow(
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.register_workflow(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            body=body,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.get("/workflows")
+    def get_workflows(
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.list_workflows(
+            workflow_store=factory.build_workflow_store(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.post("/workflows/{workflow_id}/instances")
+    def post_workflow_instance(
+        workflow_id: str,
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.start_workflow_instance(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            workflow_id=workflow_id,
+            body=body,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.get("/workflow-instances/{instance_id}")
+    def get_workflow_instance(
+        instance_id: str,
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.get_workflow_instance(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            instance_id=instance_id,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.post("/workflow-instances/{instance_id}/approve")
+    def post_workflow_instance_approve(
+        instance_id: str,
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.workflow_instance_operation(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            instance_id=instance_id,
+            operation="approve",
+            body=body,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.post("/workflow-instances/{instance_id}/reject")
+    def post_workflow_instance_reject(
+        instance_id: str,
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.workflow_instance_operation(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            instance_id=instance_id,
+            operation="reject",
+            body=body,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.post("/workflow-instances/{instance_id}/delegate")
+    def post_workflow_instance_delegate(
+        instance_id: str,
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.workflow_instance_operation(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            instance_id=instance_id,
+            operation="delegate",
+            body=body,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.post("/workflow-instances/{instance_id}/timeout-check")
+    def post_workflow_instance_timeout_check(
+        instance_id: str,
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.workflow_instance_operation(
+            workflow_runtime=factory.build_workflow_runtime(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            instance_id=instance_id,
+            operation="timeout_check",
+            body=body,
+        )
+        _raise_for_staged_out_result(result)
+        return result
+
+    @app.post("/mcp/servers")
+    def post_mcp_server(
+        body: dict[str, Any],
+        tenant_id: str = Depends(require_tenant_id),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.register_mcp_server(
+            registry=factory.mcp_registry(),
+            flags=factory._runtime_feature_flags(),
+            tenant_id=tenant_id,
+            body=body,
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=503, detail=result)
+        return result
+
+    @app.post("/mcp/servers/{server_id}/tools")
+    def post_mcp_tool(
+        server_id: str,
+        body: dict[str, Any],
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TENANT_MANAGE)),
+    ) -> dict[str, Any]:
+        del principal
+        factory = getattr(app.state, "factory", None)
+        if factory is None:
+            raise HTTPException(status_code=503, detail="factory not configured")
+        result = staged_out_service.register_mcp_tool(
+            registry=factory.mcp_registry(),
+            flags=factory._runtime_feature_flags(),
+            server_id=server_id,
+            body=body,
+        )
+        if result.get("status") == "error":
+            raise HTTPException(status_code=503, detail=result)
+        return result
 
     @app.post(
         "/runs",
@@ -1262,21 +1947,39 @@ def create_app(
     def post_run(
         body: RunRequest,
         principal: ApiPrincipal = Depends(authenticate_api_key),
+        tenant_id: str = Depends(require_tenant_id),
+        x_session_id: str | None = Header(default=None, alias=SESSION_ID_HEADER),
     ) -> dict[str, Any]:
         audience = "external" if principal.audience_ceiling == "external" else body.audience
         required_scope = (
             API_SCOPE_RUN_INTERNAL if audience == "internal" else API_SCOPE_RUN_EXTERNAL
         )
         authorize_principal_scope(principal, required_scope)
+
+        question = body.question
+        parameters = dict(body.parameters)
+
+        if x_session_id:
+            session = app.state.conversation_store.get_or_create(x_session_id)
+            resolver = ContextResolver()
+            question = resolver.resolve(question, session)
+
         agent_runtime_trace_writer = AgentTraceWriter()
-        agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
-            app.state.runtime,
-            checkpoint_store=app.state.agent_checkpoint_store,
-            shell_view=getattr(app.state.runtime, "shell_view", None),
-            trace_writer=agent_runtime_trace_writer,
-        )
+        if app.state.factory is not None:
+            agent_runtime_adapter = app.state.factory.build_agent_runtime_adapter(
+                app.state.runtime,
+                checkpoint_store=app.state.agent_checkpoint_store,
+                trace_writer=agent_runtime_trace_writer,
+            )
+        else:
+            agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
+                app.state.runtime,
+                checkpoint_store=app.state.agent_checkpoint_store,
+                shell_view=getattr(app.state.runtime, "shell_view", None),
+                trace_writer=agent_runtime_trace_writer,
+            )
         agent_context = AgentRunContext(
-            tenant_id="default",
+            tenant_id=tenant_id,
             workspace_id="default",
             principal_id=principal.kind,
             principal_role=principal.kind,
@@ -1289,12 +1992,14 @@ def create_app(
                 "principal_kind": principal.kind,
             },
         )
+        _check_quota(tenant_id, "run", agent_context.trace_id)
         try:
             result = run_service(
                 app.state.runtime,
-                question=body.question,
-                parameters=body.parameters,
+                question=question,
+                parameters=parameters,
                 audience=audience,
+                tenant_id=tenant_id,
                 agent_runtime_adapter=agent_runtime_adapter,
                 agent_context=agent_context,
                 report_store=app.state.report_store,
@@ -1320,21 +2025,162 @@ def create_app(
             agent_context,
             tool_name=TrustedLoopAgentRuntimeAdapter.TOOL_NAME,
         )
+        if x_session_id and result.get("status") == "ok":
+            session = app.state.conversation_store.get_or_create(x_session_id)
+            query_plan = result.get("query_plan", {})
+            metric_name = query_plan.get("metric_name") or result.get("intent")
+            parameters = query_plan.get("parameters", {})
+            start_date = parameters.get("start_date")
+            end_date = parameters.get("end_date")
+            time_range = (
+                (str(start_date), str(end_date))
+                if start_date is not None and end_date is not None
+                else None
+            )
+            session.current_metric = metric_name
+            session.current_time_range = time_range
+            session.history.append(
+                (
+                    question,
+                    result.get("evidence_chain_id", ""),
+                    metric_name,
+                    time_range,
+                )
+            )
+            app.state.conversation_store.save(session)
         if principal.audience_ceiling == "external":
             return _external_run_response_projection(result)
         return result
+
+    @app.post("/nl-parse", response_model=NLParseResponse)
+    def nl_parse(
+        body: NLParseRequest,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUN_INTERNAL)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> NLParseResponse:
+        del tenant_id
+        result = app.state.nl_query_engine.query(body.question)
+        return NLParseResponse(
+            metric_keyword=(
+                result.matched_metric.metric_name if result.matched_metric else "unknown"
+            ),
+            matched_metric=(result.matched_metric.metric_name if result.matched_metric else None),
+            parameters=result.parameters,
+            confidence=result.confidence,
+            dimensions=list(result.dimensions),
+            raw_question=body.question,
+        )
+
+    @app.post("/nl-build", response_model=NLBuildResponse)
+    def nl_build(
+        body: NLBuildRequest,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUN_INTERNAL)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> NLBuildResponse:
+        del principal, tenant_id
+        result = app.state.nl_query_engine.query(body.question)
+        if result.matched_metric is None:
+            raise HTTPException(status_code=422, detail="Unknown metric")
+        return NLBuildResponse(
+            metric_keyword=result.matched_metric.metric_name,
+            matched_metric=result.matched_metric.metric_name,
+            display_name=result.matched_metric.display_name,
+            parameters=result.parameters,
+            dimensions=list(result.dimensions),
+            confidence=result.confidence,
+            suggested_chart_type=result.chart_type,
+            raw_question=body.question,
+        )
+
+    @app.post("/dashboards", response_model=DashboardResponse)
+    def create_dashboard(
+        body: DashboardCreateRequest,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUN_INTERNAL)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> DashboardResponse:
+        del principal
+        dashboard_id = f"dash-{uuid4().hex[:12]}"
+        cards = tuple(
+            DashboardCard(
+                card_id=f"card-{uuid4().hex[:12]}",
+                title=card.title,
+                question=card.question,
+                metric_name=card.metric_name,
+                chart_type=card.chart_type,
+            )
+            for card in body.cards
+        )
+        from agent_os_core.dashboard import _utc_now_iso
+
+        dashboard = Dashboard(
+            dashboard_id=dashboard_id,
+            tenant_id=tenant_id,
+            title=body.title,
+            cards=cards,
+            created_at=_utc_now_iso(),
+        )
+        app.state.dashboard_store.save(dashboard)
+        return _dashboard_to_response(dashboard)
+
+    @app.get("/dashboards/{dashboard_id}", response_model=DashboardResponse)
+    def get_dashboard(
+        dashboard_id: str,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUN_INTERNAL)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> DashboardResponse:
+        del principal
+        dashboard = app.state.dashboard_store.get(dashboard_id, tenant_id)
+        if dashboard is None:
+            raise HTTPException(status_code=404, detail=f"Dashboard {dashboard_id!r} not found.")
+        return _dashboard_to_response(dashboard)
+
+    @app.get("/dashboards", response_model=DashboardListResponse)
+    def list_dashboards(
+        limit: int = Query(default=20, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUN_INTERNAL)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> DashboardListResponse:
+        del principal
+        dashboards = app.state.dashboard_store.list(tenant_id, limit=limit, offset=offset)
+        # Total requires a separate count; for the in-memory store we can iterate.
+        total = len(app.state.dashboard_store.list(tenant_id, limit=10_000_000, offset=0))
+        return DashboardListResponse(
+            items=[_dashboard_to_response(d) for d in dashboards],
+            total=total,
+        )
+
+    def _dashboard_to_response(dashboard: Dashboard) -> DashboardResponse:
+        return DashboardResponse(
+            dashboard_id=dashboard.dashboard_id,
+            tenant_id=dashboard.tenant_id,
+            title=dashboard.title,
+            created_at=dashboard.created_at,
+            cards=[
+                {
+                    "card_id": card.card_id,
+                    "title": card.title,
+                    "question": card.question,
+                    "metric_name": card.metric_name,
+                    "chart_type": card.chart_type,
+                }
+                for card in dashboard.cards
+            ],
+        )
 
     @app.get("/runs/{trace_id}/report", response_model=RunReportResponse)
     def get_run_report(
         trace_id: str,
         audience: Literal["internal", "external"] = Query(default="internal"),
         principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_REPORT_READ)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         projected_audience = "external" if principal.audience_ceiling == "external" else audience
         payload = report_snapshot_service(
             app.state.report_store,
             trace_id=trace_id,
             audience=projected_audience,
+            tenant_id=tenant_id,
         )
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No report snapshot for {trace_id!r}.")
@@ -1366,6 +2212,7 @@ def create_app(
         runtime_run_id: str,
         body: RuntimeResumeRequest,
         principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_RUNTIME_RESUME)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         # Resume returns only a safe reference to the checkpointed result. It never
         # re-runs the Trusted Loop body and never exposes raw args or tool output.
@@ -1417,14 +2264,21 @@ def create_app(
                 },
             )
         agent_runtime_trace_writer = AgentTraceWriter()
-        agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
-            app.state.runtime,
-            checkpoint_store=checkpoint_store,
-            shell_view=getattr(app.state.runtime, "shell_view", None),
-            trace_writer=agent_runtime_trace_writer,
-        )
+        if app.state.factory is not None:
+            agent_runtime_adapter = app.state.factory.build_agent_runtime_adapter(
+                app.state.runtime,
+                checkpoint_store=checkpoint_store,
+                trace_writer=agent_runtime_trace_writer,
+            )
+        else:
+            agent_runtime_adapter = TrustedLoopAgentRuntimeAdapter(
+                app.state.runtime,
+                checkpoint_store=checkpoint_store,
+                shell_view=getattr(app.state.runtime, "shell_view", None),
+                trace_writer=agent_runtime_trace_writer,
+            )
         agent_context = AgentRunContext(
-            tenant_id="default",
+            tenant_id=tenant_id,
             workspace_id="default",
             principal_id=principal.kind,
             principal_role=principal.kind,
@@ -1456,6 +2310,7 @@ def create_app(
                 agent_context=agent_context,
                 status="blocked",
                 block_message=agent_result.error_message,
+                tenant_id=tenant_id,
             )
             status_code = 404 if agent_result.error_code == "CHECKPOINT_NOT_FOUND" else 409
             if agent_result.status in {"tool_error", "checkpoint_error"}:
@@ -1472,6 +2327,7 @@ def create_app(
                 app.state.runtime,
                 trace_id=business_trace_id,
                 agent_runtime_adapter=agent_runtime_adapter,
+                tenant_id=tenant_id,
             )
         return {
             "runtime_run_id": runtime_run_id,
@@ -1487,6 +2343,7 @@ def create_app(
     def post_outcome(
         body: OutcomeRequest,
         principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_OUTCOME_WRITE)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         # Self-report only (P5.1b): records feedback, does NOT promote knowledge.
         agent_runtime_trace_writer = AgentTraceWriter()
@@ -1497,7 +2354,7 @@ def create_app(
             trace_writer=agent_runtime_trace_writer,
         )
         agent_context = AgentRunContext(
-            tenant_id="default",
+            tenant_id=tenant_id,
             workspace_id="default",
             principal_id=principal.kind,
             principal_role=principal.kind,
@@ -1510,6 +2367,7 @@ def create_app(
                 "principal_kind": principal.kind,
             },
         )
+        _check_quota(tenant_id, "outcome_record", body.trace_id)
         try:
             agent_result = agent_runtime_adapter.record_outcome(
                 context=agent_context,
@@ -1528,6 +2386,7 @@ def create_app(
                 agent_context=agent_context,
                 status="blocked",
                 block_message=agent_result.error_message,
+                tenant_id=tenant_id,
             )
             raise HTTPException(
                 status_code=409,
@@ -1543,6 +2402,7 @@ def create_app(
             trace_id=body.trace_id,
             agent_runtime_adapter=agent_runtime_adapter,
             knowledge_context_refs=_knowledge_context_refs_from_output(agent_result.output),
+            tenant_id=tenant_id,
         )
         return agent_result.output if isinstance(agent_result.output, dict) else {}
 
@@ -1550,6 +2410,7 @@ def create_app(
     def post_adoption(
         body: AdoptionRequest,
         principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_ADOPTION_WRITE)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         # The operator value channel (P5.1b): attest realized external value and
         # promote the trace's knowledge. The only surface that drives promotion.
@@ -1570,7 +2431,7 @@ def create_app(
             trace_writer=agent_runtime_trace_writer,
         )
         agent_context = AgentRunContext(
-            tenant_id="default",
+            tenant_id=tenant_id,
             workspace_id="default",
             principal_id=principal.kind,
             principal_role=principal.kind,
@@ -1583,6 +2444,7 @@ def create_app(
                 "principal_kind": principal.kind,
             },
         )
+        _check_quota(tenant_id, "adoption_record", body.trace_id)
         try:
             agent_result = agent_runtime_adapter.attest_adoption(
                 context=agent_context,
@@ -1606,6 +2468,7 @@ def create_app(
                 agent_context=agent_context,
                 status="blocked",
                 block_message=agent_result.error_message,
+                tenant_id=tenant_id,
             )
             raise HTTPException(
                 status_code=409,
@@ -1621,8 +2484,72 @@ def create_app(
             trace_id=body.trace_id,
             agent_runtime_adapter=agent_runtime_adapter,
             knowledge_context_refs=_knowledge_context_refs_from_output(agent_result.output),
+            tenant_id=tenant_id,
         )
         return agent_result.output if isinstance(agent_result.output, dict) else {}
+
+    @app.get("/approvals", response_model=ApprovalListResponse)
+    def list_approvals(
+        status: str | None = None,
+        limit: int = Query(100, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_APPROVAL_READ)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> dict[str, Any]:
+        records = app.state.runtime.approval_runtime.list(
+            status=status, limit=limit, offset=offset, tenant_id=tenant_id
+        )
+        return {
+            "items": [
+                {
+                    "approval_id": r.approval_id,
+                    "proposal_id": r.proposal_id,
+                    "status": r.status,
+                    "approver_role": r.approver_role,
+                    "approved_by": r.approved_by,
+                    "reason": r.reason,
+                }
+                for r in records
+            ],
+            "total": len(records),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    @app.get(
+        "/approvals/{approval_id}",
+        response_model=ApprovalListItem,
+        responses={
+            404: {
+                "model": ApprovalExecuteErrorResponse,
+                "description": "Approval not found.",
+            },
+        },
+    )
+    def get_approval(
+        approval_id: str,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_APPROVAL_READ)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> dict[str, Any]:
+        try:
+            record = app.state.runtime.approval_runtime.get(approval_id, tenant_id=tenant_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "APPROVAL_NOT_FOUND",
+                    "message": str(exc),
+                    "approval_id": approval_id,
+                },
+            ) from exc
+        return {
+            "approval_id": record.approval_id,
+            "proposal_id": record.proposal_id,
+            "status": record.status,
+            "approver_role": record.approver_role,
+            "approved_by": record.approved_by,
+            "reason": record.reason,
+        }
 
     @app.post(
         "/approvals/{approval_id}/execute",
@@ -1641,10 +2568,13 @@ def create_app(
     def post_approval_execute(
         approval_id: str,
         body: ApprovalExecuteRequest,
-        principal: ApiPrincipal = Depends(require_operator_api_key),
+        operator_principal: ApiPrincipal = Depends(require_operator_api_key),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         # Approval-bound action execution: approve then execute the exact pending
         # context captured by the prior /runs call. No automatic R4/R5 execution.
+        # The operator key channel is the ONLY auth surface for this endpoint;
+        # require_operator_api_key already enforces the approvals:execute scope.
         agent_runtime_trace_writer = AgentTraceWriter()
         agent_runtime_adapter = TrustedLoopApprovalExecutionRuntimeAdapter(
             app.state.runtime,
@@ -1653,10 +2583,10 @@ def create_app(
             trace_writer=agent_runtime_trace_writer,
         )
         agent_context = AgentRunContext(
-            tenant_id="default",
+            tenant_id=tenant_id,
             workspace_id="default",
-            principal_id=principal.kind,
-            principal_role=principal.kind,
+            principal_id=operator_principal.kind,
+            principal_role=operator_principal.kind,
             run_id=f"http-approval-execute-{uuid4().hex[:12]}",
             trace_id=f"agent-trace-{uuid4().hex[:12]}",
             policy_scope=frozenset({"trusted_loop:approval_execute"}),
@@ -1664,9 +2594,10 @@ def create_app(
             approval_id=approval_id,
             metadata={
                 "surface": "POST /approvals/{approval_id}/execute",
-                "principal_kind": principal.kind,
+                "principal_kind": operator_principal.kind,
             },
         )
+        _check_quota(tenant_id, "approval_execute", approval_id)
         try:
             agent_result = agent_runtime_adapter.execute(
                 context=agent_context,
@@ -1757,6 +2688,7 @@ def create_app(
             description="zero-based review-queue item offset",
         ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         # P1-05 review queue is read-only: it lists DRAFT candidates that the
         # Trusted Loop already produced. It does not promote or publish assets.
@@ -1770,6 +2702,7 @@ def create_app(
                 order_by=order_by,
                 limit=limit,
                 offset=offset,
+                tenant_id=tenant_id,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -1820,6 +2753,7 @@ def create_app(
             description="zero-based catalog item offset",
         ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_catalog_service(
@@ -1832,6 +2766,7 @@ def create_app(
                 order_by=order_by,
                 limit=limit,
                 offset=offset,
+                tenant_id=tenant_id,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -1884,6 +2819,7 @@ def create_app(
             json_schema_extra={"minimum": 0},
         ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_quality_summary_service(
@@ -1895,6 +2831,7 @@ def create_app(
                 order_by=order_by,
                 limit=limit,
                 offset=offset,
+                tenant_id=tenant_id,
             )
         except ValueError as exc:
             raise HTTPException(
@@ -1909,9 +2846,12 @@ def create_app(
     def get_knowledge_asset_detail(
         asset_id: str,
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
-            return knowledge_asset_detail_service(app.state.runtime, asset_id=asset_id)
+            return knowledge_asset_detail_service(
+                app.state.runtime, asset_id=asset_id, tenant_id=tenant_id
+            )
         except KeyError as exc:
             raise HTTPException(
                 status_code=404,
@@ -1939,6 +2879,7 @@ def create_app(
             json_schema_extra={"minimum": 0},
         ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_lifecycle_events_service(
@@ -1946,6 +2887,7 @@ def create_app(
                 asset_id=asset_id,
                 limit=limit,
                 offset=offset,
+                tenant_id=tenant_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -1982,6 +2924,7 @@ def create_app(
             json_schema_extra={"minimum": 0},
         ),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_usage_events_service(
@@ -1989,6 +2932,7 @@ def create_app(
                 asset_id=asset_id,
                 limit=limit,
                 offset=offset,
+                tenant_id=tenant_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -2015,11 +2959,13 @@ def create_app(
     def get_knowledge_asset_decision_quality(
         asset_id: str,
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_asset_decision_quality_service(
                 app.state.runtime,
                 asset_id=asset_id,
+                tenant_id=tenant_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -2039,6 +2985,7 @@ def create_app(
         asset_id: str,
         request: KnowledgeReviewActionRequest,
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_review_action_service(
@@ -2047,6 +2994,7 @@ def create_app(
                 action=request.action,
                 reviewer=request.reviewer,
                 reason=request.reason,
+                tenant_id=tenant_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -2084,6 +3032,7 @@ def create_app(
         asset_id: str,
         request: KnowledgePublishRequest,
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_publish_service(
@@ -2091,6 +3040,7 @@ def create_app(
                 asset_id=asset_id,
                 reviewer=request.reviewer,
                 reason=request.reason,
+                tenant_id=tenant_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -2128,6 +3078,7 @@ def create_app(
         asset_id: str,
         request: KnowledgePublishRequest,
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_REVIEW)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         try:
             return knowledge_deprecate_service(
@@ -2135,6 +3086,7 @@ def create_app(
                 asset_id=asset_id,
                 reviewer=request.reviewer,
                 reason=request.reason,
+                tenant_id=tenant_id,
             )
         except KeyError as exc:
             raise HTTPException(
@@ -2171,6 +3123,7 @@ def create_app(
         owner: str | None = Query(default=None, description="filter: exact owner"),
         k: int = Query(default=5, ge=1, le=50),
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_KNOWLEDGE_SEARCH)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
         if app.state.retriever is None:
             raise HTTPException(
@@ -2180,14 +3133,19 @@ def create_app(
                     "(e.g. factory.build_knowledge_retriever()) to enable this endpoint."
                 ),
             )
-        return search_service(app.state.retriever, text=q, metric_name=metric, owner=owner, k=k)
+        return search_service(
+            app.state.retriever, text=q, metric_name=metric, owner=owner, k=k, tenant_id=tenant_id
+        )
 
     @app.get("/traces/{trace_id}", response_model=TraceResponse)
     def get_trace(
         trace_id: str,
         _: ApiPrincipal = Depends(require_api_scope(API_SCOPE_TRACE_READ)),
+        tenant_id: str = Depends(require_tenant_id),
     ) -> dict[str, Any]:
-        payload = trace_service(app.state.runtime.trace_store, trace_id=trace_id)
+        payload = trace_service(
+            app.state.runtime.trace_store, trace_id=trace_id, tenant_id=tenant_id
+        )
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No run trace for {trace_id!r}.")
         return payload

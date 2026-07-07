@@ -9,35 +9,76 @@ from pathlib import Path
 from typing import Any
 
 from agent_os_contracts import (
+    ActionCandidate,
     ActionConnectorContract,
     ConnectorExecutionSemantics,
+    DataClassification,
     MetricContract,
     ProviderContract,
     ProviderKind,
+    QualityContract,
+    RiskLevel,
     SQLTemplate,
+)
+from agent_os_contracts import (
+    LinkType,
+    ObjectLink,
+    ObjectProperty,
+    SemanticObject,
 )
 from agent_os_core import (
     AdoptionIngest,
     AdoptionLedger,
+    ApprovalRouter,
     CheckpointStorePort,
     ApprovalLiteRuntime,
     CorrigibilityShell,
+    DashboardStorePort,
+    InMemoryDashboardStore,
+    InMemoryTenantStore,
+    InMemoryUsageStore,
     ProviderRegistry,
+    SemanticGraph,
     SemanticRegistry,
-    TemplateRegistry,
+    TenantStorePort,
     TrustedLoopRuntime,
+    UsageStorePort,
 )
+from agent_os_contracts import RuntimeFeatureFlags
+from agent_os_core.policy_engine import (
+    AutoExecutionPolicyStore,
+    PolicyApprovalRecordStore,
+    PolicyEngine,
+)
+from agent_os_core.workflow import WorkflowRuntime
+from agent_os_core.mcp_gateway import McpGatewayRegistry, McpToolRouter
+from agent_os_core.workflow_store import InMemoryWorkflowStore
+from agent_os_core.agent_runtime import AgentTraceWriter, TrustedLoopAgentRuntimeAdapter
 from agent_os_core.action_connectors import ActionConnectorRegistry
+from agent_os_core.nl_query import NLQueryEngine
 from agent_os_core.query_runtime import SQLiteQueryExecutor, StaticQueryExecutor
+
+from .executor_factory import ExecutorFactory
+from .staged_out_trace import build_staged_out_trace_sink
+from .heavy_infra_adapters import HeavyInfrastructureAdapters, build_heavy_infrastructure_adapters
 
 # Executor selection values accepted by RuntimeFactoryConfig.executor and --executor.
 EXECUTOR_STATIC = "static"
 EXECUTOR_SQLITE = "sqlite"
 EXECUTOR_POSTGRES = "postgres"
+EXECUTOR_PROVIDER = "provider"
 
 # Store backend selection for the loop's stateful stores (feedback/knowledge/snapshot).
 STORE_MEMORY = "memory"
 STORE_POSTGRES = "postgres"
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").lower() in ("1", "true", "yes", "on")
+
+
+def _env_flag_value(val: str | None) -> bool:
+    return bool(val) and val.lower() in ("1", "true", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -62,6 +103,13 @@ class RuntimeFactoryConfig:
     # PostgreSQL DSN for the postgres query executor (separate from the store DSN).
     # The query executor reads business data; the store backend persists runtime state.
     postgres_dsn: str | None = None
+    # Staged-out capability flags (ADR-0013); all default off.
+    r4_r5_auto_execution: bool = False
+    full_bpm_workflow: bool = False
+    mcp_gateway: bool = False
+    temporal_orchestration: bool = False
+    opa_external_policy: bool = False
+    trino_federation: bool = False
 
     # 12-factor environment wiring (AR-20260611). Same DSN convention as Alembic's env.py.
     ENV_DOMAIN_PACK = "AGENT_OS_DOMAIN_PACK"
@@ -79,10 +127,10 @@ class RuntimeFactoryConfig:
         """
         data: Mapping[str, str] = os.environ if env is None else env
         executor = data.get(cls.ENV_EXECUTOR, EXECUTOR_STATIC)
-        if executor not in (EXECUTOR_STATIC, EXECUTOR_SQLITE, EXECUTOR_POSTGRES):
+        if executor not in (EXECUTOR_STATIC, EXECUTOR_SQLITE, EXECUTOR_POSTGRES, EXECUTOR_PROVIDER):
             raise ValueError(
                 f"{cls.ENV_EXECUTOR}={executor!r} is not one of "
-                f"{EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}, {EXECUTOR_POSTGRES!r}."
+                f"{EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}, {EXECUTOR_POSTGRES!r}, {EXECUTOR_PROVIDER!r}."
             )
         backend = data.get(cls.ENV_STORE_BACKEND, STORE_MEMORY)
         if backend not in (STORE_MEMORY, STORE_POSTGRES):
@@ -106,6 +154,12 @@ class RuntimeFactoryConfig:
             store_backend=backend,
             database_url=database_url,
             postgres_dsn=postgres_dsn,
+            r4_r5_auto_execution=_env_flag_value(data.get("AGENT_OS_R4_R5_AUTO_EXECUTION")),
+            full_bpm_workflow=_env_flag_value(data.get("AGENT_OS_FULL_BPM_WORKFLOW")),
+            mcp_gateway=_env_flag_value(data.get("AGENT_OS_MCP_GATEWAY")),
+            temporal_orchestration=_env_flag_value(data.get("AGENT_OS_TEMPORAL_ORCHESTRATION")),
+            opa_external_policy=_env_flag_value(data.get("AGENT_OS_OPA_EXTERNAL_POLICY")),
+            trino_federation=_env_flag_value(data.get("AGENT_OS_TRINO_FEDERATION")),
         )
 
 
@@ -130,15 +184,149 @@ class ContentCommerceRuntimeFactory:
         # adapters can checkpoint/resume through the configured backend without
         # importing persistence into OS Core.
         self._agent_checkpoint_store: CheckpointStorePort | None = None
+        # ONE MCP gateway registry per factory (workstream C): server/tool registrations
+        # persist for the factory lifetime; concrete transports are injected as handlers.
+        self._mcp_gateway_registry: McpGatewayRegistry | None = None
+        # ONE policy-approval record store per factory (workstream E): shared across
+        # every TrustedLoopRuntime built by this factory.
+        self._policy_approval_record_store: Any | None = None
+        self._workflow_store: Any | None = None
+        self._auto_execution_policy_store: Any | None = None
+        self._policy_engine: PolicyEngine | None = None
+        self._workflow_runtime: WorkflowRuntime | None = None
+        self._trace_store_port: Any | None = None
+        self._heavy_infra: HeavyInfrastructureAdapters | None = None
+
+    def build_heavy_infrastructure_adapters(self) -> HeavyInfrastructureAdapters:
+        if self._heavy_infra is None:
+            self._heavy_infra = build_heavy_infrastructure_adapters(self._runtime_feature_flags())
+        return self._heavy_infra
+
+    def _shared_trace_store(self) -> Any:
+        """One trace store per factory — shared by TrustedLoop, CLI audit, and C/D sinks."""
+        if self._trace_store_port is not None:
+            return self._trace_store_port
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlTraceStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            self._trace_store_port = SqlTraceStore(engine)
+        else:
+            from agent_os_core.trace import InMemoryTraceStore
+
+            self._trace_store_port = InMemoryTraceStore()
+        return self._trace_store_port
+
+    def load_domain_pack_manifest(self) -> Any:
+        """Load DomainPack metadata via the SDK loader (workstream B convergence)."""
+        from agent_os_sdk.domain_pack import DomainPackLoader
+
+        loader = DomainPackLoader()
+        packs = loader.load_from_directory(str(self.config.domain_pack_path))
+        if not packs:
+            raise ValueError(f"No domain pack manifest under {self.config.domain_pack_path}")
+        return packs[0]
+
+    def _validate_metrics_against_manifest(self, metrics: dict[str, MetricContract]) -> None:
+        manifest = self.load_domain_pack_manifest()
+        declared = set(manifest.metric_contracts)
+        loaded = set(metrics.keys())
+        missing = declared - loaded
+        if missing:
+            raise ValueError(
+                f"Domain pack manifest declares metrics not loaded from metrics.json: "
+                f"{sorted(missing)}"
+            )
+
+    def _runtime_feature_flags(self) -> RuntimeFeatureFlags:
+        return RuntimeFeatureFlags(
+            r4_r5_auto_execution=self.config.r4_r5_auto_execution,
+            full_bpm_workflow=self.config.full_bpm_workflow,
+            mcp_gateway=self.config.mcp_gateway,
+            temporal_orchestration=self.config.temporal_orchestration,
+            opa_external_policy=self.config.opa_external_policy,
+            trino_federation=self.config.trino_federation,
+        )
+
+    def build_policy_approval_record_store(self) -> Any:
+        """Policy approval record store for workstream E (memory or postgres)."""
+        if self._policy_approval_record_store is not None:
+            return self._policy_approval_record_store
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlPolicyApprovalRecordStore
+
+            self._policy_approval_record_store = SqlPolicyApprovalRecordStore(
+                self._resolve_engine()
+            )
+        else:
+            self._policy_approval_record_store = PolicyApprovalRecordStore()
+        return self._policy_approval_record_store
+
+    def build_workflow_store(self) -> Any:
+        if self._workflow_store is not None:
+            return self._workflow_store
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlWorkflowStore
+
+            self._workflow_store = SqlWorkflowStore(self._resolve_engine())
+        else:
+            self._workflow_store = InMemoryWorkflowStore()
+        return self._workflow_store
+
+    def build_auto_execution_policy_store(self) -> Any:
+        if self._auto_execution_policy_store is not None:
+            return self._auto_execution_policy_store
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlAutoExecutionPolicyStore
+
+            self._auto_execution_policy_store = SqlAutoExecutionPolicyStore(self._resolve_engine())
+        else:
+            self._auto_execution_policy_store = AutoExecutionPolicyStore()
+        return self._auto_execution_policy_store
+
+    def build_policy_engine(self) -> PolicyEngine | None:
+        flags = self._runtime_feature_flags()
+        if not flags.r4_r5_auto_execution:
+            return None
+        if self._policy_engine is None:
+            shell = self.corrigibility_shell().view()
+            self._policy_engine = PolicyEngine(
+                flags,
+                record_store=self.build_policy_approval_record_store(),
+                policy_store=self.build_auto_execution_policy_store(),
+                shell=shell,
+            )
+        return self._policy_engine
+
+    def build_workflow_runtime(self) -> WorkflowRuntime | None:
+        flags = self._runtime_feature_flags()
+        if not flags.full_bpm_workflow:
+            return None
+        if self._workflow_runtime is None:
+            self._workflow_runtime = WorkflowRuntime(
+                flags,
+                workflow_store=self.build_workflow_store(),
+                trace_sink=build_staged_out_trace_sink(self._shared_trace_store()),
+            )
+        return self._workflow_runtime
+
+    def mcp_registry(self) -> McpGatewayRegistry | None:
+        if not self._runtime_feature_flags().mcp_gateway:
+            return None
+        if self._mcp_gateway_registry is None:
+            self._mcp_gateway_registry = McpGatewayRegistry()
+        return self._mcp_gateway_registry
 
     def build(self) -> TrustedLoopRuntime:
-        metrics = self._load_metrics()
-        providers = self._load_providers()
+        # Templates remain the source of truth for verified query text; they are
+        # folded into MetricContract.verified_queries so the DataProductCompiler
+        # can select and bind plans without a hard-coded runtime template registry.
         templates = self._load_sql_templates()
+        metrics = self._load_metrics(templates)
+        self._validate_metrics_against_manifest(metrics)
+        providers = self._load_providers()
         default_metric = metrics[templates[0].metric_name]
-        # Strict registry: every metric the runtime serves must have its own template;
-        # a metric without one fails loudly instead of running the wrong SQL.
-        template_registry = TemplateRegistry(templates)
 
         # API layer owns connector construction (OS Core must not import connectors)
         connector_registry = self._build_default_connector_registry()
@@ -154,12 +342,19 @@ class ContentCommerceRuntimeFactory:
             trace_store,
         ) = self._build_stores()
 
+        query_executor, executor_factory = self._build_query_executor(providers)
+        semantic_graph = self._load_semantic_graph()
+        semantic_registry = SemanticRegistry(
+            metric_contracts=tuple(metrics.values()),
+            semantic_graph=semantic_graph,
+        )
         return TrustedLoopRuntime(
             metric_contract=default_metric,
-            template_registry=template_registry,
-            query_executor=self._build_query_executor(providers),
-            semantic_registry=SemanticRegistry(metric_contracts=tuple(metrics.values())),
+            query_executor=query_executor,
+            executor_factory=executor_factory,
+            semantic_registry=semantic_registry,
             provider_registry=ProviderRegistry(tuple(providers.values())),
+            nl_query_engine=NLQueryEngine(metric_registry=semantic_registry),
             connector_registry=connector_registry,
             knowledge_store=knowledge_store,
             feedback_store=feedback_store,
@@ -170,13 +365,64 @@ class ContentCommerceRuntimeFactory:
             # Read-side of the learning loop: the runtime recalls prior knowledge
             # through the SAME retriever the search surfaces use.
             knowledge_retriever=self.build_knowledge_retriever(),
-            trace_store=trace_store,
+            trace_store=trace_store or self._shared_trace_store(),
             # Read-only port onto the external adoption value channel (P5.1a):
             # the runtime can read realized value, never write it.
             adoption_ledger_view=self._adoption_ledger_singleton().view(),
             # Read-only capability view: runtime can observe pause state and audit
             # refusal, but it cannot pause/resume itself.
             shell_view=self.corrigibility_shell().view(),
+            approval_router=self.build_approval_router(),
+        )
+
+    def build_approval_router(self) -> ApprovalRouter | None:
+        """Construct the runtime approval router (AR-20260707 / ADR-0013).
+
+        Reachable from the real app build path. Reads the staged-out feature
+        flags from the environment and wires PolicyEngine + WorkflowRuntime when
+        their flags are on. Returns None when no D/E flag is on (current MVP path,
+        unchanged). MCP (workstream C) uses a separate gateway path.
+        """
+        flags = self._runtime_feature_flags()
+        if not (flags.r4_r5_auto_execution or flags.full_bpm_workflow):
+            return None
+        policy_engine = self.build_policy_engine()
+        workflow_runtime = self.build_workflow_runtime()
+        return ApprovalRouter(
+            flags,
+            policy_engine=policy_engine,
+            workflow_runtime=workflow_runtime,
+        )
+
+    def build_mcp_gateway(self) -> McpToolRouter | None:
+        """MCP tool router for workstream C (default off)."""
+        flags = self._runtime_feature_flags()
+        if not flags.mcp_gateway:
+            return None
+        registry = self.mcp_registry()
+        assert registry is not None
+        return McpToolRouter(
+            registry,
+            flags,
+            shell=self.corrigibility_shell().view(),
+            trace_sink=build_staged_out_trace_sink(self._shared_trace_store()),
+        )
+
+    def build_agent_runtime_adapter(
+        self,
+        trusted_loop: TrustedLoopRuntime,
+        *,
+        checkpoint_store: CheckpointStorePort | None = None,
+        trace_writer: AgentTraceWriter | None = None,
+        mcp_router: McpToolRouter | None = None,
+    ) -> TrustedLoopAgentRuntimeAdapter:
+        """Request-scoped Agent Runtime adapter with optional MCP tools attached."""
+        return TrustedLoopAgentRuntimeAdapter(
+            trusted_loop,
+            checkpoint_store=checkpoint_store or self.build_agent_checkpoint_store(),
+            shell_view=getattr(trusted_loop, "shell_view", None),
+            trace_writer=trace_writer,
+            mcp_router=mcp_router if mcp_router is not None else self.build_mcp_gateway(),
         )
 
     def _adoption_ledger_singleton(self) -> AdoptionLedger:
@@ -236,7 +482,6 @@ class ContentCommerceRuntimeFactory:
                 SqlFeedbackStore,
                 SqlKnowledgeStore,
                 SqlSnapshotStore,
-                SqlTraceStore,
                 SqlUnitOfWork,
                 create_all,
             )
@@ -266,7 +511,7 @@ class ContentCommerceRuntimeFactory:
                 ApprovalLiteRuntime(store=SqlApprovalStore(engine)),
                 SqlApprovalContextStore(engine),
                 uow,
-                SqlTraceStore(engine),
+                self._shared_trace_store(),
             )
         raise ValueError(
             f"Unknown store_backend {backend!r}; expected {STORE_MEMORY!r} or {STORE_POSTGRES!r}."
@@ -299,20 +544,57 @@ class ContentCommerceRuntimeFactory:
     def build_trace_store(self) -> Any:
         """A standalone TraceStorePort for audit surfaces (CLI ``trace``).
 
-        ``memory`` returns a fresh per-process store (a separate CLI invocation
-        cannot see a prior process's runs); ``postgres`` returns a SqlTraceStore
-        over the shared engine, so any past run is auditable cross-process.
+        Returns the same store instance used by ``build()`` and staged-out C/D sinks.
+        """
+        return self._shared_trace_store()
+
+    def build_usage_store(self) -> UsageStorePort:
+        """A standalone UsageStorePort for quota gating.
+
+        ``memory`` returns a fresh per-process in-memory store; ``postgres``
+        returns a SqlUsageStore over the shared engine so usage accumulates
+        across app instances.
         """
         if self.config.store_backend == STORE_MEMORY:
-            from agent_os_core import InMemoryTraceStore
-
-            return InMemoryTraceStore()
+            return InMemoryUsageStore()
         if self.config.store_backend == STORE_POSTGRES:
-            from agent_os_persistence import SqlTraceStore, create_all
+            from agent_os_persistence import SqlUsageStore, create_all
 
             engine = self._resolve_engine()
             create_all(engine)
-            return SqlTraceStore(engine)
+            return SqlUsageStore(engine)
+        raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+
+    def build_tenant_store(self) -> TenantStorePort:
+        """A standalone TenantStorePort for tenant provisioning.
+
+        ``memory`` returns a fresh per-process in-memory store; ``postgres`` returns
+        a SqlTenantStore over the shared engine so tenant metadata survives restarts.
+        """
+        if self.config.store_backend == STORE_MEMORY:
+            return InMemoryTenantStore()
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlTenantStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            return SqlTenantStore(engine)
+        raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
+
+    def build_dashboard_store(self) -> DashboardStorePort:
+        """A standalone DashboardStorePort for the NL Data Product Workspace.
+
+        ``memory`` returns a fresh per-process in-memory store; ``postgres`` returns
+        a SqlDashboardStore over the shared engine so dashboards survive restarts.
+        """
+        if self.config.store_backend == STORE_MEMORY:
+            return InMemoryDashboardStore()
+        if self.config.store_backend == STORE_POSTGRES:
+            from agent_os_persistence import SqlDashboardStore, create_all
+
+            engine = self._resolve_engine()
+            create_all(engine)
+            return SqlDashboardStore(engine)
         raise ValueError(f"Unknown store_backend {self.config.store_backend!r}.")
 
     def build_agent_checkpoint_store(self) -> CheckpointStorePort:
@@ -377,7 +659,7 @@ class ContentCommerceRuntimeFactory:
 
     def _build_query_executor(
         self, providers: dict[str, ProviderContract]
-    ) -> StaticQueryExecutor | SQLiteQueryExecutor | Any:
+    ) -> tuple[StaticQueryExecutor | SQLiteQueryExecutor | Any | None, Any | None]:
         """Select and construct the injected query executor.
 
         The static path (default) keeps the deterministic fixture rows. The sqlite
@@ -385,29 +667,35 @@ class ContentCommerceRuntimeFactory:
         seeds the Customer-0 reference data behind ProviderContract, and hands a
         generic SQLiteQueryExecutor a connection. The postgres path creates a
         PostgresQueryExecutor from the composition layer using the configured DSN.
+        The provider path defers executor construction to the provider's
+        ``ProviderContract.connection``: the runtime receives an ``executor_factory``
+        that builds the right executor (CSV, SQLite, PostgreSQL, MySQL, ClickHouse,
+        Feishu) at query time based on the selected provider.
         OS Core never sees the data or imports database drivers.
         """
         if self.config.executor == EXECUTOR_STATIC:
-            return StaticQueryExecutor(list(self.config.sample_rows))
+            return StaticQueryExecutor(list(self.config.sample_rows)), None
         if self.config.executor == EXECUTOR_SQLITE:
             connection = self._build_seeded_connection(providers)
-            return SQLiteQueryExecutor(connection)
+            return SQLiteQueryExecutor(connection), None
         if self.config.executor == EXECUTOR_POSTGRES:
             from .postgres_executor import PostgresQueryExecutor
 
             # When a store_engine is injected, reuse it for the query executor
             # (same database, shared connection pool).  Otherwise use the DSN.
             if self.config.store_engine is not None:
-                return PostgresQueryExecutor(engine=self.config.store_engine)
+                return PostgresQueryExecutor(engine=self.config.store_engine), None
             if not self.config.postgres_dsn:
                 raise ValueError(
                     f"executor={EXECUTOR_POSTGRES!r} requires postgres_dsn or store_engine."
                 )
-            return PostgresQueryExecutor(self.config.postgres_dsn)
+            return PostgresQueryExecutor(self.config.postgres_dsn), None
+        if self.config.executor == EXECUTOR_PROVIDER:
+            return None, ExecutorFactory.from_provider_contract
         raise ValueError(
             f"Unknown executor {self.config.executor!r}; "
             f"expected {EXECUTOR_STATIC!r}, {EXECUTOR_SQLITE!r}, "
-            f"or {EXECUTOR_POSTGRES!r}."
+            f"{EXECUTOR_POSTGRES!r}, or {EXECUTOR_PROVIDER!r}."
         )
 
     def _build_seeded_connection(
@@ -508,23 +796,140 @@ class ContentCommerceRuntimeFactory:
         )
         return registry
 
-    def _load_metrics(self) -> dict[str, MetricContract]:
+    def _load_metrics(self, templates: tuple[SQLTemplate, ...]) -> dict[str, MetricContract]:
         rows = self._read_json("metrics.json")
+        templates_by_metric: dict[str, list[SQLTemplate]] = {}
+        for template in templates:
+            templates_by_metric.setdefault(template.metric_name, []).append(template)
+
         metrics: dict[str, MetricContract] = {}
         for row in rows:
-            metric = MetricContract(
-                metric_name=row["metric_name"],
+            metric_name = row["metric_name"]
+            verified_queries = self._load_verified_queries(
+                row.get("verified_queries"), templates_by_metric.get(metric_name, ())
+            )
+            quality_contract = self._load_quality_contract(row.get("quality_contract"))
+            action_candidates = self._load_action_candidates(row.get("action_candidates"))
+            metrics[metric_name] = MetricContract(
+                metric_name=metric_name,
                 display_name=row["display_name"],
                 definition=row["definition"],
                 owner=row["owner"],
                 unit=row["unit"],
                 allowed_schemas=tuple(row["allowed_schemas"]),
+                version=row.get("version", "v1"),
                 dimensions=tuple(row.get("dimensions", ())),
+                data_classification=DataClassification(row.get("data_classification", "internal")),
+                verified_queries=verified_queries,
+                quality_contract=quality_contract,
+                action_candidates=action_candidates,
+                feedback_metric=row.get("feedback_metric"),
             )
-            metrics[metric.metric_name] = metric
         if not metrics:
             raise ValueError("Domain pack must define at least one metric.")
         return metrics
+
+    def _load_verified_queries(
+        self,
+        query_rows: list[dict[str, Any]] | None,
+        fallback_templates: tuple[SQLTemplate, ...],
+    ) -> tuple[SQLTemplate, ...]:
+        if not query_rows:
+            return fallback_templates
+        return tuple(
+            SQLTemplate(
+                template_id=q["template_id"],
+                metric_name=q["metric_name"],
+                sql=q["sql"],
+                required_parameters=tuple(q.get("required_parameters", ())),
+                required_time_parameters=tuple(
+                    q.get("required_time_parameters", ("start_date", "end_date"))
+                ),
+                default_limit=int(q.get("default_limit", 100)),
+                max_limit=int(q.get("max_limit", 1000)),
+                allow_select_star=bool(q.get("allow_select_star", False)),
+            )
+            for q in query_rows
+        )
+
+    def _load_quality_contract(self, payload: dict[str, Any] | None) -> QualityContract | None:
+        if not payload:
+            return None
+        return QualityContract(
+            freshness=payload.get("freshness"),
+            null_rate=payload.get("null_rate"),
+            owner=payload.get("owner"),
+        )
+
+    def _load_action_candidates(
+        self, payload: list[dict[str, Any]] | None
+    ) -> tuple[ActionCandidate, ...]:
+        if not payload:
+            return ()
+        return tuple(
+            ActionCandidate(
+                action_id=c["action_id"],
+                trigger=c.get("trigger"),
+                risk_level=RiskLevel(c.get("risk_level", "R2")),
+                description=c.get("description", ""),
+            )
+            for c in payload
+        )
+
+    def _load_semantic_graph(self) -> SemanticGraph:
+        """Load domain-pack semantic objects + link types + links into a graph.
+
+        Returns an empty graph when the domain pack has no semantic_objects.json,
+        so older packs remain backward compatible.
+        """
+        graph = SemanticGraph()
+        path = self.config.domain_pack_path / "semantic_objects.json"
+        if not path.exists():
+            return graph
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for row in data.get("objects", []):
+            props = tuple(
+                ObjectProperty(
+                    name=p["name"],
+                    data_type=p["data_type"],
+                    required=p.get("required", False),
+                    description=p.get("description", ""),
+                    bound_column=p.get("bound_column"),
+                )
+                for p in row.get("properties", [])
+            )
+            graph.register_object(
+                SemanticObject(
+                    object_id=row["object_id"],
+                    name=row["name"],
+                    object_type=row["object_type"],
+                    description=row.get("description", ""),
+                    owner=row.get("owner", ""),
+                    aliases=tuple(row.get("aliases", [])),
+                    related_metrics=tuple(row.get("related_metrics", [])),
+                    properties=props,
+                )
+            )
+        for row in data.get("link_types", []):
+            graph.register_link_type(
+                LinkType(
+                    link_type_id=row["link_type_id"],
+                    name=row["name"],
+                    source_object_type=row["source_object_type"],
+                    target_object_type=row["target_object_type"],
+                    description=row.get("description", ""),
+                )
+            )
+        for row in data.get("links", []):
+            graph.register_link(
+                ObjectLink(
+                    link_id=row["link_id"],
+                    link_type_id=row["link_type_id"],
+                    source_object_id=row["source_object_id"],
+                    target_object_id=row["target_object_id"],
+                )
+            )
+        return graph
 
     def _load_providers(self) -> dict[str, ProviderContract]:
         rows = self._read_json("providers.json")

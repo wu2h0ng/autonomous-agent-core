@@ -261,17 +261,28 @@ class InMemoryReportSnapshotStore:
     """
 
     def __init__(self) -> None:
-        self._by_trace: dict[str, dict[str, dict[str, Any]]] = {}
+        self._by_tenant: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
 
-    def save(self, trace_id: str, snapshots_by_audience: dict[str, dict[str, Any]]) -> None:
-        self._by_trace[trace_id] = {
+    def _tenant_map(self, tenant_id: str) -> dict[str, dict[str, dict[str, Any]]]:
+        return self._by_tenant.setdefault(tenant_id, {})
+
+    def save(
+        self,
+        trace_id: str,
+        snapshots_by_audience: dict[str, dict[str, Any]],
+        *,
+        tenant_id: str = "default",
+    ) -> None:
+        self._tenant_map(tenant_id)[trace_id] = {
             audience: deepcopy(snapshot)
             for audience, snapshot in snapshots_by_audience.items()
             if audience in REPORT_AUDIENCES
         }
 
-    def get(self, trace_id: str, audience: str) -> dict[str, Any] | None:
-        snapshots = self._by_trace.get(trace_id)
+    def get(
+        self, trace_id: str, audience: str, *, tenant_id: str = "default"
+    ) -> dict[str, Any] | None:
+        snapshots = self._tenant_map(tenant_id).get(trace_id)
         if snapshots is None:
             return None
         snapshot = snapshots.get(audience)
@@ -334,11 +345,12 @@ def _persist_agent_runtime_success_trace(
     *,
     trace_id: str,
     agent_runtime_adapter: Any,
+    tenant_id: str = "default",
 ) -> None:
     trace_store = getattr(runtime, "trace_store", None)
     if trace_store is None:
         return
-    existing = trace_store.get(trace_id)
+    existing = trace_store.get(trace_id, tenant_id=tenant_id)
     if existing is None:
         return
     runtime_events = _safe_agent_runtime_events(
@@ -354,7 +366,10 @@ def _persist_agent_runtime_success_trace(
     post_loop_events = tuple(
         event for event in runtime_events if event.step not in AGENT_RUNTIME_PRE_LOOP_TRACE_STEPS
     )
-    trace_store.save(replace(existing, events=pre_loop_events + existing.events + post_loop_events))
+    trace_store.save(
+        replace(existing, events=pre_loop_events + existing.events + post_loop_events),
+        tenant_id=tenant_id,
+    )
 
 
 def _persist_agent_runtime_appended_trace(
@@ -363,6 +378,7 @@ def _persist_agent_runtime_appended_trace(
     trace_id: str,
     agent_runtime_adapter: Any,
     knowledge_context_refs: tuple[str, ...] = (),
+    tenant_id: str = "default",
 ) -> None:
     trace_store = getattr(runtime, "trace_store", None)
     if trace_store is None:
@@ -376,11 +392,17 @@ def _persist_agent_runtime_appended_trace(
     )
     if not runtime_events:
         return
-    existing = trace_store.get(trace_id)
+    existing = trace_store.get(trace_id, tenant_id=tenant_id)
     if existing is None:
-        trace_store.save(RunTrace(trace_id=trace_id, status="ok", events=runtime_events))
+        trace_store.save(
+            RunTrace(trace_id=trace_id, status="ok", events=runtime_events),
+            tenant_id=tenant_id,
+        )
         return
-    trace_store.save(replace(existing, events=existing.events + runtime_events))
+    trace_store.save(
+        replace(existing, events=existing.events + runtime_events),
+        tenant_id=tenant_id,
+    )
 
 
 def _knowledge_context_refs_from_output(output: Any) -> tuple[str, ...]:
@@ -399,6 +421,7 @@ def _persist_agent_runtime_terminal_trace(
     agent_context: Any,
     status: str,
     block_message: str | None = None,
+    tenant_id: str = "default",
 ) -> None:
     trace_store = getattr(runtime, "trace_store", None)
     if trace_store is None:
@@ -433,11 +456,17 @@ def _persist_agent_runtime_terminal_trace(
                 },
             )
         )
-    existing = trace_store.get(trace_id)
+    existing = trace_store.get(trace_id, tenant_id=tenant_id)
     if existing is not None:
-        trace_store.save(replace(existing, events=existing.events + tuple(events)))
+        trace_store.save(
+            replace(existing, events=existing.events + tuple(events)),
+            tenant_id=tenant_id,
+        )
         return
-    trace_store.save(RunTrace(trace_id=trace_id, status=status, events=tuple(events)))
+    trace_store.save(
+        RunTrace(trace_id=trace_id, status=status, events=tuple(events)),
+        tenant_id=tenant_id,
+    )
 
 
 def _primary_metric_value(rows: tuple[dict[str, Any], ...], metric_name: str) -> Any | None:
@@ -822,13 +851,17 @@ def search_service(
     metric_name: str | None = None,
     owner: str | None = None,
     k: int = 5,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Search the knowledge memory and return JSON-able, explainable results.
 
     The real entry point for the KnowledgeRetriever capability (used by the CLI
     ``search`` subcommand). Each result carries its score breakdown (the "why").
     """
-    results = retriever.search(KnowledgeQuery(text=text, metric_name=metric_name, owner=owner, k=k))
+    results = retriever.search(
+        KnowledgeQuery(text=text, metric_name=metric_name, owner=owner, k=k),
+        tenant_id=tenant_id,
+    )
     return {
         "results": [
             {
@@ -848,6 +881,7 @@ def run_service(
     question: str,
     parameters: dict[str, Any],
     audience: str = "internal",
+    tenant_id: str = "default",
     agent_runtime_adapter: Any | None = None,
     agent_context: Any | None = None,
     report_store: Any | None = None,
@@ -862,7 +896,7 @@ def run_service(
     no template, no provider) — a unified, JSON-able failure contract.
     """
     if agent_runtime_adapter is None:
-        outcome = runtime.evaluate(question, parameters)
+        outcome = runtime.evaluate(question, parameters, tenant_id=tenant_id)
     else:
         if agent_context is None:
             raise ValueError("agent_context is required when agent_runtime_adapter is provided.")
@@ -933,8 +967,9 @@ def run_service(
             runtime,
             trace_id=trace_id,
             agent_runtime_adapter=agent_runtime_adapter,
+            tenant_id=tenant_id,
         )
-    asset = runtime.knowledge_store.get_by_trace(trace_id)
+    asset = runtime.knowledge_store.get_by_trace(trace_id, tenant_id=tenant_id)
     internal_user_result = _build_user_result_artifact(result, audience="internal")
     external_user_result = _build_user_result_artifact(result, audience="external")
     audience = _normalize_report_audience(audience)
@@ -954,6 +989,7 @@ def run_service(
                     "user_result": external_user_result,
                 },
             },
+            tenant_id=tenant_id,
         )
 
     return {
@@ -966,7 +1002,7 @@ def run_service(
         "row_count": result.evidence_chain.query_result.row_count,
         "trace_steps": [event.step for event in result.trace_events],
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
-        "knowledge_version": runtime.knowledge_store.version_of(trace_id),
+        "knowledge_version": runtime.knowledge_store.version_of(trace_id, tenant_id=tenant_id),
         # Read-side of the learning loop (AR-20260611): prior knowledge recalled
         # for this question, surfaced as advisory, explainable context.
         "related_knowledge": [
@@ -974,6 +1010,12 @@ def run_service(
             for r in result.related_knowledge
         ],
         "user_result": selected_user_result,
+        # Conversation context: the resolved metric and time window are carried
+        # forward for multi-turn follow-up questions.
+        "query_plan": {
+            "metric_name": result.query_plan.metric_name,
+            "parameters": dict(result.query_plan.parameters),
+        },
     }
 
 
@@ -982,13 +1024,16 @@ def report_snapshot_service(
     *,
     trace_id: str,
     audience: str = "internal",
+    tenant_id: str = "default",
 ) -> dict[str, Any] | None:
     """Return an already-built report projection without re-entering the loop."""
     audience = _normalize_report_audience(audience)
-    return report_store.get(trace_id, audience)
+    return report_store.get(trace_id, audience, tenant_id=tenant_id)
 
 
-def trace_service(trace_store: Any, *, trace_id: str) -> dict[str, Any] | None:
+def trace_service(
+    trace_store: Any, *, trace_id: str, tenant_id: str = "default"
+) -> dict[str, Any] | None:
     """Fetch the persisted RunTrace for ``trace_id`` (observability v1, AR-20260611).
 
     Takes the ``TraceStorePort`` directly (HTTP passes ``runtime.trace_store``;
@@ -996,7 +1041,7 @@ def trace_service(trace_store: Any, *, trace_id: str) -> dict[str, Any] | None:
     when no run with that trace_id was persisted — the caller decides the
     transport-level not-found shape.
     """
-    run_trace = trace_store.get(trace_id)
+    run_trace = trace_store.get(trace_id, tenant_id=tenant_id)
     if run_trace is None:
         return None
     return {
@@ -1022,6 +1067,7 @@ def approve_and_execute_service(
     approval_id: str,
     reason: str | None = None,
     approved_by: str | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Approve and execute an approval-bound operation by approval id.
 
@@ -1035,6 +1081,7 @@ def approve_and_execute_service(
         approval_id=approval_id,
         reason=reason,
         approved_by=approved_by,
+        tenant_id=tenant_id,
     )
     return approval_execution_response_payload(approval, operation_trace)
 
@@ -1060,9 +1107,13 @@ def approval_execution_response_payload(approval: Any, operation_trace: Any) -> 
     }
 
 
-def _knowledge_context_refs_for_trace(runtime: Any, trace_id: str) -> list[str]:
+def _knowledge_context_refs_for_trace(
+    runtime: Any, trace_id: str, *, tenant_id: str = "default"
+) -> list[str]:
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(trace_id) if trace_store is not None else None
+    persisted_trace = (
+        trace_store.get(trace_id, tenant_id=tenant_id) if trace_store is not None else None
+    )
     if persisted_trace is None:
         return []
     return _knowledge_context_refs_from_trace_events(persisted_trace)
@@ -1079,13 +1130,17 @@ def _knowledge_context_refs_from_trace_events(persisted_trace: RunTrace) -> list
     return []
 
 
-def _knowledge_context_rationale_for_trace(runtime: Any, trace_id: str) -> list[dict[str, Any]]:
+def _knowledge_context_rationale_for_trace(
+    runtime: Any, trace_id: str, *, tenant_id: str = "default"
+) -> list[dict[str, Any]]:
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(trace_id) if trace_store is not None else None
+    persisted_trace = (
+        trace_store.get(trace_id, tenant_id=tenant_id) if trace_store is not None else None
+    )
     if persisted_trace is None:
         return []
 
-    refs = _knowledge_context_refs_for_trace(runtime, trace_id)
+    refs = _knowledge_context_refs_for_trace(runtime, trace_id, tenant_id=tenant_id)
     return _knowledge_context_rationale_for_persisted_trace(persisted_trace, refs=refs)
 
 
@@ -1226,10 +1281,11 @@ def _knowledge_asset_latest_usage_event_summary(
     runtime: Any,
     *,
     asset_id: str,
+    tenant_id: str = "default",
 ) -> dict[str, Any] | None:
     trace_store = getattr(runtime, "trace_store", None)
     all_traces = getattr(trace_store, "all_traces", None)
-    traces = all_traces() if callable(all_traces) else ()
+    traces = all_traces(tenant_id=tenant_id) if callable(all_traces) else ()
 
     latest: dict[str, Any] | None = None
     for run_trace in traces:
@@ -1252,6 +1308,7 @@ def record_outcome_service(
     outcome: str,
     reviewer: str | None = None,
     metric_deltas: dict[str, Any] | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Record a runtime SELF-REPORT for ``trace_id`` (observation only).
 
@@ -1269,8 +1326,9 @@ def record_outcome_service(
         outcome=outcome,
         reviewer=reviewer,
         metric_deltas=metric_deltas,
+        tenant_id=tenant_id,
     )
-    asset = runtime.knowledge_store.get_by_trace(trace_id)
+    asset = runtime.knowledge_store.get_by_trace(trace_id, tenant_id=tenant_id)
 
     return {
         "feedback_id": feedback.feedback_id,
@@ -1278,11 +1336,14 @@ def record_outcome_service(
         "outcome": outcome,
         "reviewer": reviewer,
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
-        "knowledge_version": runtime.knowledge_store.version_of(trace_id),
-        "knowledge_context_refs": _knowledge_context_refs_for_trace(runtime, trace_id),
+        "knowledge_version": runtime.knowledge_store.version_of(trace_id, tenant_id=tenant_id),
+        "knowledge_context_refs": _knowledge_context_refs_for_trace(
+            runtime, trace_id, tenant_id=tenant_id
+        ),
         "knowledge_context_rationale": _knowledge_context_rationale_for_trace(
             runtime,
             trace_id,
+            tenant_id=tenant_id,
         ),
     }
 
@@ -1297,6 +1358,7 @@ def knowledge_review_queue_service(
     order_by: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return DRAFT KnowledgeAsset candidates awaiting human review.
 
@@ -1315,11 +1377,13 @@ def knowledge_review_queue_service(
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     items: list[dict[str, Any]] = []
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.state.value != "draft":
             continue
         source_trace_id = asset.source_trace_id
-        quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
+        quality = knowledge_asset_decision_quality_service(
+            runtime, asset_id=asset.asset_id, tenant_id=tenant_id
+        )
         quality_status = _knowledge_asset_quality_status(quality)
         derived_review_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status]
         derived_recommended_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[quality_status]
@@ -1351,13 +1415,14 @@ def knowledge_review_queue_service(
                 "outcome": asset.outcome,
                 "result_weight": asset.result_weight,
                 "knowledge_version": (
-                    runtime.knowledge_store.version_of(source_trace_id)
+                    runtime.knowledge_store.version_of(source_trace_id, tenant_id=tenant_id)
                     if source_trace_id is not None
                     else 0
                 ),
                 "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
                     runtime,
                     asset_id=asset.asset_id,
+                    tenant_id=tenant_id,
                 ),
                 "proposal_usage_count": quality["proposal_usage_count"],
                 "correction_usage_count": quality["correction_usage_count"],
@@ -1453,6 +1518,7 @@ def knowledge_asset_catalog_service(
     order_by: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return an internal, read-only KnowledgeAsset lifecycle catalog.
 
@@ -1490,11 +1556,13 @@ def knowledge_asset_catalog_service(
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
 
     items: list[dict[str, Any]] = []
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if allowed_states is not None and asset.state not in allowed_states:
             continue
         source_trace_id = asset.source_trace_id
-        quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
+        quality = knowledge_asset_decision_quality_service(
+            runtime, asset_id=asset.asset_id, tenant_id=tenant_id
+        )
         quality_status = _knowledge_asset_quality_status(quality)
         derived_review_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[quality_status]
         derived_recommended_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[quality_status]
@@ -1517,7 +1585,9 @@ def knowledge_asset_catalog_service(
             continue
         trace_store = getattr(runtime, "trace_store", None)
         persisted_trace = (
-            trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+            trace_store.get(source_trace_id, tenant_id=tenant_id)
+            if trace_store and source_trace_id
+            else None
         )
         items.append(
             {
@@ -1530,7 +1600,7 @@ def knowledge_asset_catalog_service(
                 "outcome": asset.outcome,
                 "result_weight": asset.result_weight,
                 "knowledge_version": (
-                    runtime.knowledge_store.version_of(source_trace_id)
+                    runtime.knowledge_store.version_of(source_trace_id, tenant_id=tenant_id)
                     if source_trace_id is not None
                     else 0
                 ),
@@ -1545,6 +1615,7 @@ def knowledge_asset_catalog_service(
                 "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
                     runtime,
                     asset_id=asset.asset_id,
+                    tenant_id=tenant_id,
                 ),
                 "proposal_usage_count": quality["proposal_usage_count"],
                 "correction_usage_count": quality["correction_usage_count"],
@@ -1649,10 +1720,11 @@ def knowledge_asset_detail_service(
     runtime: Any,
     *,
     asset_id: str,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return safe, read-only metadata for a single KnowledgeAsset."""
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -1662,8 +1734,14 @@ def knowledge_asset_detail_service(
 
     source_trace_id = target.source_trace_id
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
-    quality = knowledge_asset_decision_quality_service(runtime, asset_id=target.asset_id)
+    persisted_trace = (
+        trace_store.get(source_trace_id, tenant_id=tenant_id)
+        if trace_store and source_trace_id
+        else None
+    )
+    quality = knowledge_asset_decision_quality_service(
+        runtime, asset_id=target.asset_id, tenant_id=tenant_id
+    )
     quality_status = _knowledge_asset_quality_status(quality)
     return {
         "status": "ok",
@@ -1676,7 +1754,7 @@ def knowledge_asset_detail_service(
         "outcome": target.outcome,
         "result_weight": target.result_weight,
         "knowledge_version": (
-            runtime.knowledge_store.version_of(source_trace_id)
+            runtime.knowledge_store.version_of(source_trace_id, tenant_id=tenant_id)
             if source_trace_id is not None
             else 0
         ),
@@ -1692,6 +1770,7 @@ def knowledge_asset_detail_service(
         "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
             runtime,
             asset_id=target.asset_id,
+            tenant_id=tenant_id,
         ),
         "proposal_usage_count": quality["proposal_usage_count"],
         "correction_usage_count": quality["correction_usage_count"],
@@ -1713,12 +1792,13 @@ def knowledge_asset_lifecycle_events_service(
     asset_id: str,
     limit: int | None = None,
     offset: int | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return safe, read-only lifecycle audit events for a KnowledgeAsset."""
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -1728,7 +1808,11 @@ def knowledge_asset_lifecycle_events_service(
 
     source_trace_id = target.source_trace_id
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+    persisted_trace = (
+        trace_store.get(source_trace_id, tenant_id=tenant_id)
+        if trace_store and source_trace_id
+        else None
+    )
     if persisted_trace is None:
         return {
             "status": "ok",
@@ -1790,12 +1874,13 @@ def knowledge_asset_usage_events_service(
     asset_id: str,
     limit: int | None = None,
     offset: int | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return safe, read-only usage audit events for a KnowledgeAsset."""
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -1805,7 +1890,7 @@ def knowledge_asset_usage_events_service(
 
     trace_store = getattr(runtime, "trace_store", None)
     all_traces = getattr(trace_store, "all_traces", None)
-    traces = all_traces() if callable(all_traces) else ()
+    traces = all_traces(tenant_id=tenant_id) if callable(all_traces) else ()
 
     projected_events: list[dict[str, Any]] = []
     for run_trace in traces:
@@ -1850,10 +1935,11 @@ def knowledge_asset_decision_quality_service(
     runtime: Any,
     *,
     asset_id: str,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return a safe aggregate of downstream decision-quality usage signals."""
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -1863,7 +1949,7 @@ def knowledge_asset_decision_quality_service(
 
     trace_store = getattr(runtime, "trace_store", None)
     all_traces = getattr(trace_store, "all_traces", None)
-    traces = all_traces() if callable(all_traces) else ()
+    traces = all_traces(tenant_id=tenant_id) if callable(all_traces) else ()
 
     proposal_usage_count = 0
     correction_usage_count = 0
@@ -2119,6 +2205,7 @@ def knowledge_asset_quality_summary_service(
     order_by: str | None = None,
     limit: int | None = None,
     offset: int | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Return a safe, read-only quality catalog for all KnowledgeAssets."""
     quality_status_filter = _normalize_knowledge_asset_quality_status_filter(quality_status)
@@ -2133,8 +2220,10 @@ def knowledge_asset_quality_summary_service(
     limit_filter = _normalize_knowledge_asset_quality_summary_limit(limit)
     offset_filter = _normalize_knowledge_asset_quality_summary_offset(offset)
     items: list[dict[str, Any]] = []
-    for asset in runtime.knowledge_store.all_assets():
-        quality = knowledge_asset_decision_quality_service(runtime, asset_id=asset.asset_id)
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
+        quality = knowledge_asset_decision_quality_service(
+            runtime, asset_id=asset.asset_id, tenant_id=tenant_id
+        )
         derived_status = _knowledge_asset_quality_status(quality)
         derived_priority = _KNOWLEDGE_ASSET_REVIEW_PRIORITY_BY_STATUS[derived_status]
         derived_action = _KNOWLEDGE_ASSET_RECOMMENDED_ACTION_BY_STATUS[derived_status]
@@ -2156,7 +2245,9 @@ def knowledge_asset_quality_summary_service(
         source_trace_id = asset.source_trace_id
         trace_store = getattr(runtime, "trace_store", None)
         persisted_trace = (
-            trace_store.get(source_trace_id) if trace_store and source_trace_id else None
+            trace_store.get(source_trace_id, tenant_id=tenant_id)
+            if trace_store and source_trace_id
+            else None
         )
         items.append(
             {
@@ -2170,6 +2261,7 @@ def knowledge_asset_quality_summary_service(
                 "latest_usage_event": _knowledge_asset_latest_usage_event_summary(
                     runtime,
                     asset_id=asset.asset_id,
+                    tenant_id=tenant_id,
                 ),
                 "proposal_usage_count": quality["proposal_usage_count"],
                 "correction_usage_count": quality["correction_usage_count"],
@@ -2247,6 +2339,7 @@ def knowledge_review_action_service(
     action: str,
     reviewer: str,
     reason: str | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Apply a bounded human review decision to a DRAFT KnowledgeAsset.
 
@@ -2260,7 +2353,7 @@ def knowledge_review_action_service(
         raise ValueError(f"Unsupported knowledge review action: {action}")
 
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -2272,7 +2365,11 @@ def knowledge_review_action_service(
         raise ValueError("KnowledgeAsset.source_trace_id is required for review")
 
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(target.source_trace_id) if trace_store is not None else None
+    persisted_trace = (
+        trace_store.get(target.source_trace_id, tenant_id=tenant_id)
+        if trace_store is not None
+        else None
+    )
     if persisted_trace is None:
         raise RuntimeError(
             f"KnowledgeAsset '{asset_id}' source trace is not persisted: {target.source_trace_id}"
@@ -2285,8 +2382,10 @@ def knowledge_review_action_service(
         LifecycleState.ACTIVE if normalized_action == "approve" else LifecycleState.DEPRECATED
     )
     reviewed = replace(target, state=next_state)
-    runtime.knowledge_store.register_version(reviewed)
-    knowledge_version = runtime.knowledge_store.version_of(target.source_trace_id)
+    runtime.knowledge_store.register_version(reviewed, tenant_id=tenant_id)
+    knowledge_version = runtime.knowledge_store.version_of(
+        target.source_trace_id, tenant_id=tenant_id
+    )
     audit_event = TraceEvent(
         trace_id=target.source_trace_id,
         step="knowledge_review_decision",
@@ -2300,7 +2399,10 @@ def knowledge_review_action_service(
             "reason_present": reason is not None,
         },
     )
-    trace_store.save(replace(persisted_trace, events=persisted_trace.events + (audit_event,)))
+    trace_store.save(
+        replace(persisted_trace, events=persisted_trace.events + (audit_event,)),
+        tenant_id=tenant_id,
+    )
 
     return {
         "status": "ok",
@@ -2323,6 +2425,7 @@ def knowledge_publish_service(
     asset_id: str,
     reviewer: str,
     reason: str | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Publish an already reviewed KnowledgeAsset for governed internal reuse.
 
@@ -2331,7 +2434,7 @@ def knowledge_publish_service(
     externally.
     """
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -2343,7 +2446,11 @@ def knowledge_publish_service(
         raise ValueError("KnowledgeAsset.source_trace_id is required for publish")
 
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(target.source_trace_id) if trace_store is not None else None
+    persisted_trace = (
+        trace_store.get(target.source_trace_id, tenant_id=tenant_id)
+        if trace_store is not None
+        else None
+    )
     if persisted_trace is None:
         raise RuntimeError(
             f"KnowledgeAsset '{asset_id}' source trace is not persisted: {target.source_trace_id}"
@@ -2353,8 +2460,10 @@ def knowledge_publish_service(
         raise RuntimeError(f"KnowledgeAsset '{asset_id}' is not active: {target.state.value}")
 
     published = replace(target, state=LifecycleState.PUBLISHED)
-    runtime.knowledge_store.register_version(published)
-    knowledge_version = runtime.knowledge_store.version_of(target.source_trace_id)
+    runtime.knowledge_store.register_version(published, tenant_id=tenant_id)
+    knowledge_version = runtime.knowledge_store.version_of(
+        target.source_trace_id, tenant_id=tenant_id
+    )
     audit_event = TraceEvent(
         trace_id=target.source_trace_id,
         step="knowledge_publish_decision",
@@ -2368,7 +2477,10 @@ def knowledge_publish_service(
             "reason_present": reason is not None,
         },
     )
-    trace_store.save(replace(persisted_trace, events=persisted_trace.events + (audit_event,)))
+    trace_store.save(
+        replace(persisted_trace, events=persisted_trace.events + (audit_event,)),
+        tenant_id=tenant_id,
+    )
 
     return {
         "status": "ok",
@@ -2391,6 +2503,7 @@ def knowledge_deprecate_service(
     asset_id: str,
     reviewer: str,
     reason: str | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Deprecate a reviewed KnowledgeAsset so it is no longer consumed by default.
 
@@ -2399,7 +2512,7 @@ def knowledge_deprecate_service(
     (`published`). Draft candidates must still go through the review queue.
     """
     target = None
-    for asset in runtime.knowledge_store.all_assets():
+    for asset in runtime.knowledge_store.all_assets(tenant_id=tenant_id):
         if asset.asset_id == asset_id:
             target = asset
             break
@@ -2411,7 +2524,11 @@ def knowledge_deprecate_service(
         raise ValueError("KnowledgeAsset.source_trace_id is required for deprecate")
 
     trace_store = getattr(runtime, "trace_store", None)
-    persisted_trace = trace_store.get(target.source_trace_id) if trace_store is not None else None
+    persisted_trace = (
+        trace_store.get(target.source_trace_id, tenant_id=tenant_id)
+        if trace_store is not None
+        else None
+    )
     if persisted_trace is None:
         raise RuntimeError(
             f"KnowledgeAsset '{asset_id}' source trace is not persisted: {target.source_trace_id}"
@@ -2423,8 +2540,10 @@ def knowledge_deprecate_service(
         )
 
     deprecated = replace(target, state=LifecycleState.DEPRECATED)
-    runtime.knowledge_store.register_version(deprecated)
-    knowledge_version = runtime.knowledge_store.version_of(target.source_trace_id)
+    runtime.knowledge_store.register_version(deprecated, tenant_id=tenant_id)
+    knowledge_version = runtime.knowledge_store.version_of(
+        target.source_trace_id, tenant_id=tenant_id
+    )
     audit_event = TraceEvent(
         trace_id=target.source_trace_id,
         step="knowledge_deprecate_decision",
@@ -2438,7 +2557,10 @@ def knowledge_deprecate_service(
             "reason_present": reason is not None,
         },
     )
-    trace_store.save(replace(persisted_trace, events=persisted_trace.events + (audit_event,)))
+    trace_store.save(
+        replace(persisted_trace, events=persisted_trace.events + (audit_event,)),
+        tenant_id=tenant_id,
+    )
 
     return {
         "status": "ok",
@@ -2464,6 +2586,7 @@ def attest_adoption_service(
     reviewer: str | None = None,
     metric_deltas: dict[str, Any] | None = None,
     causal_attribution: CausalOutcomeAttribution | None = None,
+    tenant_id: str = "default",
 ) -> dict[str, Any]:
     """Attest REALIZED external value and promote the trace's knowledge (P5.1b).
 
@@ -2482,9 +2605,10 @@ def attest_adoption_service(
         reviewer=reviewer,
         metric_deltas=metric_deltas,
         causal_attribution=causal_attribution,
+        tenant_id=tenant_id,
     )
-    revised = runtime.promote_from_adoption(trace_id)
-    asset = runtime.knowledge_store.get_by_trace(trace_id)
+    revised = runtime.promote_from_adoption(trace_id, tenant_id=tenant_id)
+    asset = runtime.knowledge_store.get_by_trace(trace_id, tenant_id=tenant_id)
 
     return {
         "adoption_id": adoption.feedback_id,
@@ -2492,11 +2616,14 @@ def attest_adoption_service(
         "outcome": outcome,
         "reviewer": reviewer,
         "knowledge_asset_id": asset.asset_id if asset is not None else None,
-        "knowledge_version": runtime.knowledge_store.version_of(trace_id),
+        "knowledge_version": runtime.knowledge_store.version_of(trace_id, tenant_id=tenant_id),
         "result_weight": revised.result_weight if revised is not None else None,
-        "knowledge_context_refs": _knowledge_context_refs_for_trace(runtime, trace_id),
+        "knowledge_context_refs": _knowledge_context_refs_for_trace(
+            runtime, trace_id, tenant_id=tenant_id
+        ),
         "knowledge_context_rationale": _knowledge_context_rationale_for_trace(
             runtime,
             trace_id,
+            tenant_id=tenant_id,
         ),
     }

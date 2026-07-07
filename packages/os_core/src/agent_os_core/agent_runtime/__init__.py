@@ -124,20 +124,20 @@ class RunStateSnapshot:
 
 
 class CheckpointStorePort(Protocol):
-    def save(self, snapshot: RunStateSnapshot) -> None: ...
+    def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None: ...
 
-    def get(self, run_id: str) -> RunStateSnapshot | None: ...
+    def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None: ...
 
 
 class InMemoryCheckpointStore:
     def __init__(self) -> None:
-        self._by_run_id: dict[str, RunStateSnapshot] = {}
+        self._by_run_id: dict[str, dict[str, RunStateSnapshot]] = {}
 
-    def save(self, snapshot: RunStateSnapshot) -> None:
-        self._by_run_id[snapshot.run_id] = snapshot
+    def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None:
+        self._by_run_id.setdefault(tenant_id, {})[snapshot.run_id] = snapshot
 
-    def get(self, run_id: str) -> RunStateSnapshot | None:
-        return self._by_run_id.get(run_id)
+    def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None:
+        return self._by_run_id.get(tenant_id, {}).get(run_id)
 
 
 @dataclass(frozen=True)
@@ -897,9 +897,12 @@ class TrustedLoopAgentRuntimeAdapter:
         checkpoint_store: CheckpointStorePort | None = None,
         shell_view: ShellView | None = None,
         trace_writer: AgentTraceWriter | None = None,
+        mcp_router: Any | None = None,
     ) -> None:
         self.trusted_loop = trusted_loop
         registry = ToolRegistry()
+        if mcp_router is not None:
+            mcp_router.attach(registry)
         registry.register_tool(
             ToolSpec(
                 name=self.TOOL_NAME,
@@ -1005,12 +1008,12 @@ class TrustedLoopApprovalExecutionRuntimeAdapter:
         approved_by: str,
         context: AgentRunContext,
     ) -> Mapping[str, Any]:
-        del context
         try:
             approval, operation_trace = self.trusted_loop.approve_and_execute_pending_operation(
                 approval_id=approval_id,
                 reason=reason,
                 approved_by=approved_by,
+                tenant_id=context.tenant_id,
             )
         except KeyError as exc:
             return {
