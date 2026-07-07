@@ -50,9 +50,9 @@ class FakeTrustedLoop:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
 
-    def evaluate(self, question: str, parameters: dict[str, object]) -> dict[str, object]:
-        self.calls.append((question, parameters))
-        return {"status": "ok", "question": question, "parameters": parameters}
+    def evaluate(self, question: str, parameters: dict[str, object], *, tenant_id: str = "default") -> dict[str, object]:
+        self.calls.append((question, parameters, tenant_id))
+        return {"status": "ok", "question": question, "parameters": parameters, "tenant_id": tenant_id}
 
 
 def _context() -> AgentRunContext:
@@ -135,6 +135,7 @@ class TrustedLoopAgentRuntimeAdapterTest(unittest.TestCase):
 
         self.assertEqual(result.status, "ok")
         self.assertEqual(len(loop.calls), 1)
+        self.assertEqual(loop.calls[0][2], "tenant-1")
         self.assertIn(
             "agent_runtime.policy_allowed",
             [event["step"] for event in trace_writer.events],
@@ -188,7 +189,10 @@ class TrustedLoopAgentRuntimeAdapterTest(unittest.TestCase):
         self.assertIn("sql_safety", trusted_loop_steps)
         self.assertIn("evidence_chain", trusted_loop_steps)
         self.assertIn("connector_execute", trusted_loop_steps)
-        persisted_trace = trace_store.get(trusted_loop_result.evidence_chain.trace_id)
+        persisted_trace = trace_store.get(
+            trusted_loop_result.evidence_chain.trace_id,
+            tenant_id="tenant-1",
+        )
         self.assertIsNotNone(persisted_trace)
         self.assertEqual(persisted_trace.status, "ok")
 

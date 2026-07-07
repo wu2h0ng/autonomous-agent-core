@@ -942,7 +942,7 @@ class TrustedLoopAgentRuntimeAdapter:
         parameters: dict[str, object],
         context: AgentRunContext,
     ) -> Any:
-        return self.trusted_loop.evaluate(question, parameters)
+        return self.trusted_loop.evaluate(question, parameters, tenant_id=context.tenant_id)
 
 
 class TrustedLoopApprovalExecutionRuntimeAdapter:

@@ -30,6 +30,23 @@ class SmokeTestScriptTest(unittest.TestCase):
         script = (ROOT / "scripts" / "smoke-test.sh").read_text(encoding="utf-8")
         self.assertIn("staged-out management plane", script)
         self.assertIn("/workflows correctly disabled", script)
+        self.assertIn("workflow.started", script)
+        self.assertIn("docker-compose.staging.yml", script)
+        self.assertIn("operator_api_call", script)
+        self.assertIn("Building api_server image", script)
+
+    def test_staging_compose_overlay_exists(self) -> None:
+        overlay = ROOT / "docker-compose.staging.yml"
+        self.assertTrue(overlay.is_file())
+        text = overlay.read_text(encoding="utf-8")
+        self.assertIn("AGENT_OS_FULL_BPM_WORKFLOW", text)
+        self.assertIn("AGENT_OS_MCP_GATEWAY", text)
+        self.assertIn("AGENT_OS_R4_R5_AUTO_EXECUTION", text)
+
+    def test_semantic_graph_adr_exists(self) -> None:
+        adr = ROOT / "docs" / "decisions" / "ADR-20260707-semantic-graph-slice.md"
+        self.assertTrue(adr.is_file())
+        self.assertIn("SemanticGraph", adr.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

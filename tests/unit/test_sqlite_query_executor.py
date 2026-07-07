@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import threading
 import unittest
 from pathlib import Path
 
@@ -160,6 +161,25 @@ class SQLiteQueryExecutorTest(unittest.TestCase):
         """Constructing with neither a connection nor a path is a usage error."""
         with self.assertRaises(ValueError):
             SQLiteQueryExecutor()
+
+    def test_allows_execute_from_a_different_thread_when_configured(self) -> None:
+        connection = sqlite3.connect(":memory:", check_same_thread=False)
+        _seed_orders(connection)
+        executor = SQLiteQueryExecutor(connection)
+        plan = QueryPlan(
+            metric_name="gmv",
+            sql="select sum(paid_amount) as value from orders",
+            parameters={},
+        )
+        holder: dict[str, float | None] = {}
+
+        def worker() -> None:
+            holder["value"] = executor.execute(plan).rows[0]["value"]
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(timeout=5)
+        self.assertEqual(holder["value"], 999.0 + 128800.0 + 555.0)
 
 
 if __name__ == "__main__":

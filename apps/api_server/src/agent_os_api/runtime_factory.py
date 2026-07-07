@@ -708,7 +708,7 @@ class ContentCommerceRuntimeFactory:
         and the matching seed file ``seed/<schema>_<table>.sql`` is loaded into it.
         This data lives in the domain pack, not in OS Core.
         """
-        connection = sqlite3.connect(":memory:")
+        connection = sqlite3.connect(":memory:", check_same_thread=False)
         seed_dir = self.config.domain_pack_path / "seed"
         schemas = {schema for provider in providers.values() for schema in provider.allowed_schemas}
         if not schemas:

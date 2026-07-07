@@ -8,7 +8,7 @@ EVAL_THRESHOLD_REPORT_OUT ?= .agent_runs/eval-threshold-report/golden-threshold-
 PUSH_EXPECTED_HEAD ?= $(shell git rev-parse HEAD 2>/dev/null)
 PUSH_EXPECTED_HEAD_ARG = $(if $(PUSH_EXPECTED_HEAD),--expected-head $(PUSH_EXPECTED_HEAD),)
 
-.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval eval-threshold-report test openapi-contract push-authorization-check current-state-verification-check rc-branch-verification-check controlled-pilot-readiness-check anti-stub-lint anti-stub-lint-all frontend-e2e-check frontend-e2e ci ci-local-full
+.PHONY: bootstrap-dev check-ci-env check-dev-env lint format-check unit eval eval-threshold-report test openapi-contract push-authorization-check current-state-verification-check rc-branch-verification-check controlled-pilot-readiness-check anti-stub-lint anti-stub-lint-all frontend-e2e-check frontend-e2e smoke-test smoke-test-staging ci ci-local-full
 
 bootstrap-dev:
 	$(PYTHON) -m pip install -e ".[dev,http,postgres]"
@@ -62,6 +62,13 @@ frontend-e2e-check:
 
 frontend-e2e:
 	cd apps/workspace/frontend && npm install && npm run test:e2e:install && npm run test:e2e
+
+smoke-test:
+	./scripts/smoke-test.sh $(SMOKE_ARGS)
+
+smoke-test-staging:
+	@test -f .env.staging || cp .env.staging.example .env.staging
+	SMOKE_ENV_FILE=$(CURDIR)/.env.staging AGENT_OS_SMOKE_STAGED_OUT=true ./scripts/smoke-test.sh $(SMOKE_ARGS)
 
 ci: check-ci-env lint format-check anti-stub-lint unit eval eval-threshold-report openapi-contract frontend-e2e-check
 	@echo "=== All CI checks passed ==="

@@ -14,6 +14,8 @@ class FrontendPlaywrightCITest(unittest.TestCase):
     def test_playwright_config_and_e2e_specs_exist(self) -> None:
         self.assertTrue((FRONTEND / "playwright.config.ts").is_file())
         self.assertTrue((FRONTEND / "e2e" / "workspace.smoke.spec.ts").is_file())
+        self.assertTrue((FRONTEND / "e2e" / "workspace.api-loop.spec.ts").is_file())
+        self.assertTrue((FRONTEND / "e2e" / "fixtures" / "api-loop-mocks.ts").is_file())
 
     def test_package_json_declares_e2e_script(self) -> None:
         pkg = json.loads((FRONTEND / "package.json").read_text(encoding="utf-8"))

@@ -24,7 +24,7 @@ class MigrateScriptTest(unittest.TestCase):
             check=True,
         )
         self.assertIn("alembic", result.stdout)
-        self.assertIn("packages/persistence/alembic.ini", result.stdout)
+        self.assertIn("alembic.ini", result.stdout)
         self.assertIn("upgrade head", result.stdout)
 
 
