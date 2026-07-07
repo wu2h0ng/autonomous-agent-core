@@ -45,6 +45,25 @@ class BusinessIntent:
 
 
 @dataclass(frozen=True)
+class QualityContract:
+    """Quality expectations for a MetricContract."""
+
+    freshness: str | None = None
+    null_rate: str | None = None
+    owner: str | None = None
+
+
+@dataclass(frozen=True)
+class ActionCandidate:
+    """A business action that may be proposed when a metric pattern is observed."""
+
+    action_id: str
+    trigger: str | None = None
+    risk_level: RiskLevel = RiskLevel.R2
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class MetricContract:
     metric_name: str
     display_name: str
@@ -55,6 +74,10 @@ class MetricContract:
     version: str = "v1"
     dimensions: tuple[str, ...] = field(default_factory=tuple)
     data_classification: DataClassification = DataClassification.INTERNAL
+    verified_queries: tuple[SQLTemplate, ...] = field(default_factory=tuple)
+    quality_contract: QualityContract | None = None
+    action_candidates: tuple[ActionCandidate, ...] = field(default_factory=tuple)
+    feedback_metric: str | None = None
 
 
 @dataclass(frozen=True)
@@ -74,6 +97,7 @@ class QueryPlan:
     metric_name: str
     sql: str
     parameters: dict[str, Any]
+    source_template: SQLTemplate | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +125,87 @@ class QueryResult:
 
 
 @dataclass(frozen=True)
+class MetricContractRef:
+    """Lightweight reference to a MetricContract used by an EvidenceChain."""
+
+    metric_name: str
+    contract_version: str = "v1"
+    ref: str = ""
+
+
+@dataclass(frozen=True)
+class ProviderContractRef:
+    """Lightweight reference to a ProviderContract used by an EvidenceChain."""
+
+    provider_id: str
+    ref: str = ""
+
+
+@dataclass(frozen=True)
+class QueryResultSummary:
+    """Safe summary of a query result for evidence/audit purposes."""
+
+    row_count: int
+    column_names: tuple[str, ...] = field(default_factory=tuple)
+    sample_fingerprint: str = ""
+
+
+@dataclass(frozen=True)
+class Claim:
+    """A typed claim supported by evidence references."""
+
+    statement: str
+    evidence_refs: tuple[str, ...] = field(default_factory=tuple)
+    confidence: str = "medium"  # high / medium / low
+    scope: str = "in-scope"  # in-scope / out-of-scope
+
+
+@dataclass(frozen=True)
+class Limitation:
+    """A limitation of the evidence or conclusion."""
+
+    description: str
+    impact: str = ""
+    mitigation: str = ""
+
+
+@dataclass(frozen=True)
+class ConfidenceScore:
+    """Typed confidence score with calibration label."""
+
+    score: float
+    calibration: str = "rule_based"
+
+
+@dataclass(frozen=True)
+class EvalBinding:
+    """Link between an evidence chain and an eval case/dimension."""
+
+    eval_case_id: str
+    dimension: str
+    status: str = "pass"  # pass / fail / skip
+
+
+@dataclass(frozen=True)
+class EvidenceSemanticObjectRef:
+    """A reference to a SemanticObject in the evidence chain (lineage audit)."""
+
+    object_id: str
+    object_type: str
+    name: str
+
+
+@dataclass(frozen=True)
+class EvidenceObjectLinkRef:
+    """A reference to an ObjectLink in the evidence chain (lineage path audit)."""
+
+    link_id: str
+    link_type_id: str
+    source_object_id: str
+    target_object_id: str
+
+
+@dataclass(frozen=True)
 class EvidenceChain:
     evidence_chain_id: str
     intent: BusinessIntent
@@ -112,8 +217,19 @@ class EvidenceChain:
     confidence: float
     limitations: tuple[str, ...]
     trace_id: str
+    # Typed evidence fields (goal: structured audit object, not just text)
+    metric_contract_refs: tuple[MetricContractRef, ...] = field(default_factory=tuple)
+    provider_contract_refs: tuple[ProviderContractRef, ...] = field(default_factory=tuple)
+    query_result_summary: QueryResultSummary | None = None
+    claims: tuple[Claim, ...] = field(default_factory=tuple)
+    limitation_objects: tuple[Limitation, ...] = field(default_factory=tuple)
+    confidence_score: ConfidenceScore | None = None
+    eval_bindings: tuple[EvalBinding, ...] = field(default_factory=tuple)
+    semantic_object_refs: tuple[EvidenceSemanticObjectRef, ...] = field(default_factory=tuple)
+    semantic_lineage: tuple[EvidenceObjectLinkRef, ...] = field(default_factory=tuple)
 
     def is_complete(self) -> bool:
+        """Legacy completeness check: required fields for the Trusted Loop."""
         return bool(
             self.evidence_chain_id
             and self.intent.question
@@ -121,6 +237,18 @@ class EvidenceChain:
             and self.query_plan.sql
             and self.sql_safety.allowed
             and self.trace_id
+        )
+
+    def is_typed_complete(self) -> bool:
+        """Typed-evidence completeness check: new structured fields are populated."""
+        return bool(
+            self.is_complete()
+            and self.metric_contract_refs
+            and self.provider_contract_refs
+            and self.query_result_summary is not None
+            and self.claims
+            and self.confidence_score is not None
+            and self.eval_bindings
         )
 
 
@@ -145,6 +273,11 @@ class ActionProposal:
     # one; empty (the default) preserves single-recommendation behavior. These are labels the interventional
     # verifier scores; enumeration source is the proposer/domain, not open-world self-generation.
     candidate_actions: tuple[str, ...] = field(default_factory=tuple)
+    # Causal discovery integration: the discovered DAG and its confidence, attached by
+    # the TrustedLoop when a causal_discovery_client is configured (RR-0032 seam).
+    causal_dag: list[tuple[int, int]] = field(default_factory=list)
+    causal_confidence: float = 0.0
+    execution_mode: str = "proposal_only"  # ADR-0012: proposal_only | policy_pre_approved
 
 
 @dataclass(frozen=True)

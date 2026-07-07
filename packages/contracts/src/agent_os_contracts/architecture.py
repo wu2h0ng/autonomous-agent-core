@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .trusted_loop import QueryPlan
 
 
 class LifecycleState(StrEnum):
@@ -39,6 +42,52 @@ class OperationState(StrEnum):
     ROLLED_BACK = "rolled_back"
     COMPENSATING = "compensating"
     FAILED = "failed"
+    # ADR-0012 §3.4: policy-evaluation states for R4/R5 auto-execution trace.
+    POLICY_EVALUATED = "policy_evaluated"
+    POLICY_PRE_APPROVED = "policy_pre_approved"
+
+
+@dataclass(frozen=True)
+class ObjectProperty:
+    """A typed field on a SemanticObject, bound to a real data column."""
+
+    name: str
+    data_type: str  # "string" | "decimal" | "integer" | "datetime" | "boolean" | ...
+    required: bool = False
+    description: str = ""
+    bound_column: str | None = None
+
+
+@dataclass(frozen=True)
+class LinkType:
+    """A named, typed relation between two object types (Palantir Ontology link type).
+
+    Source and target object types must differ (no self-loops at the type level).
+    """
+
+    link_type_id: str
+    name: str
+    source_object_type: str
+    target_object_type: str
+    description: str = ""
+    state: LifecycleState = LifecycleState.DRAFT
+
+    def __post_init__(self) -> None:
+        if self.source_object_type == self.target_object_type:
+            raise ValueError(
+                f"LinkType {self.link_type_id!r} source and target object types "
+                f"must differ: {self.source_object_type!r}"
+            )
+
+
+@dataclass(frozen=True)
+class ObjectLink:
+    """A concrete instance of a LinkType between two registered objects."""
+
+    link_id: str
+    link_type_id: str
+    source_object_id: str
+    target_object_id: str
 
 
 @dataclass(frozen=True)
@@ -50,7 +99,33 @@ class SemanticObject:
     owner: str
     aliases: tuple[str, ...] = field(default_factory=tuple)
     related_metrics: tuple[str, ...] = field(default_factory=tuple)
+    properties: tuple[ObjectProperty, ...] = field(default_factory=tuple)
     state: LifecycleState = LifecycleState.DRAFT
+
+
+@dataclass(frozen=True)
+class ProviderConnection:
+    """Connection specification for a ProviderContract.
+
+    This is a deliberately flat, optional bag of connection fields.  Only the
+    fields relevant to ``connection_type`` are populated; the executor/factory
+    ignores the rest.  Keeping it inside the contract makes provider selection
+    traceable and reviewable without requiring out-of-band secrets in the loop.
+    """
+
+    connection_type: str  # postgresql | mysql | clickhouse | feishu | csv | sqlite
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    username: str | None = None
+    # Secret-bearing fields are typed as str for tests/local use only; production
+    # deployments must inject them via environment/runtime secret resolution.
+    password: str | None = None
+    api_token: str | None = None
+    app_token: str | None = None
+    table_id: str | None = None
+    path: str | None = None
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -65,6 +140,7 @@ class ProviderContract:
     supports_write: bool = False
     cost_hint: str | None = None
     lineage_hint: str | None = None
+    connection: ProviderConnection | None = None
     state: LifecycleState = LifecycleState.DRAFT
 
 
@@ -98,6 +174,32 @@ class DataProductCandidate:
     lineage_snapshot_id: str | None
     quality_status: str = "unknown"
     state: DataProductState = DataProductState.CANDIDATE
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LogicalView:
+    view_id: str
+    name: str
+    source_providers: tuple[str, ...]
+    owner: str
+    view_sql: str | None = None
+
+
+@dataclass(frozen=True)
+class MaterializationHint:
+    hint_id: str
+    data_product_id: str
+    strategy: str  # "view" | "table" | "none"
+    refresh_policy: str | None = None
+
+
+@dataclass(frozen=True)
+class FederatedQueryPlan:
+    plan_id: str
+    sub_queries: tuple[QueryPlan, ...]
+    combine_strategy: str
+    estimated_cost_hint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +217,8 @@ class OperationContract:
     connector_name: str = "manual_review"
     action_type: str = "propose"
     idempotency_key: str | None = None
+    auto_executable: bool = False
+    required_policy_guardrails: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
