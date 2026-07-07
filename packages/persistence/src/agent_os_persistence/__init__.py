@@ -11,11 +11,15 @@ from __future__ import annotations
 
 from sqlalchemy import Engine
 
+from .dashboard import SqlDashboardStore
 from .repositories import (
     SqlActionRecordStore,
     SqlAgentCheckpointStore,
     SqlApprovalContextStore,
     SqlApprovalStore,
+    SqlPolicyApprovalRecordStore,
+    SqlAutoExecutionPolicyStore,
+    SqlWorkflowStore,
     SqlFeedbackStore,
     SqlKnowledgeStore,
     SqlReportSnapshotStore,
@@ -29,6 +33,7 @@ from .schema import (
     action_records,
     approval_operation_contexts,
     approval_records,
+    dashboards,
     feedback_events,
     knowledge_assets,
     knowledge_index,
@@ -36,7 +41,11 @@ from .schema import (
     report_snapshots,
     run_traces,
     state_snapshots,
+    tenants,
+    usage_events,
 )
+from .tenant import SqlTenantStore
+from .usage import SqlUsageStore
 
 __all__ = [
     "EmbeddingKnowledgeStore",
@@ -44,18 +53,25 @@ __all__ = [
     "SqlAgentCheckpointStore",
     "SqlApprovalStore",
     "SqlApprovalContextStore",
+    "SqlPolicyApprovalRecordStore",
+    "SqlAutoExecutionPolicyStore",
+    "SqlWorkflowStore",
+    "SqlDashboardStore",
     "SqlFeedbackStore",
     "SqlKnowledgeRetriever",
     "SqlKnowledgeStore",
     "SqlReportSnapshotStore",
     "SqlSnapshotStore",
+    "SqlTenantStore",
     "SqlTraceStore",
     "SqlUnitOfWork",
+    "SqlUsageStore",
     "agent_runtime_checkpoints",
     "action_records",
     "approval_operation_contexts",
     "approval_records",
     "create_all",
+    "dashboards",
     "default_projector",
     "feedback_events",
     "knowledge_assets",
@@ -64,6 +80,8 @@ __all__ = [
     "report_snapshots",
     "run_traces",
     "state_snapshots",
+    "tenants",
+    "usage_events",
 ]
 
 

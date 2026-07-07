@@ -13,6 +13,8 @@ from agent_os_contracts import (
     BusinessIntent,
     CausalAttributionMethod,
     CausalOutcomeAttribution,
+    ApprovalWorkflow,
+    AutoExecutionPolicy,
     DataClassification,
     EvidenceChain,
     FeedbackEvent,
@@ -20,6 +22,7 @@ from agent_os_contracts import (
     LifecycleState,
     MetricContract,
     OperationContract,
+    PolicyApprovalRecord,
     QueryPlan,
     QueryResult,
     RunTrace,
@@ -27,6 +30,7 @@ from agent_os_contracts import (
     SQLSafetyResult,
     StateSnapshot,
     TelemetryDimension,
+    WorkflowInstance,
     TelemetryEvent,
     TraceEvent,
 )
@@ -508,4 +512,160 @@ def run_trace_from_payload(payload: dict[str, Any]) -> RunTrace:
             )
             for t in payload.get("telemetry_events", [])
         ),
+    )
+
+
+def policy_approval_to_payload(record: PolicyApprovalRecord) -> dict[str, Any]:
+    """Serialize a ``PolicyApprovalRecord`` for JSON column storage."""
+    return {
+        "record_id": record.record_id,
+        "trace_id": record.trace_id,
+        "proposal_id": record.proposal_id,
+        "rule_id": record.rule_id,
+        "policy_version": record.policy_version,
+        "tenant_id": record.tenant_id,
+        "created_at": record.created_at,
+        "revoked_at": record.revoked_at,
+        "status": record.status,
+    }
+
+
+def policy_approval_from_payload(payload: dict[str, Any]) -> PolicyApprovalRecord:
+    """Deserialize a ``PolicyApprovalRecord`` from a JSON column payload."""
+    return PolicyApprovalRecord(
+        record_id=payload["record_id"],
+        trace_id=payload["trace_id"],
+        proposal_id=payload["proposal_id"],
+        rule_id=payload["rule_id"],
+        policy_version=payload["policy_version"],
+        tenant_id=payload["tenant_id"],
+        created_at=payload["created_at"],
+        revoked_at=payload.get("revoked_at"),
+        status=payload.get("status", "active"),
+    )
+
+
+def approval_workflow_to_payload(workflow: ApprovalWorkflow) -> dict[str, Any]:
+    return {
+        "workflow_id": workflow.workflow_id,
+        "name": workflow.name,
+        "action_type": workflow.action_type,
+        "risk_levels": list(workflow.risk_levels),
+        "state": workflow.state,
+        "steps": [
+            {
+                "step_id": s.step_id,
+                "step_type": s.step_type,
+                "approver_role": s.approver_role,
+                "timeout_seconds": s.timeout_seconds,
+                "next_step_id": s.next_step_id,
+                "fallback_step_id": s.fallback_step_id,
+            }
+            for s in workflow.steps
+        ],
+    }
+
+
+def approval_workflow_from_payload(payload: dict[str, Any]) -> ApprovalWorkflow:
+    from agent_os_contracts import ApprovalWorkflow, WorkflowStep
+
+    return ApprovalWorkflow(
+        workflow_id=payload["workflow_id"],
+        name=payload["name"],
+        action_type=payload["action_type"],
+        risk_levels=tuple(payload["risk_levels"]),
+        steps=tuple(WorkflowStep(**step) for step in payload["steps"]),
+        state=payload.get("state", "draft"),
+    )
+
+
+def workflow_instance_record_to_payload(
+    *,
+    tenant_id: str,
+    instance: WorkflowInstance,
+    assigned_role: str = "",
+    step_started_at: str = "",
+) -> dict[str, Any]:
+    return {
+        "tenant_id": tenant_id,
+        "assigned_role": assigned_role,
+        "step_started_at": step_started_at,
+        "instance": workflow_instance_to_payload(instance),
+    }
+
+
+def workflow_instance_to_payload(instance: WorkflowInstance) -> dict[str, Any]:
+    return {
+        "instance_id": instance.instance_id,
+        "workflow_id": instance.workflow_id,
+        "proposal_id": instance.proposal_id,
+        "current_step_id": instance.current_step_id,
+        "state": instance.state,
+        "events": [
+            {
+                "event_id": e.event_id,
+                "instance_id": e.instance_id,
+                "step_id": e.step_id,
+                "event_type": e.event_type,
+                "actor": e.actor,
+                "timestamp": e.timestamp,
+                "payload": e.payload,
+            }
+            for e in instance.events
+        ],
+    }
+
+
+def workflow_instance_from_payload(payload: dict[str, Any]) -> WorkflowInstance:
+    from agent_os_contracts import WorkflowEvent, WorkflowInstance
+
+    return WorkflowInstance(
+        instance_id=payload["instance_id"],
+        workflow_id=payload["workflow_id"],
+        proposal_id=payload["proposal_id"],
+        current_step_id=payload["current_step_id"],
+        state=payload["state"],
+        events=tuple(WorkflowEvent(**event) for event in payload.get("events", [])),
+    )
+
+
+def workflow_instance_record_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return normalized record fields; caller builds ``WorkflowInstanceRecord``."""
+    return {
+        "tenant_id": payload["tenant_id"],
+        "instance": workflow_instance_from_payload(payload["instance"]),
+        "assigned_role": payload.get("assigned_role", ""),
+        "step_started_at": payload.get("step_started_at", ""),
+    }
+
+
+def auto_execution_policy_to_payload(policy: AutoExecutionPolicy) -> dict[str, Any]:
+    return {
+        "version": policy.version,
+        "tenant_id": policy.tenant_id,
+        "owner": policy.owner,
+        "default_mode": policy.default_mode,
+        "rules": [
+            {
+                "rule_id": r.rule_id,
+                "action_type": r.action_type,
+                "risk_levels": list(r.risk_levels),
+                "mode": r.mode,
+                "guard_conditions": dict(r.guard_conditions),
+                "compensating_action": r.compensating_action,
+            }
+            for r in policy.rules
+        ],
+    }
+
+
+def auto_execution_policy_from_payload(payload: dict[str, Any]) -> AutoExecutionPolicy:
+    from agent_os_contracts import AutoExecutionPolicy, AutoExecutionRule
+
+    return AutoExecutionPolicy(
+        version=payload["version"],
+        tenant_id=payload["tenant_id"],
+        owner=payload["owner"],
+        default_mode=payload.get("default_mode", "proposal_only"),
+        rules=tuple(AutoExecutionRule(**rule) for rule in payload.get("rules", [])),
     )

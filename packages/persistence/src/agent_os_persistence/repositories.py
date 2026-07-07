@@ -19,7 +19,15 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from agent_os_contracts import FeedbackEvent, KnowledgeAsset, RunTrace, StateSnapshot
+from agent_os_contracts import (
+    FeedbackEvent,
+    KnowledgeAsset,
+    PolicyApprovalRecord,
+    RunTrace,
+    StateSnapshot,
+    ApprovalWorkflow,
+    AutoExecutionPolicy,
+)
 from agent_os_core import (
     ApprovalContextStorePort,
     ApprovalOperationContext,
@@ -30,8 +38,11 @@ from agent_os_core import (
     KnowledgeStorePort,
     RunStateSnapshot,
     SnapshotStore,
+    PolicyApprovalRecordStorePort,
     TraceStorePort,
 )
+from agent_os_core.policy_engine import AutoExecutionPolicyStorePort
+from agent_os_core.workflow_store import WorkflowInstanceRecord, WorkflowStorePort
 from sqlalchemy import Connection, Engine, select
 
 from . import mappers, schema
@@ -102,10 +113,11 @@ class _SqlStoreBase:
 class SqlFeedbackStore(_SqlStoreBase, FeedbackStorePort):
     """Append-only feedback store backed by SQLAlchemy Core."""
 
-    def record(self, event: FeedbackEvent) -> FeedbackEvent:
+    def record(self, event: FeedbackEvent, *, tenant_id: str = "default") -> FeedbackEvent:
         with self._write() as conn:
             conn.execute(
                 schema.feedback_events.insert().values(
+                    tenant_id=tenant_id,
                     feedback_id=event.feedback_id,
                     trace_id=event.trace_id,
                     payload=mappers.feedback_to_payload(event),
@@ -113,42 +125,50 @@ class SqlFeedbackStore(_SqlStoreBase, FeedbackStorePort):
             )
         return event
 
-    def get_by_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]:
+    def get_by_trace(
+        self, trace_id: str, *, tenant_id: str = "default"
+    ) -> tuple[FeedbackEvent, ...]:
+        table = schema.feedback_events
         stmt = (
-            select(schema.feedback_events.c.payload)
-            .where(schema.feedback_events.c.trace_id == trace_id)
-            .order_by(schema.feedback_events.c.id)
+            select(table.c.payload)
+            .where(table.c.tenant_id == tenant_id)
+            .where(table.c.trace_id == trace_id)
+            .order_by(table.c.id)
         )
         with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.feedback_from_payload(row[0]) for row in rows)
 
-    def all_events(self) -> tuple[FeedbackEvent, ...]:
-        stmt = select(schema.feedback_events.c.payload).order_by(schema.feedback_events.c.id)
+    def all_events(self, *, tenant_id: str = "default") -> tuple[FeedbackEvent, ...]:
+        table = schema.feedback_events
+        stmt = select(table.c.payload).where(table.c.tenant_id == tenant_id).order_by(table.c.id)
         with self._read() as conn:
             rows = conn.execute(stmt).fetchall()
         return tuple(mappers.feedback_from_payload(row[0]) for row in rows)
 
-    def outcome_counts(self) -> dict[str, int]:
-        return dict(Counter(event.outcome for event in self.all_events()))
+    def outcome_counts(self, *, tenant_id: str = "default") -> dict[str, int]:
+        return dict(Counter(event.outcome for event in self.all_events(tenant_id=tenant_id)))
 
 
 class SqlKnowledgeStore(_SqlStoreBase, KnowledgeStorePort):
     """Knowledge-asset store with dedup/versioning backed by SQLAlchemy Core."""
 
-    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+    def register(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> KnowledgeAsset:
         key = asset.source_trace_id
         if key is None:
             raise ValueError("KnowledgeAsset.source_trace_id is required for dedup")
         table = schema.knowledge_assets
         with self._write() as conn:
             existing = conn.execute(
-                select(table.c.payload).where(table.c.source_trace_id == key)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.source_trace_id == key)
             ).fetchone()
             if existing is not None:
                 return mappers.knowledge_from_payload(existing[0])
             conn.execute(
                 table.insert().values(
+                    tenant_id=tenant_id,
                     source_trace_id=key,
                     version=1,
                     payload=mappers.knowledge_to_payload(asset),
@@ -156,7 +176,9 @@ class SqlKnowledgeStore(_SqlStoreBase, KnowledgeStorePort):
             )
         return asset
 
-    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+    def register_version(
+        self, asset: KnowledgeAsset, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset:
         key = asset.source_trace_id
         if key is None:
             raise ValueError("KnowledgeAsset.source_trace_id is required for dedup")
@@ -165,50 +187,69 @@ class SqlKnowledgeStore(_SqlStoreBase, KnowledgeStorePort):
         with self._write() as conn:
             updated = conn.execute(
                 table.update()
+                .where(table.c.tenant_id == tenant_id)
                 .where(table.c.source_trace_id == key)
                 .values(version=table.c.version + 1, payload=payload)
             )
             if updated.rowcount == 0:
-                conn.execute(table.insert().values(source_trace_id=key, version=1, payload=payload))
+                conn.execute(
+                    table.insert().values(
+                        tenant_id=tenant_id,
+                        source_trace_id=key,
+                        version=1,
+                        payload=payload,
+                    )
+                )
         return asset
 
-    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
+    def get_by_trace(self, trace_id: str, *, tenant_id: str = "default") -> KnowledgeAsset | None:
         table = schema.knowledge_assets
         with self._read() as conn:
-            stmt = select(table.c.payload).where(table.c.source_trace_id == trace_id)
+            stmt = (
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.source_trace_id == trace_id)
+            )
             if isinstance(self._bind, Connection):
                 stmt = stmt.with_for_update()
             row = conn.execute(stmt).fetchone()
         return mappers.knowledge_from_payload(row[0]) if row is not None else None
 
-    def version_of(self, trace_id: str) -> int:
+    def version_of(self, trace_id: str, *, tenant_id: str = "default") -> int:
         table = schema.knowledge_assets
         with self._read() as conn:
             row = conn.execute(
-                select(table.c.version).where(table.c.source_trace_id == trace_id)
+                select(table.c.version)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.source_trace_id == trace_id)
             ).fetchone()
         return int(row[0]) if row is not None else 0
 
-    def all_assets(self) -> tuple[KnowledgeAsset, ...]:
+    def all_assets(self, *, tenant_id: str = "default") -> tuple[KnowledgeAsset, ...]:
         table = schema.knowledge_assets
         with self._read() as conn:
-            rows = conn.execute(select(table.c.payload)).fetchall()
+            rows = conn.execute(
+                select(table.c.payload).where(table.c.tenant_id == tenant_id)
+            ).fetchall()
         return tuple(mappers.knowledge_from_payload(row[0]) for row in rows)
 
 
 class SqlSnapshotStore(_SqlStoreBase, SnapshotStore):
     """State-snapshot store backed by SQLAlchemy Core."""
 
-    def save(self, snapshot: StateSnapshot) -> StateSnapshot:
+    def save(self, snapshot: StateSnapshot, *, tenant_id: str = "default") -> StateSnapshot:
         table = schema.state_snapshots
         payload = mappers.snapshot_to_payload(snapshot)
         with self._write() as conn:
             exists = conn.execute(
-                select(table.c.snapshot_id).where(table.c.snapshot_id == snapshot.snapshot_id)
+                select(table.c.snapshot_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.snapshot_id == snapshot.snapshot_id)
             ).fetchone()
             if exists is None:
                 conn.execute(
                     table.insert().values(
+                        tenant_id=tenant_id,
                         snapshot_id=snapshot.snapshot_id,
                         operation_id=snapshot.operation_id,
                         payload=payload,
@@ -217,23 +258,29 @@ class SqlSnapshotStore(_SqlStoreBase, SnapshotStore):
             else:
                 conn.execute(
                     table.update()
+                    .where(table.c.tenant_id == tenant_id)
                     .where(table.c.snapshot_id == snapshot.snapshot_id)
                     .values(operation_id=snapshot.operation_id, payload=payload)
                 )
         return snapshot
 
-    def get(self, snapshot_id: str) -> StateSnapshot | None:
+    def get(self, snapshot_id: str, *, tenant_id: str = "default") -> StateSnapshot | None:
         table = schema.state_snapshots
         with self._read() as conn:
             row = conn.execute(
-                select(table.c.payload).where(table.c.snapshot_id == snapshot_id)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.snapshot_id == snapshot_id)
             ).fetchone()
         return mappers.snapshot_from_payload(row[0]) if row is not None else None
 
-    def list_for_operation(self, operation_id: str) -> tuple[StateSnapshot, ...]:
+    def list_for_operation(
+        self, operation_id: str, *, tenant_id: str = "default"
+    ) -> tuple[StateSnapshot, ...]:
         table = schema.state_snapshots
         stmt = (
             select(table.c.payload)
+            .where(table.c.tenant_id == tenant_id)
             .where(table.c.operation_id == operation_id)
             .order_by(table.c.snapshot_id)
         )
@@ -245,14 +292,17 @@ class SqlSnapshotStore(_SqlStoreBase, SnapshotStore):
 class SqlAgentCheckpointStore(_SqlStoreBase, CheckpointStorePort):
     """Durable Agent Runtime checkpoint store backed by SQLAlchemy Core."""
 
-    def save(self, snapshot: RunStateSnapshot) -> None:
+    def save(self, snapshot: RunStateSnapshot, *, tenant_id: str = "default") -> None:
         table = schema.agent_runtime_checkpoints
         payload = mappers.run_state_snapshot_to_payload(snapshot)
         with self._write() as conn:
             exists = conn.execute(
-                select(table.c.run_id).where(table.c.run_id == snapshot.run_id)
+                select(table.c.run_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.run_id == snapshot.run_id)
             ).fetchone()
             values = {
+                "tenant_id": tenant_id,
                 "run_id": snapshot.run_id,
                 "trace_id": snapshot.trace_id,
                 "step_id": snapshot.step_id,
@@ -263,13 +313,20 @@ class SqlAgentCheckpointStore(_SqlStoreBase, CheckpointStorePort):
                 conn.execute(table.insert().values(**values))
             else:
                 conn.execute(
-                    table.update().where(table.c.run_id == snapshot.run_id).values(**values)
+                    table.update()
+                    .where(table.c.tenant_id == tenant_id)
+                    .where(table.c.run_id == snapshot.run_id)
+                    .values(**values)
                 )
 
-    def get(self, run_id: str) -> RunStateSnapshot | None:
+    def get(self, run_id: str, *, tenant_id: str = "default") -> RunStateSnapshot | None:
         table = schema.agent_runtime_checkpoints
         with self._read() as conn:
-            row = conn.execute(select(table.c.payload).where(table.c.run_id == run_id)).fetchone()
+            row = conn.execute(
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.run_id == run_id)
+            ).fetchone()
         return mappers.run_state_snapshot_from_payload(row[0]) if row is not None else None
 
 
@@ -278,7 +335,13 @@ class SqlReportSnapshotStore(_SqlStoreBase):
 
     _audiences = {"internal", "external"}
 
-    def save(self, trace_id: str, snapshots_by_audience: dict[str, dict[str, object]]) -> None:
+    def save(
+        self,
+        trace_id: str,
+        snapshots_by_audience: dict[str, dict[str, object]],
+        *,
+        tenant_id: str = "default",
+    ) -> None:
         table = schema.report_snapshots
         with self._write() as conn:
             for audience, snapshot in snapshots_by_audience.items():
@@ -287,25 +350,35 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                 payload = copy.deepcopy(snapshot)
                 exists = conn.execute(
                     select(table.c.trace_id)
+                    .where(table.c.tenant_id == tenant_id)
                     .where(table.c.trace_id == trace_id)
                     .where(table.c.audience == audience)
                 ).fetchone()
-                values = {"trace_id": trace_id, "audience": audience, "payload": payload}
+                values = {
+                    "tenant_id": tenant_id,
+                    "trace_id": trace_id,
+                    "audience": audience,
+                    "payload": payload,
+                }
                 if exists is None:
                     conn.execute(table.insert().values(**values))
                 else:
                     conn.execute(
                         table.update()
+                        .where(table.c.tenant_id == tenant_id)
                         .where(table.c.trace_id == trace_id)
                         .where(table.c.audience == audience)
                         .values(payload=payload)
                     )
 
-    def get(self, trace_id: str, audience: str) -> dict[str, object] | None:
+    def get(
+        self, trace_id: str, audience: str, *, tenant_id: str = "default"
+    ) -> dict[str, object] | None:
         table = schema.report_snapshots
         with self._read() as conn:
             row = conn.execute(
                 select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
                 .where(table.c.trace_id == trace_id)
                 .where(table.c.audience == audience)
             ).fetchone()
@@ -327,6 +400,7 @@ class SqlActionRecordStore(_SqlStoreBase):
         action_type: str,
         parameters: dict[str, object],
         idempotency_key: str | None = None,
+        tenant_id: str = "default",
     ) -> dict[str, object]:
         table = schema.action_records
         request_payload: dict[str, object] = {
@@ -339,9 +413,9 @@ class SqlActionRecordStore(_SqlStoreBase):
         with self._write() as conn:
             if idempotency_key is not None:
                 existing = conn.execute(
-                    select(table.c.id, table.c.payload).where(
-                        table.c.idempotency_key == idempotency_key
-                    )
+                    select(table.c.id, table.c.payload)
+                    .where(table.c.tenant_id == tenant_id)
+                    .where(table.c.idempotency_key == idempotency_key)
                 ).fetchone()
                 if existing is not None:
                     row_id = existing[0]
@@ -398,6 +472,7 @@ class SqlActionRecordStore(_SqlStoreBase):
                     record["idempotency_key"] = idempotency_key
                 conn.execute(
                     table.insert().values(
+                        tenant_id=tenant_id,
                         record_id=record["record_id"],
                         operation_id=operation_id,
                         action_type=action_type,
@@ -409,10 +484,12 @@ class SqlActionRecordStore(_SqlStoreBase):
             raise conflict_error
         return copy.deepcopy(record)
 
-    def records(self) -> tuple[dict[str, object], ...]:
+    def records(self, *, tenant_id: str = "default") -> tuple[dict[str, object], ...]:
         table = schema.action_records
         with self._read() as conn:
-            rows = conn.execute(select(table.c.payload).order_by(table.c.id)).fetchall()
+            rows = conn.execute(
+                select(table.c.payload).where(table.c.tenant_id == tenant_id).order_by(table.c.id)
+            ).fetchall()
         return tuple(copy.deepcopy(dict(row[0])) for row in rows)
 
     def mark_execution_uncertain(
@@ -425,11 +502,14 @@ class SqlActionRecordStore(_SqlStoreBase):
         parameters: dict[str, object],
         reason_code: str,
         error_type: str,
+        tenant_id: str = "default",
     ) -> dict[str, object]:
         table = schema.action_records
         with self._write() as conn:
             row = conn.execute(
-                select(table.c.id, table.c.payload).where(table.c.record_id == record_id)
+                select(table.c.id, table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.record_id == record_id)
             ).fetchone()
             if row is None:
                 raise KeyError(f"record_id '{record_id}' is not present in the store")
@@ -451,21 +531,22 @@ class SqlActionRecordStore(_SqlStoreBase):
             )
         return copy.deepcopy(record)
 
-    def snapshot_state(self) -> dict[str, object]:
-        return {"records": [copy.deepcopy(record) for record in self.records()]}
+    def snapshot_state(self, *, tenant_id: str = "default") -> dict[str, object]:
+        return {"records": [copy.deepcopy(record) for record in self.records(tenant_id=tenant_id)]}
 
-    def restore(self, state_payload: dict[str, object]) -> None:
+    def restore(self, state_payload: dict[str, object], *, tenant_id: str = "default") -> None:
         table = schema.action_records
         raw_records = state_payload.get("records") or []
         records = [copy.deepcopy(dict(record)) for record in raw_records]
         rollback_operation_id = state_payload.get("rollback_operation_id")
         with self._write() as conn:
             if rollback_operation_id is None:
-                conn.execute(table.delete())
+                conn.execute(table.delete().where(table.c.tenant_id == tenant_id))
             else:
                 snapshot_record_ids = {record["record_id"] for record in records}
                 conn.execute(
                     table.delete()
+                    .where(table.c.tenant_id == tenant_id)
                     .where(table.c.operation_id == rollback_operation_id)
                     .where(table.c.record_id.not_in(snapshot_record_ids))
                 )
@@ -473,6 +554,7 @@ class SqlActionRecordStore(_SqlStoreBase):
             for record in records:
                 conn.execute(
                     table.insert().values(
+                        tenant_id=tenant_id,
                         record_id=record["record_id"],
                         operation_id=record["operation_id"],
                         action_type=record["action_type"],
@@ -485,16 +567,19 @@ class SqlActionRecordStore(_SqlStoreBase):
 class SqlApprovalStore(_SqlStoreBase, ApprovalStorePort):
     """Approval-record store (upsert by approval_id) backed by SQLAlchemy Core."""
 
-    def save(self, record: ApprovalRecord) -> ApprovalRecord:
+    def save(self, record: ApprovalRecord, *, tenant_id: str = "default") -> ApprovalRecord:
         table = schema.approval_records
         payload = mappers.approval_to_payload(record)
         with self._write() as conn:
             exists = conn.execute(
-                select(table.c.approval_id).where(table.c.approval_id == record.approval_id)
+                select(table.c.approval_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == record.approval_id)
             ).fetchone()
             if exists is None:
                 conn.execute(
                     table.insert().values(
+                        tenant_id=tenant_id,
                         approval_id=record.approval_id,
                         proposal_id=record.proposal_id,
                         payload=payload,
@@ -503,18 +588,38 @@ class SqlApprovalStore(_SqlStoreBase, ApprovalStorePort):
             else:
                 conn.execute(
                     table.update()
+                    .where(table.c.tenant_id == tenant_id)
                     .where(table.c.approval_id == record.approval_id)
                     .values(proposal_id=record.proposal_id, payload=payload)
                 )
         return record
 
-    def get(self, approval_id: str) -> ApprovalRecord | None:
+    def get(self, approval_id: str, *, tenant_id: str = "default") -> ApprovalRecord | None:
         table = schema.approval_records
         with self._read() as conn:
             row = conn.execute(
-                select(table.c.payload).where(table.c.approval_id == approval_id)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == approval_id)
             ).fetchone()
         return mappers.approval_from_payload(row[0]) if row is not None else None
+
+    def list(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        tenant_id: str = "default",
+    ) -> tuple[ApprovalRecord, ...]:
+        table = schema.approval_records
+        with self._read() as conn:
+            query = select(table.c.payload).where(table.c.tenant_id == tenant_id)
+            if status is not None:
+                query = query.where(table.c.payload["status"].as_string() == status)
+            query = query.order_by(table.c.approval_id.asc())
+            rows = conn.execute(query.limit(limit).offset(offset)).fetchall()
+        return tuple(mappers.approval_from_payload(row[0]) for row in rows)
 
 
 class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
@@ -524,14 +629,19 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
         super().__init__(bind)
         self._clock = clock or _utc_now
 
-    def save(self, context: ApprovalOperationContext) -> ApprovalOperationContext:
+    def save(
+        self, context: ApprovalOperationContext, *, tenant_id: str = "default"
+    ) -> ApprovalOperationContext:
         table = schema.approval_operation_contexts
         payload = mappers.approval_context_to_payload(context)
         with self._write() as conn:
             exists = conn.execute(
-                select(table.c.approval_id).where(table.c.approval_id == context.approval_id)
+                select(table.c.approval_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == context.approval_id)
             ).fetchone()
             values = {
+                "tenant_id": tenant_id,
                 "approval_id": context.approval_id,
                 "proposal_id": context.proposal_id,
                 "operation_id": context.operation.operation_id,
@@ -544,16 +654,21 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
             else:
                 conn.execute(
                     table.update()
+                    .where(table.c.tenant_id == tenant_id)
                     .where(table.c.approval_id == context.approval_id)
                     .values(**values)
                 )
         return context
 
-    def get(self, approval_id: str) -> ApprovalOperationContext | None:
+    def get(
+        self, approval_id: str, *, tenant_id: str = "default"
+    ) -> ApprovalOperationContext | None:
         table = schema.approval_operation_contexts
         with self._read() as conn:
             row = conn.execute(
-                select(table.c.payload).where(table.c.approval_id == approval_id)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == approval_id)
             ).fetchone()
         return mappers.approval_context_from_payload(row[0]) if row is not None else None
 
@@ -562,11 +677,14 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
         approval_id: str,
         *,
         reclaim_stale_after_seconds: float | None = None,
+        tenant_id: str = "default",
     ) -> ApprovalOperationContext | None:
         table = schema.approval_operation_contexts
         with self._write() as conn:
             row = conn.execute(
-                select(table.c.status, table.c.payload).where(table.c.approval_id == approval_id)
+                select(table.c.status, table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == approval_id)
             ).fetchone()
             if row is None:
                 return None
@@ -584,6 +702,7 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
             claimed_payload = self._with_claim(payload)
             update = (
                 table.update()
+                .where(table.c.tenant_id == tenant_id)
                 .where(table.c.approval_id == approval_id)
                 .where(table.c.status == status)
             )
@@ -597,25 +716,32 @@ class SqlApprovalContextStore(_SqlStoreBase, ApprovalContextStorePort):
                 return None
         return mappers.approval_context_from_payload(claimed_payload)
 
-    def release_claim(self, approval_id: str) -> None:
+    def release_claim(self, approval_id: str, *, tenant_id: str = "default") -> None:
         table = schema.approval_operation_contexts
         with self._write() as conn:
             row = conn.execute(
-                select(table.c.payload).where(table.c.approval_id == approval_id)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == approval_id)
             ).fetchone()
             payload = copy.deepcopy(dict(row.payload)) if row is not None else {}
             payload.pop("_claim", None)
             conn.execute(
                 table.update()
+                .where(table.c.tenant_id == tenant_id)
                 .where(table.c.approval_id == approval_id)
                 .where(table.c.status == "executing")
                 .values(status="pending", payload=payload)
             )
 
-    def delete(self, approval_id: str) -> None:
+    def delete(self, approval_id: str, *, tenant_id: str = "default") -> None:
         table = schema.approval_operation_contexts
         with self._write() as conn:
-            conn.execute(table.delete().where(table.c.approval_id == approval_id))
+            conn.execute(
+                table.delete()
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.approval_id == approval_id)
+            )
 
     def _with_claim(self, payload: dict[str, object]) -> dict[str, object]:
         updated = copy.deepcopy(payload)
@@ -692,16 +818,19 @@ class SqlUnitOfWork:
 class SqlTraceStore(_SqlStoreBase, TraceStorePort):
     """RunTrace store backed by SQLAlchemy Core (observability v1, AR-20260611)."""
 
-    def save(self, run_trace: RunTrace) -> None:
+    def save(self, run_trace: RunTrace, *, tenant_id: str = "default") -> None:
         table = schema.run_traces
         payload = mappers.run_trace_to_payload(run_trace)
         with self._write() as conn:
             exists = conn.execute(
-                select(table.c.trace_id).where(table.c.trace_id == run_trace.trace_id)
+                select(table.c.trace_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.trace_id == run_trace.trace_id)
             ).fetchone()
             if exists is None:
                 conn.execute(
                     table.insert().values(
+                        tenant_id=tenant_id,
                         trace_id=run_trace.trace_id,
                         status=run_trace.status,
                         payload=payload,
@@ -710,22 +839,262 @@ class SqlTraceStore(_SqlStoreBase, TraceStorePort):
             else:
                 conn.execute(
                     table.update()
+                    .where(table.c.tenant_id == tenant_id)
                     .where(table.c.trace_id == run_trace.trace_id)
                     .values(status=run_trace.status, payload=payload)
                 )
 
-    def get(self, trace_id: str) -> RunTrace | None:
+    def get(self, trace_id: str, *, tenant_id: str = "default") -> RunTrace | None:
         table = schema.run_traces
         with self._read() as conn:
             row = conn.execute(
-                select(table.c.payload).where(table.c.trace_id == trace_id)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.trace_id == trace_id)
             ).fetchone()
         if row is None:
             return None
         return mappers.run_trace_from_payload(row.payload)
 
-    def all_traces(self) -> tuple[RunTrace, ...]:
+    def all_traces(self, *, tenant_id: str = "default") -> tuple[RunTrace, ...]:
         table = schema.run_traces
         with self._read() as conn:
-            rows = conn.execute(select(table.c.payload).order_by(table.c.trace_id)).fetchall()
+            rows = conn.execute(
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .order_by(table.c.trace_id)
+            ).fetchall()
         return tuple(mappers.run_trace_from_payload(row.payload) for row in rows)
+
+
+class SqlPolicyApprovalRecordStore(_SqlStoreBase, PolicyApprovalRecordStorePort):
+    """Durable policy-approval-record store (upsert by record_id) backed by
+    SQLAlchemy Core. Dialect-portable: tests run on SQLite, production on PostgreSQL.
+
+    Revoked/consumed records are persisted (not deleted) so the decision lineage
+    remains auditable. ``is_active`` is computed from the stored status + version.
+    """
+
+    def save(self, record: PolicyApprovalRecord) -> PolicyApprovalRecord:
+        table = schema.policy_approval_records
+        payload = mappers.policy_approval_to_payload(record)
+        # tenant scoping uses the record's own tenant_id (default fallback)
+        tenant_id = record.tenant_id or "default"
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.record_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.record_id == record.record_id)
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    table.insert().values(
+                        tenant_id=tenant_id,
+                        record_id=record.record_id,
+                        proposal_id=record.proposal_id,
+                        policy_version=record.policy_version,
+                        status=record.status,
+                        payload=payload,
+                    )
+                )
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.tenant_id == tenant_id)
+                    .where(table.c.record_id == record.record_id)
+                    .values(
+                        proposal_id=record.proposal_id,
+                        policy_version=record.policy_version,
+                        status=record.status,
+                        payload=payload,
+                    )
+                )
+        return record
+
+    def _load(self, record_id: str, tenant_id: str) -> PolicyApprovalRecord:
+        table = schema.policy_approval_records
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.record_id == record_id)
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"policy approval record not found: {record_id}")
+        return mappers.policy_approval_from_payload(row[0])
+
+    def get(self, record_id: str) -> PolicyApprovalRecord | None:
+        table = schema.policy_approval_records
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload).where(table.c.record_id == record_id)
+            ).fetchone()
+        return mappers.policy_approval_from_payload(row[0]) if row is not None else None
+
+    def revoke(self, record_id: str, revoked_at: str) -> PolicyApprovalRecord:
+        record = self.get(record_id)
+        if record is None:
+            raise KeyError(f"policy approval record not found: {record_id}")
+        return self.save(record.revoke(revoked_at))
+
+    def consume(self, record_id: str) -> PolicyApprovalRecord:
+        record = self.get(record_id)
+        if record is None:
+            raise KeyError(f"policy approval record not found: {record_id}")
+        from dataclasses import replace
+
+        return self.save(replace(record, status="consumed"))
+
+    def is_active(self, record_id: str, *, policy_version: str) -> bool:
+        record = self.get(record_id)
+        if record is None:
+            return False
+        if record.status != "active":
+            return False
+        return record.policy_version == policy_version
+
+    def active_for_proposal(
+        self, proposal_id: str, *, tenant_id: str, policy_version: str
+    ) -> PolicyApprovalRecord | None:
+        table = schema.policy_approval_records
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload)
+                .where(table.c.proposal_id == proposal_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.status == "active")
+                .where(table.c.policy_version == policy_version)
+            ).fetchone()
+        return mappers.policy_approval_from_payload(row[0]) if row is not None else None
+
+
+class SqlWorkflowStore(_SqlStoreBase, WorkflowStorePort):
+    def save_workflow(self, tenant_id: str, workflow: ApprovalWorkflow) -> ApprovalWorkflow:
+        table = schema.approval_workflows
+        payload = mappers.approval_workflow_to_payload(workflow)
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.workflow_id)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.workflow_id == workflow.workflow_id)
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    table.insert().values(
+                        tenant_id=tenant_id,
+                        workflow_id=workflow.workflow_id,
+                        state=workflow.state,
+                        payload=payload,
+                    )
+                )
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.tenant_id == tenant_id)
+                    .where(table.c.workflow_id == workflow.workflow_id)
+                    .values(state=workflow.state, payload=payload)
+                )
+        return workflow
+
+    def get_workflow(self, tenant_id: str, workflow_id: str) -> ApprovalWorkflow | None:
+        table = schema.approval_workflows
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.workflow_id == workflow_id)
+            ).fetchone()
+        return mappers.approval_workflow_from_payload(row[0]) if row is not None else None
+
+    def list_workflows(self, tenant_id: str) -> tuple[ApprovalWorkflow, ...]:
+        table = schema.approval_workflows
+        with self._read() as conn:
+            rows = conn.execute(
+                select(table.c.payload).where(table.c.tenant_id == tenant_id)
+            ).fetchall()
+        return tuple(mappers.approval_workflow_from_payload(row[0]) for row in rows)
+
+    def save_instance(self, record: WorkflowInstanceRecord) -> WorkflowInstanceRecord:
+        table = schema.workflow_instances
+        payload = mappers.workflow_instance_record_to_payload(
+            tenant_id=record.tenant_id,
+            instance=record.instance,
+            assigned_role=record.assigned_role,
+            step_started_at=record.step_started_at,
+        )
+        inst = record.instance
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.instance_id)
+                .where(table.c.tenant_id == record.tenant_id)
+                .where(table.c.instance_id == inst.instance_id)
+            ).fetchone()
+            values = {
+                "workflow_id": inst.workflow_id,
+                "proposal_id": inst.proposal_id,
+                "state": inst.state,
+                "payload": payload,
+            }
+            if exists is None:
+                conn.execute(
+                    table.insert().values(
+                        tenant_id=record.tenant_id,
+                        instance_id=inst.instance_id,
+                        **values,
+                    )
+                )
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.tenant_id == record.tenant_id)
+                    .where(table.c.instance_id == inst.instance_id)
+                    .values(**values)
+                )
+        return record
+
+    def get_instance(self, tenant_id: str, instance_id: str) -> WorkflowInstanceRecord | None:
+        table = schema.workflow_instances
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.instance_id == instance_id)
+            ).fetchone()
+        if row is None:
+            return None
+        fields = mappers.workflow_instance_record_from_payload(row[0])
+        return WorkflowInstanceRecord(**fields)
+
+
+class SqlAutoExecutionPolicyStore(_SqlStoreBase, AutoExecutionPolicyStorePort):
+    def save(self, policy: AutoExecutionPolicy) -> AutoExecutionPolicy:
+        table = schema.auto_execution_policies
+        payload = mappers.auto_execution_policy_to_payload(policy)
+        tenant_id = policy.tenant_id or "default"
+        with self._write() as conn:
+            exists = conn.execute(
+                select(table.c.tenant_id).where(table.c.tenant_id == tenant_id)
+            ).fetchone()
+            if exists is None:
+                conn.execute(
+                    table.insert().values(
+                        tenant_id=tenant_id,
+                        policy_version=policy.version,
+                        payload=payload,
+                    )
+                )
+            else:
+                conn.execute(
+                    table.update()
+                    .where(table.c.tenant_id == tenant_id)
+                    .values(policy_version=policy.version, payload=payload)
+                )
+        return policy
+
+    def get(self, tenant_id: str) -> AutoExecutionPolicy | None:
+        table = schema.auto_execution_policies
+        with self._read() as conn:
+            row = conn.execute(
+                select(table.c.payload).where(table.c.tenant_id == tenant_id)
+            ).fetchone()
+        return mappers.auto_execution_policy_from_payload(row[0]) if row is not None else None

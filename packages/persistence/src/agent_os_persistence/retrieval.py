@@ -69,13 +69,17 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
 
     # --- KnowledgeStorePort: storage delegates to base, then (re)index ---
 
-    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        return self._register_and_reindex(asset, register=True)
+    def register(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> KnowledgeAsset:
+        return self._register_and_reindex(asset, register=True, tenant_id=tenant_id)
 
-    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        return self._register_and_reindex(asset, register=False)
+    def register_version(
+        self, asset: KnowledgeAsset, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset:
+        return self._register_and_reindex(asset, register=False, tenant_id=tenant_id)
 
-    def _register_and_reindex(self, asset: KnowledgeAsset, *, register: bool) -> KnowledgeAsset:
+    def _register_and_reindex(
+        self, asset: KnowledgeAsset, *, register: bool, tenant_id: str = "default"
+    ) -> KnowledgeAsset:
         """Persist the canonical asset and its search index in one transaction.
 
         Engine-bound stores are the normal runtime path. They must not commit the
@@ -83,28 +87,42 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
         embed/reindex step can leave durable knowledge invisible to search.
         """
         if isinstance(self._bind, Connection):
-            stored = self._base.register(asset) if register else self._base.register_version(asset)
-            self._reindex(stored, conn=self._bind)
+            stored = (
+                self._base.register(asset, tenant_id=tenant_id)
+                if register
+                else self._base.register_version(asset, tenant_id=tenant_id)
+            )
+            self._reindex(stored, conn=self._bind, tenant_id=tenant_id)
             return stored
 
         with self._bind.begin() as conn:
             conn_base = type(self._base)(conn)
-            stored = conn_base.register(asset) if register else conn_base.register_version(asset)
-            self._reindex(stored, conn=conn)
+            stored = (
+                conn_base.register(asset, tenant_id=tenant_id)
+                if register
+                else conn_base.register_version(asset, tenant_id=tenant_id)
+            )
+            self._reindex(stored, conn=conn, tenant_id=tenant_id)
             return stored
 
-    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
-        return self._base.get_by_trace(trace_id)
+    def get_by_trace(self, trace_id: str, *, tenant_id: str = "default") -> KnowledgeAsset | None:
+        return self._base.get_by_trace(trace_id, tenant_id=tenant_id)
 
-    def version_of(self, trace_id: str) -> int:
-        return self._base.version_of(trace_id)
+    def version_of(self, trace_id: str, *, tenant_id: str = "default") -> int:
+        return self._base.version_of(trace_id, tenant_id=tenant_id)
 
-    def all_assets(self) -> tuple[KnowledgeAsset, ...]:
-        return self._base.all_assets()
+    def all_assets(self, *, tenant_id: str = "default") -> tuple[KnowledgeAsset, ...]:
+        return self._base.all_assets(tenant_id=tenant_id)
 
     # --- indexing ---
 
-    def _reindex(self, asset: KnowledgeAsset, *, conn: Connection | None = None) -> None:
+    def _reindex(
+        self,
+        asset: KnowledgeAsset,
+        *,
+        conn: Connection | None = None,
+        tenant_id: str = "default",
+    ) -> None:
         # Index is keyed by source_trace_id (one current row per trace). Assets without
         # a trace are not retrievable memory and are skipped.
         if asset.source_trace_id is None:
@@ -113,6 +131,7 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
         content = proj.get("content") or asset.title
         table = schema.knowledge_index
         values = {
+            "tenant_id": tenant_id,
             "source_trace_id": asset.source_trace_id,
             "asset_id": asset.asset_id,
             "metric_name": proj.get("metric_name"),
@@ -128,7 +147,9 @@ class EmbeddingKnowledgeStore(KnowledgeStorePort):
         bind = conn if conn is not None else self._bind
         with _write(bind) as write_conn:
             write_conn.execute(
-                table.delete().where(table.c.source_trace_id == asset.source_trace_id)
+                table.delete()
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.source_trace_id == asset.source_trace_id)
             )
             write_conn.execute(table.insert().values(**values))
 
@@ -140,9 +161,13 @@ class SqlKnowledgeRetriever(KnowledgeRetriever):
         self._engine = engine
         self._scorer = scorer
 
-    def search(self, query: KnowledgeQuery) -> tuple[RetrievalResult, ...]:
+    def search(
+        self, query: KnowledgeQuery, *, tenant_id: str = "default"
+    ) -> tuple[RetrievalResult, ...]:
         t = schema.knowledge_index
-        stmt = select(t.c.id, t.c.asset_payload, t.c.content, t.c.embedding, t.c.outcome_score)
+        stmt = select(
+            t.c.id, t.c.asset_payload, t.c.content, t.c.embedding, t.c.outcome_score
+        ).where(t.c.tenant_id == tenant_id)
         # Structured filters resolve to indexed-column predicates (never JSON scans).
         if query.metric_name is not None:
             stmt = stmt.where(t.c.metric_name == query.metric_name)
