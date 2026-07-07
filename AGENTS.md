@@ -2,7 +2,7 @@
 
 > Last updated: 2026-07-02
 > Role in workspace: **Deployment Layer** (phase-1 governed product vertical; CWM/disposer research may enter only through approved contracts, never cross-repo imports)
-> Current next decision: trust `docs/CURRENT_STATE.yaml` for live state. ADR-0004 is branch-local merge-ready evidence only; the next gate is founder/CTO local fast-forward merge authorization, while push, release, deployed CWM service wiring, M4 real-lever work, and any R4/R5 automatic execution remain separate gates. The Stage 1 Status below is historical context.
+> Current next decision: trust `docs/CURRENT_STATE.yaml` for live state. ADR-0004 is branch-local merge-ready evidence only; the next gate is founder/CTO local fast-forward merge authorization, while push, release, and deployed CWM service wiring remain separate gates. ADR-0012 (tenant-configurable R4/R5 automatic execution, default proposal-only) and ADR-0013 (concurrent implementation of all staged-out capabilities) are accepted; project is in full-project implementation phase. All new capabilities must be behind feature flags defaulting to off, and OS Core boundaries, SQL Safety, EvidenceChain, and test-first discipline remain in force. The Stage 1 Status below is historical context.
 
 ## Scope
 
@@ -24,7 +24,7 @@ Engineering verification gates: selected-`PYTHON` dependency preflight plus Open
 2. Do not import `domain_packs/`, `examples/`, `providers/`, or `action_connectors/` from `packages/os_core/`.
 3. Do not use OpenAI Agents SDK, LangGraph, CrewAI, AutoGen, OpenHands, Goose, Aider, Cline, or OpenCode as product Core runtime dependencies.
 4. All formal answers must pass through SQL Safety and EvidenceChain.
-5. R4/R5 business actions are proposal-only in MVP.
+5. R4/R5 business actions are proposal-only by default. A tenant-configurable automatic execution capability may be added only through an accepted ADR-0012 whose preconditions (PolicyEngine, ApprovalDecision record, rollback/compensation, OperationTrace coverage, C7 pause supremacy, eval/negative paths, OpenAPI update) are implemented and reviewed. The default must remain proposal-only; no tenant can accidentally auto-execute R4/R5.
 6. Every behavioral change must include or update tests.
 7. Do not submit pseudo implementation: empty shells, hard-coded success, unused adapters, documentation-only behavior, or tests that merely assert fixture values are not complete.
 8. A new runtime capability must be reachable from a real entry point and must expose at least one failure path.
