@@ -29,8 +29,9 @@ class ControlledPilotReadinessGateTest(unittest.TestCase):
             check=False,
         )
 
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("push must remain HOLD", result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("controlled pilot readiness passed", result.stdout + result.stderr)
+        self.assertIn("DEPLOYMENT_PUSH: HOLD", result.stdout + result.stderr)
 
     def test_authorized_push_decision_fails_readiness(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

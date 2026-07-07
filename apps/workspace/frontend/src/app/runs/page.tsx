@@ -2,44 +2,24 @@
 
 import { useSyncExternalStore, useCallback } from 'react';
 import Link from 'next/link';
+import {
+  clearRecentRuns,
+  getRecentRunsSnapshot,
+  subscribeRecentRuns,
+  type RecentRun,
+} from '@/lib/recentRuns';
 
-const STORAGE_KEY = 'data-agent-recent-runs';
-
-type RecentRun = {
-  traceId: string;
-  question: string;
-  timestamp: number;
-};
-
-function loadRecentRuns(): RecentRun[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as RecentRun[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function subscribe(callback: () => void) {
-  const handler = () => callback();
-  window.addEventListener('storage', handler);
-  return () => window.removeEventListener('storage', handler);
-}
+const SERVER_RUNS: RecentRun[] = [];
 
 function useRecentRuns(): { runs: RecentRun[]; clear: () => void } {
   const runs = useSyncExternalStore(
-    subscribe,
-    () => loadRecentRuns(),
-    () => [],
+    subscribeRecentRuns,
+    getRecentRunsSnapshot,
+    () => SERVER_RUNS,
   );
 
   const clear = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.removeItem(STORAGE_KEY);
-    window.dispatchEvent(new StorageEvent('storage'));
+    clearRecentRuns();
   }, []);
 
   return { runs, clear };
@@ -125,15 +105,4 @@ export default function RunsPage() {
       )}
     </div>
   );
-}
-
-export function addRecentRun(traceId: string, question: string) {
-  if (typeof window === 'undefined') return;
-  const runs = loadRecentRuns();
-  const next = [
-    { traceId, question, timestamp: Date.now() },
-    ...runs.filter((r) => r.traceId !== traceId),
-  ].slice(0, 50);
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  window.dispatchEvent(new StorageEvent('storage'));
 }

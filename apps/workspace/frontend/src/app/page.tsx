@@ -10,7 +10,7 @@ import { DashboardPanel } from '@/components/DashboardChart';
 import { ActionProposal } from '@/components/ActionProposal';
 import { GovernancePanel } from '@/components/GovernancePanel';
 import { FeedbackBar } from '@/components/FeedbackBar';
-import { addRecentRun } from '@/app/runs/page';
+import { addRecentRun } from '@/lib/recentRuns';
 
 const PRESETS = [
   { label: 'GMV last week', question: 'What was the GMV last week?' },
