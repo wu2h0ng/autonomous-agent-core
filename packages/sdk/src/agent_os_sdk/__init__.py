@@ -1,6 +1,11 @@
-"""Public SDK boundary placeholder.
+"""Public SDK boundary.
 
-The SDK must depend on public contracts and external APIs, not OS Core internals.
+The SDK depends on public contracts and external APIs, not OS Core internals.
 """
 
-__all__: list[str] = []
+from .domain_pack import DomainPackLoader, DomainPackRegistry
+
+__all__: list[str] = [
+    "DomainPackLoader",
+    "DomainPackRegistry",
+]
