@@ -32,6 +32,21 @@ class OperationStateMachine:
                     OperationState.AWAITING_APPROVAL,
                     OperationState.APPROVED,
                     OperationState.REJECTED,
+                    OperationState.POLICY_EVALUATED,
+                }
+            ),
+            OperationState.POLICY_EVALUATED: frozenset(
+                {
+                    OperationState.POLICY_PRE_APPROVED,
+                    OperationState.AWAITING_APPROVAL,
+                    OperationState.REJECTED,
+                }
+            ),
+            OperationState.POLICY_PRE_APPROVED: frozenset(
+                {
+                    OperationState.SNAPSHOTTING,
+                    OperationState.EXECUTED,
+                    OperationState.REJECTED,
                 }
             ),
             OperationState.AWAITING_APPROVAL: frozenset(
