@@ -1,0 +1,99 @@
+{
+  "objects": [
+    {
+      "object_id": "obj-campaign",
+      "name": "campaign",
+      "object_type": "campaign",
+      "description": "An advertising campaign driving traffic to products.",
+      "owner": "marketing_ops",
+      "properties": [
+        {"name": "campaign_id", "data_type": "string", "required": true, "bound_column": "campaign_id"},
+        {"name": "budget", "data_type": "decimal", "required": false, "bound_column": "budget"},
+        {"name": "status", "data_type": "string", "required": false, "bound_column": "status"},
+        {"name": "start_date", "data_type": "datetime", "required": false}
+      ],
+      "related_metrics": ["spend", "roi"]
+    },
+    {
+      "object_id": "obj-ad-group",
+      "name": "ad_group",
+      "object_type": "ad_group",
+      "description": "A group of ads within a campaign.",
+      "owner": "marketing_ops",
+      "properties": [
+        {"name": "ad_group_id", "data_type": "string", "required": true},
+        {"name": "bid", "data_type": "decimal", "required": false}
+      ],
+      "related_metrics": ["spend"]
+    },
+    {
+      "object_id": "obj-product",
+      "name": "product",
+      "object_type": "product",
+      "description": "A sellable product SKU.",
+      "owner": "product_ops",
+      "properties": [
+        {"name": "product_id", "data_type": "string", "required": true},
+        {"name": "price", "data_type": "decimal", "required": false},
+        {"name": "category", "data_type": "string", "required": false}
+      ],
+      "related_metrics": ["gmv", "conversion_rate"]
+    },
+    {
+      "object_id": "obj-order",
+      "name": "order",
+      "object_type": "order",
+      "description": "A customer order containing purchased products.",
+      "owner": "order_ops",
+      "properties": [
+        {"name": "order_id", "data_type": "string", "required": true},
+        {"name": "paid_amount", "data_type": "decimal", "required": false},
+        {"name": "order_date", "data_type": "datetime", "required": false}
+      ],
+      "related_metrics": ["gmv", "orders"]
+    }
+  ],
+  "link_types": [
+    {
+      "link_type_id": "lt-campaign-adgroup",
+      "name": "contains",
+      "source_object_type": "campaign",
+      "target_object_type": "ad_group",
+      "description": "A campaign contains ad groups."
+    },
+    {
+      "link_type_id": "lt-campaign-product",
+      "name": "promotes",
+      "source_object_type": "campaign",
+      "target_object_type": "product",
+      "description": "A campaign promotes a product."
+    },
+    {
+      "link_type_id": "lt-product-order",
+      "name": "ordered_in",
+      "source_object_type": "product",
+      "target_object_type": "order",
+      "description": "A product appears in an order."
+    }
+  ],
+  "links": [
+    {
+      "link_id": "link-campaign1-adgroup1",
+      "link_type_id": "lt-campaign-adgroup",
+      "source_object_id": "obj-campaign",
+      "target_object_id": "obj-ad-group"
+    },
+    {
+      "link_id": "link-campaign1-product1",
+      "link_type_id": "lt-campaign-product",
+      "source_object_id": "obj-campaign",
+      "target_object_id": "obj-product"
+    },
+    {
+      "link_id": "link-product1-order1",
+      "link_type_id": "lt-product-order",
+      "source_object_id": "obj-product",
+      "target_object_id": "obj-order"
+    }
+  ]
+}
