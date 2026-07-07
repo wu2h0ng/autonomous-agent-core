@@ -57,7 +57,7 @@ EXPOSE 8000
 
 # Health check: FastAPI /docs endpoint is always available
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/docs || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Run with uvicorn; 0.0.0.0 for container networking
 CMD ["python", "-m", "uvicorn", "agent_os_api.http_app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

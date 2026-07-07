@@ -50,26 +50,26 @@ class TraceStorePort(ABC):
     """
 
     @abstractmethod
-    def save(self, run_trace: RunTrace) -> None: ...
+    def save(self, run_trace: RunTrace, *, tenant_id: str = "default") -> None: ...
 
     @abstractmethod
-    def get(self, trace_id: str) -> RunTrace | None: ...
+    def get(self, trace_id: str, *, tenant_id: str = "default") -> RunTrace | None: ...
 
     @abstractmethod
-    def all_traces(self) -> tuple[RunTrace, ...]: ...
+    def all_traces(self, *, tenant_id: str = "default") -> tuple[RunTrace, ...]: ...
 
 
 class InMemoryTraceStore(TraceStorePort):
     """Default per-process store: traces are queryable out of the box."""
 
     def __init__(self) -> None:
-        self._by_trace: dict[str, RunTrace] = {}
+        self._by_trace: dict[str, dict[str, RunTrace]] = {}
 
-    def save(self, run_trace: RunTrace) -> None:
-        self._by_trace[run_trace.trace_id] = run_trace
+    def save(self, run_trace: RunTrace, *, tenant_id: str = "default") -> None:
+        self._by_trace.setdefault(tenant_id, {})[run_trace.trace_id] = run_trace
 
-    def get(self, trace_id: str) -> RunTrace | None:
-        return self._by_trace.get(trace_id)
+    def get(self, trace_id: str, *, tenant_id: str = "default") -> RunTrace | None:
+        return self._by_trace.get(tenant_id, {}).get(trace_id)
 
-    def all_traces(self) -> tuple[RunTrace, ...]:
-        return tuple(self._by_trace.values())
+    def all_traces(self, *, tenant_id: str = "default") -> tuple[RunTrace, ...]:
+        return tuple(self._by_trace.get(tenant_id, {}).values())

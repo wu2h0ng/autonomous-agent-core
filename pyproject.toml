@@ -7,7 +7,10 @@ name = "ai-native-business-data-agent-os"
 version = "0.1.0"
 description = "Independent AI Native Business Data Agent OS implementation"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "sqlglot>=30.0",
+    "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -27,6 +30,16 @@ postgres = [
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.1",
     "alembic>=1.13",
+]
+mysql = [
+    "sqlalchemy>=2.0",
+    "pymysql>=1.1",
+]
+clickhouse = [
+    "clickhouse-connect>=0.7",
+]
+feishu = [
+    "httpx>=0.27.0",
 ]
 
 # This repo is a PYTHONPATH src-layout monorepo (see Makefile / CLAUDE.md): importable

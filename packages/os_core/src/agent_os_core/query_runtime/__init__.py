@@ -6,6 +6,8 @@ from typing import Any
 
 from agent_os_contracts import QueryPlan, QueryResult, SQLTemplate
 
+from .csv_executor import CsvQueryExecutor as CsvQueryExecutor
+
 
 class TemplateRegistry:
     """Resolve the ``SQLTemplate`` to use for a given metric.

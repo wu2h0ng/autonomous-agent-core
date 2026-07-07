@@ -37,19 +37,23 @@ class KnowledgeStorePort(ABC):
     """
 
     @abstractmethod
-    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset: ...
+    def register(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> KnowledgeAsset: ...
 
     @abstractmethod
-    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset: ...
+    def register_version(
+        self, asset: KnowledgeAsset, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset: ...
 
     @abstractmethod
-    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None: ...
+    def get_by_trace(
+        self, trace_id: str, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset | None: ...
 
     @abstractmethod
-    def version_of(self, trace_id: str) -> int: ...
+    def version_of(self, trace_id: str, *, tenant_id: str = "default") -> int: ...
 
     @abstractmethod
-    def all_assets(self) -> tuple[KnowledgeAsset, ...]: ...
+    def all_assets(self, *, tenant_id: str = "default") -> tuple[KnowledgeAsset, ...]: ...
 
 
 DEFAULT_ASSET_TYPE = "decision_loop"
@@ -196,10 +200,16 @@ class KnowledgeStore(KnowledgeStorePort):
     """
 
     def __init__(self) -> None:
-        self._by_trace: dict[str, KnowledgeAsset] = {}
-        self._versions: dict[str, int] = {}
+        self._by_trace: dict[str, dict[str, KnowledgeAsset]] = {}
+        self._versions: dict[str, dict[str, int]] = {}
 
-    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+    def _tenant_maps(self, tenant_id: str) -> tuple[dict[str, KnowledgeAsset], dict[str, int]]:
+        return (
+            self._by_trace.setdefault(tenant_id, {}),
+            self._versions.setdefault(tenant_id, {}),
+        )
+
+    def register(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> KnowledgeAsset:
         """Register a candidate, deduping on ``source_trace_id``.
 
         Returns the asset now associated with the trace: the freshly registered
@@ -210,14 +220,17 @@ class KnowledgeStore(KnowledgeStorePort):
         if key is None:
             raise ValueError("KnowledgeAsset.source_trace_id is required for dedup")
 
-        if key in self._by_trace:
-            return self._by_trace[key]
+        by_trace, versions = self._tenant_maps(tenant_id)
+        if key in by_trace:
+            return by_trace[key]
 
-        self._by_trace[key] = asset
-        self._versions[key] = 1
+        by_trace[key] = asset
+        versions[key] = 1
         return asset
 
-    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
+    def register_version(
+        self, asset: KnowledgeAsset, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset:
         """Replace the stored candidate for a trace with a new version.
 
         Unlike :meth:`register`, this supersedes any existing candidate for the
@@ -228,18 +241,19 @@ class KnowledgeStore(KnowledgeStorePort):
         if key is None:
             raise ValueError("KnowledgeAsset.source_trace_id is required for dedup")
 
-        self._by_trace[key] = asset
-        self._versions[key] = self._versions.get(key, 0) + 1
+        by_trace, versions = self._tenant_maps(tenant_id)
+        by_trace[key] = asset
+        versions[key] = versions.get(key, 0) + 1
         return asset
 
-    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
+    def get_by_trace(self, trace_id: str, *, tenant_id: str = "default") -> KnowledgeAsset | None:
         """Return the registered candidate for ``trace_id``, or ``None``."""
-        return self._by_trace.get(trace_id)
+        return self._by_trace.get(tenant_id, {}).get(trace_id)
 
-    def version_of(self, trace_id: str) -> int:
+    def version_of(self, trace_id: str, *, tenant_id: str = "default") -> int:
         """Return the stored version count for ``trace_id`` (0 if none)."""
-        return self._versions.get(trace_id, 0)
+        return self._versions.get(tenant_id, {}).get(trace_id, 0)
 
-    def all_assets(self) -> tuple[KnowledgeAsset, ...]:
-        """Return every registered (deduped) candidate."""
-        return tuple(self._by_trace.values())
+    def all_assets(self, *, tenant_id: str = "default") -> tuple[KnowledgeAsset, ...]:
+        """Return every registered (deduped) candidate for a tenant."""
+        return tuple(self._by_trace.get(tenant_id, {}).values())

@@ -29,16 +29,18 @@ class FeedbackStorePort(ABC):
     """
 
     @abstractmethod
-    def record(self, event: FeedbackEvent) -> FeedbackEvent: ...
+    def record(self, event: FeedbackEvent, *, tenant_id: str = "default") -> FeedbackEvent: ...
 
     @abstractmethod
-    def get_by_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]: ...
+    def get_by_trace(
+        self, trace_id: str, *, tenant_id: str = "default"
+    ) -> tuple[FeedbackEvent, ...]: ...
 
     @abstractmethod
-    def all_events(self) -> tuple[FeedbackEvent, ...]: ...
+    def all_events(self, *, tenant_id: str = "default") -> tuple[FeedbackEvent, ...]: ...
 
     @abstractmethod
-    def outcome_counts(self) -> dict[str, int]: ...
+    def outcome_counts(self, *, tenant_id: str = "default") -> dict[str, int]: ...
 
 
 class FeedbackEventBuilder:
@@ -128,22 +130,28 @@ class FeedbackStore(FeedbackStorePort):
     """In-memory store of ``FeedbackEvent`` records, indexed by ``trace_id``."""
 
     def __init__(self) -> None:
-        self._by_trace: dict[str, list[FeedbackEvent]] = {}
+        self._by_trace: dict[str, dict[str, list[FeedbackEvent]]] = {}
 
-    def record(self, event: FeedbackEvent) -> FeedbackEvent:
+    def record(self, event: FeedbackEvent, *, tenant_id: str = "default") -> FeedbackEvent:
         """Record a feedback event and return it."""
-        self._by_trace.setdefault(event.trace_id, []).append(event)
+        self._by_trace.setdefault(tenant_id, {}).setdefault(event.trace_id, []).append(event)
         return event
 
-    def get_by_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]:
+    def get_by_trace(
+        self, trace_id: str, *, tenant_id: str = "default"
+    ) -> tuple[FeedbackEvent, ...]:
         """Return all events recorded for ``trace_id`` in insertion order."""
-        return tuple(self._by_trace.get(trace_id, ()))
+        return tuple(self._by_trace.get(tenant_id, {}).get(trace_id, ()))
 
-    def all_events(self) -> tuple[FeedbackEvent, ...]:
-        """Return every recorded event across all traces."""
-        return tuple(event for events in self._by_trace.values() for event in events)
+    def all_events(self, *, tenant_id: str = "default") -> tuple[FeedbackEvent, ...]:
+        """Return every recorded event across all traces for a tenant."""
+        return tuple(
+            event for events in self._by_trace.get(tenant_id, {}).values() for event in events
+        )
 
-    def outcome_counts(self) -> dict[str, int]:
-        """Aggregate event counts by outcome across all traces."""
-        counter: Counter[str] = Counter(event.outcome for event in self.all_events())
+    def outcome_counts(self, *, tenant_id: str = "default") -> dict[str, int]:
+        """Aggregate event counts by outcome across all traces for a tenant."""
+        counter: Counter[str] = Counter(
+            event.outcome for event in self.all_events(tenant_id=tenant_id)
+        )
         return dict(counter)

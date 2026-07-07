@@ -125,8 +125,11 @@ class AdoptionIngest:
         reviewer: str | None = None,
         metric_deltas: dict[str, object] | None = None,
         causal_attribution: CausalOutcomeAttribution | None = None,
+        tenant_id: str | None = None,
     ) -> FeedbackEvent:
         """Attest realized external value for ``trace_id`` and record it."""
+        del tenant_id  # The adoption ledger is a single value channel; tenant is
+        # threaded to the runtime's promotion path, not to the ledger event itself.
         event = self._builder.build(
             trace_id=trace_id,
             outcome=outcome,

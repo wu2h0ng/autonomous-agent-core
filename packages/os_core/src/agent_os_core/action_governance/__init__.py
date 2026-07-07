@@ -88,6 +88,11 @@ class ActionGovernance:
                 # Connector not registered — keep defaults
                 pass
 
+        # ADR-0012 §3.7: an operation is auto-executable-capable when it has a
+        # rollback or compensating action. The tenant policy (PolicyEngine) decides
+        # whether to actually auto-execute; this flag is the operation's declaration
+        # that automatic execution is structurally safe (reversible/compensable).
+        auto_executable = rollback_supported or compensating_action is not None
         return OperationContract(
             operation_id=f"operation-{proposal.proposal_id}",
             name=f"operation_for_{proposal.target_object}",
@@ -101,6 +106,7 @@ class ActionGovernance:
             connector_name=proposal.connector_name,
             action_type=proposal.action_type,
             idempotency_key=proposal.idempotency_key,
+            auto_executable=auto_executable,
         )
 
     def can_auto_execute(self, operation: OperationContract) -> bool:

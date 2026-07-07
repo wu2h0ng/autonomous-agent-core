@@ -159,7 +159,9 @@ class KnowledgeRetriever(ABC):
     """Search the KnowledgeAsset memory, returning ranked, explainable results."""
 
     @abstractmethod
-    def search(self, query: KnowledgeQuery) -> tuple[RetrievalResult, ...]: ...
+    def search(
+        self, query: KnowledgeQuery, *, tenant_id: str = "default"
+    ) -> tuple[RetrievalResult, ...]: ...
 
 
 @dataclass
@@ -172,6 +174,7 @@ class _Entry:
     risk_level: str | None
     outcome: str | None
     outcome_score: float
+    tenant_id: str
 
 
 class InMemoryKnowledgeRetriever(KnowledgeRetriever):
@@ -197,6 +200,7 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
         risk_level: str | None = None,
         outcome: str | None = None,
         outcome_score: float = 0.0,
+        tenant_id: str = "default",
     ) -> None:
         content = text if text is not None else asset.title
         # One current entry per asset AND per trace: a version bump (new asset id,
@@ -205,10 +209,13 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
         self._entries = [
             e
             for e in self._entries
-            if e.asset.asset_id != asset.asset_id
-            and not (
-                asset.source_trace_id is not None
-                and e.asset.source_trace_id == asset.source_trace_id
+            if e.tenant_id != tenant_id
+            or (
+                e.asset.asset_id != asset.asset_id
+                and not (
+                    asset.source_trace_id is not None
+                    and e.asset.source_trace_id == asset.source_trace_id
+                )
             )
         ]
         self._seq += 1
@@ -222,10 +229,13 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
                 risk_level=risk_level,
                 outcome=outcome,
                 outcome_score=outcome_score,
+                tenant_id=tenant_id,
             )
         )
 
-    def search(self, query: KnowledgeQuery) -> tuple[RetrievalResult, ...]:
+    def search(
+        self, query: KnowledgeQuery, *, tenant_id: str = "default"
+    ) -> tuple[RetrievalResult, ...]:
         candidates = [
             Candidate(
                 asset=e.asset,
@@ -235,7 +245,7 @@ class InMemoryKnowledgeRetriever(KnowledgeRetriever):
                 outcome_score=e.outcome_score,
             )
             for e in self._entries
-            if self._matches(e, query)
+            if e.tenant_id == tenant_id and self._matches(e, query)
         ]
         return self._scorer.score(query, candidates)
 
@@ -278,26 +288,28 @@ class IndexingKnowledgeStore(KnowledgeStorePort):
         self._base = base
         self._retriever = retriever
 
-    def register(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        stored = self._base.register(asset)
-        self._index(stored)
+    def register(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> KnowledgeAsset:
+        stored = self._base.register(asset, tenant_id=tenant_id)
+        self._index(stored, tenant_id=tenant_id)
         return stored
 
-    def register_version(self, asset: KnowledgeAsset) -> KnowledgeAsset:
-        stored = self._base.register_version(asset)
-        self._index(stored)
+    def register_version(
+        self, asset: KnowledgeAsset, *, tenant_id: str = "default"
+    ) -> KnowledgeAsset:
+        stored = self._base.register_version(asset, tenant_id=tenant_id)
+        self._index(stored, tenant_id=tenant_id)
         return stored
 
-    def get_by_trace(self, trace_id: str) -> KnowledgeAsset | None:
-        return self._base.get_by_trace(trace_id)
+    def get_by_trace(self, trace_id: str, *, tenant_id: str = "default") -> KnowledgeAsset | None:
+        return self._base.get_by_trace(trace_id, tenant_id=tenant_id)
 
-    def version_of(self, trace_id: str) -> int:
-        return self._base.version_of(trace_id)
+    def version_of(self, trace_id: str, *, tenant_id: str = "default") -> int:
+        return self._base.version_of(trace_id, tenant_id=tenant_id)
 
-    def all_assets(self) -> tuple[KnowledgeAsset, ...]:
-        return self._base.all_assets()
+    def all_assets(self, *, tenant_id: str = "default") -> tuple[KnowledgeAsset, ...]:
+        return self._base.all_assets(tenant_id=tenant_id)
 
-    def _index(self, asset: KnowledgeAsset) -> None:
+    def _index(self, asset: KnowledgeAsset, *, tenant_id: str = "default") -> None:
         if asset.source_trace_id is None:
             return
         proj = project_asset(asset)
@@ -307,6 +319,7 @@ class IndexingKnowledgeStore(KnowledgeStorePort):
             metric_name=proj["metric_name"],
             outcome=proj["outcome"],
             outcome_score=proj["outcome_score"],
+            tenant_id=tenant_id,
         )
 
 

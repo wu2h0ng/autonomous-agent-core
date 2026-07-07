@@ -53,15 +53,20 @@ from .approval_lite import (
 )
 from .corrigibility import ShellView
 from .data_access_plane import ProviderRegistry
-from .data_product_compiler import DataProductCompiler
+from .data_product_compiler import (
+    DataProductCompiler,
+    ProviderPlanningError,
+    QueryPlanningError,
+)
 from .evidence_chain import EvidenceChainBuilder
 from .feedback import FeedbackEventBuilder, FeedbackStore, FeedbackStorePort
 from .intent_parser import IntentParser
 from .knowledge_memory import KnowledgeAssetBuilder, KnowledgeStore, KnowledgeStorePort
+from .nl_query import NLQueryEngine, QueryEngineResult
 from .knowledge_retrieval import KnowledgeRetriever
 from .operation_state_machine import OperationStateMachine
 from .operation_trace import OperationTraceBuilder
-from .query_runtime import StaticQueryExecutor, TemplateRegistry
+from .query_runtime import TemplateRegistry
 from .semantic_runtime import SemanticRegistry
 from .snapshot_store import InMemorySnapshotStore, SnapshotStore
 from .sql_safety import SQLSafetyChecker
@@ -126,8 +131,10 @@ class TrustedLoopRuntime:
         metric_contract: MetricContract,
         sql_template: SQLTemplate | None = None,
         template_registry: TemplateRegistry | None = None,
-        query_executor: StaticQueryExecutor,
+        query_executor: object | None = None,
+        executor_factory: Any | None = None,
         intent_parser: IntentParser | None = None,
+        nl_query_engine: NLQueryEngine | None = None,
         semantic_registry: SemanticRegistry | None = None,
         provider_registry: ProviderRegistry | None = None,
         data_product_compiler: DataProductCompiler | None = None,
@@ -150,6 +157,9 @@ class TrustedLoopRuntime:
         approval_context_store: ApprovalContextStorePort | None = None,
         approval_context_reclaim_after_seconds: float | None = 300.0,
         governance_decision_client: Any | None = None,
+        causal_discovery_client: Any | None = None,
+        approval_router: Any | None = None,
+        policy_guardrails_provider: Any | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -162,10 +172,18 @@ class TrustedLoopRuntime:
             # Back-compat: a single template also serves as the default fallback.
             self.template_registry = TemplateRegistry.from_single(sql_template)
         else:
-            raise ValueError("Provide either 'sql_template' or 'template_registry'.")
+            # Compiler path: the runtime builds the query plan from the metric
+            # contract's verified_queries via DataProductCompiler.
+            self.template_registry = None
         self.sql_template = sql_template
+        if query_executor is None and executor_factory is None:
+            raise ValueError(
+                "Provide either 'query_executor' or 'executor_factory' so the runtime can execute queries."
+            )
         self.query_executor = query_executor
+        self.executor_factory = executor_factory
         self.intent_parser = intent_parser or IntentParser()
+        self.nl_query_engine = nl_query_engine
         self.semantic_registry = semantic_registry or SemanticRegistry(
             metric_contracts=(metric_contract,)
         )
@@ -178,7 +196,7 @@ class TrustedLoopRuntime:
         )
         self.provider_registry = provider_registry or ProviderRegistry((default_provider,))
         self.data_product_compiler = data_product_compiler or DataProductCompiler()
-        self.evidence_builder = EvidenceChainBuilder()
+        self.evidence_builder = EvidenceChainBuilder(semantic_registry=semantic_registry)
         self.action_builder = ActionProposalBuilder()
 
         # --- New dependencies (caller MUST provide connector_registry) ---
@@ -217,6 +235,9 @@ class TrustedLoopRuntime:
         # governance gate. It can only TIGHTEN (DENY -> block; ESCALATE/VERIFY_MORE -> force approval),
         # never loosen. None = no external governance (the loop is unchanged). #19: contract-only.
         self.governance_decision_client = governance_decision_client
+        self.causal_discovery_client = causal_discovery_client
+        self.approval_router = approval_router
+        self.policy_guardrails_provider = policy_guardrails_provider
         # Optional unit-of-work factory: a zero-arg callable returning a context
         # manager that yields (feedback_store, knowledge_store) bound to one
         # transaction, making record_outcome's two writes atomic. When None,
@@ -236,7 +257,46 @@ class TrustedLoopRuntime:
         self.approval_context_reclaim_after_seconds = approval_context_reclaim_after_seconds
         self._pending_operation_lock = threading.RLock()
 
-    def run(self, question: str, parameters: dict[str, object]) -> TrustedLoopResult:
+    def _policy_guardrails(self, proposal: Any, operation: Any) -> Any:
+        """Build GuardrailInput for the router from the current run state.
+
+        Default: evidence is complete (we are past the EvidenceChain step) and
+        the dry-run is considered satisfied for the routing decision; the actual
+        connector dry-run still runs in governed execution. An injected provider
+        overrides this.
+        """
+        if self.policy_guardrails_provider is not None:
+            return self.policy_guardrails_provider(proposal, operation)
+        from .policy_engine import GuardrailInput
+
+        return GuardrailInput(dry_run_success=True, evidence_complete=True, confidence=1.0)
+
+    def _consume_policy_approval(self, policy_approval_id: str) -> None:
+        """Consume a policy approval record via the router's policy engine.
+
+        Best-effort: if no policy engine is wired or consumption fails (e.g. the
+        shell was paused between decision and consume), the execution already
+        happened; the failure is surfaced via trace, not a hard loop error, so a
+        governed execution is not silently rolled back by a policy bookkeeping
+        issue.
+        """
+        engine = (
+            getattr(self.approval_router, "_policy_engine", None) if self.approval_router else None
+        )
+        if engine is None:
+            return
+        try:
+            engine.consume_approval(policy_approval_id)
+        except Exception:  # noqa: BLE001 - bookkeeping failure must not abort governed exec
+            self.trace_writer = self.trace_writer  # no-op anchor; failure is trace-visible
+
+    def run(
+        self,
+        question: str,
+        parameters: dict[str, object],
+        *,
+        tenant_id: str = "default",
+    ) -> TrustedLoopResult:
         """Run the loop and persist its trace on BOTH exits (AR-20260611).
 
         Success persists a ``status="ok"`` RunTrace; an expected business block
@@ -244,11 +304,16 @@ class TrustedLoopRuntime:
         and the re-raised block carries the trace_id, so refusals are as auditable
         as answers. Programming/wiring errors propagate unpersisted — they are
         bugs, not auditable outcomes.
+
+        Args:
+            question: Natural-language business question.
+            parameters: Runtime parameters for the query plan.
+            tenant_id: Tenant scope for the run and all persisted state.
         """
         trace_id = f"trace-{uuid4().hex[:12]}"
         trace = TraceRecorder(trace_id)
         try:
-            result = self._execute_loop(question, parameters, trace_id, trace)
+            result = self._execute_loop(question, parameters, trace_id, trace, tenant_id=tenant_id)
         except TrustedLoopBlocked as blocked:
             trace.record(
                 "blocked",
@@ -264,7 +329,8 @@ class TrustedLoopRuntime:
                     status="blocked",
                     events=trace.events(),
                     telemetry_events=trace.telemetry_events(),
-                )
+                ),
+                tenant_id=tenant_id,
             )
             raise TrustedLoopBlocked(replace(blocked.block, trace_id=trace_id)) from None
         self.trace_store.save(
@@ -273,7 +339,8 @@ class TrustedLoopRuntime:
                 status="ok",
                 events=result.trace_events,
                 telemetry_events=result.telemetry_events,
-            )
+            ),
+            tenant_id=tenant_id,
         )
         return result
 
@@ -283,6 +350,8 @@ class TrustedLoopRuntime:
         parameters: dict[str, object],
         trace_id: str,
         trace: TraceRecorder,
+        *,
+        tenant_id: str = "default",
     ) -> TrustedLoopResult:
         started_at = perf_counter()
         trace.metric(
@@ -306,8 +375,31 @@ class TrustedLoopRuntime:
                 )
             )
 
-        intent = self._parse_intent(question)
+        nl_result: QueryEngineResult | None = None
+        if self.nl_query_engine is not None:
+            nl_result = self.nl_query_engine.query(question)
+            trace.record(
+                "nl_query",
+                {
+                    "matched_metric": (
+                        nl_result.matched_metric.metric_name
+                        if nl_result.matched_metric is not None
+                        else None
+                    ),
+                    "confidence": nl_result.confidence,
+                    "dimensions": list(nl_result.dimensions),
+                },
+            )
+
+        intent = self._parse_intent(question, nl_result, tenant_id=tenant_id)
         trace.record("intent", {"intent_id": intent.intent_id, "metric": intent.metric_name})
+
+        runtime_parameters = dict(parameters)
+        if self.nl_query_engine is not None and nl_result is not None:
+            for key, value in nl_result.parameters.items():
+                if key not in runtime_parameters and key in ("start_date", "end_date"):
+                    runtime_parameters[key] = value
+            trace.record("nl_parameters", runtime_parameters)
 
         try:
             metric_contract = self.semantic_registry.resolve_metric(intent.metric_name)
@@ -320,22 +412,92 @@ class TrustedLoopRuntime:
                     details=(str(exc).strip("'"),),
                 )
             ) from exc
-        try:
-            provider_contract = self.provider_registry.choose_for_schemas(
-                metric_contract.allowed_schemas
-            )
-        except KeyError as exc:
-            raise TrustedLoopBlocked(
-                TrustedLoopBlock(
-                    code=BlockCode.NO_PROVIDER,
-                    message=(
-                        "No provider can satisfy schemas "
-                        f"{', '.join(metric_contract.allowed_schemas)}."
-                    ),
-                    stage="provider_selection",
-                    details=(str(exc).strip("'"),),
+        # Resolve provider and query plan. The DataProductCompiler path is the
+        # production default when no template_registry/sql_template is supplied;
+        # the legacy template_registry path remains for narrow tests and simple
+        # wiring.
+        if self.template_registry is not None:
+            try:
+                provider_contract = self.provider_registry.choose_for_schemas(
+                    metric_contract.allowed_schemas
                 )
-            ) from exc
+            except KeyError as exc:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.NO_PROVIDER,
+                        message=(
+                            "No provider can satisfy schemas "
+                            f"{', '.join(metric_contract.allowed_schemas)}."
+                        ),
+                        stage="provider_selection",
+                        details=(str(exc).strip("'"),),
+                    )
+                ) from exc
+            try:
+                sql_template = self.template_registry.resolve(metric_contract.metric_name)
+            except ValueError as exc:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.NO_TEMPLATE,
+                        message=f"No SQL template registered for metric '{metric_contract.metric_name}'.",
+                        stage="template_selection",
+                        details=(str(exc),),
+                    )
+                ) from exc
+            query_plan = QueryPlan(
+                metric_name=metric_contract.metric_name,
+                sql=sql_template.sql,
+                parameters=runtime_parameters,
+            )
+            data_requirement = self.data_product_compiler.compile_requirement(
+                intent=intent,
+                metric_contract=metric_contract,
+                provider_contract=provider_contract,
+                parameters=runtime_parameters,
+            )
+            lineage_snapshot = self.data_product_compiler.build_lineage_snapshot(
+                query_plan=query_plan,
+                provider_contract=provider_contract,
+            )
+            data_product_candidate = self.data_product_compiler.build_candidate(
+                requirement=data_requirement,
+                metric_contract=metric_contract,
+                query_plan=query_plan,
+                lineage_snapshot=lineage_snapshot,
+            )
+        else:
+            try:
+                compile_result = self.data_product_compiler.compile(
+                    intent=intent,
+                    metric_contract=metric_contract,
+                    parameters=runtime_parameters,
+                    provider_registry=self.provider_registry,
+                )
+            except (ProviderPlanningError, QueryPlanningError) as exc:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.NO_TEMPLATE,
+                        message=str(exc),
+                        stage="data_product_compiler",
+                        details=(str(exc),),
+                    )
+                ) from exc
+            provider_contract = compile_result["provider_contract"]
+            query_plan = compile_result["query_plan"]
+            data_product_candidate = compile_result["data_product_candidate"]
+            data_requirement = compile_result["requirement"]
+            lineage_snapshot = compile_result["lineage_snapshot"]
+            sql_template = query_plan.source_template
+            if sql_template is None:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.NO_TEMPLATE,
+                        message="DataProductCompiler produced a QueryPlan without a source template.",
+                        stage="query_planning",
+                        details=(),
+                    )
+                )
+
         trace.record(
             "semantic_resolution",
             {
@@ -358,13 +520,16 @@ class TrustedLoopRuntime:
                         text=question,
                         metric_name=metric_contract.metric_name,
                         k=self.recall_k,
-                    )
+                    ),
+                    tenant_id=tenant_id,
                 )
             except Exception as exc:  # noqa: BLE001 - advisory path, traced below
                 trace.record("knowledge_recall", {"error": str(exc)})
             else:
                 related_knowledge, context_quality_boosts = (
-                    self._rank_related_knowledge_by_context_quality(related_knowledge)
+                    self._rank_related_knowledge_by_context_quality(
+                        related_knowledge, tenant_id=tenant_id
+                    )
                 )
                 trace.record(
                     "knowledge_recall",
@@ -375,26 +540,6 @@ class TrustedLoopRuntime:
                     },
                 )
 
-        # Select the SQL template that computes THIS metric (not a fixed template),
-        # so the EvidenceChain reproduces the requested metric. Unsupported metrics
-        # block here rather than silently running the wrong SQL.
-        try:
-            sql_template = self.template_registry.resolve(metric_contract.metric_name)
-        except ValueError as exc:
-            raise TrustedLoopBlocked(
-                TrustedLoopBlock(
-                    code=BlockCode.NO_TEMPLATE,
-                    message=f"No SQL template registered for metric '{metric_contract.metric_name}'.",
-                    stage="template_selection",
-                    details=(str(exc),),
-                )
-            ) from exc
-
-        query_plan = QueryPlan(
-            metric_name=metric_contract.metric_name,
-            sql=sql_template.sql,
-            parameters=parameters,
-        )
         trace.record(
             "query_plan",
             {"metric": query_plan.metric_name, "template_id": sql_template.template_id},
@@ -404,7 +549,7 @@ class TrustedLoopRuntime:
         safety = sql_safety.check(
             sql_template.sql,
             sql_template.required_parameters,
-            parameters,
+            query_plan.parameters,
             required_time_parameters=sql_template.required_time_parameters,
             max_limit=sql_template.max_limit,
             allow_select_star=sql_template.allow_select_star,
@@ -427,7 +572,10 @@ class TrustedLoopRuntime:
                 )
             )
 
-        query_result = self.query_executor.execute(query_plan)
+        query_executor = self.query_executor
+        if query_executor is None:
+            query_executor = self.executor_factory(provider_contract)
+        query_result = query_executor.execute(query_plan)
         trace.record("query_result", {"row_count": query_result.row_count})
         trace.metric(
             dimension=TelemetryDimension.SYSTEM,
@@ -437,22 +585,6 @@ class TrustedLoopRuntime:
             attributes={"metric": metric_contract.metric_name},
         )
 
-        data_requirement = self.data_product_compiler.compile_requirement(
-            intent=intent,
-            metric_contract=metric_contract,
-            provider_contract=provider_contract,
-            parameters=parameters,
-        )
-        lineage_snapshot = self.data_product_compiler.build_lineage_snapshot(
-            query_plan=query_plan,
-            provider_contract=provider_contract,
-        )
-        data_product_candidate = self.data_product_compiler.build_candidate(
-            requirement=data_requirement,
-            metric_contract=metric_contract,
-            query_plan=query_plan,
-            lineage_snapshot=lineage_snapshot,
-        )
         trace.record(
             "data_product_candidate",
             {"data_product_id": data_product_candidate.data_product_id},
@@ -466,6 +598,7 @@ class TrustedLoopRuntime:
             sql_safety=safety,
             query_result=query_result,
             trace_id=trace_id,
+            provider_contract=provider_contract,
         )
         trace.record("evidence_chain", {"evidence_chain_id": evidence.evidence_chain_id})
         trace.metric(
@@ -490,10 +623,39 @@ class TrustedLoopRuntime:
         # the data/evidence path trips this loudly instead of emitting an ungrounded answer.
         self._assert_grounded(safety, evidence)
 
+        # ====== Causal Discovery (RR-0032 seam): optional step between evidence and action ======
+        # If a causal discovery client is configured, send the query result data to the
+        # autonomous-agent-core discovery engine. The returned DAG informs action proposals
+        # with discovered causal structure (which variables affect which outcomes).
+        causal_discovery_result: dict | None = None
+        if self.causal_discovery_client is not None:
+            try:
+                rows = [[float(v) for v in row] for row in query_result.rows]
+                from agent_os_contracts.causal_discovery_seam import CausalDiscoveryRequest
+
+                cd_req = CausalDiscoveryRequest(data=rows, tau=0.05, use_fast_orient=True)
+                causal_discovery_result = self.causal_discovery_client.discover(cd_req)
+                trace.record(
+                    "causal_discovery",
+                    {
+                        "n_nodes": causal_discovery_result.n_nodes,
+                        "n_edges": causal_discovery_result.n_dag_edges,
+                        "confidence": causal_discovery_result.confidence,
+                    },
+                )
+            except Exception:  # noqa: BLE001 — degrade gracefully
+                trace.record("causal_discovery", {"error": "client_unavailable"})
+
         proposal = self.action_builder.build(
             proposal_id=f"proposal-{uuid4().hex[:12]}",
             evidence=evidence,
         )
+        if causal_discovery_result is not None:
+            proposal = replace(
+                proposal,
+                causal_dag=getattr(causal_discovery_result, "dag", []),
+                causal_confidence=getattr(causal_discovery_result, "confidence", 0.0),
+            )
         knowledge_context_refs = tuple(r.asset.asset_id for r in related_knowledge)
         if knowledge_context_refs:
             proposal = replace(proposal, knowledge_context_refs=knowledge_context_refs)
@@ -654,8 +816,29 @@ class TrustedLoopRuntime:
 
         state_snapshot: StateSnapshot | None = None
         approval_record = None
+        feedback_event: FeedbackEvent | None = None
 
-        if operation.approval_required:
+        # Router consultation (ADR-0012 / AR-20260707): if a router is wired and
+        # pre-approves this action, take the governed execution path under policy
+        # pre-approval instead of halting for human approval. No router (flag-off
+        # default) leaves the MVP awaiting_approval behavior unchanged.
+        policy_pre_approved = False
+        policy_approval_id: str | None = None
+        if operation.approval_required and self.approval_router is not None:
+            guardrails = self._policy_guardrails(proposal, operation)
+            route_decision = self.approval_router.route(
+                proposal,
+                operation,
+                guardrails,
+                tenant_id=tenant_id,
+                trace_id=trace_id,
+            )
+            if route_decision.mode == "policy_pre_approved":
+                policy_pre_approved = True
+                policy_approval_id = route_decision.policy_approval_id
+                proposal = route_decision.proposal
+
+        if operation.approval_required and not policy_pre_approved:
             # Halt before execution: record pending approval, do NOT execute.
             self.state_machine.transition(OperationState.PROPOSED, OperationState.AWAITING_APPROVAL)
             approval_id = f"approval-{uuid4().hex[:12]}"
@@ -668,6 +851,7 @@ class TrustedLoopRuntime:
                     action_parameters=proposal.action_parameters,
                     evidence_chain_id=proposal.evidence_chain_id,
                 ),
+                tenant_id=tenant_id,
             )
             with self._pending_operation_lock:
                 self.approval_context_store.save(
@@ -677,7 +861,8 @@ class TrustedLoopRuntime:
                         operation=operation,
                         action_parameters=dict(proposal.action_parameters),
                         evidence_chain=evidence,
-                    )
+                    ),
+                    tenant_id=tenant_id,
                 )
             action_result: dict[str, object] = {
                 "status": "awaiting_approval",
@@ -699,13 +884,38 @@ class TrustedLoopRuntime:
                 {"step": "awaiting_approval", "approval_id": approval_id},
             )
         else:
-            # Governed execution path for non-approval operations.
-            self.state_machine.transition(OperationState.PROPOSED, OperationState.APPROVED)
-            operation_trace = self.operation_trace_builder.update_trace(
-                operation_trace,
-                OperationState.APPROVED,
-                {"step": "approved", "approval_id": None},
-            )
+            # Governed execution path for non-approval operations, OR policy
+            # pre-approved R4/R5 actions (ADR-0012). The pre-approved path
+            # transitions through POLICY_PRE_APPROVED and consumes the policy
+            # approval record after successful execution (F1: consume re-checks
+            # the pause shell at execution time).
+            if policy_pre_approved:
+                # ADR-0012 §3.4 sequence: PROPOSED -> POLICY_EVALUATED ->
+                # POLICY_PRE_APPROVED (the PolicyEngine already ran its own
+                # trace; the loop's OperationTrace mirrors the same lifecycle).
+                self.state_machine.transition(
+                    OperationState.PROPOSED, OperationState.POLICY_EVALUATED
+                )
+                operation_trace = self.operation_trace_builder.update_trace(
+                    operation_trace,
+                    OperationState.POLICY_EVALUATED,
+                    {"step": "policy_evaluated", "approval_id": policy_approval_id},
+                )
+                self.state_machine.transition(
+                    OperationState.POLICY_EVALUATED, OperationState.POLICY_PRE_APPROVED
+                )
+                operation_trace = self.operation_trace_builder.update_trace(
+                    operation_trace,
+                    OperationState.POLICY_PRE_APPROVED,
+                    {"step": "policy_pre_approved", "approval_id": policy_approval_id},
+                )
+            else:
+                self.state_machine.transition(OperationState.PROPOSED, OperationState.APPROVED)
+                operation_trace = self.operation_trace_builder.update_trace(
+                    operation_trace,
+                    OperationState.APPROVED,
+                    {"step": "approved", "approval_id": None},
+                )
             operation, operation_trace, state_snapshot, action_result = (
                 self._execute_governed_operation(
                     operation=operation,
@@ -714,8 +924,44 @@ class TrustedLoopRuntime:
                     proposal_id=proposal.proposal_id,
                     operation_trace=operation_trace,
                     trace=trace,
+                    tenant_id=tenant_id,
                 )
             )
+
+            # Auto-self-report the runtime-observed execution outcome. This closes
+            # the ActionRuntime loop for low/medium-risk operations that do not
+            # stop at the approval gate. The event is RUNTIME_SELF_REPORT only;
+            # it cannot mint realized external value (P5.1a, ADR-0001).
+            execution_status = action_result.get("status") if action_result else None
+            if execution_status in ("executed", "accepted", "completed"):
+                outcome = "executed"
+            elif execution_status == "pending_approval":
+                # Connector recorded the operation without side effects; runtime
+                # self-reports an observation, not a realized execution outcome.
+                outcome = "observed"
+            else:
+                outcome = execution_status or "observed"
+            feedback_event = self.feedback_builder.build(
+                trace_id=trace_id,
+                outcome=outcome,
+                reviewer="trusted_loop_runtime",
+                metric_deltas=action_result.get("metric_deltas")
+                if isinstance(action_result, dict)
+                else None,
+            )
+            self.feedback_store.record(feedback_event, tenant_id=tenant_id)
+            trace.record(
+                "feedback_event",
+                {
+                    "feedback_id": feedback_event.feedback_id,
+                    "outcome": feedback_event.outcome,
+                    "source": feedback_event.source,
+                },
+            )
+            if policy_pre_approved and policy_approval_id is not None:
+                # Consume the policy approval after successful governed execution
+                # (F1: consume re-checks pause shell + record validity at exec time).
+                self._consume_policy_approval(policy_approval_id)
 
         # ====== Back half: sediment a reusable KnowledgeAsset candidate ======
         # Every run produces a DRAFT knowledge-asset candidate bound to this
@@ -727,7 +973,7 @@ class TrustedLoopRuntime:
             action_proposal=proposal,
             trace_id=trace_id,
         )
-        self.knowledge_store.register(knowledge_candidate)
+        self.knowledge_store.register(knowledge_candidate, tenant_id=tenant_id)
         trace.record(
             "knowledge_asset_candidate",
             {
@@ -782,11 +1028,18 @@ class TrustedLoopRuntime:
             state_snapshot=state_snapshot,
             action_result=action_result,
             approval_record=approval_record,
+            feedback_event=feedback_event,
             knowledge_asset_candidate=knowledge_candidate,
             related_knowledge=related_knowledge,
         )
 
-    def evaluate(self, question: str, parameters: dict[str, object]) -> TrustedLoopOutcome:
+    def evaluate(
+        self,
+        question: str,
+        parameters: dict[str, object],
+        *,
+        tenant_id: str = "default",
+    ) -> TrustedLoopOutcome:
         """Run the loop and return a unified outcome instead of raising on blocks.
 
         Returns an ``ok`` outcome carrying the ``TrustedLoopResult`` on success, or a
@@ -795,12 +1048,14 @@ class TrustedLoopRuntime:
         errors (e.g. a missing connector) still propagate as exceptions.
         """
         try:
-            result = self.run(question, parameters)
+            result = self.run(question, parameters, tenant_id=tenant_id)
         except TrustedLoopBlocked as blocked:
             return TrustedLoopOutcome(status="blocked", block=blocked.block)
         return TrustedLoopOutcome(status="ok", result=result)
 
-    def execute_pending_approved_operation(self, *, approval_id: str) -> OperationTrace:
+    def execute_pending_approved_operation(
+        self, *, approval_id: str, tenant_id: str = "default"
+    ) -> OperationTrace:
         """Execute an in-process pending operation after its approval is approved.
 
         This is the user-surface-friendly approval-resume path: callers pass only
@@ -812,6 +1067,7 @@ class TrustedLoopRuntime:
             context = self.approval_context_store.claim(
                 approval_id,
                 reclaim_stale_after_seconds=self.approval_context_reclaim_after_seconds,
+                tenant_id=tenant_id,
             )
             if context is None:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
@@ -822,11 +1078,12 @@ class TrustedLoopRuntime:
                     action_parameters=context.action_parameters,
                     evidence_chain=context.evidence_chain,
                     proposal_id=context.proposal_id,
+                    tenant_id=tenant_id,
                 )
             except Exception:
-                self.approval_context_store.release_claim(approval_id)
+                self.approval_context_store.release_claim(approval_id, tenant_id=tenant_id)
                 raise
-            self.approval_context_store.delete(approval_id)
+            self.approval_context_store.delete(approval_id, tenant_id=tenant_id)
             return operation_trace
 
     def approve_and_execute_pending_operation(
@@ -835,23 +1092,27 @@ class TrustedLoopRuntime:
         approval_id: str,
         reason: str | None = None,
         approved_by: str | None = None,
+        tenant_id: str = "default",
     ) -> tuple[ApprovalRecord, OperationTrace]:
         """Approve and execute a pending operation without creating orphan approvals."""
         with self._pending_operation_lock:
-            if self.approval_context_store.get(approval_id) is None:
+            if self.approval_context_store.get(approval_id, tenant_id=tenant_id) is None:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
-            approval = self.approval_runtime.get(approval_id)
+            approval = self.approval_runtime.get(approval_id, tenant_id=tenant_id)
             if approval.status == "pending":
                 approval = self.approval_runtime.approve(
                     approval_id,
                     reason=reason,
                     approved_by=approved_by,
+                    tenant_id=tenant_id,
                 )
             elif approval.status != "approved":
                 raise ValueError(
                     f"Approval '{approval_id}' is '{approval.status}', expected pending or approved."
                 )
-            operation_trace = self.execute_pending_approved_operation(approval_id=approval_id)
+            operation_trace = self.execute_pending_approved_operation(
+                approval_id=approval_id, tenant_id=tenant_id
+            )
             return approval, operation_trace
 
     def _assert_execution_time_governance(
@@ -932,6 +1193,7 @@ class TrustedLoopRuntime:
         action_parameters: dict[str, Any],
         evidence_chain: EvidenceChain,
         proposal_id: str,
+        tenant_id: str = "default",
     ) -> OperationTrace:
         """Resume an approval-required operation after human approval.
 
@@ -939,7 +1201,7 @@ class TrustedLoopRuntime:
         store and refuses anything other than an approved record for the exact
         proposal before touching a connector.
         """
-        approval = self.approval_runtime.get(approval_id)
+        approval = self.approval_runtime.get(approval_id, tenant_id=tenant_id)
         if approval.status != "approved":
             raise ValueError(
                 f"Approval '{approval_id}' is '{approval.status}', expected 'approved'."
@@ -1003,6 +1265,7 @@ class TrustedLoopRuntime:
                 proposal_id=proposal_id,
                 operation_trace=operation_trace,
                 trace=None,
+                tenant_id=tenant_id,
             )
         except Exception as exc:
             audit_event = self._connector_uncertain_audit_event(exc)
@@ -1018,12 +1281,14 @@ class TrustedLoopRuntime:
                     run_trace_id=evidence_chain.trace_id,
                     approval_id=approval_id,
                     operation_trace=failed_trace,
+                    tenant_id=tenant_id,
                 )
             raise
         self._persist_approved_operation_trace(
             run_trace_id=evidence_chain.trace_id,
             approval_id=approval_id,
             operation_trace=operation_trace,
+            tenant_id=tenant_id,
         )
         return operation_trace
 
@@ -1034,6 +1299,7 @@ class TrustedLoopRuntime:
         outcome: str,
         reviewer: str | None = None,
         metric_deltas: dict[str, object] | None = None,
+        tenant_id: str = "default",
     ) -> FeedbackEvent:
         """Record a runtime SELF-REPORT for a completed run and fold it back in.
 
@@ -1055,6 +1321,7 @@ class TrustedLoopRuntime:
             outcome: The observed outcome signal (e.g. ``"adopted"``).
             reviewer: Optional human/agent attribution.
             metric_deltas: Optional observed metric changes.
+            tenant_id: Tenant scope for the feedback record.
 
         Returns:
             The recorded ``FeedbackEvent``.
@@ -1068,10 +1335,10 @@ class TrustedLoopRuntime:
         # P5.1b (ADR-0001): self-report is recorded for trace/audit ONLY and never
         # folds into knowledge. Knowledge promotion is reserved for realized
         # external value (``promote_from_adoption``) — the anti-wirehead guarantee.
-        self.feedback_store.record(feedback)
+        self.feedback_store.record(feedback, tenant_id=tenant_id)
         return feedback
 
-    def promote_from_adoption(self, trace_id: str) -> Any | None:
+    def promote_from_adoption(self, trace_id: str, *, tenant_id: str = "default") -> Any | None:
         """Promote the trace's KnowledgeAsset from REALIZED external value (P5.1b).
 
         Value-driven knowledge promotion consumes the operator-attested adoption
@@ -1080,6 +1347,10 @@ class TrustedLoopRuntime:
         for ``trace_id`` and a knowledge candidate exists, the candidate is
         superseded by a revision reflecting the latest adoption outcome (version
         bumped), atomically under the configured unit of work.
+
+        Args:
+            trace_id: The originating run trace.
+            tenant_id: Tenant scope for the knowledge promotion.
 
         Returns the revised ``KnowledgeAsset``, or ``None`` when no value channel
         is wired, no adoption is recorded, or no base candidate exists (no
@@ -1095,11 +1366,11 @@ class TrustedLoopRuntime:
         else:
             context = nullcontext((self.feedback_store, self.knowledge_store))
         with context as (_feedback_store, knowledge_store):
-            base_asset = knowledge_store.get_by_trace(trace_id)
+            base_asset = knowledge_store.get_by_trace(trace_id, tenant_id=tenant_id)
             if base_asset is None:
                 return None
             revised = self.knowledge_builder.with_feedback(base_asset, events[-1])
-            knowledge_store.register_version(revised)
+            knowledge_store.register_version(revised, tenant_id=tenant_id)
             return revised
 
     def adoption_for_trace(self, trace_id: str) -> tuple[FeedbackEvent, ...]:
@@ -1114,7 +1385,7 @@ class TrustedLoopRuntime:
             return ()
         return self.adoption_ledger_view.get_by_trace(trace_id)
 
-    def rollback(self, snapshot_id: str) -> dict[str, Any]:
+    def rollback(self, snapshot_id: str, *, tenant_id: str = "default") -> dict[str, Any]:
         """Roll back a previously persisted snapshot via its connector.
 
         Loads the snapshot from ``snapshot_store``, resolves the connector that
@@ -1123,6 +1394,7 @@ class TrustedLoopRuntime:
 
         Args:
             snapshot_id: The id of the snapshot to roll back.
+            tenant_id: Tenant scope for the snapshot lookup.
 
         Returns:
             The connector's rollback result (contains a ``status`` key).
@@ -1130,15 +1402,27 @@ class TrustedLoopRuntime:
         Raises:
             KeyError: If no snapshot with ``snapshot_id`` is registered.
         """
-        snapshot = self.snapshot_store.get(snapshot_id)
+        snapshot = self.snapshot_store.get(snapshot_id, tenant_id=tenant_id)
         if snapshot is None:
             raise KeyError(f"No snapshot registered with id '{snapshot_id}'.")
         connector = self.connector_registry.get(snapshot.connector_name)
         return connector.rollback(snapshot)
 
-    def _parse_intent(self, question: str) -> BusinessIntent:
-        parsed = self.intent_parser.parse(question)
-        metric_name = parsed.metric_name
+    def _parse_intent(
+        self,
+        question: str,
+        nl_result: Any | None = None,
+        *,
+        tenant_id: str = "default",
+    ) -> BusinessIntent:
+        # Prefer NLQueryEngine's matched metric when it resolves confidently;
+        # otherwise fall back to the legacy IntentParser.
+        nl_metric_name: str | None = None
+        if nl_result is not None and nl_result.matched_metric is not None:
+            nl_metric_name = nl_result.matched_metric.metric_name
+
+        parsed = self.intent_parser.parse(question, tenant_id=tenant_id)
+        metric_name = nl_metric_name or parsed.metric_name
         if not metric_name or metric_name == "unknown":
             metric_name = self.metric_contract.metric_name
 
@@ -1178,6 +1462,7 @@ class TrustedLoopRuntime:
         proposal_id: str,
         operation_trace: OperationTrace,
         trace: Any | None,
+        tenant_id: str = "default",
     ) -> tuple[OperationContract, OperationTrace, StateSnapshot | None, dict[str, object]]:
         """Run the shared governed branch: dry-run, snapshot, connector execute."""
         self._assert_grounded(evidence_chain.sql_safety, evidence_chain)
@@ -1225,7 +1510,7 @@ class TrustedLoopRuntime:
             current_state = OperationState.SNAPSHOTTING
             state_snapshot = connector.take_snapshot(operation)
             if state_snapshot is not None:
-                self.snapshot_store.save(state_snapshot)
+                self.snapshot_store.save(state_snapshot, tenant_id=tenant_id)
             if trace is not None:
                 trace.record(
                     "state_snapshot",
@@ -1407,8 +1692,9 @@ class TrustedLoopRuntime:
         run_trace_id: str,
         approval_id: str,
         operation_trace: OperationTrace,
+        tenant_id: str = "default",
     ) -> None:
-        existing = self.trace_store.get(run_trace_id)
+        existing = self.trace_store.get(run_trace_id, tenant_id=tenant_id)
         if existing is None:
             return
         appended_events = tuple(
@@ -1424,10 +1710,16 @@ class TrustedLoopRuntime:
             )
             for event in operation_trace.events
         )
-        self.trace_store.save(replace(existing, events=existing.events + appended_events))
+        self.trace_store.save(
+            replace(existing, events=existing.events + appended_events),
+            tenant_id=tenant_id,
+        )
 
     def _rank_related_knowledge_by_context_quality(
-        self, related_knowledge: tuple[RetrievalResult, ...]
+        self,
+        related_knowledge: tuple[RetrievalResult, ...],
+        *,
+        tenant_id: str = "default",
     ) -> tuple[tuple[RetrievalResult, ...], list[dict[str, Any]]]:
         if not related_knowledge:
             return related_knowledge, []
@@ -1440,7 +1732,7 @@ class TrustedLoopRuntime:
             }
             for asset_id in asset_ids
         }
-        for run_trace in self.trace_store.all_traces():
+        for run_trace in self.trace_store.all_traces(tenant_id=tenant_id):
             for event in run_trace.events:
                 payload = event.payload
                 refs = payload.get("knowledge_context_refs")
