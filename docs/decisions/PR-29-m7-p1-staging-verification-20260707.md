@@ -5,7 +5,7 @@
 
 ## Verified local head
 
-Verified local head: `_PENDING commit bind_`
+Verified local head: `de99dea`
 
 ## Scope
 
