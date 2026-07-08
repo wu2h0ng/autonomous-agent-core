@@ -1,0 +1,114 @@
+{
+  "seeds": [
+    100,
+    101,
+    102,
+    103,
+    104
+  ],
+  "budget": 6,
+  "n_obs": 853,
+  "n_nodes": 11,
+  "n_true_edges": 17,
+  "per_seed": [
+    {
+      "seed": 100,
+      "baseline": {
+        "f1": 0.2581,
+        "recall": 0.2353,
+        "precision": 0.2857,
+        "n_edges": 14
+      },
+      "causal": {
+        "f1": 0.3571,
+        "recall": 0.2941,
+        "precision": 0.4545,
+        "n_edges": 11,
+        "interventions_spent": 6
+      },
+      "f1_advantage": 0.099,
+      "recall_advantage": 0.0588,
+      "precision_advantage": 0.1688
+    },
+    {
+      "seed": 101,
+      "baseline": {
+        "f1": 0.2759,
+        "recall": 0.2353,
+        "precision": 0.3333,
+        "n_edges": 12
+      },
+      "causal": {
+        "f1": 0.1481,
+        "recall": 0.1176,
+        "precision": 0.2,
+        "n_edges": 10,
+        "interventions_spent": 6
+      },
+      "f1_advantage": -0.1278,
+      "recall_advantage": -0.1177,
+      "precision_advantage": -0.1333
+    },
+    {
+      "seed": 102,
+      "baseline": {
+        "f1": 0.5405,
+        "recall": 0.5882,
+        "precision": 0.5,
+        "n_edges": 20
+      },
+      "causal": {
+        "f1": 0.3333,
+        "recall": 0.2941,
+        "precision": 0.3846,
+        "n_edges": 13,
+        "interventions_spent": 6
+      },
+      "f1_advantage": -0.2072,
+      "recall_advantage": -0.2941,
+      "precision_advantage": -0.1154
+    },
+    {
+      "seed": 103,
+      "baseline": {
+        "f1": 0.2424,
+        "recall": 0.2353,
+        "precision": 0.25,
+        "n_edges": 16
+      },
+      "causal": {
+        "f1": 0.08,
+        "recall": 0.0588,
+        "precision": 0.125,
+        "n_edges": 8,
+        "interventions_spent": 6
+      },
+      "f1_advantage": -0.1624,
+      "recall_advantage": -0.1765,
+      "precision_advantage": -0.125
+    },
+    {
+      "seed": 104,
+      "baseline": {
+        "f1": 0.3333,
+        "recall": 0.3529,
+        "precision": 0.3158,
+        "n_edges": 19
+      },
+      "causal": {
+        "f1": 0.0769,
+        "recall": 0.0588,
+        "precision": 0.1111,
+        "n_edges": 9,
+        "interventions_spent": 6
+      },
+      "f1_advantage": -0.2564,
+      "recall_advantage": -0.2941,
+      "precision_advantage": -0.2047
+    }
+  ],
+  "mean_f1_advantage": -0.131,
+  "std_f1_advantage": 0.1228,
+  "positive_seeds": "1/5",
+  "verdict": "BASELINE_WINS"
+}

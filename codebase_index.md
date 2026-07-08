@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5
-tests: 925 OK (16 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented
+tests: 965 OK (16 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -78,6 +78,14 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `tests/test_bayesian_dag_posterior.py` | 83 tests: DAG utilities, C7 constraints, credit-weighted prior, gradient-informed perturb, RBF kernel, SVGD convergence, BOED/EIG, organ credit attribution, backward-compatible BDP, nonlinear poly2 likelihood, poly2 GovernedDiBS convergence/safety, data generation. |
 | `experiments/sachs_dibs.py` | Sachs real-data GovernedDiBS validation: 11 proteins, 17 GT edges, loads+standardizes obs data, runs linear vs poly2 comparison, measures edge recovery metrics, tests Bayesian safety (confident-wrong). Result: poly2 F1=0.35 vs linear F1=0.26, 7/17 vs 5/17 true edges recovered. |
 | `experiments/sector_dibs.py` | S&P 500 sector ETF causal discovery: 11 sectors (XLB..XLY), loads daily returns from CSV, runs GovernedDiBS with known economic sector priors (7 edges). Financial returns have low SNR for observational causal discovery → Bayesian uncertainty confirmed. |
+
+## Multi-Seed Sachs CWM Benchmark Harness (2026-07-08)
+
+| File | Role |
+|------|------|
+| `experiments/cwm_sachs_multiseed.py` | Deterministic multi-seed Sachs benchmark harness for the CWM discovery pipeline. Loads Sachs observational data, runs an observational GGM+DiBS baseline against a causal arm with offline simulated interventions using the consensus biology DAG. Reuses `ProductDiscoveryEngine`, `GovernedDiBS`, `CWMOrgan` utilities, and existing BOED/EIG intervention selection in `GovernedDiBS`. Outputs per-seed and aggregate F1/recall/precision causal advantage to `experiments/cwm_sachs_multiseed.result.json`. Verify-only: no live control-path inference. |
+| `experiments/cwm_sachs_multiseed.result.json` | Example multi-seed benchmark artifact (budget=6, seeds=[100..104], linear likelihood). |
+| `tests/test_cwm_sachs_multiseed.py` | 8 tests: Sachs data loading, ground-truth consistency, linear SCM oracle simulation, baseline and causal metric shapes, seed comparison shape, multi-seed aggregate schema. |
 
 ## Source Of Truth
 
