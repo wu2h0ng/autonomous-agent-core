@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-06
+> Last updated: 2026-07-08
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented
-tests: 965 OK (16 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented
+tests: 980 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -79,6 +79,17 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/live_intervention_binding.py` | Benchmark runner comparing BOED-driven live interventions to random interventions on a 4-node simulation DAG. Emits `experiments/live_intervention_binding.result.json`. |
 | `experiments/live_intervention_binding.result.json` | Example benchmark artifact. |
 | `tests/test_live_intervention_binding.py` | 6 tests: env observe/intervene shapes, SHD, full loop, BOED <= random SHD on a simple chain, C7-offline invariant (loop only reads env). |
+
+## Regime-Shift / Online Live Intervention Binding (2026-07-08)
+
+| File | Role |
+|------|------|
+| `src/aac/regime_shift_env.py` | `PiecewiseCausalSimulationEnv`: piecewise-stationary linear-Gaussian SCM with multiple regimes and changepoints. Exposes per-regime ground-truth DAGs and current-regime `observe(n)` / `intervene(node, value)`. Verify-only: no execution authority. |
+| `src/aac/interactive_discovery_loop.py` | Extended with `OnlineInteractiveDiscoveryLoop`: multi-round observe→intervene loop with a sliding observation window so the posterior can adapt to regime shifts. Includes `run_regime_shift_benchmark` comparing online adaptive discovery to a static pre-shift baseline. |
+| `experiments/regime_shift_binding.py` | Benchmark runner for regime-shift live interventions. Emits `experiments/regime_shift_binding.result.json`. |
+| `experiments/regime_shift_binding.result.json` | Example benchmark artifact. |
+| `tests/test_regime_shift_env.py` | 5 tests: single-regime equivalence, distribution change across changepoint, current-regime intervention, per-regime SHD, changepoint validation. |
+| `tests/test_online_discovery_loop.py` | 4 tests: multi-round loop, online adaptation beats static baseline under regime shift, windowing discards old observations, C7-offline invariant. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 

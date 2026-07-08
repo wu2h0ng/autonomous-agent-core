@@ -1,0 +1,36 @@
+{
+  "regime0_truth": [
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      2
+    ]
+  ],
+  "regime1_truth": [
+    [
+      0,
+      1
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      3,
+      2
+    ]
+  ],
+  "online": {
+    "shd_vs_regime1": 5,
+    "final_confidence": 0.5,
+    "interventions_spent_total": 32
+  },
+  "static": {
+    "shd_vs_regime1": 6,
+    "final_confidence": 0.5,
+    "interventions_spent": 24
+  }
+}
