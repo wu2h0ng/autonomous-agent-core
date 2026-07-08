@@ -50,9 +50,16 @@ class FakeTrustedLoop:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
 
-    def evaluate(self, question: str, parameters: dict[str, object], *, tenant_id: str = "default") -> dict[str, object]:
+    def evaluate(
+        self, question: str, parameters: dict[str, object], *, tenant_id: str = "default"
+    ) -> dict[str, object]:
         self.calls.append((question, parameters, tenant_id))
-        return {"status": "ok", "question": question, "parameters": parameters, "tenant_id": tenant_id}
+        return {
+            "status": "ok",
+            "question": question,
+            "parameters": parameters,
+            "tenant_id": tenant_id,
+        }
 
 
 def _context() -> AgentRunContext:

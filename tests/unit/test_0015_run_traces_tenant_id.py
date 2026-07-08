@@ -8,16 +8,20 @@ from pathlib import Path
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import Column, JSON, MetaData, PrimaryKeyConstraint, String, Table, create_engine, inspect
+from sqlalchemy import (
+    Column,
+    JSON,
+    MetaData,
+    PrimaryKeyConstraint,
+    String,
+    Table,
+    create_engine,
+    inspect,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_PATH = (
-    ROOT
-    / "packages"
-    / "persistence"
-    / "alembic"
-    / "versions"
-    / "0015_run_traces_tenant_id.py"
+    ROOT / "packages" / "persistence" / "alembic" / "versions" / "0015_run_traces_tenant_id.py"
 )
 
 

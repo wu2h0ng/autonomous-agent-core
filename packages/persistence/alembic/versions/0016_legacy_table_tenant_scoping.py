@@ -136,7 +136,9 @@ def _downgrade_sqlite() -> None:
 
     with op.batch_alter_table("knowledge_index") as batch_op:
         batch_op.drop_index("ix_knowledge_index_source_trace_id")
-        batch_op.create_index("ix_knowledge_index_source_trace_id", ["source_trace_id"], unique=True)
+        batch_op.create_index(
+            "ix_knowledge_index_source_trace_id", ["source_trace_id"], unique=True
+        )
 
     for table in reversed(_INDEXED_TENANT_TABLES):
         with op.batch_alter_table(table) as batch_op:
