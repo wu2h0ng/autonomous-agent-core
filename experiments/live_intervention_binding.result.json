@@ -1,0 +1,73 @@
+{
+  "boed": {
+    "confidence": 0.5,
+    "interventions_spent": 20,
+    "map_dag": [
+      [
+        1,
+        3
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        2,
+        1
+      ],
+      [
+        2,
+        3
+      ]
+    ],
+    "shd": 4,
+    "status": "BUDGET_EXHAUSTED"
+  },
+  "elapsed_s": 4.162,
+  "ground_truth": [
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      2,
+      3
+    ]
+  ],
+  "random": {
+    "confidence": 0.5,
+    "interventions_spent": 20,
+    "map_dag": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        1,
+        3
+      ],
+      [
+        2,
+        0
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "shd": 5,
+    "status": "BUDGET_EXHAUSTED"
+  }
+}

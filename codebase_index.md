@@ -70,6 +70,16 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/selfdiscovery_a_stage_a.py` | Spearman-rank skeleton probe (~5 lines over GGM pipeline). Pure stdlib. GATE: PASS on real Sachs (rank recovers 15/17 edges at tau=0.02 vs linear 14/17), but marginal gain — ~80% NULL prior holds. |
 | `tests/test_selfdiscovery_a_stage_a.py` | 20 tests: rank transform correctness, linear/rank skeleton recovery, GATE boolean integrity. |
 
+## Live Intervention Environment Binding (2026-07-08)
+
+| File | Role |
+|------|------|
+| `src/aac/live_intervention_env.py` | Controllable linear-Gaussian SCM simulation environment with `observe(n)` and `intervene(node, value)`. Ground-truth DAG exposed for evaluation only. Verify-only: no execution authority. |
+| `src/aac/interactive_discovery_loop.py` | `InteractiveDiscoveryLoop` subclasses `GovernedDiscoveryLoop` and routes BOED/EIG proposals to the live environment. Includes BOED vs random-baseline benchmark helper. |
+| `experiments/live_intervention_binding.py` | Benchmark runner comparing BOED-driven live interventions to random interventions on a 4-node simulation DAG. Emits `experiments/live_intervention_binding.result.json`. |
+| `experiments/live_intervention_binding.result.json` | Example benchmark artifact. |
+| `tests/test_live_intervention_binding.py` | 6 tests: env observe/intervene shapes, SHD, full loop, BOED <= random SHD on a simple chain, C7-offline invariant (loop only reads env). |
+
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
 | File | Role |
