@@ -8,6 +8,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "release_gate" / "controlled_pilot_readiness_check.py"
@@ -80,12 +82,26 @@ class ControlledPilotReadinessGateTest(unittest.TestCase):
                 CURRENT_VERIFICATION_RECORD, decisions_dir / CURRENT_VERIFICATION_RECORD.name
             )
 
+            # Copy verification source records referenced by CURRENT_STATE so the
+            # fail-closed freshness check does not exit early on missing source.
+            current_state_data = yaml.safe_load(
+                (repo_root / "docs" / "CURRENT_STATE.yaml").read_text(encoding="utf-8")
+            )
+            for verification_key in ("last_verified_tests", "last_verified_eval"):
+                source_rel = current_state_data.get(verification_key, {}).get("source")
+                if source_rel:
+                    source_path = ROOT / source_rel
+                    if source_path.exists():
+                        dest_path = repo_root / source_rel
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(source_path, dest_path)
+
             current_state_path = repo_root / "docs" / "CURRENT_STATE.yaml"
             state_text = current_state_path.read_text(encoding="utf-8")
             current_state_path.write_text(
                 state_text.replace(
-                    "or expand product/autonomous-core/G10/R4-R5 claims",
-                    "or expand product/autonomous-core/G10 claims",
+                    "R4/R5 auto-exec remains gated by ADR-0012",
+                    "auto-exec remains gated by ADR-0012",
                 ),
                 encoding="utf-8",
             )
