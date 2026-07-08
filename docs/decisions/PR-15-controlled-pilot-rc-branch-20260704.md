@@ -1,15 +1,15 @@
-# PR-15: Controlled-pilot RC branch record (M7 refresh)
+# PR-15: Controlled-pilot RC branch record (M9 refresh)
 
-- Date: 2026-07-07
-- Status: **RC branch preserved; origin/main advanced for ADR-0013**
+- Date: 2026-07-08
+- Status: **RC branch preserved; origin/main @ M9 head**
 
 ## Record
 
-- Verified local head: `89c2e9b5d7526afadabd66c5d8efccb2eaf3104e`
+- Verified local head: `1f12d6923ed63d46b9ef92bb77a5970b64cf8e2b`
 - RC branch: `rc/phase-1-controlled-pilot-20260704`
 - RC branch head: `b8834a644018e070e372be149fb758a928c7a242`
-- Remote main head: `89c2e9b5d7526afadabd66c5d8efccb2eaf3104e`
+- Remote main head: `1f12d6923ed63d46b9ef92bb77a5970b64cf8e2b`
 
 ## Notes
 
-`origin/main` advanced with ADR-0013 productization (PKG-01..13). The bounded RC branch remains at its prior head for historical controlled-pilot handoff; no release/rc tag was created. Further promotion requires PR-11 HOLD lift and explicit release authorization.
+M9 operator walkthrough verified at `1f12d69`. Historical RC branch unchanged. Optional new POC pin: `rc/phase-1-internal-pilot-20260708` per PR-32 Option C (not created). Promotion requires PR-32 founder decision.

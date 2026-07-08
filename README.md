@@ -23,7 +23,7 @@ This repository is one of three sibling repos in the workspace:
 
 | Repository | Role |
 |---|---|
-| `autonomous-agent-core/` | Supplementary, currently parked object-layer research supply for stronger decision mechanisms |
+| `autonomous-agent-core/` | Object-layer IGI prototype core / general autonomous agent runtime; actively running falsification experiments on CWM/disposer/corrigibility mechanisms; validated mechanisms enter this OS only through approved contracts/seams |
 | `ai-native-business-data-agent-os/` | **Primary product** — enterprise Business Data & Agentic Operations OS |
 | `ai-agent-engineering-workflow/` | **Meta layer** — dev-process governance tooling |
 
