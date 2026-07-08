@@ -161,8 +161,9 @@ last_verified_tests:
     make current-state-verification-check PYTHON=.venv/bin/python;
     make rc-branch-verification-check PYTHON=.venv/bin/python;
     make controlled-pilot-readiness-check PYTHON=.venv/bin/python;
-    make push-authorization-check PYTHON=.venv/bin/python
-  result: "Default walkthrough PASS (trace-4a5db21ec92c); staging PASS (trace-4adf8da2d7d4, workflow.started); release gates OK under DEPLOYMENT_PUSH HOLD; push-authorization exit 2 expected"
+    make push-authorization-check PYTHON=.venv/bin/python;
+    make ci-local-full PYTHON=.venv/bin/python
+  result: "Default walkthrough PASS (trace-4a5db21ec92c); staging PASS (trace-4adf8da2d7d4, workflow.started); make ci-local-full PASS at head e11ebad (format-check drift resolved); release gates OK under DEPLOYMENT_PUSH HOLD; push-authorization exit 2 expected"
   source: "docs/decisions/PR-31-m9-operator-walkthrough-verification-20260708.md"
   verified_at: "2026-07-08"
 
@@ -173,8 +174,9 @@ last_verified_eval:
     make current-state-verification-check PYTHON=.venv/bin/python;
     make rc-branch-verification-check PYTHON=.venv/bin/python;
     make controlled-pilot-readiness-check PYTHON=.venv/bin/python;
-    make push-authorization-check PYTHON=.venv/bin/python
-  result: "Default walkthrough PASS (trace-4a5db21ec92c); staging PASS (trace-4adf8da2d7d4, workflow.started); release gates OK under DEPLOYMENT_PUSH HOLD; push-authorization exit 2 expected; ci-local-full blocked by pre-existing format-check drift (3 files)"
+    make push-authorization-check PYTHON=.venv/bin/python;
+    make ci-local-full PYTHON=.venv/bin/python
+  result: "Default walkthrough PASS (trace-4a5db21ec92c); staging PASS (trace-4adf8da2d7d4, workflow.started); make ci-local-full PASS at head e11ebad (format-check drift resolved); release gates OK under DEPLOYMENT_PUSH HOLD; push-authorization exit 2 expected"
   source: "docs/decisions/PR-31-m9-operator-walkthrough-verification-20260708.md"
   verified_at: "2026-07-08"
 
