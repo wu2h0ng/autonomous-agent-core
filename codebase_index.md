@@ -1,19 +1,83 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-04
+> Last updated: 2026-07-06
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
 ## Current Snapshot
 
 ```yaml
-branch: research/causal-world-model-2026-06-30
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED
-immediate_next: preserve G-ECO-REOPEN-1 as NOT_MET; no retune, reseed, weakened-baseline rerun, metric swap, autonomy claim, product claim, or old VH rescue
-tests: 593 OK (13 skipped)
+branch: feat/selfdiscovery-a-stage-a-20260705
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5
+tests: 925 OK (16 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
+
+## Strong-Locus Structure Crossover Harness (2026-07-06)
+
+Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-locus-structure-crossover-2026-07-06.md`. Synthetic-data only; no real LLM calls; no external data. Builder self-review patched: placebo unified, prompt templates aligned/loaded, `GovernedDecisionGate` wired into loop/learned_select arms, likelihood/scorer thresholds locked. Stage 2 independent non-Claude firewall certification completed and CERTIFIED by opencode on 2026-07-06. Stage 3 harness now extends the certified Stage 1 harness with real-LLM backend support (Anthropic/OpenAI via stdlib), deterministic stub fallback, typed plumbing instrumentation, and pre-registered adjudication. Stage 4 blockers partially cleared: KEGG p53 pathway/gene list locked in `experiments/variable_selection_lock.json`; preprocessing `experiments/perturb_seq_preprocessing.py`, Perturb-seq placebo generator `src/aac/placebo_perturb_seq.py`, and leak-probe harness `experiments/strong_locus_leak_probe.py` implemented with unit tests; per-sample GSM2396858 files downloaded and diagnosed honest negative (0/10 KO targets overlap pathway). Replogle 2022 K562 genome-wide Perturb-seq Stage 4 preprocessing and real-LLM leak-probe completed: `experiments/replogle_2022_preprocessing.py` reads `experiments/data/perturb_seq/K562_gwps_normalized_bulk_01.h5ad` (figshare article 20029387, 374 MB), selects the 10 consultable locked KEGG p53-pathway genes, aggregates guide-level rows by target gene, splits 7 consultable / 3 held-out KO targets, and emits `experiments/replogle_2022_preprocessed.json` + CSV preview. Real-LLM leak-probe via Kimi OpenAI-compatible endpoint (`https://api.kimi.com/coding/v1/chat/completions`, model `kimi-k2-0711-preview`, temperature=1.0) produced `experiments/strong_locus_leak_probe_replogle_2022.result.json`: 5/5 seeds passed, failed_seeds empty, verdict RUNNABLE; the model returned empty `dataset_guess`, `pathway_guess`, and `gene_mapping`, indicating no re-identification from anonymized summary statistics. Assessment `experiments/replogle_2022_k562_gwps_gap_assessment.json` records 10/12 locked p53-pathway genes both measured and perturbed, exceeding the >=5 consultable-intervention threshold; verdict **CANDIDATE_FIT**. Added deterministic intervention-gap analyzer (`experiments/strong_locus_intervention_gap.py`) and LLM advisor (`experiments/strong_locus_intervention_advisor.py`) with stub fallback; advisor proposes missing interventions or dataset pivots but the deterministic protocol gate remains binding. `src/aac/llm_client.py` extended to support `ANTHROPIC_API_URL`, `OPENAI_API_URL`, `ANTHROPIC_MODEL`, `OPENAI_MODEL`, `ANTHROPIC_TEMPERATURE`, and `OPENAI_TEMPERATURE` environment variables for OpenAI/Anthropic-compatible proxies. No Stage 3 real-LLM result, Stage 4 real-data model run, product claim, autonomy claim, or C6/C7/SD4 change is authorized.
+
+| File | Role |
+|------|------|
+| `experiments/scm_generator.py` | Nonlinear / heteroscedastic / saturating SCM generator + placebo world mode. Pure stdlib. Output clamp added for numerical stability at large k. |
+| `src/aac/structure_scorer.py` | Held-out intervention scorer: AP/SHD with empirical truth, no ground-truth DAG read. `_std` uses Welford's algorithm for numerical stability at large k. |
+| `src/aac/placebo_world.py` | Placebo non-causal world generator + §4.4 non-identifiability validation (permutation-null edge detection + covariance distance). |
+| `src/aac/plumbing_instrument.py` | Typed FAILURE logging: `{clean_wrong, truncated, timeout, unparseable}` tracked separately; plumbing 0.0 never pooled with reasoning 0.0. |
+| `experiments/phase_a_acceptance.py` | Phase A acceptance: mismatch, held-out AP/SHD, oracle-wrong-params, placebo §4.4, plumbing separation. |
+| `src/aac/organ_tools.py` | `organ_tools` arm: LLM with `belief_update` + `info_gain` tools byte-identical to `GovernedDiBS`; `DeterministicStubBackend` for Stage 1. Stage 3: optional `PlumbingInstrument`, parses `tool_call` and `final_answer`, records `plumbing_counts`. |
+| `src/aac/organ_tools_externalized.py` | Externalized-belief variant: belief state lives in `BeliefLedger`; LLM/stub reads/writes ledger only. Stage 3: optional instrument, final-edge parsing, plumbing counts. |
+| `src/aac/llm_client.py` | Stage 3 Anthropic/OpenAI stdlib backends + deterministic stub fallback + on-disk response cache + `PlumbingInstrument` integration. |
+| `src/aac/learned_select.py` | Online tabular-UCB learned selection arm; per-seed random init; no cross-env pretraining; proposes only. |
+| `prompts/prompt_organ_alone.md` | Locked prompt for `organ_alone` scratchpad arm. |
+| `prompts/prompt_organ_tools.md` | Locked prompt + tool schemas for `organ_tools` arm. |
+| `experiments/strong_locus_structure_crossover.py` | Runner for all 7 arms across seeds/k; emits result JSON; C7 halt/rollback test; hyperparameter hash. Stage 3 CLI supports `--stage`, `--spec`, `--seeds`, `--backend`, `--result-path`, `--plumbing-path`. |
+| `experiments/strong_locus_structure_crossover.result.json` | Example Stage 1 result artifact (synthetic, 2 seeds × 2 k values). |
+| `experiments/strong_locus_stage3.spec.json` | Locked Stage 3 hyperparameters, ks, model lock, kill conditions, trend/effect-floor preregistration. |
+| `experiments/strong_locus_stage3.seeds.json` | Fresh seed band 5000..5019 with SHA-256 digest. |
+| `experiments/strong_locus_stage3_adjudicate.py` | Stage 3 adjudicator: drop INVALID seeds, bootstrap CIs, Spearman one-sided trend test, kill conditions, verdict JSON. |
+| `experiments/variable_selection_lock.json` | Locked KEGG p53 signaling pathway (hsa04115) + alphabetically first 12 gene symbols; selection before data inspection. |
+| `experiments/strong_locus_stage4.spec.json` | Locked Stage 4 parameters: GSE90063 sample, effect thresholds, budget, leak-probe seeds, consultable fraction, prereg reference. |
+| `experiments/perturb_seq_preprocessing.py` | Extracts GEO per-sample MatrixMarket + cell/gene mappings, selects locked pathway genes, splits KOs into consultable/held-out, normalizes and standardizes, emits JSON. Pure stdlib. |
+| `src/aac/placebo_perturb_seq.py` | Perturb-seq placebo generator: resamples observational cells for each KO label, destroying causal link while preserving marginals; §4.4 non-identifiability validation gate. |
+| `experiments/strong_locus_leak_probe.py` | Anonymized correlation + marginal summary leak probe; presents anonymized tokens to locked LLM and checks re-identification of dataset/pathway/genes. Stub-only without API key. |
+| `experiments/strong_locus_intervention_gap.py` | Deterministic gap analyzer: given a locked variable set and a Perturb-seq dataset, reports observable locked genes, available KO interventions, consultable interventions, and recommends PROCEED / REQUEST_INTERVENTIONS / PIVOT_DATASET / HONEST_NEGATIVE. |
+| `experiments/strong_locus_intervention_advisor.py` | LLM advisor (stub fallback) that reads the gap report and proposes symbolic missing interventions or dataset pivots; deterministic protocol gate remains binding. |
+| `experiments/replogle_2022_k562_gwps_gap_assessment.json` | Stage 4 dataset assessment for Replogle 2022 K562 genome-wide Perturb-seq: 10/12 locked p53 genes measured and perturbed; verdict CANDIDATE_FIT. |
+| `experiments/replogle_2022_preprocessing.py` | h5ad preprocessing for Replogle 2022 K562 GWPS: selects locked genes, aggregates guide rows by target, splits consultable/held-out, normalizes and standardizes, emits JSON + CSV. |
+| `experiments/strong_locus_stage4_replogle_2022.spec.json` | Locked Stage 4 parameters for Replogle 2022: accession, effect thresholds, budget, leak-probe seeds, consultable fraction, prereg reference. Model lock corrected to `kimi-k2-0711-preview`, temperature=1.0 to match actual backend. |
+| `experiments/replogle_2022_preprocessed.json` | Preprocessed Stage 4 input for Replogle 2022: 200 observational rows + 7 consultable + 3 held-out interventions on 10 locked p53 genes. |
+| `experiments/strong_locus_stage4_openai.result.json` | Stage 4 real-LLM harness result on Replogle 2022: all 7 arms executed, C7 halt test PASS, n_true=0, verdict INSUFFICIENT_DATA_HONEST_NEGATIVE. |
+| `experiments/strong_locus_stage4_replogle_2022_diagnostic.py` | Diagnostic script computing held-out intervention effect sizes across thresholds. |
+| `experiments/strong_locus_stage4_replogle_2022_diagnostic.json` | Diagnostic result: root cause is <=2 aggregated observations per held-out target and strongest effects ~1.2-1.4 below locked 1.5 threshold. |
+| `docs/research/HONEST-NEGATIVE-strong-locus-stage4-replogle-2026-07-06.md` | Final honest-negative record for Stage 4 Replogle 2022: protocol followed, no post-hoc changes, disposition recorded. |
+| `experiments/strong_locus_leak_probe_replogle_2022.result.json` | Real-LLM leak-probe result for Replogle 2022: 5/5 seeds passed, verdict RUNNABLE, stub_only=false, backend=kimi-k2-0711-preview. |
+| `tests/test_replogle_2022_preprocessing.py` | Unit tests for h5ad preprocessing using synthetic in-memory AnnData; skips if anndata/numpy unavailable. |
+| `docs/research/PREREG-DRAFT-strong-locus-structure-crossover-2026-07-06.md` | Preregistration draft with §7 kill conditions and analysis plan. |
+| `docs/research/FIREWALL-CERTIFICATION-PACKET-strong-locus-perturb-seq-2026-07-06.md` | Certification packet updated to STAGE-2 CERTIFIED with artifact hashes and review file references. |
+| `tests/test_llm_client.py` | Stub fallback, fake HTTP parsing, plumbing event emission, response caching. |
+| `tests/test_organ_tools_plumbing.py` | `PlumbingInstrument` integration for `organ_tools` and `organ_tools_externalized`. |
+| `tests/test_strong_locus_stage3.py` | Spec/seeds digest verification and tiny stub-only Stage 3 run + adjudication. |
+| `tests/test_strong_locus_stage4.py` | Stage 4 stub harness runs all 7 arms and preserves preprocessed metadata. |
+| `tests/test_perturb_seq_preprocessing.py` | End-to-end preprocessing test with synthetic tar archive. |
+| `tests/test_placebo_perturb_seq.py` | Placebo count preservation, covariance symmetry, and §4.4 gate tests. |
+| `tests/test_leak_probe.py` | Stub backend leak-probe run and `_score_leak` unit tests. |
+
+## SELFDISCOVERY-A Stage A (2026-07-05)
+
+| File | Role |
+|------|------|
+| `experiments/selfdiscovery_a_stage_a.py` | Spearman-rank skeleton probe (~5 lines over GGM pipeline). Pure stdlib. GATE: PASS on real Sachs (rank recovers 15/17 edges at tau=0.02 vs linear 14/17), but marginal gain — ~80% NULL prior holds. |
+| `tests/test_selfdiscovery_a_stage_a.py` | 20 tests: rank transform correctness, linear/rank skeleton recovery, GATE boolean integrity. |
+
+## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
+
+| File | Role |
+|------|------|
+| `src/aac/bayesian_dag_posterior.py` | **Governed DiBS** per M-GAP-2 Algorithm 1. Pure stdlib, n <= 15 nodes. Two classes: `BayesianDAGPosterior` (legacy) and `GovernedDiBS` (full version). Features: C7 constraints (`forbidden_edges`, `forbidden_parents`), credit-weighted prior (organ proposal agreement bonus), SVGD-style gradient-informed particle updates with RBF kernel over Hamming distance, BOED Expected Information Gain via nested Monte Carlo, posterior entropy, organ credit attribution. **Nonlinear likelihood**: `likelihood_mode="poly2"` — degree-2 polynomial feature expansion + OLS captures sigmoidal/quadratic/interaction effects. Posterior temperature parameter prevents mode collapse on real data. |
+| `tests/test_bayesian_dag_posterior.py` | 83 tests: DAG utilities, C7 constraints, credit-weighted prior, gradient-informed perturb, RBF kernel, SVGD convergence, BOED/EIG, organ credit attribution, backward-compatible BDP, nonlinear poly2 likelihood, poly2 GovernedDiBS convergence/safety, data generation. |
+| `experiments/sachs_dibs.py` | Sachs real-data GovernedDiBS validation: 11 proteins, 17 GT edges, loads+standardizes obs data, runs linear vs poly2 comparison, measures edge recovery metrics, tests Bayesian safety (confident-wrong). Result: poly2 F1=0.35 vs linear F1=0.26, 7/17 vs 5/17 true edges recovered. |
+| `experiments/sector_dibs.py` | S&P 500 sector ETF causal discovery: 11 sectors (XLB..XLY), loads daily returns from CSV, runs GovernedDiBS with known economic sector priors (7 edges). Financial returns have low SNR for observational causal discovery → Bayesian uncertainty confirmed. |
 
 ## Source Of Truth
 
@@ -81,6 +145,10 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/aac/policy.py` | EFE policy plus G9 confidence gate | `PolicySelector` |
 | `src/aac/agent.py` | Main loop wiring, shell view, optional prior organ, policy gate | `Agent` |
 | `src/aac/shell.py` | Corrigibility shell and read-only view | `CorrigibilityShell`, `ShellView` |
+| `src/aac/self_model.py` | Agent capability/risk/boundary self-knowledge | `AgentSelfModel`, `ActionRequest` |
+| `src/aac/self_model_updater.py` | **E6** runtime self-model calibration from governed outcomes | `AgentSelfModelUpdater` |
+| `src/aac/organ_regulator.py` | **C7-on** credit-driven organ de-weighting and self-calibration | `OrganRegulator`, `OrganCredit` |
+| `src/aac/self_maintenance.py` | **E9** governed persistence self-production loop under C7 | `SelfMaintenanceLoop`, `HealthCheck`, `MaintenanceAction` |
 | `src/aac/audit.py` | Append-only audit chain | `AuditLog` |
 | `src/aac/prior_organ.py` | P4 belief-only organ interface | `PriorOrgan`, `OrganAdvice`, `BeliefSnapshot`, `merge_organ_advice` |
 | `src/aac/prior_organ_o1.py` | Cheap deterministic reset scaffold | `ResetScaffoldOrgan` |
@@ -90,6 +158,9 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `src/aac/prior_organ_ensemble.py` | Ensemble regime organ, G8/O5 | `EnsembleRegimeOrgan` |
 | `src/aac/prior_organ_llm.py` | LLM organ scaffold, no live key/control path | `LLMPriorOrgan`, `DeterministicStubBackend` |
 | `src/aac/consequence_prior.py` | ADR-0036 bounded consequence-prior organ and cheap CAUTIOUS control | `ConsequencePriorRecord`, `BoundedConsequencePriorOrgan`, `CautiousScarOrgan` |
+| `src/aac/causal_governed_bandit.py` | M-GAP-3 causal governed bandit: Thompson sampling from DiBS posterior, peril-modulated exploration (gamma = gamma0*(1-peril)), C7+D constrained arm selection, cumulative/governance regret tracking, UCB1 baseline for comparison | `CausalBanditArm`, `CausalGovernedBandit`, `ucb1_baseline` |
+| `src/aac/bayesian_dag_posterior.py` | **Governed DiBS** per M-GAP-2 Algorithm 1. Pure stdlib, n <= 15 nodes. `BayesianDAGPosterior` (legacy), `GovernedDiBS` (C7, credit-weighted prior, SVGD+RBF kernel, BOED, poly2 nonlinear likelihood, posterior temperature). | |
+| `tests/test_causal_governed_bandit.py` | 33 tests: arm construction, peril kernel, Thompson sampling, causal effect estimation, information gain, reward/update/regret, C7 governance, UCB1 baseline. | |
 | `src/aac/g_eco.py` | ADR-0038 G-Eco lower-half shared substrate, value aggregators, frozen-source battery adapters, truth-privileged cheat refs, metrics, pre-Gate-2 candidate freezes, content-hash verifier, recursive AST static firewalls, calibration-ref-only rate witness, audit guards, Gate-2 guards | `GEcoSharedSubstrate`, `GEcoArm`, `GEcoArmSource`, `GEcoVHParams`, `build_g_eco_arms`, `scan_rate_grid`, `select_vh_parameters`, `freeze_battery_parameters`, `derive_threshold_freeze`, `build_baseline_audit`, `verify_content_hash`, `assert_g_eco_static_firewalls`, `assert_static_firewall`, `assert_no_calibration_refs_in_rfinal`, `GEcoMetrics` |
 | `src/aac/g_eco_reopen.py` | ADR-0039/G-ECO-REOPEN-1 NBSC battery, fair cheap baselines, seed guards, static C6/C7 scanner, and adjudicator | `build_nbsc_battery`, `run_nbsc_battery`, `adjudicate_nbsc_result`, `finalize_locked_nbsc_result`, `assert_fresh_seed_allocation`, `assert_c6_c7_static_boundary` |
 | `src/aac/rap.py` | RAP field/messages, archived after G4 | `Need`, `Bid`, `Bond`, `Trace`, `Dissolve`, `RAPField` |
@@ -117,6 +188,9 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/test_completeness_g10.py` | ADR-0030 | additive `base_temperature` wiring and B-temp guard |
 | `experiments/prediction1_residual_calibrator.py` | ADR-0031 | PRED1-HOLDS; residual calibrator vs frozen G10 |
 | `tests/test_residual_calibrator.py` | ADR-0031 | calibrator math, default-off wiring, C6/C7 guards |
+| `tests/test_self_model_updater.py` | **E6** | 16 tests: confidence calibration, tool reliability, evidence adjustment, full-action update, state roundtrip |
+| `tests/test_organ_regulator.py` | **C7-on organ** | 20 tests: registration, credit update, effective weight, de-weight/reweight, self-calibration, state roundtrip |
+| `tests/test_self_maintenance.py` | **E9** | 16 tests: health check, C7 compliance, maintenance ledger, maintainability gate, state roundtrip |
 | `experiments/relevance_aware_g10.py` | ADR-0034 | Completed; RSTAR calibration + r-final B/R/K attribution |
 | `tests/test_relevance_aware_g10.py` | ADR-0034 | severity/noise env, policy diagnostics, RSTAR freeze/r-final guards |
 | `experiments/ecological_g12.py` | ADR-0035/G12 | Completed; P7 transferable ecological-structure 2x2 r-final |
@@ -154,13 +228,15 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `experiments/rap_g4.py` | G4 | NOT MET, RAP archived |
 | `experiments/metabolic_g3.py` | G3 | NOT MET overall; claim 1 supported |
 | `experiments/causal_relevance_g2.py` | G2 | NOT MET, claim 2 hard-stopped |
+| `experiments/sachs_dibs.py` | M-GAP-2 | Sachs GovernedDiBS validation: poly2 F1=0.35 vs linear F1=0.26 |
+| `experiments/sector_dibs.py` | M-GAP-2 | S&P 500 sector ETF causal discovery: Bayesian uncertainty confirmed |
 
 ## Current Tests
 
 Current full suite:
 
 ```text
-593 tests OK (13 skipped)
+781 tests OK (13 skipped)
 ```
 
 Important current test files:

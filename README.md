@@ -4,13 +4,11 @@
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the current branch, stage, next task, latest tests, latest ADRs, and known drift risks.
 
-As of 2026-06-14: branch `feat/g9-confidence-gated-policy`; `G10` is MET, `C3` is RED, and ADR-0027 parks G11/C1 until a second independent vs-cheap-baseline winning axis exists. Latest recorded full suite: `370 tests OK`.
+As of 2026-07-06: branch `feat/selfdiscovery-a-stage-a-20260705`; P6 consolidated; `G10` is MET and trap-complete; `C3`, `survival-axis`, and `risk-axis` are RED; `G13` r-final is NOT MET; `G-ECO-REOPEN-1` r-final is NOT MET; strong-locus Stage 4 is `INSUFFICIENT_DATA_HONEST_NEGATIVE`. Latest recorded full suite: `925 tests OK (13 skipped)`.
 
-域无关的自主智能体原型核 —— RR-0001 v2 / RR-0003 的第一纵切片。
+域无关的通用自主智能体原型 / IGI 本体核心 —— RR-0001 v2 / RR-0003 的研究纵切片。
 
-这是**主产物**:一个有利害、能重新框定、可被纠正的自主智能体。企业 OS
-(`ai-native-business-data-agent-os`)是它的**降级投影**,不是反过来。本仓库
-刻意不含任何业务语义,以逼出通用性。
+本仓库是**IGI 原型核心（对象层）**：在 falsification 阶段构建 CWM/disposer/corrigibility 等受治理智能机制。它是通用自主智能体的 runtime body，不是业务产品；当前以预注册实验、负结果地图和形式化边界来表达。成熟后的机制通过 founder/CTO 批准的 contracts/seams（如 `ADR-0004`/`RR-0032`）进入企业 OS (`ai-native-business-data-agent-os/`)，禁止未经批准的跨仓 import。
 
 ## 它要证明的四条主张
 
