@@ -1,7 +1,8 @@
 'use client';
 
-import { useSyncExternalStore, useCallback } from 'react';
+import { useState, useSyncExternalStore, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   clearRecentRuns,
   getRecentRunsSnapshot,
@@ -26,7 +27,17 @@ function useRecentRuns(): { runs: RecentRun[]; clear: () => void } {
 }
 
 export default function RunsPage() {
+  const router = useRouter();
   const { runs, clear } = useRecentRuns();
+  const [traceLookup, setTraceLookup] = useState('');
+
+  const handleLookup = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = traceLookup.trim();
+    if (trimmed) {
+      router.push(`/runs/${encodeURIComponent(trimmed)}`);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
@@ -34,7 +45,7 @@ export default function RunsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Recent Runs</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Trace IDs from this browser session. No backend list endpoint exists yet.
+            Session history from this browser plus live lookup by trace ID against the API.
           </p>
         </div>
         {runs.length > 0 && (
@@ -47,11 +58,38 @@ export default function RunsPage() {
         )}
       </div>
 
+      <form
+        onSubmit={handleLookup}
+        className="mb-8 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-4"
+      >
+        <div className="flex-1 min-w-[240px]">
+          <label htmlFor="trace-lookup" className="block text-sm font-medium text-gray-700 mb-1">
+            Look up run by trace ID
+          </label>
+          <input
+            id="trace-lookup"
+            type="text"
+            value={traceLookup}
+            onChange={(e) => setTraceLookup(e.target.value)}
+            placeholder="Paste trace_id from API or smoke test"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-mono text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={!traceLookup.trim()}
+          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          Open report
+        </button>
+      </form>
+
       {runs.length === 0 && (
         <div className="rounded-lg border border-dashed border-gray-300 bg-white p-12 text-center">
-          <p className="text-lg font-medium text-gray-500 mb-1">No recent runs</p>
+          <p className="text-lg font-medium text-gray-500 mb-1">No recent runs in this session</p>
           <p className="text-sm text-gray-400 mb-4">
-            Run a query on the Workspace page to add trace IDs here.
+            Run a query on the Workspace page, or paste a trace ID above to load a report from the
+            API.
           </p>
           <Link
             href="/"
@@ -76,6 +114,9 @@ export default function RunsPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Time
                 </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -96,6 +137,14 @@ export default function RunsPage() {
                     <span className="text-sm text-gray-500">
                       {new Date(run.timestamp).toLocaleString()}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/trace/${run.traceId}`}
+                      className="text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      Trace
+                    </Link>
                   </td>
                 </tr>
               ))}

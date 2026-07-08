@@ -2,10 +2,21 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = process.env.PLAYWRIGHT_PORT ?? '3099';
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${PORT}`;
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+const apiKey =
+  process.env.NEXT_PUBLIC_API_KEY ?? process.env.NEXT_PUBLIC_RUN_KEY ?? 'development-key';
+const operatorKey = process.env.NEXT_PUBLIC_OPERATOR_KEY ?? 'dev-operator-key';
+
+const publicEnv = [
+  `NEXT_PUBLIC_API_URL=${apiUrl}`,
+  `NEXT_PUBLIC_API_KEY=${apiKey}`,
+  `NEXT_PUBLIC_RUN_KEY=${apiKey}`,
+  `NEXT_PUBLIC_OPERATOR_KEY=${operatorKey}`,
+].join(' ');
 
 // Match production Docker entrypoint: `output: "standalone"` is incompatible with `next start`.
 const standaloneStart = [
-  'npm run build',
+  `${publicEnv} npm run build`,
   'cp -r public .next/standalone/public',
   'mkdir -p .next/standalone/.next',
   'cp -r .next/static .next/standalone/.next/static',

@@ -11,10 +11,15 @@ interface AppState {
   setTenantId: (tenantId?: string) => void;
 }
 
+const defaultApiKey =
+  process.env.NEXT_PUBLIC_API_KEY ||
+  process.env.NEXT_PUBLIC_RUN_KEY ||
+  'development-key';
+
 export const useAppStore = create<AppState>((set) => ({
   apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  apiKey: process.env.NEXT_PUBLIC_API_KEY || 'development-key',
-  operatorKey: process.env.NEXT_PUBLIC_OPERATOR_KEY || 'operator-development-key',
+  apiKey: defaultApiKey,
+  operatorKey: process.env.NEXT_PUBLIC_OPERATOR_KEY || 'dev-operator-key',
   tenantId: process.env.NEXT_PUBLIC_TENANT_ID || undefined,
   setApiUrl: (url) => set({ apiUrl: url }),
   setApiKey: (key) => set({ apiKey: key }),

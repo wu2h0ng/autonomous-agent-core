@@ -20,7 +20,13 @@ export function TraceDetailClient({ traceId }: TraceDetailClientProps) {
       {/* Header */}
       <div className="mb-6">
         <Link
-          href="/"
+          href={`/runs/${traceId}`}
+          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 mb-2"
+        >
+          ← Run report
+        </Link>
+        <Link
+          href="/runs"
           className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 mb-4"
         >
           <svg
@@ -35,7 +41,7 @@ export function TraceDetailClient({ traceId }: TraceDetailClientProps) {
               clipRule="evenodd"
             />
           </svg>
-          Back to Workspace
+          All runs
         </Link>
         <h1 className="text-2xl font-bold text-gray-900">Trace Detail</h1>
         <p className="text-sm text-gray-500 mt-1 font-mono">{traceId}</p>

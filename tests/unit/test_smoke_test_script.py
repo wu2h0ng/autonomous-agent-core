@@ -48,6 +48,34 @@ class SmokeTestScriptTest(unittest.TestCase):
         self.assertTrue(adr.is_file())
         self.assertIn("SemanticGraph", adr.read_text(encoding="utf-8"))
 
+    def test_compose_e2e_script_parses(self) -> None:
+        script = ROOT / "scripts" / "compose-e2e.sh"
+        result = subprocess.run(
+            ["bash", "-n", str(script)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        text = script.read_text(encoding="utf-8")
+        self.assertIn("COMPOSE_E2E=1", text)
+        self.assertIn("workspace.compose-api.spec.ts", text)
+
+    def test_pilot_walkthrough_script_parses(self) -> None:
+        script = ROOT / "scripts" / "pilot-walkthrough.sh"
+        result = subprocess.run(
+            ["bash", "-n", str(script)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(result.returncode, 0)
+        text = script.read_text(encoding="utf-8")
+        self.assertIn("--staging", text)
+        self.assertIn("M8 Internal Pilot Walkthrough", text)
+
 
 if __name__ == "__main__":
     unittest.main()

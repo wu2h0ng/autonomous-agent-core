@@ -15,7 +15,18 @@ class FrontendPlaywrightCITest(unittest.TestCase):
         self.assertTrue((FRONTEND / "playwright.config.ts").is_file())
         self.assertTrue((FRONTEND / "e2e" / "workspace.smoke.spec.ts").is_file())
         self.assertTrue((FRONTEND / "e2e" / "workspace.api-loop.spec.ts").is_file())
+        self.assertTrue((FRONTEND / "e2e" / "workspace.compose-api.spec.ts").is_file())
         self.assertTrue((FRONTEND / "e2e" / "fixtures" / "api-loop-mocks.ts").is_file())
+
+    def test_compose_e2e_script_exists(self) -> None:
+        script = ROOT / "scripts" / "compose-e2e.sh"
+        self.assertTrue(script.is_file())
+        self.assertTrue(script.stat().st_mode & 0o111)
+
+    def test_pilot_walkthrough_script_exists(self) -> None:
+        script = ROOT / "scripts" / "pilot-walkthrough.sh"
+        self.assertTrue(script.is_file())
+        self.assertTrue(script.stat().st_mode & 0o111)
 
     def test_package_json_declares_e2e_script(self) -> None:
         pkg = json.loads((FRONTEND / "package.json").read_text(encoding="utf-8"))
@@ -26,6 +37,8 @@ class FrontendPlaywrightCITest(unittest.TestCase):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         self.assertIn("frontend-e2e-check", makefile)
         self.assertIn("frontend-e2e", makefile)
+        self.assertIn("compose-e2e", makefile)
+        self.assertIn("pilot-walkthrough", makefile)
 
 
 if __name__ == "__main__":

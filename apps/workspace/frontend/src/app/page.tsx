@@ -143,7 +143,13 @@ export default function QueryPage() {
 
           {/* Last trace link */}
           {data?.trace_id && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
+              <Link
+                href={`/runs/${data.trace_id}`}
+                className="block text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                View run report &rarr;
+              </Link>
               <Link
                 href={`/trace/${data.trace_id}`}
                 className="text-sm text-blue-600 hover:text-blue-800 font-medium"

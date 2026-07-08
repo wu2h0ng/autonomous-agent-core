@@ -3996,6 +3996,22 @@ class HealthEndpointTest(unittest.TestCase):
 
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class CorsMiddlewareTest(unittest.TestCase):
+    def test_preflight_allows_workspace_playwright_origin(self) -> None:
+        client = _make_client(API_KEY)
+        resp = client.options(
+            "/runs",
+            headers={
+                "Origin": "http://127.0.0.1:3099",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-api-key,content-type",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.headers.get("access-control-allow-origin"), "http://127.0.0.1:3099")
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class ObservabilityTest(unittest.TestCase):
     def test_metrics_endpoint_is_public_and_exposes_request_counters(self) -> None:
         client = _make_client(API_KEY)

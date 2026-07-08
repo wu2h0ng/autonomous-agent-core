@@ -33,6 +33,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 
 from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution, QuotaExceeded
@@ -1328,6 +1329,18 @@ def _build_default_factory() -> ContentCommerceRuntimeFactory:
     return ContentCommerceRuntimeFactory(RuntimeFactoryConfig.from_env())
 
 
+def _cors_origins_from_env() -> list[str]:
+    raw = os.environ.get("AGENT_OS_CORS_ORIGINS", "")
+    if raw.strip():
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3099",
+        "http://127.0.0.1:3099",
+    ]
+
+
 def create_app(
     runtime: Any | None = None,
     *,
@@ -1425,6 +1438,13 @@ def create_app(
         viewer_api_key=configured_viewer_key,
     )
     app = FastAPI(title="Agent OS API", version="0.1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins_from_env(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     metrics_collector = MetricsCollector()
     app.add_middleware(StructuredAccessLogMiddleware, collector=metrics_collector)
     app.state.metrics_collector = metrics_collector

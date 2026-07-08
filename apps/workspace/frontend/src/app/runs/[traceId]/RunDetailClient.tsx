@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { getReport } from '@/lib/api';
+import { getReport, getTrace } from '@/lib/api';
 import { AnswerPanel } from '@/components/AnswerPanel';
 import { EvidenceChainViewer } from '@/components/EvidenceChainViewer';
 import { DashboardPanel } from '@/components/DashboardChart';
 import { ActionProposalPanel } from '@/components/ActionProposalPanel';
 import { DataProductCard } from '@/components/DataProductCard';
 import { GovernancePanel } from '@/components/GovernancePanel';
+import { TraceTimeline } from '@/components/TraceTimeline';
 
 interface RunDetailClientProps {
   traceId: string;
@@ -18,12 +19,17 @@ interface RunDetailClientProps {
 export function RunDetailClient({ traceId }: RunDetailClientProps) {
   const [audience, setAudience] = useState<'internal' | 'external'>('internal');
 
-  const { data, isLoading, isError, error } = useQuery({
+  const reportQuery = useQuery({
     queryKey: ['run-report', traceId, audience],
     queryFn: () => getReport(traceId, audience),
   });
 
-  const artifact = data?.user_result;
+  const traceQuery = useQuery({
+    queryKey: ['trace', traceId],
+    queryFn: () => getTrace(traceId),
+  });
+
+  const artifact = reportQuery.data?.user_result;
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 py-6">
@@ -53,7 +59,7 @@ export function RunDetailClient({ traceId }: RunDetailClientProps) {
         </div>
       </div>
 
-      {isLoading && (
+      {reportQuery.isLoading && (
         <div className="space-y-6 animate-pulse">
           <div className="rounded-lg border border-gray-200 bg-white p-6">
             <div className="h-5 bg-gray-200 rounded w-3/4 mb-3" />
@@ -66,11 +72,14 @@ export function RunDetailClient({ traceId }: RunDetailClientProps) {
         </div>
       )}
 
-      {isError && (
+      {reportQuery.isError && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-6">
           <h3 className="text-sm font-semibold text-red-800">Failed to load report</h3>
           <p className="mt-1 text-sm text-red-700">
-            {error instanceof Error ? error.message : 'Unknown error'}
+            {reportQuery.error instanceof Error ? reportQuery.error.message : 'Unknown error'}
+          </p>
+          <p className="mt-2 text-xs text-red-600">
+            Verify the API is running, the trace ID exists, and your API key has run read scope.
           </p>
         </div>
       )}
@@ -78,7 +87,6 @@ export function RunDetailClient({ traceId }: RunDetailClientProps) {
       {artifact && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
           <section className="min-w-0 space-y-6">
-            {/* Business Context */}
             <div className="rounded-lg border border-gray-200 bg-white p-6">
               <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
                 Business Context
@@ -98,33 +106,80 @@ export function RunDetailClient({ traceId }: RunDetailClientProps) {
               </dl>
             </div>
 
-            {/* Answer */}
             <AnswerPanel analysis={artifact.analysis} decision={artifact.decision} />
 
-            {/* Dashboard Widgets */}
             <DashboardPanel widgets={artifact.dashboard?.widgets} />
 
-            {/* Evidence Chain */}
             <EvidenceChainViewer
               report={artifact.report}
               evidenceChainId={artifact.evidence_chain_id}
               traceId={traceId}
             />
 
-            {/* DataProduct Candidate */}
             <DataProductCard artifact={artifact} />
+
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                  Execution Trace
+                </h2>
+                {traceQuery.data?.status && (
+                  <span
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${
+                      traceQuery.data.status === 'success'
+                        ? 'bg-green-50 text-green-700 ring-green-600/20'
+                        : traceQuery.data.status === 'blocked'
+                          ? 'bg-red-50 text-red-700 ring-red-600/20'
+                          : 'bg-gray-50 text-gray-700 ring-gray-600/20'
+                    }`}
+                  >
+                    {traceQuery.data.status}
+                  </span>
+                )}
+              </div>
+
+              {traceQuery.isLoading && (
+                <div className="animate-pulse space-y-3">
+                  <div className="h-12 bg-gray-100 rounded" />
+                  <div className="h-12 bg-gray-100 rounded" />
+                </div>
+              )}
+
+              {traceQuery.isError && (
+                <p className="text-sm text-red-700">
+                  {traceQuery.error instanceof Error
+                    ? traceQuery.error.message
+                    : 'Failed to load trace'}
+                </p>
+              )}
+
+              {traceQuery.data?.events && traceQuery.data.events.length > 0 && (
+                <TraceTimeline trace={traceQuery.data} />
+              )}
+
+              {traceQuery.data &&
+                (!traceQuery.data.events || traceQuery.data.events.length === 0) && (
+                  <p className="text-sm text-gray-400">No trace events recorded for this run.</p>
+                )}
+            </div>
           </section>
 
           <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
             <GovernancePanel artifact={artifact} />
             <ActionProposalPanel action={artifact.business_action} />
 
-            <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
               <Link
                 href={`/trace/${traceId}`}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                className="block text-sm text-blue-600 hover:text-blue-800 font-medium"
               >
-                View execution trace &rarr;
+                Full trace view &rarr;
+              </Link>
+              <Link
+                href={`/approvals`}
+                className="block text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                Approvals inbox &rarr;
               </Link>
             </div>
           </aside>
