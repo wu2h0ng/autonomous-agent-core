@@ -122,6 +122,13 @@ class SQLSafetyResult:
 class QueryResult:
     rows: tuple[dict[str, Any], ...]
     row_count: int
+    # P2-C (ADR-0017): actual recency of the underlying data at query time, in seconds since the
+    # source was last refreshed, as reported by the provider/executor. ``None`` = the provider did
+    # not report freshness — the EvidenceChain then CAPS and flags confidence as ``freshness_unknown``
+    # and never treats the answer as fresh. This is the observable the confidence-derivation rule
+    # reads for the DataProduct -> EvidenceChain freshness / tau-consistency factor (never a default
+    # high confidence when unknown).
+    source_age_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -170,11 +177,43 @@ class Limitation:
 
 
 @dataclass(frozen=True)
+class ConfidenceInputs:
+    """The observable inputs a :class:`ConfidenceScore` was DERIVED from (P2-C, ADR-0017).
+
+    Records the raw inputs to the transparent bounded rule
+    ``f(source_freshness, row_count, template_verified)`` PLUS the per-input bounded
+    factors and any caps/floors that fired, so the scalar ``score`` is explainable and
+    auditable — earned from observable inputs, never asserted as a constant. Every
+    ``*_factor`` is in ``[0, 1]``; ``flags`` names each cap/floor that applied, e.g.
+    ``freshness_unknown``, ``tau_inconsistency``, ``stale``, ``no_rows``,
+    ``unverified_template``. Calibration stays ``rule_based``: these are deterministic
+    rule inputs, not a learned or statistical model. The recorded ``source_age_seconds``,
+    ``freshness_tau_seconds``, ``row_count`` and ``template_verified`` are sufficient to
+    RECOMPUTE ``score`` via the same rule (the eval bypass-check does exactly that).
+    """
+
+    row_count: int
+    template_verified: bool
+    freshness_known: bool
+    freshness_within_tau: bool
+    source_age_seconds: float | None = None
+    freshness_tau_seconds: float | None = None
+    freshness_factor: float = 1.0
+    row_count_factor: float = 1.0
+    template_factor: float = 1.0
+    flags: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class ConfidenceScore:
     """Typed confidence score with calibration label."""
 
     score: float
     calibration: str = "rule_based"
+    # P2-C (ADR-0017): the observable inputs the score was DERIVED from, so the number is
+    # explainable/auditable rather than an asserted constant. ``None`` only for legacy or
+    # hand-built scores that predate derivation.
+    inputs: ConfidenceInputs | None = None
 
 
 @dataclass(frozen=True)
