@@ -216,13 +216,29 @@ class DomainIndependentGovernedSelection(unittest.TestCase):
 
 class OSCoreUnchangedOnThisSlice(unittest.TestCase):
     def test_no_os_core_or_contract_file_changed_by_s6(self):
-        """通用 is structural: this slice adds only a test; OS Core / contracts stay byte-unchanged.
+        """通用 is structural: the S6 slice adds only a test; OS Core / contracts stay byte-unchanged.
 
         Domain-independence that required editing OS Core would be domain-COUPLING, not independence. This
-        guards the claim: the second domain runs on the identical core. (Skips gracefully outside a git tree.)"""
+        guards that claim by inspecting the S6 slice's OWN changeset — the commit that FIRST introduced this
+        test file — rather than the whole branch delta. Scoping to S6's own commit keeps this a truthful,
+        stable regression guard for S6 even when LATER, unrelated slices legitimately evolve OS Core /
+        contracts (e.g. ADR-0015 approval analytics): that is their own boundary to answer, not S6's. The
+        guard still FAILS if S6 itself had touched core. (Skips gracefully outside a git tree, or when the
+        introducing commit cannot be resolved, e.g. a shallow or squashed clone.)"""
+        this_file = "tests/integration/test_s6_domain_independence_governed_selection.py"
         try:
+            introducing = subprocess.run(
+                ["git", "log", "--diff-filter=A", "--follow", "--format=%H", "--", this_file],
+                cwd=str(ROOT),
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.split()
+            if not introducing:
+                self.skipTest("cannot resolve the S6 introducing commit (shallow/squashed clone)")
+            s6_commit = introducing[-1]  # the ORIGINAL addition of the S6 test = S6's changeset
             changed = subprocess.run(
-                ["git", "diff", "--name-only", "main...HEAD"],
+                ["git", "diff", "--name-only", f"{s6_commit}^", s6_commit],
                 cwd=str(ROOT),
                 text=True,
                 capture_output=True,
