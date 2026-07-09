@@ -1,39 +1,29 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-07-04
+> Last updated: 2026-07-10
 > Status: Active handoff document
-> First read: `docs/CURRENT_STATE.yaml` -> this file -> `codebase_index.md` -> `ROADMAP.md` -> current ADRs.
+> First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` -> this file -> `codebase_index.md` -> current ADRs.
 
 ## 1. Current Truth
 
-This repository is the object-layer primary artifact: a domain-agnostic autonomous-agent prototype. The enterprise OS is a deployment projection, not the main research line.
+This repository is now the complete Agent OS main monorepo by founder decision. It has a Product Track and a Research Track. The current implementation is still research-heavy; the product blueprint is final, while the market-parity product runtime remains to be built. Research verdicts keep their exact historical meaning and do not establish product delivery.
 
-Current branch:
+Product authority:
 
 ```text
-research/causal-world-model-2026-06-30
+docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md
 ```
 
-Current stage:
+Current research baseline:
 
 ```text
-P6 consolidated
-  -> G10: P0 confidence-gated policy confirmed on fresh seeds (MET) and trap-complete (ADR-0030)
-  -> ADR-0031: residual self-calibrator falsification attack returned PRED1-HOLDS
-  -> ADR-0032: frontier architecture intake lanes accepted; structured semantic/hierarchical environments are the next admissible experiment family
-  -> ADR-0033: HyperAgents/DGM assimilation boundary accepted; self-recursive systems are external candidate generators only
-  -> ADR-0034: relevance-aware full-Agent G10 theory test completed; A/C pass, B fail; B/R/K attribution stands with decisive K residue
-  -> ADR-0035: P7/G12 completed inconclusive; C01/C10/C11 win but C00 misses the threshold, so no distinct ecological-irreversible axis is isolated
-  -> ADR-0036: bounded consequence-prior G13 r-final complete, NOT MET; not a G12 rescue
-  -> ADR-0038: Route C / G-Eco lower-half mechanism and later r-final harness artifacts exist as historical scaffold/context; the old VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED after the 2026-06-27 pre-Gate-2 halt
-  -> ADR-0039 / G-ECO-REOPEN-1: fresh NBSC reopen attempt completed r-final on 2026-07-04, NOT_MET; fair MINIMAX absorbs the candidate probe path
-  -> R-CSL-1: PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; no empirical verdict exists
-  -> C3: idle-productivity de-risk returned RED
-  -> ADR-0028: survival-axis de-risk returned RED; survival shadows reframe/adaptation speed
-  -> ADR-0029: stationary risk-axis de-risk returned RED; cheap broad explorer wins
-  -> result: no independent second axis after endogeny/survival/risk probes; G10 stands
-  -> synthesis: docs/P6-research-synthesis.md published as the P6 claim ledger / negative-result map / publication package
-  -> next: preserve G-ECO-REOPEN-1 as NOT_MET; no retune/reseed/metric rescue or weakened-baseline rerun. Direction 1's first tracked 30-seed run-local sweep remains recorded as NO_NEW_DIRECTION_1_MECHANISM and does not authorize a new mechanism/ADR/freeze/r-final by itself
+source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
+G10: narrow synthetic MET and trap-complete
+G13: NOT_MET
+G-ECO-REOPEN-1: NOT_MET
+strong-locus Stage 4: INSUFFICIENT_DATA_HONEST_NEGATIVE
+CWM-LEARN-5e-2: r-final MET for the hard non-enumerable functional-form channel only
+product/autonomy claim from these results: NOT_AUTHORIZED
 ```
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
@@ -42,16 +32,32 @@ Latest test truth:
 
 ```text
 PYTHONPATH=src python -m unittest discover -s tests -v
-593 tests OK (13 skipped)
+1237 tests OK (16 skipped in this worktree environment)
 ```
 
-The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The 13 skips are the intentional Temporal Options PRE_SPEC_DRAFT sentinels, not hidden failures, and on 2026-07-04 the sentinel was re-hardened to self-skip before importing any local draft implementation. This is suite/gate verification only, not a Direction 1 experiment result.
-506 tests OK
-```
+The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. Thirteen skips are intentional sentinels; three additional Replogle preprocessing methods are skipped because optional `anndata/numpy` are not installed in this worktree environment. This suite verifies the reconciled research tree, not Agent OS Product Done.
 
-The 506-test result was verified 2026-06-29 on chore/finalization-debt-2026-06-29 (off main) after landing the stranded additive research artifacts (R-CSL-1, parity-lag, direction1, ADR-0039). Was 454 (Codex, 2026-06-23, ADR-0038 era). Re-run before code submission if you change code.
+## 2. Product Track Immediate Task
 
-## 2. Immediate Task
+### T-P-OS-SPINE-0 - Executable Product Spine
+
+Goal:
+
+Build the first real vertical slice through `Goal -> Commitment -> WorkflowGraph -> AgentRun -> ActionContract -> ExpectedOutcome/ObservedOutcome` with a durable Task Workspace entry point. The slice must use a real provider credential reference, one typed tool, one failure/recovery path, policy enforcement, event persistence and an acceptance evaluator.
+
+Required first architecture packet:
+
+- canonical contract ownership and versioning;
+- target package/app scaffold and dependency boundary;
+- provider/BYOK secret-broker threat model;
+- WorkflowGraph IR and natural-language/visual round-trip contract;
+- durable execution/event-store choice;
+- one developer golden-path acceptance test and one Data Agent seam test;
+- explicit `ResearchCandidateManifest` boundary; no raw `src/aac` experiment import.
+
+This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
+
+## 3. Research Track Current Queue and History
 
 ### T-R-GECO-REOPEN-1 - G-Eco Fresh-Variant Reopen Packet (Completed NOT_MET)
 

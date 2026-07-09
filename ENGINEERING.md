@@ -1,6 +1,10 @@
-# ENGINEERING.md — 技术栈、开发规范、工程化控制
+# ENGINEERING.md — Agent OS 双轨技术栈、开发规范、工程化控制
 
-## 1. 技术栈(ADR-0001)
+## 0. Scope
+
+产品架构以 `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` 为准。本文件原有 Python/stdlib/预注册规则继续约束当前 `src/aac`、`experiments`、研究 adapters 与 Research Track；不得把这些控制变量外推成 Product Track 的永久技术栈。
+
+## 1. Research Track 技术栈(ADR-0001)
 
 - Python ≥ 3.10,**纯标准库**(`src/` 零第三方依赖)。理由:原型期可证伪性 > 便利;
   零依赖 = 任何机器任何 agent 可即刻接力;杜绝"框架带入的隐性行为"污染机制实验。
@@ -8,6 +12,14 @@
 - 测试:`unittest`(与企业仓一致;零依赖)。运行 `PYTHONPATH=src python -m unittest discover -s tests`。
 - 类型:全模块 `from __future__ import annotations` + 完整类型注解 + `dataclass` 优先。
 - 实验脚本可打印表格;暂不引入绘图依赖(需要时走 ADR 加 dev-extra,核不受影响)。
+
+### 1.1 Product Track 技术栈边界
+
+- 首个产品 scaffold 前必须通过架构 ADR，确定应用/UI、持久化、队列、身份、secret broker、observability 与部署基线。
+- Product Track 可使用成熟第三方库、模型 SDK、数据库、队列、搜索/vector、身份和 UI 技术；依赖必须有许可证、安全、维护和替换评估。
+- 不得外包的 authority spine: canonical contracts、Task/Commitment/AgentRun、WorkflowGraph IR、capability policy、ActionContract、belief/outcome、correction 与 research-promotion rules。
+- Product Track 不直接 import Research Track 的实验模块。候选机制先形成 `ResearchCandidateManifest`，再通过稳定接口和产品复验晋升。
+- Domain pack 可有领域语义；通用 `packages/` core 不得依赖 Data Agent 或其他领域对象。
 
 ## 2. 代码规范
 
@@ -18,16 +30,17 @@
 
 ## 3. 工程化控制(质量门)
 
-提交前本地门(全部通过才许 PR):
+Research Track 提交前本地门:
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests   # 必须 OK
 ```
 
-PR 必须使用 `.github/pull_request_template.md`,粘贴质量门输出,并包含
-**证伪声明**:"本变更未为通过任何预注册门而调整机制参数/结构"。
+Product Track 必须在首个架构 ADR 中建立 lint/type/unit/integration/e2e/security 和可重复构建命令；在该工具链落地前，不得把 schema、mock 或 UI shell 记为产品能力。
 
-## 4. 实验纪律(本仓库特有,最高优先)
+PR 必须使用 `.github/pull_request_template.md` 并按所选轨粘贴质量门。Research Track 机制/实验变更继续包含**证伪声明**:"本变更未为通过任何预注册门而调整机制参数/结构"。
+
+## 4. Research Track 实验纪律(最高优先)
 
 1. **预注册**:跑实验前,通过门判据写入 ADR(对照体、度量、种子数、胜出标准)。
 2. **机制与实验有效性分离**:发现环境太易/太严可以修环境与度量,但同一轮不得动机制。
@@ -53,5 +66,7 @@ PR 必须使用 `.github/pull_request_template.md`,粘贴质量门输出,并包�
   操作员代码;`src/aac/agent.py`、`policy.py`、`relevance.py`、`world_model.py`、
   `viability.py` 及 `src/envs/` 出现 `op_` 调用即违规。agent 一律只持能力视图
   (ShellView / ValueChannelView),构造期即降级,不持原对象。
-- 零跨仓 import;零业务词汇(评审时人工检查 + 将来加 lint 词表)。
+- 外部仓库不得成为运行时依赖；Product Track 与 Research Track 之间只通过晋升 contract，不直接 import 实验实现。
+- 通用 OS core 零领域词汇；领域词汇只允许在 `domain_packs/`、插件、连接器与对应测试。
+- Research Track 当前 `src/aac` 继续零业务词汇、纯 stdlib，除非独立 ADR 明确改变实验控制变量。
 - 版本控制:本仓库独立 git;面向 main 的变更走 PR;实验产出的大文件不入库。

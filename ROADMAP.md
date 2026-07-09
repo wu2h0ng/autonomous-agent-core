@@ -1,7 +1,21 @@
 # ROADMAP — autonomous-agent-core
 
-研究型路线图:阶段按依赖排序,不承诺日历时间;每阶段出口是**预注册证伪门**,不是功能清单。
-门的判据一经注册不得移动(ADR 记录)。
+> Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+> Status: Agent OS dual-track roadmap; the detailed P0+ records below are Research Track history.
+
+## Product Track dependency order
+
+1. **Product spine:** canonical contracts, persistent Task Workspace, durable AgentRun, provider/BYOK, typed tool host, baseline policy and outcome verification.
+2. **Complete workflows:** natural-language + visual WorkflowGraph editing, developer dogfood path, Data Agent domain pack seam and private personal path.
+3. **Operational completeness:** knowledge/context graph, subagents, scheduling, crash recovery, approvals, identity/tenancy, eval and operations surfaces.
+4. **Outcome compounding:** belief ledger, verified outcome learning, invalidation/rollback and long-horizon recovery.
+5. **Research promotion:** CWM, G10-like action calibration or other mechanisms only after a `ResearchCandidateManifest` and held-out product comparison.
+
+The Product Track exits through Product Done, Moat Done and Superior Done as defined in the Blueprint. Stages are dependency-ordered and do not promise calendar dates.
+
+## Research Track historical roadmap
+
+The following research stages are evidence records, not the Agent OS feature roadmap. Their gates remain frozen: a product identity change cannot move a preregistered criterion or change a verdict.
 
 ## P0 纵切片 + 第一次证伪 — ✅ 已完成(2026-06-12)
 

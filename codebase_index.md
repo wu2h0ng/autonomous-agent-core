@@ -1,20 +1,34 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-09
-> Last updated: 2026-07-04
-> Purpose: fast map from current research state to code, tests, experiments, and ADRs.
-> First read: `docs/CURRENT_STATE.yaml`.
+> Last updated: 2026-07-10
+> Purpose: fast map from Agent OS product authority and current research state to code, tests, experiments, and ADRs.
+> First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`.
+
+## Product Authority
+
+| File | Role |
+|---|---|
+| `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` | Final Agent OS product definition, dual-track layered monorepo, user surfaces, canonical model, market-parity requirements, research audit and superiority gates |
+| `docs/PRD.md` | Research Track historical requirements only; not the product PRD |
+| `docs/PROJECT_PLAN.md` | Active Product/Research task handoff and immediate Product Track spine task |
+| `ROADMAP.md` | Product dependency order plus preserved Research Track history |
+| `ENGINEERING.md` | Dual-track engineering constraints; Research stdlib/falsification controls and Product dependency/authority boundaries |
+| `.github/pull_request_template.md` | Track-aware Product/Research/Docs PR evidence and boundary checklist |
+| `docs/superpowers/plans/2026-07-10-agent-os-product-blueprint-v1.md` | Docs-only finalization and verification plan |
+
+Repository identity: complete Agent OS main monorepo. Current implementation reality: research-heavy; Product Track target packages/apps are not yet delivered. Existing `src/aac`, `experiments` and research adapters remain Research Track unless explicitly promoted.
 
 ## Current Snapshot
 
 ```yaml
-branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted; real-data adapter examples and ground-truth-free metrics (ADR-0053) implemented; end-to-end adapter harness validated against simulator
-tests: 1032 OK (13 skipped)
-branch: research/stage0-gate-sovereignty-2026-07-03
-stage: AGDE-T3 fresh scored NULL; CWM-LEARN-5e-2 hard non-enumerable functional-forms r-final MET
-immediate_next: stop boundary-prose drift; choose scale/cross-domain transfer gate, governed seam-lane design/execution, or PARK
-tests: 740 OK
+product: Agent OS
+product_blueprint: FINAL_FOUNDER_RATIFIED
+topology: dual-track layered monorepo
+implementation: research-heavy; market-parity Product Track not delivered
+research_source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
+research_stage: reconciled open-world + IGI organ-stack/CWM lines; exact verdicts in CURRENT_STATE
+tests: 1237 OK (16 skipped in this worktree; 3 additional skips are optional anndata/numpy tests)
+product_claim_from_tests: NOT_AUTHORIZED
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.

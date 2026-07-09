@@ -1,19 +1,18 @@
-# PRD — autonomous-agent-core(研究型)
+# PRD — Research Track historical requirements
 
-- Status: Active
-- Date: 2026-06-12
-- 性质: 研究原型的 PRD——"需求"是四条可证伪主张,"验收"是预注册门,不是功能清单。
+- Status: Active within Research Track; not product authority
+- Date: 2026-07-10
+- Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+- 性质: 本文保留研究原型的历史需求和证伪门。Agent OS 的用户、功能、架构和验收以 Product Blueprint v1 为准。
 
 ## 1. 愿景与定位
 
-造出 RR-0001 v2 定义的**通用自主智能体**:有利害(内生规范性)、能重新框定(相关性实现)、
-可被纠正(完整罩)、器官非主体(LLM/模型只是被调用器官)。它是主产物;企业 OS
-(`ai-native-business-data-agent-os`)是它未来的降级投影(autonomy→0 + 域包)。
+本研究轨探索 RR-0001 v2 定义的若干候选机制：有利害、重新框定、可纠正和器官非主体。它们是 Agent OS 的研究资产，不等于完整产品，也不自动构成通用自主智能证明。Agent OS 在同一仓库直接演化；Data Agent 是首个企业 domain pack，不是 autonomy 降权后的另一个终局产品。
 
 ## 2. 用户
 
-- 近期:founder 与接力 agent(研究迭代)。
-- 远期:部署层产品团队(把通用核投影为行业 OS)。
+- 本文的使用者: founder、Research Track 实现者和独立评审者。
+- 产品用户: 个人、独立开发者和企业团队，见 Product Blueprint §1。
 
 ## 3. 需求 = 四条主张(与验收门)
 
@@ -26,8 +25,7 @@
 
 ## 4. 非目标(v0–P3 明确不做)
 
-业务语义;真实执行器;LLM 进控制路径;多进程分布式;ρ 自调(人定常数);
-绘图/重依赖;数学层面的对齐保证(只做工程"规避成本>>收益")。
+本历史实验包内不做业务语义、真实执行器、多进程产品运行时、ρ 自调、绘图/重依赖或数学层面的对齐保证。该边界只约束对应 Research Track 实验，不是 Agent OS 产品非目标。
 
 ## 5. 约束(继承 RR-0001 v2 承诺)
 
@@ -40,7 +38,7 @@ Stake-first lint 规则:一切效用须可推导至本质变量。
 1. G1–G4 逐门通过(或诚实证伪后按协议改道,改道也算研究成功);
 2. 每个机制都有消融体与负结果记录——**零"未检验即发版"的机制**;
 3. 罩演练零抵抗记录连续保持;
-4. P5 投影试点证明"通用核+域包"可复演企业 Trusted Loop 行为。
+4. 候选机制只有在 Product Blueprint 的 promotion contract 和真实 workflow 对照测试通过后，才可进入产品包。
 
 ## 7. 风险
 
