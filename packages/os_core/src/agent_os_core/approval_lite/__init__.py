@@ -320,14 +320,30 @@ class ApprovalLiteRuntime:
 
         Returns:
             The newly created ApprovalRecord with status "pending".
+
+        Raises:
+            ValueError: If ``recommended_action`` is given but is not among a non-empty
+                ``alternatives`` choice set (defense in depth, P2-A): a recommendation
+                that was never surfaced would let the decision path classify a
+                rubber-stamp against a phantom option. The single-option path (empty
+                ``alternatives``) legitimately carries a ``recommended_action``.
         """
+        alternatives = tuple(alternatives)
+        if recommended_action is not None and alternatives:
+            surfaced = {alternative.action for alternative in alternatives}
+            if recommended_action not in surfaced:
+                raise ValueError(
+                    f"recommended_action '{recommended_action}' is not among the "
+                    f"surfaced alternatives {sorted(surfaced)}; a recommended action "
+                    "must be a surfaced option."
+                )
         record = ApprovalRecord(
             approval_id=approval_id,
             proposal_id=proposal_id,
             status="pending",
             approver_role=approver_role,
             operation_fingerprint=operation_fingerprint,
-            alternatives=tuple(alternatives),
+            alternatives=alternatives,
             single_option_rationale=single_option_rationale,
             recommended_action=recommended_action,
             risk_level=risk_level,
