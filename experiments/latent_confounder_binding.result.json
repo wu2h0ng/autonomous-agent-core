@@ -1,0 +1,22 @@
+{
+  "observed_truth": [
+    [
+      0,
+      2
+    ]
+  ],
+  "final_map_dag": [
+    [
+      0,
+      2
+    ],
+    [
+      1,
+      2
+    ]
+  ],
+  "final_confidence": 0.5,
+  "final_shd": 1,
+  "max_false_edge_marginal": 0.3833,
+  "interventions_spent_total": 12
+}

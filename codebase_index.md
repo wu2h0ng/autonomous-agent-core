@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented
-tests: 984 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented
+tests: 991 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -100,6 +100,16 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/nonlinear_intervention_binding.py` | Benchmark runner comparing `linear` and `poly2` likelihood modes on the quadratic env. Emits `experiments/nonlinear_intervention_binding.result.json`. |
 | `experiments/nonlinear_intervention_binding.result.json` | Example benchmark artifact. |
 | `tests/test_nonlinear_intervention_env.py` | 4 tests: env observe/intervene shapes, quadratic intervention scaling, ground-truth SHD, and poly2 likelihood beating linear likelihood on nonlinear data in the online live loop. |
+
+## Latent-Confounder / Partially-Observed Live Intervention Binding (2026-07-08)
+
+| File | Role |
+|------|------|
+| `src/aac/latent_confounder_env.py` | `PartiallyObservedSCMEnv`: wraps a full linear-Gaussian SCM (`CausalSimulationEnv`) and exposes only a subset of observed nodes. Interventions are applied to observed nodes in the full SCM; only observed dimensions are returned. Exposes the observed-subgraph ground truth for evaluation. Verify-only: no execution authority. |
+| `src/aac/interactive_discovery_loop.py` | Reuses `OnlineInteractiveDiscoveryLoop`; the discovery loop only sees observed nodes and can only intervene on observed nodes. |
+| `experiments/latent_confounder_binding.py` | Benchmark runner measuring final SHD and maximum false-edge marginal under latent confounding. Emits `experiments/latent_confounder_binding.result.json`. |
+| `experiments/latent_confounder_binding.result.json` | Example benchmark artifact. |
+| `tests/test_latent_confounder_env.py` | 7 tests: observed-only observations/interventions, ground-truth filtering of latent edges, SHD, loop completion without high-confidence false edges, intervention identifies direct observed edge, C7-offline invariant. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
