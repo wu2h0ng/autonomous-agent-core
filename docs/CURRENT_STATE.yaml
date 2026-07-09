@@ -22,6 +22,7 @@ product_architecture:
   research_gap_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"
   experiment_matrix: "docs/research/AGENT-OS-PRODUCT-GROUNDED-EXPERIMENT-MATRIX.yaml"
   independent_review: "Claude Opus first verdict APPROVE_WITH_REQUIRED_CHANGES on ca4610b..e78b72a; all six findings CLOSED in staged remediation re-review, final verdict APPROVE."
+  implementation_review: "Claude Opus P0A review returned APPROVE_WITH_REQUIRED_CHANGES; separate Product distributions, clean install isolation, replay-digest mutation test, import-boundary expansion and claim narrowing closed every required finding. Independent remediation re-review verdict: APPROVE."
   spine_0_scope: "Generic durable developer golden path; no donor import or Data Agent seam completion requirement."
   spine_1_scope: "ADR-0054-gated history-safe Data Agent migration, generic/domain-pack extraction and shared-spine seam."
   implementation_status: "P0A_IMPLEMENTED: minimum strict contract shapes, structural/canonical WorkflowGraph, append-only event-store port/in-memory adapter, replayable TaskAggregate and public TaskService create/commit/start/get path."
@@ -50,11 +51,11 @@ product_quality_commands:
 product_last_verified_tests:
   count: 45
   result: "OK"
-  source: "P0A remediation verification (2026-07-10): python3 -m pytest tests/product -q -> 45 passed in 0.11s; ruff -> All checks passed; pyright -> 0 errors, 0 warnings, 0 informations; separate agent-os-contracts/agent-os-core wheels clean-installed with declared dependencies, imported successfully, and aac/envs were absent. This verifies minimum contracts/run-kernel behavior and package isolation only, not complete SPINE-0."
+  source: "P0A final verification (2026-07-10): python3 -m pytest tests/product -q -> 45 passed in 0.14s; ruff -> All checks passed; pyright -> 0 errors, 0 warnings, 0 informations; separate agent-os-contracts/agent-os-core wheels clean-installed with declared dependencies, imported successfully, and aac/envs were absent. This verifies minimum contracts/run-kernel behavior and package isolation only, not complete SPINE-0."
 last_verified_tests:
   count: 1237
   result: "OK (skipped=16)"
-  source: "P0A post-implementation Research Track regression (2026-07-10): PYTHONPATH=src python3 -m unittest discover -s tests -> Ran 1237 tests in 177.876s, OK, skipped=16. This worktree lacks optional anndata/numpy, so 3 TestReplogle2022Preprocessing methods are additionally and explicitly skipped; the other 13 are existing sentinels. No research mechanism, verdict, gate or result artifact changed."
+  source: "P0A final Research Track regression (2026-07-10): PYTHONPATH=src python3 -m unittest discover -s tests -> Ran 1237 tests in 176.745s, OK, skipped=16. This worktree lacks optional anndata/numpy, so 3 TestReplogle2022Preprocessing methods are additionally and explicitly skipped; the other 13 are existing sentinels. No research mechanism, verdict, gate or result artifact changed."
 
 current_stage:
   label: "RECONCILE: open-world arc + IGI organ-stack/CWM real-data merged (G-ECO-REOPEN-1 NOT_MET; open-world arc landed)"

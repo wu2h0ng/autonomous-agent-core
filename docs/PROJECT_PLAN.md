@@ -113,6 +113,10 @@ Next packet: P0B governed capability/provider contracts and negative paths. It m
 CredentialRef/ProviderPort, DecisionPolicy vs PolicyKernel, external CorrectionAuthority
 and sandbox capability guarantee classes before any real tool effect.
 
+Independent P0A implementation review: Claude Opus initially returned
+`APPROVE_WITH_REQUIRED_CHANGES`; all required packaging, replay-integrity, boundary-test and
+claim-scope findings were remediated. Independent re-review returned `APPROVE`.
+
 This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
 
 ### T-P-OS-SPINE-1 - Data Agent History-Safe Migration (Successor / Blocked)

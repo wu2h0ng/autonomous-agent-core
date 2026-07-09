@@ -101,13 +101,14 @@ Expected: collection fails because `agent_os_contracts` does not exist.
 
 - [x] **Step 3: Add product test paths and minimal strict contracts**
 
-`pyproject.toml` adds optional Product Track dependencies and pytest paths without changing
-Research Track runtime dependencies:
+The root `pyproject.toml` adds Product test tooling and source paths without changing
+Research Track runtime dependencies. The independently reviewed package split later moved
+runtime dependencies into package-local metadata:
 
 ```toml
+# root pyproject.toml
 [project.optional-dependencies]
-product-core = ["pydantic>=2.13,<3"]
-product-test = ["pytest>=9,<10"]
+product-test = ["pytest>=9,<10", "pyright>=1.1.410,<2", "ruff>=0.14,<1"]
 
 [tool.pytest.ini_options]
 pythonpath = [
@@ -116,6 +117,16 @@ pythonpath = [
   "packages/contracts/src",
   "packages/os_core/src",
 ]
+
+# packages/contracts/pyproject.toml
+[project]
+name = "agent-os-contracts"
+dependencies = ["pydantic>=2.13,<3"]
+
+# packages/os_core/pyproject.toml
+[project]
+name = "agent-os-core"
+dependencies = ["agent-os-contracts==0.1.0"]
 ```
 
 `common.py` defines:
