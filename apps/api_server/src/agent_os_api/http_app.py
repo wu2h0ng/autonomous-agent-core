@@ -36,7 +36,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 
-from agent_os_contracts import CausalAttributionMethod, CausalOutcomeAttribution, QuotaExceeded
+from agent_os_contracts import (
+    ApprovalDecision,
+    CausalAttributionMethod,
+    CausalOutcomeAttribution,
+    QuotaExceeded,
+)
 from agent_os_core import (
     Dashboard,
     DashboardCard,
@@ -194,6 +199,8 @@ API_SCOPE_TRACE_READ = "traces:read"
 API_SCOPE_REPORT_READ = "reports:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
 API_SCOPE_APPROVAL_READ = "approvals:read"
+API_SCOPE_APPROVAL_DECIDE = "approvals:decide"
+API_SCOPE_ANALYTICS_READ = "analytics:read"
 API_SCOPE_RUNTIME_RESUME = "runtime:resume"
 API_SCOPE_TENANT_MANAGE = "tenants:manage"
 
@@ -222,6 +229,12 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
             API_SCOPE_REPORT_READ,
             API_SCOPE_APPROVAL_READ,
             API_SCOPE_APPROVAL_EXECUTE,
+            # P2-A (ADR-0015): recording approval decisions and reading rubber-stamp
+            # analytics are admin/operator-only, held on the internal principal. The
+            # external_report and viewer principals below deliberately do NOT carry
+            # them, so deliberation/modify-rate signal never leaks to those audiences.
+            API_SCOPE_APPROVAL_DECIDE,
+            API_SCOPE_ANALYTICS_READ,
             API_SCOPE_RUNTIME_RESUME,
             API_SCOPE_TENANT_MANAGE,
         }
@@ -1296,6 +1309,57 @@ class ApprovalListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ApprovalDecisionRequest(BaseModel):
+    """A human approval decision (P2-A, ADR-0015).
+
+    ``outcome`` is the coarse operator intent. The rubber-stamp classification
+    (``approved_recommended`` vs ``approved_revised``) is DERIVED from
+    ``selected_action`` versus the proposal's recommended action — it is never taken
+    from the operator's own words. Omitting ``selected_action`` on an approve means
+    "took the recommended option" (a potential rubber-stamp). Naming a different,
+    in-choice-set alternative is a ``revise``.
+    """
+
+    outcome: Literal["approve", "reject", "escalate"]
+    selected_action: str | None = None
+    reason: str | None = None
+    approved_by: str | None = None
+
+
+class ApprovalDecisionResponse(BaseModel):
+    approval_id: str
+    proposal_id: str
+    status: str
+    decision: str
+    selected_action: str | None = None
+    recommended_action: str | None = None
+    revised: bool
+    decision_trace_id: str
+
+
+class ApprovalAnalyticsCounts(BaseModel):
+    approved_recommended: int
+    approved_revised: int
+    rejected: int
+    escalated: int
+
+
+class ApprovalAnalyticsResponse(BaseModel):
+    """Derived rubber-stamp analytics for a tenant (P2-A, ADR-0015).
+
+    ``selection_concentration == 1.0`` is pure rubber-stamping; ``modify_rate`` is the
+    complementary share of approvals that modified the recommendation.
+    """
+
+    tenant_id: str
+    window: str
+    risk: str | None = None
+    counts: ApprovalAnalyticsCounts
+    total: int
+    modify_rate: float
+    selection_concentration: float
 
 
 class SearchResultItem(BaseModel):
@@ -2639,6 +2703,125 @@ def create_app(
                 for alternative in alternatives
             ],
             "single_option_rationale": single_option_rationale,
+        }
+
+    @app.post(
+        "/approvals/{approval_id}/decision",
+        response_model=ApprovalDecisionResponse,
+        responses={
+            404: {
+                "model": ApprovalExecuteErrorResponse,
+                "description": "Approval not found.",
+            },
+            409: {
+                "model": ApprovalExecuteErrorResponse,
+                "description": "Approval is not in a decidable (pending) state.",
+            },
+            422: {
+                "model": BlockedResponse,
+                "description": "Revise names an action outside the choice set (ADR-0014).",
+            },
+        },
+    )
+    def post_approval_decision(
+        approval_id: str,
+        body: ApprovalDecisionRequest,
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_APPROVAL_DECIDE)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> dict[str, Any]:
+        # P2-A (ADR-0015): record the human decision and DERIVE the rubber-stamp class.
+        # A revise that names an action outside the surfaced choice set is refused with a
+        # typed CHOICE_SET_VIOLATION (422), never silently accepted.
+        from agent_os_core.trusted_loop import TrustedLoopBlocked
+
+        try:
+            record, decision_trace_id = app.state.runtime.record_approval_decision(
+                approval_id=approval_id,
+                outcome=body.outcome,
+                selected_action=body.selected_action,
+                reason=body.reason,
+                approved_by=body.approved_by,
+                tenant_id=tenant_id,
+            )
+        except TrustedLoopBlocked as blocked:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": blocked.block.code.value,
+                    "message": blocked.block.message,
+                    "stage": blocked.block.stage,
+                    "details": list(blocked.block.details),
+                    "trace_id": blocked.block.trace_id,
+                },
+            ) from blocked
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "APPROVAL_NOT_FOUND",
+                    "message": str(exc).strip("'"),
+                    "approval_id": approval_id,
+                },
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "APPROVAL_NOT_DECIDABLE",
+                    "message": str(exc),
+                    "approval_id": approval_id,
+                },
+            ) from exc
+
+        return {
+            "approval_id": record.approval_id,
+            "proposal_id": record.proposal_id,
+            "status": record.status,
+            "decision": record.decision,
+            "selected_action": record.selected_action,
+            "recommended_action": record.recommended_action,
+            "revised": record.decision == ApprovalDecision.APPROVED_REVISED.value,
+            "decision_trace_id": decision_trace_id,
+        }
+
+    @app.get("/analytics/approvals", response_model=ApprovalAnalyticsResponse)
+    def get_approval_analytics(
+        tenant: str | None = Query(
+            default=None, description="Tenant to analyze; defaults to the X-Tenant-Id header."
+        ),
+        risk: str | None = Query(default=None, description="Optional risk-tier filter (e.g. R3)."),
+        window: str = Query(
+            default="all", description="Time window: 'all' or '<N>h' / '<N>d' / '<N>w'."
+        ),
+        principal: ApiPrincipal = Depends(require_api_scope(API_SCOPE_ANALYTICS_READ)),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> dict[str, Any]:
+        # P2-A (ADR-0015): rubber-stamp analytics DERIVED from tenant-scoped approval
+        # records (no parallel counter store). Admin/operator-only; external_report and
+        # viewer principals lack analytics:read, so deliberation signal never leaks.
+        effective_tenant = tenant or tenant_id
+        try:
+            analytics = app.state.runtime.approval_runtime.analytics(
+                tenant_id=effective_tenant, risk=risk, window=window
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "INVALID_ANALYTICS_WINDOW", "message": str(exc)},
+            ) from exc
+        return {
+            "tenant_id": analytics.tenant_id,
+            "window": analytics.window,
+            "risk": analytics.risk,
+            "counts": {
+                "approved_recommended": analytics.counts.approved_recommended,
+                "approved_revised": analytics.counts.approved_revised,
+                "rejected": analytics.counts.rejected,
+                "escalated": analytics.counts.escalated,
+            },
+            "total": analytics.total,
+            "modify_rate": analytics.modify_rate,
+            "selection_concentration": analytics.selection_concentration,
         }
 
     @app.post(

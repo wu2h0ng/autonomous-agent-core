@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Approval Analytics */
+        get: operations["get_approval_analytics_analytics_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/approvals": {
         parameters: {
             query?: never;
@@ -66,6 +83,23 @@ export interface paths {
         get: operations["get_approval_approvals__approval_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/approvals/{approval_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Approval Decision */
+        post: operations["post_approval_decision_approvals__approval_id__decision_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -744,6 +778,82 @@ export interface components {
         /** AgentRuntimeErrorResponse */
         AgentRuntimeErrorResponse: {
             detail: components["schemas"]["AgentRuntimeErrorDetail"];
+        };
+        /** ApprovalAnalyticsCounts */
+        ApprovalAnalyticsCounts: {
+            /** Approved Recommended */
+            approved_recommended: number;
+            /** Approved Revised */
+            approved_revised: number;
+            /** Escalated */
+            escalated: number;
+            /** Rejected */
+            rejected: number;
+        };
+        /**
+         * ApprovalAnalyticsResponse
+         * @description Derived rubber-stamp analytics for a tenant (P2-A, ADR-0015).
+         *
+         *     ``selection_concentration == 1.0`` is pure rubber-stamping; ``modify_rate`` is the
+         *     complementary share of approvals that modified the recommendation.
+         */
+        ApprovalAnalyticsResponse: {
+            counts: components["schemas"]["ApprovalAnalyticsCounts"];
+            /** Modify Rate */
+            modify_rate: number;
+            /** Risk */
+            risk?: string | null;
+            /** Selection Concentration */
+            selection_concentration: number;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Total */
+            total: number;
+            /** Window */
+            window: string;
+        };
+        /**
+         * ApprovalDecisionRequest
+         * @description A human approval decision (P2-A, ADR-0015).
+         *
+         *     ``outcome`` is the coarse operator intent. The rubber-stamp classification
+         *     (``approved_recommended`` vs ``approved_revised``) is DERIVED from
+         *     ``selected_action`` versus the proposal's recommended action — it is never taken
+         *     from the operator's own words. Omitting ``selected_action`` on an approve means
+         *     "took the recommended option" (a potential rubber-stamp). Naming a different,
+         *     in-choice-set alternative is a ``revise``.
+         */
+        ApprovalDecisionRequest: {
+            /** Approved By */
+            approved_by?: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "approve" | "reject" | "escalate";
+            /** Reason */
+            reason?: string | null;
+            /** Selected Action */
+            selected_action?: string | null;
+        };
+        /** ApprovalDecisionResponse */
+        ApprovalDecisionResponse: {
+            /** Approval Id */
+            approval_id: string;
+            /** Decision */
+            decision: string;
+            /** Decision Trace Id */
+            decision_trace_id: string;
+            /** Proposal Id */
+            proposal_id: string;
+            /** Recommended Action */
+            recommended_action?: string | null;
+            /** Revised */
+            revised: boolean;
+            /** Selected Action */
+            selected_action?: string | null;
+            /** Status */
+            status: string;
         };
         /**
          * ApprovalDetailResponse
@@ -2228,6 +2338,45 @@ export interface operations {
             };
         };
     };
+    get_approval_analytics_analytics_approvals_get: {
+        parameters: {
+            query?: {
+                /** @description Tenant to analyze; defaults to the X-Tenant-Id header. */
+                tenant?: string | null;
+                /** @description Optional risk-tier filter (e.g. R3). */
+                risk?: string | null;
+                /** @description Time window: 'all' or '<N>h' / '<N>d' / '<N>w'. */
+                window?: string;
+            };
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalAnalyticsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_approvals_approvals_get: {
         parameters: {
             query?: {
@@ -2303,6 +2452,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_approval_decision_approvals__approval_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+                "x-tenant-id"?: string | null;
+            };
+            path: {
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApprovalDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalDecisionResponse"];
+                };
+            };
+            /** @description Approval not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalExecuteErrorResponse"];
+                };
+            };
+            /** @description Approval is not in a decidable (pending) state. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovalExecuteErrorResponse"];
+                };
+            };
+            /** @description Revise names an action outside the choice set (ADR-0014). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlockedResponse"];
                 };
             };
         };

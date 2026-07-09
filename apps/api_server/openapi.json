@@ -211,6 +211,195 @@
         "title": "AgentRuntimeErrorResponse",
         "type": "object"
       },
+      "ApprovalAnalyticsCounts": {
+        "properties": {
+          "approved_recommended": {
+            "title": "Approved Recommended",
+            "type": "integer"
+          },
+          "approved_revised": {
+            "title": "Approved Revised",
+            "type": "integer"
+          },
+          "escalated": {
+            "title": "Escalated",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "approved_recommended",
+          "approved_revised",
+          "rejected",
+          "escalated"
+        ],
+        "title": "ApprovalAnalyticsCounts",
+        "type": "object"
+      },
+      "ApprovalAnalyticsResponse": {
+        "description": "Derived rubber-stamp analytics for a tenant (P2-A, ADR-0015).\n\n``selection_concentration == 1.0`` is pure rubber-stamping; ``modify_rate`` is the\ncomplementary share of approvals that modified the recommendation.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ApprovalAnalyticsCounts"
+          },
+          "modify_rate": {
+            "title": "Modify Rate",
+            "type": "number"
+          },
+          "risk": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk"
+          },
+          "selection_concentration": {
+            "title": "Selection Concentration",
+            "type": "number"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "window": {
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "window",
+          "counts",
+          "total",
+          "modify_rate",
+          "selection_concentration"
+        ],
+        "title": "ApprovalAnalyticsResponse",
+        "type": "object"
+      },
+      "ApprovalDecisionRequest": {
+        "description": "A human approval decision (P2-A, ADR-0015).\n\n``outcome`` is the coarse operator intent. The rubber-stamp classification\n(``approved_recommended`` vs ``approved_revised``) is DERIVED from\n``selected_action`` versus the proposal's recommended action \u2014 it is never taken\nfrom the operator's own words. Omitting ``selected_action`` on an approve means\n\"took the recommended option\" (a potential rubber-stamp). Naming a different,\nin-choice-set alternative is a ``revise``.",
+        "properties": {
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "outcome": {
+            "enum": [
+              "approve",
+              "reject",
+              "escalate"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "selected_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Action"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "ApprovalDecisionRequest",
+        "type": "object"
+      },
+      "ApprovalDecisionResponse": {
+        "properties": {
+          "approval_id": {
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "decision_trace_id": {
+            "title": "Decision Trace Id",
+            "type": "string"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "recommended_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Action"
+          },
+          "revised": {
+            "title": "Revised",
+            "type": "boolean"
+          },
+          "selected_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Action"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "proposal_id",
+          "status",
+          "decision",
+          "revised",
+          "decision_trace_id"
+        ],
+        "title": "ApprovalDecisionResponse",
+        "type": "object"
+      },
       "ApprovalDetailResponse": {
         "description": "Approval detail with the ADR-0014 choice set the approver decides between.\n\n``alternatives`` come from the pending approval context (empty once the\noperation has executed and the context is consumed); ``single_option_rationale``\nexplains why only one option was surfaced when no alternatives exist.",
         "properties": {
@@ -4525,6 +4714,117 @@
         "summary": "Post Agent Runtime Resume"
       }
     },
+    "/analytics/approvals": {
+      "get": {
+        "operationId": "get_approval_analytics_analytics_approvals_get",
+        "parameters": [
+          {
+            "description": "Tenant to analyze; defaults to the X-Tenant-Id header.",
+            "in": "query",
+            "name": "tenant",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Tenant to analyze; defaults to the X-Tenant-Id header.",
+              "title": "Tenant"
+            }
+          },
+          {
+            "description": "Optional risk-tier filter (e.g. R3).",
+            "in": "query",
+            "name": "risk",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional risk-tier filter (e.g. R3).",
+              "title": "Risk"
+            }
+          },
+          {
+            "description": "Time window: 'all' or '<N>h' / '<N>d' / '<N>w'.",
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "description": "Time window: 'all' or '<N>h' / '<N>d' / '<N>w'.",
+              "title": "Window",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "name": "X-Tenant-Id",
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalAnalyticsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Approval Analytics"
+      }
+    },
     "/approvals": {
       "get": {
         "operationId": "list_approvals_approvals_get",
@@ -4707,6 +5007,108 @@
           }
         },
         "summary": "Get Approval"
+      }
+    },
+    "/approvals/{approval_id}/decision": {
+      "post": {
+        "operationId": "post_approval_decision_approvals__approval_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "title": "Approval Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "name": "X-Tenant-Id",
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalExecuteErrorResponse"
+                }
+              }
+            },
+            "description": "Approval not found."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalExecuteErrorResponse"
+                }
+              }
+            },
+            "description": "Approval is not in a decidable (pending) state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockedResponse"
+                }
+              }
+            },
+            "description": "Revise names an action outside the choice set (ADR-0014)."
+          }
+        },
+        "summary": "Post Approval Decision"
       }
     },
     "/approvals/{approval_id}/execute": {
