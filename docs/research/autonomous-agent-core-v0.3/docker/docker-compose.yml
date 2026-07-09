@@ -1,0 +1,9 @@
+# Placeholder docker compose
+
+services:
+  api:
+    build: ./apps/api
+  database:
+    image: postgres
+  graph:
+    image: neo4j
