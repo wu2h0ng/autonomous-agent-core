@@ -401,7 +401,7 @@
         "type": "object"
       },
       "ApprovalDetailResponse": {
-        "description": "Approval detail with the ADR-0014 choice set the approver decides between.\n\n``alternatives`` come from the pending approval context (empty once the\noperation has executed and the context is consumed); ``single_option_rationale``\nexplains why only one option was surfaced when no alternatives exist.",
+        "description": "Approval detail with the ADR-0014 choice set the approver decides between.\n\n``alternatives`` come from the pending approval context (empty once the\noperation has executed and the context is consumed); ``single_option_rationale``\nexplains why only one option was surfaced when no alternatives exist.\n\n``consequence_preview`` (P2-B, ADR-0016) is the action's own governed history from the\ndurable ledger \u2014 a SYMBOLIC track record the approver reads before deciding. It is None\nwhen no history port is wired; ``available=False`` distinguishes \"no prior history\" from a\nfabricated zero.",
         "properties": {
           "alternatives": {
             "items": {
@@ -435,6 +435,16 @@
               }
             ],
             "title": "Approver Role"
+          },
+          "consequence_preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConsequencePreviewItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "proposal_id": {
             "title": "Proposal Id",
@@ -958,6 +968,47 @@
           "confidence"
         ],
         "title": "CausalAttributionRequest",
+        "type": "object"
+      },
+      "ConsequencePreviewItem": {
+        "description": "The action's OWN governed history, derived from the durable ledger (P2-B, ADR-0016).\n\nA SYMBOLIC honest count the approver reads BEFORE deciding \u2014 never a prediction or learned\nmodel. ``available`` is False (with zero counts) when there is no prior history or the ledger\ncould not be read: the surface renders \"no prior history\" rather than a fabricated ``0/0``.",
+        "properties": {
+          "action_type": {
+            "title": "Action Type",
+            "type": "string"
+          },
+          "available": {
+            "default": false,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "last_outcomes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Last Outcomes",
+            "type": "array"
+          },
+          "prior_executions": {
+            "default": 0,
+            "title": "Prior Executions",
+            "type": "integer"
+          },
+          "resolved_intended": {
+            "default": 0,
+            "title": "Resolved Intended",
+            "type": "integer"
+          },
+          "resolved_other": {
+            "default": 0,
+            "title": "Resolved Other",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_type"
+        ],
+        "title": "ConsequencePreviewItem",
         "type": "object"
       },
       "DashboardCreateCard": {

@@ -862,6 +862,11 @@ export interface components {
          *     ``alternatives`` come from the pending approval context (empty once the
          *     operation has executed and the context is consumed); ``single_option_rationale``
          *     explains why only one option was surfaced when no alternatives exist.
+         *
+         *     ``consequence_preview`` (P2-B, ADR-0016) is the action's own governed history from the
+         *     durable ledger — a SYMBOLIC track record the approver reads before deciding. It is None
+         *     when no history port is wired; ``available=False`` distinguishes "no prior history" from a
+         *     fabricated zero.
          */
         ApprovalDetailResponse: {
             /** Alternatives */
@@ -872,6 +877,7 @@ export interface components {
             approved_by?: string | null;
             /** Approver Role */
             approver_role?: string | null;
+            consequence_preview?: components["schemas"]["ConsequencePreviewItem"] | null;
             /** Proposal Id */
             proposal_id: string;
             /** Reason */
@@ -1044,6 +1050,40 @@ export interface components {
             window_end: string;
             /** Window Start */
             window_start: string;
+        };
+        /**
+         * ConsequencePreviewItem
+         * @description The action's OWN governed history, derived from the durable ledger (P2-B, ADR-0016).
+         *
+         *     A SYMBOLIC honest count the approver reads BEFORE deciding — never a prediction or learned
+         *     model. ``available`` is False (with zero counts) when there is no prior history or the ledger
+         *     could not be read: the surface renders "no prior history" rather than a fabricated ``0/0``.
+         */
+        ConsequencePreviewItem: {
+            /** Action Type */
+            action_type: string;
+            /**
+             * Available
+             * @default false
+             */
+            available: boolean;
+            /** Last Outcomes */
+            last_outcomes?: string[];
+            /**
+             * Prior Executions
+             * @default 0
+             */
+            prior_executions: number;
+            /**
+             * Resolved Intended
+             * @default 0
+             */
+            resolved_intended: number;
+            /**
+             * Resolved Other
+             * @default 0
+             */
+            resolved_other: number;
         };
         /** DashboardCreateCard */
         DashboardCreateCard: {

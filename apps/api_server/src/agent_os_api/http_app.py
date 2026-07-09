@@ -639,6 +639,22 @@ class ActionAlternativeItem(BaseModel):
     recommended: bool = False
 
 
+class ConsequencePreviewItem(BaseModel):
+    """The action's OWN governed history, derived from the durable ledger (P2-B, ADR-0016).
+
+    A SYMBOLIC honest count the approver reads BEFORE deciding — never a prediction or learned
+    model. ``available`` is False (with zero counts) when there is no prior history or the ledger
+    could not be read: the surface renders "no prior history" rather than a fabricated ``0/0``.
+    """
+
+    action_type: str
+    prior_executions: int = 0
+    resolved_intended: int = 0
+    resolved_other: int = 0
+    last_outcomes: list[str] = Field(default_factory=list)
+    available: bool = False
+
+
 class UserResultDecision(BaseModel):
     recommendation: str
     reason: str
@@ -1298,10 +1314,16 @@ class ApprovalDetailResponse(ApprovalListItem):
     ``alternatives`` come from the pending approval context (empty once the
     operation has executed and the context is consumed); ``single_option_rationale``
     explains why only one option was surfaced when no alternatives exist.
+
+    ``consequence_preview`` (P2-B, ADR-0016) is the action's own governed history from the
+    durable ledger — a SYMBOLIC track record the approver reads before deciding. It is None
+    when no history port is wired; ``available=False`` distinguishes "no prior history" from a
+    fabricated zero.
     """
 
     alternatives: list[ActionAlternativeItem] = Field(default_factory=list)
     single_option_rationale: str | None = None
+    consequence_preview: ConsequencePreviewItem | None = None
 
 
 class ApprovalListResponse(BaseModel):
@@ -2668,6 +2690,9 @@ def create_app(
         # context only for legacy records created before the durable snapshot existed.
         record_alternatives = tuple(getattr(record, "alternatives", ()) or ())
         record_rationale = getattr(record, "single_option_rationale", None)
+        # P2-B (ADR-0016): the consequence preview is snapshotted durably on the ApprovalRecord, so
+        # the track record survives the approval-resume context deletion after execution.
+        consequence_preview = getattr(record, "consequence_preview", None)
         if record_alternatives or record_rationale:
             source_alternatives = record_alternatives
             single_option_rationale = record_rationale
@@ -2680,6 +2705,12 @@ def create_app(
             )
             source_alternatives = tuple(getattr(context, "alternatives", ()) or ())
             single_option_rationale = getattr(context, "single_option_rationale", None)
+            # Legacy records (pre ADR-0016 durable snapshot) fall back to the evidence chain the
+            # context carried — the audit home for the preview during the run.
+            if consequence_preview is None and context is not None:
+                consequence_preview = getattr(
+                    getattr(context, "evidence_chain", None), "consequence_preview", None
+                )
         alternatives = sorted(
             source_alternatives,
             key=lambda alternative: alternative.action,
@@ -2703,6 +2734,18 @@ def create_app(
                 for alternative in alternatives
             ],
             "single_option_rationale": single_option_rationale,
+            "consequence_preview": (
+                {
+                    "action_type": consequence_preview.action_type,
+                    "prior_executions": consequence_preview.prior_executions,
+                    "resolved_intended": consequence_preview.resolved_intended,
+                    "resolved_other": consequence_preview.resolved_other,
+                    "last_outcomes": list(consequence_preview.last_outcomes),
+                    "available": consequence_preview.available,
+                }
+                if consequence_preview is not None
+                else None
+            ),
         }
 
     @app.post(

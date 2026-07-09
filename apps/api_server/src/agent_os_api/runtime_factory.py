@@ -196,6 +196,10 @@ class ContentCommerceRuntimeFactory:
         self._workflow_runtime: WorkflowRuntime | None = None
         self._trace_store_port: Any | None = None
         self._heavy_infra: HeavyInfrastructureAdapters | None = None
+        # ONE action_record store per factory (P2-B, ADR-0016): retained from connector-registry
+        # construction so the read-only consequence-preview history port reads the SAME durable
+        # ledger the connector writes. The runtime is handed a READER, never a writer.
+        self._action_record_store: Any | None = None
 
     def build_heavy_infrastructure_adapters(self) -> HeavyInfrastructureAdapters:
         if self._heavy_infra is None:
@@ -373,7 +377,25 @@ class ContentCommerceRuntimeFactory:
             # refusal, but it cannot pause/resume itself.
             shell_view=self.corrigibility_shell().view(),
             approval_router=self.build_approval_router(),
+            # P2-B (ADR-0016): read-only history port over the action_record ledger the connector
+            # registry just built, so the proposal step can attach the consequence preview.
+            action_history_port=self.build_action_history_port(),
         )
+
+    def build_action_history_port(self) -> Any:
+        """Read-only ``ActionHistoryPort`` over the action_record ledger (P2-B, ADR-0016).
+
+        Wraps the SAME action_record store the connector registry built (retained on the factory),
+        so the consequence preview is derived live from the durable ledger — never a parallel
+        counter. Returns None if the connector registry has not been built yet (the runtime then
+        carries no preview). The adapter is import-light (no SQLAlchemy), so the memory backend
+        stays SQLAlchemy-free.
+        """
+        if self._action_record_store is None:
+            return None
+        from action_record import ActionRecordHistoryAdapter
+
+        return ActionRecordHistoryAdapter(self._action_record_store)
 
     def build_approval_router(self) -> ApprovalRouter | None:
         """Construct the runtime approval router (AR-20260707 / ADR-0013).
@@ -757,6 +779,10 @@ class ContentCommerceRuntimeFactory:
                 f"Unknown store_backend {self.config.store_backend!r}; expected "
                 f"{STORE_MEMORY!r} or {STORE_POSTGRES!r}."
             )
+
+        # Retain the store so the consequence-preview history port (ADR-0016) reads the SAME
+        # durable ledger this connector writes — no parallel counter, no drift.
+        self._action_record_store = action_record_store
 
         registry = ActionConnectorRegistry()
         registry.register(
