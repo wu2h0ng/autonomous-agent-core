@@ -6,14 +6,18 @@ from typing import Any, Mapping
 from .governed_gate import GovernedDecisionGate
 from .governed_loop import Candidate, GovernedLoop, TaskSpec
 from .idle_drives import IdleDrives
+from .organ_regulator import OrganRegulator
 from .policy import PolicySelector
 from .prior_organ import PriorOrgan, merge_organ_advice, snapshot_belief
 from .reflex import ViabilityReflex
 from .relevance import RelevanceField
 from .residual_calibrator import ResidualCalibrator
+from .self_maintenance import SelfMaintenanceLoop
+from .self_model_updater import AgentSelfModelUpdater
 from .shell import CorrigibilityShell, ShellView
 from .value_channel import ValueChannel, ValueChannelView
 from .viability import ViabilityCore
+from .weight_memory import WeightMemory
 from .world_model import ActionOutcomeModel
 
 
@@ -52,6 +56,10 @@ class Agent:
         governed_gate: GovernedDecisionGate | None = None,
         verifier: Any | None = None,
         governed_memory: Any | None = None,
+        self_model_updater: AgentSelfModelUpdater | None = None,
+        organ_regulator: OrganRegulator | None = None,
+        self_maintenance: SelfMaintenanceLoop | None = None,
+        weight_memory: WeightMemory | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -94,11 +102,15 @@ class Agent:
         self.governed_gate = governed_gate
         self.verifier = verifier
         self.governed_memory = governed_memory
+        self.self_model_updater = self_model_updater
+        self.organ_regulator = organ_regulator
+        self.self_maintenance = self_maintenance
+        self.weight_memory = weight_memory
         self.steps = 0
         self._reflex_engaged = False
 
     def state(self) -> dict[str, Any]:
-        return {
+        result = {
             "viability": self.viability,
             "model": self.model,
             "relevance": self.relevance,
@@ -108,6 +120,15 @@ class Agent:
             "prior_organ": self.prior_organ,
             "residual_calibrator": self.residual_calibrator,
         }
+        if self.organ_regulator is not None:
+            result["organ_regulator"] = self.organ_regulator.state()
+        if self.self_model_updater is not None:
+            result["self_model_updater"] = self.self_model_updater.state()
+        if self.self_maintenance is not None:
+            result["self_maintenance"] = self.self_maintenance.state()
+        if self.weight_memory is not None:
+            result["weight_memory"] = {"entries": self.weight_memory.entries, "min_similarity": self.weight_memory.min_similarity}
+        return result
 
     def restore(self, state: dict[str, Any]) -> None:
         self.viability = state["viability"]
@@ -120,6 +141,15 @@ class Agent:
         self.residual_calibrator = state.get(
             "residual_calibrator", self.residual_calibrator
         )
+        if self.organ_regulator is not None and "organ_regulator" in state:
+            self.organ_regulator.restore(state["organ_regulator"])
+        if self.self_model_updater is not None and "self_model_updater" in state:
+            self.self_model_updater.restore(state["self_model_updater"])
+        if self.self_maintenance is not None and "self_maintenance" in state:
+            self.self_maintenance.restore(state["self_maintenance"])
+        if self.weight_memory is not None and "weight_memory" in state:
+            self.weight_memory.entries = state["weight_memory"].get("entries", [])
+            self.weight_memory.min_similarity = state["weight_memory"].get("min_similarity", 0.95)
         if self.reflex is not None:
             self.reflex.reset()
 
@@ -221,7 +251,76 @@ class Agent:
             record["tau"] = round(policy_diag["tau"], 4)
             record["w_e"] = round(policy_diag["w_e"], 4)
         self.shell.observe(record)
+        self._after_step(action, env, record)
         return record
+
+    def _after_step(self, action: int, env: Any, record: dict) -> None:
+        """Orchestrate E6/E9 self-maintenance and organ regulation after each step.
+
+        This is the runtime integration point for all three governed self-maintenance
+        mechanisms. Each module operates independently; None means that module is
+        disabled (backward-compatible ablation baseline).
+        """
+        reward = record.get("reward", 0.0)
+        prior_applied = record.get("prior_delta_n", 0)
+
+        if self.organ_regulator is not None and self.prior_organ is not None:
+            organ_id = type(self.prior_organ).__name__
+            outcome_positive = reward > 0.0
+            self.organ_regulator.record_outcome(
+                organ_id=organ_id,
+                advice_applied=prior_applied > 0,
+                outcome_positive=outcome_positive,
+            )
+            self.organ_regulator.check_deweight(organ_id)
+            self.organ_regulator.check_reweight(organ_id)
+
+        if self.self_model_updater is not None and getattr(self, "governed_gate", None) is not None:
+            sm = self.governed_gate.self_model
+            deltas = self.self_model_updater.after_action(
+                action=str(action),
+                risk_tier=0,
+                predicted_confidence=record.get("conf", 0.5),
+                evidence_count=1,
+                outcome=reward,
+                outcome_baseline=0.0,
+            )
+            sm.apply_updates(deltas)
+
+        if self.self_maintenance is not None:
+            actions = self.self_maintenance.step(
+                {"model": self.model, "viability": self.viability}
+            )
+            for ma in actions:
+                self.self_maintenance.execute_maintenance(
+                    ma, lambda a: None
+                )
+
+    def switch_strategy(self, old_weights: list[float], new_weights: list[float]) -> bool:
+        """Decouple strategy and action loops via WeightMemory.
+
+        Called when the strategy loop (organ) proposes new weights. Snapshots the
+        current action model under old weights, then warm-starts the model from
+        stored priors for the new weights. Returns True if warm-started from memory,
+        False if cold-start (novel weights).
+
+        This is the core finding from G11: without this decoupling, weight switches
+        cause cold-start penalties that eat the strategy gains. With it, the action
+        loop reuses priors from past experience with similar weight vectors.
+
+        None weight_memory = disabled (backward-compatible).
+        """
+        if self.weight_memory is None:
+            return False
+        self.weight_memory.snapshot_model(old_weights, self.model)
+        return self.weight_memory.warm_start_model(self.model, new_weights)
+
+    @property
+    def strategy_memory_size(self) -> int:
+        """Number of stored weight→action-prior entries."""
+        if self.weight_memory is None:
+            return 0
+        return len(self.weight_memory)
 
     def governed_step(
         self, env: Any, task: TaskSpec, *, verify_budget: int | None = None,

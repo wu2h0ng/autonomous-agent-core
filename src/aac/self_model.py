@@ -27,7 +27,7 @@ class ActionRequest:
     action_index: Optional[int] = None  # the action's integer index, checked against shell.forbidden
 
 
-@dataclass(frozen=True)
+@dataclass
 class AgentSelfModel:
     """What the agent may do, must not do, and when it must stop / escalate.
 
@@ -66,3 +66,25 @@ class AgentSelfModel:
 
     def required_confidence(self, risk_tier: int) -> float:
         return self.confidence_thresholds.get(risk_tier, 0.0)
+
+    def apply_updates(self, deltas: dict) -> int:
+        """Apply runtime calibration deltas from AgentSelfModelUpdater.
+
+        Returns the number of fields changed. Only confidence_thresholds and
+        evidence_requirements are updated — the capability boundary (allowed/
+        denied tools) and authority boundary (risk_ceiling, approval tier)
+        are NEVER modified by runtime updates. C7 authority remains operator-only.
+        """
+        changes = 0
+        for tier, threshold in deltas.get("confidence_thresholds", {}).items():
+            if isinstance(tier, int) and isinstance(threshold, (int, float)):
+                if 0.0 <= threshold <= 1.0:
+                    self.confidence_thresholds[tier] = float(threshold)
+                    changes += 1
+        for tier, delta in deltas.get("evidence_requirements", {}).items():
+            if isinstance(tier, int) and isinstance(delta, int):
+                current = self.evidence_requirements.get(tier, 0)
+                new_value = max(0, current + delta)
+                self.evidence_requirements[tier] = new_value
+                changes += 1
+        return changes
