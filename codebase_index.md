@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted; real-data adapter examples and ground-truth-free metrics (ADR-0053) implemented
-tests: 1029 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted; real-data adapter examples and ground-truth-free metrics (ADR-0053) implemented; end-to-end adapter harness validated against simulator
+tests: 1032 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -156,6 +156,14 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `tests/test_http_adapter.py` | 3 tests: observe JSON parse, POST intervention and sample parse, HTTP error returns `None`. |
 | `tests/test_queue_adapter.py` | 3 tests: observe drain, request/read-back round-trip, timeout returns `None`. |
 | `tests/test_cwm_evaluation.py` | 3 tests: true DAG beats empty DAG on predictive validation, true DAG improves interventional agreement, empty data returns `None`. |
+
+## End-to-End Adapter Harness (2026-07-09)
+
+| File | Role |
+|------|------|
+| `experiments/live_adapter_loop_harness.py` | Closed-loop harness: `OnlineInteractiveDiscoveryLoop` → `GovernedInterventionBinding` → `QueueInterventionAdapter` or `CSVInterventionAdapter` → `CausalSimulationEnv` (as external simulator). A worker thread applies interventions in the simulator and returns samples. After the run, `predictive_validation_score` and `interventional_agreement_score` score the predicted DAG without ground truth. |
+| `tests/test_live_adapter_loop_harness.py` | 3 tests: queue harness runs and produces metrics, CSV harness runs and produces metrics, CSV harness actually consumes read-back samples. |
+| `experiments/live_adapter_loop_harness.result.json` | Example output from running both harness variants on a 4-node chain with default seeds. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
