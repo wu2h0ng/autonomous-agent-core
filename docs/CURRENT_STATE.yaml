@@ -1,9 +1,9 @@
-updated: "2026-07-08"  # M9 complete: origin/main@1f12d69; default+staging operator walkthrough PASS; PR-31/32 + pilot log. DEPLOYMENT_PUSH HOLD (founder decision pending).
+updated: "2026-07-09"  # M9 complete: origin/main@fed54d6; format-check drift resolved; PR-33 Option A HOLD selected (no origin/main push). controlled-pilot gate remains HOLD.
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "M8+M9 on origin/main@1f12d69: internal pilot walkthrough verified (default + staging C/D/E trace); DEPLOYMENT_PUSH HOLD pending founder/CTO Option B/C; R4/R5 proposal-only default unchanged."
+status: "M8+M9 on origin/main@fed54d6: internal pilot walkthrough verified (default + staging C/D/E trace); format-check green; PR-33 Option A HOLD (founder/CTO); no origin/main push; R4/R5 proposal-only default unchanged."
 
 current_stage:
   label: "P5 phase-1 governed product vertical / substrate harvest"
@@ -146,7 +146,7 @@ current_stage:
     - "Finalization-debt cleanup complete on 2026-06-27: the report-read/workspace apex (claude/reconcile-report-read-into-main) was 3-way merged into main with 3 runtime conflicts resolved (runtime_factory keeps both build_report_snapshot_store and build_agent_checkpoint_store; outcome_service keeps both deepcopy and dataclasses.replace; http_app drops the dead approve_and_execute_service import superseded by TrustedLoopApprovalExecutionRuntimeAdapter); full CI verification passed (ruff + format clean, unit 481 OK / 4 postgres-only skips, eval 12 OK, openapi up to date); all 23 codex/* finalization-debt worktree branches were retired to 0, the merged reconcile branch and temporary worktrees were removed, and main (e20bd54) was pushed to origin/main"
   immediate_next:
     id: "deployment-hold-aware-candidate-maintenance"
-    description: "M9 operator walkthrough verified on origin/main@1f12d69 (PR-31). Phase-1 controlled-pilot RC branch preserved; PR-32 founder decision pending. do not add more P1 feature slices, push origin/main, create release tags, publish external claims; R4/R5 auto-exec remains gated by ADR-0012."
+    description: "M9 operator walkthrough verified on origin/main@fed54d6 (PR-31). Phase-1 controlled-pilot RC branch preserved; PR-33 Option A HOLD selected. do not add more P1 feature slices, push origin/main, create release tags, publish external claims; R4/R5 auto-exec remains gated by ADR-0012."
   not_current:
     - "Enterprise OS as sole primary research line"
     - "Thin control-plane-only product"
