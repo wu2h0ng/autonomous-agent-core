@@ -4409,6 +4409,77 @@ class ApprovalChoiceSetSurfaceTest(unittest.TestCase):
         self.assertIsNone(external_decision["single_option_rationale"])
         self.assertNotIn(internal_rationale, external_resp.text)
 
+    def test_get_approval_returns_durable_alternatives_after_execution(self) -> None:
+        # ADR-0014 durability (defect 2): the approval-resume context is deleted after
+        # execution, but GET /approvals/{id} must still surface WHAT was decided between
+        # from a durable snapshot so a post-execution audit is not blank.
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        rationales = _install_alternatives_approval_builder(client)
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        execute_resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+        self.assertEqual(execute_resp.status_code, 200, execute_resp.text)
+        self.assertEqual(execute_resp.json()["state"], "executed")
+
+        # The live approval-resume context is gone; the durable snapshot must remain.
+        context_store = client.app.state.runtime.approval_context_store
+        self.assertIsNone(context_store.get(approval_id))
+
+        detail_resp = client.get(f"/approvals/{approval_id}", headers=headers)
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        detail = detail_resp.json()
+        self.assertEqual(detail["status"], "approved")
+        self.assertEqual(
+            [alt["action"] for alt in detail["alternatives"]],
+            ["hold_budget", "raise_budget"],
+        )
+        self.assertEqual(
+            [alt["recommended"] for alt in detail["alternatives"]],
+            [False, True],
+        )
+        self.assertEqual(detail["alternatives"][1]["rationale"], rationales["raise_budget"])
+        self.assertIsNone(detail["single_option_rationale"])
+
+    def test_get_approval_returns_durable_single_option_rationale_after_execution(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        payload = run_resp.json()
+        approval_id = payload["user_result"]["business_action"]["approval_id"]
+        expected_rationale = payload["user_result"]["decision"]["single_option_rationale"]
+        self.assertTrue((expected_rationale or "").strip())
+
+        execute_resp = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+        self.assertEqual(execute_resp.status_code, 200, execute_resp.text)
+
+        context_store = client.app.state.runtime.approval_context_store
+        self.assertIsNone(context_store.get(approval_id))
+
+        detail_resp = client.get(f"/approvals/{approval_id}", headers=headers)
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        detail = detail_resp.json()
+        self.assertEqual(detail["status"], "approved")
+        self.assertEqual(detail["alternatives"], [])
+        self.assertEqual(detail["single_option_rationale"], expected_rationale)
+
 
 if __name__ == "__main__":
     unittest.main()

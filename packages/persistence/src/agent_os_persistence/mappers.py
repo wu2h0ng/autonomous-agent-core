@@ -290,6 +290,19 @@ def approval_to_payload(record: ApprovalRecord) -> dict[str, Any]:
         "reason": record.reason,
         "operation_fingerprint": record.operation_fingerprint,
         "approved_by": record.approved_by,
+        # ADR-0014: durable choice-set snapshot (survives approval-context deletion).
+        "alternatives": [
+            {
+                "action": alternative.action,
+                "rationale": alternative.rationale,
+                "risk_level": (
+                    alternative.risk_level.value if alternative.risk_level is not None else None
+                ),
+                "recommended": alternative.recommended,
+            }
+            for alternative in record.alternatives
+        ],
+        "single_option_rationale": record.single_option_rationale,
     }
 
 
@@ -302,6 +315,18 @@ def approval_from_payload(payload: dict[str, Any]) -> ApprovalRecord:
         reason=payload.get("reason"),
         operation_fingerprint=payload.get("operation_fingerprint"),
         approved_by=payload.get("approved_by"),
+        alternatives=tuple(
+            ActionAlternative(
+                action=alternative["action"],
+                rationale=alternative["rationale"],
+                risk_level=(
+                    RiskLevel(alternative["risk_level"]) if alternative.get("risk_level") else None
+                ),
+                recommended=bool(alternative.get("recommended", False)),
+            )
+            for alternative in payload.get("alternatives") or ()
+        ),
+        single_option_rationale=payload.get("single_option_rationale"),
     )
 
 

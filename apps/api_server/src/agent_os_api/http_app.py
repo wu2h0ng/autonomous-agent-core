@@ -2597,14 +2597,27 @@ def create_app(
         # reordered to the top. The approvals surface is internal/viewer-scoped
         # (no external principal holds approvals:read), so no audience redaction
         # ceiling applies here beyond the scope gate itself.
-        context_store = getattr(app.state.runtime, "approval_context_store", None)
-        context = (
-            context_store.get(approval_id, tenant_id=tenant_id)
-            if context_store is not None
-            else None
-        )
+        #
+        # Durability (defect 2 fix): prefer the choice set persisted on the ApprovalRecord.
+        # It survives the approval-resume context deletion after execution, so a post-execution
+        # audit still shows WHAT was decided between. Fall back to the live approval-resume
+        # context only for legacy records created before the durable snapshot existed.
+        record_alternatives = tuple(getattr(record, "alternatives", ()) or ())
+        record_rationale = getattr(record, "single_option_rationale", None)
+        if record_alternatives or record_rationale:
+            source_alternatives = record_alternatives
+            single_option_rationale = record_rationale
+        else:
+            context_store = getattr(app.state.runtime, "approval_context_store", None)
+            context = (
+                context_store.get(approval_id, tenant_id=tenant_id)
+                if context_store is not None
+                else None
+            )
+            source_alternatives = tuple(getattr(context, "alternatives", ()) or ())
+            single_option_rationale = getattr(context, "single_option_rationale", None)
         alternatives = sorted(
-            getattr(context, "alternatives", ()) or (),
+            source_alternatives,
             key=lambda alternative: alternative.action,
         )
         return {
@@ -2625,7 +2638,7 @@ def create_app(
                 }
                 for alternative in alternatives
             ],
-            "single_option_rationale": getattr(context, "single_option_rationale", None),
+            "single_option_rationale": single_option_rationale,
         }
 
     @app.post(
