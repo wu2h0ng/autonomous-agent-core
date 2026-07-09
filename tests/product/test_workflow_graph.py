@@ -100,6 +100,11 @@ def test_graph_rejects_duplicate_node_ids() -> None:
         _graph(nodes=(*_nodes(), _nodes()[0]))
 
 
+def test_graph_rejects_duplicate_edges() -> None:
+    with pytest.raises(ValidationError, match="duplicate edge"):
+        _graph(edges=(*_edges(), _edges()[0]))
+
+
 def test_graph_requires_terminal_node() -> None:
     with pytest.raises(ValidationError, match="terminal"):
         _graph(nodes=tuple(node for node in _nodes() if node.kind is not NodeKind.TERMINAL))

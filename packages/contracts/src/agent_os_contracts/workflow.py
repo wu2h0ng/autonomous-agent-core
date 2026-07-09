@@ -94,6 +94,13 @@ class WorkflowGraph(ContractModel):
         if not any(node.kind is NodeKind.TERMINAL for node in self.nodes):
             raise ValueError("workflow graph requires a terminal node")
 
+        edge_keys = [
+            (edge.source, edge.target, edge.condition)
+            for edge in self.edges
+        ]
+        if len(edge_keys) != len(set(edge_keys)):
+            raise ValueError("workflow graph contains duplicate edges")
+
         adjacency = {node_id: [] for node_id in node_ids}
         indegree = {node_id: 0 for node_id in node_ids}
         for edge in self.edges:
