@@ -11,6 +11,7 @@ from aac.live_env_harness import (
     make_regime_shift_env,
     run_env_single_seed,
     run_suite,
+    run_suite_adaptive,
 )
 
 
@@ -95,6 +96,15 @@ class SuiteTest(unittest.TestCase):
                 result1["families"][name]["per_seed"][0]["shd"],
                 result2["families"][name]["per_seed"][0]["shd"],
             )
+
+    def test_run_suite_adaptive_returns_all_families(self) -> None:
+        result = run_suite_adaptive(seeds=[42], budget=6, n_particles=20)
+        self.assertEqual(set(result["families"].keys()), {s.name for s in ENV_SPECS})
+        for family in result["families"].values():
+            self.assertEqual(len(family["per_seed"]), 1)
+            agg = family["aggregate"]
+            self.assertIn("shd_mean", agg)
+            self.assertGreaterEqual(agg["shd_mean"], 0)
 
 
 if __name__ == "__main__":

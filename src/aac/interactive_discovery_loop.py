@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .change_point_detector import MeanDriftDetector
 from .governed_discovery_loop import DiscoveryResult, GovernedDiscoveryLoop
 from .live_intervention_env import CausalSimulationEnv, RandomInterventionEnv
 from .regime_shift_env import PiecewiseCausalSimulationEnv
@@ -65,9 +66,39 @@ class OnlineInteractiveDiscoveryLoop(InteractiveDiscoveryLoop):
         max_window_size: if set, the observation window is truncated to this
             many recent samples each round.  ``None`` means cumulative (all
             observations retained).
+        change_point_detector: if set, ``discover_online`` compares each new
+            batch to the previous one and resets the window to the new batch
+            when drift is detected.
+        min_edge_marginal: if > 0, edges in the MAP DAG whose marginal
+            probability is below this threshold are removed from
+            ``result.best_dag``.  This is a conservative orientation guard for
+            latent-confounder settings.
     """
 
     max_window_size: int | None = None
+    change_point_detector: MeanDriftDetector | None = None
+    min_edge_marginal: float = 0.0
+
+    def _filter_edges_by_marginal(
+        self, result: DiscoveryResult
+    ) -> DiscoveryResult:
+        """Return a new result with low-confidence edges removed from best_dag."""
+        if self.min_edge_marginal <= 0.0 or result.best_dag is None:
+            return result
+        marginals = result.edge_marginals or {}
+        filtered = frozenset(
+            e for e in result.best_dag if marginals.get(e, 0.0) >= self.min_edge_marginal
+        )
+        return DiscoveryResult(
+            status=result.status,
+            best_dag=filtered,
+            confidence=result.confidence,
+            interventions_spent=result.interventions_spent,
+            edge_marginals=result.edge_marginals,
+            round_log=result.round_log,
+            organs_used=result.organs_used,
+            organ_credits=result.organ_credits,
+        )
 
     def discover_online(
         self,
@@ -81,14 +112,24 @@ class OnlineInteractiveDiscoveryLoop(InteractiveDiscoveryLoop):
 
         results: list[DiscoveryResult] = []
         window: list[list[float]] = []
+        previous_batch: list[list[float]] = []
         saved_budget = self.budget
         for _ in range(rounds):
             new_obs = self.environment.observe(n_obs_per_round)
-            window.extend(new_obs)
-            if self.max_window_size is not None and len(window) > self.max_window_size:
-                window = window[-self.max_window_size:]
+            if (
+                self.change_point_detector is not None
+                and self.change_point_detector.drift_detected(previous_batch, new_obs)
+            ):
+                # Reset the window to the post-shift batch only.
+                window = [list(row) for row in new_obs]
+            else:
+                window.extend(new_obs)
+                if self.max_window_size is not None and len(window) > self.max_window_size:
+                    window = window[-self.max_window_size:]
+            previous_batch = [list(row) for row in new_obs]
             self.budget = interventions_per_round
             result = self.discover(window, int_data=[])
+            result = self._filter_edges_by_marginal(result)
             results.append(result)
         self.budget = saved_budget
         return results

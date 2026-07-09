@@ -20,6 +20,7 @@ import random
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .change_point_detector import MeanDriftDetector
 from .interactive_discovery_loop import OnlineInteractiveDiscoveryLoop
 from .latent_confounder_env import PartiallyObservedSCMEnv
 from .live_intervention_env import CausalSimulationEnv
@@ -121,6 +122,8 @@ def run_env_single_seed(
     interventions_per_round: int = 4,
     n_particles: int = 40,
     likelihood_mode: str = "linear",
+    change_point_detector: MeanDriftDetector | None = None,
+    min_edge_marginal: float = 0.0,
 ) -> dict[str, Any]:
     """Run the online discovery loop on one environment instance."""
     env = env_factory(seed)
@@ -133,6 +136,8 @@ def run_env_single_seed(
         n_particles=n_particles,
         likelihood_mode=likelihood_mode,
         max_window_size=120,
+        change_point_detector=change_point_detector,
+        min_edge_marginal=min_edge_marginal,
     )
     results = loop.discover_online(
         rounds=rounds,
@@ -189,6 +194,69 @@ def run_suite(
                 budget=budget,
                 n_particles=n_particles,
                 likelihood_mode=likelihood_mode,
+            )
+            for seed in seeds
+        ]
+        shds = [r["shd"] for r in per_seed]
+        precisions = [r["precision"] for r in per_seed]
+        recalls = [r["recall"] for r in per_seed]
+        f1s = [r["f1"] for r in per_seed]
+        confidences = [r["confidence"] for r in per_seed]
+        false_counts = [r["false_edge_count"] for r in per_seed]
+
+        suite_result["families"][spec.name] = {
+            "per_seed": per_seed,
+            "aggregate": {
+                "shd_mean": _mean_and_std(shds)[0],
+                "shd_std": _mean_and_std(shds)[1],
+                "precision_mean": _mean_and_std(precisions)[0],
+                "precision_std": _mean_and_std(precisions)[1],
+                "recall_mean": _mean_and_std(recalls)[0],
+                "recall_std": _mean_and_std(recalls)[1],
+                "f1_mean": _mean_and_std(f1s)[0],
+                "f1_std": _mean_and_std(f1s)[1],
+                "confidence_mean": _mean_and_std(confidences)[0],
+                "confidence_std": _mean_and_std(confidences)[1],
+                "false_edge_count_mean": _mean_and_std(false_counts)[0],
+                "false_edge_count_std": _mean_and_std(false_counts)[1],
+            },
+        }
+
+    return suite_result
+
+
+def run_suite_adaptive(
+    seeds: list[int] | None = None,
+    budget: int = 12,
+    n_particles: int = 40,
+    drift_threshold: float = 1.0,
+    latent_marginal_threshold: float = 0.35,
+) -> dict[str, Any]:
+    """Run a multi-seed sweep with adaptive guards enabled.
+
+    - ``regime_shift`` uses a ``MeanDriftDetector`` to reset the posterior on a
+      detected shift.
+    - ``latent`` removes MAP edges whose marginal is below
+      ``latent_marginal_threshold``.
+    - ``linear`` and ``nonlinear`` use the same configuration as ``run_suite``.
+    """
+    detector = MeanDriftDetector(threshold=drift_threshold)
+    seeds = list(range(10)) if seeds is None else list(seeds)
+    suite_result: dict[str, Any] = {"seeds": seeds, "families": {}}
+
+    for spec in ENV_SPECS:
+        likelihood_mode = "poly2" if spec.name == "nonlinear" else "linear"
+        cpd = detector if spec.name == "regime_shift" else None
+        min_marginal = latent_marginal_threshold if spec.name == "latent" else 0.0
+        per_seed = [
+            run_env_single_seed(
+                spec.factory,
+                seed,
+                budget=budget,
+                n_particles=n_particles,
+                likelihood_mode=likelihood_mode,
+                change_point_detector=cpd,
+                min_edge_marginal=min_marginal,
             )
             for seed in seeds
         ]

@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented
-tests: 999 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented
+tests: 1006 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -122,6 +122,17 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/live_env_suite.py` | Multi-seed sweep runner across seeds 0..9 for all four env families. Emits `experiments/live_env_suite.result.json`. |
 | `experiments/live_env_suite.result.json` | Example 10-seed sweep artifact. |
 | `tests/test_live_env_harness.py` | 8 tests: factory creation, single-seed runner, suite structure, determinism for fixed seeds. |
+
+## Bounded Adaptive Optimization (2026-07-08)
+
+| File | Role |
+|------|------|
+| `src/aac/change_point_detector.py` | `MeanDriftDetector`: lightweight standardized mean-drift detector between consecutive observation batches. Used by the online loop to trigger a posterior reset when a regime shift is detected. |
+| `src/aac/interactive_discovery_loop.py` | Extended `OnlineInteractiveDiscoveryLoop` with `change_point_detector` (posterior reset on drift) and `min_edge_marginal` (removes low-confidence edges from the MAP DAG as a conservative orientation guard). |
+| `src/aac/live_env_harness.py` | Added `run_suite_adaptive`: sweeps with change-point reset enabled for `regime_shift` and marginal filtering enabled for `latent`. |
+| `experiments/live_env_suite_adaptive.py` | Adaptive 10-seed sweep runner. Emits `experiments/live_env_suite_adaptive.result.json`. |
+| `experiments/live_env_suite_adaptive.result.json` | Example adaptive sweep artifact. Latent-confounder mean SHD improved from 1.9 to 1.0 and false-edge count from 1.2 to 0.3 with marginal filtering; regime-shift remained stable. |
+| `tests/test_adaptive_discovery_loop.py` | 6 tests: drift/no-drift detection, empty-batch safety, change-point reset does not hurt (and can help) regime-shift recovery, marginal filtering reduces false edges under latent confounding, moderate threshold keeps true edges in some seeds. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
