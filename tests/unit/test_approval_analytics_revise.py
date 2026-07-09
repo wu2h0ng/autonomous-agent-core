@@ -333,6 +333,39 @@ class ApprovalAnalyticsScopingTest(unittest.TestCase):
         self.assertEqual(analytics.selection_concentration, 0.0)
 
 
+class CreatePendingValidationTest(unittest.TestCase):
+    """Defense in depth: a snapshotted recommendation must be a surfaced option."""
+
+    def test_create_pending_rejects_recommended_action_not_in_alternatives(self) -> None:
+        # A recommended_action absent from a non-empty choice set is inconsistent input:
+        # reject it (typed error) rather than silently snapshotting a phantom recommendation.
+        runtime = _build_runtime()
+        with self.assertRaises(ValueError):
+            runtime.approval_runtime.create_pending(
+                approval_id="bad-rec",
+                proposal_id="p-bad",
+                approver_role="Business Owner",
+                alternatives=_alternatives(),  # {raise_budget, hold_budget}
+                recommended_action="ghost_action",  # never surfaced
+                risk_level="R3",
+            )
+
+    def test_create_pending_allows_single_option_without_alternatives(self) -> None:
+        # The single-option path (no alternatives) legitimately snapshots a
+        # recommended_action with an empty choice set — this must NOT be rejected.
+        runtime = _build_runtime()
+        record = runtime.approval_runtime.create_pending(
+            approval_id="single",
+            proposal_id="p-single",
+            approver_role="Business Owner",
+            single_option_rationale="only one governed write path exists",
+            recommended_action="record_followup",
+            risk_level="R3",
+        )
+        self.assertEqual(record.recommended_action, "record_followup")
+        self.assertEqual(record.alternatives, ())
+
+
 class ApprovalAnalyticsPersistenceTest(unittest.TestCase):
     """The decision fields survive the persistence round-trip (bypass guard)."""
 
@@ -359,6 +392,7 @@ _HTTP_AVAILABLE = (
 
 _API_KEY = "secret-analytics-key"
 _EXTERNAL_KEY = "secret-analytics-external-key"
+_OPERATOR_KEY = "secret-analytics-operator-key"
 _RUN_PARAMS = {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100}
 
 
@@ -377,7 +411,7 @@ def _make_client(*, external_api_key: str | None = None):
         retriever=factory.build_knowledge_retriever(),
         api_key=_API_KEY,
         external_api_key=external_api_key,
-        operator_api_key="secret-analytics-operator-key",
+        operator_api_key=_OPERATOR_KEY,
         agent_checkpoint_store=factory.build_agent_checkpoint_store(),
     )
     return TestClient(app)
@@ -441,6 +475,77 @@ class ApprovalAnalyticsHttpTest(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 422, resp.text)
         self.assertEqual(resp.json()["detail"]["code"], BlockCode.CHOICE_SET_VIOLATION.value)
+
+    def test_execute_only_approval_is_measured_as_approved_recommended(self) -> None:
+        # The primary operator path is a straight /execute with no prior /decision call:
+        # executing a pending approval IS approving the recommended action, so it must be
+        # measured as approved_recommended and raise selection_concentration. FAILS if the
+        # execute path leaves decision=None (the record is then invisible to analytics).
+        client = _make_client()
+        headers = {"X-API-Key": _API_KEY}
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": _RUN_PARAMS},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        # Before execute: nothing decided -> empty analytics (concentration 0.0).
+        before = client.get("/analytics/approvals", headers=headers).json()
+        self.assertEqual(before["total"], 0)
+        self.assertEqual(before["selection_concentration"], 0.0)
+
+        execute = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": _OPERATOR_KEY},
+        )
+        self.assertEqual(execute.status_code, 200, execute.text)
+        self.assertEqual(execute.json()["state"], "executed")
+
+        after = client.get("/analytics/approvals", headers=headers).json()
+        self.assertEqual(after["counts"]["approved_recommended"], 1)
+        self.assertEqual(after["total"], 1)
+        self.assertEqual(after["selection_concentration"], 1.0)  # rose from 0.0
+        # The record itself carries the derived decision (direct bypass detector).
+        record = client.app.state.runtime.approval_runtime.get(approval_id)
+        self.assertEqual(record.decision, ApprovalDecision.APPROVED_RECOMMENDED.value)
+        self.assertEqual(record.selected_action, record.recommended_action)
+
+    def test_explicit_escalate_decision_survives_execute(self) -> None:
+        # An explicit prior /decision must win: executing an escalated approval must NOT
+        # overwrite decision with approved_recommended. FAILS if execute clobbers it.
+        client = _make_client()
+        headers = {"X-API-Key": _API_KEY}
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": _RUN_PARAMS},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        escalate = client.post(
+            f"/approvals/{approval_id}/decision",
+            json={"outcome": "escalate", "reason": "needs VP sign-off"},
+            headers=headers,
+        )
+        self.assertEqual(escalate.status_code, 200, escalate.text)
+        self.assertEqual(escalate.json()["decision"], ApprovalDecision.ESCALATED.value)
+
+        execute = client.post(
+            f"/approvals/{approval_id}/execute",
+            json={"reason": "override", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": _OPERATOR_KEY},
+        )
+        self.assertEqual(execute.status_code, 200, execute.text)
+        record = client.app.state.runtime.approval_runtime.get(approval_id)
+        self.assertEqual(record.decision, ApprovalDecision.ESCALATED.value)
+        # Analytics reflects the preserved escalated decision, not a phantom rubber-stamp.
+        analytics = client.get("/analytics/approvals", headers=headers).json()
+        self.assertEqual(analytics["counts"]["escalated"], 1)
+        self.assertEqual(analytics["counts"]["approved_recommended"], 0)
 
 
 if __name__ == "__main__":
