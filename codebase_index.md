@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented
-tests: 980 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented
+tests: 984 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -90,6 +90,16 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/regime_shift_binding.result.json` | Example benchmark artifact. |
 | `tests/test_regime_shift_env.py` | 5 tests: single-regime equivalence, distribution change across changepoint, current-regime intervention, per-regime SHD, changepoint validation. |
 | `tests/test_online_discovery_loop.py` | 4 tests: multi-round loop, online adaptation beats static baseline under regime shift, windowing discards old observations, C7-offline invariant. |
+
+## Nonlinear (Polynomial) Live Intervention Binding (2026-07-08)
+
+| File | Role |
+|------|------|
+| `src/aac/nonlinear_intervention_env.py` | `PolynomialCausalSimulationEnv`: quadratic SCM simulation environment. Each parent contributes `beta * x_parent^2` to its child. Exposes `observe(n)` and `intervene(node, value)` and the ground-truth DAG. Verify-only: no execution authority. |
+| `src/aac/interactive_discovery_loop.py` | Reuses `OnlineInteractiveDiscoveryLoop` with `likelihood_mode="poly2"` to handle the quadratic parent effects. |
+| `experiments/nonlinear_intervention_binding.py` | Benchmark runner comparing `linear` and `poly2` likelihood modes on the quadratic env. Emits `experiments/nonlinear_intervention_binding.result.json`. |
+| `experiments/nonlinear_intervention_binding.result.json` | Example benchmark artifact. |
+| `tests/test_nonlinear_intervention_env.py` | 4 tests: env observe/intervene shapes, quadratic intervention scaling, ground-truth SHD, and poly2 likelihood beating linear likelihood on nonlinear data in the online live loop. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
