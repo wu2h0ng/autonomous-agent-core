@@ -7,6 +7,7 @@
 > Repository: `autonomous-agent-core` (historical repository name; now the Agent OS monorepo)
 > Architecture: **dual-track layered monorepo**
 > Evidence boundary: product blueprint finalized; product runtime is not thereby delivered
+> First executable architecture: `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`
 
 ## 0. Authority and decision
 
@@ -596,6 +597,7 @@ Until these gates pass, the authorized language is "target," "candidate," "imple
 
 ### Phase A: product spine
 
+- execute the reviewed `T-P-OS-SPINE-0` migration-first modular-monolith architecture;
 - canonical contracts and event model;
 - persistent Task Workspace and durable AgentRun;
 - provider registry, BYOK credential broker and model routing;

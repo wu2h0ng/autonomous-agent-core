@@ -9,6 +9,10 @@
 | File | Role |
 |---|---|
 | `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` | Final Agent OS product definition, dual-track layered monorepo, user surfaces, canonical model, market-parity requirements, research audit and superiority gates |
+| `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md` | Written-review architecture for the first executable Product Track spine: modular monolith, canonical contracts, durable runtime, provider/credentials, authority split, outcomes and acceptance gates |
+| `docs/architecture/T-P-OS-SPINE-0-MIGRATION-MAP.yaml` | Design-only, machine-readable Option B mapping from the Data Agent donor into generic apps/packages and `domain_packs/data_agent`; no migration executed |
+| `docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md` | Evidence-limited audit of research deficiencies, architecture corrections, breakthrough bottleneck and product-grounded portfolio decision |
+| `docs/research/AGENT-OS-PRODUCT-GROUNDED-EXPERIMENT-MATRIX.yaml` | Twelve P0-P2 product/research eval candidates with prerequisites, baselines and kill gates; not preregistered or run-authorized |
 | `docs/PRD.md` | Research Track historical requirements only; not the product PRD |
 | `docs/PROJECT_PLAN.md` | Active Product/Research task handoff and immediate Product Track spine task |
 | `ROADMAP.md` | Product dependency order plus preserved Research Track history |
@@ -23,6 +27,7 @@ Repository identity: complete Agent OS main monorepo. Current implementation rea
 ```yaml
 product: Agent OS
 product_blueprint: FINAL_FOUNDER_RATIFIED
+product_architecture: T-P-OS-SPINE-0 WRITTEN_SPEC_REVIEW_REQUIRED
 topology: dual-track layered monorepo
 implementation: research-heavy; market-parity Product Track not delivered
 research_source: reconcile/igi-organstack-into-open-world-arc-2026-07-10

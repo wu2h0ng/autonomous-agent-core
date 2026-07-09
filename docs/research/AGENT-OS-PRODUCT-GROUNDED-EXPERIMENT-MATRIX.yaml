@@ -1,0 +1,329 @@
+version: 1
+date: "2026-07-10"
+status: "SPEC_CANDIDATE_NOT_PREREGISTERED"
+authority:
+  product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md"
+  research_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"
+  architecture_packet: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
+authorization_boundary:
+  implementation: false
+  seed_selection: false
+  preregistration: false
+  freeze: false
+  run: false
+  r_final: false
+  product_claim: false
+global_rules:
+  - "Every experiment binds a real ProductFailureRef and current-product baseline."
+  - "Product, research, and internal-process evidence remain separate."
+  - "No raw src/aac experiment module becomes Product Track runtime code."
+  - "No post-hoc threshold, baseline, task, seed, or evaluator change may rescue a failed frozen gate."
+  - "Severe correction, policy, credential, or tenant violation invalidates any capability win."
+  - "Seeds, task sets, effect floors, evaluator versions, and model/provider versions are frozen only in a later preregistration."
+
+experiments:
+  - id: "SPINE-E2E-1"
+    wave: "P0"
+    track: "product_eval"
+    priority: "BLOCKS_PRODUCT_SPINE_ACCEPTANCE"
+    status: "BLOCKED_UNTIL_T_P_OS_SPINE_0_IMPLEMENTED"
+    product_failure: "No real Goal-to-verified-outcome path exists in the Agent OS monorepo."
+    prerequisite:
+      - "Canonical Goal, Commitment, WorkflowGraph, AgentRun, ActionContract, ExpectedOutcome, and ObservedOutcome contracts."
+      - "Durable event store and resumable worker."
+    candidate: "T-P-OS-SPINE-0 vertical slice"
+    baselines:
+      - "direct model-plus-tools run without durable spine"
+      - "single-process non-resumable workflow"
+    primary_metrics:
+      - "verified_outcome_success_rate"
+      - "duplicate_side_effect_count"
+      - "rehydrated_state_equivalence"
+      - "human_intervention_minutes"
+    pass_gate:
+      - "Every accepted outcome resolves to an ExpectedOutcome evaluator and evidence refs."
+      - "Zero duplicate side effects under retry and worker restart injection."
+      - "Rehydrated run reaches the same terminal state as uninterrupted execution."
+    kill_or_revise:
+      - "Any success can be produced without the ActionContract/policy path."
+      - "A restart requires replaying an already committed side effect."
+    promotion_target: "Product Done vertical-slice prerequisite"
+
+  - id: "WFG-ROUNDTRIP-1"
+    wave: "P0"
+    track: "product_eval"
+    priority: "BLOCKS_WORKFLOW_STUDIO"
+    status: "BLOCKED_UNTIL_WORKFLOWGRAPH_V1"
+    product_failure: "Natural-language, visual, and structured edits can silently diverge."
+    prerequisite:
+      - "Canonical WorkflowGraph v1 schema and canonical serializer."
+      - "NL draft compiler and graph patch representation."
+    candidate: "one IR with NL and visual graph patches"
+    baselines:
+      - "prompt-only workflow text"
+      - "visual JSON editor without semantic invariant checks"
+    primary_metrics:
+      - "canonical_digest_preservation_rate"
+      - "policy_field_loss_count"
+      - "invalid_graph_rejection_rate"
+    pass_gate:
+      - "No-op round trips preserve canonical digest."
+      - "Every semantic edit produces an explicit typed graph diff."
+      - "Risk, evaluator, credential ref, retry, timeout, and failure edges are never silently dropped."
+    kill_or_revise:
+      - "Any editing surface can create executable behavior not represented in the canonical graph."
+    promotion_target: "Workflow Studio"
+
+  - id: "CORRECTION-BOUNDARY-1"
+    wave: "P0"
+    track: "security_eval"
+    priority: "BLOCKS_SIDE_EFFECT_EXECUTION"
+    status: "BLOCKED_UNTIL_CORRECTION_EPOCH_AND_WORKER_LEASE"
+    product_failure: "In-process pause checks do not prove stale/racing workers cannot act."
+    prerequisite:
+      - "External CorrectionAuthority interface."
+      - "Policy/correction epoch bound into ActionContract execution."
+    candidate: "epoch-checked non-bypassable correction boundary"
+    baselines:
+      - "single pre-run paused boolean"
+      - "agent-object method absence"
+    primary_metrics:
+      - "post_revocation_dispatch_count"
+      - "stale_epoch_commit_count_for_controlled_connectors"
+      - "stale_worker_denial_rate"
+      - "cross_tenant_correction_leak_count"
+    pass_gate:
+      - "Zero new dispatches after a newer correction epoch is committed."
+      - "Controlled connectors commit zero side effects under a stale epoch; external connectors are graded against their declared dispatch/cancel/compensate guarantee."
+      - "Stale worker leases and replayed approvals fail closed."
+      - "Agent/model/plugin credentials cannot mutate correction state."
+    kill_or_revise:
+      - "Any TOCTOU schedule permits stale-epoch commit in a connector classified as commit-time enforceable."
+      - "Any connector claims a stronger correction guarantee than its measurable enforcement boundary."
+    promotion_target: "PolicyKernel and CorrectionAuthority"
+
+  - id: "PROVIDER-CHAOS-1"
+    wave: "P0"
+    track: "product_eval"
+    priority: "BLOCKS_BACKGROUND_RELIABILITY"
+    status: "BLOCKED_UNTIL_PROVIDERPORT_V1"
+    product_failure: "Provider timeout, malformed output and rate limits can strand or corrupt a run."
+    prerequisite:
+      - "ProviderPort, ProviderProfile, CredentialRef, and typed ProviderResult."
+    candidate: "provider adapter with timeout, retry, fallback and refusal semantics"
+    baselines:
+      - "single provider direct SDK call"
+    primary_metrics:
+      - "typed_failure_classification_rate"
+      - "run_recovery_rate"
+      - "credential_leak_count"
+      - "fallback_cost_and_latency"
+    pass_gate:
+      - "Timeout, 429, malformed response and partial stream become typed non-secret events."
+      - "Retry/fallback never duplicates a consequential tool action."
+      - "Credentials never appear in prompt, event, artifact, error, or trace."
+    kill_or_revise:
+      - "Unknown provider failures are reported as successful model output."
+    promotion_target: "Provider registry and routing"
+
+  - id: "LH-RECOVERY-1"
+    wave: "P1"
+    track: "translational_research"
+    priority: "PRIMARY_AUTONOMY_BOTTLENECK"
+    status: "BLOCKED_UNTIL_SPINE_E2E_1"
+    product_failure: "No evidence of coherent multi-hour/day execution with interruption and replanning."
+    prerequisite:
+      - "SPINE-E2E-1 passed."
+      - "Wait/event nodes, deadlines, bounded replan and compensation state."
+    candidate: "durable hierarchical execution with bounded replanning"
+    baselines:
+      - "restart-from-scratch model-plus-tools"
+      - "fixed DAG with retries only"
+      - "last-checkpoint replay without belief revision"
+    primary_metrics:
+      - "accepted_outcome_success_rate"
+      - "recovery_rate_after_injected_failure"
+      - "duplicate_work_ratio"
+      - "human_intervention_minutes"
+      - "time_and_cost_to_outcome"
+    pass_gate:
+      - "Predefined useful improvement over the strongest baseline on held-out task streams."
+      - "No severe policy/correction regression."
+    kill_or_revise:
+      - "Improvement disappears when matched for retries, context and compute."
+    promotion_target: "long-horizon task runtime"
+
+  - id: "BELIEF-CORRECTION-1"
+    wave: "P1"
+    track: "translational_research"
+    priority: "FOUNDATIONAL_MEMORY_GATE"
+    status: "BLOCKED_UNTIL_PRODUCT_BELIEF_LEDGER"
+    product_failure: "Stale, conflicting or poisoned memory can continue influencing actions after correction."
+    prerequisite:
+      - "Persistent tenant-scoped Belief and Evidence contracts."
+      - "Supersession, valid-time, correction and dependency invalidation."
+    candidate: "persistent governed belief ledger"
+    baselines:
+      - "vector retrieval only"
+      - "append-only chat memory"
+      - "current in-memory BeliefLedger behavior"
+    primary_metrics:
+      - "stale_claim_influence_after_correction"
+      - "conflict_detection_recall_and_precision"
+      - "cross_tenant_leak_count"
+      - "downstream_invalidation_completeness"
+    pass_gate:
+      - "Corrected/refuted claims have zero privileged influence on new decisions."
+      - "Zero cross-tenant retrieval or update leakage."
+      - "Correction preserves audit history and identifies dependent artifacts."
+    kill_or_revise:
+      - "More structured memory does not beat retrieval-only baseline on accepted outcomes or correction safety."
+    promotion_target: "ContextGraph and BeliefLedger"
+
+  - id: "OUTCOME-CREDIT-1"
+    wave: "P1"
+    track: "translational_research"
+    priority: "BLOCKS_GOVERNED_OUTCOME_LEARNING"
+    status: "BLOCKED_UNTIL_EXPECTED_OBSERVED_OUTCOME_V1"
+    product_failure: "Execution acknowledgement or correlated change can be mistaken for achieved outcome."
+    prerequisite:
+      - "ExpectedOutcome evaluator version frozen before action."
+      - "ObservedOutcome window and evidence binding."
+    candidate: "typed delayed outcome attribution and learning proposal"
+    baselines:
+      - "tool success boolean"
+      - "agent self-report"
+      - "temporal correlation"
+    primary_metrics:
+      - "outcome_verification_precision_and_recall"
+      - "attribution_calibration"
+      - "held_out_task_gain_after_learning"
+      - "rollback_success_after_bad_learning"
+    pass_gate:
+      - "Verified-outcome learning improves held-out tasks above no-learning baseline."
+      - "Bad or delayed labels can be invalidated without rewriting history."
+    kill_or_revise:
+      - "Learning gain vanishes against a recency/frequency baseline."
+      - "Self-report alone can promote durable policy or memory."
+    promotion_target: "governed outcome learning"
+
+  - id: "HUMAN-GOV-1"
+    wave: "P1"
+    track: "product_eval"
+    priority: "GOVERNANCE_EFFECTIVENESS"
+    status: "CAN_START_IN_DATA_AGENT_AFTER_APPROVAL_ANALYTICS"
+    product_failure: "Approval may be a rubber stamp rather than meaningful correction."
+    prerequisite:
+      - "Choice-set contract and revise outcome."
+      - "Approval analytics by tenant and risk tier."
+    candidate: "meaningful alternatives plus evidence-bound approval"
+    baselines:
+      - "single recommendation approve/reject"
+      - "choice set with strawman alternatives"
+    primary_metrics:
+      - "selection_concentration"
+      - "revise_modify_reject_rate"
+      - "approval_latency"
+      - "post_approval_outcome_quality"
+    pass_gate:
+      - "Alternatives measurably change decisions without unacceptable delay or fatigue."
+    kill_or_revise:
+      - "Modify/reject remains approximately zero and outcome quality does not improve."
+    promotion_target: "approval and correction UX"
+
+  - id: "CWM-ELIGIBILITY-1"
+    wave: "P2"
+    track: "translational_research"
+    priority: "CWM_PROMOTION_GATE"
+    status: "BLOCKED_UNTIL_WORLDMODELPORT_AND_TASK_CORPUS"
+    product_failure: "CWM may be forced into non-identifiable or unsafe tasks."
+    prerequisite:
+      - "WorldModelPort and ApplicabilityDecision contract."
+      - "Qualified and disqualified task families."
+    candidate: "selective CWM use with abstain/fallback"
+    baselines:
+      - "always CWM"
+      - "never CWM"
+      - "simple rule-based fit gate"
+    primary_metrics:
+      - "eligibility_precision_and_recall"
+      - "qualified_task_outcome_gain"
+      - "disqualified_task_harm_rate"
+      - "intervention_cost"
+    pass_gate:
+      - "CWM improves qualified tasks and does not materially harm disqualified tasks versus fallback."
+    kill_or_revise:
+      - "Selective router cannot beat a simple rule gate at matched cost."
+    promotion_target: "CWM ResearchCandidateManifest"
+
+  - id: "G10-PRODUCT-1"
+    wave: "P2"
+    track: "translational_research"
+    priority: "G10_PROMOTION_GATE"
+    status: "BLOCKED_UNTIL_REAL_TASK_DECISION_CORPUS"
+    product_failure: "Synthetic confidence gating may not improve real act/ask/retry decisions."
+    prerequisite:
+      - "Typed decision outcomes and intervention labels from SPINE tasks."
+    candidate: "G10-like calibrated decision policy"
+    baselines:
+      - "fixed confidence threshold"
+      - "always act"
+      - "always ask"
+      - "provider-native confidence heuristic"
+    primary_metrics:
+      - "accepted_outcome_success_rate"
+      - "calibration_error"
+      - "human_intervention_minutes"
+      - "severe_action_error_rate"
+    pass_gate:
+      - "Predefined useful outcome or intervention-load improvement with no severe-error regression."
+    kill_or_revise:
+      - "Fixed threshold or provider heuristic ties at lower complexity."
+    promotion_target: "DecisionPolicy implementation"
+
+  - id: "SUBAGENT-ROI-1"
+    wave: "P2"
+    track: "product_eval"
+    priority: "SUBAGENT_ADMISSION"
+    status: "BLOCKED_UNTIL_PARENT_CHILD_RUN_CONTRACT"
+    product_failure: "Subagents may add coordination cost without outcome gain."
+    prerequisite:
+      - "Parent-child AgentRun, shared budget and authority inheritance."
+    candidate: "bounded specialist subagents"
+    baselines:
+      - "single agent at matched model, token, tool and wall-clock budget"
+      - "parallel calls without agent state"
+    primary_metrics:
+      - "accepted_outcome_success_rate"
+      - "wall_clock_time"
+      - "total_cost"
+      - "coordination_error_rate"
+    pass_gate:
+      - "Subagents produce a predefined useful quality/time gain at matched budget."
+    kill_or_revise:
+      - "Single-agent or simple parallel baseline ties or wins."
+    promotion_target: "governed subagent runtime"
+
+  - id: "XDOMAIN-TRANSFER-1"
+    wave: "P2"
+    track: "product_eval"
+    priority: "GENERALITY_GATE"
+    status: "BLOCKED_UNTIL_THREE_GOLDEN_PATHS"
+    product_failure: "Generality is asserted without measuring domain onboarding cost."
+    prerequisite:
+      - "Developer, Data Agent and personal golden paths on one product core."
+    candidate: "domain-pack adaptation without core changes"
+    baselines:
+      - "per-vertical custom runtime"
+      - "prompt-only generic agent"
+    primary_metrics:
+      - "core_code_change_count"
+      - "domain_onboarding_engineer_hours"
+      - "accepted_outcome_success_rate"
+      - "severe_governance_regression_count"
+    pass_gate:
+      - "Second and third domains require no core code changes."
+      - "Domain packs reach the predefined outcome floor with lower onboarding cost than per-vertical wiring."
+    kill_or_revise:
+      - "Generic core requires domain-specific conditionals or performs below per-vertical baseline without compensating cost benefit."
+    promotion_target: "Generality claim within a named operating envelope"

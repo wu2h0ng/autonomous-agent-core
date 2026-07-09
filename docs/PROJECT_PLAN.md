@@ -41,6 +41,25 @@ The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before co
 
 ### T-P-OS-SPINE-0 - Executable Product Spine
 
+Status:
+
+```text
+ARCHITECTURE_PACKET_WRITTEN_REVIEW_REQUIRED
+implementation: NOT_STARTED
+migration: DESIGN_ONLY_NOT_EXECUTED
+```
+
+Current authority:
+
+- `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`
+- `docs/architecture/T-P-OS-SPINE-0-MIGRATION-MAP.yaml`
+- `docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md`
+- `docs/research/AGENT-OS-PRODUCT-GROUNDED-EXPERIMENT-MATRIX.yaml`
+
+Founder-selected path: Option B, a one-time history-preserving import of the Data Agent
+product donor followed by modular-monolith extraction into generic Product Track packages
+and `domain_packs/data_agent`. No runtime cross-repo import is allowed.
+
 Goal:
 
 Build the first real vertical slice through `Goal -> Commitment -> WorkflowGraph -> AgentRun -> ActionContract -> ExpectedOutcome/ObservedOutcome` with a durable Task Workspace entry point. The slice must use a real provider credential reference, one typed tool, one failure/recovery path, policy enforcement, event persistence and an acceptance evaluator.
@@ -54,6 +73,10 @@ Required first architecture packet:
 - durable execution/event-store choice;
 - one developer golden-path acceptance test and one Data Agent seam test;
 - explicit `ResearchCandidateManifest` boundary; no raw `src/aac` experiment import.
+
+The packet is now written. The next gate is founder review of the written specification.
+Do not start runtime code, execute donor migration, pin experiments or write the detailed
+implementation plan until that review is accepted.
 
 This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
 

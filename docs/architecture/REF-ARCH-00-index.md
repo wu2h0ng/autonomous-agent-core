@@ -1,5 +1,14 @@
 # Reference Architecture — Index (REF-ARCH)
 
+> **Authority notice (2026-07-10): HISTORICAL RESEARCH TRACK REFERENCE.** The complete
+> Agent OS product architecture is now governed by
+> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` and
+> `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`. `REF-ARCH-*` remains useful
+> evidence about the research prototype, but it does not define Product Track authority,
+> package topology, runtime security or Data Agent migration. In particular, inherited
+> claims that correction must be unmodelable, that a contentless deterministic disposer
+> can make semantic choices, or that CWM is the universal planning brain are superseded.
+
 > Created 2026-06-30. Subject: **the research prototype (`autonomous-agent-core`) as the governed agent loop**, with the **injection seam into the enterprise OS** defined as a contract (not a code import).
 > Founder decision (2026-06-30): research prototype is the subject; produce the full 4-document reference spec.
 > Discipline: these are **design/contract documents**, not implementation. Every claim is tagged **✅ exists/validated · 🟡 toy/partial · ❌ missing**. They do NOT authorize new mechanism work — RR-0029 / Paradigm gates still apply per mechanism.

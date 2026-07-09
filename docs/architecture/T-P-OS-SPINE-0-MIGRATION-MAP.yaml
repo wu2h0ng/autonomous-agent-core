@@ -1,0 +1,250 @@
+version: 1
+date: "2026-07-10"
+status: "DESIGN_ONLY_NOT_EXECUTED"
+authority:
+  product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md"
+  architecture_packet: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
+  research_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"
+
+decision:
+  selected_option: "B"
+  strategy: "history_preserving_subtree_no_squash_then_modular_monolith_extraction"
+  runtime_topology: "single Agent OS monorepo; no cross-repo runtime imports"
+  implementation_authorized: false
+  migration_authorized: false
+
+donor:
+  repository: "ai-native-business-data-agent-os"
+  local_design_time_path: "../ai-native-business-data-agent-os"
+  observed_design_time_short_ref: "a406508"
+  execution_ref: "MUST_BE_RESOLVED_TO_FULL_IMMUTABLE_SHA_AFTER_SPEC_REVIEW"
+  import_prefix: "_migration/data-agent-os"
+  import_mode: "git subtree without --squash"
+  provenance_manifest: "REQUIRED_BEFORE_IMPORT"
+  staging_runtime_imports_allowed: false
+
+target:
+  apps:
+    - "apps/api_server"
+    - "apps/worker"
+    - "apps/workspace"
+    - "apps/cli"
+  packages:
+    - "packages/contracts"
+    - "packages/os_core"
+    - "packages/persistence"
+    - "packages/sdk"
+  domain_packs:
+    - "domain_packs/data_agent"
+    - "domain_packs/developer_agent"
+    - "domain_packs/personal"
+  research_paths_preserved:
+    - "src/aac"
+    - "experiments"
+
+mapping:
+  - id: "M-CONTRACTS-GENERIC"
+    disposition: "PROMOTE_AFTER_RECONCILIATION"
+    source_capability_families:
+      - "AgentRunContext and generic runtime identity/context contracts"
+      - "ToolSpec and generic capability metadata"
+      - "approval, trace, feedback and operation envelope contracts"
+      - "tenant/user/workspace identifiers without business-data semantics"
+    target: "packages/contracts"
+    conditions:
+      - "Reconcile naming and versioning with Goal, Commitment, WorkflowGraph, AgentRun, ActionContract and Outcome contracts."
+      - "Remove Metric, SemanticObject, DataProduct, SQL and business-operation fields from generic types."
+      - "Characterization and canonical round-trip tests pass."
+
+  - id: "M-RUNTIME-GENERIC"
+    disposition: "PROMOTE_AFTER_RECONCILIATION"
+    source_capability_families:
+      - "agent runtime lifecycle"
+      - "checkpoint and resume behavior"
+      - "runtime policy gate"
+      - "corrigibility and pause/override behavior"
+      - "approval and trace services"
+      - "tenant/RBAC and usage boundaries"
+      - "workflow persistence"
+    target: "packages/os_core"
+    conditions:
+      - "Split advisory DecisionPolicy from deterministic PolicyKernel."
+      - "Bind correction epoch, worker lease fence, action digest and policy version."
+      - "No domain-specific branch or data contract remains in os_core."
+      - "Real call path, denial path and bypass-sensitive tests exist."
+
+  - id: "M-PERSISTENCE"
+    disposition: "PROMOTE_AND_SIMPLIFY"
+    source_capability_families:
+      - "PostgreSQL repositories"
+      - "workflow and checkpoint storage"
+      - "runtime traces and feedback persistence"
+    target: "packages/persistence"
+    conditions:
+      - "Adopt append-only TaskEvent, projections, leases, fencing, idempotency and transactional outbox."
+      - "Store CredentialRef metadata only; no secret bytes."
+      - "Cross-tenant query isolation tests pass."
+
+  - id: "M-API"
+    disposition: "REUSE_SHELL_REBIND_TO_AGENT_OS_CONTRACTS"
+    source_capability_families:
+      - "FastAPI application shell"
+      - "runtime/task endpoints"
+      - "public resume and trace surfaces where policy-safe"
+    target: "apps/api_server"
+    conditions:
+      - "API calls packages/os_core rather than donor runtime modules."
+      - "Auth, tenant, policy and redaction remain non-bypassable."
+      - "No Data Agent product identity is hard-coded into generic routes."
+
+  - id: "M-WORKER"
+    disposition: "EXTRACT_AND_HARDEN"
+    source_capability_families:
+      - "background runtime/checkpoint execution"
+      - "provider/tool dispatch patterns"
+    target: "apps/worker"
+    conditions:
+      - "PostgreSQL lease/fencing and restart recovery are authoritative."
+      - "Unknown external outcomes are reconciled rather than blindly retried."
+      - "CapabilityBroker is the only side-effect dispatch path."
+
+  - id: "M-WORKSPACE"
+    disposition: "REUSE_PRODUCT_SHELL"
+    source_capability_families:
+      - "Next.js application shell"
+      - "task/run/approval/trace views"
+    target: "apps/workspace"
+    conditions:
+      - "Default entry becomes persistent Task Workspace, not a Data Agent-only dashboard."
+      - "UI consumes public Agent OS API and real runtime state."
+      - "Data-specific views register through domain-pack extension slots."
+
+  - id: "M-SDK"
+    disposition: "EXTRACT_GENERIC_AUTHORING_SURFACE"
+    source_capability_families:
+      - "tool/provider/connector contracts"
+      - "workflow and domain extension interfaces"
+    target: "packages/sdk"
+    conditions:
+      - "SDK cannot write policy, approval or correction authority."
+      - "All registered capabilities declare schema, risk, idempotency, credentials and side-effect guarantees."
+
+  - id: "M-DATA-AGENT"
+    disposition: "MOVE_TO_DOMAIN_PACK"
+    source_capability_families:
+      - "trusted business-data loop"
+      - "MetricContract and SemanticObject"
+      - "ProviderContract and DataProduct"
+      - "SQL Safety and query planning"
+      - "EvidenceChain and business action proposals"
+      - "data-specific connectors, evaluators and workflow templates"
+    target: "domain_packs/data_agent"
+    conditions:
+      - "Use shared Goal, Commitment, WorkflowGraph, AgentRun, policy, correction, event and outcome contracts."
+      - "Preserve existing SQL safety, evidence and approval negative-path tests."
+      - "No forked provider, task runtime, identity or credential subsystem remains."
+
+  - id: "M-DEVELOPER-AGENT"
+    disposition: "BUILD_NEW_ON_GENERIC_SPINE"
+    source_capability_families:
+      - "none required from donor"
+    target: "domain_packs/developer_agent"
+    conditions:
+      - "Workspace read/apply-patch/run-tests tools are sandbox-scoped and typed."
+      - "The golden path produces a real verified repository artifact."
+
+  - id: "M-GOVERNANCE-DOCS"
+    disposition: "ARCHIVE_AS_PROVENANCE_NOT_RUNTIME"
+    source_capability_families:
+      - "release plans, branch gates, internal workflow and historical product definitions"
+    target: "docs/migration/data-agent-os-history"
+    conditions:
+      - "Preserve decisions that explain implementation behavior."
+      - "Do not present internal development workflow as Agent OS customer capability."
+      - "Superseded product identity text is marked historical."
+
+  - id: "M-RESEARCH-QUARANTINE"
+    disposition: "KEEP_IN_RESEARCH_TRACK"
+    source_capability_families:
+      - "src/aac/execution_bridge.py"
+      - "src/aac/production_entry.py"
+      - "src/aac/product_api.py"
+      - "src/aac/product_engine.py"
+      - "src/aac/planner.py"
+      - "src/aac/commitment_ledger.py"
+    target: "existing Research Track paths"
+    conditions:
+      - "No Product Track import."
+      - "Historical results and names are not rewritten."
+      - "Any future use requires ResearchCandidateManifest and product reimplementation/revalidation."
+
+sequence_gates:
+  - id: "G0-AUTHORITY-RECONCILIATION"
+    requires:
+      - "Parent/root product identity no longer conflicts with the final Agent OS Blueprint."
+      - "C7 safety language uses non-writable/non-bypassable external authority, not unmodelability."
+  - id: "G1-SPEC-REVIEW"
+    requires:
+      - "Founder accepts the written architecture packet and this migration map."
+  - id: "G2-DONOR-PIN"
+    requires:
+      - "Full donor SHA recorded."
+      - "Donor worktree clean or unrelated changes explicitly excluded."
+      - "Provenance manifest prepared."
+  - id: "G3-HISTORY-IMPORT"
+    requires:
+      - "No-squash subtree import performed on isolated Product Track branch."
+      - "Imported commit ancestry and file inventory verified."
+  - id: "G4-CHARACTERIZATION"
+    requires:
+      - "Donor generic/runtime and Data Agent safety tests captured before moves."
+      - "Secrets and generated artifacts excluded."
+  - id: "G5-GENERIC-EXTRACTION"
+    requires:
+      - "Dependency direction checks pass."
+      - "No domain-specific contract or conditional remains in os_core."
+      - "No runtime import from staging."
+  - id: "G6-DATA-PACK-EXTRACTION"
+    requires:
+      - "Data Agent behavior and safety characterization remain green."
+      - "Data Agent uses the shared Agent OS spine."
+  - id: "G7-STAGING-REMOVAL"
+    requires:
+      - "All retained code has target ownership and provenance."
+      - "Repository-wide search finds no _migration runtime import/reference."
+      - "Git history still exposes donor ancestry."
+
+verification_gates:
+  provenance:
+    - "Imported history is reachable and donor full SHA is documented."
+    - "Moved files retain attributable history where practical."
+  product_boundary:
+    - "Product Track has no import from src/aac, experiments or _migration."
+    - "os_core has no import from domain_packs."
+  domain_independence:
+    - "Core contracts contain no Metric, SQL, DataProduct or business-action semantics."
+    - "Second domain registration requires no core conditional."
+  behavior:
+    - "Developer golden path and Data Agent seam pass the same runtime/policy/outcome path."
+    - "Existing Data Agent SQL safety, evidence, approval and trace negative cases remain effective."
+  security:
+    - "No secret file/value enters Git history, events, traces, prompts or artifacts."
+    - "Tenant, approval, policy and correction bypass tests pass."
+  git:
+    - "Migration commits are scoped and reviewable."
+    - "No direct merge/push to main without explicit founder approval."
+
+rollback:
+  before_history_import: "Delete the isolated implementation branch/worktree; no repository truth changes."
+  after_history_import_before_extraction: "Revert the subtree merge commit on the feature branch; preserve review artifacts."
+  during_extraction: "Revert only the failed extraction commit; do not rewrite donor or Research Track history."
+  after_product_acceptance: "Use normal schema/code rollback and package-level revert; never restore cross-repo runtime coupling."
+
+completion_claim:
+  allowed_after_all_gates: "Data Agent history and code have been migrated into one Agent OS monorepo with generic spine/domain-pack separation."
+  forbidden:
+    - "Product Done"
+    - "Codex parity"
+    - "general autonomous intelligence achieved"
+    - "research mechanism promoted"
+    - "production security proven"
