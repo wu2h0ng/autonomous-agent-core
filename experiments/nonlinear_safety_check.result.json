@@ -1,0 +1,12 @@
+{
+  "n": 20,
+  "categories": {
+    "correct": 3,
+    "confident_wrong": 5,
+    "abstain_tie": 5,
+    "truth_pruned": 7
+  },
+  "confident_wrong_that_are_SMALLER_than_truth": 5,
+  "confident_wrong_equal_edges": 0,
+  "SAFETY_VIOLATED": true
+}

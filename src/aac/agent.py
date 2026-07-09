@@ -5,6 +5,8 @@ from typing import Any, Mapping
 
 from .governed_gate import GovernedDecisionGate
 from .governed_loop import Candidate, GovernedLoop, TaskSpec
+from .evidence_assembly import make_evidence_fn
+from .failure_attributor import FeedbackUpdater
 from .idle_drives import IdleDrives
 from .organ_regulator import OrganRegulator
 from .policy import PolicySelector
@@ -60,6 +62,7 @@ class Agent:
         organ_regulator: OrganRegulator | None = None,
         self_maintenance: SelfMaintenanceLoop | None = None,
         weight_memory: WeightMemory | None = None,
+        belief_ledger: Any | None = None,
     ) -> None:
         # ISO-1 (ADR-0009): the agent holds only a capability view, never the
         # shell. If handed a raw shell, derive the view here and drop the shell.
@@ -106,6 +109,7 @@ class Agent:
         self.organ_regulator = organ_regulator
         self.self_maintenance = self_maintenance
         self.weight_memory = weight_memory
+        self.belief_ledger = belief_ledger
         self.steps = 0
         self._reflex_engaged = False
 
@@ -324,7 +328,7 @@ class Agent:
 
     def governed_step(
         self, env: Any, task: TaskSpec, *, verify_budget: int | None = None,
-        max_interventions: int | None = None,
+        max_interventions: int | None = None, selection: str = "argmax",
     ) -> Any:
         """Run ONE governed decision as a formal Agent capability (REF-ARCH-03 §4).
 
@@ -335,6 +339,10 @@ class Agent:
 
         This is the slice (ADR-0048/0049) wired into the subject: the Agent no longer just picks an
         action — it proposes, VERIFIES, decides under stakes, and escalates instead of acting blind.
+
+        ``selection`` defaults to "argmax" at THIS entry point (Stage-0 result 3b4bf9d: verify-all-
+        then-argmax-then-gate matches the ungoverned optimum with full governance retained; the
+        legacy "first_passer" remains available and is the GovernedLoop-level default).
         """
         if self.governed_gate is None or self.verifier is None:
             raise ValueError("governed_step requires governed_gate and verifier")
@@ -358,6 +366,14 @@ class Agent:
                     (a for a in range(agent.model.n_actions) if a not in forbidden),
                     key=lambda a: -agent.model.mu[a],
                 )
+                if agent.belief_ledger is not None:
+                    led = agent.belief_ledger
+                    return [Candidate(
+                        action=f"action:{a}", target=a,
+                        cited_claim_ids=((f"causal:{_task.name}:{a}",)
+                                         if led.get(f"causal:{_task.name}:{a}") is not None
+                                         else ()),
+                    ) for a in order]
                 return [Candidate(action=f"action:{a}", target=a) for a in order]
 
         class _AgentActuator:
@@ -379,8 +395,21 @@ class Agent:
             verify_budget=verify_budget if verify_budget is not None else self.model.n_actions,
             memory=self.governed_memory,
             max_interventions=max_interventions,
+            selection=selection,
+            evidence_fn=(make_evidence_fn(self.belief_ledger)
+                         if self.belief_ledger is not None else None),
         )
-        return loop.run_task(task)
+        result = loop.run_task(task)
+        # --- Stage-1/2 chain closed on the subject: verified success writes a fresh VI
+        # claim; failure demotes exactly the cited claims (FeedbackUpdater, I1/I2) ---
+        if self.belief_ledger is not None and result is not None and result.status == "acted":
+            claim = f"causal:{task.name}:{result.applied_target}"
+            if result.outcome is not None and result.outcome > 0:
+                self.belief_ledger.record_verified(claim, evidence=1)
+            else:
+                FeedbackUpdater(self.belief_ledger,
+                                observe=self.shell.observe).after_task(result)
+        return result
 
     def _organ_situation(self, env: Any, *, idle: bool) -> Mapping[str, Any]:
         situation = getattr(env, "situation", None)

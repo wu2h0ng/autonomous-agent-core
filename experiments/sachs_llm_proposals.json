@@ -1,0 +1,8 @@
+{
+  "gate": "sachs-language-organ",
+  "provenance": "two LLM systems-biologist proposers, protein NAMES only (no data). BOTH explicitly identified this as the famous Sachs et al. 2005 benchmark and recited its consensus network -> MEMORIZATION CONFOUND CONFIRMED by the proposers themselves.",
+  "proposers": {
+    "proposer_1": [["Raf","Mek"],["Mek","Erk"],["Plcg","PIP2"],["Plcg","PKC"],["PIP3","PIP2"],["PIP3","Plcg"],["PIP3","Akt"],["PIP2","PKC"],["PKC","Raf"],["PKC","Mek"],["PKC","Jnk"],["PKC","P38"],["PKC","PKA"],["PKA","Raf"],["PKA","Mek"],["PKA","Erk"],["PKA","Akt"],["PKA","Jnk"],["PKA","P38"],["PKC","Akt"],["Erk","Akt"]],
+    "proposer_2": [["PKC","Raf"],["PKC","Mek"],["PKC","Jnk"],["PKC","P38"],["PKC","PKA"],["PKC","Plcg"],["PKA","Raf"],["PKA","Mek"],["PKA","Erk"],["PKA","Akt"],["PKA","Jnk"],["PKA","P38"],["Raf","Mek"],["Mek","Erk"],["Erk","Akt"],["Plcg","PIP2"],["Plcg","PIP3"],["PIP3","PIP2"],["PIP3","Akt"],["PIP3","Plcg"]]
+  }
+}

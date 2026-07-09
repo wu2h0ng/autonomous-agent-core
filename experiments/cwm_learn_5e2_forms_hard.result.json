@@ -1,0 +1,186 @@
+{
+  "claim_scope": "hard_non_enumerable_function_forms",
+  "condA": {
+    "per_seed": [
+      {
+        "oracle_hard_forms": 0.8356,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8356,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 30
+      },
+      {
+        "oracle_hard_forms": 0.8406,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8406,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 31
+      },
+      {
+        "oracle_hard_forms": 0.7587,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.7587,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 32
+      },
+      {
+        "oracle_hard_forms": 0.8445,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.8445,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 1.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 33
+      }
+    ],
+    "summary": {
+      "median_s_pair_screening": 0.0,
+      "median_s_proposed_hard_forms": 1.0,
+      "median_s_random_hard_forms": 0.0,
+      "proposed_gt_pair_screening": "4/4",
+      "proposed_gt_random_hard_forms": "4/4"
+    },
+    "true_forms": [
+      {
+        "center": 0.0,
+        "gate": 0,
+        "kind": "bandpass_product",
+        "name": "near_nominal_load_gates_rpm",
+        "signal": 6,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 4,
+        "kind": "bandpass_product",
+        "name": "near_nominal_temp_gates_duty",
+        "signal": 9,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 2,
+        "kind": "bandpass_product",
+        "name": "near_nominal_current_gates_resistance",
+        "signal": 3,
+        "width": 0.55
+      }
+    ]
+  },
+  "condB": {
+    "per_seed": [
+      {
+        "oracle_hard_forms": 0.837,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 30
+      },
+      {
+        "oracle_hard_forms": 0.8394,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 31
+      },
+      {
+        "oracle_hard_forms": 0.8326,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 32
+      },
+      {
+        "oracle_hard_forms": 0.8242,
+        "pair_screening": 0.5,
+        "proposed_hard_forms": 0.5,
+        "random_hard_forms_median": 0.5,
+        "s_pair_screening": 0.0,
+        "s_proposed_hard_forms": 0.0,
+        "s_random_hard_forms": 0.0,
+        "seed": 33
+      }
+    ],
+    "summary": {
+      "median_s_pair_screening": 0.0,
+      "median_s_proposed_hard_forms": 0.0,
+      "median_s_random_hard_forms": 0.0,
+      "proposed_gt_pair_screening": "0/4",
+      "proposed_gt_random_hard_forms": "0/4"
+    },
+    "true_forms": [
+      {
+        "center": 0.0,
+        "gate": 30,
+        "kind": "bandpass_product",
+        "name": "cable_band_gates_torque",
+        "signal": 31,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 34,
+        "kind": "bandpass_product",
+        "name": "cleaning_band_gates_coolant",
+        "signal": 35,
+        "width": 0.55
+      },
+      {
+        "center": 0.0,
+        "gate": 40,
+        "kind": "bandpass_product",
+        "name": "brightness_band_gates_desk_height",
+        "signal": 41,
+        "width": 0.55
+      }
+    ]
+  },
+  "evidence_level": "calibration_pilot_not_freeze",
+  "form_kinds": [
+    "bandpass_product"
+  ],
+  "gate": "CWM-LEARN-5e-2",
+  "not_authorized": [
+    "freeze_verdict",
+    "r_final",
+    "autonomy_claim",
+    "product_claim",
+    "route_promotion",
+    "C6_C7_change"
+  ],
+  "proposal_source": "manual_data_blind_bandpass_form_proposals_v0",
+  "proposed_form_count": 6,
+  "random_draws": 3,
+  "schema_version": "cwm_learn_5e2_hard_forms_calibration_v1",
+  "screening_baseline": "finite_pair_products_only",
+  "seeds": [
+    30,
+    31,
+    32,
+    33
+  ],
+  "summary": {
+    "candidate_freeze_region": true,
+    "condB_collapse_ok": true,
+    "pair_proxy_gap_observed": true
+  }
+}

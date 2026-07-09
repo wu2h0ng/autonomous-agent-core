@@ -1,0 +1,7 @@
+{
+  "provenance": "two LLM analyst proposers reasoning from PHYSICS first principles on a NOVEL hydro-power->manufacturing chain (not a benchmark; proposer 2 explicitly noted it's a physics reasoning task). Data orients 0/6 chain edges (one MEC); any correct orientation is pure semantic reasoning.",
+  "proposers": {
+    "proposer_1": [["upstream_rainfall","river_flow_rate"],["upstream_rainfall","reservoir_level"],["river_flow_rate","reservoir_level"],["river_flow_rate","turbine_power_output"],["reservoir_level","turbine_power_output"],["turbine_power_output","grid_electricity_supply"],["grid_electricity_supply","factory_uptime"],["grid_electricity_supply","daily_production_volume"],["factory_uptime","daily_production_volume"]],
+    "proposer_2": [["upstream_rainfall","river_flow_rate"],["river_flow_rate","reservoir_level"],["river_flow_rate","turbine_power_output"],["reservoir_level","turbine_power_output"],["turbine_power_output","grid_electricity_supply"],["grid_electricity_supply","factory_uptime"],["factory_uptime","daily_production_volume"]]
+  }
+}

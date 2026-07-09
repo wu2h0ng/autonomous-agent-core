@@ -1,0 +1,177 @@
+{
+  "claim_scope": "non_enumerable_function_forms",
+  "condA": {
+    "per_seed": [
+      {
+        "oracle_forms": 0.854,
+        "pair_screening": 0.7769,
+        "proposed_forms": 0.854,
+        "random_forms_median": 0.7061,
+        "s_pair_screening": 0.7822,
+        "s_proposed_forms": 1.0,
+        "s_random_forms": 0.5823,
+        "seed": 20
+      },
+      {
+        "oracle_forms": 0.8059,
+        "pair_screening": 0.7424,
+        "proposed_forms": 0.8059,
+        "random_forms_median": 0.7424,
+        "s_pair_screening": 0.7922,
+        "s_proposed_forms": 1.0,
+        "s_random_forms": 0.7922,
+        "seed": 21
+      },
+      {
+        "oracle_forms": 0.8411,
+        "pair_screening": 0.7669,
+        "proposed_forms": 0.8411,
+        "random_forms_median": 0.6931,
+        "s_pair_screening": 0.7823,
+        "s_proposed_forms": 1.0,
+        "s_random_forms": 0.566,
+        "seed": 22
+      },
+      {
+        "oracle_forms": 0.8359,
+        "pair_screening": 0.7137,
+        "proposed_forms": 0.8359,
+        "random_forms_median": 0.7137,
+        "s_pair_screening": 0.6363,
+        "s_proposed_forms": 1.0,
+        "s_random_forms": 0.6363,
+        "seed": 23
+      }
+    ],
+    "summary": {
+      "median_s_pair_screening": 0.7823,
+      "median_s_proposed_forms": 1.0,
+      "median_s_random_forms": 0.6093,
+      "proposed_gt_pair_screening": "4/4",
+      "proposed_gt_random_forms": "4/4"
+    },
+    "true_forms": [
+      {
+        "a": 0,
+        "b": 6,
+        "kind": "threshold_product",
+        "name": "load_over_threshold_x_rpm",
+        "threshold": 0.2
+      },
+      {
+        "a": 4,
+        "b": 9,
+        "kind": "saturation_product",
+        "name": "temp_saturation_x_duty_cycle"
+      },
+      {
+        "den": 3,
+        "kind": "ratio",
+        "name": "current_to_resistance_ratio",
+        "num": 2
+      }
+    ]
+  },
+  "condB": {
+    "per_seed": [
+      {
+        "oracle_forms": 0.8193,
+        "pair_screening": 0.6904,
+        "proposed_forms": 0.6904,
+        "random_forms_median": 0.6904,
+        "s_pair_screening": 0.5963,
+        "s_proposed_forms": 0.5963,
+        "s_random_forms": 0.5963,
+        "seed": 20
+      },
+      {
+        "oracle_forms": 0.839,
+        "pair_screening": 0.7049,
+        "proposed_forms": 0.7049,
+        "random_forms_median": 0.7049,
+        "s_pair_screening": 0.6044,
+        "s_proposed_forms": 0.6044,
+        "s_random_forms": 0.6044,
+        "seed": 21
+      },
+      {
+        "oracle_forms": 0.8404,
+        "pair_screening": 0.759,
+        "proposed_forms": 0.7126,
+        "random_forms_median": 0.7126,
+        "s_pair_screening": 0.7609,
+        "s_proposed_forms": 0.6246,
+        "s_random_forms": 0.6246,
+        "seed": 22
+      },
+      {
+        "oracle_forms": 0.8238,
+        "pair_screening": 0.7619,
+        "proposed_forms": 0.6975,
+        "random_forms_median": 0.6975,
+        "s_pair_screening": 0.8088,
+        "s_proposed_forms": 0.61,
+        "s_random_forms": 0.61,
+        "seed": 23
+      }
+    ],
+    "summary": {
+      "median_s_pair_screening": 0.6826,
+      "median_s_proposed_forms": 0.6072,
+      "median_s_random_forms": 0.6072,
+      "proposed_gt_pair_screening": "0/4",
+      "proposed_gt_random_forms": "0/4"
+    },
+    "true_forms": [
+      {
+        "a": 30,
+        "b": 31,
+        "kind": "threshold_product",
+        "name": "cable_threshold_x_torque",
+        "threshold": 0.1
+      },
+      {
+        "a": 34,
+        "b": 35,
+        "kind": "saturation_product",
+        "name": "cleaning_saturation_x_coolant"
+      },
+      {
+        "den": 41,
+        "kind": "ratio",
+        "name": "brightness_to_desk_height_ratio",
+        "num": 40
+      }
+    ]
+  },
+  "evidence_level": "calibration_pilot_not_freeze",
+  "form_kinds": [
+    "threshold_product",
+    "saturation_product",
+    "ratio"
+  ],
+  "gate": "CWM-LEARN-5e-2",
+  "not_authorized": [
+    "freeze_verdict",
+    "r_final",
+    "autonomy_claim",
+    "product_claim",
+    "route_promotion",
+    "C6_C7_change"
+  ],
+  "proposal_source": "manual_data_blind_function_form_proposals_v0",
+  "proposed_form_count": 6,
+  "random_draws": 3,
+  "schema_version": "cwm_learn_5e2_forms_calibration_v1",
+  "screening_baseline": "finite_pair_products_only",
+  "seeds": [
+    20,
+    21,
+    22,
+    23
+  ],
+  "summary": {
+    "candidate_freeze_region": false,
+    "condB_collapse_ok": true
+  }
+}

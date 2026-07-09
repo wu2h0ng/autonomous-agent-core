@@ -1,0 +1,23 @@
+{
+ "kind": "Stage-1..5 mechanism refuse-on-drift lock (RR-0037 O4)",
+ "locked": "2026-07-03",
+ "files": [
+  "src/aac/belief_ledger.py",
+  "src/aac/failure_attributor.py",
+  "src/aac/conflict_detector.py",
+  "src/aac/evidence_assembly.py",
+  "src/aac/goal_system.py",
+  "src/aac/write_authority.py",
+  "src/aac/planner.py"
+ ],
+ "mechanism_hash": "7d7f347c5018a36d9319c813fcb8100aaf8b79268efaa95858fa79d5a1e9d8cd",
+ "formal_models": [
+  "docs/pre_spec/STAGE1-FAILURE-ATTRIBUTION.FORMAL-MODEL-2026-07-03.md",
+  "docs/pre_spec/STAGE2-PROVENANCE-CONFLICT.FORMAL-MODEL-2026-07-03.md",
+  "docs/pre_spec/STAGE3-GOAL-SYSTEM.FORMAL-MODEL-2026-07-03.md",
+  "docs/pre_spec/STAGE5-PLANNER-SOVEREIGNTY.PREREG-2026-07-03.md"
+ ],
+ "justification": "Initial lock at Stage-0..5 + M4-readiness consolidation (main ea21e50 lineage): all stage batteries green (A1-A7 BATTERY_PASS, Stage-5 PROPOSAL_FORM_ADMISSIBLE, 662-suite green).",
+ "relock_procedure": "On drift: re-run the affected mechanism's formal-model gates/battery; if verdicts reproduce, update mechanism_hash with a dated justification; never delete the test or tune a mechanism to pass.",
+ "enforced_by": "tests/test_stage_mechanism_locks.py"
+}

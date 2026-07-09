@@ -1,0 +1,14 @@
+{
+  "deadzone": {
+    "oracle": 0.961,
+    "form_aware_screener": 0.961,
+    "screener_found_true_combo": "3/3",
+    "gap": 0.0
+  },
+  "absdiff": {
+    "oracle": 0.916,
+    "form_aware_screener": 0.5,
+    "screener_found_true_combo": "0/3",
+    "gap": 0.416
+  }
+}

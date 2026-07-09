@@ -1,0 +1,43 @@
+{
+  "gate": "CWM-LEARN-5e-3-openvocab",
+  "prompt_sha256_16": "e52c5327d08b13d5",
+  "provenance": "two data-blind LLM reliability-engineer proposers over frozen semantic arena; verbatim union",
+  "proposer_1": [
+    "relu(-x2) + step(-x2)",
+    "x0 * relu(-x2)",
+    "tanh(x0 / 50.0) * (1.0 + x8 / 100.0)",
+    "x1 * (1.0 + x8 / 50.0)",
+    "step(x1 - 80.0) + step(x0 - 120.0)",
+    "relu(x3 - 5.0) * tanh(x1 / 40.0)",
+    "x0 * x1 / max(x2, 1.0) if x2 > 0 else 1000.0",
+    "step(x9 - 3.0) * (1.0 + tanh(x3 / 10.0))"
+  ],
+  "proposer_2": [
+    "relu(x0 - 40) * relu(x1 - 70)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "step(-x2)",
+    "tanh(x0 / 50) + tanh(x1 / 60) - tanh(x2 / 10)",
+    "x8 * x1 / 100",
+    "relu(x1 - x2 * 5)",
+    "step(x3 - 3) * (1 - tanh(x2))",
+    "log1p(relu(x0 * x1 - x2 * 100)) + 0.5 * step(x9 - 7) + 0.3 * tanh(x8 / 50)"
+  ],
+  "expressions": [
+    "relu(-x2) + step(-x2)",
+    "x0 * relu(-x2)",
+    "tanh(x0 / 50.0) * (1.0 + x8 / 100.0)",
+    "x1 * (1.0 + x8 / 50.0)",
+    "step(x1 - 80.0) + step(x0 - 120.0)",
+    "relu(x3 - 5.0) * tanh(x1 / 40.0)",
+    "x0 * x1 / max(x2, 1.0) if x2 > 0 else 1000.0",
+    "step(x9 - 3.0) * (1.0 + tanh(x3 / 10.0))",
+    "relu(x0 - 40) * relu(x1 - 70)",
+    "x0 * x1 / (relu(x2) + 1)",
+    "step(-x2)",
+    "tanh(x0 / 50) + tanh(x1 / 60) - tanh(x2 / 10)",
+    "x8 * x1 / 100",
+    "relu(x1 - x2 * 5)",
+    "step(x3 - 3) * (1 - tanh(x2))",
+    "log1p(relu(x0 * x1 - x2 * 100)) + 0.5 * step(x9 - 7) + 0.3 * tanh(x8 / 50)"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "gate": "AGDE-1",
+  "frozen": {
+    "tol": 0.6,
+    "n_int": 100,
+    "B1": 1,
+    "B2": 2,
+    "run_seeds": [
+      10,
+      11,
+      12
+    ]
+  },
+  "family_seeds": [
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121,
+    122,
+    123,
+    124,
+    125,
+    126,
+    127,
+    128,
+    129
+  ],
+  "arm_means_B1": {
+    "A": 0.6611,
+    "R": 0.3574,
+    "RR": 0.3861,
+    "O": 0.9778
+  },
+  "oracle_random_gap": 0.6204,
+  "capture_ratio": 0.4895,
+  "families_decided": 24,
+  "A_gt_R_wins": 21,
+  "roundrobin_mean": 0.3861,
+  "controls": {
+    "determinism": true,
+    "gate_audit": true,
+    "integrity_E_eq_A": true,
+    "integrity_D_eq_R": true,
+    "perm_correct_rate": 0.0,
+    "perm_collapses": true,
+    "obs_floor_structural": true
+  },
+  "verdict": "NULL"
+}

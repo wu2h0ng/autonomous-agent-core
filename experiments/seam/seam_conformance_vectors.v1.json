@@ -1,0 +1,24 @@
+{
+  "version": "1",
+  "purpose": "Cross-repo seam conformance vectors (RR-0037 O1). Both sides — nested SeamProducer (reference brain) and OS LocalGovernanceDecisionClient (reference client) — MUST agree on the TIGHTEN-CLASS of every case: ALLOW->act, VERIFY_MORE/ESCALATE->approval, DENY->block; plus chosen_action equality on 'act'. Class-level (not verdict-label) parity is the contract: TrustedLoop treats VERIFY_MORE and ESCALATE identically (force approval). Editing this file requires updating the pinned sha256 in BOTH repos' conformance tests — a conscious cross-repo sync, by design.",
+  "contract_version": "1.1.0",
+  "gate_config": {
+    "approval_required_at_or_above": "R4",
+    "low_stakes_confidence_floor": 0.2,
+    "high_stakes_confidence_floor": 0.6,
+    "evidence_floor": 1
+  },
+  "cases": [
+    {"name": "low_verified_confident", "request": {"task_id": "c1", "risk_tier": "R1", "candidate_actions": ["good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}]}, "expect_class": "act", "expect_chosen": "good"},
+    {"name": "low_unverified", "request": {"task_id": "c2", "risk_tier": "R1", "candidate_actions": ["bad"], "evidence_count": 0, "approved": false, "verified_candidates": [{"action": "bad", "verified": false, "confidence": 0.0, "evidence_count": 0}]}, "expect_class": "approval", "expect_chosen": null},
+    {"name": "low_conf_below_floor", "request": {"task_id": "c3", "risk_tier": "R1", "candidate_actions": ["good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.1, "evidence_count": 3}]}, "expect_class": "approval", "expect_chosen": null},
+    {"name": "low_evidence_zero", "request": {"task_id": "c4", "risk_tier": "R1", "candidate_actions": ["good"], "evidence_count": 0, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 0}]}, "expect_class": "approval", "expect_chosen": null},
+    {"name": "r4_unapproved", "request": {"task_id": "c5", "risk_tier": "R4", "candidate_actions": ["good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}]}, "expect_class": "approval", "expect_chosen": null},
+    {"name": "r4_approved_confident", "request": {"task_id": "c6", "risk_tier": "R4", "candidate_actions": ["good"], "evidence_count": 1, "approved": true, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}]}, "expect_class": "act", "expect_chosen": "good"},
+    {"name": "r4_approved_lowconf", "request": {"task_id": "c7", "risk_tier": "R4", "candidate_actions": ["good"], "evidence_count": 1, "approved": true, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.4, "evidence_count": 3}]}, "expect_class": "approval", "expect_chosen": null},
+    {"name": "r5_unapproved", "request": {"task_id": "c8", "risk_tier": "R5", "candidate_actions": ["good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}]}, "expect_class": "approval", "expect_chosen": null},
+    {"name": "version_mismatch", "request": {"task_id": "c9", "risk_tier": "R1", "candidate_actions": ["good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}], "contract_version": "99.0.0"}, "expect_class": "block", "expect_chosen": null},
+    {"name": "shell_paused", "shell_paused": true, "request": {"task_id": "c10", "risk_tier": "R1", "candidate_actions": ["good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}]}, "expect_class": "block", "expect_chosen": null},
+    {"name": "second_candidate_wins", "request": {"task_id": "c11", "risk_tier": "R1", "candidate_actions": ["bad", "good"], "evidence_count": 1, "approved": false, "verified_candidates": [{"action": "bad", "verified": false, "confidence": 0.0, "evidence_count": 0}, {"action": "good", "verified": true, "confidence": 0.9, "evidence_count": 3}]}, "expect_class": "act", "expect_chosen": "good"}
+  ]
+}

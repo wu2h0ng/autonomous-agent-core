@@ -1,0 +1,89 @@
+{
+  "gate": "IGI-REAL-SACHS-2",
+  "referee": "held-out interventional truth (not consensus DAG)",
+  "ancestry_F1": {
+    "active": 0.952,
+    "random": 0.633,
+    "correl": 0.439
+  },
+  "per_target": {
+    "Raf": {
+      "interventional_truth": [
+        "Mek",
+        "PKA",
+        "PKC"
+      ],
+      "active_pred": [
+        "Mek",
+        "PKA",
+        "PKC"
+      ]
+    },
+    "Plcg": {
+      "interventional_truth": [
+        "PIP2",
+        "PKC"
+      ],
+      "active_pred": [
+        "PIP2",
+        "PKC"
+      ]
+    },
+    "PIP3": {
+      "interventional_truth": [
+        "Akt",
+        "PIP2",
+        "PKC"
+      ],
+      "active_pred": [
+        "Akt",
+        "PIP2",
+        "PKC"
+      ]
+    },
+    "Erk": {
+      "interventional_truth": [
+        "Mek",
+        "PIP2",
+        "PKC"
+      ],
+      "active_pred": [
+        "Mek",
+        "PIP2",
+        "PKC"
+      ]
+    },
+    "P38": {
+      "interventional_truth": [
+        "Akt",
+        "PIP2",
+        "PKA",
+        "PKC"
+      ],
+      "active_pred": [
+        "Akt",
+        "PKA",
+        "PKC"
+      ]
+    },
+    "Jnk": {
+      "interventional_truth": [
+        "Akt",
+        "Mek",
+        "PKA",
+        "PKC"
+      ],
+      "active_pred": [
+        "Akt",
+        "PKA",
+        "PKC"
+      ]
+    }
+  },
+  "controls": {
+    "halt_100pct": true,
+    "determinism": true,
+    "gate_all_approved": true
+  },
+  "verdict": "MET"
+}

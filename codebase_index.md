@@ -1,6 +1,7 @@
 # codebase_index - autonomous-agent-core
 
 > Last updated: 2026-07-09
+> Last updated: 2026-07-04
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
@@ -10,6 +11,10 @@
 branch: feat/selfdiscovery-a-stage-a-20260705
 stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted; real-data adapter examples and ground-truth-free metrics (ADR-0053) implemented; end-to-end adapter harness validated against simulator
 tests: 1032 OK (13 skipped)
+branch: research/stage0-gate-sovereignty-2026-07-03
+stage: AGDE-T3 fresh scored NULL; CWM-LEARN-5e-2 hard non-enumerable functional-forms r-final MET
+immediate_next: stop boundary-prose drift; choose scale/cross-domain transfer gate, governed seam-lane design/execution, or PARK
+tests: 740 OK
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -238,6 +243,8 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `ADR-0037-self-determination-depth-vs-corrigibility.md` | Proposed, docs-only / OPEN | Registers SD0-SD4 and the open SD4-separability question; parent SD4 VAL-DISENT-1 read-out adds negative H1 evidence but does not decide the ADR |
 | `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + hardened pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer, calibration-selected VH parameter provenance, recursive AST static firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves, and integrity/firewall verifier; current VH/G-Eco operationalization is PARK_BY_§7A_C_NOT_SUPPORTED; no co-signed freeze, no r-final, no verdict |
 | `ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md` | Accepted, completed NOT_MET | Fresh NBSC reopen attempt; r-final seeds 7500..7529 show fair MINIMAX matches candidate probe path, so no distinct mechanism |
+| `ADR-0038-g-eco-mechanism-lower-half.md` | Accepted, lower-half implemented + F1-F6 discipline fixes + hardened pre-Gate-2 candidate writer/verifier | G-Eco mechanism substrate/env/arms/refs/guards plus candidate rates/battery/threshold/audit JSON writer, calibration-selected VH parameter provenance, recursive AST static firewalls, calibration-ref-only rate witness, C3 verdict-mechanics leaves, and integrity/firewall verifier; no co-signed freeze, no r-final, no verdict |
+| `ADR-0039-viability-empowerment-c1-formalization.md` | Proposed (open, founder-reserved); landed 2026-06-29 from branch | Viability/empowerment formalization of C1 + preregistered S1/S2 gate; not accepted, not funded, not run |
 
 ## Current Code Map
 
@@ -271,6 +278,7 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `src/aac/outcome_judge.py` | Grounded RAP outcome judge | `OutcomeJudge` |
 | `src/aac/idle_drives.py` | Idle endogenous drives, G3/C3 input | `IdleDrives` |
 | `src/aac/residual_calibrator.py` | ADR-0031 subject-side belief calibrator | `ResidualCalibrator` |
+| `src/aac/commitment_ledger.py` | R-CSL-1 no-model commitment-ledger mechanism (preserved-failed-baseline; builder!=reviewer separation enforced in its harness) | `CommitmentLedgerPolicy` |
 | `src/envs/structured_regime.py` | Reusable structured regime env for G6/G7/G8/G9/G10 | `StructuredRegimeEnv` |
 | `src/envs/staleness.py` | P4 staleness-only environment | `StalenessEnv` |
 | `src/envs/semantic_regime.py` | Offline semantic de-risk env | `SemanticRegimeEnv` |
@@ -279,11 +287,45 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `src/envs/consequence_scar.py` | ADR-0036/G13 public-affordance scar environment | `ConsequenceScarEnv`, `ConsequenceFeature` |
 | `src/envs/ecological_4cond.py` | ADR-0038 G-Eco four-condition environment with partial/lagged/noisy observation; no rate-grid scan or divergence detector | `Ecological4CondEnv`, `GEcoState`, `GEcoRates`, `GEcoObservation`, `transition_state` |
 | `src/envs/geco_nonbijective_stake.py` | ADR-0039 NBSC hidden-basin environment with public probe action and non-bijective visible stake | `NonBijectiveStakeEnv`, `NBSCState`, `NBSCObservation`, `NBSCOutcome` |
+| `src/envs/commitment_correction.py` | R-CSL-1 commitment/correction environment | `CommitmentCorrectionEnv`, `CorrectionSignal` |
 
 ## Current Experiments
 
 | Path | Gate | Status |
 |---|---|---|
+| `experiments/svar_scm.py` | AGDE-T3 | SVAR trajectory arena for temporal active-discovery pilots; contemporaneous MEC × lag-support pool with window-clamp interventions |
+| `experiments/agde_t3_pilot.py` | AGDE-T3 pilot v1/v2 | Calibration-only apparatus pilot; exact fixed-point clamp predictor after v1 caught truth-self-survival bug |
+| `experiments/agde_t3_costgap.py` | AGDE-T3 pilot v3 | Calibration-only cost/gap pilot; exposed insufficient arena separation before freeze |
+| `experiments/agde_t3_separation.py` | AGDE-T3 pilot v4 | Calibration-only separation measurement; diagnosed nested lag-superset equivalence / causal-minimality issue |
+| `experiments/agde_t3_pilot5.py` | AGDE-T3 pilot v5 | Calibration-only causal-minimality collapse pilot; v5 inputs make T3 freeze-packet-ready, no verdict |
+| `experiments/agde_t3_pilot5.result.json` | AGDE-T3 pilot v5 | Calibration result schema; `do_value=3.2`, `budget=4` gives active_id 0.750 vs random_id 0.417 on calib families |
+| `tests/test_agde_t3_pilot5.py` | AGDE-T3 pilot v5 | Guards explicit minimality collapse and calibration-only / no-freeze result schema |
+| `docs/pre_spec/AGDE-T3.PREREG-2026-07-04.md` | AGDE-T3 fresh scored gate | Frozen inputs and mechanical result; scored NULL on fresh families, controls pass, no rescue/re-cut |
+| `experiments/agde_t3_freeze.py` | AGDE-T3 fresh scored gate | Uses v5 inputs with fresh families, ACTIVE/RANDOM/BLIND_CEILING arms, C7 halt guard, bounded result schema |
+| `experiments/agde_t3_freeze.result.json` | AGDE-T3 fresh scored gate | Fresh scoring artifact: ACTIVE 0.5000, RANDOM 0.2083, BLIND_CEILING 0.5000, verdict NULL |
+| `tests/test_agde_t3_freeze.py` | AGDE-T3 fresh scored gate | Guards frozen constants, calibration-family exclusion, paused-shell zero-intervention behavior, and non-claim schema |
+| `docs/pre_spec/5E-2.ZERO-SHOT-CALIBRATION-2026-07-04.md` | CWM-LEARN-5e-2 zero-shot calibration | Records no freeze-ready region: zero-shot signal exists near n=38/40, but cheap screening does not collapse enough |
+| `experiments/cwm_learn_5e2.py` | CWM-LEARN-5e-2 zero-shot calibration | Calibration-only runner using frozen data-blind 5e union before data; compares later-data screening, random, and oracle across train-size sweep |
+| `experiments/cwm_learn_5e2.result.json` | CWM-LEARN-5e-2 zero-shot calibration | Calibration artifact for n_train 30/36/38/40/60/80; all candidate_freeze_region=false |
+| `tests/test_cwm_learn_5e2.py` | CWM-LEARN-5e-2 zero-shot calibration | Guards frozen proposal source, no-claim schema, later-data screening arm, and train-size restoration |
+| `docs/pre_spec/5E-2.FORMS-CALIBRATION-2026-07-04.md` | CWM-LEARN-5e-2 functional-forms calibration | Records typed forms signal with clean Condition-B collapse, but no freeze-ready region because pair screening remains high |
+| `experiments/cwm_learn_5e2_forms.py` | CWM-LEARN-5e-2 functional-forms calibration | Calibration-only non-enumerable form runner: threshold/saturation/ratio proposals vs finite pair-product screening, random forms, oracle, and Condition-B |
+| `experiments/cwm_learn_5e2_forms.result.json` | CWM-LEARN-5e-2 functional-forms calibration | Calibration artifact: proposed forms median_s=1.0000, pair-screening median_s=0.7823, Condition-B collapse ok, candidate_freeze_region=false |
+| `tests/test_cwm_learn_5e2_forms.py` | CWM-LEARN-5e-2 functional-forms calibration | Guards typed non-pair form specs, finite feature expansion, bounded no-claim schema, Condition-B control, and pair-screening comparison |
+| `docs/pre_spec/5E-2.HARD-FORMS-CALIBRATION-2026-07-04.md` | CWM-LEARN-5e-2 hard functional-forms calibration | Records freeze-candidate bandpass arena: proposed hard forms median_s=1.0000, pair-screening/random=0.0000, Condition-B collapse ok |
+| `experiments/cwm_learn_5e2_forms_hard.py` | CWM-LEARN-5e-2 hard functional-forms calibration | Calibration-only bandpass-product form arena that breaks finite pair-product proxies while preserving typed-form verifier health |
+| `experiments/cwm_learn_5e2_forms_hard.result.json` | CWM-LEARN-5e-2 hard functional-forms calibration | Calibration artifact for seeds 30..33; candidate_freeze_region=true, not a verdict |
+| `tests/test_cwm_learn_5e2_forms_hard.py` | CWM-LEARN-5e-2 hard functional-forms calibration | Guards bandpass-form arena, bounded no-claim schema, and smoke seed pair-proxy gap |
+| `docs/pre_spec/5E-2.HARD-FORMS-FRESH-SCORED-2026-07-04.md` | CWM-LEARN-5e-2 hard functional-forms fresh scored gate | Records disjoint-seed fresh scored MET for hard bandpass forms; not r-final and no autonomy/product/C6-C7 claim |
+| `experiments/cwm_learn_5e2_forms_hard_freeze.py` | CWM-LEARN-5e-2 hard functional-forms fresh scored gate | Uses frozen hard-form arena with calibration seeds 30..33 and fresh scoring seeds 40..45; mechanical MET/NULL/INVALID verdict |
+| `experiments/cwm_learn_5e2_forms_hard_freeze.result.json` | CWM-LEARN-5e-2 hard functional-forms fresh scored gate | Fresh scored artifact: proposed hard forms median_s=1.0000, pair-screening/random=0.0000, Condition-B collapse, verdict MET |
+| `tests/test_cwm_learn_5e2_forms_hard_freeze.py` | CWM-LEARN-5e-2 hard functional-forms fresh scored gate | Guards disjoint seeds, Condition-B invalidation, no-claim schema, and verdict domain |
+| `docs/pre_spec/5E-2.HARD-FORMS-RFINAL.PREREG-2026-07-04.md` | CWM-LEARN-5e-2 hard functional-forms r-final | Preregistered seeds, decision rule, lock scope, and non-claim boundaries for the hard non-enumerable form channel |
+| `docs/pre_spec/5E-2.HARD-FORMS-RFINAL.lock.json` | CWM-LEARN-5e-2 hard functional-forms r-final | SHA-256 lock binding prereg, hard-form mechanism runner, r-final runner, and r-final tests before r-final execution |
+| `experiments/cwm_learn_5e2_forms_hard_rfinal.py` | CWM-LEARN-5e-2 hard functional-forms r-final | Lock-verified r-final runner for seeds 60..69; emits MET/NULL/INVALID with bounded non-claim schema |
+| `experiments/cwm_learn_5e2_forms_hard_rfinal.result.json` | CWM-LEARN-5e-2 hard functional-forms r-final | R-final artifact: proposed hard forms median_s=1.0000, pair-screening/random=0.0000, Condition-B collapse, verdict MET |
+| `tests/test_cwm_learn_5e2_forms_hard_rfinal.py` | CWM-LEARN-5e-2 hard functional-forms r-final | Guards disjoint seed bands, prereg lock drift refusal, bounded r-final schema, and non-claim fields |
+| `docs/pre_spec/5E-2.HARD-FORMS-RFINAL-RESULT-2026-07-04.md` | CWM-LEARN-5e-2 hard functional-forms r-final | Human result record and route decision: continue only through scale/cross-domain transfer, governed seam-lane design, or park |
 | `experiments/confidence_gated_g9.py` | G9 | Implemented and run; formal NOT MET, P0 discovery positive |
 | `experiments/confidence_gated_g10.py` | G10 | MET on fresh seeds 800..829 |
 | `tests/test_confidence_gated_g10.py` | G10 | Exists; C6/C7 and determinism guards |
@@ -333,6 +375,10 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/causal_relevance_g2.py` | G2 | NOT MET, claim 2 hard-stopped |
 | `experiments/sachs_dibs.py` | M-GAP-2 | Sachs GovernedDiBS validation: poly2 F1=0.35 vs linear F1=0.26 |
 | `experiments/sector_dibs.py` | M-GAP-2 | S&P 500 sector ETF causal discovery: Bayesian uncertainty confirmed |
+| `experiments/r_csl_1.py` | R-CSL-1 | Preserved-failed-baseline no-model commitment-ledger mechanism + harness; preregistered, NOT run (landed 2026-06-29 from probe branch) |
+| `experiments/direction1_coupling_sweep.py` | Direction-1 | confidence->temperature coupling falsifier; FLAT / record-and-stop (max frozen-vs-best gap 3.3%) |
+| `experiments/parity_lag_falsifier.py` | parity-lag | structural-vs-artifact falsifier; INCONCLUSIVE (kimicode flagged the clean re-prereg as unfair-baseline OVERCLAIM) |
+| `experiments/parity_lag_largelag_falsifier.py` | parity-lag | clean large-lag re-prereg; ARTIFACT (structural foreclosure refuted) |
 
 ## Current Tests
 
@@ -340,6 +386,7 @@ Current full suite:
 
 ```text
 781 tests OK (13 skipped)
+740 tests OK
 ```
 
 Important current test files:
@@ -398,7 +445,7 @@ G9 verdict:
   - T5b StalenessEnv PASS: P0 advantage 36.4%, GENERAL FIX not structure theft.
   - Interpretation: the subject-side belief-to-action coupling survives all flip-the-conclusion traps.
 - ADR-0031 residual-calibrator attack returned PRED1-HOLDS:
-  - frozen lambda/eta = 0.8 / 0.1; prereg hash fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf.
+  - frozen lambda/eta = 0.8 / 0.1; prereg hash f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936.
   - P0 788.8 vs PR 793.3; PR margin -0.006, wins 13/30, p=0.550830, CI [-30.8, 19.0].
   - PR-B vs A1 margin -0.039, CI [-67.9, -32.6].
   - Interpretation: residual calibration is not an independent second axis over frozen G10.

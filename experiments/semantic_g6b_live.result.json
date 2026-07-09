@@ -1,0 +1,15 @@
+{
+  "adr": "ADR-0019 §5 (G6b live gate)",
+  "date": "2026-06-30",
+  "model": "kimi-for-coding",
+  "seeds": [0,1,2],
+  "steps": 2000,
+  "arms_mean_regret_area": {"O0_none": 1966.7, "O2_numeric_learned": 1930.7, "O3_oracle_upperbound": 908.0, "O3L_live_kimi": 944.0},
+  "o3l_lt_o0": "3/3", "o3l_lt_o2": "3/3",
+  "oracle_gap_realised_pct": 97,
+  "api_calls": 150,
+  "verdict": "G6b-LIVE-MET",
+  "reading": "A real LLM (Kimi), reading the action labels, realises ~97% of the perfect-knowledge oracle's semantic exploitation zero-shot, nearly halving post-shift regret vs the numeric baseline. The LLM's job here is category-membership classification from labels; the bounded belief_delta logic is the oracle's. Value = model world-knowledge injected through the governed belief-only organ (C6/C7 strict parser), i.e. governed model intelligence — the constructive complement of the autonomy-axis foreclosure (value is model capability + governance, not a separable architected axis).",
+  "caveats": "3 seeds (bounded live run); tests membership classification accuracy, not LLM-generated deltas; key supplied via env var, never persisted. A fuller paid run would widen seeds and audit the response cache.",
+  "key_handling": "KIMI_API_KEY read from environment only; not stored in code, result, or git."
+}

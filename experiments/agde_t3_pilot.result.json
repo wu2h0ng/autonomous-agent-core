@@ -1,0 +1,13 @@
+{
+  "families": 5,
+  "pool_size": 96,
+  "K2_truth_survival_by_tol": {
+    "0.5": 0.722,
+    "0.7": 0.778,
+    "0.9": 0.833
+  },
+  "K3_obs_surviving_fraction": 0.45,
+  "K3_truth_survives_obs_screen": "5/5",
+  "K3_orientation_resolved_by_obs_VACUITY": "0/5",
+  "kill_fired": false
+}

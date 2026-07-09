@@ -1,0 +1,7 @@
+{
+  "true_form": "tanh(2*x2*x5) * threshold(x8>0.3) [depth-2, 3-feature composition]",
+  "oracle_composed_auc": 0.963,
+  "best_finite_menu_auc": 0.622,
+  "exclusive_gap": 0.341,
+  "open_vocab_region_exists": true
+}

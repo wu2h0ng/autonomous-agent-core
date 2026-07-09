@@ -1,0 +1,15 @@
+{
+  "pilot": "E2E-2c-v2 (space lever)",
+  "mec_sizes": [
+    75,
+    75,
+    75,
+    75,
+    75,
+    75
+  ],
+  "t1_mean": 4.833,
+  "identification": 1.0,
+  "valid": true,
+  "action": "FREEZE E2E-2c on this arena"
+}

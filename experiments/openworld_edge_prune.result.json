@@ -1,0 +1,22 @@
+{
+  "gate": "openworld-edge-prune",
+  "n": 6,
+  "c_nobs": 240,
+  "threshold": 0.05,
+  "n_domains": 24,
+  "id_no_minimality": 0.167,
+  "id_with_minimality": 0.833,
+  "truth_in_survivors": 0.917,
+  "truth_is_unique_min_given_in_surv": 0.909,
+  "survivor_class_size_median": 3.0,
+  "failure_modes": {
+    "truth_pruned": 2,
+    "truth_not_unique_min": 2,
+    "nontruth_min_wins": 0,
+    "ok": 20
+  },
+  "baseline_handed_skeleton": 1.0,
+  "prior_generous_no_minimality_id": 0.167,
+  "verdict": "MECHANISM-CLOSES-GAP",
+  "finding": "governed intervention to a fixed point + causal-minimality collapse turns the generous self-generated pool into the truth: minimality is VALID here (truth in-pool AND minimal, the exact condition the big-n dip lacked). Remaining loss = skeleton recovery + any prediction-equivalent non-truth of equal/smaller edge count (measured, not assumed)."
+}

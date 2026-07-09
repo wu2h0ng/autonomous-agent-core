@@ -1,0 +1,67 @@
+{
+ "prereg": "docs/pre_spec/STAGE4-ACCEPTANCE-BATTERY.PREREG-2026-07-03.md",
+ "battery": {
+  "A1": {
+   "argmax_interv": 2982,
+   "first_passer_interv": 1710,
+   "argmax_outcome": 120.0,
+   "first_passer_outcome": 113.0,
+   "argmax_costs_more_interventions": true,
+   "note": "argmax trades interventions for outcome in the noisy regime; the frozen A1 'interventions<=' text holds only in DET (Stage-0 dominance pruning)",
+   "PASS": true
+  },
+  "A3": {
+   "attributor_retry_same": 0,
+   "knockout_retry_same": 29,
+   "PASS": true
+  },
+  "A4": {
+   "tie_kind": "ESCALATE_GOALS",
+   "priority_kind": "DOWNGRADED",
+   "label": "process/gate-invariant (not capability evidence)",
+   "PASS": true
+  },
+  "A5": {
+   "high_stakes_auto_acts": 0,
+   "label": "workflow-proof (not capability evidence)",
+   "PASS": true
+  },
+  "A6": {
+   "recovered_live": 68,
+   "recovered_frozen": 65,
+   "PASS": true,
+   "VOID_if_equal": false
+  },
+  "A7": {
+   "fair_baseline": "same-organ same-budget first_passer",
+   "argmax_minus_baseline_outcome": 7.0,
+   "interv_saved": -1272,
+   "autonomy_reading": "TIE (expected; capability margin = sample-efficiency/auditability)",
+   "PASS": true
+  },
+  "A2": {
+   "delegated_to": "tests/test_stage2_provenance_conflict.py::ConflictA2",
+   "PASS": true
+  }
+ },
+ "sachs_stat_with_budget": {
+  "interv_recall": 0.905,
+  "corr_recall": 0.548,
+  "stat_with_budget_recall": 0.905,
+  "headline_downgraded": true,
+  "reading": "STAT-with-budget matches interventional recall -> the 0.90-vs-0.55 headline is METHODOLOGY validation (interventional test beats correlation), NOT a special-CWM-structure win \u2014 consistent with ADR-0049's own honest note"
+ },
+ "capability_criteria": [
+  "A1",
+  "A2",
+  "A3",
+  "A6",
+  "A7"
+ ],
+ "process_criteria": [
+  "A4",
+  "A5"
+ ],
+ "verdict": "BATTERY_PASS_CAPABILITY_UNDER_GOVERNANCE",
+ "ceiling": "all readings are capability-under-governance / workflow-proof; NO autonomy axis is claimed (RR-0034 terminus)"
+}

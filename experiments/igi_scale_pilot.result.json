@@ -1,0 +1,28 @@
+{
+  "tree12": {
+    "mec_sizes": [
+      12,
+      12,
+      12,
+      12,
+      12,
+      12
+    ],
+    "identification": 0.917,
+    "achievement_given_id": 0.909,
+    "halt_100pct": true
+  },
+  "chain14": {
+    "mec_sizes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "identification": 0.75,
+    "achievement_given_id": 1.0,
+    "halt_100pct": true
+  }
+}

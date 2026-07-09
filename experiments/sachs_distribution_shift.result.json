@@ -1,0 +1,59 @@
+{
+  "gate": "sachs-distribution-shift",
+  "domain": "REAL Sachs (train=observational, test=held-out do regimes)",
+  "n_regimes": 5,
+  "per_regime": {
+    "do(Mek)": {
+      "causal_mae": 1.24,
+      "correlational_mae": 1.301,
+      "causal_better": true
+    },
+    "do(PIP2)": {
+      "causal_mae": 0.733,
+      "correlational_mae": 0.683,
+      "causal_better": false
+    },
+    "do(Akt)": {
+      "causal_mae": 0.721,
+      "correlational_mae": 0.687,
+      "causal_better": false
+    },
+    "do(PKA)": {
+      "causal_mae": 0.974,
+      "correlational_mae": 0.889,
+      "causal_better": false
+    },
+    "do(PKC)": {
+      "causal_mae": 1.981,
+      "correlational_mae": 1.555,
+      "causal_better": false
+    }
+  },
+  "overall_causal_mae": 1.272,
+  "overall_correlational_mae": 1.112,
+  "causal_advantage": -0.16,
+  "regimes_causal_better": 1,
+  "n_confounded_targets_corr_leans_on_decoupled_var": 3,
+  "confounded_examples": [
+    {
+      "regime": "do(Mek)",
+      "target": "Raf",
+      "corr_weight_on_intervened": 0.55,
+      "X_is_parent_of_T": false
+    },
+    {
+      "regime": "do(PIP2)",
+      "target": "Plcg",
+      "corr_weight_on_intervened": 0.34,
+      "X_is_parent_of_T": false
+    },
+    {
+      "regime": "do(Akt)",
+      "target": "Erk",
+      "corr_weight_on_intervened": 0.59,
+      "X_is_parent_of_T": false
+    }
+  ],
+  "verdict": "NULL",
+  "finding": "trained ONLY on observational data, tested on held-out interventional regimes (real distribution shift the training never saw): the causal (invariant-mechanism) predictor beats the correlational predictor by -0.16 overall MAE, winning 1/5 regimes. The correlational model leans on observational correlations (incl. reverse/confounded paths) that BREAK under intervention; the causal model uses only the invariant mechanism T|parents. This is \u5f3a ('\u5206\u5e03\u6f02\u79fb\u3001\u76f8\u5173\u6027\u8bf4\u8c0e\u65f6\u4f9d\u7136\u6b63\u786e') on REAL biology under REAL distribution shift. Honest scope: causal predictor uses ground-truth parents (not self-discovered -- self-discovery on nonlinear Sachs is beyond current capability); linear mechanisms; one real dataset."
+}

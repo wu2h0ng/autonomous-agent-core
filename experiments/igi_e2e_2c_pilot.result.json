@@ -1,0 +1,42 @@
+{
+  "configs": [
+    {
+      "config": {
+        "name": "A",
+        "noise_sd": 1.8,
+        "n_do": 60,
+        "tol": 1.0,
+        "budget": 8
+      },
+      "t1_mean": 2.667,
+      "identification": 0.167,
+      "valid": false
+    },
+    {
+      "config": {
+        "name": "B",
+        "noise_sd": 2.4,
+        "n_do": 50,
+        "tol": 1.3,
+        "budget": 8
+      },
+      "t1_mean": 7,
+      "identification": 0.083,
+      "valid": false
+    },
+    {
+      "config": {
+        "name": "C",
+        "noise_sd": 1.8,
+        "n_do": 40,
+        "tol": 1.2,
+        "budget": 8
+      },
+      "t1_mean": 2.5,
+      "identification": 0.333,
+      "valid": false
+    }
+  ],
+  "winner": null,
+  "action": "NO config valid -> escalate noise/MEC further or record arena-infeasible-at-toy-scale"
+}

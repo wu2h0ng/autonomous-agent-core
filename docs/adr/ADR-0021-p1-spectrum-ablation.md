@@ -1,6 +1,6 @@
 # ADR-0021: P1 论文加固实验——结构可迁移性谱系扫描 + O4 消融
 
-- Status: Accepted; experiments implemented, results pending full run
+- Status: Accepted; results complete 2026-06-14 (see §7). NOTE 2026-06-29: P6-research-synthesis supersedes the standalone-paper framing; the §6 deliverables (phase-boundary heatmap, component-contribution table) remain unconsumed by any current publication artifact.
 - Date: 2026-06-13
 - Scope: Paper-strengthening experiments for the corrected O4 result, no new mechanism, no new organ
 - Predecessor: ADR-0020 corrected G7 r-final is NOT MET because O4 misses O2 per-seed dominance by one seed; O4 still significantly beats O1, so reviewers will ask "under what conditions does the cheap-reset advantage hold?" and "which component matters most?"

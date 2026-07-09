@@ -1,0 +1,89 @@
+{
+  "n_valid_families": 25,
+  "K3_pass": true,
+  "mec_sizes": [
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4
+  ],
+  "K2_tolerance_sweep": {
+    "100": {
+      "0.4": {
+        "truth_survival": 0.8538,
+        "wrong_kill_rate": 0.2615
+      },
+      "0.6": {
+        "truth_survival": 1.0,
+        "wrong_kill_rate": 0.3077
+      },
+      "0.8": {
+        "truth_survival": 1.0,
+        "wrong_kill_rate": 0.3077
+      }
+    },
+    "200": {
+      "0.4": {
+        "truth_survival": 0.9769,
+        "wrong_kill_rate": 0.2923
+      },
+      "0.6": {
+        "truth_survival": 1.0,
+        "wrong_kill_rate": 0.3077
+      },
+      "0.8": {
+        "truth_survival": 1.0,
+        "wrong_kill_rate": 0.3077
+      }
+    }
+  },
+  "K2_pass": true,
+  "chosen": {
+    "tol": 0.6,
+    "n_int": 100,
+    "B": 1
+  },
+  "gap_by_budget": {
+    "1": {
+      "oracle": 1.0,
+      "random": 0.3178,
+      "active_preview": 0.72,
+      "gap": 0.6822
+    },
+    "2": {
+      "oracle": 1.0,
+      "random": 0.3967,
+      "active_preview": 0.9867,
+      "gap": 0.6033
+    },
+    "3": {
+      "oracle": 0.9867,
+      "random": 0.4856,
+      "active_preview": 0.9733,
+      "gap": 0.5011
+    }
+  },
+  "K1_pass": true,
+  "all_kills_clear": true
+}

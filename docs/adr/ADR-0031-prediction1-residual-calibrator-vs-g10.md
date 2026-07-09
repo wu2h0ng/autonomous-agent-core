@@ -2,7 +2,7 @@
 
 - Status: **Accepted; PRED1-HOLDS (2026-06-15, see §10).** Mechanism & gate design
   ratified by founder. Calibration froze `(λ=0.8, η=0.1)` on seeds 1200..1219 and
-  prereg hash `fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf`
+  prereg hash `<LOCKED; see experiments/prediction1_residual_calibrator.lock.json>`
   before r-final. R-final seeds 1300..1329 did **not** give PR a decisive margin over
   P0. RR-0019 Claim 1/3 survive this powered attack; the calibrator is at most a G10
   sharpener candidate, not a second axis.
@@ -166,7 +166,7 @@ lambda (residual EWMA)      = 0.8  (frozen on seeds 1200..1219, max PR-B benefit
 eta    (u recalibration)    = 0.1  (frozen on seeds 1200..1219, max PR-B benefit)
 gate (unchanged)            = {gate_kappa: 0.5, gate_temp_floor: 0.1}
 base_temperature            = 0.3
-prereg lock hash            = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
+prereg lock hash            = f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936
 ```
 
 Calibration result (2026-06-15, seeds 1200..1219): the whole grid was negative
@@ -207,7 +207,7 @@ Frozen after calibration:
 ```text
 lambda = 0.8
 eta    = 0.1
-prereg = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
+prereg = <LOCKED; see lock.json>
 ```
 
 Calibration note: every PR-B grid point was worse than A1; the frozen pair is the

@@ -1,0 +1,18 @@
+{
+  "n_obs_400": {
+    "n_domains": 20,
+    "identification_n9plus": 0.625,
+    "mean_truth_self_reject_donodes": 1.9
+  },
+  "n_obs_1200": {
+    "n_domains": 20,
+    "identification_n9plus": 0.875,
+    "mean_truth_self_reject_donodes": 1.12
+  },
+  "n_obs_2400": {
+    "n_domains": 20,
+    "identification_n9plus": 0.9,
+    "mean_truth_self_reject_donodes": 1.07
+  },
+  "dip_closes_with_samples": true
+}

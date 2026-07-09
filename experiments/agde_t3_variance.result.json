@@ -1,0 +1,18 @@
+{
+  "config": {
+    "c": 3.2,
+    "B": 4,
+    "tol": 0.5,
+    "minimality": true
+  },
+  "families": 21,
+  "active_id_mean": 0.571,
+  "active_id_sd": 0.444,
+  "active_mean_minus_2se": 0.378,
+  "random_id_mean": 0.262,
+  "gap_mean": 0.31,
+  "FORMULAIC_BARS_next_session": {
+    "active_bar": 0.378,
+    "gap_bar": 0.186
+  }
+}

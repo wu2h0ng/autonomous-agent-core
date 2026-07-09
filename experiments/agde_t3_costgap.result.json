@@ -1,0 +1,31 @@
+{
+  "tol": 0.5,
+  "families": 6,
+  "pool": 96,
+  "budgets": {
+    "3": {
+      "active_id": 0.0,
+      "active_cost_when_id": null,
+      "random_id": 0.0,
+      "gap": 0.0
+    },
+    "4": {
+      "active_id": 0.083,
+      "active_cost_when_id": 4,
+      "random_id": 0.0,
+      "gap": 0.083
+    },
+    "5": {
+      "active_id": 0.083,
+      "active_cost_when_id": 4,
+      "random_id": 0.0,
+      "gap": 0.083
+    },
+    "6": {
+      "active_id": 0.083,
+      "active_cost_when_id": 4,
+      "random_id": 0.0,
+      "gap": 0.083
+    }
+  }
+}

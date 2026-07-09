@@ -1,0 +1,26 @@
+[
+ {
+  "seed": 1000,
+  "NT_recall": 0.571,
+  "SCR_recall": 0.857,
+  "NT_pipeF1": 0.222,
+  "SCR_pipeF1": 0.4,
+  "n_true": 14
+ },
+ {
+  "seed": 1001,
+  "NT_recall": 0.286,
+  "SCR_recall": 0.619,
+  "NT_pipeF1": 0.204,
+  "SCR_pipeF1": 0.5,
+  "n_true": 21
+ },
+ {
+  "seed": 1002,
+  "NT_recall": 0.32,
+  "SCR_recall": 0.68,
+  "NT_pipeF1": 0.245,
+  "SCR_pipeF1": 0.533,
+  "n_true": 25
+ }
+]

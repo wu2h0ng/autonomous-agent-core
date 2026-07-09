@@ -1,0 +1,52 @@
+{
+  "gate": "universality-zero-rebuild",
+  "n": 5,
+  "note": "loop code byte-identical; only the domain changes",
+  "per_domain": {
+    "gaussian_linear": {
+      "id_rate": 0.5,
+      "causal_advantage_mean": 0.82,
+      "advantage_win_rate": 0.792,
+      "confounded_advantage_mean": 1.365,
+      "causal_err": 0.458,
+      "corr_err": 1.279,
+      "n_domains": 12
+    },
+    "uniform_linear": {
+      "id_rate": 0.667,
+      "causal_advantage_mean": 1.172,
+      "advantage_win_rate": 0.854,
+      "confounded_advantage_mean": 1.775,
+      "causal_err": 0.141,
+      "corr_err": 1.313,
+      "n_domains": 12
+    },
+    "laplace_linear": {
+      "id_rate": 0.75,
+      "causal_advantage_mean": 1.144,
+      "advantage_win_rate": 0.833,
+      "confounded_advantage_mean": 1.667,
+      "causal_err": 0.188,
+      "corr_err": 1.332,
+      "n_domains": 12
+    },
+    "tanh_nonlinear": {
+      "id_rate": 0.167,
+      "causal_advantage_mean": 0.366,
+      "advantage_win_rate": 0.771,
+      "confounded_advantage_mean": 0.571,
+      "causal_err": 0.454,
+      "corr_err": 0.82,
+      "n_domains": 12
+    }
+  },
+  "holds_zero_rebuild": {
+    "gaussian_linear": true,
+    "uniform_linear": true,
+    "laplace_linear": true,
+    "tanh_nonlinear": false
+  },
+  "verdict": "UNIVERSAL-ACROSS-NOISE",
+  "organ_localization": "linear-fitter + linear predict_do_means are the domain-specific organs: they stay consistent for LINEAR mechanisms under ANY noise (OLS is BLUE) but are misspecified for NONLINEAR mechanisms -> the loop STRUCTURE is domain-independent, the mechanism ORGAN is pluggable. Held: gaussian_linear, uniform_linear, laplace_linear | broke: tanh_nonlinear",
+  "scope": "zero-REBUILD across NOISE families is genuine \u901a\u7528 within the linear class; crossing to nonlinear needs an ORGAN SWAP (same loop structure), which is the honest next \u901a\u7528 step, NOT a loop rebuild. World still synthetic; no language/perception/real actuation."
+}

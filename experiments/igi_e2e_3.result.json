@@ -1,0 +1,17 @@
+{
+  "gate": "IGI-E2E-3",
+  "classes": [
+    "tree6",
+    "star7"
+  ],
+  "proposal_wellformed_rate": 1.0,
+  "self_goal_achievement": 0.3125,
+  "accepted_proposal_truth_reachability": 0.375,
+  "n_selfgoal_episodes": 32,
+  "controls": {
+    "halt_100pct": true,
+    "unapproved_actions": 0,
+    "strict_arm_discipline": 1.0
+  },
+  "verdict": "FAIL"
+}

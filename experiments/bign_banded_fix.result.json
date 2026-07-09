@@ -1,0 +1,38 @@
+{
+  "gate": "bign-banded-fix",
+  "n_obs": 300,
+  "Z_primary": 3.0,
+  "REJECTED_residual_variance_band": {
+    "big_n_baseline_fixed_tol0.6": {
+      "id_rate": 0.708,
+      "truth_alive_rate": 0.708,
+      "n": 24
+    },
+    "big_n_banded_Z3": {
+      "id_rate": 0.0,
+      "truth_alive_rate": 1.0,
+      "n": 24
+    },
+    "note": "residual-variance band is ~2.57 wide -> keeps everything alive, identifies nothing"
+  },
+  "ROBUST_FIX_nobs_scaling_fixed_tol": {
+    "300": {
+      "id_rate": 0.667,
+      "truth_alive_rate": 0.667
+    },
+    "600": {
+      "id_rate": 0.75,
+      "truth_alive_rate": 0.75
+    },
+    "1200": {
+      "id_rate": 0.792,
+      "truth_alive_rate": 0.792
+    },
+    "2400": {
+      "id_rate": 0.875,
+      "truth_alive_rate": 0.875
+    }
+  },
+  "diagnosis": "id_rate == truth_alive_rate at every n_obs -> the dip is ENTIRELY truth false-rejection (clamp-amplified coefficient error under do(c=2.0)); discrimination is never the bottleneck. minimality REFUTED; residual band too wide; robust fix = shrink coefficient error via n_obs (0.667->0.875 at 300->2400) or a smaller clamp.",
+  "verdict": "ROBUST-FIX-CONFIRMED-nobs"
+}

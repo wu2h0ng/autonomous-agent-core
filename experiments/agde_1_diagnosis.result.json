@@ -1,0 +1,13 @@
+{
+  "blind_optimal_ceiling_B1_mean": 0.75,
+  "scored_A_B1_mean": 0.6611,
+  "scored_R_B1_mean": 0.3574,
+  "scored_O_B1_mean": 0.9778,
+  "capture_vs_blind_ceiling": 0.7736,
+  "B2": {
+    "A": 0.9667,
+    "R": 0.4926,
+    "O": 0.9556
+  },
+  "B2_capture_vs_truth_informed_oracle": 1.024
+}

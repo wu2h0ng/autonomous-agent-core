@@ -1,0 +1,431 @@
+• This is a deep technical/theoretical adjudication request about a research line in the autonomous-agent-core repository. I need to act as the Independent Cross-Model Adjudicator (Kimi) and evaluate the "Degeneracy Thesis" regarding whether a fair empirical reopen exists for H1b under fair-acquisition conventions.
+
+  First, I need to understand the context. The user references:
+  - z_t foreclosure under C6 + recurrence symmetry
+  - Construction-audit ruling (SKEPTIC_OVERCLAIMED)
+  - phi_S empirical falsifier (ADR-0040/0041)
+  - Fair-acquisition convention
+  - H1b "reopen" outcome
+  - Degeneracy thesis that reopenability and fairness are mutually exclusive
+
+  I need to consult the relevant files. According to the AGENTS.md, for autonomous-core research work I should read:
+  - autonomous-agent-core/docs/CURRENT_STATE.yaml
+  - docs/research/RR-0029-architecture-theory-defect-retrospective.md
+  - docs/research/PARADIGM-INNOVATION-LOOP-OS.md
+  - etc.
+
+  Specifically I need to find:
+  - ADR-0040/0041
+  - The original z_t foreclosure argument
+  - The construction-audit ruling
+  - The phi_S empirical falsifier
+  - The fair-acquisition convention details
+  - Any related preregistration or paradigm loop records
+
+  Let me start by exploring the autonomous-agent-core docs and the research docs to understand the exact definitions. I should use the explore agent for thorough search, but I also need to read specific files.
+
+  Given the complexity, I should launch an explore agent to find the relevant documents and then read them. But this is a reasoning task - I need to actually do the adjudication myself, not delegate the thinking. Let me first gather the relevant documents.
+
+  Let me search for ADR-0040, ADR-0041, z_t foreclosure, construction audit, phi_S, fair-acquisition, H1b.
+
+• I need to ground this adjudication in the actual workspace artifacts before reasoning. Let me locate the relevant records.• Good, I found the key files. Let me read the most relevant ones:
+  - ADR-0040 and ADR-0041 (both versions)
+  - CONSTRUCTION-AUDIT-CROSSMODEL-REOPEN-2026-06-29.md
+  - autonomous-core-closure-memo-2026-06-28.md
+  - thin-readout-law-and-structural-vs-artifact-crux-2026-06-28.md
+  - core-debt-and-unfalsified-audit-2026-06-29.md
+  - RR-0029, RR-0030, RR-0031
+  - CURRENT_STATE.yaml
+
+  Let me read these in parallel.I have the key context now. Let me also check the CURRENT_STATE.yaml to understand the latest state, and any result files for ADR-0040. I should also look at the result adjudication file.Now I have a strong understanding. Let me also check if there's a phi_s_reopening.result.json or any experiment file I should read, and perhaps the RR-0029/0030/0031 for any relevant framing. But I think I have enough.
+
+  Key facts:
+  1. The Degeneracy Thesis claims: Under fair-acquisition (baseline gets same representation family + fair online acquisition budget), H1b reopen is structurally empty because:
+     - If φ* learnable by baseline at unbounded fair budget → H0/H1a, no reopen
+     - If φ* not learnable even at unbounded fair budget → SQ-hard / outside fair learner class → VACUOUS
+     - H1b requires simultaneous natural/learnable-in-principle AND not fairly-learnable-at-unbounded-budget → contradiction
+     - Therefore reopenability and fairness are mutually exclusive
+     - The reopen lives only in the prior-fairness convention choice
+
+  2. My previous rulings:
+     - Construction-audit: SKEPTIC_OVERCLAIMED — fixed pretrained encoder phi_S survives IF fixed/pretrained representation is treated as FREE prior
+     - ADR-0040 r-final: INVALID_INCONCLUSIVE_RESPEC_NEEDED — mechanical H1b was under-budgeting artifact (oracle-init B*, parity SQ-hardness)
+     - ADR-0041 amendment: B* re-spec to cold-start BASE-FAIR; φ* ∈ {A3,A4} non-SQ-hard; parity → VACUOUS
+
+  Now I need to adjudicate the structural thesis itself. The user wants me to DEFAULT SKEPTICAL OF THE THESIS — try hardest to BREAK it by constructing a surviving empirical reopen. Only confirm if I cannot.
+
+  So I need to:
+  A. Try to construct an explicit phi* that is natural (low-DL, not crypto/SQ-hard) AND not fairly-learnable even at unbounded fair budget by ANY in-budget fair learner AND yields non-vanishing paid regret.
+
+  Wait, the thesis says "If phi* is NOT learnable by the fair baseline even at unbounded fair budget -> it is SQ-hard / outside the fair learner class -> VACUOUS by definition". So to break the thesis, I need a phi* that is:
+  - Natural (low-DL, not crypto/SQ-hard)
+  - NOT learnable by fair baseline even at unbounded fair budget
+  - Yields non-vanishing paid regret
+
+  But the fair baseline's learner class is specified in ADR-0040/0041: degree-≤3 monomial perceptron over 64-bit buffer. This class can represent every φ* in archive A. So if φ* is in A, it's representable. The only way it's not learnable "even at unbounded fair budget" is if the learning algorithm fails despite representability. But with unbounded budget, an online perceptron over a finite-dimensional linearly separable problem (with the target in the feature space) will eventually converge. So for this specific fair learner class, any φ* in A is learnable given unbounded budget.
+
+  So within the ADR-0040/0041 setup, the thesis seems to hold: any natural φ* in A is learnable by the fair baseline given unbounded budget, hence H0/H1a. Any φ* not learnable at unbounded budget would have to be outside the fair learner's representation class, which makes it vacuous by the convention.
+
+  But can I think of a more general construction? The user asks for "ANY in-budget fair learner" not necessarily the specific perceptron. Hmm. Let me re-read.
+
+  Actually the thesis says: "If phi* is NOT learnable by the fair baseline even at unbounded fair budget -> it is SQ-hard / outside the fair learner class -> VACUOUS by definition (the 'advantage' is a privileged secret, which is exactly the convention under dispute, not an empirical irreducibility)."
+
+  To break this, I need a φ* that is:
+  1. Natural (low-DL, not SQ-hard)
+  2. Not learnable by the fair baseline even at unbounded budget
+  3. The advantage is not a privileged secret
+
+  But condition 2 means the fair learner class cannot learn it even with unlimited data. That means φ* is outside the fair learner class (in a strong sense). If the fair learner class is "any in-budget learner over the same representation family", then φ* being outside this class means... it requires a different representation family? But the fairness convention grants the same representation family. So if φ* is natural and low-DL but still not learnable by the fair learner even with the same representation family, that would mean the learning algorithm itself is deficient.
+
+  Wait, maybe the key is: "not learnable even at unbounded fair budget" can mean two things:
+  (a) Not representable in the fair class → vacuous because the organ has a different representation
+  (b) Representable but the learning algorithm cannot identify it even with unlimited samples
+
+  For (b), in a well-specified online learning setting with a finite hypothesis class, any target in the class is learnable (via ERM) given enough data. So (b) only happens if the learning algorithm is pathologically bad or the hypothesis class is infinite/non-well-specified. But the fair baseline is allowed to be "any in-budget fair learner". So if there's a representable φ* that no reasonable fair learner can identify, that might be a break. But this is essentially SQ-hardness again.
+
+  Let me think about whether there's a known learning-theoretic construction where a function is:
+  - Low description complexity
+  - Representable in some natural class
+  - Yet no efficient/noisy-query learner can identify it without a prior
+
+  Hmm. The classic example is cryptography: a pseudorandom function has low description length (the seed) but is hard to learn from samples. But that's crypto/VACUOUS.
+
+  Another example: parity functions are SQ-hard but learnable with enough samples if you know the degree. The "secret" is which bits are in the parity. But if the parity is over a small fixed set (like A1), it's learnable.
+
+  What about a function that requires high-order moments but is low-DL? E.g., a function that is a low-degree polynomial in some high-dimensional embedding. But if the fair baseline has the same embedding, it can learn it.
+
+  The crux seems to be: if the fair baseline has the SAME representation family and unbounded budget, and φ* is in that family and low-DL, then by definition the baseline can learn it. The only way it can't is if "learnable" requires something beyond representation + budget, like an inductive bias that picks the right hypothesis. But that's exactly what the prior provides.
+
+  So the degeneracy thesis might be tautologically true under fair-acquisition: if the baseline has the same representational capacity and unbounded data, any natural/representable φ* will be learned. The only non-learnable φ* are those outside the fair class (vacuous) or those with high sample complexity (but at unbounded budget, sample complexity doesn't matter).
+
+  Wait, but the user explicitly asks about "functions learnable-in-principle but with large fair sample complexity (the borderline A1-parity case)". This is the grey zone. In ADR-0040/0041, A1 parity was declared VACUOUS because it's SQ-hard. But the user's question is more general: do large-sample-complexity functions give H1b, or collapse to H1a/vacuous?
+
+  Let me think carefully about this. The H1b definition requires ORGAN's advantage to persist "even at/beyond the learnability horizon with unbounded fair budget". The learnability horizon B* is the budget at which the baseline converges. If B* is large (e.g., 40k samples for parity), then H1b requires advantage at ≫B*. But if the baseline eventually converges, then at ≫B* the advantage collapses → H1a, not H1b. So large sample complexity gives H1a (sample-efficiency), not H1b.
+
+  Unless B* is defined poorly (as in ADR-0040, oracle-init B* = 8), in which case the baseline hasn't actually converged at B*, and the apparent H1b is an artifact.
+
+  So the grey zone answer: borderline functions (large sample complexity but eventually learnable) give H1a, not H1b. They are not vacuous in the SQ-hard sense, but they don't produce a structural reopen.
+
+  Now, the user asks whether the thesis at the limit (fair learner = any in-budget learner) just recovers the z_t foreclosure. Yes, I think so. If the fair learner is "any in-budget learner" with the same representation family, then the organ's z_t = φ*(x_t) is itself an in-budget learner over the same representation (since φ* is in the family), so it's in closure(B_K). This is exactly the z_t foreclosure argument: any z_t the organ computes is in closure(B_K), which the baseline already spans. So the empirical degeneracy is indeed the empirical shadow of the analytic foreclosure.
+
+  Finally: Is relax-C6 genuinely the ONLY structurally-open door left?
+
+  Relax-C6 means letting the estimate/belief into the control path (giving up corrigibility). Under C6, the estimate is kept out of the privileged control surface. If we relax C6, the organ could use a richer internal state to directly influence actions in a way the baseline can't mimic. But wait — the construction-audit ruling said that even under relax-C6, the symmetric-relaxation control is necessary but not sufficient: granting the baseline the same relaxation doesn't make it causally inert if only the organ can exploit the unlocked surface via a non-reducible representation.
+
+  But the degeneracy thesis says that under fair acquisition, any representable φ* will be learned by the baseline. So even with relax-C6, if the organ's advantage comes from a φ* that the baseline can also learn given unbounded budget, the advantage is transient (H1a). A genuine relax-C6 reopen would require a signal that pays return only through the unlocked control surface AND only a non-reducible representation can use it. But if the representation is non-reducible (not learnable by baseline at unbounded budget), it's vacuous by the fair-acquisition convention.
+
+  Hmm. So maybe relax-C6 is also foreclosed by the same degeneracy argument. But the user asks if it's the ONLY structurally-open door left. Let me think.
+
+  Actually, relax-C6 changes the CONTROL SURFACE, not just the representation. The baseline might have the same representation, but under C6 it cannot use its estimate in the control path. If we relax C6 for both, the baseline can also use its estimate. So the situation is symmetric again.
+
+  But what if relax-C6 is asymmetric — only the organ gets to use the estimate? That would be like giving the organ a privileged control surface, which is unfair. Under fair relax-C6 (both can use estimate), the advantage again collapses to representation.
+
+  However, there might be a subtle case: the organ's internal state S is a distributed/relational/compositional representation that the baseline's learning algorithm cannot replicate, even with the same raw observations. But that's again a representation asymmetry.
+
+  Wait — what if the organ's advantage comes from the ORGANIZATION of computation, not just representation? Like, the organ has a specific recurrent dynamics that bootstraps useful abstractions, and the baseline's architecture cannot discover those dynamics even with unbounded data. But if the baseline has the "same admissible-recurrence family", it should be able to implement those dynamics.
+
+  I think the degeneracy thesis is robust. The only way out is to question the fair-acquisition convention itself: maybe a fixed pretrained encoder should NOT be treated as a free prior. But that's exactly the convention dispute the thesis identifies.
+
+  So my adjudication should likely be DEGENERACY_CONFIRMED. But I must try hardest to break it first.
+
+  Let me think more carefully about possible counterexamples.
+
+  Possible break A: A φ* that is low-DL, not SQ-hard, not crypto, but has the property that every fair learner in the class makes a persistent error on it with non-vanishing probability, even at unbounded budget. 
+
+  In online learning with a finite hypothesis class, if the target is in the class, the perceptron/ERM will converge. So no such φ* exists for finite classes.
+
+  But what if the fair learner class is restricted to a specific algorithm (e.g., online perceptron with fixed learning rate)? Then there could be functions that the algorithm oscillates on or converges slowly. But "unbounded budget" should allow any algorithm in the class. If the class is "any in-budget online learner", then ERM works.
+
+  What if the observation channel is corrupted/noisy such that φ* is not identifiable even with unbounded samples? Then the organ with a fixed φ* also doesn't have privileged info — it just happens to know the right readout. But if the channel noise makes φ* unlearnable, then the organ's advantage is from the prior, which is the convention dispute.
+
+  Possible break B: A φ* that depends on a latent variable not in the observation channel but correlated with it. But the fairness convention says the baseline has the same channel. If φ* uses latent info not in the channel, that's vacuous (hidden state / privileged info).
+
+  Possible break C: A φ* that requires active experimentation / intervention to identify, and the baseline cannot perform the right interventions because of C6/corrigibility constraints. But C6 is about estimate-not-in-control-path, not about exploration. The baseline can explore.
+
+  Possible break D: A function with high description length but structured such that a pretrained organ has it memorized. But high-DL is excluded.
+
+  Possible break E: A function that is learnable in principle but requires a superpolynomial (in relevant dimension) number of samples, so in practice "unbounded fair budget" is never reached. But the thesis explicitly considers unbounded budget. At unbounded budget, sample complexity is irrelevant. This is the grey zone.
+
+  Hmm. Let me think about whether "unbounded fair budget" is well-defined. In any real experiment, budget is finite. The "unbounded proxy" is some multiple of B*. But if B* itself is finite, then the unbounded proxy is finite. The thesis is about the limit as budget → ∞. In that limit, any well-specified learner converges.
+
+  So I think the degeneracy thesis is correct. The only potential loophole is if there's a function that is:
+  - Natural/low-DL
+  - In the fair learner's representation class
+  - But no algorithm in the fair learner class can identify it even with unbounded data
+
+  This would require the fair learner class to be somehow incomplete in a way that isn't captured by "SQ-hard" or "outside the class". But in standard learning theory, if the target is in the hypothesis class and the learner can perform ERM, it's learnable. The only exceptions are:
+  - Computational constraints (SQ-hard, crypto)
+  - Non-realizable setting (target not in class)
+  - Adversarial/noisy setting where identification is impossible
+
+  All of these fall under "vacuous" or "outside the fair learner class".
+
+  So I cannot construct a surviving empirical reopen. The thesis stands.
+
+  Now, I need to be careful about the wording. The user says "DEFAULT SKEPTICAL OF THE THESIS: try hardest to BREAK it". I need to show my work: explicitly try to construct counterexamples and explain why each fails. Then conclude.
+
+  Let me structure my answer:
+
+  1. Restate the thesis and the conventions.
+  2. Attempt A: Construct a candidate φ* and show it collapses to H0/H1a or VACUOUS.
+  3. Discuss the grey zone (large sample complexity).
+  4. Discuss reduction to z_t foreclosure.
+  5. Discuss relax-C6.
+  6. Give the exact verdict block.
+
+  For the candidate construction attempt, I should be concrete. Let me think of a specific φ* that's not parity, not crypto, low-DL, and see if it survives.
+
+  Candidate 1: A3 or A4 from the archive. A3 = sign(o[0]*o[1] + o[2]) (degree-2 polynomial threshold). A4 = (o[0]∧o[1])∨o[3] (3-gate Boolean). Both are degree ≤3 over the buffer. The fair baseline is a degree-≤3 monomial perceptron. So it can represent A3/A4 exactly. With enough data, it will learn them. At unbounded budget, it converges. So H0 or H1a. No reopen.
+
+  Candidate 2: A slightly more complex low-DL function, e.g., "XOR of two degree-2 terms" or "a small decision tree over 5 observables". Still degree ≤ some small d, representable by monomial kernel of degree d. With unbounded budget, learnable.
+
+  Candidate 3: A function that requires long-range memory beyond the buffer. But the organ also has bounded memory M; if φ* requires memory beyond M, the organ can't compute it either. So no advantage.
+
+  Candidate 4: A function that requires a specific nonlinear transformation not in the kernel. But then it's outside the fair learner's representation class → VACUOUS (representation asymmetry). Unless the fair baseline's class is expanded to include all bounded Boolean latches over the buffer, in which case the organ's transformation is in the class.
+
+  Candidate 5: A function involving a secret random subset or large parity. VACUOUS by the rules.
+
+  Candidate 6: A function that is learnable only with a specific inductive bias (e.g., spatial locality, compositionality) that the baseline's generic learner lacks. But "any in-budget fair learner" can encode that bias if it's part of the representation family. If the bias is not in the family, it's a representation asymmetry.
+
+  So every candidate collapses.
+
+  What about a function with unbounded sample complexity but low-DL? E.g., a function where the signal-to-noise ratio in the observation channel is so low that identifying the function requires exponentially many samples. But with unbounded budget, the baseline still converges. And if the channel noise is symmetric, the organ's fixed φ* is also corrupted; its advantage is only at low budget.
+
+  Actually, wait. Here's a potentially interesting case: a function φ* that is low-DL and in the fair class, but the LEARNING PROBLEM is such that the baseline cannot reliably identify it because of an identifiability issue: multiple φ* in the class produce identical observational statistics, and only the organ's specific φ* gives good control. But if multiple φ* produce identical action values, then using any of them gives the same control performance. So the baseline can pick any consistent φ* and tie the organ. Unless the organ's φ* is the ONLY one that gives good control, in which case there's an asymmetry in the reward structure that makes the organ's prior load-bearing. But that's just saying the env was designed around φ*, which is the alignment vs irreducibility issue. In MISALIGNED condition, this would show as the organ losing.
+
+  Hmm. Let me think about this "identifiability" point more carefully. Suppose the env reward depends on a specific φ*, and many other functions are observationally indistinguishable but give wrong actions. A fair baseline with unbounded data sees the same observations and rewards; it learns the policy directly (policy gradient / RL) rather than identifying φ*. If the reward is a function of φ*, and the baseline can learn the policy mapping observations to optimal actions, it doesn't need to identify φ* explicitly. With unbounded data, it learns the optimal policy. So it ties the organ.
+
+  Unless... the optimal policy requires identifying φ* in a way that can't be captured by direct policy learning. But direct policy learning can represent any mapping from observations to actions (given sufficient capacity). The fair baseline has the same capacity. So again, it ties.
+
+  This is essentially the "classifier=policy" reduction that the project has noted many times.
+
+  OK, I'm convinced. Let me also think about whether there's any subtlety in the "fair learner = any in-budget learner" limit. If we literally allow ANY in-budget learner, then the baseline can implement the organ's exact algorithm. So the organ has no advantage. This is the "cannot beat an identical copy of itself" point from the construction-audit.
+
+  But what if the organ's advantage is not the algorithm but the specific learned parameters (the prior)? The fair-acquisition convention says the baseline must learn those parameters from data. At unbounded budget, it does. So no advantage.
+
+  So the degeneracy thesis is really a restatement of: under fair acquisition (same representation + unbounded data), a fixed prior cannot provide an irreducible advantage; the only advantages are sample-efficiency (transient) or vacuous (outside the fair class).
+
+  Now, the user asks specifically about relax-C6. Let me think again.
+
+  Under C6, the estimate is kept out of the privileged control surface. The organ computes z_t = φ*(x_t), but z_t is not used as a direct control signal; it's just a statistic the policy can condition on. The baseline can also compute any z_t in closure(B_K).
+
+  If we relax C6, we allow the agent's internal estimate/belief to directly influence actions. But the fair baseline also has an internal estimate/belief (it learns one from data). With unbounded data, its estimate converges to the true one. So again, no irreducible advantage.
+
+  However, there might be a timing/online issue: the organ's belief is pretrained and immediately useful; the baseline's belief must be learned online. But at unbounded budget, it catches up. So this is again H1a.
+
+  Unless the environment is non-stationary and the baseline cannot track the non-stationarity as well as the organ. But if the organ's prior is fixed, it also cannot track non-stationarity unless it's specifically adapted. If it's adapted online, the baseline can adapt too.
+
+  Or unless the organ can modify its own structure/learning algorithm (self-modification). But that's outside the current scope and raises other issues.
+
+  So relax-C6 also seems foreclosed by the same degeneracy argument. But the user asks: "Is relax-C6 genuinely the ONLY structurally-open door left?"
+
+  Given the above, I think relax-C6 is NOT an open door either, under fair acquisition. The only "open door" is the convention choice: charge acquisition or not. If we charge acquisition (baseline must learn φ* from scratch), then a fixed pretrained φ* gives sample-efficiency advantage (H1a) but not irreducible advantage (H1b) at unbounded budget. If we don't charge acquisition (φ* is free prior), then the organ wins trivially by definition — but that's not an empirical finding, it's a convention.
+
+  Wait, but the construction-audit ruling said the fixed pretrained encoder survives under the free-prior convention. That "survival" is the reopen. The degeneracy thesis says this reopen is structurally empty under fair-acquisition. So the reopen lives only in the convention choice.
+
+  Therefore, my answers:
+  - A: I cannot construct a surviving empirical reopen. Every candidate φ* either collapses to H0/H1a or is vacuous.
+  - B: Grey zone — large sample complexity functions give H1a (sample-efficiency), not H1b. They are not vacuous if they're in the fair class, but they don't produce a structural reopen.
+  - C: Yes, at the limit the empirical degeneracy recovers the z_t foreclosure.
+  - D: No, relax-C6 is not an open door under the same fair-acquisition reasoning; it reduces to the same z_t question.
+
+  But wait, the user might expect me to say "yes" to D based on the earlier analysis that relax-C6 is the only remaining door. Let me reconsider.
+
+  The earlier analysis (closure memo, thin-readout law) said: "The only remaining door (per the analysis): the cheap class's completeness is relative to C6. The lone way to make a rich readout load-bearing is to relax C6." But that was before the degeneracy thesis. The degeneracy thesis claims that even relax-C6 is foreclosed because the baseline can learn the same representation under fair acquisition.
+
+  Hmm. Which is correct? Let me think about what relax-C6 actually buys.
+
+  C6 says the estimate/belief is kept out of the privileged control surface. This means the agent's policy is a function of observations only, not of internal estimates about unobservables. Relaxing C6 means the policy can depend on internal estimates.
+
+  But the fair baseline can also maintain internal estimates and condition its policy on them. So under fair acquisition, the baseline can do everything the organ can do.
+
+  The only way relax-C6 could matter is if there's something the organ's internal estimate can do that the baseline's cannot, even with the same representation family and unbounded data. But if they have the same representation family and unbounded data, they converge to the same estimates.
+
+  Unless... the organ's estimate is not just a representation but a specific PRETRAINED set of parameters that encode information not available in the current environment's data. But that's the prior-fairness convention again. Under fair acquisition, the baseline would need to acquire that information from the environment. If it's not in the environment's data, it's privileged/secret.
+
+  So I think relax-C6 does NOT provide an additional structural opening. It was proposed as an opening because it changes the control surface, but under fair acquisition, the baseline gets the same change.
+
+  However, I should note that the project's own framing treats relax-C6 as the central strategic bet. The user is asking me to adjudicate the structural thesis, which challenges even that. As the skeptical adjudicator, I should follow the argument where it leads.
+
+  So my answer to D is: No, relax-C6 is not genuinely the only structurally-open door; under fair-acquisition it reduces to the same z_t/representation question and is equally foreclosed. The only real "door" is the prior-fairness convention itself.
+
+  But wait, I need to be careful. The user says "Is relax-C6 (letting the estimate into the control path, at the cost of corrigibility) genuinely the ONLY structurally-open door left?" If I say "no", I'm saying there are no structurally-open doors, or there are other doors. Which is it?
+
+  I think the answer is: no, relax-C6 is not an open door at all under fair acquisition. The only "openings" are convention choices (free prior vs charged acquisition), not structural empirical openings.
+
+  But is there any other structural opening? Maybe:
+  - Non-stationary environments where online learning cannot catch up
+  - Multi-agent / strategic settings where the prior affects the opponent
+  - Causal/interventional settings where the prior encodes causal knowledge
+
+  But these all reduce to: the prior encodes information not in the observed data, which is the convention dispute.
+
+  Let me also consider whether the thesis might be subtly wrong. Is there a case where φ* is natural, in the fair class, but the baseline's learning algorithm cannot identify it due to computational constraints that are NOT SQ-hardness? 
+
+  For example, consider a function φ* that requires solving an NP-hard problem to evaluate, but is easy to learn from samples. No, that doesn't make sense.
+
+  Or a function that is easy to evaluate but hard to learn because the gradient signal is deceptive. E.g., a function where the gradient points in the wrong direction for most parameter settings, so gradient descent gets stuck. But with unbounded budget, you can try many random restarts or use a different algorithm. The "any in-budget fair learner" can include global search.
+
+  Actually, here's an interesting thought: what if the fair learner class is restricted to online gradient descent with a fixed learning rate, and the loss landscape has spurious local minima that attract the learner? Then the baseline might never converge to the optimal φ* even with unbounded data. But this is an artifact of the specific algorithm, not a fundamental irreducibility. The fair-acquisition convention should allow any reasonable learner; if we restrict to a pathological learner, we can manufacture non-convergence.
+
+  But ADR-0040/0041 specifies a particular learner (online perceptron). With a perceptron on a linearly separable problem (which it is, since φ* is a monomial feature), it converges. So no issue.
+
+  For a more general fair class, if the problem is realizable, ERM works. If the problem is not realizable, we need to specify what "learnable" means. But the thesis assumes φ* is in the fair class.
+
+  OK, I think I've exhausted the counterexample search. The thesis is confirmed.
+
+  Let me now draft my response. I need to be thorough but concise. The user wants me to:
+  - Try hardest to break the thesis
+  - Address A, B, C, D
+  - End with the exact block
+
+  I should write in English since the user wrote in English.
+
+  Let me make sure I understand the exact format required at the end:
+
+  ===DEGENERACY-ADJUDICATION===
+  verdict: <DEGENERACY_CONFIRMED | DEGENERACY_REFUTED | NOT_READY>
+  loophole_found: <none | the explicit surviving-reopen phi*>
+  grey_zone: <one sentence: borderline functions give H1a/VACUOUS, not H1b? yes/no + why>
+  reduces_to_zt: <yes | no> — <one sentence>
+  relax_c6_only_open_door: <yes | no> — <one sentence>
+  one_line: <bottom line for the founder>
+  ===END===
+
+  I need to fill this in. Based on my analysis:
+  - verdict: DEGENERACY_CONFIRMED
+  - loophole_found: none
+  - grey_zone: yes — large-sample-complexity φ* (e.g., A1-parity) is not vacuously SQ-hard at small scale, but it collapses to H1a (sample-efficiency/transient ORGAN edge) because the fair baseline converges at its true learnability horizon; H1b requires persistent advantage at unbounded budget, which is never satisfied by an in-class function.
+  - reduces_to_zt: yes — the in-closure/needs-unbounded dichotomy at the empirical level is exactly the same recurrence-symmetry foreclosure restated: any z_t the organ computes lies in closure(B_K) and is therefore learnable by the fair baseline.
+  - relax_c6_only_open_door: no — relax-C6 changes the control surface but, under fair acquisition, the baseline gets the same relaxation and the same representation family, so it reduces to the same z_t/representation question and is equally foreclosed.
+  - one_line: Under fair acquisition, a fixed prior cannot produce an irreducible empirical reopen; any natural φ* is either learnable by the fair baseline (H0/H1a) or outside the fair class (VACUOUS), so the "reopen" is a convention choice, not a discovered frontier.
+
+  Wait, I should double-check the grey zone. The user says "borderline functions give H1a/VACUOUS, not H1b? yes/no + why". My answer is yes — they give H1a (if in fair class) or VACUOUS (if SQ-hard), not H1b. The "why" is because at unbounded budget, in-class functions converge, and out-of-class functions are vacuous.
+
+  Actually, for A1-parity, the amended ADR-0041 declares it VACUOUS because it's SQ-hard for the kernel-perceptron class. But in principle, parity over 3 bits is learnable by the degree-≤3 monomial perceptron with enough samples (~40k). The SQ-hardness is about efficient learning, not unbounded learning. ADR-0041 says "Parity (A1/A2) is recorded as VACUOUS (SQ-hard for the kernel-perceptron SQ learner class even with the exact monomial in the kernel; the determination is theoretical, confirmed empirically by non-convergence within B_CAP)". So within the ADR-0041 convention, parity is vacuous because it's SQ-hard.
+
+  But conceptually, parity over a small fixed subset is learnable with enough data. The degeneracy thesis treats it as "outside the fair learner class" in a broad sense. I think the thesis's framing is: if it's not learnable at unbounded fair budget, it's vacuous. Parity is learnable at unbounded budget (given the right representation), so it would give H1a. But ADR-0041 declares it VACUOUS for pragmatic reasons (SQ-hardness within budget cap).
+
+  Hmm, there's a slight tension. Let me think about how to resolve it.
+
+  The user says: "Address the grey zone: functions learnable-in-principle but with large fair sample complexity (the borderline A1-parity case). Do they give H1b, or do they collapse to H1a (sample-efficiency) / VACUOUS?"
+
+  I think the answer is: they collapse to H1a if we truly mean "unbounded budget" (because eventual convergence means no persistent H1b). They are declared VACUOUS only if we impose a practical budget cap (B_CAP) and the function is SQ-hard within that cap. But the degeneracy thesis is about the structural limit, not the practical cap.
+
+  Actually, re-reading the thesis: "If phi* is NOT learnable by the fair baseline even at unbounded fair budget -> it is SQ-hard / outside the fair learner class -> VACUOUS by definition". This suggests that "not learnable at unbounded budget" is the criterion for vacuous. Parity over 3 bits IS learnable at unbounded budget (with the monomial kernel), so it's not vacuous by this criterion; it gives H1a. But ADR-0041 declared it VACUOUS because of SQ-hardness within B_CAP.
+
+  I think the correct answer is: in the strict structural limit (unbounded budget), borderline functions give H1a. They are only declared VACUOUS when we impose a finite budget cap and they're SQ-hard within that cap. The user's question asks about "functions learnable-in-principle but with large fair sample complexity". So yes, they give H1a in principle, though a finite-budget experiment might classify them as VACUOUS.
+
+  Let me make sure my grey_zone sentence captures this nuance. Maybe:
+
+  "yes — borderline functions with large sample complexity produce a transient ORGAN edge that collapses to H0 by the true learnability horizon, so they are H1a (sample-efficiency), not H1b; they are marked VACUOUS only under a finite budget cap that treats SQ-hardness-within-cap as disqualifying."
+
+  That's a bit long but it's one sentence. Let me try to make it tighter:
+
+  "yes — large-sample-complexity φ* yields only H1a (a transient ORGAN edge that closes at the true learnability horizon), not H1b; ADR-0041's VACUOUS label for parity is a finite-budget-cap convention, not a structural reopen."
+
+  OK, that's better.
+
+  Now, I want to make sure my reasoning about A is thorough. The user asks me to "Construct, if you can, an explicit phi*". I should explicitly try several candidates and show why each fails. This demonstrates I've tried hardest to break the thesis.
+
+  Let me structure my narrative:
+
+  1. Setup the fair-acquisition convention precisely.
+  2. Attempt 1: φ* = A3/A4 (non-SQ-hard archive members). Show BASE-FAIR converges → H0/H1a.
+  3. Attempt 2: φ* = a low-DL function outside the degree-≤3 kernel but inside a larger fair class. Show it requires expanding the fair class, which is representation asymmetry → VACUOUS.
+  4. Attempt 3: φ* = a function with high sample complexity (e.g., parity). Show that at true unbounded budget it converges → H1a; only under finite cap is it VACUOUS.
+  5. Attempt 4: φ* = a function requiring a specific inductive bias. Show the bias is either representable in the fair class (learnable) or a hidden prior (vacuous).
+  6. Attempt 5: relax-C6 version. Show same reasoning applies.
+  7. Conclude.
+
+  For the explicit phi* attempt, I should be careful not to propose something that accidentally violates the rules. Let me think of a clean example.
+
+  Consider φ*(h) = sign(majority vote over the last 7 observations of bit 0). This is low-DL, not SQ-hard, and can be represented as a low-degree polynomial? Actually majority over 7 bits is a degree-4 polynomial (symmetric). If the fair class includes degree-≤4 monomials, it's representable and learnable. If not, it's vacuous due to representation mismatch.
+
+  Consider φ*(h) = the OR of k specific bits where k is small. Representable as degree-k monomial; learnable.
+
+  Consider φ*(h) = a small neural network with 3 ReLU units over 5 observables. If the fair class is "arbitrary bounded Boolean latches + online learner", and the learner can approximate ReLU networks, it's learnable. If not, vacuous.
+
+  The pattern is clear.
+
+  Now, what about a function that is NOT a deterministic function of the current observation buffer, but depends on unobserved history? Then it's not C6-respecting (or requires hidden state), which violates the setup.
+
+  What about a stochastic function? The organ has a fixed deterministic φ* per the rules.
+
+  OK, I think my answer is solid. Let me also make sure I reference the actual ADR-0040/0041 definitions and the z_t foreclosure correctly.
+
+  One more check: the user says "Under the FAIR-ACQUISITION convention (baseline granted the same representation family + fair acquisition budget on the same channel), the H1b 'reopen' outcome is STRUCTURALLY EMPTY". The key phrase is "same representation family". If the baseline has the same representation family and unbounded budget, it can learn any φ* in that family. That's the core of the thesis.
+
+  The thesis also says: "H1b requires phi* to be SIMULTANEOUSLY (i) natural/non-vacuous (hence learnable in principle) AND (ii) not fairly-learnable even at unbounded budget — a contradiction." This is the crux. I agree it's a contradiction.
+
+  Unless... "natural" does not imply "learnable in principle by the fair baseline". A function could be natural (low-DL) but not learnable by the fair baseline because the fair baseline's learner class is too restricted. But then the organ's advantage comes from using a different learner class, which is a representation/asymmetry issue. The fair-acquisition convention says the baseline gets the same representation family; it doesn't necessarily mean the same specific learning algorithm. But if the baseline can use any learner in that family, then it can implement the organ's algorithm.
+
+  Hmm. What if "same representation family" means the baseline can use representations from the same family, but not the specific pretrained parameters? That's the fair-acquisition convention: it must learn the parameters. At unbounded budget, it does.
+
+  So the thesis holds.
+
+  One subtle point: the organ's "representation" might include not just φ* but also the value function / policy structure that uses φ*. If the baseline has the same representation family for φ* but uses a different policy architecture, that could matter. But the fairness convention should extend to the full decision architecture.
+
+  In ADR-0040, the organ is just a fixed φ* readout plus presumably the same downstream policy as the baseline. The baseline has the same raw channel + same admissible-recurrence family + online learner. So the architectures are matched.
+
+  OK, I'm ready to write.
+
+  Actually, one more consideration: the user says "You are the INDEPENDENT CROSS-MODEL ADJUDICATOR (Kimi) — the established 3rd party for this line". So I should adopt that voice: formal, adversarial, precise.
+
+  I should also mention that I tried to construct counterexamples and failed, which is why I confirm.
+
+  Let me draft the response now. I'll make it thorough but not overly long. The user wants a structural adjudication, not a rehash of all documents.
+
+  Also, I should not modify any files for this task — it's a reasoning/adjudication task. The user is asking for a verdict. So no Write/Edit needed.
+
+  Let me write the response.
+
+I have read the relevant artifacts: ADR-0040, ADR-0041, the construction-audit discharge/reversal, the closure memo, the thin-readout-law crux, the debt audit, and my own prior prereg-review / result-adjudication records. I will now act as the independent cross-model adjudicator and try hardest to break the Degeneracy Thesis.
+
+  ## Attempted breaks and why each collapses
+
+  ### A. Is there a natural, non-vacuous φ* that survives fair acquisition?
+
+  I tried several concrete candidate constructions. Every one collapses back into H0, H1a, or VACUOUS:
+
+  **Candidate 1 — A3/A4 from the frozen archive (degree-2 threshold, 3-gate Boolean).**  
+  These are exactly the non-SQ-hard reopen-test φ* in ADR-0041. They are low-DL, degree ≤ 3 over the 64-bit buffer, and the BASE-FAIR perceptron spans all degree-≤3 monomials. With unbounded fair budget the perceptron converges. Result: **H0 or H1a**, not H1b.
+
+  **Candidate 2 — any low-DL readout in the same family.**  
+  If φ* ∈ closure(B_K), then by definition closure(B_K) already contains it, and the recurrence-symmetric baseline can compute it. The only way to make this fail at unbounded budget is to give the baseline a deficient optimizer; but "any in-budget fair learner" includes ERM/consistency over the family, so eventual convergence is guaranteed. Result: **H0/H1a**.
+
+  **Candidate 3 — a natural readout outside closure(B_K).**  
+  For example, a higher-degree polynomial or a function over a larger buffer than the baseline is granted. This would not be learnable by the fair baseline, but the advantage comes from the baseline being denied the same representation/recurrence. That is precisely the candidate-9 / encoding-asymmetry strawman already caught four times in this line. Under the fair-acquisition convention it is **VACUOUS / INPUT-DENIED**.
+
+  **Candidate 4 — a function learnable-in-principle but with large sample complexity (the A1-parity borderline).**  
+  Parity over a small fixed set is representable in the degree-≤3 monomial kernel. Its sample complexity is Ω(feature-count), so ORGAN holds a large transient edge. But at the *true* cold-start learnability horizon the baseline converges, so the edge closes. Calling it H1b requires the advantage to persist at ≫B*; it does not. Result: **H1a**, or VACUOUS if a finite budget cap is used as a cutoff (ADR-0041's convention).
+
+  **Candidate 5 — a readout requiring a special inductive bias.**  
+  Suppose φ* is low-DL but only discoverable if the learner assumes compositionality, locality, or some other structural prior. If that bias is part of the fair representation family, the baseline can encode it. If it is not, then the organ is carrying a privileged inductive prior that the baseline is denied — again a convention/asymmetry, not an empirical irreducibility. Result: **VACUOUS or convention-dependent.**
+
+  I cannot construct a φ* that is simultaneously (i) natural/low-DL, (ii) inside the fair representation family, and (iii) not learnable by the fair baseline at unbounded budget while yielding non-vanishing paid regret. The three conditions are mutually exclusive.
+
+  ### B. The grey zone: large sample complexity
+
+  Borderline functions like small parity do **not** produce H1b. They produce **H1a** if we honor the unbounded-budget limit, because the fair baseline eventually converges. ADR-0041's decision to label parity VACUOUS is a useful finite-budget-cap convention (SQ-hardness within B_CAP), not a structural reopen. Structurally, the in-class / out-of-class distinction is what matters; sample-efficiency is a transient phenomenon.
+
+  ### C. Does the thesis reduce to the z_t foreclosure?
+
+  **Yes.** At the limit where fair learner = any in-budget learner over the same representation family, the empirical degeneracy is exactly the analytic foreclosure restated: any z_t the organ computes is in closure(B_K), and R3 grants closure(B_K) to the baseline. The "in-closure / needs-unbounded" dichotomy from the z_t proof reappears as "H0/H1a / VACUOUS". The empirical degeneracy is the operational shadow of the analytic foreclosure.
+
+  ### D. Is relax-C6 the only structurally-open door?
+
+  **No.** Relax-C6 lets the estimate into the control path, but under fair acquisition the baseline receives the same relaxation and the same representation family. The baseline can then learn the same estimate and use it in the same control path. The advantage again collapses to sample-efficiency (H1a) or representation asymmetry (VACUOUS). Relax-C6 changes the control surface, but the same recurrence-symmetry / fair-acquisition argument applies; it is not an independent structural escape.
+
+  The only thing that remains genuinely open is the **prior-fairness convention** itself: whether a fixed pretrained φ_S is treated as a free prior (reopen convention) or as charged acquisition (foreclosure convention). No experiment can decide that convention.
+
+  ===DEGENERACY-ADJUDICATION===
+  verdict: DEGENERACY_CONFIRMED
+  loophole_found: none
+  grey_zone: yes — borderline large-sample-complexity φ* (e.g., A1-parity) collapses to H1a at the true learnability horizon, and is marked VACUOUS only under a finite budget-cap convention, not as a structural reopen.
+  reduces_to_zt: yes — the in-class/H0-H1a versus out-of-class/VACUOUS dichotomy is exactly the z_t recurrence-symmetry foreclosure translated into empirical design.
+  relax_c6_only_open_door: no — relax-C6 changes the control surface but, under fair acquisition, the baseline gets the same relaxation and representation family, so it reduces to the same z_t question and is equally foreclosed.
+  one_line: Under fair acquisition, no empirical experiment can produce a genuine H1b reopen; the reopen lives entirely in the prior-fairness convention choice, not in any discoverable structural frontier.
+  ===END===
+
+To resume this session: kimi -r session_9a3a4a54-2328-412b-8988-a0adefe494ba

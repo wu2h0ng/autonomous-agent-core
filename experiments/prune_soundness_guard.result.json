@@ -1,0 +1,15 @@
+{
+  "gate": "prune-soundness-guard",
+  "n": 6,
+  "domain": "linear",
+  "n_domains": 24,
+  "wrong_structure_pairs": 139,
+  "passed_fresh_confirmation": 73,
+  "passed_AND_action_unsafe_DIFFERENT_do": 30,
+  "passed_AND_action_unsafe_SAME_do": 0,
+  "median_action_err_after_confirm": 0.228,
+  "guard_sound_if_confirm_the_action_taken": true,
+  "one_confirm_generalizes_to_other_actions": false,
+  "verdict": "GUARD-SOUND-CONFIRM-THE-ACTION",
+  "finding": "high-power test of the prune-soundness guard over 139 wrong-structure pairs. Confirming a structure on the SAME do it will act on is SOUND iff passed_AND_action_unsafe_SAME==0 (a wrong structure that predicts do(k,v) within tol necessarily predicts do(k,v)'s outcome within tol -- tautologically, so the GOAL-CORRECT protocol is: confirm the specific action before taking it). Whether ONE confirmation GENERALIZES to a DIFFERENT action is the separate, non-trivial claim (passed_AND_action_unsafe_DIFFERENT): if >0, a single held-out confirm does NOT license arbitrary actions -> each governed action must be interventionally confirmed on its OWN do. This is the concrete prune-soundness rule: VERIFIED-to-ACT requires confirming the action's own intervention."
+}

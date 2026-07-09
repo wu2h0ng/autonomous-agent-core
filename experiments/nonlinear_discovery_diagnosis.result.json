@@ -1,0 +1,15 @@
+{
+  "id_mean_field": 0.15,
+  "truth_in_survivors": 0.65,
+  "failure_modes": {
+    "truth_pruned": 7,
+    "truth_not_unique_min": 10,
+    "nontruth_min_wins": 0,
+    "ok": 3
+  },
+  "n_domains": 20,
+  "dominant_mode": "truth_not_unique_min",
+  "conclusion": "nonlinear-discovery gap LOCALIZED: dominant mode = truth_not_unique_min (10/20) -> under the nonlinear basis the truth SURVIVES but ties with equal-edge, prediction-equivalent structures that saturating interventions cannot split, so minimality can't uniquely select it; plus 7 false-rejections (truth pruned). Candidate B (minimality-breakdown) CONFIRMED as dominant; candidate A (mean-field do-propagation) is at most secondary (would only touch the 7 pruned cases, not the 10 ties where the truth already survives) -> the expensive Monte-Carlo arm was NOT run, low-value given the dominant mode.",
+  "safety_property": "nontruth_min_wins = 0/20 -> even where nonlinear discovery FAILS, the minimality mechanism NEVER produces a confident WRONG answer; failures are honest NOT-IDENTIFIED. This holds across linear (open-world edge-prune) AND nonlinear domains -> the \u53d7\u6cbb\u7406 safety thesis (never confidently wrong) survives where the capability does not.",
+  "fix_direction": "the dominant tie-mode needs either (a) more discriminating interventions (bounded by saturation, already shown), or (b) a principled secondary tie-breaker beyond edge-count, or (c) accept honest not-identified on ties (current behavior: safe, low id). NOT a mean-field fix. Deferred as a scoped next mechanism, not guessed now."
+}

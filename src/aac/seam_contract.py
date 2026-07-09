@@ -109,11 +109,18 @@ class SeamProducer:
     shell: Optional[CorrigibilityShell] = None
 
     def handle(self, request: GovernedDecisionRequest) -> GovernedDecisionResponse:
-        # contract versioning (RR-0032 cast #4): reject incompatible MAJOR versions, never silently adapt
+        # contract versioning (RR-0032 cast #4): reject incompatible MAJOR versions, never silently adapt.
+        # The rejection itself is AUDITED (invariant 5: EVERY response carries a resolving audit_ref —
+        # caught live by the OS-side validator in the M4 deployment rehearsal, 2026-07-03).
         if request.contract_version.split(".")[0] != SEAM_CONTRACT_VERSION.split(".")[0]:
-            return GovernedDecisionResponse(
-                request.task_id, DENY, None, 0.0,
-                f"incompatible contract major version {request.contract_version} != {SEAM_CONTRACT_VERSION}", "")
+            reject_shell = self.shell if self.shell is not None else CorrigibilityShell()
+            reason = (f"incompatible contract major version "
+                      f"{request.contract_version} != {SEAM_CONTRACT_VERSION}")
+            reject_shell.view().observe(
+                {"event": "seam_version_reject", "task": request.task_id, "reason": reason})
+            entries = reject_shell.audit.entries()
+            audit_ref = entries[-1].entry_hash if entries else ""
+            return GovernedDecisionResponse(request.task_id, DENY, None, 0.0, reason, audit_ref)
 
         shell = self.shell if self.shell is not None else CorrigibilityShell()
 

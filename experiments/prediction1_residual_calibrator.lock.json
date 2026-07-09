@@ -1,0 +1,10 @@
+{
+  "adr": "ADR-0031",
+  "kind": "PRED1 prereg lock (re-locked)",
+  "prereg_hash": "6f30235020340335a182b71cd7ab8bec1577bea88b7b7221649febbd70fbcbdb",
+  "relocked": "2026-07-10",
+  "prior_hash": "694b74caac601211d5027e632012fdcaeaec27614b7059394039c65f2613ccdd",
+  "justification": "Recorded lock 694b74ca no longer reproduced: the reconcile merge of origin/main into feat/selfdiscovery-a-stage-a (RR-0051 section 4) brought (i) the additive union of src/aac/agent.py (a locked shared file) -- belief_ledger=None-guarded opt-in wiring plus a new selection='argmax' default at governed_step -- and (ii) main's newer ADR-0031 text. The three PRED1 mechanism files (src/aac/residual_calibrator.py, experiments/prediction1_residual_calibrator.py, tests/test_residual_calibrator.py) are byte-identical across both merge parents -- UNCHANGED. PRED1 r-final RE-RUN on the merged code 2026-07-10 reproduces PRED1-HOLDS EXACTLY (PR vs P0 margin -0.006, 13/30 wins, p=0.550830, CI=[-30.8,19.0]), identical to the 2026-06-30 and 2026-07-03 re-locks -> verdict robust to the drift -> re-lock justified under founder cast 2026-07-10, not a breach (same precedent as the prior two re-locks; mechanism untouched, only shared-file plus doc drift).",
+  "enforced_by": "tests/test_prereg_locks.py (refuse-on-drift gate)",
+  "note_design": "Recorded hash now lives only in non-hashed / regex-neutralized locations; updating it never perturbs prereg_hash() (fixes the original self-referential fragility)."
+}

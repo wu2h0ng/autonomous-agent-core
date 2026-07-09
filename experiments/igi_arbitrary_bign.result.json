@@ -1,0 +1,35 @@
+{
+  "slack_plus2_baseline": {
+    "slack": 2,
+    "n_domains": 30,
+    "mec_range": [
+      4,
+      56
+    ],
+    "identification": 0.633,
+    "achievement": 0.921,
+    "id_by_n": {
+      "8": 0.786,
+      "9": 0.6,
+      "10": 0.562
+    },
+    "halt_100pct": true
+  },
+  "slack_plus3_fix": {
+    "slack": 3,
+    "n_domains": 30,
+    "mec_range": [
+      4,
+      56
+    ],
+    "identification": 0.633,
+    "achievement": 0.921,
+    "id_by_n": {
+      "8": 0.786,
+      "9": 0.6,
+      "10": 0.562
+    },
+    "halt_100pct": true
+  },
+  "dip_closed": false
+}

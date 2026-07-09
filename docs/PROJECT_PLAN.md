@@ -46,6 +46,10 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 ```
 
 The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The 13 skips are the intentional Temporal Options PRE_SPEC_DRAFT sentinels, not hidden failures, and on 2026-07-04 the sentinel was re-hardened to self-skip before importing any local draft implementation. This is suite/gate verification only, not a Direction 1 experiment result.
+506 tests OK
+```
+
+The 506-test result was verified 2026-06-29 on chore/finalization-debt-2026-06-29 (off main) after landing the stranded additive research artifacts (R-CSL-1, parity-lag, direction1, ADR-0039). Was 454 (Codex, 2026-06-23, ADR-0038 era). Re-run before code submission if you change code.
 
 ## 2. Immediate Task
 
@@ -359,7 +363,7 @@ Confirmed PREDICTION 1 result (ADR-0031):
 ```text
 Calibration seeds          = 1200..1219
 Frozen params              = lambda 0.8 / eta 0.1
-Prereg hash                = fe40754e2f7ff59dc6529af23703bfcf8ff99006a9e4e4a8a64694adf14833bf
+Prereg hash                = f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936
 R-final seeds              = 1300..1329
 P0 frozen G10              = 788.8
 PR gate + calibrator       = 793.3

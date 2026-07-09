@@ -1,0 +1,17 @@
+{
+  "gate": "IGI-E2E-2d",
+  "envs": 8,
+  "t1_mean": 4.467,
+  "t1_identification": 0.938,
+  "t2_mean": 2,
+  "compounding_saving": 2.467,
+  "achievement_drop": 0.0,
+  "stale_cache_refuted_TARGETED": 0.533,
+  "vs_2c_generic": 0.667,
+  "new_truth_identification": 0.533,
+  "controls": {
+    "halt_100pct": true,
+    "arena_valid": true
+  },
+  "verdict": "FAIL"
+}
