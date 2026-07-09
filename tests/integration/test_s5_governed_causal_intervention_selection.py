@@ -204,6 +204,47 @@ class GovernedCausalInterventionSelection(unittest.TestCase):
             result.action_proposal.recommended_action, _CAUSAL
         )  # bound to the selection
 
+    def test_allow_rebind_moves_recommended_flag_across_alternatives(self):
+        # ADR-0014 extension of the rebind rule: when the proposer also surfaces the
+        # human-facing choice set (alternatives), the ALLOW-with-rebind must move the
+        # recommended flag to the seam's chosen_action so the deliberation record the
+        # approver sees never contradicts the verdict-bound recommendation.
+        from agent_os_contracts import ActionAlternative
+
+        runtime = _runtime((_LURE, _CAUSAL))
+        base_builder = runtime.action_builder
+
+        class _AlternativesCandidateBuilder:
+            def build(self, *, proposal_id: str, evidence) -> ActionProposal:
+                proposal = base_builder.build(proposal_id=proposal_id, evidence=evidence)
+                from dataclasses import replace
+
+                return replace(
+                    proposal,
+                    alternatives=(
+                        ActionAlternative(
+                            action=_LURE,
+                            rationale="high observational correlation",
+                            recommended=True,
+                        ),
+                        ActionAlternative(
+                            action=_CAUSAL,
+                            rationale="verified under cohort A/B intervention",
+                        ),
+                    ),
+                )
+
+        runtime.action_builder = _AlternativesCandidateBuilder()
+        result = runtime.run("最近7天GMV是多少？", _PARAMS)
+
+        self.assertEqual(_governed_decision_event(result)["chosen_action"], _CAUSAL)
+        self.assertEqual(result.action_proposal.recommended_action, _CAUSAL)
+        recommended = [alt.action for alt in result.action_proposal.alternatives if alt.recommended]
+        self.assertEqual(recommended, [_CAUSAL])
+        # every seam candidate label remains visible in the human-facing choice set
+        alternative_actions = {alt.action for alt in result.action_proposal.alternatives}
+        self.assertTrue(set(result.action_proposal.candidate_actions) <= alternative_actions)
+
     def test_all_lures_escalates_never_auto_selects(self):
         result = _runtime((_LURE, "raise_budget:another_lure")).run("最近7天GMV是多少？", _PARAMS)
         payload = _governed_decision_event(result)

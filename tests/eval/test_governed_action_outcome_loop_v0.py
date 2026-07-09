@@ -76,6 +76,10 @@ class _R3ActionRecordProposalBuilder:
             action_type="execute",
             action_parameters={"amount": 100},
             idempotency_key="idem-d6-r3-loop",
+            # ADR-0014: this eval builder deliberately surfaces exactly one action.
+            single_option_rationale=(
+                "Eval fixture exercises the single approval-bound R3 write path."
+            ),
         )
 
 
@@ -95,6 +99,10 @@ class _R4ActionRecordProposalBuilder:
             action_type="execute",
             action_parameters={"amount": 100},
             idempotency_key="idem-d6-r4-loop",
+            # ADR-0014: this eval builder deliberately surfaces exactly one action.
+            single_option_rationale=(
+                "Eval fixture exercises the single approval-bound R4 proposal path."
+            ),
         )
 
 

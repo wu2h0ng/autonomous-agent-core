@@ -553,6 +553,38 @@ class OpenApiContractTest(unittest.TestCase):
         error_schema = spec["components"]["schemas"]["ApprovalExecuteErrorResponse"]
         self.assertEqual(set(error_schema["required"]), {"detail"})
 
+    def test_approval_choice_set_contract_is_declared(self) -> None:
+        """ADR-0014: the approval detail and decision projections expose the choice set."""
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        approval_detail = spec["paths"]["/approvals/{approval_id}"]["get"]
+        self.assertEqual(
+            approval_detail["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/ApprovalDetailResponse"},
+        )
+        schemas = spec["components"]["schemas"]
+        detail_schema = schemas["ApprovalDetailResponse"]
+        self.assertIn("alternatives", detail_schema["properties"])
+        self.assertIn("single_option_rationale", detail_schema["properties"])
+        self.assertEqual(
+            detail_schema["properties"]["alternatives"]["items"],
+            {"$ref": "#/components/schemas/ActionAlternativeItem"},
+        )
+
+        alternative_schema = schemas["ActionAlternativeItem"]
+        self.assertGreaterEqual(
+            set(alternative_schema["properties"]),
+            {"action", "rationale", "risk_level", "recommended"},
+        )
+        self.assertGreaterEqual(set(alternative_schema["required"]), {"action", "rationale"})
+
+        decision_schema = schemas["UserResultDecision"]
+        self.assertIn("alternatives", decision_schema["properties"])
+        self.assertIn("single_option_rationale", decision_schema["properties"])
+        self.assertEqual(
+            decision_schema["properties"]["alternatives"]["items"],
+            {"$ref": "#/components/schemas/ActionAlternativeItem"},
+        )
+
     def test_adoption_contract_declares_causal_attribution_request_field(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         adoption = spec["components"]["schemas"]["AdoptionRequest"]

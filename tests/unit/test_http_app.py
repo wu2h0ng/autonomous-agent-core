@@ -4234,5 +4234,181 @@ class TenantManagementTest(unittest.TestCase):
         self.assertEqual(external_get.status_code, 403, external_get.text)
 
 
+def _install_alternatives_approval_builder(client) -> dict[str, str]:
+    """Route runs through an approval-required builder carrying an ADR-0014 choice set.
+
+    The recommended action sorts lexically AFTER the non-recommended one, so the
+    surface tests can prove the presentation invariant (recommendation is flagged,
+    never reordered to the top).
+    """
+    from agent_os_contracts import ActionAlternative, ActionProposal, RiskLevel
+
+    rationales = {
+        "hold_budget": "Keep spend flat while the driver is re-verified.",
+        "raise_budget": "Interventionally verified driver for the metric.",
+    }
+
+    class _AlternativesApprovalBuilder:
+        def build(self, *, proposal_id: str, evidence) -> ActionProposal:
+            return ActionProposal(
+                proposal_id=proposal_id,
+                evidence_chain_id=evidence.evidence_chain_id,
+                target_object=evidence.metric_contract.metric_name,
+                recommended_action="raise_budget",
+                reason=evidence.conclusion,
+                risk_level=RiskLevel.R3,
+                expected_impact="Exercise the ADR-0014 approval choice-set surface.",
+                approval_required=True,
+                approver_role="Business Owner",
+                connector_name="manual_review",
+                action_type="execute",
+                action_parameters={},
+                alternatives=(
+                    ActionAlternative(
+                        action="raise_budget",
+                        rationale=rationales["raise_budget"],
+                        risk_level=RiskLevel.R3,
+                        recommended=True,
+                    ),
+                    ActionAlternative(
+                        action="hold_budget",
+                        rationale=rationales["hold_budget"],
+                        risk_level=RiskLevel.R1,
+                    ),
+                ),
+            )
+
+    client.app.state.runtime.action_builder = _AlternativesApprovalBuilder()
+    return rationales
+
+
+@unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
+class ApprovalChoiceSetSurfaceTest(unittest.TestCase):
+    """ADR-0014 surfaces: GET /approvals/{id} and user_result.decision expose the choice set."""
+
+    def test_action_record_approval_exposes_single_option_rationale(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        payload = run_resp.json()
+        decision = payload["user_result"]["decision"]
+        self.assertTrue(decision["approval_required"])
+        self.assertEqual(decision["alternatives"], [])
+        self.assertTrue((decision["single_option_rationale"] or "").strip())
+
+        approval_id = payload["user_result"]["business_action"]["approval_id"]
+        detail_resp = client.get(f"/approvals/{approval_id}", headers=headers)
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        detail = detail_resp.json()
+        self.assertEqual(detail["alternatives"], [])
+        self.assertEqual(
+            detail["single_option_rationale"],
+            decision["single_option_rationale"],
+        )
+
+    def test_approval_detail_renders_alternatives_in_stable_neutral_order(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        _install_alternatives_approval_builder(client)
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        approval_id = run_resp.json()["user_result"]["business_action"]["approval_id"]
+
+        detail_resp = client.get(f"/approvals/{approval_id}", headers=headers)
+        self.assertEqual(detail_resp.status_code, 200, detail_resp.text)
+        detail = detail_resp.json()
+        self.assertIsNone(detail["single_option_rationale"])
+        # Stable neutral order (lexical by action): the recommendation is flagged,
+        # never reordered to the top.
+        self.assertEqual(
+            [alt["action"] for alt in detail["alternatives"]],
+            ["hold_budget", "raise_budget"],
+        )
+        self.assertEqual(
+            [alt["recommended"] for alt in detail["alternatives"]],
+            [False, True],
+        )
+        self.assertEqual(detail["alternatives"][0]["risk_level"], "R1")
+        self.assertEqual(detail["alternatives"][1]["risk_level"], "R3")
+        self.assertTrue(detail["alternatives"][0]["rationale"])
+        self.assertTrue(detail["alternatives"][1]["rationale"])
+
+    def test_user_result_decision_exposes_and_redacts_alternatives(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        rationales = _install_alternatives_approval_builder(client)
+
+        run_resp = client.post("/runs", json=RUN_BODY, headers=headers)
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        decision = run_resp.json()["user_result"]["decision"]
+        self.assertEqual(
+            [alt["action"] for alt in decision["alternatives"]],
+            ["hold_budget", "raise_budget"],
+        )
+        self.assertEqual(
+            [alt["recommended"] for alt in decision["alternatives"]],
+            [False, True],
+        )
+        self.assertEqual(
+            [alt["rationale"] for alt in decision["alternatives"]],
+            [rationales["hold_budget"], rationales["raise_budget"]],
+        )
+
+        # External audiences receive the same redaction treatment as the existing
+        # decision deliberation fields: rationale text is withheld, structure kept.
+        external_resp = client.get(
+            f"/runs/{trace_id}/report?audience=external",
+            headers=headers,
+        )
+        self.assertEqual(external_resp.status_code, 200, external_resp.text)
+        external_decision = external_resp.json()["user_result"]["decision"]
+        self.assertEqual(
+            [alt["action"] for alt in external_decision["alternatives"]],
+            ["hold_budget", "raise_budget"],
+        )
+        self.assertEqual(
+            [alt["rationale"] for alt in external_decision["alternatives"]],
+            ["", ""],
+        )
+        self.assertEqual(
+            [alt["recommended"] for alt in external_decision["alternatives"]],
+            [False, True],
+        )
+        self.assertIsNone(external_decision["single_option_rationale"])
+        self.assertNotIn(rationales["raise_budget"], external_resp.text)
+        self.assertNotIn(rationales["hold_budget"], external_resp.text)
+
+    def test_external_report_redacts_single_option_rationale(self) -> None:
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+
+        run_resp = client.post(
+            "/runs",
+            json={"question": "GMV 记录行动", "parameters": RUN_BODY["parameters"]},
+            headers=headers,
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        internal_rationale = run_resp.json()["user_result"]["decision"]["single_option_rationale"]
+        self.assertTrue((internal_rationale or "").strip())
+
+        external_resp = client.get(
+            f"/runs/{trace_id}/report?audience=external",
+            headers=headers,
+        )
+        self.assertEqual(external_resp.status_code, 200, external_resp.text)
+        external_decision = external_resp.json()["user_result"]["decision"]
+        self.assertIsNone(external_decision["single_option_rationale"])
+        self.assertNotIn(internal_rationale, external_resp.text)
+
+
 if __name__ == "__main__":
     unittest.main()

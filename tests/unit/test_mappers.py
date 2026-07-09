@@ -273,6 +273,62 @@ class MapperRoundTripTest(unittest.TestCase):
             ctx,
         )
 
+        # ADR-0014: the approval choice set survives the durable round trip, and
+        # legacy payloads without the new keys reconstruct the empty defaults.
+        from agent_os_contracts import ActionAlternative, RiskLevel
+
+        choice_set_ctx = ApprovalOperationContext(
+            approval_id="approval-2",
+            proposal_id="proposal-2",
+            operation=operation,
+            action_parameters={"amount": 100},
+            evidence_chain=evidence,
+            alternatives=(
+                ActionAlternative(
+                    action="hold_budget",
+                    rationale="keep spend flat",
+                    risk_level=RiskLevel.R1,
+                ),
+                ActionAlternative(
+                    action="raise_budget",
+                    rationale="verified driver",
+                    risk_level=RiskLevel.R3,
+                    recommended=True,
+                ),
+            ),
+            single_option_rationale=None,
+        )
+        self.assertEqual(
+            _round_trip(
+                mappers.approval_context_to_payload,
+                mappers.approval_context_from_payload,
+                choice_set_ctx,
+            ),
+            choice_set_ctx,
+        )
+        rationale_ctx = ApprovalOperationContext(
+            approval_id="approval-3",
+            proposal_id="proposal-3",
+            operation=operation,
+            action_parameters={},
+            evidence_chain=evidence,
+            single_option_rationale="only one governed write path exists",
+        )
+        self.assertEqual(
+            _round_trip(
+                mappers.approval_context_to_payload,
+                mappers.approval_context_from_payload,
+                rationale_ctx,
+            ),
+            rationale_ctx,
+        )
+        legacy_payload = mappers.approval_context_to_payload(ctx)
+        legacy_payload.pop("alternatives", None)
+        legacy_payload.pop("single_option_rationale", None)
+        legacy = mappers.approval_context_from_payload(legacy_payload)
+        self.assertEqual(legacy.alternatives, ())
+        self.assertIsNone(legacy.single_option_rationale)
+
     def test_policy_approval_round_trip_and_status_default(self) -> None:
         active = PolicyApprovalRecord(
             record_id="par-1",

@@ -57,6 +57,7 @@ from .workflow import (
     WorkflowStep,
 )
 from .trusted_loop import (
+    ActionAlternative,
     ActionCandidate,
     ActionProposal,
     BlockCode,
@@ -88,6 +89,7 @@ from .trusted_loop import (
 )
 
 __all__ = [
+    "ActionAlternative",
     "ActionCandidate",
     "ActionConnectorContract",
     "ActionProposal",

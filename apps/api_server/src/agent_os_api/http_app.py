@@ -612,6 +612,20 @@ class UserResultRedaction(BaseModel):
     reason: str | None = None
 
 
+class ActionAlternativeItem(BaseModel):
+    """A human-facing candidate action in the approval choice set (ADR-0014).
+
+    Rendered in a stable neutral order (lexical by action) with the recommendation
+    flagged — never reordered to the top — so approver position bias is not
+    exploitable by the proposer.
+    """
+
+    action: str
+    rationale: str
+    risk_level: str | None = None
+    recommended: bool = False
+
+
 class UserResultDecision(BaseModel):
     recommendation: str
     reason: str
@@ -623,6 +637,8 @@ class UserResultDecision(BaseModel):
     confidence: float
     knowledge_context_refs: list[str] = Field(default_factory=list)
     knowledge_context_rationale: list[KnowledgeContextRationaleItem]
+    alternatives: list[ActionAlternativeItem] = Field(default_factory=list)
+    single_option_rationale: str | None = None
 
 
 class UserResultBusinessAction(BaseModel):
@@ -1261,6 +1277,18 @@ class ApprovalListItem(BaseModel):
     approver_role: str | None = None
     approved_by: str | None = None
     reason: str | None = None
+
+
+class ApprovalDetailResponse(ApprovalListItem):
+    """Approval detail with the ADR-0014 choice set the approver decides between.
+
+    ``alternatives`` come from the pending approval context (empty once the
+    operation has executed and the context is consumed); ``single_option_rationale``
+    explains why only one option was surfaced when no alternatives exist.
+    """
+
+    alternatives: list[ActionAlternativeItem] = Field(default_factory=list)
+    single_option_rationale: str | None = None
 
 
 class ApprovalListResponse(BaseModel):
@@ -2540,7 +2568,7 @@ def create_app(
 
     @app.get(
         "/approvals/{approval_id}",
-        response_model=ApprovalListItem,
+        response_model=ApprovalDetailResponse,
         responses={
             404: {
                 "model": ApprovalExecuteErrorResponse,
@@ -2564,6 +2592,21 @@ def create_app(
                     "approval_id": approval_id,
                 },
             ) from exc
+        # ADR-0014: render the choice set snapshotted at proposal time. Stable
+        # neutral order (lexical by action), recommendation flagged, never
+        # reordered to the top. The approvals surface is internal/viewer-scoped
+        # (no external principal holds approvals:read), so no audience redaction
+        # ceiling applies here beyond the scope gate itself.
+        context_store = getattr(app.state.runtime, "approval_context_store", None)
+        context = (
+            context_store.get(approval_id, tenant_id=tenant_id)
+            if context_store is not None
+            else None
+        )
+        alternatives = sorted(
+            getattr(context, "alternatives", ()) or (),
+            key=lambda alternative: alternative.action,
+        )
         return {
             "approval_id": record.approval_id,
             "proposal_id": record.proposal_id,
@@ -2571,6 +2614,18 @@ def create_app(
             "approver_role": record.approver_role,
             "approved_by": record.approved_by,
             "reason": record.reason,
+            "alternatives": [
+                {
+                    "action": alternative.action,
+                    "rationale": alternative.rationale,
+                    "risk_level": (
+                        alternative.risk_level.value if alternative.risk_level is not None else None
+                    ),
+                    "recommended": alternative.recommended,
+                }
+                for alternative in alternatives
+            ],
+            "single_option_rationale": getattr(context, "single_option_rationale", None),
         }
 
     @app.post(

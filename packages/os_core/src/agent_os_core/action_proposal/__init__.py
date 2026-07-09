@@ -81,6 +81,15 @@ class ActionProposalBuilder:
             approval_required = True
             approver_role = "Business Owner"
             action_type = "execute"
+            # ADR-0014: this builder genuinely deliberates over ONE admissible action —
+            # an empty result grounds no alternative business action, only a
+            # data-availability review. State that explicitly instead of padding the
+            # choice set with fabricated alternatives.
+            single_option_rationale = (
+                "The metric query returned no rows, so no alternative business action "
+                "can be grounded in this evidence; the only admissible follow-up is a "
+                "review task confirming data availability and metric scope."
+            )
         else:
             recommendation = (
                 "Review the metric result and decide whether follow-up analysis is needed."
@@ -89,6 +98,7 @@ class ActionProposalBuilder:
             approval_required = False
             approver_role = None
             action_type = "propose"
+            single_option_rationale = None
 
         return ActionProposal(
             proposal_id=proposal_id,
@@ -103,6 +113,7 @@ class ActionProposalBuilder:
             connector_name="manual_review",
             action_type=action_type,
             action_parameters={},
+            single_option_rationale=single_option_rationale,
         )
 
     @staticmethod
@@ -158,4 +169,12 @@ class ActionProposalBuilder:
                 "conclusion": evidence.conclusion,
                 "confidence": evidence.confidence,
             },
+            # ADR-0014: the user explicitly requested recording this follow-up action
+            # and the reversible action_record connector is the only governed write
+            # path for that request — a truthful single-option rationale, not padding.
+            single_option_rationale=(
+                "The user explicitly requested recording a follow-up action; the "
+                "reversible action_record connector is the only governed write path "
+                "for that request, so no alternative action is enumerated."
+            ),
         )

@@ -91,6 +91,10 @@ class _R4ActionRecordProposalBuilder:
             action_type="execute",
             action_parameters={"amount": 100},
             idempotency_key="idem-r4-demo",
+            # ADR-0014: this test builder deliberately surfaces exactly one action.
+            single_option_rationale=(
+                "Test fixture exercises the single approval-bound R4 write path."
+            ),
         )
 
 
@@ -112,6 +116,10 @@ class _R3ApprovalActionRecordProposalBuilder:
             action_type="execute",
             action_parameters={"amount": 100},
             idempotency_key="idem-r3-demo",
+            # ADR-0014: this test builder deliberately surfaces exactly one action.
+            single_option_rationale=(
+                "Test fixture exercises the single approval-bound R3 write path."
+            ),
         )
 
 
@@ -179,6 +187,10 @@ class _R3ApprovalExternalWebhookProposalBuilder:
             action_type="execute",
             action_parameters={"customer_id": "cust-1", "secret_token": "must-not-leak"},
             idempotency_key="idem-external-webhook",
+            # ADR-0014: this test builder deliberately surfaces exactly one action.
+            single_option_rationale=(
+                "Test fixture exercises the single approval-bound external webhook path."
+            ),
         )
 
 

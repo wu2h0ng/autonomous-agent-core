@@ -648,6 +648,32 @@ def _report_evidence_cards(
     ]
 
 
+def _decision_alternatives(proposal: Any, *, audience: str) -> list[dict[str, Any]]:
+    """Project the ADR-0014 choice set for ``user_result.decision``.
+
+    Presentation invariant: stable neutral order (lexical by action) with the
+    recommendation flagged, never reordered to the top. External audiences receive
+    the same redaction treatment as the other decision deliberation fields
+    (``knowledge_context_refs``/``knowledge_context_rationale``): the rationale
+    text is withheld while the surfaced choice-set structure stays visible.
+    """
+    alternatives = sorted(
+        getattr(proposal, "alternatives", ()) or (),
+        key=lambda alternative: alternative.action,
+    )
+    return [
+        {
+            "action": alternative.action,
+            "rationale": "" if audience == "external" else alternative.rationale,
+            "risk_level": (
+                alternative.risk_level.value if alternative.risk_level is not None else None
+            ),
+            "recommended": alternative.recommended,
+        }
+        for alternative in alternatives
+    ]
+
+
 def _knowledge_context_rationale(result: Any, *, audience: str) -> list[dict[str, Any]]:
     if audience == "external":
         return []
@@ -826,6 +852,14 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
             "knowledge_context_rationale": _knowledge_context_rationale(
                 result,
                 audience=audience,
+            ),
+            # ADR-0014 choice set: same external redaction treatment as the
+            # deliberation fields above.
+            "alternatives": _decision_alternatives(proposal, audience=audience),
+            "single_option_rationale": (
+                None
+                if audience == "external"
+                else getattr(proposal, "single_option_rationale", None)
             ),
         },
         "business_action": {

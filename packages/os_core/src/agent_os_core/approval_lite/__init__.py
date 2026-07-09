@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from agent_os_contracts import EvidenceChain, OperationContract
+from agent_os_contracts import ActionAlternative, EvidenceChain, OperationContract
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,10 @@ class ApprovalOperationContext:
     operation: OperationContract
     action_parameters: dict[str, Any]
     evidence_chain: EvidenceChain
+    # ADR-0014: the proposal's human-facing choice set, snapshotted at proposal time so
+    # the approval detail surface renders what the approver is choosing between.
+    alternatives: tuple[ActionAlternative, ...] = field(default_factory=tuple)
+    single_option_rationale: str | None = None
 
 
 class ApprovalStorePort(ABC):

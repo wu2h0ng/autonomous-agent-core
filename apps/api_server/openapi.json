@@ -1,6 +1,41 @@
 {
   "components": {
     "schemas": {
+      "ActionAlternativeItem": {
+        "description": "A human-facing candidate action in the approval choice set (ADR-0014).\n\nRendered in a stable neutral order (lexical by action) with the recommendation\nflagged \u2014 never reordered to the top \u2014 so approver position bias is not\nexploitable by the proposer.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "recommended": {
+            "default": false,
+            "title": "Recommended",
+            "type": "boolean"
+          },
+          "risk_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Level"
+          }
+        },
+        "required": [
+          "action",
+          "rationale"
+        ],
+        "title": "ActionAlternativeItem",
+        "type": "object"
+      },
       "AdoptionRequest": {
         "properties": {
           "causal_attribution": {
@@ -174,6 +209,81 @@
           "detail"
         ],
         "title": "AgentRuntimeErrorResponse",
+        "type": "object"
+      },
+      "ApprovalDetailResponse": {
+        "description": "Approval detail with the ADR-0014 choice set the approver decides between.\n\n``alternatives`` come from the pending approval context (empty once the\noperation has executed and the context is consumed); ``single_option_rationale``\nexplains why only one option was surfaced when no alternatives exist.",
+        "properties": {
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/ActionAlternativeItem"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "approval_id": {
+            "title": "Approval Id",
+            "type": "string"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "approver_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Role"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "single_option_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Option Rationale"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "approval_id",
+          "proposal_id",
+          "status"
+        ],
+        "title": "ApprovalDetailResponse",
         "type": "object"
       },
       "ApprovalExecuteError": {
@@ -3968,6 +4078,13 @@
             "title": "Action Proposal Id",
             "type": "string"
           },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/ActionAlternativeItem"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
           "approval_required": {
             "title": "Approval Required",
             "type": "boolean"
@@ -4016,6 +4133,17 @@
           "risk_level": {
             "title": "Risk Level",
             "type": "string"
+          },
+          "single_option_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Option Rationale"
           }
         },
         "required": [
@@ -4551,7 +4679,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApprovalListItem"
+                  "$ref": "#/components/schemas/ApprovalDetailResponse"
                 }
               }
             },

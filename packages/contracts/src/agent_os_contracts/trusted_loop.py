@@ -253,6 +253,21 @@ class EvidenceChain:
 
 
 @dataclass(frozen=True)
+class ActionAlternative:
+    """A human-facing candidate action in the approval choice set (ADR-0014).
+
+    Unlike the seam-facing ``candidate_actions`` labels (ADR-0009), an alternative
+    carries the deliberation record the approver needs to exercise informed choice:
+    what else was considered, why it is or is not the recommendation, and its risk.
+    """
+
+    action: str
+    rationale: str
+    risk_level: RiskLevel | None = None
+    recommended: bool = False  # exactly one True when alternatives non-empty
+
+
+@dataclass(frozen=True)
 class ActionProposal:
     proposal_id: str
     evidence_chain_id: str
@@ -278,6 +293,12 @@ class ActionProposal:
     causal_dag: list[tuple[int, int]] = field(default_factory=list)
     causal_confidence: float = 0.0
     execution_mode: str = "proposal_only"  # ADR-0012: proposal_only | policy_pre_approved
+    # ADR-0014 (anti-rubber-stamp): the human-facing deliberation record. When approval is
+    # required, the runtime proposal step enforces that the proposal carries either >=2
+    # alternatives (exactly one recommended, bound to recommended_action, covering every
+    # candidate_actions label) or an explicit non-empty single_option_rationale.
+    alternatives: tuple[ActionAlternative, ...] = field(default_factory=tuple)
+    single_option_rationale: str | None = None  # explicit "why only one option"
 
 
 @dataclass(frozen=True)
@@ -340,6 +361,10 @@ class BlockCode(StrEnum):
     # RR-0032: the external governed-decision seam DENIED the action (the seam can only tighten,
     # never loosen). Distinct from PAUSED (operator) and SQL_SAFETY (data path).
     GOVERNANCE_DENIED = "governance_denied"
+    # ADR-0014: an approval-required proposal failed the human choice-set contract
+    # (no >=2 consistent alternatives AND no explicit single-option rationale).
+    # Choice-set collapse is a contract violation, not a silent default.
+    CHOICE_SET_VIOLATION = "choice_set_violation"
 
 
 @dataclass(frozen=True)

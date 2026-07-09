@@ -9,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from agent_os_contracts import (
+    ActionProposal,
     BlockCode,
     BusinessIntent,
     EvidenceChain,
@@ -666,8 +667,40 @@ class TrustedLoopRuntime:
                 "risk_level": proposal.risk_level.value,
                 "approval_required": proposal.approval_required,
                 "knowledge_context_refs": list(proposal.knowledge_context_refs),
+                # ADR-0014: the surfaced choice set is an auditable trace property.
+                "alternatives_count": len(proposal.alternatives),
+                "has_single_option_rationale": bool(
+                    (proposal.single_option_rationale or "").strip()
+                ),
             },
         )
+
+        # ====== ADR-0014 choice-set invariant (fail-closed, anti-rubber-stamp) ======
+        #
+        # A proposal that will stop at the HUMAN approval gate must surface an explicit
+        # choice set: either >=2 alternatives with exactly one recommendation bound to
+        # recommended_action (and covering every seam candidate label so the human sees
+        # at least what the disposer saw, ADR-0009 §2), or an explicit non-empty
+        # single-option rationale separating "the domain genuinely has one admissible
+        # action" from "the proposer never deliberated". Violations refuse HERE — the
+        # run never reaches awaiting_approval with a collapsed, unexplained choice set.
+        # Non-approval (R0-R2 propose-only) proposals are exempt; a later seam
+        # ESCALATE/VERIFY_MORE tighten (ADR-0009) does not re-enter this proposal-step
+        # gate, because the seam may only tighten and never re-shapes the choice set.
+        if proposal.approval_required:
+            choice_set_violations = self._choice_set_violations(proposal)
+            if choice_set_violations:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.CHOICE_SET_VIOLATION,
+                        message=(
+                            "Approval-required proposal does not carry a valid human "
+                            "choice set (ADR-0014)."
+                        ),
+                        stage="action_proposal",
+                        details=choice_set_violations,
+                    )
+                )
 
         # ====== Governed-decision seam (RR-0032, R0-R3 wire): optional external governance ======
         # The injected client (a remote RPC stub or a local reference) returns a verdict that can only
@@ -781,7 +814,26 @@ class TrustedLoopRuntime:
                         and seam_decision.chosen_action in proposal.candidate_actions
                         and seam_decision.chosen_action != proposal.recommended_action
                     ):
-                        proposal = replace(proposal, recommended_action=seam_decision.chosen_action)
+                        # ADR-0014: when a human-facing choice set is surfaced, the
+                        # recommended flag follows the rebound recommendation so the
+                        # deliberation record never contradicts the verdict-bound action.
+                        rebound_alternatives = proposal.alternatives
+                        if any(
+                            alternative.action == seam_decision.chosen_action
+                            for alternative in proposal.alternatives
+                        ):
+                            rebound_alternatives = tuple(
+                                replace(
+                                    alternative,
+                                    recommended=(alternative.action == seam_decision.chosen_action),
+                                )
+                                for alternative in proposal.alternatives
+                            )
+                        proposal = replace(
+                            proposal,
+                            recommended_action=seam_decision.chosen_action,
+                            alternatives=rebound_alternatives,
+                        )
 
         # ====== Governance gate: propose-only vs governed execution ======
         #
@@ -861,6 +913,10 @@ class TrustedLoopRuntime:
                         operation=operation,
                         action_parameters=dict(proposal.action_parameters),
                         evidence_chain=evidence,
+                        # ADR-0014: snapshot the choice set so the approval surface can
+                        # render what the approver is actually choosing between.
+                        alternatives=proposal.alternatives,
+                        single_option_rationale=proposal.single_option_rationale,
                     ),
                     tenant_id=tenant_id,
                 )
@@ -1433,6 +1489,52 @@ class TrustedLoopRuntime:
             tenant_id=parsed.tenant_id,
             workspace_id=parsed.workspace_id,
         )
+
+    @staticmethod
+    def _choice_set_violations(proposal: ActionProposal) -> tuple[str, ...]:
+        """Return ADR-0014 choice-set contract violations for an approval-required proposal.
+
+        Domain-independent enforcement only: the runtime never invents or reorders
+        alternatives — content is supplied by proposers/builders/domain packs. An
+        empty tuple means the proposal satisfies the invariant.
+        """
+        violations: list[str] = []
+        if proposal.alternatives:
+            if len(proposal.alternatives) < 2:
+                violations.append(
+                    "alternatives must contain at least 2 entries when present; "
+                    f"found {len(proposal.alternatives)}"
+                )
+            recommended = [
+                alternative for alternative in proposal.alternatives if alternative.recommended
+            ]
+            if len(recommended) != 1:
+                violations.append(
+                    f"exactly one alternative must be recommended; found {len(recommended)}"
+                )
+            elif recommended[0].action != proposal.recommended_action:
+                violations.append(
+                    "the recommended alternative "
+                    f"'{recommended[0].action}' does not match recommended_action "
+                    f"'{proposal.recommended_action}'"
+                )
+            alternative_actions = {alternative.action for alternative in proposal.alternatives}
+            missing_candidates = [
+                candidate
+                for candidate in proposal.candidate_actions
+                if candidate not in alternative_actions
+            ]
+            if missing_candidates:
+                violations.append(
+                    "every candidate_actions label must appear among alternatives; missing: "
+                    + ", ".join(missing_candidates)
+                )
+        elif not (proposal.single_option_rationale or "").strip():
+            violations.append(
+                "approval-required proposal carries neither alternatives (>=2) nor a "
+                "non-empty single_option_rationale"
+            )
+        return tuple(violations)
 
     @staticmethod
     def _assert_grounded(safety: SQLSafetyResult, evidence: EvidenceChain) -> None:

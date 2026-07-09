@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_os_contracts import (
+    ActionAlternative,
     BusinessIntent,
     CausalAttributionMethod,
     CausalOutcomeAttribution,
@@ -25,6 +26,7 @@ from agent_os_contracts import (
     PolicyApprovalRecord,
     QueryPlan,
     QueryResult,
+    RiskLevel,
     RunTrace,
     SQLSafetyIssue,
     SQLSafetyResult,
@@ -459,6 +461,19 @@ def approval_context_to_payload(context: ApprovalOperationContext) -> dict[str, 
         "operation": operation_to_payload(context.operation),
         "action_parameters": dict(context.action_parameters),
         "evidence_chain": evidence_to_payload(context.evidence_chain),
+        # ADR-0014: durable choice-set snapshot for the approval detail surface.
+        "alternatives": [
+            {
+                "action": alternative.action,
+                "rationale": alternative.rationale,
+                "risk_level": (
+                    alternative.risk_level.value if alternative.risk_level is not None else None
+                ),
+                "recommended": alternative.recommended,
+            }
+            for alternative in context.alternatives
+        ],
+        "single_option_rationale": context.single_option_rationale,
     }
 
 
@@ -469,6 +484,19 @@ def approval_context_from_payload(payload: dict[str, Any]) -> ApprovalOperationC
         operation=operation_from_payload(payload["operation"]),
         action_parameters=dict(payload.get("action_parameters") or {}),
         evidence_chain=evidence_from_payload(payload["evidence_chain"]),
+        # Legacy payloads (pre ADR-0014) reconstruct the empty defaults.
+        alternatives=tuple(
+            ActionAlternative(
+                action=alternative["action"],
+                rationale=alternative["rationale"],
+                risk_level=(
+                    RiskLevel(alternative["risk_level"]) if alternative.get("risk_level") else None
+                ),
+                recommended=bool(alternative.get("recommended", False)),
+            )
+            for alternative in payload.get("alternatives") or ()
+        ),
+        single_option_rationale=payload.get("single_option_rationale"),
     )
 
 
