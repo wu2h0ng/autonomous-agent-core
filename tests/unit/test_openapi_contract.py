@@ -48,8 +48,10 @@ class OpenApiContractTest(unittest.TestCase):
             [
                 "/adoptions",
                 "/agent-runtime/runs/{runtime_run_id}/resume",
+                "/analytics/approvals",
                 "/approvals",
                 "/approvals/{approval_id}",
+                "/approvals/{approval_id}/decision",
                 "/approvals/{approval_id}/execute",
                 "/dashboards",
                 "/dashboards/{dashboard_id}",
