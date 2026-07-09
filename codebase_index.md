@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted
-tests: 1016 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted; real-data adapter examples and ground-truth-free metrics (ADR-0053) implemented
+tests: 1029 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -141,6 +141,21 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `docs/adr/ADR-0052-real-data-intervention-binding-protocol.md` | Accepted ADR with RR-0029 §5 architecture-theory review. Defines the protocol, claim class, channel map, control/consumption path, C6/C7/SD4 boundary, product/process boundary, and failure modes. |
 | `src/aac/real_data_intervention_env.py` | `RealDataInterventionEnv` protocol + `GovernedInterventionBinding` C7 wrapper. Enforces allowed-handle whitelist, forbidden nodes/edges, value ranges, budget, dry-run default, mandatory external approval for live mode, and audit callback. |
 | `tests/test_real_data_intervention_env.py` | 10 tests: observe pass-through, dry-run does not call actuator, forbidden/disallowed handles blocked, value out-of-range blocked, live path requires approval, live path applies when approved, budget exhausted blocks, readback missing logged, SHD pass-through. |
+
+## Real-Data Adapter Examples and Ground-Truth-Free Metrics (2026-07-09)
+
+| File | Role |
+|------|------|
+| `docs/adr/ADR-0053-real-data-adapter-examples-and-evaluation-metrics.md` | Accepted ADR with RR-0029 §5 architecture-theory review. Authorizes CSV/HTTP/queue adapters and `predictive_validation_score` / `interventional_agreement_score` metrics. |
+| `docs/research/founder-cast-2026-07-09-live-adapter-examples.md` | Founder cast authorizing the adapter examples and metrics under dry-run-by-default and approval-gated live mode; forbids production connectors. |
+| `adapters/csv_adapter.py` | CSV adapter: reads observations from CSV, logs intervention requests, optionally reads back samples from a second CSV. Pure stdlib. |
+| `adapters/http_adapter.py` | HTTP webhook adapter: GET observations as JSON, POST intervention proposals, parse JSON read-back. Pure stdlib. |
+| `adapters/queue_adapter.py` | Queue adapter: reads observations from `queue.Queue`, publishes requests to a request queue, consumes read-back samples. For local harnesses. |
+| `src/aac/cwm_evaluation.py` | Ground-truth-free metrics: `predictive_validation_score` fits linear models implied by predicted DAG and scores held-out interventions vs a marginal-mean baseline; `interventional_agreement_score` compares empirical intervention shifts to model-predicted shifts. |
+| `tests/test_csv_adapter.py` | 4 tests: observe last-n rows, intervention logging, read-back lookup, SHD with ground truth. |
+| `tests/test_http_adapter.py` | 3 tests: observe JSON parse, POST intervention and sample parse, HTTP error returns `None`. |
+| `tests/test_queue_adapter.py` | 3 tests: observe drain, request/read-back round-trip, timeout returns `None`. |
+| `tests/test_cwm_evaluation.py` | 3 tests: true DAG beats empty DAG on predictive validation, true DAG improves interventional agreement, empty data returns `None`. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
