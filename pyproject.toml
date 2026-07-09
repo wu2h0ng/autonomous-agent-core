@@ -6,11 +6,10 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-product-core = [
-    "pydantic>=2.13,<3",
-]
 product-test = [
     "pytest>=9,<10",
+    "pyright>=1.1.410,<2",
+    "ruff>=0.14,<1",
 ]
 
 [build-system]
@@ -18,11 +17,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = [
-    "src",
-    "packages/contracts/src",
-    "packages/os_core/src",
-]
+where = ["src"]
 
 [tool.pytest.ini_options]
 pythonpath = [
