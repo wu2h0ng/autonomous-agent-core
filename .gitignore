@@ -10,3 +10,11 @@ dist/
 
 # macOS
 .DS_Store
+.env
+.cache/
+
+# Large external / reproducible raw datasets (re-downloadable from GEO; do not track)
+experiments/data/perturb_seq/
+
+# Experiment run logs (reproducible stdout artifacts)
+experiments/*.stdout.log
