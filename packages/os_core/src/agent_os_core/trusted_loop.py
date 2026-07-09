@@ -1232,12 +1232,29 @@ class TrustedLoopRuntime:
                 raise KeyError(f"No pending operation context found for approval '{approval_id}'")
             approval = self.approval_runtime.get(approval_id, tenant_id=tenant_id)
             if approval.status == "pending":
-                approval = self.approval_runtime.approve(
-                    approval_id,
-                    reason=reason,
-                    approved_by=approved_by,
-                    tenant_id=tenant_id,
-                )
+                if approval.decision is None:
+                    # P2-A (ADR-0015): executing a pending approval with no explicit prior
+                    # decision IS approving the recommended action. Record it as
+                    # approved_recommended (selected_action = recommended_action) via the
+                    # SAME derivation path, so the primary operator path (straight execute
+                    # of the recommendation — the most common rubber-stamp) is measurable
+                    # in the analytics instead of being invisible with decision=None.
+                    approval = self.approval_runtime.decide(
+                        approval_id,
+                        outcome="approve",
+                        reason=reason,
+                        approved_by=approved_by,
+                        tenant_id=tenant_id,
+                    )
+                else:
+                    # An explicit prior decision (e.g. escalated) stands and must not be
+                    # overwritten; just move the lifecycle to approved for execution.
+                    approval = self.approval_runtime.approve(
+                        approval_id,
+                        reason=reason,
+                        approved_by=approved_by,
+                        tenant_id=tenant_id,
+                    )
             elif approval.status != "approved":
                 raise ValueError(
                     f"Approval '{approval_id}' is '{approval.status}', expected pending or approved."
