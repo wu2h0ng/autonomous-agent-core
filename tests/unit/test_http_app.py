@@ -4010,6 +4010,20 @@ class CorsMiddlewareTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.headers.get("access-control-allow-origin"), "http://127.0.0.1:3099")
 
+    def test_preflight_allows_frontend_port_fallback_origin(self) -> None:
+        """FRONTEND_PORT=3001 when host :3000 is already bound (e.g. multica)."""
+        client = _make_client(API_KEY)
+        resp = client.options(
+            "/runs",
+            headers={
+                "Origin": "http://localhost:3001",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-api-key,content-type,x-tenant-id",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.headers.get("access-control-allow-origin"), "http://localhost:3001")
+
 
 @unittest.skipUnless(_HTTP_AVAILABLE, "fastapi/httpx not installed")
 class ObservabilityTest(unittest.TestCase):

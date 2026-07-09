@@ -1336,6 +1336,8 @@ def _cors_origins_from_env() -> list[str]:
     return [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:3099",
         "http://127.0.0.1:3099",
     ]
