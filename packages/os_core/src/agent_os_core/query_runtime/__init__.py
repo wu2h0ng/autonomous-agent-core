@@ -60,13 +60,29 @@ class TemplateRegistry:
 
 
 class StaticQueryExecutor:
-    """Deterministic test executor. Real providers must live outside OS Core."""
+    """Deterministic test executor. Real providers must live outside OS Core.
 
-    def __init__(self, rows: Iterable[dict[str, Any]]) -> None:
+    ``source_age_seconds`` optionally reports the recency of the underlying data (seconds
+    since the source was last refreshed), mirroring what a real provider/executor would
+    surface on the QueryResult. Left ``None`` the answer's freshness is unknown (P2-C:
+    the EvidenceChain then caps + flags confidence rather than assuming freshness).
+    """
+
+    def __init__(
+        self,
+        rows: Iterable[dict[str, Any]],
+        *,
+        source_age_seconds: float | None = None,
+    ) -> None:
         self._rows = tuple(rows)
+        self._source_age_seconds = source_age_seconds
 
     def execute(self, _plan: QueryPlan) -> QueryResult:
-        return QueryResult(rows=self._rows, row_count=len(self._rows))
+        return QueryResult(
+            rows=self._rows,
+            row_count=len(self._rows),
+            source_age_seconds=self._source_age_seconds,
+        )
 
 
 class SQLiteQueryExecutor:

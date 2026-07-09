@@ -95,8 +95,12 @@ class EvidenceChainTypedTest(unittest.TestCase):
         self.assertEqual(len(evidence.claims), 1)
         self.assertIsInstance(evidence.claims[0], Claim)
         self.assertIn("query_result", evidence.claims[0].evidence_refs)
-        self.assertEqual(len(evidence.limitation_objects), 1)
-        self.assertIsInstance(evidence.limitation_objects[0], Limitation)
+        # P2-C (ADR-0017): limitations are now DERIVED from the confidence inputs, so the
+        # count is context-dependent (this fixture has no source_template and no freshness,
+        # so it honestly flags both unverified-template and freshness-unknown). The typed
+        # invariant this test pins is that limitation_objects are populated and typed.
+        self.assertGreaterEqual(len(evidence.limitation_objects), 1)
+        self.assertTrue(all(isinstance(item, Limitation) for item in evidence.limitation_objects))
         self.assertIsInstance(evidence.confidence_score, ConfidenceScore)
         self.assertEqual(len(evidence.eval_bindings), 1)
         self.assertIsInstance(evidence.eval_bindings[0], EvalBinding)
