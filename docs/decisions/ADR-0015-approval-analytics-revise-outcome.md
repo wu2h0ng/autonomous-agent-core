@@ -73,9 +73,14 @@ was a revise). The analytics read and the decision write are **admin/operator-on
 (`analytics:read`, `approvals:decide` on the internal principal); the `external_report` and `viewer`
 principals do not hold them, so deliberation / modify-rate signal never leaks to an external audience.
 
-`POST /approvals/{approval_id}/execute` is unchanged (execute = the approved action). Recording a
-`decision` is a separate, explicit surface; an executed-without-explicit-decision approval simply has
-`decision == None` and is not counted in analytics.
+`POST /approvals/{approval_id}/execute` keeps its lifecycle and side-effect behavior, but now also
+**records the decision** so the primary operator path is measurable (CTO adjudication, 2026-07-10):
+executing a pending approval IS approving the recommended action, so when no explicit prior `/decision`
+was recorded the execute path derives `decision = approved_recommended` (`selected_action =
+recommended_action`) via the same `decide` path. Without this, a straight `/execute` of the
+recommendation — the most common rubber-stamp — would be invisible to the analytics (`decision == None`),
+defeating the falsifier. An explicit prior `/decision` (e.g. `escalated`) **wins and is not
+overwritten**. R4/R5 stay proposal-only and all other execute behavior is unchanged.
 
 ## Boundaries preserved
 
@@ -92,9 +97,12 @@ principals do not hold them, so deliberation / modify-rate signal never leaks to
 
 - `agent_os_contracts`: `+ApprovalDecision` (StrEnum), `+ApprovalDecisionCounts`, `+ApprovalAnalytics`.
 - `agent_os_core.approval_lite`: `ApprovalRecord` `+decision, +selected_action, +recommended_action,
-  +risk_level, +created_at`; `+ChoiceSetViolationError`; `ApprovalLiteRuntime` `+decide`, `+analytics`.
+  +risk_level, +created_at`; `+ChoiceSetViolationError`; `ApprovalLiteRuntime` `+decide`, `+analytics`;
+  `create_pending` rejects a `recommended_action` absent from a non-empty choice set (typed error).
 - `agent_os_core.trusted_loop.TrustedLoopRuntime`: `+record_approval_decision`; snapshots
-  `recommended_action`/`risk_level` into the pending approval.
+  `recommended_action`/`risk_level` into the pending approval; `approve_and_execute_pending_operation`
+  records an implicit `approved_recommended` when executing a pending approval that has no explicit
+  prior decision.
 - HTTP: `+POST /approvals/{approval_id}/decision`, `+GET /analytics/approvals`; scopes
   `+approvals:decide`, `+analytics:read` (internal principal only). `openapi.json` + frontend
   `schema.d.ts` regenerated.
