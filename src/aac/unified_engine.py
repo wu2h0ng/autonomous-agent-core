@@ -414,36 +414,13 @@ class UnifiedDiscoveryEngine:
         self, obs: list[list[float]],
         int_data: list[list[float]] | None = None,
     ) -> tuple[int | None, float]:
-        """Select optimal next intervention target using EIG."""
-        from .bayesian_dag_posterior import GovernedDiBS
+        """Select optimal next intervention target using EIG.
 
-        n = len(obs[0])
-        int_data = int_data or []
-
-        umap, _ = self._phase1_explore(obs)
-        skeleton = self._skeleton_from_umap(umap, n)
-
-        organ_proposals = {1: set()}
-        for undir in skeleton:
-            parts = list(undir)
-            if len(parts) == 2:
-                organ_proposals[1].add((parts[0], parts[1]))
-                organ_proposals[1].add((parts[1], parts[0]))
-
-        try:
-            di = GovernedDiBS(
-                n_nodes=n, n_particles=self.n_particles,
-                lambda_sparse=self.lambda_sparse, sigma_noise=0.3,
-                seed=self.seed, likelihood_mode="poly2",
-                organ_proposals=organ_proposals, organ_credits={1: 0.8},
-                max_in_degree=self.max_in_degree, adaptive_particles=True,
-            )
-            di.posterior_temperature = 2.0
-            di.update(obs)
-            target, eig = di.select_intervention(obs, int_data, n_candidates=min(5, n))
-            return target, eig
-        except Exception:
-            return None, 0.0
+        Builds DiBS posterior on obs+int_data, computes EIG for all nodes,
+        returns the node with highest expected information gain.
+        """
+        combined = obs + (int_data or [])
+        return self._eig_select_target(combined, len(obs[0])), 0.0
 
     # ── Self-correcting D2 loop ───────────────────────────────────
 
@@ -500,12 +477,17 @@ class UnifiedDiscoveryEngine:
             # ── Select target from blind spots ──
             target = self._pick_best_blind_spot_target(
                 blind_spots, edge_staleness, result, n,
-                staleness_limit=staleness_limit,
+                obs=obs, staleness_limit=staleness_limit,
             )
             if target is None:
-                entry["action"] = "no_valid_target"
-                round_log.append(entry)
-                break
+                # All heuristic targets stale — try EIG
+                target = self._eig_select_target(obs + int_data, n)
+                if target is not None:
+                    entry["action"] = "eig_fallback"
+                else:
+                    entry["action"] = "no_valid_target"
+                    round_log.append(entry)
+                    break
             entry["target"] = target
 
             # ── Generate hard do-interventions ──
@@ -605,38 +587,205 @@ class UnifiedDiscoveryEngine:
         self, blind_spots: set[tuple],
         staleness: dict[tuple, int],
         result: DiscoveryResult, n: int,
+        obs: list[list[float]],
         staleness_limit: int = 4,
     ) -> int | None:
         """Pick intervention target from blind-spot edges.
 
-        Prioritizes blind-spot edges where the endpoints share many neighbors
-        in the discovered DAG (structural holes — likely true edges).
-        Target the endpoint with higher out-degree (more likely causal parent).
+        Tier 1: Jaccard on GGM-only skeleton (structural hole detection).
+        Tier 2: Interventional sweep — generate 5 do-rows per candidate,
+                measure Δ in blind-spot partial correlations, pick best.
+        Tier 3: EIG via DiBS posterior (expensive, last resort).
+
+        The interventional sweep is the key innovation: since no observational
+        test can distinguish true blind spots from false ones in dense causal
+        networks, we use MINI-interventions (cheap, 5 rows) to probe which
+        target causes the largest structural change.
         """
         dag = result.dag
-        # Build adjacency from DAG
-        adj = {i: set() for i in range(n)}
+        r_umap = result.uncertainty_map
+
+        # Tier 1: Jaccard on GGM-only skeleton
+        ggm_adj = {i: set() for i in range(n)}
+        ggm_out = {i: 0 for i in range(n)}
+        for undir in result.skeleton:
+            parts = list(undir)
+            if len(parts) != 2:
+                continue
+            u, v = parts[0], parts[1]
+            e = r_umap.edges.get((u, v))
+            if e and e.ci_statistic > self.tau * 2:
+                ggm_adj[u].add(v); ggm_adj[v].add(u)
         for u, v in dag:
             if u < n and v < n:
-                adj[u].add(v)
-                adj[v].add(u)
+                e = r_umap.edges.get((u, v))
+                if e and e.ci_statistic > self.tau * 1.5:
+                    ggm_out[u] = ggm_out.get(u, 0) + 1
 
-        out_deg = {i: 0 for i in range(n)}
-        for u, v in dag:
-            if u < n and v < n:
-                out_deg[u] = out_deg.get(u, 0) + 1
-
-        scored = []
+        jaccard_candidates = []
         for i, j in blind_spots:
             st = staleness.get((i, j), 0)
             if st >= staleness_limit:
                 continue
-            shared = len(adj[i] & adj[j])
-            target = i if out_deg[i] >= out_deg[j] else j
-            scored.append((target, shared, out_deg[target], (i, j)))
+            shared = len(ggm_adj[i] & ggm_adj[j])
+            union = len(ggm_adj[i] | ggm_adj[j])
+            jaccard = shared / max(union, 1)
+            target = i if ggm_out.get(i, 0) >= ggm_out.get(j, 0) else j
+            jaccard_candidates.append((target, jaccard, shared, (i, j)))
 
-        if scored:
-            scored.sort(key=lambda x: (-x[1], -x[2]))  # highest shared, then highest out-degree
-            return scored[0][0]
+        # Tier 2: Interventional sweep — probe each candidate with mini-interventions
+        # Collect unique candidate targets from blind-spot endpoints (dedup)
+        candidate_targets = set()
+        for i, j in blind_spots:
+            st = staleness.get((i, j), 0)
+            if st < staleness_limit:
+                candidate_targets.add(i)
+                candidate_targets.add(j)
 
+        if candidate_targets and len(obs) > 20:
+            sweep_results = self._interventional_sweep(obs, blind_spots, candidate_targets, n)
+            if sweep_results:
+                # Pick target with highest structural delta
+                return max(sweep_results, key=lambda k: sweep_results[k])
+
+        if jaccard_candidates:
+            jaccard_candidates.sort(key=lambda x: (-x[1], -x[2]))
+            return jaccard_candidates[0][0]
+
+        return self._eig_select_target(obs, n)
+
+    def _interventional_sweep(
+        self, obs: list[list[float]],
+        blind_spots: set[tuple],
+        candidate_targets: set[int],
+        n: int,
+        probe_rows: int = 5,
+    ) -> dict[int, float]:
+        """Fast mini-intervention sweep using raw GGM skeleton only.
+
+        For each candidate, generate probe do-rows, compute GGM skeleton
+        on obs+probe, count NEW edges (not in baseline GGM skeleton).
+        GGM-only is O(n³) per candidate but fast (~0.01s).
+
+        Returns {target: n_new_ggm_edges} — higher delta suggests
+        interventions that reveal genuine causal structure.
+        """
+        import random
+        rng = random.Random(self.seed)
+
+        # Baseline GGM skeleton
+        baseline_ggm = set()
+        try:
+            std = _standardize_cols(obs)
+            prec = _inv(_cov(std))
+            for i in range(n):
+                for j in range(i + 1, n):
+                    d = math.sqrt(abs(prec[i][i] * prec[j][j])) or 1e-12
+                    if abs(prec[i][j]) / d > self.tau:
+                        baseline_ggm.add(frozenset({i, j}))
+        except Exception:
+            return {}
+
+        results = {}
+        for target in candidate_targets:
+            col_t = [obs[t][target] for t in range(len(obs))]
+            mu = statistics.mean(col_t)
+            sd = statistics.pstdev(col_t) or 1.0
+
+            probe_data = []
+            do_vals = [mu - 2.0 * sd, mu, mu + 2.0 * sd]
+            for dv in do_vals:
+                for _ in range(max(1, probe_rows // len(do_vals))):
+                    row = [0.0] * n
+                    row[target] = dv + rng.gauss(0, 0.05 * sd)
+                    probe_data.append(row)
+
+            try:
+                combined = obs + probe_data
+                std2 = _standardize_cols(combined)
+                prec2 = _inv(_cov(std2))
+                after_ggm = set()
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        d = math.sqrt(abs(prec2[i][i] * prec2[j][j])) or 1e-12
+                        if abs(prec2[i][j]) / d > self.tau:
+                            after_ggm.add(frozenset({i, j}))
+                n_new = len(after_ggm - baseline_ggm)
+                results[target] = float(n_new)
+            except Exception:
+                results[target] = 0.0
+
+        return results
+
+    def _eig_select_target(
+        self, obs: list[list[float]], n: int,
+    ) -> int | None:
+        """Select optimal intervention target via Expected Information Gain.
+
+        Includes skeleton edges (high-credit organ) AND blind-spot CI pairs
+        (low-credit organ) in DiBS proposals. Blind spots receive credit 0.3
+        so DiBS treats them as uncertain — EIG then targets nodes that would
+        most reduce this uncertainty.
+
+        Falls back to max-out-degree node if EIG ≈ 0 for all candidates.
+        """
+        from .bayesian_dag_posterior import GovernedDiBS
+
+        umap, _ = self._phase1_explore(obs)
+        skeleton = self._skeleton_from_umap(umap, n)
+
+        organ_proposals = {1: set()}
+        for undir in skeleton:
+            parts = list(undir)
+            if len(parts) == 2:
+                organ_proposals[1].add((parts[0], parts[1]))
+                organ_proposals[1].add((parts[1], parts[0]))
+
+        blind_spot_proposals = set()
+        for (i, j), e in umap.edges.items():
+            if i >= j:
+                continue
+            if "ci_test" not in e.evidence_sources:
+                continue
+            if frozenset({i, j}) not in skeleton:
+                blind_spot_proposals.add((i, j))
+                blind_spot_proposals.add((j, i))
+        if blind_spot_proposals:
+            organ_proposals[2] = blind_spot_proposals
+
+        organ_credits = {1: 0.8}
+        if blind_spot_proposals:
+            organ_credits[2] = 0.3
+
+        try:
+            di = GovernedDiBS(
+                n_nodes=n, n_particles=self.n_particles,
+                lambda_sparse=self.lambda_sparse, sigma_noise=0.3,
+                seed=self.seed, likelihood_mode="poly2",
+                organ_proposals=organ_proposals, organ_credits=organ_credits,
+                max_in_degree=self.max_in_degree, adaptive_particles=True,
+            )
+            di.posterior_temperature = 2.0
+            di.update(obs)
+            di.svgd_step(obs, n_gradient_edges=min(20, n*(n-1)//2))
+
+            candidates = {}
+            for k in range(n):
+                col_k = [obs[t][k] for t in range(len(obs))]
+                mu = statistics.mean(col_k)
+                sd = statistics.pstdev(col_k) or 1.0
+                candidates[k] = [mu - 2 * sd, mu, mu + 2 * sd]
+
+            target, best_val, eig = di.select_intervention(obs, candidates, n_mc_samples=5)
+            if target >= 0 and eig > 0:
+                return target
+
+            out_deg = {i: 0 for i in range(n)}
+            for u, v in di.MAP_dag():
+                if u < n and v < n:
+                    out_deg[u] = out_deg.get(u, 0) + 1
+            if out_deg:
+                return max(out_deg, key=lambda k: out_deg[k])
+        except Exception:
+            pass
         return None
