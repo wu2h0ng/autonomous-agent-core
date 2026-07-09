@@ -16,6 +16,7 @@ from agent_os_contracts import (
     CausalOutcomeAttribution,
     ApprovalWorkflow,
     AutoExecutionPolicy,
+    ConsequencePreview,
     DataClassification,
     EvidenceChain,
     FeedbackEvent,
@@ -281,6 +282,34 @@ def run_state_snapshot_from_payload(payload: dict[str, Any]) -> RunStateSnapshot
     )
 
 
+def consequence_preview_to_payload(preview: ConsequencePreview | None) -> dict[str, Any] | None:
+    """Serialize a ConsequencePreview (P2-B, ADR-0016); None round-trips as None (feature off)."""
+    if preview is None:
+        return None
+    return {
+        "action_type": preview.action_type,
+        "prior_executions": preview.prior_executions,
+        "resolved_intended": preview.resolved_intended,
+        "resolved_other": preview.resolved_other,
+        "last_outcomes": list(preview.last_outcomes),
+        "available": preview.available,
+    }
+
+
+def consequence_preview_from_payload(payload: dict[str, Any] | None) -> ConsequencePreview | None:
+    """Reconstruct a ConsequencePreview; pre-P2-B payloads (no key) reconstruct as None."""
+    if not payload:
+        return None
+    return ConsequencePreview(
+        action_type=payload["action_type"],
+        prior_executions=int(payload.get("prior_executions", 0)),
+        resolved_intended=int(payload.get("resolved_intended", 0)),
+        resolved_other=int(payload.get("resolved_other", 0)),
+        last_outcomes=tuple(payload.get("last_outcomes") or ()),
+        available=bool(payload.get("available", False)),
+    )
+
+
 def approval_to_payload(record: ApprovalRecord) -> dict[str, Any]:
     return {
         "approval_id": record.approval_id,
@@ -309,6 +338,8 @@ def approval_to_payload(record: ApprovalRecord) -> dict[str, Any]:
         "decision": record.decision,
         "selected_action": record.selected_action,
         "created_at": record.created_at,
+        # P2-B (ADR-0016): durable consequence-preview snapshot for the approval detail surface.
+        "consequence_preview": consequence_preview_to_payload(record.consequence_preview),
     }
 
 
@@ -338,6 +369,7 @@ def approval_from_payload(payload: dict[str, Any]) -> ApprovalRecord:
         decision=payload.get("decision"),
         selected_action=payload.get("selected_action"),
         created_at=payload.get("created_at"),
+        consequence_preview=consequence_preview_from_payload(payload.get("consequence_preview")),
     )
 
 

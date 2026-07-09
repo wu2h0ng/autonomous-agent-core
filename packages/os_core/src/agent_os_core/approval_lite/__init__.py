@@ -11,6 +11,7 @@ from agent_os_contracts import (
     ApprovalDecision,
     ApprovalDecisionCounts,
     BlockCode,
+    ConsequencePreview,
     EvidenceChain,
     OperationContract,
 )
@@ -72,6 +73,10 @@ class ApprovalRecord:
     decision: str | None = None
     selected_action: str | None = None
     created_at: str | None = None
+    # P2-B (ADR-0016): durable snapshot of the action's consequence preview (its own governed
+    # history at proposal time), so ``GET /approvals/{id}`` renders the track record even after the
+    # approval-resume context is deleted post-execution. Mirrors the alternatives snapshot above.
+    consequence_preview: ConsequencePreview | None = None
 
 
 @dataclass(frozen=True)
@@ -297,6 +302,7 @@ class ApprovalLiteRuntime:
         recommended_action: str | None = None,
         risk_level: str | None = None,
         created_at: str | None = None,
+        consequence_preview: ConsequencePreview | None = None,
         tenant_id: str = "default",
     ) -> ApprovalRecord:
         """Create a new pending approval record.
@@ -316,6 +322,8 @@ class ApprovalLiteRuntime:
                 be sliced by risk without re-reading the (gone) proposal.
             created_at: Optional ISO-8601 UTC timestamp; defaults to now. Injectable
                 so windowed-analytics behavior is deterministically testable.
+            consequence_preview: P2-B (ADR-0016) durable snapshot of the action's own
+                governed history, so the approval detail surface renders the track record.
             tenant_id: Tenant scope for the record.
 
         Returns:
@@ -348,6 +356,7 @@ class ApprovalLiteRuntime:
             recommended_action=recommended_action,
             risk_level=risk_level,
             created_at=created_at or datetime.now(timezone.utc).isoformat(),
+            consequence_preview=consequence_preview,
         )
         return self._store.save(record, tenant_id=tenant_id)
 

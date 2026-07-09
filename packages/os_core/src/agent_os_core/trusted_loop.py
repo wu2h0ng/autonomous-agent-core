@@ -46,6 +46,7 @@ from .action_connectors.registry import ActionConnectorRegistry
 from .action_governance import ActionGovernance
 from .adoption import AdoptionLedgerView
 from .action_proposal import ActionProposalBuilder
+from .consequence_preview import ActionHistoryPort, build_consequence_preview
 from .approval_lite import (
     ApprovalContextStorePort,
     ApprovalLiteRuntime,
@@ -163,6 +164,7 @@ class TrustedLoopRuntime:
         causal_discovery_client: Any | None = None,
         approval_router: Any | None = None,
         policy_guardrails_provider: Any | None = None,
+        action_history_port: ActionHistoryPort | None = None,
     ) -> None:
         self.metric_contract = metric_contract
         if template_registry is not None and sql_template is not None:
@@ -241,6 +243,11 @@ class TrustedLoopRuntime:
         self.causal_discovery_client = causal_discovery_client
         self.approval_router = approval_router
         self.policy_guardrails_provider = policy_guardrails_provider
+        # P2-B (ADR-0016): read-only port onto the durable action_records ledger. When wired, the
+        # proposal step derives an evidence-bound SYMBOLIC consequence preview (the action's own
+        # governed history) and attaches it to the proposal + evidence. None = feature off (the
+        # proposal carries no preview). The runtime holds only a READER — it never writes the ledger.
+        self.action_history_port = action_history_port
         # Optional unit-of-work factory: a zero-arg callable returning a context
         # manager that yields (feedback_store, knowledge_store) bound to one
         # transaction, making record_outcome's two writes atomic. When None,
@@ -662,6 +669,33 @@ class TrustedLoopRuntime:
         knowledge_context_refs = tuple(r.asset.asset_id for r in related_knowledge)
         if knowledge_context_refs:
             proposal = replace(proposal, knowledge_context_refs=knowledge_context_refs)
+
+        # ====== P2-B (ADR-0016): evidence-bound consequence preview ======
+        # When a durable action-history port is wired, derive the action's OWN governed history (a
+        # SYMBOLIC honest count over the action_records ledger, never a prediction or learned model)
+        # and attach it to BOTH the proposal (so the approval surface renders the track record) and
+        # the evidence chain (so it is auditable AS evidence about the action). Derivation is
+        # fail-safe: a ledger read error yields available=False — never a crash, never a fabricated
+        # count. The preview is advisory, not a gate: the human/disposer still decides.
+        if self.action_history_port is not None:
+            consequence_preview = build_consequence_preview(
+                action_type=proposal.action_type,
+                history_port=self.action_history_port,
+                tenant_id=tenant_id,
+            )
+            proposal = replace(proposal, consequence_preview=consequence_preview)
+            evidence = replace(evidence, consequence_preview=consequence_preview)
+            trace.record(
+                "consequence_preview",
+                {
+                    "action_type": consequence_preview.action_type,
+                    "available": consequence_preview.available,
+                    "prior_executions": consequence_preview.prior_executions,
+                    "resolved_intended": consequence_preview.resolved_intended,
+                    "resolved_other": consequence_preview.resolved_other,
+                },
+            )
+
         trace.record(
             "action_proposal",
             {
@@ -979,6 +1013,9 @@ class TrustedLoopRuntime:
                 # analytics can be sliced by risk without the (gone) proposal.
                 recommended_action=proposal.recommended_action,
                 risk_level=proposal.risk_level.value,
+                # P2-B (ADR-0016): durable snapshot of the action's consequence preview so
+                # GET /approvals/{id} renders the track record after the resume context is gone.
+                consequence_preview=proposal.consequence_preview,
                 tenant_id=tenant_id,
             )
             with self._pending_operation_lock:
