@@ -1,9 +1,9 @@
-updated: "2026-07-09"  # M9 complete: origin/main@fed54d6; format-check drift resolved; PR-33 Option A HOLD selected (no origin/main push). controlled-pilot gate remains HOLD.
+updated: "2026-07-10"  # P1-A landed on origin/main via PR-34-authorized single push (ADR-0014 choice-set + seam-escalation fix, 3-model reviewed, HIGH bypass closed); HOLD re-applied immediately after (PR-34). R4/R5 proposal-only unchanged.
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "M8+M9 on origin/main@fed54d6: internal pilot walkthrough verified (default + staging C/D/E trace); format-check green; PR-33 Option A HOLD (founder/CTO); no origin/main push; R4/R5 proposal-only default unchanged."
+status: "P1-A on origin/main: ADR-0014 approval choice-set contract + seam-escalation bypass fix (Claude-built / OpenCode-acceptance-tested / Kimi-reviewed, HIGH bypass GENUINELY CLOSED); CI green modulo the self-resolving S6 branch assertion. PR-34 authorized exactly one origin/main push then re-HELD; DEPLOYMENT_PUSH: HOLD active again; R4/R5 proposal-only default unchanged."
 
 current_stage:
   label: "P5 phase-1 governed product vertical / substrate harvest"
