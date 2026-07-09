@@ -1,11 +1,46 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from agent_os_contracts import ActionAlternative, EvidenceChain, OperationContract
+from agent_os_contracts import (
+    ActionAlternative,
+    ApprovalAnalytics,
+    ApprovalDecision,
+    ApprovalDecisionCounts,
+    BlockCode,
+    EvidenceChain,
+    OperationContract,
+)
+
+# P2-A (ADR-0015): coarse operator intents accepted by the decision path. The
+# fine-grained ``ApprovalDecision`` (recommended vs revised) is DERIVED from the
+# selected action, never taken from the operator's word — that is what makes the
+# rubber-stamp signal a measurement rather than a self-report.
+DECISION_OUTCOME_APPROVE = "approve"
+DECISION_OUTCOME_REJECT = "reject"
+DECISION_OUTCOME_ESCALATE = "escalate"
+_DECISION_OUTCOMES = frozenset(
+    {DECISION_OUTCOME_APPROVE, DECISION_OUTCOME_REJECT, DECISION_OUTCOME_ESCALATE}
+)
+
+
+class ChoiceSetViolationError(Exception):
+    """A ``revise`` named an action outside the proposal's surfaced choice set (P2-A).
+
+    Carries :attr:`block_code` = ``BlockCode.CHOICE_SET_VIOLATION`` so the runtime
+    can translate it into a typed ``TrustedLoopBlock`` without approval_lite importing
+    the runtime (which would be a circular import). A revise must pick a real, surfaced
+    alternative — otherwise the choice-set audit trail would be a fiction.
+    """
+
+    block_code = BlockCode.CHOICE_SET_VIOLATION
+
+    def __init__(self, message: str, *, details: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.details = details
 
 
 @dataclass(frozen=True)
@@ -25,6 +60,18 @@ class ApprovalRecord:
     # option was surfaced. Preserved across approve/reject status transitions.
     alternatives: tuple[ActionAlternative, ...] = field(default_factory=tuple)
     single_option_rationale: str | None = None
+    # P2-A (ADR-0015): the rubber-stamp-analytics fields. ``recommended_action`` and
+    # ``risk_level`` are snapshotted at proposal time so the decision path and the
+    # analytics projection are self-contained (the ActionProposal is gone by then).
+    # ``decision``/``selected_action`` are populated by ``ApprovalLiteRuntime.decide``:
+    # ``decision`` is the DERIVED ApprovalDecision value, ``selected_action`` is the
+    # action the approver actually approved. ``created_at`` is an ISO-8601 UTC stamp
+    # used for windowed analytics. All default to None so pre-P2-A records deserialize.
+    recommended_action: str | None = None
+    risk_level: str | None = None
+    decision: str | None = None
+    selected_action: str | None = None
+    created_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -247,6 +294,9 @@ class ApprovalLiteRuntime:
         operation_fingerprint: str | None = None,
         alternatives: tuple[ActionAlternative, ...] = (),
         single_option_rationale: str | None = None,
+        recommended_action: str | None = None,
+        risk_level: str | None = None,
+        created_at: str | None = None,
         tenant_id: str = "default",
     ) -> ApprovalRecord:
         """Create a new pending approval record.
@@ -260,6 +310,12 @@ class ApprovalLiteRuntime:
             alternatives: ADR-0014 human-facing choice set, snapshotted durably.
             single_option_rationale: ADR-0014 truthful reason only one option was
                 surfaced, snapshotted durably.
+            recommended_action: P2-A snapshot of the proposal's recommended action,
+                so the decision path can classify recommended-vs-revise offline.
+            risk_level: P2-A snapshot of the proposal's risk tier, so analytics can
+                be sliced by risk without re-reading the (gone) proposal.
+            created_at: Optional ISO-8601 UTC timestamp; defaults to now. Injectable
+                so windowed-analytics behavior is deterministically testable.
             tenant_id: Tenant scope for the record.
 
         Returns:
@@ -273,6 +329,9 @@ class ApprovalLiteRuntime:
             operation_fingerprint=operation_fingerprint,
             alternatives=tuple(alternatives),
             single_option_rationale=single_option_rationale,
+            recommended_action=recommended_action,
+            risk_level=risk_level,
+            created_at=created_at or datetime.now(timezone.utc).isoformat(),
         )
         return self._store.save(record, tenant_id=tenant_id)
 
@@ -307,16 +366,15 @@ class ApprovalLiteRuntime:
                 f"Cannot approve record '{approval_id}': "
                 f"current status is '{existing.status}', expected 'pending'"
             )
-        updated = ApprovalRecord(
-            approval_id=existing.approval_id,
-            proposal_id=existing.proposal_id,
+        # ``replace`` preserves every snapshot field (alternatives, rationale, the
+        # P2-A recommended_action/risk_level/created_at) without re-listing them.
+        # decision/selected_action are left untouched: the legacy approve path does
+        # not classify recommended-vs-revise — that is ``decide``'s responsibility.
+        updated = replace(
+            existing,
             status="approved",
-            approver_role=existing.approver_role,
             reason=reason,
-            operation_fingerprint=existing.operation_fingerprint,
             approved_by=approved_by,
-            alternatives=existing.alternatives,
-            single_option_rationale=existing.single_option_rationale,
         )
         return self._store.save(updated, tenant_id=tenant_id)
 
@@ -349,16 +407,7 @@ class ApprovalLiteRuntime:
                 f"Cannot reject record '{approval_id}': "
                 f"current status is '{existing.status}', expected 'pending'"
             )
-        updated = ApprovalRecord(
-            approval_id=existing.approval_id,
-            proposal_id=existing.proposal_id,
-            status="rejected",
-            approver_role=existing.approver_role,
-            reason=reason,
-            operation_fingerprint=existing.operation_fingerprint,
-            alternatives=existing.alternatives,
-            single_option_rationale=existing.single_option_rationale,
-        )
+        updated = replace(existing, status="rejected", reason=reason)
         return self._store.save(updated, tenant_id=tenant_id)
 
     def get(self, approval_id: str, *, tenant_id: str = "default") -> ApprovalRecord:
@@ -399,3 +448,199 @@ class ApprovalLiteRuntime:
             A tuple of matching ApprovalRecord instances.
         """
         return self._store.list(status=status, limit=limit, offset=offset, tenant_id=tenant_id)
+
+    def decide(
+        self,
+        approval_id: str,
+        *,
+        outcome: str,
+        selected_action: str | None = None,
+        reason: str | None = None,
+        approved_by: str | None = None,
+        tenant_id: str = "default",
+    ) -> ApprovalRecord:
+        """Record a human approval decision and DERIVE its rubber-stamp classification.
+
+        ``outcome`` is the coarse operator intent (``approve`` | ``reject`` |
+        ``escalate``). For an ``approve``, the fine-grained
+        :class:`~agent_os_contracts.ApprovalDecision` is derived from ``selected_action``
+        versus the snapshotted ``recommended_action`` — never from the operator's own
+        label. Selecting the recommended action (or omitting ``selected_action``) yields
+        ``approved_recommended``; selecting a different, in-choice-set alternative yields
+        ``approved_revised`` (a ``revise``).
+
+        Args:
+            approval_id: The approval to decide.
+            outcome: ``approve`` | ``reject`` | ``escalate``.
+            selected_action: The action the approver actually chose (approve path).
+            reason: Optional human rationale for the decision.
+            approved_by: Optional operator identifier (approve path only).
+            tenant_id: Tenant scope for the record.
+
+        Returns:
+            The updated :class:`ApprovalRecord` carrying ``decision``/``selected_action``.
+
+        Raises:
+            ValueError: Unknown ``outcome``, or the approval is not pending (a consumed
+                or already-decided approval cannot be re-decided).
+            KeyError: No record with ``approval_id`` exists.
+            ChoiceSetViolationError: A revise named an action outside the choice set.
+        """
+        if outcome not in _DECISION_OUTCOMES:
+            raise ValueError(
+                f"Unknown approval outcome '{outcome}'; expected one of "
+                f"{sorted(_DECISION_OUTCOMES)}."
+            )
+        existing = self._store.get(approval_id, tenant_id=tenant_id)
+        if existing is None:
+            raise KeyError(f"No approval record found with id '{approval_id}'")
+        if existing.status != "pending":
+            raise ValueError(
+                f"Cannot record a decision on approval '{approval_id}': current status "
+                f"is '{existing.status}', expected 'pending'. A consumed or "
+                "already-decided approval cannot be re-decided."
+            )
+
+        if outcome == DECISION_OUTCOME_REJECT:
+            updated = replace(
+                existing,
+                status="rejected",
+                reason=reason,
+                decision=ApprovalDecision.REJECTED.value,
+                selected_action=None,
+            )
+        elif outcome == DECISION_OUTCOME_ESCALATE:
+            # Escalation punts to a higher approver: the approval stays pending and may
+            # be decided again later. Analytics counts the record's CURRENT decision, so
+            # a subsequent real decision overwrites this one (never double-counted).
+            updated = replace(
+                existing,
+                reason=reason,
+                decision=ApprovalDecision.ESCALATED.value,
+                selected_action=None,
+            )
+        else:  # DECISION_OUTCOME_APPROVE
+            recommended = existing.recommended_action
+            chosen = selected_action if selected_action is not None else recommended
+            if chosen == recommended:
+                decision = ApprovalDecision.APPROVED_RECOMMENDED
+            else:
+                choice_set = {alternative.action for alternative in existing.alternatives}
+                if chosen not in choice_set:
+                    raise ChoiceSetViolationError(
+                        f"revise selected action '{chosen}' is not in the proposal's "
+                        "surfaced choice set (ADR-0014); a revise must pick a real "
+                        "alternative.",
+                        details=(
+                            f"selected_action={chosen!r}",
+                            f"recommended_action={recommended!r}",
+                            "choice_set=" + ",".join(sorted(choice_set)),
+                        ),
+                    )
+                decision = ApprovalDecision.APPROVED_REVISED
+            updated = replace(
+                existing,
+                status="approved",
+                reason=reason,
+                approved_by=approved_by,
+                decision=decision.value,
+                selected_action=chosen,
+            )
+        return self._store.save(updated, tenant_id=tenant_id)
+
+    def analytics(
+        self,
+        *,
+        tenant_id: str = "default",
+        risk: str | None = None,
+        window: str = "all",
+    ) -> ApprovalAnalytics:
+        """Derive rubber-stamp analytics by scanning this tenant's decided approvals.
+
+        This is a pure projection over ``ApprovalRecord``s — there is no parallel
+        counter store to drift. Only records that carry a ``decision`` are counted;
+        ``risk`` and ``window`` narrow the scope (``window='all'`` = no time bound).
+        """
+        window_start = _parse_window_start(window)
+        counts = {decision: 0 for decision in ApprovalDecision}
+        for record in self._iter_records(tenant_id=tenant_id):
+            if record.decision is None:
+                continue
+            if risk is not None and record.risk_level != risk:
+                continue
+            if window_start is not None and not _created_within(record.created_at, window_start):
+                continue
+            try:
+                decision = ApprovalDecision(record.decision)
+            except ValueError:
+                # An unknown/legacy decision value must never crash analytics.
+                continue
+            counts[decision] += 1
+
+        approved_recommended = counts[ApprovalDecision.APPROVED_RECOMMENDED]
+        approved_revised = counts[ApprovalDecision.APPROVED_REVISED]
+        approvals = approved_recommended + approved_revised
+        modify_rate = approved_revised / approvals if approvals else 0.0
+        selection_concentration = approved_recommended / approvals if approvals else 0.0
+        return ApprovalAnalytics(
+            tenant_id=tenant_id,
+            window=window,
+            risk=risk,
+            counts=ApprovalDecisionCounts(
+                approved_recommended=approved_recommended,
+                approved_revised=approved_revised,
+                rejected=counts[ApprovalDecision.REJECTED],
+                escalated=counts[ApprovalDecision.ESCALATED],
+            ),
+            total=sum(counts.values()),
+            modify_rate=modify_rate,
+            selection_concentration=selection_concentration,
+        )
+
+    def _iter_records(self, *, tenant_id: str):
+        """Yield every approval record for a tenant, store-agnostically (paginated)."""
+        page = 500
+        offset = 0
+        while True:
+            batch = self._store.list(limit=page, offset=offset, tenant_id=tenant_id)
+            if not batch:
+                return
+            yield from batch
+            if len(batch) < page:
+                return
+            offset += page
+
+
+_WINDOW_UNIT_SECONDS = {"h": 3600, "d": 86400, "w": 604800}
+
+
+def _parse_window_start(window: str) -> datetime | None:
+    """Return the earliest ``created_at`` included by ``window``, or None for 'all'.
+
+    Supported: ``all`` (no bound) and ``<N>h`` / ``<N>d`` / ``<N>w``. An unsupported
+    window is a caller error (raised), not a silent no-op.
+    """
+    if not window:
+        return None
+    text = window.strip().lower()
+    if text == "all":
+        return None
+    unit = text[-1:]
+    amount = text[:-1]
+    if unit in _WINDOW_UNIT_SECONDS and amount.isdigit():
+        seconds = int(amount) * _WINDOW_UNIT_SECONDS[unit]
+        return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    raise ValueError(f"Unsupported analytics window '{window}'; use 'all' or '<N>h'/'<N>d'/'<N>w'.")
+
+
+def _created_within(created_at: str | None, window_start: datetime) -> bool:
+    """True when ``created_at`` (ISO-8601) is at or after ``window_start``."""
+    if not created_at:
+        return False
+    try:
+        created = datetime.fromisoformat(created_at)
+    except ValueError:
+        return False
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return created >= window_start

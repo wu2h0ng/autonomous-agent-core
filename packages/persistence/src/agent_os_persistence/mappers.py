@@ -303,6 +303,12 @@ def approval_to_payload(record: ApprovalRecord) -> dict[str, Any]:
             for alternative in record.alternatives
         ],
         "single_option_rationale": record.single_option_rationale,
+        # P2-A (ADR-0015): rubber-stamp-analytics snapshot + derived decision.
+        "recommended_action": record.recommended_action,
+        "risk_level": record.risk_level,
+        "decision": record.decision,
+        "selected_action": record.selected_action,
+        "created_at": record.created_at,
     }
 
 
@@ -327,6 +333,11 @@ def approval_from_payload(payload: dict[str, Any]) -> ApprovalRecord:
             for alternative in payload.get("alternatives") or ()
         ),
         single_option_rationale=payload.get("single_option_rationale"),
+        recommended_action=payload.get("recommended_action"),
+        risk_level=payload.get("risk_level"),
+        decision=payload.get("decision"),
+        selected_action=payload.get("selected_action"),
+        created_at=payload.get("created_at"),
     )
 
 

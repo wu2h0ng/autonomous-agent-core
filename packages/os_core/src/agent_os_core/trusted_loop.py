@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from agent_os_contracts import (
     ActionProposal,
+    ApprovalDecision,
     BlockCode,
     BusinessIntent,
     EvidenceChain,
@@ -50,6 +51,7 @@ from .approval_lite import (
     ApprovalLiteRuntime,
     ApprovalOperationContext,
     ApprovalRecord,
+    ChoiceSetViolationError,
     InMemoryApprovalContextStore,
 )
 from .corrigibility import ShellView
@@ -972,6 +974,11 @@ class TrustedLoopRuntime:
                 # deliberation record. Mirrors the context snapshot saved below.
                 alternatives=proposal.alternatives,
                 single_option_rationale=proposal.single_option_rationale,
+                # P2-A (ADR-0015): snapshot the recommendation + risk tier so the
+                # later approval decision can classify recommended-vs-revise and
+                # analytics can be sliced by risk without the (gone) proposal.
+                recommended_action=proposal.recommended_action,
+                risk_level=proposal.risk_level.value,
                 tenant_id=tenant_id,
             )
             with self._pending_operation_lock:
@@ -1239,6 +1246,105 @@ class TrustedLoopRuntime:
                 approval_id=approval_id, tenant_id=tenant_id
             )
             return approval, operation_trace
+
+    def record_approval_decision(
+        self,
+        *,
+        approval_id: str,
+        outcome: str,
+        selected_action: str | None = None,
+        reason: str | None = None,
+        approved_by: str | None = None,
+        tenant_id: str = "default",
+    ) -> tuple[ApprovalRecord, str]:
+        """Record a human approval decision, DERIVE its rubber-stamp class, and trace it.
+
+        Governance wrapper over :meth:`ApprovalLiteRuntime.decide` (P2-A, ADR-0015). It
+        translates a choice-set violation into a typed ``CHOICE_SET_VIOLATION`` block and
+        writes a persisted, queryable Trace event for the decision (outcome +
+        selected_action + whether it was a revise), so every rubber-stamp/modify signal
+        is auditable. Returns the updated record and the decision trace id.
+
+        Raises:
+            TrustedLoopBlocked: The decision named an action outside the choice set.
+            KeyError / ValueError: Propagated from ``decide`` (missing approval, or a
+                consumed/already-decided approval, or an unknown outcome).
+        """
+        trace_id = f"approval-decision-{uuid4().hex[:12]}"
+        trace = TraceRecorder(trace_id)
+        try:
+            record = self.approval_runtime.decide(
+                approval_id,
+                outcome=outcome,
+                selected_action=selected_action,
+                reason=reason,
+                approved_by=approved_by,
+                tenant_id=tenant_id,
+            )
+        except ChoiceSetViolationError as violation:
+            trace.record(
+                "approval_decision_blocked",
+                {
+                    "approval_id": approval_id,
+                    "code": violation.block_code.value,
+                    "outcome": outcome,
+                    "selected_action": selected_action,
+                },
+            )
+            self.trace_store.save(
+                RunTrace(
+                    trace_id=trace_id,
+                    status="blocked",
+                    events=trace.events(),
+                    telemetry_events=trace.telemetry_events(),
+                ),
+                tenant_id=tenant_id,
+            )
+            raise TrustedLoopBlocked(
+                TrustedLoopBlock(
+                    code=BlockCode.CHOICE_SET_VIOLATION,
+                    message=(
+                        "Approval decision names an action outside the choice set (ADR-0014)."
+                    ),
+                    stage="approval_decision",
+                    details=violation.details,
+                    trace_id=trace_id,
+                )
+            ) from violation
+
+        revised = record.decision == ApprovalDecision.APPROVED_REVISED.value
+        trace.record(
+            "approval_decision",
+            {
+                "approval_id": record.approval_id,
+                "proposal_id": record.proposal_id,
+                "outcome": outcome,
+                "decision": record.decision,
+                "selected_action": record.selected_action,
+                "recommended_action": record.recommended_action,
+                "revised": revised,
+                "status": record.status,
+            },
+        )
+        self.trace_store.save(
+            RunTrace(
+                trace_id=trace_id,
+                status="ok",
+                events=trace.events(),
+                telemetry_events=trace.telemetry_events(),
+            ),
+            tenant_id=tenant_id,
+        )
+        if self.shell_view is not None:
+            self.shell_view.observe(
+                {
+                    "event": "approval_decision",
+                    "approval_id": record.approval_id,
+                    "decision": record.decision,
+                    "revised": revised,
+                }
+            )
+        return record, trace_id
 
     def _assert_execution_time_governance(
         self,
