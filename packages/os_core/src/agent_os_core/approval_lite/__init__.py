@@ -19,6 +19,12 @@ class ApprovalRecord:
     reason: str | None = None
     operation_fingerprint: str | None = None
     approved_by: str | None = None
+    # ADR-0014: durable snapshot of the human-facing choice set, captured at proposal time.
+    # Unlike the approval-resume context (deleted after execution), this record persists, so a
+    # post-execution audit can still show WHAT the approver was choosing between and why only one
+    # option was surfaced. Preserved across approve/reject status transitions.
+    alternatives: tuple[ActionAlternative, ...] = field(default_factory=tuple)
+    single_option_rationale: str | None = None
 
 
 @dataclass(frozen=True)
@@ -239,6 +245,8 @@ class ApprovalLiteRuntime:
         proposal_id: str,
         approver_role: str | None,
         operation_fingerprint: str | None = None,
+        alternatives: tuple[ActionAlternative, ...] = (),
+        single_option_rationale: str | None = None,
         tenant_id: str = "default",
     ) -> ApprovalRecord:
         """Create a new pending approval record.
@@ -249,6 +257,9 @@ class ApprovalLiteRuntime:
             approver_role: The role required to approve (may be None).
             operation_fingerprint: Optional frozen digest of the approved operation
                 contract and action parameters.
+            alternatives: ADR-0014 human-facing choice set, snapshotted durably.
+            single_option_rationale: ADR-0014 truthful reason only one option was
+                surfaced, snapshotted durably.
             tenant_id: Tenant scope for the record.
 
         Returns:
@@ -260,6 +271,8 @@ class ApprovalLiteRuntime:
             status="pending",
             approver_role=approver_role,
             operation_fingerprint=operation_fingerprint,
+            alternatives=tuple(alternatives),
+            single_option_rationale=single_option_rationale,
         )
         return self._store.save(record, tenant_id=tenant_id)
 
@@ -302,6 +315,8 @@ class ApprovalLiteRuntime:
             reason=reason,
             operation_fingerprint=existing.operation_fingerprint,
             approved_by=approved_by,
+            alternatives=existing.alternatives,
+            single_option_rationale=existing.single_option_rationale,
         )
         return self._store.save(updated, tenant_id=tenant_id)
 
@@ -341,6 +356,8 @@ class ApprovalLiteRuntime:
             approver_role=existing.approver_role,
             reason=reason,
             operation_fingerprint=existing.operation_fingerprint,
+            alternatives=existing.alternatives,
+            single_option_rationale=existing.single_option_rationale,
         )
         return self._store.save(updated, tenant_id=tenant_id)
 

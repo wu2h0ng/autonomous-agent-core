@@ -706,6 +706,12 @@ class TrustedLoopRuntime:
         # The injected client (a remote RPC stub or a local reference) returns a verdict that can only
         # TIGHTEN: DENY -> block the loop; ESCALATE/VERIFY_MORE -> force this proposal through approval.
         # ALLOW -> unchanged. Default None -> this block is skipped and the loop behaves exactly as before.
+        #
+        # ADR-0014 fix: when the seam TIGHTENS a propose-only proposal into a human approval, that
+        # proposal never passed the proposal-step choice-set gate above. ``seam_escalation_label``
+        # records which escalation forced the review so the re-gate below can attach a truthful
+        # single-option rationale before it reaches the approval surface.
+        seam_escalation_label: str | None = None
         if self.governance_decision_client is not None:
             try:
                 # S5: when the proposer enumerated candidate interventions, the governed disposer selects
@@ -745,6 +751,7 @@ class TrustedLoopRuntime:
                     )
                 if not proposal.approval_required:
                     proposal = replace(proposal, approval_required=True)
+                    seam_escalation_label = "seam-unavailable"
             else:
                 if seam_decision.verdict not in _GOVERNANCE_DECISION_ALLOWED_VERDICTS:
                     trace.record(
@@ -768,6 +775,7 @@ class TrustedLoopRuntime:
                         )
                     if not proposal.approval_required:
                         proposal = replace(proposal, approval_required=True)
+                        seam_escalation_label = "invalid-verdict"
                 else:
                     trace.record(
                         "governed_decision",
@@ -804,6 +812,7 @@ class TrustedLoopRuntime:
                         and not proposal.approval_required
                     ):
                         proposal = replace(proposal, approval_required=True)
+                        seam_escalation_label = seam_decision.verdict
                     # S5 soundness: when the disposer causally SELECTED a candidate, bind the surfaced
                     # recommendation to that selection. Otherwise the loop could present a different
                     # (possibly correlational) recommended_action than the one the ALLOW verdict actually
@@ -834,6 +843,50 @@ class TrustedLoopRuntime:
                             recommended_action=seam_decision.chosen_action,
                             alternatives=rebound_alternatives,
                         )
+
+        # ====== ADR-0014 re-gate for seam-forced approvals (closes the escalation bypass) ======
+        #
+        # The proposal-step choice-set gate above runs only for proposals that ALREADY require
+        # approval. The seam can TIGHTEN a propose-only proposal into a human approval afterwards
+        # (client-unavailable, invalid-verdict, or ESCALATE/VERIFY_MORE), so that escalated proposal
+        # never passed the gate. A propose-only builder legitimately enumerated no alternatives, so
+        # the runtime ATTACHES a truthful single-option rationale naming the seam escalation as the
+        # reason there is a single option, then re-runs the invariant. This is tighten-only: we add
+        # truthful context, we never loosen a gate. A still-degenerate choice set (e.g. a length-1
+        # alternatives set, or an inconsistent recommended flag the builder supplied) blocks with
+        # CHOICE_SET_VIOLATION. Net effect: a human never sees a blank single option, and never sees
+        # a collapsed unexplained one — including when governance (not the builder) forced the review.
+        if seam_escalation_label is not None:
+            if not proposal.alternatives and not (proposal.single_option_rationale or "").strip():
+                proposal = replace(
+                    proposal,
+                    single_option_rationale=(
+                        "Escalated to human approval by the governance seam "
+                        f"(verdict={seam_escalation_label}); no alternatives were "
+                        "enumerated at proposal time (propose-only action)."
+                    ),
+                )
+                trace.record(
+                    "choice_set_seam_escalation",
+                    {
+                        "proposal_id": proposal.proposal_id,
+                        "seam_verdict": seam_escalation_label,
+                        "single_option_rationale_source": "seam_escalation",
+                    },
+                )
+            seam_choice_set_violations = self._choice_set_violations(proposal)
+            if seam_choice_set_violations:
+                raise TrustedLoopBlocked(
+                    TrustedLoopBlock(
+                        code=BlockCode.CHOICE_SET_VIOLATION,
+                        message=(
+                            "Seam-escalated proposal does not carry a valid human "
+                            "choice set (ADR-0014)."
+                        ),
+                        stage="action_proposal",
+                        details=seam_choice_set_violations,
+                    )
+                )
 
         # ====== Governance gate: propose-only vs governed execution ======
         #
@@ -903,6 +956,11 @@ class TrustedLoopRuntime:
                     action_parameters=proposal.action_parameters,
                     evidence_chain_id=proposal.evidence_chain_id,
                 ),
+                # ADR-0014: durable choice-set snapshot so a post-execution audit
+                # (after the approval-resume context is deleted) still shows the
+                # deliberation record. Mirrors the context snapshot saved below.
+                alternatives=proposal.alternatives,
+                single_option_rationale=proposal.single_option_rationale,
                 tenant_id=tenant_id,
             )
             with self._pending_operation_lock:
