@@ -42,11 +42,13 @@ Product Track P0A 当前建立的本地门是：
 python3 -m pytest tests/product -q
 ruff check packages/contracts/src packages/os_core/src tests/product
 pyright
-uv build --wheel --out-dir /tmp/agent-os-product-wheel
+uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/contracts
+uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/os_core
 ```
 
-wheel 必须包含 `agent_os_contracts` 与 `agent_os_core`。这些门只覆盖
-contracts/run-kernel。后续 provider/tool/PostgreSQL/API/UI packet 必须
+两个 wheel 必须可在隔离环境中一起安装；Product wheel 不得包含 `aac`/`envs`。
+这些门只覆盖 P0A-minimum contracts/run-kernel。后续 contract-completion、
+provider/tool/PostgreSQL/API/UI packet 必须
 各自增加 integration/e2e/security 和可重复构建命令；不得用 P0A 绿灯替代完整
 SPINE-0 验收，也不得把 schema、mock 或 UI shell 记为产品能力。
 

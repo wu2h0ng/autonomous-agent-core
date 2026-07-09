@@ -83,8 +83,10 @@ closed all six findings and returned `APPROVE`.
 
 P0A implemented from the reviewed test-first plan:
 
-- strict immutable `Goal`, `Commitment`, `ExpectedOutcome`, `ObservedOutcome` contracts;
-- canonical `WorkflowGraph` with stable digest and fail-closed graph validation;
+- minimum strict immutable `Goal`, `Commitment`, `ExpectedOutcome`, `ObservedOutcome`
+  contract shapes;
+- structural `WorkflowGraph` with stable digest and fail-closed duplicate/endpoint/cycle/
+  terminal/bound validation;
 - typed append-only `TaskEventStore` port and local in-memory adapter;
 - event-rehydrated `TaskAggregate` with `DRAFT -> COMMITTED -> RUNNING` invariants;
 - public `TaskService.create_task/commit_task/start_run/get_task` call path;
@@ -94,16 +96,18 @@ P0A evidence:
 
 ```text
 python3 -m pytest tests/product -q
-38 passed
+45 passed
 ruff: All checks passed
 pyright: 0 errors, 0 warnings
-wheel: agent_os_contracts + agent_os_core present
+package smoke: separate wheels clean-install/import; aac/envs absent
 Research regression: 1237 OK (16 skipped)
 ```
 
 Honest boundary: `InMemoryTaskEventStore` is a port adapter for tests/local composition,
-not process durability. PostgreSQL, provider/CredentialRef, PolicyKernel/correction,
-CapabilityBroker/tools, API/CLI/UI and full SPINE-0 acceptance remain `NOT_IMPLEMENTED`.
+not process durability. Commitment budget/expiry, explicit outcome failure semantics,
+complete executable-graph semantics, queued durable run coordination, PostgreSQL,
+provider/CredentialRef, PolicyKernel/correction, CapabilityBroker/tools, API/CLI/UI and full
+SPINE-0 acceptance remain `NOT_IMPLEMENTED`.
 
 Next packet: P0B governed capability/provider contracts and negative paths. It must bind
 CredentialRef/ProviderPort, DecisionPolicy vs PolicyKernel, external CorrectionAuthority

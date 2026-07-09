@@ -24,9 +24,13 @@ product_architecture:
   independent_review: "Claude Opus first verdict APPROVE_WITH_REQUIRED_CHANGES on ca4610b..e78b72a; all six findings CLOSED in staged remediation re-review, final verdict APPROVE."
   spine_0_scope: "Generic durable developer golden path; no donor import or Data Agent seam completion requirement."
   spine_1_scope: "ADR-0054-gated history-safe Data Agent migration, generic/domain-pack extraction and shared-spine seam."
-  implementation_status: "P0A_IMPLEMENTED: strict contracts, canonical WorkflowGraph, append-only event-store port/in-memory adapter, replayable TaskAggregate and public TaskService create/commit/start/get path."
+  implementation_status: "P0A_IMPLEMENTED: minimum strict contract shapes, structural/canonical WorkflowGraph, append-only event-store port/in-memory adapter, replayable TaskAggregate and public TaskService create/commit/start/get path."
   storage_truth: "IN_MEMORY_PORT_ADAPTER_ONLY_NOT_PROCESS_DURABLE"
-  not_implemented: "PostgreSQL, provider/CredentialRef resolution, DecisionPolicy/PolicyKernel/CorrectionAuthority, CapabilityBroker/tool execution, API/CLI/UI and SPINE-0 end-to-end acceptance."
+  package_truth: "agent-os-contracts and agent-os-core are separate installable distributions with declared runtime dependencies; clean-environment smoke proves imports and absence of aac/envs."
+  contract_scope: "P0A_MINIMUM_ONLY: Commitment budget/expiry and ExpectedOutcome explicit failure semantics are not implemented."
+  workflow_scope: "STRUCTURAL_ONLY: canonical digest, duplicate/endpoint/cycle/terminal and bounded loop/parallel fields; reachability, entry/failure edges and loop body/stop-predicate semantics are not implemented."
+  run_scope: "PREFIX_ONLY: DRAFT -> COMMITTED -> RUNNING; durable CREATED -> QUEUED -> RUNNING coordination is not implemented."
+  not_implemented: "Contract completion, full executable-graph semantics, durable run queue/leases, PostgreSQL, provider/CredentialRef resolution, DecisionPolicy/PolicyKernel/CorrectionAuthority, CapabilityBroker/tool execution, API/CLI/UI and SPINE-0 end-to-end acceptance."
   migration_status: "DESIGN_ONLY_NOT_EXECUTED"
   next_gate: "Define and review P0B governed capability/provider packet: CredentialRef/ProviderPort, PolicyKernel/CorrectionAuthority and sandbox capability contracts. Donor pin/scan/import remains SPINE-1-only after SPINE-0 acceptance."
   product_claim: "STAGED_KERNEL_ONLY_NOT_SPINE_0_DONE"
@@ -41,11 +45,12 @@ product_test_command: "python3 -m pytest tests/product -q"
 product_quality_commands:
   - "ruff check packages/contracts/src packages/os_core/src tests/product"
   - "pyright"
-  - "uv build --wheel --out-dir <external-temp-dir>"
+  - "uv build --wheel --out-dir <external-temp-dir> packages/contracts"
+  - "uv build --wheel --out-dir <external-temp-dir> packages/os_core"
 product_last_verified_tests:
-  count: 38
+  count: 45
   result: "OK"
-  source: "P0A Product Track verification (2026-07-10): python3 -m pytest tests/product -q -> 38 passed in 0.11s; ruff -> All checks passed; pyright -> 0 errors, 0 warnings, 0 informations; uv wheel build contains agent_os_contracts and agent_os_core. This verifies contracts/run-kernel behavior and package wiring only, not complete SPINE-0."
+  source: "P0A remediation verification (2026-07-10): python3 -m pytest tests/product -q -> 45 passed in 0.11s; ruff -> All checks passed; pyright -> 0 errors, 0 warnings, 0 informations; separate agent-os-contracts/agent-os-core wheels clean-installed with declared dependencies, imported successfully, and aac/envs were absent. This verifies minimum contracts/run-kernel behavior and package isolation only, not complete SPINE-0."
 last_verified_tests:
   count: 1237
   result: "OK (skipped=16)"

@@ -6,8 +6,10 @@
 ## Product Track dependency order
 
 1. **T-P-OS-SPINE-0 product spine (P0A implemented, overall NOT DONE):** P0A provides
-   strict contracts, canonical WorkflowGraph, event-replayed Task aggregate and public
-   TaskService with an in-memory port adapter. Remaining: PostgreSQL durability,
+   separately installable minimum contracts, structural/canonical WorkflowGraph,
+   event-replayed Task aggregate and public TaskService with an in-memory port adapter.
+   Remaining: contract completion, executable-graph semantics, durable run states,
+   PostgreSQL durability,
    provider/CredentialRef, typed sandbox tools, baseline policy/correction, public
    Task Workspace/API/CLI and verified developer outcome. No donor import dependency.
 2. **T-P-OS-SPINE-1 Data Agent migration:** after SPINE-0, execute ADR-0054 full-history

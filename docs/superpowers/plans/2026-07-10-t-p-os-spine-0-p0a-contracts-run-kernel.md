@@ -461,6 +461,13 @@ git commit -m "docs(product): record P0A run kernel evidence"
 
 ## Self-Review
 
+Independent implementation review initially returned `APPROVE_WITH_REQUIRED_CHANGES`.
+Remediation split `agent-os-contracts` and `agent-os-core` into separate distributions,
+proved clean-environment dependency installation and Research-package absence, added a
+mutation-validated committed-workflow digest replay test, and expanded forbidden-import
+coverage to `envs`, `_migration` and `src.*` roots. Contract, graph and run-lifecycle
+semantics not present in P0A are explicitly listed as deferred rather than claimed complete.
+
 - Spec coverage: P0A covers canonical contracts, WorkflowGraph validation/digest, append-only
   events, lifecycle transitions, replay, concurrency and a public call path.
 - Deliberate gaps: provider/CredentialRef resolution, PolicyKernel/CorrectionAuthority,

@@ -13,8 +13,8 @@ The repository uses a **dual-track layered monorepo** model:
 - **Product Track:** Task Workspace, workflow, runtime, providers/BYOK, tools/plugins, knowledge/RAG, agents/subagents, governance, eval, SDK and domain packs.
 - **Research Track:** CWM, belief/action mechanisms, belief ledger, outcome learning, corrigibility, formal models, preregistered experiments and negative-result maps.
 
-The current tree remains research-heavy, but Product Track P0A now implements strict
-contracts, canonical WorkflowGraph validation, an append-only event-store port,
+The current tree remains research-heavy, but Product Track P0A now implements minimum
+strict contract shapes, structural WorkflowGraph validation and canonical digesting, an append-only event-store port,
 event-rehydrated Task aggregate and public TaskService lifecycle. Its current storage is an
 in-memory adapter only; this is not the durable Agent OS runtime or market-parity layer, and
 no research result becomes a product claim by proximity.
@@ -23,7 +23,7 @@ no research result becomes a product claim by proximity.
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the current branch, stage, next task, latest tests, latest ADRs, and known drift risks.
 
-As of 2026-07-10, Product P0A records `38 passed`, ruff clean and pyright `0 errors`.
+As of 2026-07-10, Product P0A records `45 passed`, ruff clean and pyright `0 errors`.
 The full Research Track regression records `1237 tests OK (16 skipped)`: 13 intentional
 sentinels plus 3 optional Replogle preprocessing tests skipped because `anndata/numpy` are
 not installed in this environment. `G10` remains a narrow positive result; `G13` and
@@ -35,23 +35,30 @@ establishes Product Done.
 ## Product Track P0A
 
 ```text
-packages/contracts/src/agent_os_contracts/  strict product contracts
-packages/os_core/src/agent_os_core/         task event/replay kernel
+packages/contracts/                         agent-os-contracts distribution
+packages/os_core/                           agent-os-core distribution
 tests/product/                              Product Track tests
 ```
 
 Install Product Track development extras and run its gates:
 
 ```bash
-python3 -m pip install -e '.[product-core,product-test]'
+python3 -m pip install -e packages/contracts
+python3 -m pip install -e packages/os_core
+python3 -m pip install -e '.[product-test]'
 python3 -m pytest tests/product -q
 ruff check packages/contracts/src packages/os_core/src tests/product
 pyright
+uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/contracts
+uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/os_core
 ```
 
-`InMemoryTaskEventStore` is for port verification/local composition. PostgreSQL,
-provider/CredentialRef, policy/correction, capability execution, API/CLI/UI and complete
-SPINE-0 remain unimplemented.
+The Product distributions declare their own runtime dependencies and do not ship `aac` or
+`envs`. `InMemoryTaskEventStore` is for port verification/local composition. Commitment
+budget/expiry, explicit outcome failure semantics, executable-graph reachability/loop-body
+rules, queued durable run transitions, PostgreSQL, provider/CredentialRef,
+policy/correction, capability execution, API/CLI/UI and complete SPINE-0 remain
+unimplemented.
 
 ## Research Track: historical four claims
 
