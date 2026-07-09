@@ -1,5 +1,10 @@
 from .action_connectors import ActionConnector, ActionConnectorRegistry
 from .action_governance import ActionGovernance
+from .consequence_preview import (
+    INTENDED_EXECUTION_OUTCOME,
+    ActionHistoryPort,
+    build_consequence_preview,
+)
 from .alert_agent import AlertAgent, AlertRule
 from .conversation import (
     ContextResolver,
@@ -96,9 +101,12 @@ from .trusted_loop import (
 __all__ = [
     "ActionConnector",
     "ActionConnectorRegistry",
+    "ActionHistoryPort",
     "ApprovalRouteDecision",
     "ApprovalRouter",
     "ActionGovernance",
+    "INTENDED_EXECUTION_OUTCOME",
+    "build_consequence_preview",
     "AlertAgent",
     "AlertRule",
     "AdoptionIngest",
