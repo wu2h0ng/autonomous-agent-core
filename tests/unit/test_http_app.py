@@ -4340,6 +4340,49 @@ class ApprovalChoiceSetSurfaceTest(unittest.TestCase):
         self.assertTrue(detail["alternatives"][0]["rationale"])
         self.assertTrue(detail["alternatives"][1]["rationale"])
 
+    def test_approval_detail_exposes_ledger_consequence_preview(self) -> None:
+        """P2-B (ADR-0016): GET /approvals/{id} surfaces the action's OWN governed history.
+
+        The first action_record approval is NOVEL (available=False — no prior history, NOT a
+        fabricated 0/0); after it executes (a REAL reversible ledger write), the next approval's
+        preview reports exactly one prior execution resolved to the intended outcome. The 0 -> 1
+        shift can only come from reading the durable ledger, so a constant/ignored-ledger impl fails.
+        """
+        client = _make_client(API_KEY)
+        headers = {"X-API-Key": API_KEY}
+        run_body = {"question": "GMV 记录行动", "parameters": RUN_BODY["parameters"]}
+
+        # First run: no prior "execute" history -> available=False (novel), reported HONESTLY.
+        first = client.post("/runs", json=run_body, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        first_approval_id = first.json()["user_result"]["business_action"]["approval_id"]
+        first_detail = client.get(f"/approvals/{first_approval_id}", headers=headers).json()
+        self.assertIsNotNone(first_detail["consequence_preview"])
+        self.assertFalse(first_detail["consequence_preview"]["available"])
+        self.assertEqual(first_detail["consequence_preview"]["prior_executions"], 0)
+
+        # Execute it: a REAL reversible ledger write the preview will later count.
+        execute_resp = client.post(
+            f"/approvals/{first_approval_id}/execute",
+            json={"reason": "approved by operator", "approved_by": "ops@example.com"},
+            headers={"X-Operator-Key": OPERATOR_KEY},
+        )
+        self.assertEqual(execute_resp.status_code, 200, execute_resp.text)
+
+        # Second run: the preview now reports the one prior execution, resolved to intended.
+        second = client.post("/runs", json=run_body, headers=headers)
+        self.assertEqual(second.status_code, 200, second.text)
+        second_approval_id = second.json()["user_result"]["business_action"]["approval_id"]
+        second_detail = client.get(f"/approvals/{second_approval_id}", headers=headers).json()
+        preview = second_detail["consequence_preview"]
+        self.assertIsNotNone(preview)
+        self.assertTrue(preview["available"])
+        self.assertEqual(preview["action_type"], "execute")
+        self.assertEqual(preview["prior_executions"], 1)
+        self.assertEqual(preview["resolved_intended"], 1)
+        self.assertEqual(preview["resolved_other"], 0)
+        self.assertEqual(preview["last_outcomes"], ["executed"])
+
     def test_user_result_decision_exposes_and_redacts_alternatives(self) -> None:
         client = _make_client(API_KEY)
         headers = {"X-API-Key": API_KEY}
