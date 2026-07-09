@@ -1,0 +1,110 @@
+[
+  {
+    "domain": "D01_linear_8",
+    "n_edges": 9,
+    "n_nodes": 8,
+    "orientation": 0.833,
+    "precision": 0.6,
+    "recall": 0.667,
+    "time_s": 6.4
+  },
+  {
+    "domain": "D02_tanh_9",
+    "n_edges": 16,
+    "n_nodes": 9,
+    "orientation": 0.889,
+    "precision": 0.45,
+    "recall": 0.562,
+    "time_s": 8.7
+  },
+  {
+    "domain": "D03_poly_10",
+    "n_edges": 14,
+    "n_nodes": 10,
+    "orientation": 0.5,
+    "precision": 0.471,
+    "recall": 0.571,
+    "time_s": 9.4
+  },
+  {
+    "domain": "D04_sin_8",
+    "n_edges": 5,
+    "n_nodes": 8,
+    "orientation": 1.0,
+    "precision": 0.4,
+    "recall": 0.8,
+    "time_s": 6.5
+  },
+  {
+    "domain": "D05_linear_12",
+    "n_edges": 13,
+    "n_nodes": 12,
+    "orientation": 0.5,
+    "precision": 0.4,
+    "recall": 0.769,
+    "time_s": 20.6
+  },
+  {
+    "domain": "D06_tanh_14",
+    "n_edges": 18,
+    "n_nodes": 14,
+    "orientation": 0.857,
+    "precision": 0.241,
+    "recall": 0.389,
+    "time_s": 44.7
+  },
+  {
+    "domain": "D07_poly_13",
+    "n_edges": 16,
+    "n_nodes": 13,
+    "orientation": 0.5,
+    "precision": 0.353,
+    "recall": 0.75,
+    "time_s": 35.1
+  },
+  {
+    "domain": "D08_sin_11",
+    "n_edges": 15,
+    "n_nodes": 11,
+    "orientation": 0.857,
+    "precision": 0.467,
+    "recall": 0.467,
+    "time_s": 13.7
+  },
+  {
+    "domain": "D09_linear_16",
+    "n_edges": 35,
+    "n_nodes": 16,
+    "orientation": 0.636,
+    "precision": 0.314,
+    "recall": 0.314,
+    "time_s": 81.4
+  },
+  {
+    "domain": "D10_tanh_15",
+    "n_edges": 30,
+    "n_nodes": 15,
+    "orientation": 0.75,
+    "precision": 0.324,
+    "recall": 0.4,
+    "time_s": 56.2
+  },
+  {
+    "domain": "D11_linear_20",
+    "n_edges": 48,
+    "n_nodes": 20,
+    "orientation": 0.769,
+    "precision": 0.224,
+    "recall": 0.271,
+    "time_s": 228.0
+  },
+  {
+    "domain": "D12_tanh_18",
+    "n_edges": 43,
+    "n_nodes": 18,
+    "orientation": 0.6,
+    "precision": 0.345,
+    "recall": 0.465,
+    "time_s": 131.8
+  }
+]

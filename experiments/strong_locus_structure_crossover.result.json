@@ -1,0 +1,411 @@
+{
+  "backend": "stub",
+  "c7_halt_test_passes": true,
+  "experiment": "strong-locus-structure-crossover",
+  "hyperparameter_hash": "a36f0a58f3fd5a52",
+  "hyperparameters": {
+    "BUDGET": 3,
+    "EMPIRICAL_EFFECT_THRESHOLD": 1.5,
+    "KS": [
+      3,
+      8
+    ],
+    "LIKELIHOOD_MODE": "linear",
+    "N_MC_SAMPLES": 3,
+    "N_PARTICLES": 20,
+    "SCORE_EFFECT_THRESHOLD": 1.5,
+    "SEEDS": [
+      42,
+      43
+    ],
+    "UCB_ALPHA": 1.0
+  },
+  "plumbing_summary": {
+    "failure_rate": 0.0,
+    "total_counts": {
+      "clean_wrong": 0,
+      "timeout": 0,
+      "truncated": 0,
+      "unparseable": 0
+    },
+    "total_events": 0,
+    "total_organ_calls": 0,
+    "total_plumbing_failures": 0
+  },
+  "results": [
+    {
+      "arm_results": {
+        "corr": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "shd": 1
+        },
+        "governed_loop": {
+          "ap": 0.0,
+          "interventions_spent": 3,
+          "shd": 1,
+          "wall_time_ms": 35.341
+        },
+        "learned_select": {
+          "ap": 0.0,
+          "interventions_spent": 3,
+          "shd": 1,
+          "wall_time_ms": 18.763
+        },
+        "organ_alone": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "shd": 1,
+          "wall_time_ms": 0.529
+        },
+        "organ_tools": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 1,
+          "wall_time_ms": 36.512
+        },
+        "organ_tools_externalized": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 1,
+          "wall_time_ms": 35.298
+        },
+        "passive_loop": {
+          "ap": 0.0,
+          "interventions_spent": 3,
+          "shd": 1,
+          "wall_time_ms": 14.068
+        }
+      },
+      "k": 3,
+      "linear_gaussian_avg_r2": 0.0,
+      "n_true": 1,
+      "placebo_ap": 0.3333333333333333,
+      "placebo_cov_distance": 0.0,
+      "placebo_passes": true,
+      "plumbing": {
+        "organ_alone": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools_externalized": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        }
+      },
+      "seed": 42
+    },
+    {
+      "arm_results": {
+        "corr": {
+          "ap": 0.022727272727272728,
+          "interventions_spent": 0,
+          "shd": 22
+        },
+        "governed_loop": {
+          "ap": 0.37279122392758757,
+          "interventions_spent": 3,
+          "shd": 21,
+          "wall_time_ms": 564.842
+        },
+        "learned_select": {
+          "ap": 0.34205529319165684,
+          "interventions_spent": 3,
+          "shd": 21,
+          "wall_time_ms": 95.166
+        },
+        "organ_alone": {
+          "ap": 0.022727272727272728,
+          "interventions_spent": 0,
+          "shd": 22,
+          "wall_time_ms": 1.336
+        },
+        "organ_tools": {
+          "ap": 0.37279122392758757,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 21,
+          "wall_time_ms": 571.536
+        },
+        "organ_tools_externalized": {
+          "ap": 0.37279122392758757,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 21,
+          "wall_time_ms": 570.372
+        },
+        "passive_loop": {
+          "ap": 0.21612554112554114,
+          "interventions_spent": 3,
+          "shd": 21,
+          "wall_time_ms": 61.841
+        }
+      },
+      "k": 8,
+      "linear_gaussian_avg_r2": 0.14656826709067683,
+      "n_true": 22,
+      "placebo_ap": 0.45586044313016033,
+      "placebo_cov_distance": 0.0,
+      "placebo_passes": true,
+      "plumbing": {
+        "organ_alone": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools_externalized": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        }
+      },
+      "seed": 42
+    },
+    {
+      "arm_results": {
+        "corr": {
+          "ap": 0.5,
+          "interventions_spent": 0,
+          "shd": 1
+        },
+        "governed_loop": {
+          "ap": 1.0,
+          "interventions_spent": 3,
+          "shd": 0,
+          "wall_time_ms": 115.976
+        },
+        "learned_select": {
+          "ap": 1.0,
+          "interventions_spent": 3,
+          "shd": 0,
+          "wall_time_ms": 15.523
+        },
+        "organ_alone": {
+          "ap": 0.5,
+          "interventions_spent": 0,
+          "shd": 1,
+          "wall_time_ms": 0.287
+        },
+        "organ_tools": {
+          "ap": 1.0,
+          "interventions_spent": 3,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 0,
+          "wall_time_ms": 111.534
+        },
+        "organ_tools_externalized": {
+          "ap": 1.0,
+          "interventions_spent": 3,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 0,
+          "wall_time_ms": 113.577
+        },
+        "passive_loop": {
+          "ap": 1.0,
+          "interventions_spent": 3,
+          "shd": 0,
+          "wall_time_ms": 11.024
+        }
+      },
+      "k": 3,
+      "linear_gaussian_avg_r2": 0.08909860070687674,
+      "n_true": 1,
+      "placebo_ap": 0.0,
+      "placebo_cov_distance": 0.0,
+      "placebo_passes": true,
+      "plumbing": {
+        "organ_alone": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools_externalized": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        }
+      },
+      "seed": 43
+    },
+    {
+      "arm_results": {
+        "corr": {
+          "ap": 0.19674603174603175,
+          "interventions_spent": 0,
+          "shd": 23
+        },
+        "governed_loop": {
+          "ap": 0.15733333333333333,
+          "interventions_spent": 3,
+          "shd": 23,
+          "wall_time_ms": 570.393
+        },
+        "learned_select": {
+          "ap": 0.15733333333333333,
+          "interventions_spent": 3,
+          "shd": 23,
+          "wall_time_ms": 95.464
+        },
+        "organ_alone": {
+          "ap": 0.19674603174603175,
+          "interventions_spent": 0,
+          "shd": 23,
+          "wall_time_ms": 1.359
+        },
+        "organ_tools": {
+          "ap": 0.15733333333333333,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 23,
+          "wall_time_ms": 714.292
+        },
+        "organ_tools_externalized": {
+          "ap": 0.15733333333333333,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 23,
+          "wall_time_ms": 727.986
+        },
+        "passive_loop": {
+          "ap": 0.3527734487734488,
+          "interventions_spent": 3,
+          "shd": 20,
+          "wall_time_ms": 60.622
+        }
+      },
+      "k": 8,
+      "linear_gaussian_avg_r2": 0.25066862149766567,
+      "n_true": 25,
+      "placebo_ap": 0.1434084253666297,
+      "placebo_cov_distance": 0.0,
+      "placebo_passes": true,
+      "plumbing": {
+        "organ_alone": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools_externalized": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        }
+      },
+      "seed": 43
+    }
+  ],
+  "stage": 1,
+  "stub_only": true
+}

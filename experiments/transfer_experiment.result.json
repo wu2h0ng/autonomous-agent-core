@@ -1,0 +1,62 @@
+[
+  {
+    "recall": 1.0,
+    "precision": 0.455,
+    "orientation_acc": 0.6,
+    "conf": 0.536,
+    "ESS": 2.0,
+    "time_s": 0.9,
+    "domain": "linear_chain",
+    "method": "from_scratch"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.455,
+    "orientation_acc": 0.6,
+    "conf": 0.534,
+    "ESS": 1.7,
+    "time_s": 0.9,
+    "domain": "linear_chain",
+    "method": "transfer_prior"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.429,
+    "orientation_acc": 0.833,
+    "conf": 0.525,
+    "ESS": 1.0,
+    "time_s": 5.1,
+    "domain": "tanh_mixed",
+    "method": "from_scratch"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.429,
+    "orientation_acc": 0.833,
+    "conf": 0.525,
+    "ESS": 1.0,
+    "time_s": 4.9,
+    "domain": "tanh_mixed",
+    "method": "transfer_prior"
+  },
+  {
+    "recall": 0.571,
+    "precision": 0.4,
+    "orientation_acc": 0.5,
+    "conf": 0.536,
+    "ESS": 1.7,
+    "time_s": 5.6,
+    "domain": "poly_chain",
+    "method": "from_scratch"
+  },
+  {
+    "recall": 0.571,
+    "precision": 0.4,
+    "orientation_acc": 0.75,
+    "conf": 0.528,
+    "ESS": 1.2,
+    "time_s": 5.6,
+    "domain": "poly_chain",
+    "method": "transfer_prior"
+  }
+]

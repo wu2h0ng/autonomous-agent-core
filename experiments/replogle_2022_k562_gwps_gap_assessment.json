@@ -1,0 +1,232 @@
+{
+  "assessment_id": "replogle-2022-k562-gwps-stage4-gap-2026-07-06",
+  "consultability": {
+    "consultable_locked_genes": [
+      "AIFM2",
+      "APAF1",
+      "ATM",
+      "ATR",
+      "BAX",
+      "BBC3",
+      "BCL2L1",
+      "BID",
+      "CASP3",
+      "CASP8"
+    ],
+    "criterion_satisfied": true,
+    "min_consultable_required": 5,
+    "n_consultable_locked_genes": 10
+  },
+  "dataset": {
+    "bioproject": "PRJNA831566",
+    "cell_line": "K562",
+    "corrections": {
+      "GSE190604_is_not_this_study": "GSE190604 is Schmidt/Steinhart 2022 primary T-cell CRISPRa/i Perturb-seq, not Replogle 2022. The previous catalogue entry was misidentified.",
+      "harmonizome_note": "Harmonizome reports 7189 perturbation sets for this study, but its signature list is a filtered/derived subset and should not be treated as the authoritative target inventory. The h5ad obs index is authoritative."
+    },
+    "doi": "10.1016/j.cell.2022.05.013",
+    "paper": "Replogle et al., 2022, Cell",
+    "pmcid": "PMC9380471",
+    "pmid": 35688146,
+    "processed_data": {
+      "article_id": "20029387",
+      "bytes": 374587922,
+      "download_url": "https://ndownloader.figshare.com/files/35773217",
+      "file": "K562_gwps_normalized_bulk_01.h5ad",
+      "local_path": "experiments/data/perturb_seq/K562_gwps_normalized_bulk_01.h5ad",
+      "sha256": null,
+      "source": "figshare"
+    },
+    "screen_type": "genome-wide CRISPRi Perturb-seq",
+    "sra_project": "SRP376262",
+    "title": "Mapping information-rich genotype-phenotype landscapes with genome-scale Perturb-seq"
+  },
+  "expression_observability": {
+    "missing_from_expression": [
+      "ADGRB1",
+      "BCL2"
+    ],
+    "n_obs": 11258,
+    "n_observable_locked_genes": 10,
+    "n_vars": 8248,
+    "observability_rate": 0.8333,
+    "observable_locked_genes": [
+      "AIFM2",
+      "APAF1",
+      "ATM",
+      "ATR",
+      "BAX",
+      "BBC3",
+      "BCL2L1",
+      "BID",
+      "CASP3",
+      "CASP8"
+    ],
+    "shape": [
+      11258,
+      8248
+    ]
+  },
+  "honest_negative_guard": {
+    "applicable": false,
+    "note": "No honest-negative trigger is pulled on this dataset. Preprocessing completed without degeneracy: 200 observational rows, 7 consultable and 3 held-out interventions. If the Stage 4 model run reveals that the 10 consultable genes collapse to fewer independent perturbation conditions or that controls are degenerate, the diagnostic must be updated and the verdict reconsidered."
+  },
+  "intervention_coverage": {
+    "missing_interventions": [
+      "ADGRB1",
+      "BCL2"
+    ],
+    "n_perturbation_targets_among_locked_genes": 10,
+    "n_unique_perturbation_targets_in_obs": 9867,
+    "note": "Every observable locked gene also has at least one CRISPRi guide in the obs index. ADGRB1 and BCL2 are absent from both the expression matrix and the perturbation target list.",
+    "perturbation_targets_among_locked_genes": [
+      "AIFM2",
+      "APAF1",
+      "ATM",
+      "ATR",
+      "BAX",
+      "BBC3",
+      "BCL2L1",
+      "BID",
+      "CASP3",
+      "CASP8"
+    ]
+  },
+  "leak_probe_outputs": {
+    "note": "Both stub and real-LLM leak-probes passed. A real leak-probe must remain passed before any Stage 4 real-data model run can claim MET.",
+    "real_backend": {
+      "api_url": "https://api.kimi.com/coding/v1/chat/completions",
+      "failed_seeds": [],
+      "model": "kimi-k2-0711-preview",
+      "n_seeds": 5,
+      "note": "Re-run after spec model_lock correction to kimi-k2-0711-preview. The model returned empty dataset_guess, pathway_guess, and gene_mapping for all seeds.",
+      "passed_seeds": [
+        6000,
+        6001,
+        6002,
+        6003,
+        6004
+      ],
+      "plumbing_counts": {
+        "clean_wrong": 0,
+        "timeout": 0,
+        "truncated": 0,
+        "unparseable": 0
+      },
+      "provider": "openai",
+      "result_file": "experiments/strong_locus_leak_probe_replogle_2022.result.json",
+      "temperature": 1.0,
+      "verdict": "RUNNABLE"
+    },
+    "result_file": "experiments/strong_locus_leak_probe_replogle_2022.result.json",
+    "stub_backend": {
+      "backend_used": "stub",
+      "failed_seeds": [],
+      "n_seeds": 5,
+      "passed_seeds": [
+        6000,
+        6001,
+        6002,
+        6003,
+        6004
+      ],
+      "verdict": "RUNNABLE"
+    }
+  },
+  "leak_probe_status": "REAL_PASSED",
+  "preprocessing_outputs": {
+    "consultable_targets": [
+      "APAF1",
+      "ATM",
+      "ATR",
+      "BBC3",
+      "BID",
+      "CASP3",
+      "CASP8"
+    ],
+    "held_out_targets": [
+      "AIFM2",
+      "BAX",
+      "BCL2L1"
+    ],
+    "n_consultable_interventions": 7,
+    "n_held_out_interventions": 3,
+    "n_observational_rows": 200,
+    "preprocessed_csv": "experiments/replogle_2022_preprocessed.csv",
+    "preprocessed_json": "experiments/replogle_2022_preprocessed.json",
+    "script": "experiments/replogle_2022_preprocessing.py",
+    "spec": "experiments/strong_locus_stage4_replogle_2022.spec.json"
+  },
+  "preprocessing_plan": {
+    "inputs": [
+      "experiments/data/perturb_seq/K562_gwps_normalized_bulk_01.h5ad"
+    ],
+    "outputs": [
+      "experiments/replogle_2022_preprocessed.json",
+      "experiments/replogle_2022_preprocessed.csv"
+    ],
+    "steps": [
+      "Subset the bulk matrix to the 10 consultable locked genes plus strong co-varying candidates selected by a locked pre-processing rule.",
+      "Build observation rows: one per perturbation target (including NON-TARGETING controls).",
+      "Label each row with the perturbed gene symbol and mark controls.",
+      "Run distribution checks and leakage-probe on the target list before model fitting.",
+      "Feed the resulting (X, intervention, control) tuples into the strong-locus Stage 4 causal-discovery harness."
+    ]
+  },
+  "preprocessing_status": "COMPLETED",
+  "reason": "10 of 12 locked p53-pathway genes are both measured and perturbed in Replogle 2022 K562 genome-wide Perturb-seq, exceeding the >=5 consultable-intervention threshold. The 2 missing genes (ADGRB1, BCL2) are not in the expression matrix and therefore cannot be rescued by requesting additional guides.",
+  "recommended_next_step": "RUN_REAL_LLM_LEAK_PROBE_OR_BUILD_STAGE_4_HARNESS",
+  "run_at": "2026-07-06T14:16:00Z",
+  "stage4_harness_run": {
+    "actual_model": "kimi-k2-0711-preview",
+    "actual_temperature": 1.0,
+    "all_arms_executed": true,
+    "backend": "openai",
+    "c7_halt_test_passes": true,
+    "diagnostic_file": "experiments/strong_locus_stage4_replogle_2022_diagnostic.json",
+    "honest_negative_record": "docs/research/HONEST-NEGATIVE-strong-locus-stage4-replogle-2026-07-06.md",
+    "n_true": 0,
+    "plumbing_summary": {
+      "failure_rate": 1.0,
+      "organ_alone": {
+        "unparseable": 1
+      },
+      "organ_tools": {
+        "timeout": 3,
+        "unparseable": 1
+      },
+      "organ_tools_externalized": {
+        "clean": true
+      },
+      "total_organ_calls": 5,
+      "total_plumbing_failures": 5
+    },
+    "result_file": "experiments/strong_locus_stage4_openai.result.json",
+    "root_cause": "The Replogle 2022 pseudo-bulk h5ad provides at most 1-2 aggregated observations per held-out perturbation target. With the locked SEM effect threshold of 1.5, no held-out intervention produces a standardized mean shift large enough to declare an empirical true edge. The strongest observed standardized mean shifts are ~1.2-1.4 (BAX->CASP3, AIFM2->BBC3).",
+    "status": "COMPLETED",
+    "verdict": "INSUFFICIENT_DATA_HONEST_NEGATIVE"
+  },
+  "variable_selection_lock": {
+    "locked_genes": [
+      "ADGRB1",
+      "AIFM2",
+      "APAF1",
+      "ATM",
+      "ATR",
+      "BAX",
+      "BBC3",
+      "BCL2",
+      "BCL2L1",
+      "BID",
+      "CASP3",
+      "CASP8"
+    ],
+    "n_locked_genes": 12,
+    "path": "experiments/variable_selection_lock.json",
+    "pathway": "p53 signaling pathway",
+    "pathway_id": "hsa04115",
+    "pathway_source": "KEGG",
+    "selection_rule": "Within the locked KEGG pathway, take the first N gene symbols by alphabetical order. Skip any gene not present in the dataset. The final list is fixed; no post-hoc additions or removals to improve scores."
+  },
+  "verdict": "RUN_COMPLETED_INSUFFICIENT_DATA"
+}

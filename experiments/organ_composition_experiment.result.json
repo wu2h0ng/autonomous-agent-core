@@ -1,0 +1,26 @@
+[
+  {
+    "ESS": 1.0,
+    "MAP_orientation_accuracy": 1.0,
+    "MAP_skeleton_precision": 0.5,
+    "MAP_skeleton_recall": 0.857,
+    "MEC_confidence": 0.99,
+    "edge_AUC": 0.209,
+    "ensemble_confidence": 0.52,
+    "n_organs": 1,
+    "time_s": 80.9,
+    "use_language_organ": false
+  },
+  {
+    "ESS": 1.0,
+    "MAP_orientation_accuracy": 1.0,
+    "MAP_skeleton_precision": 0.5,
+    "MAP_skeleton_recall": 0.857,
+    "MEC_confidence": 0.99,
+    "edge_AUC": 0.209,
+    "ensemble_confidence": 0.52,
+    "n_organs": 2,
+    "time_s": 79.7,
+    "use_language_organ": true
+  }
+]

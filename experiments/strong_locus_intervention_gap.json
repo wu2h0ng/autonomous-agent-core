@@ -1,0 +1,145 @@
+{
+  "accession": "GSE90063",
+  "sample": "GSM2396858_k562_tfs_7",
+  "pathway": "p53 signaling pathway",
+  "pathway_id": "hsa04115",
+  "locked_genes": [
+    "ADGRB1",
+    "AIFM2",
+    "APAF1",
+    "ATM",
+    "ATR",
+    "BAX",
+    "BBC3",
+    "BCL2",
+    "BCL2L1",
+    "BID",
+    "CASP3",
+    "CASP8"
+  ],
+  "n_locked_genes": 12,
+  "observable_locked_genes": [
+    "AIFM2",
+    "APAF1",
+    "ATM",
+    "ATR",
+    "BAX",
+    "BBC3",
+    "BCL2",
+    "BCL2L1",
+    "BID",
+    "CASP3",
+    "CASP8"
+  ],
+  "n_observable_locked_genes": 11,
+  "missing_from_dataset": [
+    "ADGRB1"
+  ],
+  "available_interventions": [
+    "CREB1",
+    "E2F4",
+    "EGR1",
+    "ELF1",
+    "ELK1",
+    "ETS1",
+    "GABPA",
+    "IRF1",
+    "NR2C2",
+    "YY1"
+  ],
+  "n_available_interventions_total": 10,
+  "consultable_locked_genes": [],
+  "n_consultable_locked_genes": 0,
+  "missing_intervention_for_observable": [
+    "AIFM2",
+    "APAF1",
+    "ATM",
+    "ATR",
+    "BAX",
+    "BBC3",
+    "BCL2",
+    "BCL2L1",
+    "BID",
+    "CASP3",
+    "CASP8"
+  ],
+  "proposed_missing_interventions": {
+    "AIFM2": [
+      "p_sgAIFM2_1",
+      "p_sgAIFM2_2",
+      "p_sgAIFM2_3"
+    ],
+    "APAF1": [
+      "p_sgAPAF1_1",
+      "p_sgAPAF1_2",
+      "p_sgAPAF1_3"
+    ],
+    "ATM": [
+      "p_sgATM_1",
+      "p_sgATM_2",
+      "p_sgATM_3"
+    ],
+    "ATR": [
+      "p_sgATR_1",
+      "p_sgATR_2",
+      "p_sgATR_3"
+    ],
+    "BAX": [
+      "p_sgBAX_1",
+      "p_sgBAX_2",
+      "p_sgBAX_3"
+    ],
+    "BBC3": [
+      "p_sgBBC3_1",
+      "p_sgBBC3_2",
+      "p_sgBBC3_3"
+    ],
+    "BCL2": [
+      "p_sgBCL2_1",
+      "p_sgBCL2_2",
+      "p_sgBCL2_3"
+    ],
+    "BCL2L1": [
+      "p_sgBCL2L1_1",
+      "p_sgBCL2L1_2",
+      "p_sgBCL2L1_3"
+    ],
+    "BID": [
+      "p_sgBID_1",
+      "p_sgBID_2",
+      "p_sgBID_3"
+    ],
+    "CASP3": [
+      "p_sgCASP3_1",
+      "p_sgCASP3_2",
+      "p_sgCASP3_3"
+    ],
+    "CASP8": [
+      "p_sgCASP8_1",
+      "p_sgCASP8_2",
+      "p_sgCASP8_3"
+    ],
+    "ADGRB1": []
+  },
+  "min_consultable_required": 5,
+  "recommendation": {
+    "action": "REQUEST_INTERVENTIONS",
+    "reason": "Only 0 locked genes have interventions; need >= 5. The missing genes are observable but not yet perturbed. A future experiment or dataset should include KO guides for them.",
+    "candidate_datasets": [
+      "GSE190604"
+    ]
+  },
+  "dataset_catalogue": {
+    "GSE190604": {
+      "title": "Replogle et al. 2022, Perturb-seq of essential genes in RPE1",
+      "coverage": "Whole-genome / large gene set CRISPRi screening",
+      "why": "Likely to contain KO targets inside the locked KEGG p53 pathway."
+    },
+    "GSE90063": {
+      "title": "Dixit et al. 2016, Perturb-seq of K562 transcription factors",
+      "coverage": "Transcription-factor KO screen",
+      "why": "Current sample; not suitable for p53 pathway because TF targets do not overlap pathway genes."
+    }
+  },
+  "verdict": "NOT_FIT"
+}

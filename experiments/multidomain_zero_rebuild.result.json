@@ -1,0 +1,53 @@
+[
+  {
+    "ESS": 1.6,
+    "MAP_n_edges": 8,
+    "MAP_precision": 0.625,
+    "MAP_recall": 1.0,
+    "MEC_confidence": 0.871,
+    "conf_agreement_std": 0.0,
+    "domain": "A_linear_chain",
+    "edge_AUC": 0.2,
+    "ensemble_confidence": 0.52,
+    "mechanism": "linear",
+    "n_MEC_clusters": 49,
+    "n_edges_true": 5,
+    "n_nodes": 6,
+    "n_obs": 600,
+    "time_s": 14.8
+  },
+  {
+    "ESS": 1.0,
+    "MAP_n_edges": 15,
+    "MAP_precision": 0.4,
+    "MAP_recall": 0.857,
+    "MEC_confidence": 0.986,
+    "conf_agreement_std": 0.001,
+    "domain": "B_collider_mixed",
+    "edge_AUC": 0.212,
+    "ensemble_confidence": 0.521,
+    "mechanism": "linear",
+    "n_MEC_clusters": 50,
+    "n_edges_true": 7,
+    "n_nodes": 7,
+    "n_obs": 700,
+    "time_s": 23.5
+  },
+  {
+    "ESS": 1.8,
+    "MAP_n_edges": 13,
+    "MAP_precision": 0.385,
+    "MAP_recall": 0.625,
+    "MEC_confidence": 0.818,
+    "conf_agreement_std": 0.0,
+    "domain": "C_nonlinear_tanh",
+    "edge_AUC": 0.278,
+    "ensemble_confidence": 0.52,
+    "mechanism": "tanh",
+    "n_MEC_clusters": 50,
+    "n_edges_true": 8,
+    "n_nodes": 8,
+    "n_obs": 600,
+    "time_s": 99.4
+  }
+]

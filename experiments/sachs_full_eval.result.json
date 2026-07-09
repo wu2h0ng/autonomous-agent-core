@@ -1,0 +1,18 @@
+{
+  "dataset": "Sachs",
+  "n_nodes": 11,
+  "n_obs": 853,
+  "n_true_edges": 17,
+  "GGM_recall": 0.0,
+  "GGM_precision": 0.0,
+  "DiBS_recall": 0.412,
+  "DiBS_precision": 0.304,
+  "DiBS_orientation_acc": 0.571,
+  "DiBS_confidence": 0.533,
+  "DiBS_MEC_confidence": 0.983,
+  "DiBS_ESS": 1.0,
+  "DiBS_n_MECs": 30,
+  "DiBS_AUC": 0.541,
+  "DiBS_time_s": 152.6,
+  "DiBS_MAP_n_edges": 23
+}

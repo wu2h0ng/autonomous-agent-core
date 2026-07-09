@@ -1,0 +1,82 @@
+{
+  "actual_accession": "Replogle_2022_K562_GWPS",
+  "actual_genes": [
+    "AIFM2",
+    "APAF1",
+    "ATM",
+    "ATR",
+    "BAX",
+    "BBC3",
+    "BCL2L1",
+    "BID",
+    "CASP3",
+    "CASP8"
+  ],
+  "actual_pathway": "p53 signaling pathway",
+  "backend": "kimi-k2-0711-preview",
+  "chance_threshold": 0.1,
+  "details": [
+    {
+      "failed": false,
+      "response_keys": [
+        "dataset_guess",
+        "gene_mapping",
+        "pathway_guess"
+      ],
+      "seed": 6000
+    },
+    {
+      "failed": false,
+      "response_keys": [
+        "dataset_guess",
+        "gene_mapping",
+        "pathway_guess"
+      ],
+      "seed": 6001
+    },
+    {
+      "failed": false,
+      "response_keys": [
+        "dataset_guess",
+        "gene_mapping",
+        "pathway_guess"
+      ],
+      "seed": 6002
+    },
+    {
+      "failed": false,
+      "response_keys": [
+        "dataset_guess",
+        "gene_mapping",
+        "pathway_guess"
+      ],
+      "seed": 6003
+    },
+    {
+      "failed": false,
+      "response_keys": [
+        "dataset_guess",
+        "gene_mapping",
+        "pathway_guess"
+      ],
+      "seed": 6004
+    }
+  ],
+  "failed_seeds": [],
+  "n_seeds": 5,
+  "passed_seeds": [
+    6000,
+    6001,
+    6002,
+    6003,
+    6004
+  ],
+  "plumbing_counts": {
+    "clean_wrong": 0,
+    "timeout": 0,
+    "truncated": 0,
+    "unparseable": 0
+  },
+  "stub_only": false,
+  "verdict": "RUNNABLE"
+}

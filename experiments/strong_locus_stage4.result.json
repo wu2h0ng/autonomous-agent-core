@@ -1,0 +1,159 @@
+{
+  "backend": "stub",
+  "c7_halt_test_passes": true,
+  "experiment": "strong-locus-structure-crossover",
+  "hyperparameter_hash": "873f81b450270248",
+  "hyperparameters": {
+    "BUDGET": 3,
+    "EMPIRICAL_EFFECT_THRESHOLD": 1.5,
+    "LIKELIHOOD_MODE": "linear",
+    "MAX_TOKENS": 4096,
+    "MODEL_LOCK": "claude-sonnet-4-20250514",
+    "N_MC_SAMPLES": 3,
+    "N_PARTICLES": 20,
+    "PREPROCESSED": "experiments/replogle_2022_preprocessed.json",
+    "SCORE_EFFECT_THRESHOLD": 1.5,
+    "TEMPERATURE": 0.0,
+    "UCB_ALPHA": 1.0
+  },
+  "plumbing_path": "experiments/strong_locus_stage3.plumbing.jsonl",
+  "plumbing_summary": {
+    "failure_rate": 0.0,
+    "total_counts": {
+      "clean_wrong": 0,
+      "timeout": 0,
+      "truncated": 0,
+      "unparseable": 0
+    },
+    "total_events": 0,
+    "total_organ_calls": 0,
+    "total_plumbing_failures": 0
+  },
+  "preprocessed_metadata": {
+    "accession": "Replogle_2022_K562_GWPS",
+    "pathway": "p53 signaling pathway",
+    "pathway_id": "hsa04115",
+    "publication": "Replogle et al. 2022 K562 genome-wide Perturb-seq (Cell)",
+    "sample": "K562_gwps_normalized_bulk_01.h5ad"
+  },
+  "results": [
+    {
+      "arm_results": {
+        "corr": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "shd": 0
+        },
+        "governed_loop": {
+          "ap": 0.0,
+          "interventions_spent": 3,
+          "shd": 13,
+          "wall_time_ms": 433.03
+        },
+        "learned_select": {
+          "ap": 0.0,
+          "interventions_spent": 3,
+          "shd": 14,
+          "wall_time_ms": 293.006
+        },
+        "organ_alone": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "shd": 0,
+          "wall_time_ms": 1.384
+        },
+        "organ_tools": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 14,
+          "wall_time_ms": 242.894
+        },
+        "organ_tools_externalized": {
+          "ap": 0.0,
+          "interventions_spent": 0,
+          "plumbing_counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "shd": 14,
+          "wall_time_ms": 240.766
+        },
+        "passive_loop": {
+          "ap": 0.0,
+          "interventions_spent": 3,
+          "shd": 13,
+          "wall_time_ms": 191.361
+        }
+      },
+      "consultable_targets": [
+        "APAF1",
+        "ATM",
+        "ATR",
+        "BBC3",
+        "BID",
+        "CASP3",
+        "CASP8"
+      ],
+      "held_out_targets": [
+        "AIFM2",
+        "BAX",
+        "BCL2L1"
+      ],
+      "k": 10,
+      "n_true": 0,
+      "plumbing": {
+        "organ_alone": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        },
+        "organ_tools_externalized": {
+          "counts": {
+            "clean_wrong": 0,
+            "timeout": 0,
+            "truncated": 0,
+            "unparseable": 0
+          },
+          "has_plumbing_failure": false
+        }
+      },
+      "seed": 0,
+      "selected_genes": [
+        "AIFM2",
+        "APAF1",
+        "ATM",
+        "ATR",
+        "BAX",
+        "BBC3",
+        "BCL2L1",
+        "BID",
+        "CASP3",
+        "CASP8"
+      ]
+    }
+  ],
+  "spec_path": "experiments/strong_locus_stage4_replogle_2022.spec.json",
+  "stage": 4,
+  "stub_only": true
+}

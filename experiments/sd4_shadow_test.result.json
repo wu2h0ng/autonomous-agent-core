@@ -1,0 +1,9 @@
+{
+  "test": "SD4-Shadow Falsification",
+  "n_rounds": 100,
+  "organ_bias_rate": 1.0,
+  "random_baseline": 0.6,
+  "shadow_detected": true,
+  "verdict": "SD4-SHADOW_NOT_FALSIFIED",
+  "explanation": "Organ successfully learned C7 patterns (bias_rate > baseline). This requires adversarial shielding."
+}

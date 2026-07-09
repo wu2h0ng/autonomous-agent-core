@@ -1,0 +1,29 @@
+{
+  "experiment": "strong-locus-structure-crossover",
+  "stage": 3,
+  "seeds_band": "5000..5019",
+  "ks": [3, 8, 15, 25, 40],
+  "n_obs": 200,
+  "budget": 3,
+  "likelihood_mode": "linear",
+  "score_effect_threshold": 1.5,
+  "empirical_effect_threshold": 1.5,
+  "model_lock": "claude-sonnet-4-20250514",
+  "temperature": 0.0,
+  "max_tokens": 4096,
+  "N_PARTICLES": 20,
+  "N_MC_SAMPLES": 3,
+  "UCB_ALPHA": 1.0,
+  "plumbing_kinds": ["clean_wrong", "truncated", "timeout", "unparseable"],
+  "trend_test": "spearman one-sided p <= 0.05 on governed_loop minus organ_tools AP advantage vs k",
+  "effect_floor": "bootstrap 95% CI lower on the two largest k excludes 0",
+  "kill_conditions": [
+    "placebo_passes == false for a seed",
+    "n_true == 0 on held-out set for a seed",
+    "LLM plumbing failure (truncated/timeout/unparseable) on organ_alone/organ_tools/organ_tools_externalized for a seed",
+    "organ-arm plumbing failure rate > 25% across all seeds",
+    "placebo failure rate > 10% across all seeds",
+    "governed_loop median AP <= 0 for the two largest k"
+  ],
+  "prereg_ref": "docs/research/PREREG-DRAFT-strong-locus-structure-crossover-2026-07-06.md"
+}

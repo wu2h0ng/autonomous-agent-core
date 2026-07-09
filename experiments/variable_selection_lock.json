@@ -1,0 +1,53 @@
+{
+  "accession": "GSE90063",
+  "accession_source": "GEO",
+  "publication": "Dixit et al. 2016, Perturb-seq: Dissecting molecular circuits with scalable single-cell RNA profiling of pooled genetic screens, Cell",
+  "pathway": "p53 signaling pathway",
+  "pathway_source": "KEGG",
+  "pathway_id": "hsa04115",
+  "pathway_url": "https://www.kegg.jp/pathway/hsa04115",
+  "n_target": 12,
+  "gene_selection_rule": "Within the locked KEGG pathway, take the first N gene symbols by alphabetical order. Skip any gene not present in the dataset. The final list is fixed; no post-hoc additions or removals to improve scores.",
+  "locked_genes": [
+    "ADGRB1",
+    "AIFM2",
+    "APAF1",
+    "ATM",
+    "ATR",
+    "BAX",
+    "BBC3",
+    "BCL2",
+    "BCL2L1",
+    "BID",
+    "CASP3",
+    "CASP8"
+  ],
+  "locked_by": "founder",
+  "locked_at": "2026-07-06",
+  "notes": [
+    "Selection was performed from the KEGG p53 signaling pathway gene list before inspecting the dataset.",
+    "Actual presence in GSE90063 and final n_nodes will be filled by perturb_seq_preprocessing.py without changing the rule or pathway.",
+    "If fewer than 10 of the 12 genes are present, the dataset is unsuitable and Stage 4 stops with honest negative."
+  ],
+  "diagnostic": {
+    "run_at": "2026-07-06T20:57:40Z",
+    "accession": "GSE90063",
+    "sample": "GSM2396858_k562_tfs_7",
+    "present_locked_genes_count": 11,
+    "present_locked_genes": [
+      "AIFM2", "APAF1", "ATM", "ATR", "BAX", "BBC3",
+      "BCL2", "BCL2L1", "BID", "CASP3", "CASP8"
+    ],
+    "missing_locked_genes": ["ADGRB1"],
+    "ko_targets_in_dataset_count": 10,
+    "ko_targets_in_dataset": [
+      "CREB1", "E2F4", "EGR1", "ELF1", "ELK1",
+      "ETS1", "GABPA", "IRF1", "NR2C2", "YY1"
+    ],
+    "ko_targets_among_locked_genes_count": 0,
+    "protocol_criterion": ">=5 CRISPR KO targets among the selected locked genes",
+    "criterion_satisfied": false,
+    "verdict": "DATASET_UNFIT_HONEST_NEGATIVE",
+    "diagnostic_file": "experiments/strong_locus_stage4_data_diagnostic.json"
+  }
+}

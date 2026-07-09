@@ -1,0 +1,122 @@
+[
+  {
+    "recall": 0.8,
+    "precision": 1.0,
+    "orientation_acc": 0.0,
+    "time_s": 2.5,
+    "domain": "linear_chain",
+    "method": "GGM_baseline"
+  },
+  {
+    "recall": 0.8,
+    "precision": 1.0,
+    "orientation_acc": 0.0,
+    "time_s": 2.5,
+    "domain": "linear_chain",
+    "method": "KNN_prior"
+  },
+  {
+    "recall": 0.8,
+    "precision": 1.0,
+    "orientation_acc": 0.0,
+    "time_s": 2.5,
+    "domain": "linear_chain",
+    "method": "Attention_prior"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.375,
+    "orientation_acc": 0.833,
+    "time_s": 3.9,
+    "domain": "tanh_chain",
+    "method": "GGM_baseline"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.375,
+    "orientation_acc": 0.833,
+    "time_s": 3.8,
+    "domain": "tanh_chain",
+    "method": "KNN_prior"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.375,
+    "orientation_acc": 0.833,
+    "time_s": 3.8,
+    "domain": "tanh_chain",
+    "method": "Attention_prior"
+  },
+  {
+    "recall": 0.571,
+    "precision": 0.4,
+    "orientation_acc": 0.75,
+    "time_s": 4.4,
+    "domain": "poly_mixed",
+    "method": "GGM_baseline"
+  },
+  {
+    "recall": 0.571,
+    "precision": 0.4,
+    "orientation_acc": 0.75,
+    "time_s": 4.4,
+    "domain": "poly_mixed",
+    "method": "KNN_prior"
+  },
+  {
+    "recall": 0.571,
+    "precision": 0.4,
+    "orientation_acc": 0.75,
+    "time_s": 4.4,
+    "domain": "poly_mixed",
+    "method": "Attention_prior"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.455,
+    "orientation_acc": 0.6,
+    "time_s": 2.5,
+    "domain": "sin_chain",
+    "method": "GGM_baseline"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.455,
+    "orientation_acc": 0.6,
+    "time_s": 2.5,
+    "domain": "sin_chain",
+    "method": "KNN_prior"
+  },
+  {
+    "recall": 1.0,
+    "precision": 0.455,
+    "orientation_acc": 0.6,
+    "time_s": 2.6,
+    "domain": "sin_chain",
+    "method": "Attention_prior"
+  },
+  {
+    "recall": 0.75,
+    "precision": 0.462,
+    "orientation_acc": 0.833,
+    "time_s": 6.0,
+    "domain": "tanh_sparse",
+    "method": "GGM_baseline"
+  },
+  {
+    "recall": 0.75,
+    "precision": 0.462,
+    "orientation_acc": 0.833,
+    "time_s": 6.0,
+    "domain": "tanh_sparse",
+    "method": "KNN_prior"
+  },
+  {
+    "recall": 0.75,
+    "precision": 0.462,
+    "orientation_acc": 0.833,
+    "time_s": 5.9,
+    "domain": "tanh_sparse",
+    "method": "Attention_prior"
+  }
+]

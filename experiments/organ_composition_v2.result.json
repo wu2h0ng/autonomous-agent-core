@@ -1,0 +1,26 @@
+[
+  {
+    "skeleton_recall": 0.8,
+    "skeleton_precision": 0.5,
+    "orientation_accuracy": 1.0,
+    "confidence": 0.52,
+    "MEC_confidence": 0.99,
+    "edge_AUC": 0.2,
+    "n_MECs": 50,
+    "ESS": 1.0,
+    "use_language": false,
+    "time_s": 56.2
+  },
+  {
+    "skeleton_recall": 0.8,
+    "skeleton_precision": 0.5,
+    "orientation_accuracy": 1.0,
+    "confidence": 0.52,
+    "MEC_confidence": 0.99,
+    "edge_AUC": 0.2,
+    "n_MECs": 50,
+    "ESS": 1.0,
+    "use_language": true,
+    "time_s": 56.1
+  }
+]

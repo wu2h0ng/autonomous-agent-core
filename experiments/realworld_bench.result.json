@@ -1,0 +1,20 @@
+[
+  {
+    "domain": "Lazada E-commerce",
+    "recall": 0.7142857142857143,
+    "precision": 0.625,
+    "orient": 0.4,
+    "n_nodes": 6,
+    "n_obs": 2000,
+    "n_edges": 7
+  },
+  {
+    "domain": "FinCARE Financial",
+    "recall": 0.4,
+    "precision": 0.26666666666666666,
+    "orient": 0.75,
+    "n_nodes": 8,
+    "n_obs": 3000,
+    "n_edges": 10
+  }
+]

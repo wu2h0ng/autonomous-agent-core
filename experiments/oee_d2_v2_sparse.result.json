@@ -1,0 +1,62 @@
+[
+  {
+    "cond": "passive",
+    "domain": "D1_linear_chain",
+    "final_rec": 0.916
+  },
+  {
+    "cond": "sparse",
+    "domain": "D1_linear_chain",
+    "final_rec": 0.937
+  },
+  {
+    "cond": "d2_active",
+    "domain": "D1_linear_chain",
+    "final_rec": 1.0
+  },
+  {
+    "cond": "random",
+    "domain": "D1_linear_chain",
+    "final_rec": 0.958
+  },
+  {
+    "cond": "passive",
+    "domain": "D2_tanh_mixed",
+    "final_rec": 0.857
+  },
+  {
+    "cond": "sparse",
+    "domain": "D2_tanh_mixed",
+    "final_rec": 0.964
+  },
+  {
+    "cond": "d2_active",
+    "domain": "D2_tanh_mixed",
+    "final_rec": 0.946
+  },
+  {
+    "cond": "random",
+    "domain": "D2_tanh_mixed",
+    "final_rec": 0.964
+  },
+  {
+    "cond": "passive",
+    "domain": "D3_XOR_ring",
+    "final_rec": 0.922
+  },
+  {
+    "cond": "sparse",
+    "domain": "D3_XOR_ring",
+    "final_rec": 0.984
+  },
+  {
+    "cond": "d2_active",
+    "domain": "D3_XOR_ring",
+    "final_rec": 1.0
+  },
+  {
+    "cond": "random",
+    "domain": "D3_XOR_ring",
+    "final_rec": 0.984
+  }
+]

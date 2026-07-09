@@ -1,0 +1,196 @@
+{
+  "dataset": "Replogle_2022_K562_GWPS",
+  "diagnostic_type": "replogle_2022_stage4_signal_strength",
+  "locked_threshold": 1.5,
+  "n_held_out_interventions": 3,
+  "n_true_at_locked_threshold": 0,
+  "n_true_by_threshold": {
+    "sem": {
+      "0.5": 12,
+      "1.0": 2,
+      "1.5": 0,
+      "2.0": 0,
+      "3.0": 0
+    },
+    "std": {
+      "0.5": 12,
+      "1.0": 2,
+      "1.5": 0,
+      "2.0": 0,
+      "3.0": 0
+    }
+  },
+  "next_options": [
+    "Keep the locked threshold and declare Stage 4 not executable on this pseudo-bulk dataset; record the honest negative.",
+    "Select a real-data dataset with many replicates per held-out intervention (e.g., single-cell-level counts or a bulk screen with biological replicates) and re-run under the same locked threshold.",
+    "If and only if a new ADR/CTO gate is opened, lower the locked threshold or switch to a different empirical-truth definition and pre-register the change before touching data."
+  ],
+  "root_cause": "The Replogle 2022 pseudo-bulk h5ad provides at most 1-2 aggregated observations per held-out perturbation target. With the locked SEM threshold of 1.5, no held-out intervention produces a standardized mean shift large enough to declare an empirical true edge. The data are therefore insufficient for the pre-registered Stage 4 structure crossover under the current threshold.",
+  "run_at": "2026-07-06T22:00:00Z",
+  "top_sem_scores": [
+    {
+      "effect_node": "CASP3",
+      "mean_diff": 1.412048890645288,
+      "n_samples": 1,
+      "sem_score": 1.412048890645288,
+      "std_score": 1.390290423368437,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "BBC3",
+      "mean_diff": 1.2152074629211047,
+      "n_samples": 1,
+      "sem_score": 1.2152074629211047,
+      "std_score": 1.2381765879006346,
+      "target": "AIFM2"
+    },
+    {
+      "effect_node": "CASP8",
+      "mean_diff": -0.6879026597487576,
+      "n_samples": 1,
+      "sem_score": 0.6879026597487576,
+      "std_score": 0.6789712633590582,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "CASP8",
+      "mean_diff": -0.6879026597487576,
+      "n_samples": 1,
+      "sem_score": 0.6879026597487576,
+      "std_score": 0.6789712633590582,
+      "target": "BCL2L1"
+    },
+    {
+      "effect_node": "ATR",
+      "mean_diff": -0.6619010495216407,
+      "n_samples": 1,
+      "sem_score": 0.6619010495216407,
+      "std_score": 0.6517088179932491,
+      "target": "AIFM2"
+    },
+    {
+      "effect_node": "ATR",
+      "mean_diff": -0.6619010495216407,
+      "n_samples": 1,
+      "sem_score": 0.6619010495216407,
+      "std_score": 0.6517088179932491,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "BID",
+      "mean_diff": -0.6517326341095426,
+      "n_samples": 1,
+      "sem_score": 0.6517326341095426,
+      "std_score": 0.6452105532976693,
+      "target": "AIFM2"
+    },
+    {
+      "effect_node": "BAX",
+      "mean_diff": -0.6298153538920835,
+      "n_samples": 1,
+      "sem_score": 0.6298153538920835,
+      "std_score": 0.6222319360013265,
+      "target": "BCL2L1"
+    },
+    {
+      "effect_node": "ATM",
+      "mean_diff": -0.6151975227545488,
+      "n_samples": 1,
+      "sem_score": 0.6151975227545488,
+      "std_score": 0.6080405273196755,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "APAF1",
+      "mean_diff": -0.6122291041179062,
+      "n_samples": 1,
+      "sem_score": 0.6122291041179062,
+      "std_score": 0.6010554658124815,
+      "target": "BAX"
+    }
+  ],
+  "top_std_scores": [
+    {
+      "effect_node": "CASP3",
+      "mean_diff": 1.412048890645288,
+      "n_samples": 1,
+      "sem_score": 1.412048890645288,
+      "std_score": 1.390290423368437,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "BBC3",
+      "mean_diff": 1.2152074629211047,
+      "n_samples": 1,
+      "sem_score": 1.2152074629211047,
+      "std_score": 1.2381765879006346,
+      "target": "AIFM2"
+    },
+    {
+      "effect_node": "CASP8",
+      "mean_diff": -0.6879026597487576,
+      "n_samples": 1,
+      "sem_score": 0.6879026597487576,
+      "std_score": 0.6789712633590582,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "CASP8",
+      "mean_diff": -0.6879026597487576,
+      "n_samples": 1,
+      "sem_score": 0.6879026597487576,
+      "std_score": 0.6789712633590582,
+      "target": "BCL2L1"
+    },
+    {
+      "effect_node": "ATR",
+      "mean_diff": -0.6619010495216407,
+      "n_samples": 1,
+      "sem_score": 0.6619010495216407,
+      "std_score": 0.6517088179932491,
+      "target": "AIFM2"
+    },
+    {
+      "effect_node": "ATR",
+      "mean_diff": -0.6619010495216407,
+      "n_samples": 1,
+      "sem_score": 0.6619010495216407,
+      "std_score": 0.6517088179932491,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "BID",
+      "mean_diff": -0.6517326341095426,
+      "n_samples": 1,
+      "sem_score": 0.6517326341095426,
+      "std_score": 0.6452105532976693,
+      "target": "AIFM2"
+    },
+    {
+      "effect_node": "BAX",
+      "mean_diff": -0.6298153538920835,
+      "n_samples": 1,
+      "sem_score": 0.6298153538920835,
+      "std_score": 0.6222319360013265,
+      "target": "BCL2L1"
+    },
+    {
+      "effect_node": "ATM",
+      "mean_diff": -0.6151975227545488,
+      "n_samples": 1,
+      "sem_score": 0.6151975227545488,
+      "std_score": 0.6080405273196755,
+      "target": "BAX"
+    },
+    {
+      "effect_node": "APAF1",
+      "mean_diff": -0.6122291041179062,
+      "n_samples": 1,
+      "sem_score": 0.6122291041179062,
+      "std_score": 0.6010554658124815,
+      "target": "BAX"
+    }
+  ],
+  "total_possible_edges": 27,
+  "verdict": "INSUFFICIENT_DATA_HONEST_NEGATIVE"
+}

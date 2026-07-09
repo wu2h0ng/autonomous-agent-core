@@ -1,0 +1,492 @@
+[
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 17,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 100,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 18,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 101,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 12,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 102,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 12,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 103,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 14,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 104,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 8,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 105,
+    "time_s": 0.8
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 12,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 106,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 11,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 107,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 18,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 108,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "treatment",
+    "final_recall": 1.0,
+    "interventions_used": 21,
+    "max_recall": 1.0,
+    "n_edges": 14,
+    "n_vars": 15,
+    "recall_trajectory": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "seed": 109,
+    "time_s": 0.8
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 19,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 110,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 23,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 111,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 20,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 112,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 20,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 113,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 24,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 114,
+    "time_s": 0.7
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 22,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 115,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 0.952,
+    "condition": "control",
+    "final_recall": 0.952,
+    "interventions_used": 0,
+    "max_recall": 0.952,
+    "n_edges": 21,
+    "n_vars": 18,
+    "recall_trajectory": [
+      0.952
+    ],
+    "seed": 116,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 22,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 117,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 23,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 118,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "control",
+    "final_recall": 1.0,
+    "interventions_used": 0,
+    "max_recall": 1.0,
+    "n_edges": 23,
+    "n_vars": 18,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 119,
+    "time_s": 0.6
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 22,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 120,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 16,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 121,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 30,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 122,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 29,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 123,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 0.952,
+    "condition": "oracle",
+    "final_recall": 0.952,
+    "interventions_used": 20,
+    "max_recall": 0.952,
+    "n_edges": 21,
+    "n_vars": 20,
+    "recall_trajectory": [
+      0.952
+    ],
+    "seed": 124,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 27,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 125,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 27,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 126,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 29,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 127,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 19,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 128,
+    "time_s": 0.0
+  },
+  {
+    "baseline_recall": 1.0,
+    "condition": "oracle",
+    "final_recall": 1.0,
+    "interventions_used": 20,
+    "max_recall": 1.0,
+    "n_edges": 22,
+    "n_vars": 20,
+    "recall_trajectory": [
+      1.0
+    ],
+    "seed": 129,
+    "time_s": 0.0
+  }
+]

@@ -1,0 +1,42 @@
+{
+  "experiment": "strong-locus-structure-crossover",
+  "stage": 4,
+  "diagnostic_type": "real_data_protocol_fit",
+  "run_at": "2026-07-06T20:57:40Z",
+  "accession": "GSE90063",
+  "sample": "GSM2396858_k562_tfs_7",
+  "publication": "Dixit et al. 2016, Perturb-seq: Dissecting molecular circuits with scalable single-cell RNA profiling of pooled genetic screens, Cell",
+  "variable_selection_lock": "experiments/variable_selection_lock.json",
+  "pathway": "p53 signaling pathway",
+  "pathway_id": "hsa04115",
+  "locked_genes_count": 12,
+  "locked_genes": [
+    "ADGRB1", "AIFM2", "APAF1", "ATM", "ATR", "BAX",
+    "BBC3", "BCL2", "BCL2L1", "BID", "CASP3", "CASP8"
+  ],
+  "present_locked_genes_count": 11,
+  "present_locked_genes": [
+    "AIFM2", "APAF1", "ATM", "ATR", "BAX", "BBC3",
+    "BCL2", "BCL2L1", "BID", "CASP3", "CASP8"
+  ],
+  "missing_locked_genes": ["ADGRB1"],
+  "ko_targets_in_dataset_count": 10,
+  "ko_targets_in_dataset": [
+    "CREB1", "E2F4", "EGR1", "ELF1", "ELK1",
+    "ETS1", "GABPA", "IRF1", "NR2C2", "YY1"
+  ],
+  "ko_targets_among_locked_genes_count": 0,
+  "ko_targets_among_locked_genes": [],
+  "protocol_criterion": "Intervenable pool S must contain >=5 CRISPR KO targets among the selected locked genes (PREREG-DRAFT §1.3 / FIREWALL-CERTIFICATION-PACKET §1.3).",
+  "criterion_satisfied": false,
+  "verdict": "DATASET_UNFIT_HONEST_NEGATIVE",
+  "reason": "The GSE90063 sample GSM2396858_k562_tfs_7 profiled transcription-factor knock-outs. None of the 10 KO targets overlap the alphabetically-locked KEGG p53 signaling pathway genes. Without pathway-internal interventions, the held-out intervention protocol cannot be constructed, and the Stage 4 fresh-domain test cannot proceed under the pre-registered design.",
+  "leak_probe_status": "NOT_RUN — dataset already fails protocol fit before leak-probe",
+  "placebo_status": "NOT_RUN_ON_REAL_DATA — synthetic/unit-test harness passes",
+  "next_options": [
+    "Select a KEGG/Reactome pathway that contains one or more of the KO targets in this sample (CREB1, E2F4, EGR1, ELF1, ELK1, ETS1, GABPA, IRF1, NR2C2, YY1) and re-lock before inspecting data.",
+    "Switch to a whole-genome Perturb-seq dataset where many genes are knocked out (e.g., Replogle et al. 2022, GSE190604) and keep the p53 pathway lock.",
+    "Declare Stage 4 not executable with this data/sample/lock combination and record the honest negative, as done here."
+  ],
+  "note": "This is an honest negative: the data were downloaded and inspected under the locked protocol, and the failure is reported rather than patched by changing the pathway or sample post hoc."
+}
