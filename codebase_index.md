@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-08
+> Last updated: 2026-07-09
 > Purpose: fast map from current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml`.
 
@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented
-tests: 1006 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented; bounded adaptive optimization (change-point reset + conservative edge filtering) implemented; real-data intervention binding protocol (ADR-0052) accepted
+tests: 1016 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -133,6 +133,14 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/live_env_suite_adaptive.py` | Adaptive 10-seed sweep runner. Emits `experiments/live_env_suite_adaptive.result.json`. |
 | `experiments/live_env_suite_adaptive.result.json` | Example adaptive sweep artifact. Latent-confounder mean SHD improved from 1.9 to 1.0 and false-edge count from 1.2 to 0.3 with marginal filtering; regime-shift remained stable. |
 | `tests/test_adaptive_discovery_loop.py` | 6 tests: drift/no-drift detection, empty-batch safety, change-point reset does not hurt (and can help) regime-shift recovery, marginal filtering reduces false edges under latent confounding, moderate threshold keeps true edges in some seeds. |
+
+## Real-Data Intervention Binding Protocol (2026-07-09)
+
+| File | Role |
+|------|------|
+| `docs/adr/ADR-0052-real-data-intervention-binding-protocol.md` | Accepted ADR with RR-0029 §5 architecture-theory review. Defines the protocol, claim class, channel map, control/consumption path, C6/C7/SD4 boundary, product/process boundary, and failure modes. |
+| `src/aac/real_data_intervention_env.py` | `RealDataInterventionEnv` protocol + `GovernedInterventionBinding` C7 wrapper. Enforces allowed-handle whitelist, forbidden nodes/edges, value ranges, budget, dry-run default, mandatory external approval for live mode, and audit callback. |
+| `tests/test_real_data_intervention_env.py` | 10 tests: observe pass-through, dry-run does not call actuator, forbidden/disallowed handles blocked, value out-of-range blocked, live path requires approval, live path applies when approved, budget exhausted blocks, readback missing logged, SHD pass-through. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 
