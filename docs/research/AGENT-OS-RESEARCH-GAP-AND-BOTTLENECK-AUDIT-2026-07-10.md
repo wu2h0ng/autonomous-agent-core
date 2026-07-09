@@ -265,6 +265,14 @@ The canonical queue is the adjacent YAML matrix. It contains twelve experiments 
 
 No experiment in the matrix is preregistered, frozen or authorized to run by this document. The architecture packet determines when its prerequisites exist.
 
+Post-review task split:
+
+- `T-P-OS-SPINE-0` supplies the generic developer-path experiment substrate without donor
+  import.
+- `T-P-OS-SPINE-1` performs the ADR-0054-gated Data Agent migration and is a prerequisite
+  for any Agent OS `HUMAN-GOV-1` run. Approval analytics in the independent donor repository
+  do not by themselves authorize that experiment.
+
 ## 8. Research admission and promotion gates
 
 Every future mechanism route must provide:

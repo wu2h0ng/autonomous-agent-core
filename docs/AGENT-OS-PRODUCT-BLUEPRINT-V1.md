@@ -460,7 +460,7 @@ Business intent
 
 Data Agent reuses OS primitives and adds domain contracts, connectors, evaluators and workflow templates. It must not fork its own task runtime, provider layer, plugin system, identity model or governance spine.
 
-The existing `ai-native-business-data-agent-os` repository remains an implementation/history source during transition. It must not be cross-imported at runtime. Migration into `domain_packs/data_agent` requires explicit package-by-package ownership, contract and test reconciliation; this blueprint does not pretend that migration has already happened.
+The existing `ai-native-business-data-agent-os` repository remains an implementation/history source during transition. It must not be cross-imported at runtime. Migration into `domain_packs/data_agent` is the successor `T-P-OS-SPINE-1` under ADR-0054 and requires a pre-import full-history safety gate, explicit package-by-package ownership, contract and test reconciliation; this blueprint does not pretend that migration has already happened.
 
 ## 9. Research portfolio audit against product needs
 
@@ -597,7 +597,8 @@ Until these gates pass, the authorized language is "target," "candidate," "imple
 
 ### Phase A: product spine
 
-- execute the reviewed `T-P-OS-SPINE-0` migration-first modular-monolith architecture;
+- execute the reviewed `T-P-OS-SPINE-0` modular-monolith developer vertical without a
+  donor import dependency;
 - canonical contracts and event model;
 - persistent Task Workspace and durable AgentRun;
 - provider registry, BYOK credential broker and model routing;
@@ -608,7 +609,8 @@ Until these gates pass, the authorized language is "target," "candidate," "imple
 ### Phase B: three complete paths
 
 - developer workflow as internal dogfood and Codex-experience benchmark;
-- Data Agent migration as the first enterprise domain pack;
+- execute ADR-0054-gated `T-P-OS-SPINE-1` history-safe Data Agent migration and shared-spine
+  seam as the first enterprise domain pack;
 - private personal workflow using the same product spine;
 - knowledge/context graph, subagents, approvals, recovery and operations surfaces.
 

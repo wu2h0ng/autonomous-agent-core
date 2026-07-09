@@ -44,21 +44,23 @@ The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before co
 Status:
 
 ```text
-ARCHITECTURE_PACKET_WRITTEN_REVIEW_REQUIRED
+ARCHITECTURE_REVIEW_ACCEPTED_IMPLEMENTATION_PLAN_NEXT
 implementation: NOT_STARTED
-migration: DESIGN_ONLY_NOT_EXECUTED
+SPINE-0 donor migration dependency: NONE
 ```
 
 Current authority:
 
 - `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`
-- `docs/architecture/T-P-OS-SPINE-0-MIGRATION-MAP.yaml`
+- `docs/adr/ADR-0054-one-time-data-agent-history-migration.md`
+- `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
 - `docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md`
 - `docs/research/AGENT-OS-PRODUCT-GROUNDED-EXPERIMENT-MATRIX.yaml`
 
-Founder-selected path: Option B, a one-time history-preserving import of the Data Agent
-product donor followed by modular-monolith extraction into generic Product Track packages
-and `domain_packs/data_agent`. No runtime cross-repo import is allowed.
+Founder-selected path remains Option B, but Claude review split delivery into two bounded
+tasks. SPINE-0 proves the generic durable developer vertical without donor import. SPINE-1
+performs the ADR-0054-gated history-safe Data Agent migration and extraction. No runtime
+cross-repo import is allowed.
 
 Goal:
 
@@ -71,14 +73,36 @@ Required first architecture packet:
 - provider/BYOK secret-broker threat model;
 - WorkflowGraph IR and natural-language/visual round-trip contract;
 - durable execution/event-store choice;
-- one developer golden-path acceptance test and one Data Agent seam test;
+- one developer golden-path acceptance test plus a versioned domain-capability registration
+  contract; Data Agent seam acceptance belongs to SPINE-1;
 - explicit `ResearchCandidateManifest` boundary; no raw `src/aac` experiment import.
 
-The packet is now written. The next gate is founder review of the written specification.
-Do not start runtime code, execute donor migration, pin experiments or write the detailed
-implementation plan until that review is accepted.
+Claude first returned `APPROVE_WITH_REQUIRED_CHANGES`; the required ADR, history-safety,
+scope and connector-guarantee changes were applied. Independent remediation re-review
+closed all six findings and returned `APPROVE`. The next artifact is the test-first SPINE-0
+implementation plan. Runtime code remains not started until that plan is reviewed.
 
 This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
+
+### T-P-OS-SPINE-1 - Data Agent History-Safe Migration (Successor / Blocked)
+
+Status:
+
+```text
+DESIGN_ONLY_NOT_EXECUTED
+blocked_by: T-P-OS-SPINE-0_ACCEPTED + ADR-0054 gates G0/G1
+donor_pin/history_scan/import: NOT_STARTED
+```
+
+Authority:
+
+- `docs/adr/ADR-0054-one-time-data-agent-history-migration.md`
+- `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
+
+SPINE-1 pins and scans the donor's complete reachable history before any import. Direct
+no-squash import is eligible only after `PASS`; `REMEDIATE` requires a filtered migration
+mirror and rescan, while `ABORT` stops migration. It then extracts generic Product Track
+packages and `domain_packs/data_agent` and proves the Data Agent shared-spine seam.
 
 ## 3. Research Track Current Queue and History
 

@@ -67,6 +67,10 @@ PR 必须使用 `.github/pull_request_template.md` 并按所选轨粘贴质量�
   `viability.py` 及 `src/envs/` 出现 `op_` 调用即违规。agent 一律只持能力视图
   (ShellView / ValueChannelView),构造期即降级,不持原对象。
 - 外部仓库不得成为运行时依赖；Product Track 与 Research Track 之间只通过晋升 contract，不直接 import 实验实现。
+- ADR-0054 只为 `T-P-OS-SPINE-1` 提供一次 history-safe Data Agent 迁移例外：
+  SPINE-0 先独立验收；donor full SHA、全历史 secret/customer-data/license 扫描和
+  provenance 在任何 import 前必须 `PASS`；失败时 filtered mirror 或 `ABORT`。
+  该例外不允许 runtime import、双向同步、自动 push/merge 或其他跨仓复制。
 - 通用 OS core 零领域词汇；领域词汇只允许在 `domain_packs/`、插件、连接器与对应测试。
 - Research Track 当前 `src/aac` 继续零业务词汇、纯 stdlib，除非独立 ADR 明确改变实验控制变量。
 - 版本控制:本仓库独立 git;面向 main 的变更走 PR;实验产出的大文件不入库。

@@ -5,6 +5,7 @@ authority:
   product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md"
   research_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"
   architecture_packet: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
+  data_agent_migration: "docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml"
 authorization_boundary:
   implementation: false
   seed_selection: false
@@ -211,11 +212,13 @@ experiments:
     wave: "P1"
     track: "product_eval"
     priority: "GOVERNANCE_EFFECTIVENESS"
-    status: "CAN_START_IN_DATA_AGENT_AFTER_APPROVAL_ANALYTICS"
+    status: "BLOCKED_UNTIL_SPINE_1_MIGRATION_AND_SEPARATE_RUN_AUTHORIZATION"
     product_failure: "Approval may be a rubber stamp rather than meaningful correction."
     prerequisite:
+      - "Data Agent has migrated through T-P-OS-SPINE-1 and uses the shared Agent OS approval/runtime contracts."
       - "Choice-set contract and revise outcome."
       - "Approval analytics by tenant and risk tier."
+      - "A separate product-eval authorization explicitly changes run from false for this experiment."
     candidate: "meaningful alternatives plus evidence-bound approval"
     baselines:
       - "single recommendation approve/reject"

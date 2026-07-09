@@ -1,35 +1,40 @@
 # T-P-OS-SPINE-0 Executable Product Spine Architecture Packet
 
 > Date: 2026-07-10
-> Status: DESIGN-APPROVED / WRITTEN SPEC REVIEW REQUIRED / NO IMPLEMENTATION AUTHORIZED
+> Status: DESIGN ACCEPTED / INDEPENDENT CLAUDE RE-REVIEW APPROVE / IMPLEMENTATION PLAN NEXT
 > Track: Product Track
 > Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
 > Research boundary: `docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md`
-> Migration map: `docs/architecture/T-P-OS-SPINE-0-MIGRATION-MAP.yaml`
+> Successor migration: `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
+> Cross-repository ADR: `docs/adr/ADR-0054-one-time-data-agent-history-migration.md`
 > Selected option: B - history-preserving migration plus modular monolith
 
 ## 0. Decision and authority
 
 This packet defines the first executable Product Track body of Agent OS. It refines the
-Blueprint target layout into an implementable modular monolith and records the founder's
-selection of Option B:
+Blueprint target layout into an implementable modular monolith. The founder's Option B
+decision remains the program migration strategy, but its execution is now separated from
+SPINE-0:
 
 ```text
-Preserve the useful implementation and history of ai-native-business-data-agent-os,
-import it once into the Agent OS main repository, extract generic product capabilities,
-and move data semantics into domain_packs/data_agent.
+SPINE-0: prove the generic durable spine through one developer golden path.
+SPINE-1: preserve the safe, approved history of ai-native-business-data-agent-os,
+import it once, extract generic product capabilities, and move data semantics into
+domain_packs/data_agent under ADR-0054.
 ```
 
 Authority order for Product Track implementation is:
 
 1. `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` for product identity and non-negotiable boundaries;
 2. this packet for `T-P-OS-SPINE-0` architecture and acceptance;
-3. the reviewed implementation plan, tests and accepted ADRs for file-level execution;
-4. historical `REF-ARCH-*` documents as Research Track references only.
+3. accepted Product Track ADRs, including ADR-0054 for any cross-repository migration;
+4. the reviewed implementation plan and tests for file-level execution;
+5. historical `REF-ARCH-*` documents as Research Track references only.
 
-This packet does not authorize code changes, donor migration, experiment execution,
-deployment, a product-readiness claim, or a research promotion. The next gate is founder
-review of this written specification, followed by a separate implementation plan.
+This packet does not by itself authorize runtime code changes, donor migration, experiment
+execution, deployment, a product-readiness claim, or a research promotion. Independent
+Claude remediation re-review returned `APPROVE`. The next artifact is a separate,
+test-first SPINE-0 implementation plan; implementation starts only after that plan's gate.
 
 ## 1. Objective, scope and non-goals
 
@@ -68,10 +73,10 @@ The developer golden path is a sandboxed repository task:
 7. evaluate the precommitted acceptance rule;
 8. expose the final state and artifacts in the Task Workspace.
 
-The first enterprise seam is a Data Agent workflow calling a versioned
-`data_agent.trusted_loop.evaluate` capability after the donor code has been separated into
-generic packages and `domain_packs/data_agent`. It must use the same task, run, policy,
-event and outcome contracts as the developer path.
+The first enterprise seam is the successor `T-P-OS-SPINE-1`: a Data Agent workflow calls a
+versioned `data_agent.trusted_loop.evaluate` capability after history-safe donor migration
+and package extraction. It must use the same task, run, policy, event and outcome contracts
+as the developer path, but it is not a SPINE-0 completion condition.
 
 ### 1.3 Non-goals
 
@@ -82,6 +87,8 @@ event and outcome contracts as the developer path.
 - production KMS, SSO, private networking or compliance certification;
 - multi-region scheduling, Kafka, Temporal, microservices or a graph database;
 - automatic consequential enterprise actions;
+- Data Agent donor import, package extraction or shared-spine seam acceptance; these belong
+  to `T-P-OS-SPINE-1` under ADR-0054;
 - product belief learning, CWM promotion, G10 promotion or subagent swarms;
 - desktop packaging or all three Blueprint golden paths;
 - a claim of Codex parity, Product Done, Moat Done or Superior Done.
@@ -99,7 +106,7 @@ event and outcome contracts as the developer path.
 | D7 | Store references, never secrets, in product objects | `CredentialRef` crosses contracts; secret resolution occurs only inside the credential/capability boundary |
 | D8 | Freeze workflow versions per run | edits create a new version or an explicit bounded replan; active history is never silently rewritten |
 | D9 | Freeze expected evaluators before consequential action | tool acknowledgement is not outcome proof; evaluator/version drift is visible |
-| D10 | Preserve donor history without runtime federation | one no-squash subtree import; no permanent cross-repo runtime import or duplicated authority |
+| D10 | Preserve only history that passes the ADR-0054 safety gate | SPINE-1 uses direct no-squash import only after full-history `PASS`; otherwise a filtered migration mirror or `ABORT`; no runtime federation |
 | D11 | Keep current `src/aac` and `experiments` in Research Track | Product Track consumes only stable ports and promoted/reimplemented candidates |
 | D12 | Start with web workspace and CLI | desktop packaging is deferred until the task/runtime contract is stable |
 | D13 | Make side-effect guarantees connector-specific | controlled connectors can enforce commit-time epochs; external APIs receive dispatch-time guarantees plus cancel/compensate |
@@ -224,6 +231,10 @@ tests/
 Hyphenated Blueprint package names remain conceptual ownership labels. Importable Python
 modules use `snake_case`. Splitting `os_core` into independently released packages is
 deferred until measured team, scaling or isolation pressure justifies it.
+
+For SPINE-0, only `developer_agent` must be implemented. `domain_packs/data_agent` in this
+tree is the post-SPINE-1 target location; an empty directory, copied contract or placeholder
+does not count as Data Agent migration or seam delivery.
 
 ### 4.1 Dependency rule
 
@@ -444,6 +455,7 @@ The system does not claim universal exactly-once physical side effects.
 | transactional/internal | correction epoch and idempotency checked at side-effect commit; zero commits under a stale permit |
 | idempotent external API | at-most-one logical action under stable idempotency key; correction prevents new dispatch |
 | cancellable/compensatable external API | correction prevents new dispatch and triggers cancel/compensate for in-flight work |
+| idempotent/cancellable sandbox | correction prevents new dispatch; in-flight work is terminated where possible and all persistent changes are compensated from an immutable sandbox snapshot; no cross-system atomicity claim |
 | non-idempotent/non-queryable external API | unsupported for automatic consequential execution; require human confirmation or dry-run |
 
 This envelope is part of `ToolSpec` and visible to policy and the user.
@@ -491,10 +503,19 @@ risk tier, timeout, cancellation/compensation behavior and audit policy.
 
 The developer vertical initially exposes only workspace-scoped capabilities:
 
-- `workspace.read`;
-- `workspace.apply_patch`;
-- `workspace.run_tests` with an allowlisted command declared by the fixture;
-- `artifact.read` and `artifact.write`.
+- `workspace.read`: read-only, no side effect;
+- `workspace.apply_patch`: `idempotent/cancellable sandbox`, using a stable action key,
+  immutable pre-action snapshot and compensation on correction/failure;
+- `workspace.run_tests`: `idempotent/cancellable sandbox`, running in a disposable copy,
+  terminating on correction and persisting only a typed result artifact;
+- `artifact.read`: read-only;
+- `artifact.write`: `idempotent/cancellable sandbox`, content-addressed and compensatable.
+
+These local filesystem/process operations are not classified as
+`transactional/internal`: PostgreSQL correction state and filesystem/process effects do
+not share one atomic commit. Their honest guarantee is no new dispatch after correction,
+best-effort cancellation and verified compensation inside the disposable sandbox. Only a
+future connector with a real shared commit boundary may claim stale-epoch zero-commit.
 
 Path traversal, symlink escape, undeclared executable, network egress and writes outside
 the sandbox fail closed. A general shell tool is outside T-P.
@@ -527,10 +548,11 @@ Each `ActionContract` and `ActionPermit` binds the observed correction epoch. Th
 checks the latest epoch immediately before dispatch. Controlled connectors recheck it at
 commit. A stale lease or stale epoch fails closed.
 
-For an external API that cannot atomically recheck Agent OS correction state, the honest
-guarantee is "no new dispatch after correction commit," not "no effect can occur after
-correction commit." In-flight risk, cancellation and compensation behavior must be declared
-and used by policy. Unsupported irreversible connectors remain proposal-only.
+For a connector, including the SPINE-0 sandbox tools, that cannot atomically recheck Agent
+OS correction state at its physical side-effect commit, the honest guarantee is "no new
+dispatch after correction commit," not "no effect can occur after correction commit."
+In-flight risk, cancellation and compensation behavior must be declared and used by
+policy. Unsupported irreversible connectors remain proposal-only.
 
 ## 10. Outcome, evidence and learning boundary
 
@@ -592,19 +614,27 @@ A domain pack may not:
 semantics. The generic spine owns Goal, Commitment, WorkflowGraph, AgentRun, capability,
 credential, policy, correction, task events and outcome envelopes.
 
-## 13. History-preserving migration architecture
+## 13. Successor SPINE-1 migration architecture
+
+Data Agent migration is an approved program decision but not part of SPINE-0 completion.
+Its execution authority and gates are `ADR-0054` plus
+`docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`.
 
 ### 13.1 Import rule
 
-After written-spec and implementation-plan approval, the implementation branch will:
+After SPINE-0 acceptance and every ADR-0054/migration-map gate, the SPINE-1 branch will:
 
 1. pin the reviewed full donor commit of `ai-native-business-data-agent-os`;
-2. add it once as a Git subtree under `_migration/data-agent-os` without `--squash`;
-3. preserve donor history and add provenance metadata;
-4. move/extract generic code into Product Track packages and data-specific code into
+2. scan the donor's complete reachable history for secrets, customer/PII data, oversized
+   objects and licensing/provenance exceptions;
+3. import directly without `--squash` only after a `PASS`; for `REMEDIATE`, build and
+   rescan a filtered migration mirror; for `ABORT`, stop;
+4. add the accepted donor or filtered mirror once under `_migration/data-agent-os` and
+   record provenance/old-to-new commit mapping where filtering changed SHAs;
+5. move/extract generic code into Product Track packages and data-specific code into
    `domain_packs/data_agent` using reviewable commits;
-5. prohibit all runtime imports from `_migration/data-agent-os`;
-6. remove the staging tree after extraction while preserving its Git history.
+6. prohibit all runtime imports from `_migration/data-agent-os`;
+7. remove the staging tree after extraction while retaining only approved history.
 
 The observed donor head during design was short ref `a406508`; it is not the execution
 pin. The implementation plan must resolve and record a full immutable commit after review.
@@ -619,8 +649,11 @@ domain-independence and negative-path tests; donor presence is not automatic acc
 Data-specific trusted-loop, semantic/data contract, SQL safety, evidence-chain and
 business operation code moves to `domain_packs/data_agent`.
 
-Release documents, stale governance and duplicate product identity text are archival
-evidence, not runtime packages. Exact mapping is machine-readable in the migration YAML.
+Release documents, stale governance and duplicate product identity text remain reachable
+as Git history/provenance but are not copied into a new authoritative docs tree by default.
+Only records required to explain retained behavior are re-homed, with explicit
+`HISTORICAL_NON_AUTHORITY` metadata. Exact mapping is machine-readable in the migration
+YAML.
 
 ## 14. Public surfaces for T-P
 
@@ -717,14 +750,17 @@ identity, operations and release gates.
    and reaches the same terminal state.
 7. **Idempotency:** retry/restart creates zero duplicate logical patch/tool actions; unknown
    external state is not reported as success.
-8. **Correction:** stale workers cannot dispatch after correction; controlled connectors
-   cannot commit under a stale epoch; weaker connectors expose their honest guarantee.
+8. **Correction:** stale workers cannot dispatch after correction. Transactional connectors
+   commit zero effects under a stale epoch. SPINE-0 sandbox connectors are instead tested
+   for no new dispatch, bounded cancellation and verified compensation from an immutable
+   snapshot; they do not claim cross-system atomicity.
 9. **Secrets:** credential values are absent from prompts, graph JSON, database events,
    traces, errors and artifacts under canary tests.
 10. **Outcome:** success resolves to a precommitted evaluator and evidence; tool/provider
     acknowledgement alone cannot pass.
-11. **Data Agent seam:** migrated `data_agent.trusted_loop.evaluate` executes through the
-    same capability/policy/run/outcome spine and retains its domain safety tests.
+11. **SPINE-1 readiness boundary:** Product Track exposes a versioned domain-capability
+    registration contract exercised by `developer_agent`; no donor code, staging import or
+    Data Agent success is required or claimed by SPINE-0.
 12. **Boundary:** Product Track has no import from `src/aac`, `experiments` or `_migration`.
 13. **Observability:** every state/action/outcome is correlated in the task event stream,
     including failures and approvals.
@@ -746,28 +782,40 @@ Implementation follows test-first slices:
 6. provider chaos and malformed-output tests;
 7. developer golden-path end-to-end test with forced restart;
 8. live-provider controlled smoke with a strict cost cap;
-9. Data Agent migration characterization and seam tests;
-10. browser verification of Task Workspace desktop/mobile state and controls.
+9. browser verification of Task Workspace desktop/mobile state and controls.
+
+Data Agent donor characterization, migration and shared-spine seam tests belong to
+SPINE-1. They may consume accepted SPINE-0 contracts but cannot be used to complete or
+rescue SPINE-0.
 
 `SPINE-E2E-1`, `WFG-ROUNDTRIP-1`, `CORRECTION-BOUNDARY-1` and
 `PROVIDER-CHAOS-1` are separate product-eval specifications. Their thresholds and fixtures
 must be preregistered/frozen before they are used as superiority or research evidence.
 
-## 19. Architecture milestones before Product Track code
+## 19. Architecture milestones and task split
 
 These are dependency gates, not the detailed implementation plan:
 
+SPINE-0:
+
 1. reconcile parent/root identity documents that still describe the old three-repo product
    topology or C7 as unmodelable;
-2. review and ratify this packet and migration map;
-3. pin the full donor commit and produce a provenance manifest;
-4. write the test-first implementation plan and file ownership map;
-5. perform the no-squash staging import on an isolated Product Track branch;
-6. characterize donor behavior before extraction;
-7. establish contracts/persistence/runtime vertical and developer path;
-8. extract Data Agent and pass the shared-spine seam;
-9. run architecture, security, UI and live-provider acceptance;
-10. update product/research ledgers without rewriting historical verdicts.
+2. independently re-review and ratify this remediated packet;
+3. write the test-first SPINE-0 implementation plan and file ownership map;
+4. establish contracts, persistence, runtime, provider/credential and developer path;
+5. run SPINE-0 architecture, security, UI and live-provider acceptance;
+6. update product/research ledgers without rewriting historical verdicts.
+
+SPINE-1, only after SPINE-0 acceptance:
+
+1. verify ADR-0054 and the migration map remain accepted authority;
+2. pin the full donor commit, scan full history and produce the provenance/safety manifest;
+3. characterize donor behavior before import/extraction;
+4. perform the accepted direct or filtered history import on an isolated branch;
+5. extract generic packages and Data Agent domain pack;
+6. pass the shared-spine seam plus retained SQL Safety/Evidence/Approval negative tests;
+7. remove staging and verify no runtime dependency remains;
+8. request explicit founder push/merge authorization.
 
 No runtime implementation should begin from this packet until the written specification
 has been reviewed and the implementation plan has been separately accepted.
@@ -779,17 +827,20 @@ The reviewer must decide whether this packet:
 - preserves the complete Agent OS product identity and dual-track evidence boundary;
 - gives Product Track one non-duplicated authority model;
 - uses the Data Agent donor without preserving domain leakage or cross-repo runtime coupling;
+- keeps the Data Agent migration out of SPINE-0 completion and behind ADR-0054 history
+  safety/provenance gates;
 - defines an executable first slice rather than schemas and mocks;
 - states honest guarantees for correction, idempotency, providers and outcomes;
 - provides enough contract/state/failure detail for a test-first implementation plan;
 - keeps CWM, G10, belief learning and subagents as evidence-gated extensions;
 - fits founder resource constraints without pre-optimizing for distributed scale.
 
-Until that review is accepted, status remains:
+Current status is:
 
 ```text
-ARCHITECTURE WRITTEN
-IMPLEMENTATION NOT AUTHORIZED
+ARCHITECTURE REVIEWED AND ACCEPTED
+IMPLEMENTATION PLAN NEXT
+RUNTIME IMPLEMENTATION NOT STARTED
 MIGRATION NOT EXECUTED
 PRODUCT DELIVERY NOT CLAIMED
 ```

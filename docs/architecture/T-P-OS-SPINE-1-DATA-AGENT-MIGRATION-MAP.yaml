@@ -1,15 +1,19 @@
-version: 1
+version: 2
 date: "2026-07-10"
 status: "DESIGN_ONLY_NOT_EXECUTED"
+task_id: "T-P-OS-SPINE-1"
+depends_on: "T-P-OS-SPINE-0_ACCEPTED"
 authority:
   product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md"
   architecture_packet: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
+  cross_repository_adr: "docs/adr/ADR-0054-one-time-data-agent-history-migration.md"
   research_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"
 
 decision:
   selected_option: "B"
-  strategy: "history_preserving_subtree_no_squash_then_modular_monolith_extraction"
+  strategy: "history_safe_one_time_subtree_then_modular_monolith_extraction"
   runtime_topology: "single Agent OS monorepo; no cross-repo runtime imports"
+  scope: "SPINE-1 successor; not a SPINE-0 acceptance requirement"
   implementation_authorized: false
   migration_authorized: false
 
@@ -19,9 +23,32 @@ donor:
   observed_design_time_short_ref: "a406508"
   execution_ref: "MUST_BE_RESOLVED_TO_FULL_IMMUTABLE_SHA_AFTER_SPEC_REVIEW"
   import_prefix: "_migration/data-agent-os"
-  import_mode: "git subtree without --squash"
+  import_mode: "direct no-squash subtree only after full-history PASS; otherwise filtered migration mirror or ABORT"
   provenance_manifest: "REQUIRED_BEFORE_IMPORT"
+  history_safety_report: "REQUIRED_BEFORE_IMPORT"
   staging_runtime_imports_allowed: false
+
+history_safety:
+  scan_scope:
+    - "All commits, trees and blobs reachable from the pinned donor ref and every ref selected for migration."
+    - "Deleted historical files remain in scope."
+  required_checks:
+    - "Secret, token, credential and high-entropy material scan with pinned scanner/config versions."
+    - "Customer data, PII and sensitive raw-data inventory."
+    - "Oversized binary and Git LFS object inventory."
+    - "License and provenance exceptions relevant to redistribution."
+  report_fields:
+    - "donor full SHA and scanned refs"
+    - "scanner commands, versions and configuration digests"
+    - "finding paths/object ids without reproducing secret values"
+    - "false-positive adjudicator identity and rationale"
+    - "report digest"
+    - "verdict: PASS, REMEDIATE or ABORT"
+  dispositions:
+    PASS: "Direct no-squash import from the scanned donor ref is eligible."
+    REMEDIATE: "Rotate/revoke exposed credentials, construct a filtered migration mirror, record old-to-new commit mapping, rescan, and import only after PASS."
+    ABORT: "Do not import donor history; return to founder/CTO for a new decision."
+  invariant: "No donor commit or blob becomes reachable from the Agent OS repository before PASS."
 
 target:
   apps:
@@ -145,23 +172,24 @@ mapping:
       - "No forked provider, task runtime, identity or credential subsystem remains."
 
   - id: "M-DEVELOPER-AGENT"
-    disposition: "BUILD_NEW_ON_GENERIC_SPINE"
+    disposition: "CONSUME_ACCEPTED_SPINE_0_NO_DONOR_MAPPING"
     source_capability_families:
       - "none required from donor"
     target: "domain_packs/developer_agent"
     conditions:
-      - "Workspace read/apply-patch/run-tests tools are sandbox-scoped and typed."
-      - "The golden path produces a real verified repository artifact."
+      - "SPINE-0 developer golden path is already accepted before migration begins."
+      - "No donor file is promoted into developer_agent by implication."
 
   - id: "M-GOVERNANCE-DOCS"
-    disposition: "ARCHIVE_AS_PROVENANCE_NOT_RUNTIME"
+    disposition: "KEEP_IN_GIT_PROVENANCE_BY_DEFAULT"
     source_capability_families:
       - "release plans, branch gates, internal workflow and historical product definitions"
-    target: "docs/migration/data-agent-os-history"
+    target: "git history; selectively re-home only behavior-explanatory records"
     conditions:
-      - "Preserve decisions that explain implementation behavior."
+      - "Do not copy the complete legacy governance tree into current authoritative docs."
+      - "Re-home only decisions required to explain retained implementation behavior."
       - "Do not present internal development workflow as Agent OS customer capability."
-      - "Superseded product identity text is marked historical."
+      - "Every re-homed superseded identity record carries HISTORICAL_NON_AUTHORITY metadata."
 
   - id: "M-RESEARCH-QUARANTINE"
     disposition: "KEEP_IN_RESEARCH_TRACK"
@@ -183,22 +211,31 @@ sequence_gates:
     requires:
       - "Parent/root product identity no longer conflicts with the final Agent OS Blueprint."
       - "C7 safety language uses non-writable/non-bypassable external authority, not unmodelability."
-  - id: "G1-SPEC-REVIEW"
+      - "Parent AGENTS.md, CLAUDE.md, .agent, docs/GOAL-BLUEPRINT.md and code_index.md cite the bounded ADR-0054 exception before migration execution."
+      - "G0 completion is a scoped parent-repository commit; chat agreement alone is insufficient."
+  - id: "G1-CROSS-REPOSITORY-AUTHORIZATION"
     requires:
-      - "Founder accepts the written architecture packet and this migration map."
-  - id: "G2-DONOR-PIN"
+      - "ADR-0054 remains Accepted and founder/CTO approved."
+      - "Founder accepts the remediated architecture packet and this SPINE-1 migration map."
+      - "T-P-OS-SPINE-0 acceptance evidence is complete."
+  - id: "G2-DONOR-PIN-AND-HISTORY-SAFETY"
     requires:
       - "Full donor SHA recorded."
       - "Donor worktree clean or unrelated changes explicitly excluded."
       - "Provenance manifest prepared."
-  - id: "G3-HISTORY-IMPORT"
-    requires:
-      - "No-squash subtree import performed on isolated Product Track branch."
-      - "Imported commit ancestry and file inventory verified."
-  - id: "G4-CHARACTERIZATION"
+      - "All selected donor refs and reachable history scanned before any import."
+      - "History-safety report and digest recorded without reproducing secret values."
+      - "History-safety verdict is PASS; REMEDIATE must rescan a filtered mirror, and ABORT stops migration."
+  - id: "G3-CHARACTERIZATION"
     requires:
       - "Donor generic/runtime and Data Agent safety tests captured before moves."
-      - "Secrets and generated artifacts excluded."
+      - "Generic-vs-domain ownership inventory reviewed before import/extraction."
+      - "Generated artifacts and current-worktree secret material excluded from the migration plan."
+  - id: "G4-HISTORY-IMPORT"
+    requires:
+      - "Accepted direct donor ref or PASS-filtered mirror imported on an isolated Product Track branch."
+      - "Imported ancestry, file inventory and old-to-new commit map where applicable are verified."
+      - "No push or merge has occurred."
   - id: "G5-GENERIC-EXTRACTION"
     requires:
       - "Dependency direction checks pass."
@@ -212,12 +249,13 @@ sequence_gates:
     requires:
       - "All retained code has target ownership and provenance."
       - "Repository-wide search finds no _migration runtime import/reference."
-      - "Git history still exposes donor ancestry."
+      - "Git history exposes only the approved donor or filtered-mirror ancestry."
 
 verification_gates:
   provenance:
-    - "Imported history is reachable and donor full SHA is documented."
-    - "Moved files retain attributable history where practical."
+    - "Imported approved history is reachable and the original donor full SHA is documented."
+    - "Filtered imports include an old-to-new commit mapping and safety-report digest."
+    - "Moved files retain attributable approved history where practical."
   product_boundary:
     - "Product Track has no import from src/aac, experiments or _migration."
     - "os_core has no import from domain_packs."
@@ -228,7 +266,9 @@ verification_gates:
     - "Developer golden path and Data Agent seam pass the same runtime/policy/outcome path."
     - "Existing Data Agent SQL safety, evidence, approval and trace negative cases remain effective."
   security:
-    - "No secret file/value enters Git history, events, traces, prompts or artifacts."
+    - "Full reachable donor history received PASS before direct import, or the PASS-filtered mirror was imported instead."
+    - "No known donor secret/customer-data blob becomes reachable in Agent OS history."
+    - "No new secret file/value enters Git history, events, traces, prompts or artifacts."
     - "Tenant, approval, policy and correction bypass tests pass."
   git:
     - "Migration commits are scoped and reviewable."
@@ -236,12 +276,14 @@ verification_gates:
 
 rollback:
   before_history_import: "Delete the isolated implementation branch/worktree; no repository truth changes."
-  after_history_import_before_extraction: "Revert the subtree merge commit on the feature branch; preserve review artifacts."
+  ordinary_failure_after_safe_import: "Revert the scoped extraction/import work on the unpublished feature branch; preserve review artifacts and approved provenance."
+  secret_or_sensitive_blob_after_import: "STOP and prohibit push; rotate/revoke affected credentials; remove imported refs; build and rescan a filtered mirror; reconstruct the unpublished branch. A git revert is not secret removal."
+  contaminated_history_already_pushed: "Escalate to founder/Security incident handling and coordinated remote history remediation before resuming."
   during_extraction: "Revert only the failed extraction commit; do not rewrite donor or Research Track history."
   after_product_acceptance: "Use normal schema/code rollback and package-level revert; never restore cross-repo runtime coupling."
 
 completion_claim:
-  allowed_after_all_gates: "Data Agent history and code have been migrated into one Agent OS monorepo with generic spine/domain-pack separation."
+  allowed_after_all_gates: "Approved Data Agent history and code have been migrated into one Agent OS monorepo with generic spine/domain-pack separation."
   forbidden:
     - "Product Done"
     - "Codex parity"

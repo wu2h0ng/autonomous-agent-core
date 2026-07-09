@@ -31,6 +31,10 @@ Output: <粘贴>
 
 - [ ] Research agent 代码路径无 `op_*` 调用;罩分离测试未删减
 - [ ] Product Track 未直接 import Research Track 实验代码或结果文件
+- [ ] 若涉及 Data Agent donor:任务为 SPINE-1，ADR-0054 G0/G1 已满足；任何 history
+      import 前已绑定 full SHA、provenance 与 full-history safety `PASS`
+- [ ] Product Track 无 donor/`_migration` runtime import；filtered history 的
+      old-to-new commit map 已记录（如适用）
 - [ ] OS core 无领域耦合;领域语义仅在 domain pack/plugin/connector
 - [ ] model/plugin/subagent 无 untyped 最终执行权限
 - [ ] secret/credential/tenant data 未进入 prompt、event、log 或模型可见 memory

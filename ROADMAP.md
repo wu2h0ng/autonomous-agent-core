@@ -5,11 +5,20 @@
 
 ## Product Track dependency order
 
-1. **Product spine:** canonical contracts, persistent Task Workspace, durable AgentRun, provider/BYOK, typed tool host, baseline policy and outcome verification.
-2. **Complete workflows:** natural-language + visual WorkflowGraph editing, developer dogfood path, Data Agent domain pack seam and private personal path.
-3. **Operational completeness:** knowledge/context graph, subagents, scheduling, crash recovery, approvals, identity/tenancy, eval and operations surfaces.
-4. **Outcome compounding:** belief ledger, verified outcome learning, invalidation/rollback and long-horizon recovery.
-5. **Research promotion:** CWM, G10-like action calibration or other mechanisms only after a `ResearchCandidateManifest` and held-out product comparison.
+1. **T-P-OS-SPINE-0 product spine:** canonical contracts, persistent Task Workspace,
+   durable AgentRun, provider/CredentialRef, typed sandbox tools, baseline policy,
+   correction-grade disclosure and verified developer outcome. No donor import dependency.
+2. **T-P-OS-SPINE-1 Data Agent migration:** after SPINE-0, execute ADR-0054 full-history
+   safety/provenance gates, import approved history, extract generic packages and
+   `domain_packs/data_agent`, then pass the shared-spine seam.
+3. **Complete workflows:** natural-language + visual WorkflowGraph editing, expanded
+   developer dogfood and private personal path.
+4. **Operational completeness:** knowledge/context graph, subagents, scheduling, crash
+   recovery, approvals, identity/tenancy, eval and operations surfaces.
+5. **Outcome compounding:** belief ledger, verified outcome learning,
+   invalidation/rollback and long-horizon recovery.
+6. **Research promotion:** CWM, G10-like action calibration or other mechanisms only after
+   a `ResearchCandidateManifest` and held-out product comparison.
 
 The Product Track exits through Product Done, Moat Done and Superior Done as defined in the Blueprint. Stages are dependency-ordered and do not promise calendar dates.
 
