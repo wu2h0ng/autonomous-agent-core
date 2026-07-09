@@ -5,9 +5,11 @@
 
 ## Product Track dependency order
 
-1. **T-P-OS-SPINE-0 product spine:** canonical contracts, persistent Task Workspace,
-   durable AgentRun, provider/CredentialRef, typed sandbox tools, baseline policy,
-   correction-grade disclosure and verified developer outcome. No donor import dependency.
+1. **T-P-OS-SPINE-0 product spine (P0A implemented, overall NOT DONE):** P0A provides
+   strict contracts, canonical WorkflowGraph, event-replayed Task aggregate and public
+   TaskService with an in-memory port adapter. Remaining: PostgreSQL durability,
+   provider/CredentialRef, typed sandbox tools, baseline policy/correction, public
+   Task Workspace/API/CLI and verified developer outcome. No donor import dependency.
 2. **T-P-OS-SPINE-1 Data Agent migration:** after SPINE-0, execute ADR-0054 full-history
    safety/provenance gates, import approved history, extract generic packages and
    `domain_packs/data_agent`, then pass the shared-spine seam.

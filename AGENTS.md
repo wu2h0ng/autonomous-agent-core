@@ -48,6 +48,10 @@ Minimal read order for agent handoff:
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v   # 全量测试(必须全绿才能提交)
 PYTHONPATH=src python experiments/regime_shift.py         # 证伪测量(报告用)
+python3 -m pytest tests/product -q                        # Product Track
+ruff check packages/contracts/src packages/os_core/src tests/product
+pyright
+uv build --wheel --out-dir /tmp/agent-os-product-wheel
 ```
 
 PowerShell: `$env:PYTHONPATH="src"; python -m unittest discover -s tests -v`
@@ -74,4 +78,7 @@ Research Track 涉及机制/门/边界时先写或更新 ADR，继续遵守 free
 - codebase_index.md 已更新;罩分离断言未被削弱。
 - 未为过门而调机制(自我声明写进 PR)。
 - Product Track 变更说明用户入口、typed contract、权限/凭据、可观测性、outcome 验证和回滚路径。
+- Product Track P0A 当前只证明 strict contracts + event-replayed TaskService；
+  `InMemoryTaskEventStore` 不得写成 process durability，完整 SPINE-0 仍需 PostgreSQL、
+  provider/credential、policy/correction、capability/tool 和 public surfaces。
 - 结论明确标注为产品实现、研究结果或内部流程，禁止互相回填。

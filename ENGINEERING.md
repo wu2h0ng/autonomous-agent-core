@@ -36,7 +36,19 @@ Research Track 提交前本地门:
 PYTHONPATH=src python -m unittest discover -s tests   # 必须 OK
 ```
 
-Product Track 必须在首个架构 ADR 中建立 lint/type/unit/integration/e2e/security 和可重复构建命令；在该工具链落地前，不得把 schema、mock 或 UI shell 记为产品能力。
+Product Track P0A 当前建立的本地门是：
+
+```bash
+python3 -m pytest tests/product -q
+ruff check packages/contracts/src packages/os_core/src tests/product
+pyright
+uv build --wheel --out-dir /tmp/agent-os-product-wheel
+```
+
+wheel 必须包含 `agent_os_contracts` 与 `agent_os_core`。这些门只覆盖
+contracts/run-kernel。后续 provider/tool/PostgreSQL/API/UI packet 必须
+各自增加 integration/e2e/security 和可重复构建命令；不得用 P0A 绿灯替代完整
+SPINE-0 验收，也不得把 schema、mock 或 UI shell 记为产品能力。
 
 PR 必须使用 `.github/pull_request_template.md` 并按所选轨粘贴质量门。Research Track 机制/实验变更继续包含**证伪声明**:"本变更未为通过任何预注册门而调整机制参数/结构"。
 

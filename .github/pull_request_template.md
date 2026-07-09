@@ -23,7 +23,11 @@
 
 ```text
 Research: PYTHONPATH=src python -m unittest discover -s tests
-Product: <lint/type/unit/integration/e2e/security commands from current product ADR>
+Product P0A unit: python3 -m pytest tests/product -q
+Product P0A lint: ruff check packages/contracts/src packages/os_core/src tests/product
+Product P0A types: pyright
+Product P0A package: uv build --wheel --out-dir /tmp/agent-os-product-wheel
+Later Product packets: <integration/e2e/security commands from current product ADR/plan>
 Output: <粘贴>
 ```
 

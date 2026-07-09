@@ -44,8 +44,8 @@ The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before co
 Status:
 
 ```text
-ARCHITECTURE_REVIEW_ACCEPTED_IMPLEMENTATION_PLAN_NEXT
-implementation: NOT_STARTED
+P0A_CONTRACTS_AND_RUN_KERNEL_IMPLEMENTED_VERIFIED
+SPINE-0 completion: NOT_MET
 SPINE-0 donor migration dependency: NONE
 ```
 
@@ -79,8 +79,35 @@ Required first architecture packet:
 
 Claude first returned `APPROVE_WITH_REQUIRED_CHANGES`; the required ADR, history-safety,
 scope and connector-guarantee changes were applied. Independent remediation re-review
-closed all six findings and returned `APPROVE`. The next artifact is the test-first SPINE-0
-implementation plan. Runtime code remains not started until that plan is reviewed.
+closed all six findings and returned `APPROVE`.
+
+P0A implemented from the reviewed test-first plan:
+
+- strict immutable `Goal`, `Commitment`, `ExpectedOutcome`, `ObservedOutcome` contracts;
+- canonical `WorkflowGraph` with stable digest and fail-closed graph validation;
+- typed append-only `TaskEventStore` port and local in-memory adapter;
+- event-rehydrated `TaskAggregate` with `DRAFT -> COMMITTED -> RUNNING` invariants;
+- public `TaskService.create_task/commit_task/start_run/get_task` call path;
+- Product/Research AST import boundary test.
+
+P0A evidence:
+
+```text
+python3 -m pytest tests/product -q
+38 passed
+ruff: All checks passed
+pyright: 0 errors, 0 warnings
+wheel: agent_os_contracts + agent_os_core present
+Research regression: 1237 OK (16 skipped)
+```
+
+Honest boundary: `InMemoryTaskEventStore` is a port adapter for tests/local composition,
+not process durability. PostgreSQL, provider/CredentialRef, PolicyKernel/correction,
+CapabilityBroker/tools, API/CLI/UI and full SPINE-0 acceptance remain `NOT_IMPLEMENTED`.
+
+Next packet: P0B governed capability/provider contracts and negative paths. It must bind
+CredentialRef/ProviderPort, DecisionPolicy vs PolicyKernel, external CorrectionAuthority
+and sandbox capability guarantee classes before any real tool effect.
 
 This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
 

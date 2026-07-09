@@ -20,24 +20,48 @@
 | `ENGINEERING.md` | Dual-track engineering constraints; Research stdlib/falsification controls and Product dependency/authority boundaries |
 | `.github/pull_request_template.md` | Track-aware Product/Research/Docs PR evidence and boundary checklist |
 | `docs/superpowers/plans/2026-07-10-agent-os-product-blueprint-v1.md` | Docs-only finalization and verification plan |
+| `docs/superpowers/plans/2026-07-10-t-p-os-spine-0-p0a-contracts-run-kernel.md` | Executed test-first P0A implementation plan for contracts, WorkflowGraph, event replay and TaskService |
 
-Repository identity: complete Agent OS main monorepo. Current implementation reality: research-heavy; Product Track target packages/apps are not yet delivered. Existing `src/aac`, `experiments` and research adapters remain Research Track unless explicitly promoted.
+Repository identity: complete Agent OS main monorepo. Current implementation reality:
+research-heavy with the first staged Product Track kernel implemented; market-parity apps,
+durable runtime and full SPINE-0 are not delivered. Existing `src/aac`, `experiments` and
+research adapters remain Research Track unless explicitly promoted.
 
 ## Current Snapshot
 
 ```yaml
 product: Agent OS
 product_blueprint: FINAL_FOUNDER_RATIFIED
-product_architecture: T-P-OS-SPINE-0 ARCHITECTURE_REVIEW_ACCEPTED_IMPLEMENTATION_PLAN_NEXT
+product_architecture: T-P-OS-SPINE-0 P0A_CONTRACTS_AND_RUN_KERNEL_IMPLEMENTED_VERIFIED
 topology: dual-track layered monorepo
-implementation: research-heavy; market-parity Product Track not delivered
+implementation: staged strict contracts + canonical WorkflowGraph + event-replayed TaskService; in-memory adapter only
 research_source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
 research_stage: reconciled open-world + IGI organ-stack/CWM lines; exact verdicts in CURRENT_STATE
-tests: 1237 OK (16 skipped in this worktree; 3 additional skips are optional anndata/numpy tests)
+product_tests: 38 passed; ruff clean; pyright 0 errors
+research_tests: 1237 OK (16 skipped in this worktree; 3 additional skips are optional anndata/numpy tests)
 product_claim_from_tests: NOT_AUTHORIZED
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
+
+## Product Track P0A - Contracts and Run Kernel (2026-07-10)
+
+| File | Role |
+|---|---|
+| `pyproject.toml` | Product optional dependencies plus pytest and pyright monorepo paths; Research default dependencies remain empty |
+| `packages/contracts/src/agent_os_contracts/common.py` | Strict immutable contract base, timezone normalization, canonical JSON and SHA-256 digest |
+| `packages/contracts/src/agent_os_contracts/task.py` | `Goal` and `Commitment` with task/scope/authority fields |
+| `packages/contracts/src/agent_os_contracts/workflow.py` | `WorkflowGraph` v1, bounded node families, duplicate/endpoint/cycle/terminal validation and order-stable digest |
+| `packages/contracts/src/agent_os_contracts/outcome.py` | Separate expected/observed outcome contracts; verified outcomes require score and evidence |
+| `packages/contracts/src/agent_os_contracts/runtime.py` | Task/run states plus immutable canonical-payload task events and `AgentRun` binding |
+| `packages/os_core/src/agent_os_core/event_store.py` | `TaskEventStore` port and concurrency-safe in-memory adapter; explicitly not durable storage |
+| `packages/os_core/src/agent_os_core/task_aggregate.py` | Event-rehydrated Task aggregate; scope, transition and workflow-digest invariants |
+| `packages/os_core/src/agent_os_core/task_service.py` | Public create/commit/start/get call path using load/validate/append/rehydrate |
+| `tests/product/` | 38 Product Track contract, graph, event, aggregate, service and import-boundary tests |
+
+P0A is a staged kernel, not complete SPINE-0. PostgreSQL, provider/credentials,
+DecisionPolicy/PolicyKernel/CorrectionAuthority, capability/tool execution and all public
+API/CLI/UI surfaces remain absent.
 
 ## Strong-Locus Structure Crossover Harness (2026-07-06)
 

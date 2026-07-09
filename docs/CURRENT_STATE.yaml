@@ -10,11 +10,11 @@ product_blueprint:
   topology: "dual-track layered monorepo: Product Track + Research Track"
   first_enterprise_vertical: "Data Agent domain pack"
   primary_experience: "Codex-style persistent Task Workspace"
-  implementation_truth: "BLUEPRINT_ONLY_NOT_PRODUCT_DELIVERY; the current tree remains research-heavy and no market-parity capability is implied by this documentation decision."
+  implementation_truth: "P0A contracts-and-run-kernel is implemented and verified, but the tree remains research-heavy and no durable/provider/tool/API/UI or market-parity capability is implied."
   evidence_boundary: "Research verdicts and product capability claims remain separate; no experiment result, test count, or negative-result status is changed by the blueprint."
 product_architecture:
   task_id: "T-P-OS-SPINE-0"
-  status: "ARCHITECTURE_REVIEW_ACCEPTED_IMPLEMENTATION_PLAN_NEXT"
+  status: "P0A_CONTRACTS_AND_RUN_KERNEL_IMPLEMENTED_VERIFIED"
   selected_option: "B: history-preserving migration plus modular monolith"
   authority: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
   migration_adr: "docs/adr/ADR-0054-one-time-data-agent-history-migration.md"
@@ -24,10 +24,12 @@ product_architecture:
   independent_review: "Claude Opus first verdict APPROVE_WITH_REQUIRED_CHANGES on ca4610b..e78b72a; all six findings CLOSED in staged remediation re-review, final verdict APPROVE."
   spine_0_scope: "Generic durable developer golden path; no donor import or Data Agent seam completion requirement."
   spine_1_scope: "ADR-0054-gated history-safe Data Agent migration, generic/domain-pack extraction and shared-spine seam."
-  implementation_status: "NOT_STARTED_NOT_AUTHORIZED_BY_THIS_PACKET"
+  implementation_status: "P0A_IMPLEMENTED: strict contracts, canonical WorkflowGraph, append-only event-store port/in-memory adapter, replayable TaskAggregate and public TaskService create/commit/start/get path."
+  storage_truth: "IN_MEMORY_PORT_ADAPTER_ONLY_NOT_PROCESS_DURABLE"
+  not_implemented: "PostgreSQL, provider/CredentialRef resolution, DecisionPolicy/PolicyKernel/CorrectionAuthority, CapabilityBroker/tool execution, API/CLI/UI and SPINE-0 end-to-end acceptance."
   migration_status: "DESIGN_ONLY_NOT_EXECUTED"
-  next_gate: "Write the test-first T-P-OS-SPINE-0 implementation plan for review. Runtime implementation remains not started; donor pin/scan/import belongs to SPINE-1 after SPINE-0 acceptance."
-  product_claim: "NOT_AUTHORIZED"
+  next_gate: "Define and review P0B governed capability/provider packet: CredentialRef/ProviderPort, PolicyKernel/CorrectionAuthority and sandbox capability contracts. Donor pin/scan/import remains SPINE-1-only after SPINE-0 acceptance."
+  product_claim: "STAGED_KERNEL_ONLY_NOT_SPINE_0_DONE"
 worktree_update_current: "AGDE-T3 fresh scored gate completed NULL; CWM-LEARN-5e-2 zero-shot and first functional-forms calibrations found no freeze-ready region; hard bandpass functional-forms arena found a candidate region, fresh scored gate returned MET on disjoint seeds 40..45, and preregistered r-final returned MET on seeds 60..69 (proposed=1.0000, pair_screening=0.0000, random=0.0000, proposed > cheap controls 10/10, Condition-B collapse). Evidence level r_final_preregistered for hard non-enumerable form channel only; no autonomy/product/LLM/C6-C7 claim."
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
@@ -35,10 +37,19 @@ branch: "codex/agent-os-product-blueprint-v1"
 research_baseline_branch: "reconcile/igi-organstack-into-open-world-arc-2026-07-10"
 status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; R-CSL-1 PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; old VH/G-Eco operationalization PARK_BY_§7A_C_NOT_SUPPORTED after pre-Gate-2 halt. G-ECO-REOPEN-1 fresh NBSC variant completed r-final on 2026-07-04 and is NOT_MET: fair MINIMAX absorbs the candidate probe path. Strong-locus structure crossover Stage 1 harness built 2026-07-06 and offline-verified on synthetic data; Stage 2 independent non-Claude firewall certification completed and CERTIFIED by opencode on 2026-07-06. No Gate-2 revival, ADR-0037 decision, C6/C7 change, autonomy claim, product-capability claim from research evidence, or R4/R5 execution is authorized."
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
+product_test_command: "python3 -m pytest tests/product -q"
+product_quality_commands:
+  - "ruff check packages/contracts/src packages/os_core/src tests/product"
+  - "pyright"
+  - "uv build --wheel --out-dir <external-temp-dir>"
+product_last_verified_tests:
+  count: 38
+  result: "OK"
+  source: "P0A Product Track verification (2026-07-10): python3 -m pytest tests/product -q -> 38 passed in 0.11s; ruff -> All checks passed; pyright -> 0 errors, 0 warnings, 0 informations; uv wheel build contains agent_os_contracts and agent_os_core. This verifies contracts/run-kernel behavior and package wiring only, not complete SPINE-0."
 last_verified_tests:
   count: 1237
   result: "OK (skipped=16)"
-  source: "PRODUCT-BLUEPRINT worktree full suite (2026-07-10): Ran 1237 tests in 175.560s, OK, skipped=16. The prior reconcile verification had skipped=13 with optional dependencies available; this worktree environment lacks anndata/numpy, so the 3 methods in TestReplogle2022Preprocessing are additionally and explicitly skipped. Research baseline: origin/main open-world arc (760 OK) merged into feat IGI organ-stack + CWM real-data line (1032 OK), then union re-verified on reconcile/igi-organstack-into-open-world-arc-2026-07-10. One prior failure surfaced -- test_prereg_locks PRED1 drift -- resolved by founder-authorized (2026-07-10) benign re-lock: 3 PRED1 mechanism files byte-unchanged across merge parents, drift from agent.py additive opt-in union + main ADR text, PRED1 r-final reproduces PRED1-HOLDS EXACTLY (margin -0.006, 13/30, p=0.55); see experiments/prediction1_residual_calibrator.lock.json (relocked 2026-07-10, prior 694b74ca)."
+  source: "P0A post-implementation Research Track regression (2026-07-10): PYTHONPATH=src python3 -m unittest discover -s tests -> Ran 1237 tests in 177.876s, OK, skipped=16. This worktree lacks optional anndata/numpy, so 3 TestReplogle2022Preprocessing methods are additionally and explicitly skipped; the other 13 are existing sentinels. No research mechanism, verdict, gate or result artifact changed."
 
 current_stage:
   label: "RECONCILE: open-world arc + IGI organ-stack/CWM real-data merged (G-ECO-REOPEN-1 NOT_MET; open-world arc landed)"

@@ -1,6 +1,6 @@
 # T-P-OS-SPINE-0 P0A Contracts and Run Kernel Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. All checklist steps are now executed.
 
 **Goal:** Build the first real Product Track call path from versioned Goal/Commitment/Workflow/Outcome contracts through an append-only event store into a rehydratable Task/AgentRun aggregate.
 
@@ -65,7 +65,7 @@ tests/product/
 - Produces: `ContractModel`, `canonical_json`, `content_digest`, `Goal`, `Commitment`, `ExpectedOutcome`, `ObservedOutcome`.
 - Consumes: Pydantic 2 only.
 
-- [ ] **Step 1: Add failing strict-contract tests**
+- [x] **Step 1: Add failing strict-contract tests**
 
 ```python
 def test_goal_rejects_unknown_fields(now):
@@ -89,7 +89,7 @@ def test_contract_is_immutable(goal):
         goal.statement = "changed"
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -99,7 +99,7 @@ python3 -m pytest tests/product/test_contracts.py -q
 
 Expected: collection fails because `agent_os_contracts` does not exist.
 
-- [ ] **Step 3: Add product test paths and minimal strict contracts**
+- [x] **Step 3: Add product test paths and minimal strict contracts**
 
 `pyproject.toml` adds optional Product Track dependencies and pytest paths without changing
 Research Track runtime dependencies:
@@ -141,13 +141,13 @@ def content_digest(value: BaseModel | Mapping[str, Any]) -> str:
 `task.py` and `outcome.py` define the fields frozen in the architecture packet. Non-empty
 tuple fields use Pydantic validators; authority scopes are unique/sorted.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `python3 -m pytest tests/product/test_contracts.py -q`
 
 Expected: all contract tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml packages/contracts tests/product/conftest.py tests/product/test_contracts.py
@@ -167,7 +167,7 @@ git commit -m "feat(product): add strict Agent OS contracts"
 - Produces: `NodeKind`, `IdempotencyMode`, `NodeSpec`, `EdgeSpec`, `WorkflowGraph`, `WorkflowValidationError` through Pydantic validation.
 - Consumes: `ContractModel`, `content_digest`.
 
-- [ ] **Step 1: Add failing graph tests**
+- [x] **Step 1: Add failing graph tests**
 
 ```python
 def test_graph_digest_ignores_node_and_edge_input_order(graph_factory):
@@ -184,13 +184,13 @@ def test_tool_node_requires_capability():
         NodeSpec(node_id="patch", kind=NodeKind.TOOL)
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `python3 -m pytest tests/product/test_workflow_graph.py -q`
 
 Expected: import failure because `workflow.py` does not exist.
 
-- [ ] **Step 3: Implement graph validation and canonical digest**
+- [x] **Step 3: Implement graph validation and canonical digest**
 
 Validation must reject duplicate node IDs, unknown edge endpoints, self-edges, cycles,
 missing terminal nodes and tool nodes without a capability. Digest payload sorts nodes by
@@ -210,13 +210,13 @@ def canonical_digest(self) -> str:
 Cycle detection uses Kahn's algorithm over the outer static graph. Looping remains an
 explicit bounded node kind; no arbitrary graph cycle is accepted.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `python3 -m pytest tests/product/test_workflow_graph.py -q`
 
 Expected: graph tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add packages/contracts/src/agent_os_contracts tests/product/test_workflow_graph.py
@@ -241,7 +241,7 @@ git commit -m "feat(product): add canonical WorkflowGraph v1"
 - Produces: `TaskStatus`, `RunStatus`, `TaskEventType`, `TaskEventDraft`, `TaskEvent`, `AgentRun`, `TaskEventStore`, `InMemoryTaskEventStore`, `TaskAggregate`.
 - Consumes: Task/workflow/outcome contracts from Tasks 1-2.
 
-- [ ] **Step 1: Add failing event-store tests**
+- [x] **Step 1: Add failing event-store tests**
 
 ```python
 def test_append_assigns_monotonic_sequences(event_store, event_draft):
@@ -255,25 +255,25 @@ def test_append_rejects_stale_expected_sequence(event_store, event_draft):
         event_store.append("task-1", expected_sequence=0, drafts=(event_draft.model_copy(update={"event_id": "event-2"}),))
 ```
 
-- [ ] **Step 2: Run event-store RED**
+- [x] **Step 2: Run event-store RED**
 
 Run: `python3 -m pytest tests/product/test_event_store.py -q`
 
 Expected: import failure because `agent_os_core` does not exist.
 
-- [ ] **Step 3: Implement event contracts and in-memory port adapter**
+- [x] **Step 3: Implement event contracts and in-memory port adapter**
 
 The store copies immutable events, assigns sequence numbers atomically under a reentrant
 lock and rejects stale sequence or duplicate event IDs. It exposes `read(task_id)` only;
 callers cannot mutate its internal lists.
 
-- [ ] **Step 4: Run event-store GREEN**
+- [x] **Step 4: Run event-store GREEN**
 
 Run: `python3 -m pytest tests/product/test_event_store.py -q`
 
 Expected: event-store tests pass.
 
-- [ ] **Step 5: Add failing aggregate tests**
+- [x] **Step 5: Add failing aggregate tests**
 
 ```python
 def test_rehydrate_create_commit_start(task_events):
@@ -290,13 +290,13 @@ def test_commit_rejects_cross_tenant_scope(draft_aggregate, foreign_commitment, 
         draft_aggregate.commit(foreign_commitment, workflow, expected, event_id="event-commit", occurred_at=NOW)
 ```
 
-- [ ] **Step 6: Run aggregate RED**
+- [x] **Step 6: Run aggregate RED**
 
 Run: `python3 -m pytest tests/product/test_task_aggregate.py -q`
 
 Expected: fails because `TaskAggregate` is missing.
 
-- [ ] **Step 7: Implement aggregate commands and event replay**
+- [x] **Step 7: Implement aggregate commands and event replay**
 
 The aggregate accepts only:
 
@@ -311,13 +311,13 @@ Rehydration rejects sequence gaps, duplicate creation, unknown event types and i
 historical transitions. Commit validates tenant/workspace/goal bindings; start validates
 commitment/workflow/outcome bindings and graph digest.
 
-- [ ] **Step 8: Run aggregate GREEN**
+- [x] **Step 8: Run aggregate GREEN**
 
 Run: `python3 -m pytest tests/product/test_task_aggregate.py -q`
 
 Expected: aggregate tests pass.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/contracts/src/agent_os_contracts packages/os_core tests/product/test_event_store.py tests/product/test_task_aggregate.py
@@ -338,7 +338,7 @@ git commit -m "feat(product): add replayable task run kernel"
 - Produces: `TaskService.create_task`, `TaskService.commit_task`, `TaskService.start_run`, `TaskService.get_task`.
 - Consumes: `TaskEventStore`, `TaskAggregate`, exact Product Track contracts.
 
-- [ ] **Step 1: Add failing service lifecycle test**
+- [x] **Step 1: Add failing service lifecycle test**
 
 ```python
 def test_service_rehydrates_across_service_instances(store, id_factory, clock, contracts):
@@ -354,26 +354,26 @@ def test_service_rehydrates_across_service_instances(store, id_factory, clock, c
     assert running.run.workflow_digest == contracts.workflow.canonical_digest()
 ```
 
-- [ ] **Step 2: Run service RED**
+- [x] **Step 2: Run service RED**
 
 Run: `python3 -m pytest tests/product/test_task_service.py -q`
 
 Expected: import failure because `TaskService` does not exist.
 
-- [ ] **Step 3: Implement minimal public service**
+- [x] **Step 3: Implement minimal public service**
 
 `TaskService` loads and rehydrates before every command, generates typed IDs with the
 injected factory, appends with the aggregate's exact sequence and returns a freshly
 rehydrated aggregate. `get_task` raises `TaskNotFoundError`; duplicate task IDs and stale
 writes fail closed.
 
-- [ ] **Step 4: Run service GREEN**
+- [x] **Step 4: Run service GREEN**
 
 Run: `python3 -m pytest tests/product/test_task_service.py -q`
 
 Expected: service tests pass.
 
-- [ ] **Step 5: Add and run Product/Research import-boundary test**
+- [x] **Step 5: Add and run Product/Research import-boundary test**
 
 ```python
 def test_product_packages_do_not_import_research_modules():
@@ -388,13 +388,13 @@ Run: `python3 -m pytest tests/product/test_product_research_boundary.py -q`
 
 Expected: pass.
 
-- [ ] **Step 6: Run all Product Track tests**
+- [x] **Step 6: Run all Product Track tests**
 
 Run: `python3 -m pytest tests/product -q`
 
 Expected: all Product Track tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/os_core tests/product
@@ -416,19 +416,19 @@ git commit -m "feat(product): expose task lifecycle service"
 - Produces: honest staged-capability status; does not claim Postgres durability, provider,
   tool execution, API/UI or SPINE-0 completion.
 
-- [ ] **Step 1: Run fresh Product Track verification**
+- [x] **Step 1: Run fresh Product Track verification**
 
 Run: `python3 -m pytest tests/product -q`
 
 Expected: all Product Track tests pass.
 
-- [ ] **Step 2: Run full Research Track regression**
+- [x] **Step 2: Run full Research Track regression**
 
 Run: `PYTHONPATH=src python3 -m unittest discover -s tests -v`
 
 Expected: existing research suite passes with only documented skips.
 
-- [ ] **Step 3: Run static boundary and whitespace checks**
+- [x] **Step 3: Run static boundary and whitespace checks**
 
 ```bash
 git diff --check
@@ -437,7 +437,7 @@ rg -n "from (aac|experiments)|import (aac|experiments)" packages apps domain_pac
 
 Expected: `git diff --check` exits 0; import search has no Product Track matches.
 
-- [ ] **Step 4: Update authoritative docs**
+- [x] **Step 4: Update authoritative docs**
 
 Record:
 
@@ -450,7 +450,7 @@ SPINE-0 Product Done: NOT_MET
 
 Include exact commands/counts and no research claim.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/CURRENT_STATE.yaml docs/PROJECT_PLAN.md codebase_index.md

@@ -13,13 +13,45 @@ The repository uses a **dual-track layered monorepo** model:
 - **Product Track:** Task Workspace, workflow, runtime, providers/BYOK, tools/plugins, knowledge/RAG, agents/subagents, governance, eval, SDK and domain packs.
 - **Research Track:** CWM, belief/action mechanisms, belief ledger, outcome learning, corrigibility, formal models, preregistered experiments and negative-result maps.
 
-The current tree remains research-heavy. Finalizing the blueprint does not claim that the Agent OS runtime or market-parity layer is already delivered, and no research result becomes a product claim by proximity.
+The current tree remains research-heavy, but Product Track P0A now implements strict
+contracts, canonical WorkflowGraph validation, an append-only event-store port,
+event-rehydrated Task aggregate and public TaskService lifecycle. Its current storage is an
+in-memory adapter only; this is not the durable Agent OS runtime or market-parity layer, and
+no research result becomes a product claim by proximity.
 
 ## Current State
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the current branch, stage, next task, latest tests, latest ADRs, and known drift risks.
 
-As of 2026-07-10, the product-blueprint worktree records `1237 tests OK (16 skipped)`: 13 intentional sentinels plus 3 optional Replogle preprocessing tests skipped because `anndata/numpy` are not installed in this environment. `G10` remains a narrow positive result; `G13` and `G-ECO-REOPEN-1` remain `NOT_MET`; the strong-locus Stage 4 result remains `INSUFFICIENT_DATA_HONEST_NEGATIVE`; CWM hard-form evidence remains limited to its preregistered channel. See `docs/CURRENT_STATE.yaml` for exact authority and do not infer product delivery from this suite.
+As of 2026-07-10, Product P0A records `38 passed`, ruff clean and pyright `0 errors`.
+The full Research Track regression records `1237 tests OK (16 skipped)`: 13 intentional
+sentinels plus 3 optional Replogle preprocessing tests skipped because `anndata/numpy` are
+not installed in this environment. `G10` remains a narrow positive result; `G13` and
+`G-ECO-REOPEN-1` remain `NOT_MET`; the strong-locus Stage 4 result remains
+`INSUFFICIENT_DATA_HONEST_NEGATIVE`; CWM hard-form evidence remains limited to its
+preregistered channel. See `docs/CURRENT_STATE.yaml` for exact authority. Neither suite
+establishes Product Done.
+
+## Product Track P0A
+
+```text
+packages/contracts/src/agent_os_contracts/  strict product contracts
+packages/os_core/src/agent_os_core/         task event/replay kernel
+tests/product/                              Product Track tests
+```
+
+Install Product Track development extras and run its gates:
+
+```bash
+python3 -m pip install -e '.[product-core,product-test]'
+python3 -m pytest tests/product -q
+ruff check packages/contracts/src packages/os_core/src tests/product
+pyright
+```
+
+`InMemoryTaskEventStore` is for port verification/local composition. PostgreSQL,
+provider/CredentialRef, policy/correction, capability execution, API/CLI/UI and complete
+SPINE-0 remain unimplemented.
 
 ## Research Track: historical four claims
 
