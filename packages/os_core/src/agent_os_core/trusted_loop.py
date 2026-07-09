@@ -684,9 +684,12 @@ class TrustedLoopRuntime:
         # single-option rationale separating "the domain genuinely has one admissible
         # action" from "the proposer never deliberated". Violations refuse HERE — the
         # run never reaches awaiting_approval with a collapsed, unexplained choice set.
-        # Non-approval (R0-R2 propose-only) proposals are exempt; a later seam
-        # ESCALATE/VERIFY_MORE tighten (ADR-0009) does not re-enter this proposal-step
-        # gate, because the seam may only tighten and never re-shapes the choice set.
+        # Non-approval (R0-R2 propose-only) proposals are exempt HERE. A later seam
+        # ESCALATE/VERIFY_MORE tighten (ADR-0009) that forces such a proposal into human
+        # approval is NOT waved through, though: it is re-gated below (see the "ADR-0014
+        # re-gate for seam-forced approvals" block), so an escalated propose-only proposal
+        # can never reach awaiting_approval with a blank or collapsed choice set. The seam
+        # may only tighten and never re-shapes the choice set.
         if proposal.approval_required:
             choice_set_violations = self._choice_set_violations(proposal)
             if choice_set_violations:
@@ -856,6 +859,14 @@ class TrustedLoopRuntime:
         # alternatives set, or an inconsistent recommended flag the builder supplied) blocks with
         # CHOICE_SET_VIOLATION. Net effect: a human never sees a blank single option, and never sees
         # a collapsed unexplained one — including when governance (not the builder) forced the review.
+        #
+        # Known limitation (accepted, reviewed 2026-07-10): when the escalated propose-only proposal
+        # ALREADY carries a builder-supplied single_option_rationale, the re-gate keeps that rationale
+        # as-is and does NOT append a seam-escalation note. The builder rationale is truthful for the
+        # single-option case, and the fact that the seam (not the builder) forced human review is still
+        # recorded in the governed_decision / choice_set_seam_escalation trace events, so the escalation
+        # remains auditable. Surfacing the seam reason on the approval UI in that case is a tracked
+        # future enhancement, not a correctness gap.
         if seam_escalation_label is not None:
             if not proposal.alternatives and not (proposal.single_option_rationale or "").strip():
                 proposal = replace(
