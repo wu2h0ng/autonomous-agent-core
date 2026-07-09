@@ -227,6 +227,10 @@ class EvidenceChain:
     eval_bindings: tuple[EvalBinding, ...] = field(default_factory=tuple)
     semantic_object_refs: tuple[EvidenceSemanticObjectRef, ...] = field(default_factory=tuple)
     semantic_lineage: tuple[EvidenceObjectLinkRef, ...] = field(default_factory=tuple)
+    # P2-B (ADR-0016): the action's own governed history, attached AS EVIDENCE about the action
+    # (not decorative free text), so the consequence preview is auditable alongside the rest of the
+    # chain. Optional/None when no history port is wired; the derivation never blocks the evidence path.
+    consequence_preview: ConsequencePreview | None = None
 
     def is_complete(self) -> bool:
         """Legacy completeness check: required fields for the Trusted Loop."""
@@ -250,6 +254,33 @@ class EvidenceChain:
             and self.confidence_score is not None
             and self.eval_bindings
         )
+
+
+@dataclass(frozen=True)
+class ConsequencePreview:
+    """An evidence-bound SYMBOLIC preview of an action's OWN governed history (P2-B, ADR-0016).
+
+    Before an approver decides, this surfaces the action's own prior track record derived live
+    from the durable ``action_records`` ledger — "this ``action_type`` has ``prior_executions``
+    prior executions, ``resolved_intended`` of which resolved to the intended (clean) execution
+    outcome". It STRENGTHENS the ADR-0008 outcome moat (governed action closed to measured outcome
+    + compounding per-tenant history) by turning the approval surface from "decide blind" into
+    "decide with the action's track record".
+
+    It is an HONEST COUNT the human reads, NOT a prediction, learned model, or probability — the
+    disposer/human still decides; predictive consequence modelling is a future, separately-gated
+    capability. ``available`` is False when there is no prior history OR the ledger could not be
+    read: a novel action reports ``available=False`` with zero counts so the surface can render
+    "no prior history" HONESTLY, never a fabricated ``0/0 resolved`` dressed as real data. Counts
+    are derived live from the ledger; there is deliberately no parallel cached counter to drift.
+    """
+
+    action_type: str
+    prior_executions: int = 0
+    resolved_intended: int = 0
+    resolved_other: int = 0
+    last_outcomes: tuple[str, ...] = field(default_factory=tuple)
+    available: bool = False
 
 
 @dataclass(frozen=True)
@@ -299,6 +330,10 @@ class ActionProposal:
     # candidate_actions label) or an explicit non-empty single_option_rationale.
     alternatives: tuple[ActionAlternative, ...] = field(default_factory=tuple)
     single_option_rationale: str | None = None  # explicit "why only one option"
+    # P2-B (ADR-0016): the action's own governed history from the durable action_records ledger,
+    # attached at proposal-build time so the approval surface can render the track record before a
+    # decision. None when no history port is wired (feature off) — never a fabricated zero.
+    consequence_preview: ConsequencePreview | None = None
 
 
 @dataclass(frozen=True)
