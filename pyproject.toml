@@ -5,6 +5,14 @@ description = "Domain-agnostic prototype of the viable, corrigible autonomous ag
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+product-core = [
+    "pydantic>=2.13,<3",
+]
+product-test = [
+    "pytest>=9,<10",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -13,4 +21,9 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [
+    ".",
+    "src",
+    "packages/contracts/src",
+    "packages/os_core/src",
+]
