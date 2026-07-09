@@ -63,6 +63,11 @@ class PartiallyObservedSCMEnv:
         return len(self.observed_indices)
 
     @property
+    def n_nodes(self) -> int:
+        """Alias for ``n_observed`` so the env matches the unified harness API."""
+        return self.n_observed
+
+    @property
     def latent_indices(self) -> list[int]:
         all_set = set(range(self.n_total))
         return sorted(all_set - set(self.observed_indices))
@@ -95,6 +100,11 @@ class PartiallyObservedSCMEnv:
                 # Remap to observed-node coordinates.
                 result.add((self.observed_indices.index(u), self.observed_indices.index(v)))
         return result
+
+    @property
+    def ground_truth_edges(self) -> set[tuple[int, int]]:
+        """Alias for ``ground_truth_observed_edges`` for the unified harness API."""
+        return self.ground_truth_observed_edges
 
     def structural_hamming_distance(self, predicted: set[tuple[int, int]]) -> int:
         """SHD against the observed-subgraph ground truth."""

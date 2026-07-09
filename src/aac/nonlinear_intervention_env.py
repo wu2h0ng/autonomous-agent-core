@@ -15,19 +15,21 @@ from typing import Any
 class PolynomialCausalSimulationEnv:
     """A polynomial SCM simulation environment for live CWM interventions.
 
-    Each directed edge contributes a quadratic parent effect:
+    Each directed edge contributes a degree-2 polynomial parent effect:
 
-        x_j = sum_{i in pa(j)} beta_{ij} * x_i^2 + epsilon_j
+        x_j = sum_{i in pa(j)} (alpha_{ij} * x_i + beta_{ij} * x_i^2) + epsilon_j
 
-    This is intentionally nonlinear, so a linear likelihood model should
-    underfit while a polynomial likelihood can recover the skeleton.
+    The linear term preserves orientability while the quadratic term makes the
+    relationship nonlinear, so a polynomial likelihood should outperform a
+    purely linear likelihood.
 
     Args:
         n_nodes: number of nodes.
         edges: directed edges of the ground-truth DAG.
         noise_std: standard deviation of the zero-mean Gaussian noise.
         seed: RNG seed for reproducibility.
-        coef_range: range from which positive quadratic coefficients are drawn.
+        coef_range: range from which positive linear and quadratic coefficients
+            are drawn independently.
     """
 
     n_nodes: int
@@ -36,14 +38,17 @@ class PolynomialCausalSimulationEnv:
     seed: int = 42
     coef_range: tuple[float, float] = (0.5, 1.0)
     _rng: random.Random = field(init=False, repr=False)
-    _coefs: dict[tuple[int, int], float] = field(init=False, repr=False)
+    _lin_coefs: dict[tuple[int, int], float] = field(init=False, repr=False)
+    _quad_coefs: dict[tuple[int, int], float] = field(init=False, repr=False)
     _topological_order: list[int] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed)
-        self._coefs = {}
+        self._lin_coefs = {}
+        self._quad_coefs = {}
         for u, v in self.edges:
-            self._coefs[(u, v)] = self._rng.uniform(*self.coef_range)
+            self._lin_coefs[(u, v)] = self._rng.uniform(*self.coef_range)
+            self._quad_coefs[(u, v)] = self._rng.uniform(*self.coef_range)
         self._topological_order = self._compute_topological_order()
 
     @property
@@ -80,7 +85,10 @@ class PolynomialCausalSimulationEnv:
             val = self._rng.gauss(0.0, self.noise_std)
             for p, q in self.edges:
                 if q == j:
-                    val += self._coefs[(p, q)] * (row[p] ** 2)
+                    val += (
+                        self._lin_coefs[(p, q)] * row[p]
+                        + self._quad_coefs[(p, q)] * (row[p] ** 2)
+                    )
             row[j] = val
         return row
 

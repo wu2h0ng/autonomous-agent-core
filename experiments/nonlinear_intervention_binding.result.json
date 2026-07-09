@@ -10,11 +10,11 @@
     ]
   ],
   "linear": {
-    "shd": 2,
+    "shd": 1,
     "confidence": 0.5
   },
   "poly2": {
-    "shd": 2,
-    "confidence": 0.5
+    "shd": 1,
+    "confidence": 0.5939
   }
 }

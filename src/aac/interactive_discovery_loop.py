@@ -25,7 +25,7 @@ class InteractiveDiscoveryLoop(GovernedDiscoveryLoop):
         All other args are forwarded to GovernedDiscoveryLoop.
     """
 
-    environment: CausalSimulationEnv | None = None
+    environment: Any | None = None
 
     def discover_from_env(
         self,

@@ -8,8 +8,8 @@
 
 ```yaml
 branch: feat/selfdiscovery-a-stage-a-20260705
-stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented
-tests: 991 OK (13 skipped)
+stage: G-ECO-REOPEN-1 r-final completed NOT_MET; R-CSL-1 is PARKED by reduction; old VH/G-Eco operationalization remains PARK_BY_§7A_C_NOT_SUPPORTED; strong-locus Stage 4 real-data harness run completed; verdict INSUFFICIENT_DATA_HONEST_NEGATIVE due to pseudo-bulk data with <=2 observations per held-out target and locked SEM threshold 1.5; multi-seed Sachs CWM benchmark harness implemented; live intervention environment binding implemented; regime-shift / online live intervention binding implemented; nonlinear (polynomial) live intervention binding implemented; latent-confounder / partially-observed live intervention binding implemented; unified live-environment harness with multi-seed systematic sweep implemented
+tests: 999 OK (13 skipped)
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -110,6 +110,18 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 | `experiments/latent_confounder_binding.py` | Benchmark runner measuring final SHD and maximum false-edge marginal under latent confounding. Emits `experiments/latent_confounder_binding.result.json`. |
 | `experiments/latent_confounder_binding.result.json` | Example benchmark artifact. |
 | `tests/test_latent_confounder_env.py` | 7 tests: observed-only observations/interventions, ground-truth filtering of latent edges, SHD, loop completion without high-confidence false edges, intervention identifies direct observed edge, C7-offline invariant. |
+
+## Unified Live-Environment Harness + Multi-Seed Sweep (2026-07-08)
+
+| File | Role |
+|------|------|
+| `src/aac/live_env_harness.py` | Consolidates the four live environments behind a common API: `EnvSpec` + factories (`make_linear_env`, `make_regime_shift_env`, `make_nonlinear_env`, `make_latent_env`), `run_env_single_seed`, and `run_suite`. Computes per-seed and aggregate SHD / precision / recall / F1 / confidence / false-edge-count metrics. |
+| `src/aac/nonlinear_intervention_env.py` | Generalized to degree-2 polynomial parent effects with both linear and quadratic terms, making the nonlinear relationship more realistic and recoverable by `likelihood_mode="poly2"`. |
+| `src/aac/latent_confounder_env.py` | Added `n_nodes` and `ground_truth_edges` aliases so it matches the harness API. |
+| `src/aac/interactive_discovery_loop.py` | `InteractiveDiscoveryLoop.environment` annotation relaxed to `Any` so it can accept any harness-compatible env. |
+| `experiments/live_env_suite.py` | Multi-seed sweep runner across seeds 0..9 for all four env families. Emits `experiments/live_env_suite.result.json`. |
+| `experiments/live_env_suite.result.json` | Example 10-seed sweep artifact. |
+| `tests/test_live_env_harness.py` | 8 tests: factory creation, single-seed runner, suite structure, determinism for fixed seeds. |
 
 ## Bayesian DAG Posterior (Governed DiBS + nonlinear likelihood, 2026-07-05)
 

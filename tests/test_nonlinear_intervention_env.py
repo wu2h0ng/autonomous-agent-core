@@ -23,21 +23,21 @@ class PolynomialCausalSimulationEnvTest(unittest.TestCase):
         self.assertAlmostEqual(sample[1], 2.0)
 
     def test_nonlinear_intervention_effect(self) -> None:
-        """Intervening with v on a parent should scale the child like v^2."""
+        """Intervening with v on a parent should scale the child super-linearly."""
         env = PolynomialCausalSimulationEnv(
             n_nodes=3,
             edges={(0, 1), (1, 2)},
             seed=4,
             noise_std=0.05,
-            coef_range=(0.8, 0.8),
+            coef_range=(0.5, 0.5),
         )
         n = 100
         low = [env.intervene(do_node=1, do_value=1.0)[2] for _ in range(n)]
         high = [env.intervene(do_node=1, do_value=2.0)[2] for _ in range(n)]
         ratio = (sum(high) / n) / (sum(low) / n)
-        # x2 = 0.8 * x1^2 + noise.  Doubling x1 from 1 to 2 multiplies x2 by ~4.
-        self.assertGreater(ratio, 3.0)
-        self.assertLess(ratio, 5.0)
+        # x2 = 0.5*x1 + 0.5*x1^2 + noise.  Doubling x1 from 1 to 2 multiplies x2 by ~3.
+        self.assertGreater(ratio, 2.0)
+        self.assertLess(ratio, 4.0)
 
     def test_ground_truth_shd(self) -> None:
         env = PolynomialCausalSimulationEnv(
