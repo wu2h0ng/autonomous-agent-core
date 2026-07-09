@@ -3,13 +3,23 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PRODUCT_ROOTS = (
     REPO_ROOT / "packages" / "contracts" / "src",
     REPO_ROOT / "packages" / "os_core" / "src",
 )
-FORBIDDEN_IMPORT_ROOTS = {"aac", "adapters", "domain_packs", "experiments"}
+FORBIDDEN_IMPORT_ROOTS = {
+    "_migration",
+    "aac",
+    "adapters",
+    "domain_packs",
+    "envs",
+    "experiments",
+    "src",
+}
 
 
 def _imported_roots(tree: ast.AST) -> set[str]:
@@ -20,6 +30,23 @@ def _imported_roots(tree: ast.AST) -> set[str]:
         elif isinstance(node, ast.ImportFrom) and node.module:
             roots.add(node.module.split(".", 1)[0])
     return roots
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_root"),
+    (
+        ("import envs", "envs"),
+        ("from _migration.loader import load", "_migration"),
+        ("import src.aac.agent", "src"),
+    ),
+)
+def test_boundary_detector_covers_all_forbidden_product_prefixes(
+    source: str,
+    expected_root: str,
+) -> None:
+    imported = _imported_roots(ast.parse(source))
+
+    assert expected_root in imported & FORBIDDEN_IMPORT_ROOTS
 
 
 def test_product_packages_do_not_import_research_or_domain_modules() -> None:
