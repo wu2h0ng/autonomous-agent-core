@@ -1,9 +1,9 @@
-updated: "2026-07-10"  # P1-A landed on origin/main via PR-34-authorized single push (ADR-0014 choice-set + seam-escalation fix, 3-model reviewed, HIGH bypass closed); HOLD re-applied immediately after (PR-34). R4/R5 proposal-only unchanged.
+updated: "2026-07-10"  # P2 batch (P2-A/B/C: ADR-0015/0016/0017) landed on origin/main via PR-35-authorized single push, on top of P1-A (PR-34); HOLD re-applied immediately after. R4/R5 proposal-only unchanged.
 project: "ai-native-business-data-agent-os"
 layer: "deployment"
 branch: "main"
 remote: "origin git@github.com:wu2h0ng/data-agent-os.git"
-status: "P1-A on origin/main: ADR-0014 approval choice-set contract + seam-escalation bypass fix (Claude-built / OpenCode-acceptance-tested / Kimi-reviewed, HIGH bypass GENUINELY CLOSED); CI green modulo the self-resolving S6 branch assertion. PR-34 authorized exactly one origin/main push then re-HELD; DEPLOYMENT_PUSH: HOLD active again; R4/R5 proposal-only default unchanged."
+status: "P1-A + P2 batch on origin/main. P2-A ADR-0015 approval rubber-stamp analytics + revise (execute-path measured); P2-B ADR-0016 ledger consequence preview (symbolic, evidence-bound, fail-safe); P2-C ADR-0017 EvidenceChain confidence derivation (freshness+rows+template, τ-consistency). Each built test-first, three-model validated (Claude build / OpenCode acceptance / Kimi review / CTO independent CI). PR-35 authorized one origin/main push then re-HELD; DEPLOYMENT_PUSH: HOLD active again; R4/R5 proposal-only unchanged. Follow-ups tracked in PR-35."
 
 current_stage:
   label: "P5 phase-1 governed product vertical / substrate harvest"
