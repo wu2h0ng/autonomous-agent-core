@@ -400,3 +400,57 @@ class TrustedLoopOutcome:
     @property
     def blocked(self) -> bool:
         return self.status == "blocked"
+
+
+class ApprovalDecision(StrEnum):
+    """Typed outcome of a human approval decision (P2-A, ADR-0015).
+
+    The distinction between ``APPROVED_RECOMMENDED`` and ``APPROVED_REVISED`` is
+    the anti-rubber-stamp signal: it is DERIVED by the runtime from the action the
+    approver actually selected versus the proposal's ``recommended_action`` — it is
+    never self-reported by the approver. ``APPROVED_REVISED`` (a ``revise``) means
+    the approver picked a different, in-choice-set alternative, i.e. they engaged
+    with the ADR-0014 choice set rather than rubber-stamping the pre-baked option.
+    """
+
+    APPROVED_RECOMMENDED = "approved_recommended"
+    APPROVED_REVISED = "approved_revised"
+    REJECTED = "rejected"
+    ESCALATED = "escalated"
+
+
+@dataclass(frozen=True)
+class ApprovalDecisionCounts:
+    """Per-decision counts backing :class:`ApprovalAnalytics` (P2-A)."""
+
+    approved_recommended: int = 0
+    approved_revised: int = 0
+    rejected: int = 0
+    escalated: int = 0
+
+
+@dataclass(frozen=True)
+class ApprovalAnalytics:
+    """Derived rubber-stamp analytics over a tenant's approval decisions (P2-A, ADR-0015).
+
+    This is a READ projection: it is computed by scanning tenant-scoped
+    ``ApprovalRecord`` decisions, never by maintaining a parallel mutable counter.
+    ``modify_rate`` and ``selection_concentration`` make the ADR-0014 choice-set
+    mechanism falsifiable in production (RR-0050 §7):
+
+    - ``modify_rate = approved_revised / (approved_recommended + approved_revised)``
+      — the share of approvals where the operator modified the recommendation.
+    - ``selection_concentration = approved_recommended / (approved_recommended +
+      approved_revised)`` — the share that took the pre-baked option unchanged;
+      ``1.0`` is pure rubber-stamping.
+
+    Both are ``0.0`` when there are no approvals in scope (no division by zero).
+    """
+
+    tenant_id: str
+    window: str
+    counts: ApprovalDecisionCounts
+    total: int
+    modify_rate: float
+    selection_concentration: float
+    risk: str | None = None
