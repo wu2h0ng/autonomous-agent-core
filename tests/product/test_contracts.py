@@ -18,14 +18,16 @@ from agent_os_contracts import (
 
 def test_goal_rejects_unknown_fields(now: datetime) -> None:
     with pytest.raises(ValidationError):
-        Goal(
-            goal_id="goal-1",
-            tenant_id="tenant-1",
-            workspace_id="workspace-1",
-            created_by="user-1",
-            created_at=now,
-            statement="Ship a verified patch",
-            hidden_authority="forbidden",
+        Goal.model_validate(
+            {
+                "goal_id": "goal-1",
+                "tenant_id": "tenant-1",
+                "workspace_id": "workspace-1",
+                "created_by": "user-1",
+                "created_at": now,
+                "statement": "Ship a verified patch",
+                "hidden_authority": "forbidden",
+            }
         )
 
 

@@ -1,7 +1,7 @@
 [project]
 name = "autonomous-agent-core"
 version = "0.0.1"
-description = "Domain-agnostic prototype of the viable, corrigible autonomous agent (RR-0001 v2 / RR-0003)."
+description = "Agent OS dual-track monorepo: product runtime plus evidence-gated autonomous-agent research."
 requires-python = ">=3.10"
 dependencies = []
 
@@ -18,12 +18,28 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [
+    "src",
+    "packages/contracts/src",
+    "packages/os_core/src",
+]
 
 [tool.pytest.ini_options]
 pythonpath = [
     ".",
     "src",
+    "packages/contracts/src",
+    "packages/os_core/src",
+]
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = [
+    "packages/contracts/src",
+    "packages/os_core/src",
+    "tests/product",
+]
+extraPaths = [
     "packages/contracts/src",
     "packages/os_core/src",
 ]
