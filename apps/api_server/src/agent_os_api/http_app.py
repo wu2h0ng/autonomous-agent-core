@@ -514,9 +514,31 @@ class RelatedKnowledgeItem(BaseModel):
     score: float
 
 
+class UserResultConfidenceInputs(BaseModel):
+    """The observable inputs the analysis confidence was DERIVED from (P2-C, ADR-0017).
+
+    Each ``*_factor`` is a bounded [0, 1] contribution; ``flags`` names each cap/floor that
+    fired (e.g. ``freshness_unknown``, ``tau_inconsistency``, ``stale``, ``no_rows``,
+    ``unverified_template``). Surfaced so the scalar ``confidence`` is explainable and
+    auditable rather than asserted — calibration stays ``rule_based`` (no learned model).
+    """
+
+    row_count: int
+    template_verified: bool
+    freshness_known: bool
+    freshness_within_tau: bool
+    source_age_seconds: float | None = None
+    freshness_tau_seconds: float | None = None
+    freshness_factor: float
+    row_count_factor: float
+    template_factor: float
+    flags: list[str] = Field(default_factory=list)
+
+
 class UserResultAnalysis(BaseModel):
     summary: str
     confidence: float
+    confidence_inputs: UserResultConfidenceInputs | None = None
     limitations: list[str] = Field(default_factory=list)
     row_count: int
     evidence_chain_id: str

@@ -121,6 +121,32 @@ class RunServiceTest(unittest.TestCase):
         self.assertIsNotNone(summary["knowledge_asset_id"])
         self.assertEqual(runtime.knowledge_store.version_of(summary["trace_id"]), 1)
 
+    def test_run_service_analysis_exposes_derived_confidence_inputs(self) -> None:
+        # P2-C (ADR-0017): the DERIVED confidence AND its contributing inputs are on the
+        # same public analysis surface, so the number is auditable — and recomputable.
+        from agent_os_core.evidence_chain import derive_confidence
+
+        runtime = _build_runtime()
+        summary = run_service(runtime, question="GMV", parameters=RUN_PARAMS)
+
+        analysis = summary["user_result"]["analysis"]
+        inputs = analysis["confidence_inputs"]
+        self.assertIsNotNone(inputs, "the public analysis surface must expose confidence_inputs")
+        self.assertEqual(inputs["row_count"], analysis["row_count"])
+        for factor_key in ("freshness_factor", "row_count_factor", "template_factor"):
+            self.assertGreaterEqual(inputs[factor_key], 0.0)
+            self.assertLessEqual(inputs[factor_key], 1.0)
+        self.assertIsInstance(inputs["flags"], list)
+        # Bypass detector: the surfaced confidence must equal the rule recomputed from the
+        # surfaced inputs. A constant divorced from inputs would fail this end-to-end.
+        recomputed = derive_confidence(
+            source_age_seconds=inputs["source_age_seconds"],
+            tau_seconds=inputs["freshness_tau_seconds"],
+            row_count=inputs["row_count"],
+            template_verified=inputs["template_verified"],
+        )
+        self.assertAlmostEqual(recomputed.score, analysis["confidence"])
+
     def test_run_service_returns_user_facing_result_artifact(self) -> None:
         runtime = _build_runtime()
         summary = run_service(runtime, question="GMV 记录行动", parameters=RUN_PARAMS)

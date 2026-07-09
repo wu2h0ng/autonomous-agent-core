@@ -523,6 +523,33 @@ def _chart_fields(
     return x_field, y_field
 
 
+def _confidence_inputs_payload(evidence: Any) -> dict[str, Any] | None:
+    """Project the DERIVED confidence's contributing inputs for the public analysis surface.
+
+    P2-C (ADR-0017): the analysis ``confidence`` is derived from observable inputs
+    (source freshness vs the stated recency bound tau, row_count, template verification).
+    Surfacing those inputs alongside the scalar makes the number auditable and testable —
+    it is explainable evidence, not an asserted constant. ``None`` only for legacy evidence
+    that carries no typed ``confidence_score.inputs``.
+    """
+    score = getattr(evidence, "confidence_score", None)
+    inputs = getattr(score, "inputs", None) if score is not None else None
+    if inputs is None:
+        return None
+    return {
+        "row_count": inputs.row_count,
+        "template_verified": inputs.template_verified,
+        "freshness_known": inputs.freshness_known,
+        "freshness_within_tau": inputs.freshness_within_tau,
+        "source_age_seconds": inputs.source_age_seconds,
+        "freshness_tau_seconds": inputs.freshness_tau_seconds,
+        "freshness_factor": inputs.freshness_factor,
+        "row_count_factor": inputs.row_count_factor,
+        "template_factor": inputs.template_factor,
+        "flags": list(inputs.flags),
+    }
+
+
 def _business_action_status(proposal: Any, action_result: dict[str, Any]) -> str:
     status = action_result.get("status")
     if not proposal.approval_required and status in {"pending_approval", "awaiting_approval", None}:
@@ -798,6 +825,9 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
         "analysis": {
             "summary": evidence.conclusion,
             "confidence": evidence.confidence,
+            # P2-C (ADR-0017): the observable inputs the confidence was DERIVED from, on the
+            # same public evidence surface as the scalar, so the number is auditable.
+            "confidence_inputs": _confidence_inputs_payload(evidence),
             "limitations": list(evidence.limitations),
             "row_count": evidence.query_result.row_count,
             "evidence_chain_id": evidence.evidence_chain_id,

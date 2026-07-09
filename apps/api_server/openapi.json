@@ -3998,6 +3998,16 @@
             "title": "Confidence",
             "type": "number"
           },
+          "confidence_inputs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserResultConfidenceInputs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "evidence_chain_id": {
             "title": "Evidence Chain Id",
             "type": "string"
@@ -4187,6 +4197,79 @@
           "row_count"
         ],
         "title": "UserResultBusinessAction",
+        "type": "object"
+      },
+      "UserResultConfidenceInputs": {
+        "description": "The observable inputs the analysis confidence was DERIVED from (P2-C, ADR-0017).\n\nEach ``*_factor`` is a bounded [0, 1] contribution; ``flags`` names each cap/floor that\nfired (e.g. ``freshness_unknown``, ``tau_inconsistency``, ``stale``, ``no_rows``,\n``unverified_template``). Surfaced so the scalar ``confidence`` is explainable and\nauditable rather than asserted \u2014 calibration stays ``rule_based`` (no learned model).",
+        "properties": {
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
+          "freshness_factor": {
+            "title": "Freshness Factor",
+            "type": "number"
+          },
+          "freshness_known": {
+            "title": "Freshness Known",
+            "type": "boolean"
+          },
+          "freshness_tau_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freshness Tau Seconds"
+          },
+          "freshness_within_tau": {
+            "title": "Freshness Within Tau",
+            "type": "boolean"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "row_count_factor": {
+            "title": "Row Count Factor",
+            "type": "number"
+          },
+          "source_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Age Seconds"
+          },
+          "template_factor": {
+            "title": "Template Factor",
+            "type": "number"
+          },
+          "template_verified": {
+            "title": "Template Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "row_count",
+          "template_verified",
+          "freshness_known",
+          "freshness_within_tau",
+          "freshness_factor",
+          "row_count_factor",
+          "template_factor"
+        ],
+        "title": "UserResultConfidenceInputs",
         "type": "object"
       },
       "UserResultDashboard": {

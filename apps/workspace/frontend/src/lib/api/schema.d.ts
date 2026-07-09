@@ -2085,6 +2085,7 @@ export interface components {
         UserResultAnalysis: {
             /** Confidence */
             confidence: number;
+            confidence_inputs?: components["schemas"]["UserResultConfidenceInputs"] | null;
             /** Evidence Chain Id */
             evidence_chain_id: string;
             /** Limitations */
@@ -2148,6 +2149,37 @@ export interface components {
             status: string;
             /** Trace Id */
             trace_id: string;
+        };
+        /**
+         * UserResultConfidenceInputs
+         * @description The observable inputs the analysis confidence was DERIVED from (P2-C, ADR-0017).
+         *
+         *     Each ``*_factor`` is a bounded [0, 1] contribution; ``flags`` names each cap/floor that
+         *     fired (e.g. ``freshness_unknown``, ``tau_inconsistency``, ``stale``, ``no_rows``,
+         *     ``unverified_template``). Surfaced so the scalar ``confidence`` is explainable and
+         *     auditable rather than asserted — calibration stays ``rule_based`` (no learned model).
+         */
+        UserResultConfidenceInputs: {
+            /** Flags */
+            flags?: string[];
+            /** Freshness Factor */
+            freshness_factor: number;
+            /** Freshness Known */
+            freshness_known: boolean;
+            /** Freshness Tau Seconds */
+            freshness_tau_seconds?: number | null;
+            /** Freshness Within Tau */
+            freshness_within_tau: boolean;
+            /** Row Count */
+            row_count: number;
+            /** Row Count Factor */
+            row_count_factor: number;
+            /** Source Age Seconds */
+            source_age_seconds?: number | null;
+            /** Template Factor */
+            template_factor: number;
+            /** Template Verified */
+            template_verified: boolean;
         };
         /** UserResultDashboard */
         UserResultDashboard: {
