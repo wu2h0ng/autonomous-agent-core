@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "action_connectors"))
 from agent_os_core import IntentParser  # noqa: E402
 from tests.eval.threshold_report import (  # noqa: E402
     DEFAULT_GOLDEN_QUERIES,
+    build_golden_confidence_distribution,
     build_golden_eval_threshold_report,
 )
 
@@ -47,6 +48,34 @@ class GoldenQueryEvalTest(unittest.TestCase):
         self.assertEqual(report.dimension("evidence").pass_rate, 1.0)
         self.assertEqual(report.dimension("evidence_typed").pass_rate, 1.0)
         self.assertEqual(report.dimension("trace").pass_rate, 1.0)
+        # P2-C (ADR-0017): every case's confidence is DERIVED (recomputable from its
+        # recorded inputs). A constant divorced from inputs drops this below 1.0.
+        self.assertEqual(report.dimension("confidence_derivation").pass_rate, 1.0)
+
+    def test_confidence_distribution_is_not_constant(self) -> None:
+        # P2-C (ADR-0017) regression / bypass detector: the DERIVED confidence responds to
+        # each case's source freshness, so the distribution across the 20 golden intents is
+        # NOT a single constant and is no longer uniformly high (the old 0.82). If confidence
+        # ever regresses to a hard-coded constant, every value collapses to one and both
+        # assertions fail.
+        confidences = build_golden_confidence_distribution()
+        self.assertEqual(len(confidences), 20)
+        distinct = {round(value, 6) for value in confidences}
+        self.assertGreaterEqual(
+            len(distinct),
+            2,
+            f"confidence must vary with inputs, not be constant; got {sorted(distinct)}",
+        )
+        self.assertLess(
+            max(confidences),
+            0.82,
+            "the golden confidence distribution must no longer be uniformly high (0.82)",
+        )
+        self.assertGreater(
+            max(confidences) - min(confidences),
+            0.05,
+            "the derived confidence must show a real spread across freshness scenarios",
+        )
 
 
 if __name__ == "__main__":

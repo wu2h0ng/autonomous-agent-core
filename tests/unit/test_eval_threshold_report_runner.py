@@ -156,6 +156,8 @@ class EvalThresholdReportRunnerTest(unittest.TestCase):
                 "action": 1.0,
                 "trace": 1.0,
                 "feedback": 1.0,
+                # P2-C (ADR-0017): bypass-detecting confidence-derivation gate.
+                "confidence_derivation": 1.0,
             },
         )
 

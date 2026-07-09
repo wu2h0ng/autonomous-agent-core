@@ -20,6 +20,7 @@ from agent_os_contracts import (  # noqa: E402
     MetricContract,
     ProviderContract,
     ProviderKind,
+    QualityContract,
     SQLTemplate,
 )
 from agent_os_core import (  # noqa: E402
@@ -32,6 +33,7 @@ from agent_os_core import (  # noqa: E402
     thresholds_from_json,
 )
 from agent_os_core.action_connectors import ActionConnectorRegistry  # noqa: E402
+from agent_os_core.evidence_chain import derive_confidence  # noqa: E402
 from agent_os_core.nl_query import NLQueryEngine  # noqa: E402
 from agent_os_core.query_runtime import StaticQueryExecutor  # noqa: E402
 from manual_review import ManualReviewConnector  # noqa: E402
@@ -48,6 +50,24 @@ SAFE_SQL = (
 )
 
 METRIC_NAMES = ("gmv", "roi", "conversion_rate", "revenue", "orders", "spend", "cac")
+
+# The stated recency bound (tau) for the golden metric contracts, so the DERIVED confidence
+# (P2-C, ADR-0017) responds to how fresh each case's source data is.
+GOLDEN_FRESHNESS_TAU = "24h"
+
+# Per-case source-data age (seconds) cycled across the golden cases so the confidence
+# DISTRIBUTION is genuinely non-constant: fresh (<=tau), borderline (within tolerance), and
+# stale (past tau -> tau_inconsistency cap). If confidence ever regresses to a constant, the
+# distribution collapses to one value and the confidence_derivation regression fails.
+GOLDEN_SOURCE_AGES_SECONDS = (
+    3600.0,  # 1h  — fresh
+    43200.0,  # 12h — fresh
+    82800.0,  # 23h — fresh (just inside tau)
+    90000.0,  # 25h — borderline (within tolerance band)
+    172800.0,  # 48h — stale (tau violated)
+    259200.0,  # 72h — stale (tau violated)
+)
+
 DEFAULT_THRESHOLDS = {
     "intent": 1.0,
     "nl_intent": 1.0,
@@ -60,7 +80,30 @@ DEFAULT_THRESHOLDS = {
     "action": 1.0,
     "trace": 1.0,
     "feedback": 1.0,
+    # Bypass-detecting: each case's confidence must be RECOMPUTABLE from its recorded
+    # inputs. A hard-coded constant carries no inputs (or an inconsistent score) and fails.
+    "confidence_derivation": 1.0,
 }
+
+
+def _confidence_is_derived(evidence: object) -> bool:
+    """True iff the evidence confidence is recomputable from its recorded inputs.
+
+    This is the per-case bypass detector for the ``confidence_derivation`` eval dimension:
+    a constant confidence divorced from inputs (no ``confidence_score.inputs`` or a score
+    that does not match the rule recomputed from those inputs) fails.
+    """
+    score = getattr(evidence, "confidence_score", None)
+    inputs = getattr(score, "inputs", None) if score is not None else None
+    if inputs is None:
+        return False
+    recomputed = derive_confidence(
+        source_age_seconds=inputs.source_age_seconds,
+        tau_seconds=inputs.freshness_tau_seconds,
+        row_count=inputs.row_count,
+        template_verified=inputs.template_verified,
+    )
+    return abs(recomputed.score - evidence.confidence) < 1e-9
 
 
 def _verified_template(metric_name: str) -> SQLTemplate:
@@ -105,6 +148,7 @@ def build_golden_eval_threshold_report(
             unit="CNY",
             allowed_schemas=("sales",),
             verified_queries=(_verified_template(metric_name),),
+            quality_contract=QualityContract(freshness=GOLDEN_FRESHNESS_TAU),
         )
         for metric_name in METRIC_NAMES
     }
@@ -119,10 +163,17 @@ def build_golden_eval_threshold_report(
     semantic_registry = SemanticRegistry(metric_contracts=tuple(metrics.values()))
     nl_query_engine = NLQueryEngine(metric_registry=semantic_registry)
     outcomes: list[EvalCaseOutcome] = []
-    for case in golden:
+    for index, case in enumerate(golden):
+        # Vary the source-data age per case so the DERIVED confidence distribution is
+        # non-constant (fresh / borderline / stale). Row content is otherwise identical, so
+        # the pre-existing dimensions (intent/metric/provider/...) are unaffected.
+        source_age_seconds = GOLDEN_SOURCE_AGES_SECONDS[index % len(GOLDEN_SOURCE_AGES_SECONDS)]
         runtime = TrustedLoopRuntime(
             metric_contract=metrics["gmv"],
-            query_executor=StaticQueryExecutor([{"order_date": "2026-05-31", "val": 100.0}]),
+            query_executor=StaticQueryExecutor(
+                [{"order_date": "2026-05-31", "val": 100.0}],
+                source_age_seconds=source_age_seconds,
+            ),
             semantic_registry=semantic_registry,
             provider_registry=ProviderRegistry((provider,)),
             connector_registry=_build_default_connector_registry(),
@@ -153,11 +204,66 @@ def build_golden_eval_threshold_report(
             "trace": len(result.trace_events) >= 8,
             "feedback": result.feedback_event is not None
             and result.feedback_event.source == "runtime_self_report",
+            # P2-C (ADR-0017): the confidence is DERIVED — recomputable from its recorded
+            # inputs. A constant divorced from inputs fails this per-case bypass check.
+            "confidence_derivation": _confidence_is_derived(result.evidence_chain),
         }
         reasons = tuple(f"{name} check failed" for name, passed in checks.items() if not passed)
         outcomes.append(EvalCaseOutcome(case_id=case["id"], checks=checks, reasons=reasons))
 
     return EvalThresholdReporter(thresholds or DEFAULT_THRESHOLDS).build(tuple(outcomes))
+
+
+def build_golden_confidence_distribution(
+    *,
+    golden_queries_path: Path = DEFAULT_GOLDEN_QUERIES,
+) -> tuple[float, ...]:
+    """Return the DERIVED confidence for each golden case (regression / bypass evidence).
+
+    Used by the eval to assert the distribution is non-constant: if EvidenceChain confidence
+    ever regresses to a hard-coded constant, every value collapses to one and the regression
+    test fails.
+    """
+    golden = json.loads(golden_queries_path.read_text(encoding="utf-8"))
+    metrics = {
+        metric_name: MetricContract(
+            metric_name=metric_name,
+            display_name=metric_name.upper(),
+            definition=f"{metric_name} metric contract.",
+            owner="content_commerce_ops",
+            unit="CNY",
+            allowed_schemas=("sales",),
+            verified_queries=(_verified_template(metric_name),),
+            quality_contract=QualityContract(freshness=GOLDEN_FRESHNESS_TAU),
+        )
+        for metric_name in METRIC_NAMES
+    }
+    provider = ProviderContract(
+        provider_id="provider-sales",
+        kind=ProviderKind.WAREHOUSE,
+        name="sales warehouse",
+        owner="data_platform",
+        allowed_schemas=("sales",),
+    )
+    semantic_registry = SemanticRegistry(metric_contracts=tuple(metrics.values()))
+    nl_query_engine = NLQueryEngine(metric_registry=semantic_registry)
+    confidences: list[float] = []
+    for index, case in enumerate(golden):
+        source_age_seconds = GOLDEN_SOURCE_AGES_SECONDS[index % len(GOLDEN_SOURCE_AGES_SECONDS)]
+        runtime = TrustedLoopRuntime(
+            metric_contract=metrics["gmv"],
+            query_executor=StaticQueryExecutor(
+                [{"order_date": "2026-05-31", "val": 100.0}],
+                source_age_seconds=source_age_seconds,
+            ),
+            semantic_registry=semantic_registry,
+            provider_registry=ProviderRegistry((provider,)),
+            connector_registry=_build_default_connector_registry(),
+            nl_query_engine=nl_query_engine,
+        )
+        result = runtime.run(case["question"], dict(case["parameters"]))
+        confidences.append(result.evidence_chain.confidence)
+    return tuple(confidences)
 
 
 def main(argv: list[str] | None = None) -> int:

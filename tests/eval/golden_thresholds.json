@@ -1,5 +1,6 @@
 {
   "action": 1.0,
+  "confidence_derivation": 1.0,
   "data_product": 1.0,
   "evidence": 1.0,
   "evidence_typed": 1.0,
