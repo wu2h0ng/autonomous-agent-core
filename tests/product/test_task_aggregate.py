@@ -183,6 +183,26 @@ def test_start_rejects_workflow_digest_mismatch() -> None:
         )
 
 
+def test_rehydrate_rejects_committed_workflow_digest_tampering() -> None:
+    _, events = _committed_aggregate()
+    committed_event = events[1]
+    payload = committed_event.decoded_payload()
+    payload["workflow_digest"] = "0" * 64
+    tampered_draft = TaskEventDraft.build(
+        event_id=committed_event.event_id,
+        task_id=committed_event.task_id,
+        event_type=committed_event.event_type,
+        payload=payload,
+        occurred_at=committed_event.occurred_at,
+        correlation_id=committed_event.correlation_id,
+        causation_id=committed_event.causation_id,
+    )
+    tampered_event = _persist(tampered_draft, committed_event.sequence)
+
+    with pytest.raises(EventStreamError, match="workflow digest mismatch"):
+        TaskAggregate.rehydrate((events[0], tampered_event))
+
+
 def test_rehydrate_rejects_sequence_gap() -> None:
     created_draft = TaskAggregate.create_task(
         task_id="task-1",
