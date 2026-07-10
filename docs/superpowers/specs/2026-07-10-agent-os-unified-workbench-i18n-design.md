@@ -125,6 +125,43 @@ The run view answers, in order:
 5. What evidence proves the outcome?
 6. What can be retried, corrected, reused or exported?
 
+### 4.6 Generative Workspace scene boundary
+
+The stable Agent OS Shell owns identity, authority, task navigation, notifications and
+canonical pause/correct/approve/reject controls. The inner workspace may adapt to the task,
+but it may render only a validated `UISceneSpec` through registered components.
+
+`UISceneSpec` is a disposable projection, never a truth source. It binds to authoritative
+task/run event sequences and source digests. If it is lost or invalid, the product rebuilds
+it from TaskEvent, WorkflowGraph, ActionContract, Evidence, PolicyDecision,
+ApprovalDecision and ObservedOutcome.
+
+```text
+authoritative projections
+  -> optional model scene proposal
+  -> deterministic SceneCompiler
+  -> schema / source / permission / sensitivity validation
+  -> UISceneSpec
+  -> Component Registry renderer
+  -> InteractionIntent
+  -> command, GraphPatch proposal or Action proposal
+  -> existing policy / approval / runtime path
+```
+
+The first static implementation uses deterministic fixture projections only. It includes
+the stable Shell, a component registry, scene fixtures and interaction-intent simulation;
+it does not include model-generated scenes or runtime execution.
+
+Scene constraints:
+
+- no arbitrary HTML, JavaScript, CSS, SQL, shell commands, URLs or executable callbacks;
+- every panel source is a typed reference such as `evidence:23`, `belief:8` or `action:17`;
+- every component type and property shape is registered;
+- generated scenes cannot hide, rename or override canonical authority controls;
+- gestures emit typed InteractionIntent objects and never mutate WorkflowGraph directly;
+- workflow edits become previewable, validated, versioned GraphPatch proposals;
+- scene semantics are locale-neutral and visible strings resolve through i18n keys.
+
 ## 5. Information architecture
 
 ### 5.1 Global frame
@@ -251,6 +288,19 @@ success from translated prose.
 - make terminal outcomes surface evidence, next action and retry/correction availability;
 - keep current provider-driven patch golden path fully functional.
 
+### P0 prototype: stable Shell plus deterministic scene renderer
+
+- create an isolated Chinese static prototype without replacing the PM-accepted runtime
+  UI;
+- render one cross-domain task list inside a stable Agent OS Shell;
+- render a deterministic investigation scene containing metric delta, causal relationship,
+  evidence, agent topology, approval and activity components;
+- demonstrate panel focus, evidence selection, canonical pause/correct controls and a
+  bottom command surface through local interaction state;
+- keep scene data in a structured fixture separate from component rendering;
+- expose the prototype through a standalone static server for browser review;
+- make no runtime, provider, policy, workflow or capability claim from the prototype.
+
 ### P1: product-quality details included in this slice
 
 - task search/filter by goal and status on the client;
@@ -276,6 +326,7 @@ This implementation does not add:
 - subagent/swarm execution;
 - Data Agent migration;
 - Codex, Claude, Manus or enterprise-platform parity claims.
+- model-generated UISceneSpec, SceneCompiler authorization or real scene-driven execution.
 
 These remain separate product packets and must not be represented by disabled decorative
 controls that imply delivery.
