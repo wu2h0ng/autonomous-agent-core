@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 
@@ -13,6 +14,7 @@ from agent_os_contracts import (
     IdempotencyMode,
     NodeKind,
     NodeSpec,
+    ResourceBudget,
     TaskStatus,
     WorkflowGraph,
 )
@@ -60,6 +62,15 @@ def _commitment(task_id: str) -> Commitment:
         deliverables=("patch",),
         acceptance_criteria=("tests pass",),
         authority_scopes=("repo:read", "repo:write"),
+        budget=ResourceBudget(
+            max_cost_usd=Decimal("1.00"),
+            max_duration_seconds=300,
+            max_provider_tokens=1_000,
+            max_tool_calls=4,
+        ),
+        risk_tier=1,
+        exit_conditions=("tests verified",),
+        expires_at=NOW + timedelta(hours=1),
     )
 
 
@@ -95,6 +106,7 @@ def _expected(task_id: str) -> ExpectedOutcome:
         evaluator_type="pytest",
         evaluator_version="1",
         evidence_requirements=("test-report",),
+        failure_semantics=("tests fail",),
         threshold=1.0,
         observation_window_seconds=60,
         frozen_at=NOW,

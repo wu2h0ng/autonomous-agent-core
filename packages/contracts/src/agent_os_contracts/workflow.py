@@ -6,6 +6,7 @@ from enum import Enum
 from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
+from .resource import RiskTier
 
 
 class NodeKind(str, Enum):
@@ -36,7 +37,7 @@ class NodeSpec(ContractModel):
     capability: NonEmptyStr | None = None
     timeout_seconds: int = Field(default=60, ge=1)
     max_attempts: int = Field(default=1, ge=1)
-    risk_tier: int = Field(default=0, ge=0, le=5)
+    risk_tier: RiskTier = 0
     idempotency: IdempotencyMode = IdempotencyMode.NONE
     max_iterations: int | None = Field(default=None, ge=1)
     max_concurrency: int | None = Field(default=None, ge=1)

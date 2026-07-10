@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -11,6 +12,7 @@ from agent_os_contracts import (
     Goal,
     ObservedOutcome,
     OutcomeStatus,
+    ResourceBudget,
     canonical_json,
     content_digest,
 )
@@ -60,6 +62,15 @@ def test_commitment_normalizes_authority_scopes(now: datetime) -> None:
         deliverables=("patch",),
         acceptance_criteria=("tests pass",),
         authority_scopes=("repo:write", "repo:read", "repo:write"),
+        budget=ResourceBudget(
+            max_cost_usd=Decimal("1.00"),
+            max_duration_seconds=300,
+            max_provider_tokens=1_000,
+            max_tool_calls=4,
+        ),
+        risk_tier=1,
+        exit_conditions=("tests verified",),
+        expires_at=now + timedelta(hours=1),
     )
 
     assert commitment.authority_scopes == ("repo:read", "repo:write")
@@ -80,6 +91,15 @@ def test_commitment_requires_deliverable_and_acceptance_criterion(
         "accepted_at": now,
         "deliverables": ("patch",),
         "acceptance_criteria": ("tests pass",),
+        "budget": ResourceBudget(
+            max_cost_usd=Decimal("1.00"),
+            max_duration_seconds=300,
+            max_provider_tokens=1_000,
+            max_tool_calls=4,
+        ),
+        "risk_tier": 1,
+        "exit_conditions": ("tests verified",),
+        "expires_at": now + timedelta(hours=1),
     }
     values[field] = ()
 
@@ -104,6 +124,7 @@ def test_verified_outcome_requires_score_and_evidence(now: datetime) -> None:
         evaluator_type="pytest",
         evaluator_version="1",
         evidence_requirements=("test-report",),
+        failure_semantics=("tests fail",),
         threshold=1.0,
         observation_window_seconds=60,
         frozen_at=now,
@@ -120,6 +141,7 @@ def test_verified_outcome_requires_score_and_evidence(now: datetime) -> None:
             evaluator_type=expected.evaluator_type,
             evaluator_version=expected.evaluator_version,
             status=OutcomeStatus.VERIFIED,
+            confidence=0.0,
             observed_at=now,
         )
 
@@ -136,6 +158,7 @@ def test_verified_outcome_keeps_evidence_separate_from_receipt(now: datetime) ->
         evaluator_version="1",
         status=OutcomeStatus.VERIFIED,
         score=1.0,
+        confidence=1.0,
         evidence_refs=("artifact:test-report",),
         observed_at=now,
     )
