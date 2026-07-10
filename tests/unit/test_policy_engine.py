@@ -329,24 +329,24 @@ class PolicyApprovalRecordStoreTest(unittest.TestCase):
     def test_active_then_revoke(self) -> None:
         store = PolicyApprovalRecordStore()
         store.save(self._record())
-        self.assertTrue(store.is_active("par-1", policy_version="v1"))
-        store.revoke("par-1", revoked_at=_T0)
-        self.assertFalse(store.is_active("par-1", policy_version="v1"))
+        self.assertTrue(store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
+        store.revoke("par-1", revoked_at=_T0, tenant_id="tenant-1")
+        self.assertFalse(store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
 
     def test_consume_makes_inactive(self) -> None:
         store = PolicyApprovalRecordStore()
         store.save(self._record())
-        store.consume("par-1")
-        self.assertFalse(store.is_active("par-1", policy_version="v1"))
+        store.consume("par-1", tenant_id="tenant-1")
+        self.assertFalse(store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
 
     def test_stale_policy_version_invalid(self) -> None:
         store = PolicyApprovalRecordStore()
         store.save(self._record(policy_version="v1"))
-        self.assertFalse(store.is_active("par-1", policy_version="v2"))
+        self.assertFalse(store.is_active("par-1", tenant_id="tenant-1", policy_version="v2"))
 
     def test_missing_record_invalid(self) -> None:
         store = PolicyApprovalRecordStore()
-        self.assertFalse(store.is_active("nope", policy_version="v1"))
+        self.assertFalse(store.is_active("nope", tenant_id="tenant-1", policy_version="v1"))
 
 
 class PolicyEngineApplyDecisionTest(unittest.TestCase):

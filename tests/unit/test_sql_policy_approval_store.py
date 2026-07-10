@@ -60,38 +60,38 @@ class SqlPolicyApprovalRecordStoreTest(unittest.TestCase):
     def test_save_and_get_roundtrip(self) -> None:
         rec = _record()
         self.store.save(rec)
-        got = self.store.get("par-1")
+        got = self.store.get("par-1", tenant_id="tenant-1")
         self.assertIsNotNone(got)
         self.assertEqual(got.proposal_id, "proposal-1")
         self.assertEqual(got.status, "active")
 
     def test_is_active_checks_status_and_version(self) -> None:
         self.store.save(_record())
-        self.assertTrue(self.store.is_active("par-1", policy_version="v1"))
-        self.assertFalse(self.store.is_active("par-1", policy_version="v2"))
-        self.assertFalse(self.store.is_active("missing", policy_version="v1"))
+        self.assertTrue(self.store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
+        self.assertFalse(self.store.is_active("par-1", tenant_id="tenant-1", policy_version="v2"))
+        self.assertFalse(self.store.is_active("missing", tenant_id="tenant-1", policy_version="v1"))
 
     def test_revoke_updates_status(self) -> None:
         self.store.save(_record())
-        self.store.revoke("par-1", revoked_at="2026-07-07T01:00:00+00:00")
-        self.assertFalse(self.store.is_active("par-1", policy_version="v1"))
-        got = self.store.get("par-1")
+        self.store.revoke("par-1", revoked_at="2026-07-07T01:00:00+00:00", tenant_id="tenant-1")
+        self.assertFalse(self.store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
+        got = self.store.get("par-1", tenant_id="tenant-1")
         self.assertEqual(got.status, "revoked")
         self.assertEqual(got.revoked_at, "2026-07-07T01:00:00+00:00")
 
     def test_consume_updates_status(self) -> None:
         self.store.save(_record())
-        self.store.consume("par-1")
-        self.assertFalse(self.store.is_active("par-1", policy_version="v1"))
-        self.assertEqual(self.store.get("par-1").status, "consumed")
+        self.store.consume("par-1", tenant_id="tenant-1")
+        self.assertFalse(self.store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
+        self.assertEqual(self.store.get("par-1", tenant_id="tenant-1").status, "consumed")
 
     def test_revoke_missing_raises(self) -> None:
         with self.assertRaises(KeyError):
-            self.store.revoke("nope", revoked_at="t")
+            self.store.revoke("nope", revoked_at="t", tenant_id="tenant-1")
 
     def test_consume_missing_raises(self) -> None:
         with self.assertRaises(KeyError):
-            self.store.consume("nope")
+            self.store.consume("nope", tenant_id="tenant-1")
 
     def test_active_for_proposal(self) -> None:
         self.store.save(_record(proposal_id="p-a"))
@@ -99,9 +99,28 @@ class SqlPolicyApprovalRecordStoreTest(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertEqual(found.record_id, "par-1")
         # consumed record is not active
-        self.store.consume("par-1")
+        self.store.consume("par-1", tenant_id="tenant-1")
         self.assertIsNone(
             self.store.active_for_proposal("p-a", tenant_id="tenant-1", policy_version="v1")
+        )
+
+    def test_record_id_scoped_by_tenant(self) -> None:
+        # Composite PK (tenant_id, record_id) allows the same record_id in two tenants;
+        # get/consume/revoke/is_active must never leak across tenants.
+        self.store.save(_record(record_id="par-1", tenant_id="tenant-a", proposal_id="p-a"))
+        self.store.save(_record(record_id="par-1", tenant_id="tenant-b", proposal_id="p-b"))
+
+        self.assertEqual(self.store.get("par-1", tenant_id="tenant-a").proposal_id, "p-a")
+        self.assertEqual(self.store.get("par-1", tenant_id="tenant-b").proposal_id, "p-b")
+
+        self.store.consume("par-1", tenant_id="tenant-b")
+        self.assertEqual(self.store.get("par-1", tenant_id="tenant-a").status, "active")
+        self.assertEqual(self.store.get("par-1", tenant_id="tenant-b").status, "consumed")
+        self.assertTrue(
+            self.store.is_active("par-1", tenant_id="tenant-a", policy_version="v1")
+        )
+        self.assertFalse(
+            self.store.is_active("par-1", tenant_id="tenant-b", policy_version="v1")
         )
 
     def test_survives_restart(self) -> None:
@@ -110,7 +129,7 @@ class SqlPolicyApprovalRecordStoreTest(unittest.TestCase):
         self.store.save(_record())
         # simulate restart: new store instance over same engine
         new_store = SqlPolicyApprovalRecordStore(self.engine)
-        self.assertTrue(new_store.is_active("par-1", policy_version="v1"))
+        self.assertTrue(new_store.is_active("par-1", tenant_id="tenant-1", policy_version="v1"))
 
     def test_policy_engine_accepts_durable_store(self) -> None:
         from agent_os_core.policy_engine import PolicyEngine

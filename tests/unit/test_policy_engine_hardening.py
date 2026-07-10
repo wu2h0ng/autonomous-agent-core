@@ -123,7 +123,7 @@ class ConsumeTimePauseRecheckTest(unittest.TestCase):
         # pause AFTER mint (mint-time check passed, shell was clear then)
         shell.op_pause()
         with self.assertRaises(PolicyApprovalConsumed):
-            engine.consume_approval(result.policy_approval_id)
+            engine.consume_approval(result.policy_approval_id, tenant_id="tenant-1")
 
     def test_consume_after_pause_does_not_mark_consumed(self) -> None:
         shell = CorrigibilityShell()
@@ -138,7 +138,7 @@ class ConsumeTimePauseRecheckTest(unittest.TestCase):
         rid = result.policy_approval_id
         shell.op_pause()
         try:
-            engine.consume_approval(rid)
+            engine.consume_approval(rid, tenant_id="tenant-1")
         except PolicyApprovalConsumed:
             pass
         # the record must NOT have been consumed by the failed call
@@ -155,7 +155,7 @@ class ConsumeTimePauseRecheckTest(unittest.TestCase):
             trace_id="trace-1",
         )
         rid = result.policy_approval_id
-        engine.consume_approval(rid)
+        engine.consume_approval(rid, tenant_id="tenant-1")
         self.assertFalse(engine.is_approval_valid(rid, tenant_id="tenant-1"))
 
     def test_consume_revoked_record_raises(self) -> None:
@@ -169,9 +169,9 @@ class ConsumeTimePauseRecheckTest(unittest.TestCase):
             trace_id="trace-1",
         )
         rid = result.policy_approval_id
-        engine.revoke_approval(rid)
+        engine.revoke_approval(rid, tenant_id="tenant-1")
         with self.assertRaises(PolicyApprovalConsumed):
-            engine.consume_approval(rid)
+            engine.consume_approval(rid, tenant_id="tenant-1")
 
     def test_double_consume_second_raises(self) -> None:
         shell = CorrigibilityShell()
@@ -184,9 +184,9 @@ class ConsumeTimePauseRecheckTest(unittest.TestCase):
             trace_id="trace-1",
         )
         rid = result.policy_approval_id
-        engine.consume_approval(rid)
+        engine.consume_approval(rid, tenant_id="tenant-1")
         with self.assertRaises(PolicyApprovalConsumed):
-            engine.consume_approval(rid)
+            engine.consume_approval(rid, tenant_id="tenant-1")
 
 
 class IdempotentMintTest(unittest.TestCase):
@@ -223,7 +223,7 @@ class IdempotentMintTest(unittest.TestCase):
             tenant_id="tenant-1",
             trace_id="trace-1",
         )
-        engine.consume_approval(r1.policy_approval_id)
+        engine.consume_approval(r1.policy_approval_id, tenant_id="tenant-1")
         # after consume, a fresh evaluate mints a NEW record (old is consumed)
         r2 = engine.evaluate(
             _proposal(),
@@ -252,6 +252,66 @@ class IdempotentMintTest(unittest.TestCase):
             trace_id="trace-1",
         )
         self.assertNotEqual(r1.policy_approval_id, r2.policy_approval_id)
+
+
+class CrossTenantRecordIsolationTest(unittest.TestCase):
+    """record_id collisions across tenants must not leak consume/revoke/is_active."""
+
+    def test_consume_in_one_tenant_leaves_other_active(self) -> None:
+        from agent_os_persistence import SqlPolicyApprovalRecordStore, create_all
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import StaticPool
+
+        engine_db = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        create_all(engine_db)
+        record_store = SqlPolicyApprovalRecordStore(engine_db)
+
+        # Two replicas each mint par-1 for a different tenant (per-instance counter).
+        engine_a = PolicyEngine(
+            RuntimeFeatureFlags(r4_r5_auto_execution=True),
+            record_store=record_store,
+            now=lambda: _T0,
+        )
+        engine_b = PolicyEngine(
+            RuntimeFeatureFlags(r4_r5_auto_execution=True),
+            record_store=record_store,
+            now=lambda: _T0,
+        )
+        engine_a.register_policy(_policy())
+        engine_b.register_policy(
+            AutoExecutionPolicy(
+                version="v1",
+                tenant_id="tenant-2",
+                owner="policy-owner",
+                rules=(_rule(),),
+                default_mode="proposal_only",
+            )
+        )
+
+        r1 = engine_a.evaluate(
+            _proposal("p-a"),
+            _operation(),
+            _guards(),
+            tenant_id="tenant-1",
+            trace_id="trace-a",
+        )
+        r2 = engine_b.evaluate(
+            _proposal("p-b"),
+            _operation(),
+            _guards(),
+            tenant_id="tenant-2",
+            trace_id="trace-b",
+        )
+        self.assertEqual(r1.policy_approval_id, "par-1")
+        self.assertEqual(r2.policy_approval_id, "par-1")
+
+        engine_b.consume_approval("par-1", tenant_id="tenant-2")
+        self.assertFalse(engine_b.is_approval_valid("par-1", tenant_id="tenant-2"))
+        self.assertTrue(engine_a.is_approval_valid("par-1", tenant_id="tenant-1"))
 
 
 if __name__ == "__main__":

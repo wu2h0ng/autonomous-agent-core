@@ -142,7 +142,7 @@ class PolicyEngineTraceTest(unittest.TestCase):
             tenant_id="tenant-1",
             trace_id="trace-1",
         )
-        e.consume_approval(result.policy_approval_id)
+        e.consume_approval(result.policy_approval_id, tenant_id="tenant-1")
         trace = e.trace_for(result.proposal_id)
         steps = [ev.get("step") for ev in trace.events]
         self.assertIn("executed", steps)

@@ -923,30 +923,36 @@ class SqlPolicyApprovalRecordStore(_SqlStoreBase, PolicyApprovalRecordStorePort)
             raise KeyError(f"policy approval record not found: {record_id}")
         return mappers.policy_approval_from_payload(row[0])
 
-    def get(self, record_id: str) -> PolicyApprovalRecord | None:
+    def get(self, record_id: str, *, tenant_id: str = "default") -> PolicyApprovalRecord | None:
         table = schema.policy_approval_records
         with self._read() as conn:
             row = conn.execute(
-                select(table.c.payload).where(table.c.record_id == record_id)
+                select(table.c.payload)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.record_id == record_id)
             ).fetchone()
         return mappers.policy_approval_from_payload(row[0]) if row is not None else None
 
-    def revoke(self, record_id: str, revoked_at: str) -> PolicyApprovalRecord:
-        record = self.get(record_id)
+    def revoke(
+        self, record_id: str, revoked_at: str, *, tenant_id: str = "default"
+    ) -> PolicyApprovalRecord:
+        record = self.get(record_id, tenant_id=tenant_id)
         if record is None:
             raise KeyError(f"policy approval record not found: {record_id}")
         return self.save(record.revoke(revoked_at))
 
-    def consume(self, record_id: str) -> PolicyApprovalRecord:
-        record = self.get(record_id)
+    def consume(self, record_id: str, *, tenant_id: str = "default") -> PolicyApprovalRecord:
+        record = self.get(record_id, tenant_id=tenant_id)
         if record is None:
             raise KeyError(f"policy approval record not found: {record_id}")
         from dataclasses import replace
 
         return self.save(replace(record, status="consumed"))
 
-    def is_active(self, record_id: str, *, policy_version: str) -> bool:
-        record = self.get(record_id)
+    def is_active(
+        self, record_id: str, *, tenant_id: str = "default", policy_version: str
+    ) -> bool:
+        record = self.get(record_id, tenant_id=tenant_id)
         if record is None:
             return False
         if record.status != "active":

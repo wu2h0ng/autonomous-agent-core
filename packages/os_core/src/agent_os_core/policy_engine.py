@@ -96,16 +96,20 @@ class PolicyApprovalRecordStorePort(ABC):
     def save(self, record: PolicyApprovalRecord) -> PolicyApprovalRecord: ...
 
     @abstractmethod
-    def get(self, record_id: str) -> PolicyApprovalRecord | None: ...
+    def get(self, record_id: str, *, tenant_id: str = "default") -> PolicyApprovalRecord | None: ...
 
     @abstractmethod
-    def revoke(self, record_id: str, revoked_at: str) -> PolicyApprovalRecord: ...
+    def revoke(
+        self, record_id: str, revoked_at: str, *, tenant_id: str = "default"
+    ) -> PolicyApprovalRecord: ...
 
     @abstractmethod
-    def consume(self, record_id: str) -> PolicyApprovalRecord: ...
+    def consume(self, record_id: str, *, tenant_id: str = "default") -> PolicyApprovalRecord: ...
 
     @abstractmethod
-    def is_active(self, record_id: str, *, policy_version: str) -> bool: ...
+    def is_active(
+        self, record_id: str, *, tenant_id: str = "default", policy_version: str
+    ) -> bool: ...
 
     @abstractmethod
     def active_for_proposal(
@@ -150,33 +154,44 @@ class PolicyApprovalRecordStore(PolicyApprovalRecordStorePort):
     """In-memory store for ``PolicyApprovalRecord`` lifecycle."""
 
     def __init__(self) -> None:
-        self._records: dict[str, PolicyApprovalRecord] = {}
+        self._records: dict[tuple[str, str], PolicyApprovalRecord] = {}
+
+    @staticmethod
+    def _tenant_key(record_id: str, *, tenant_id: str) -> tuple[str, str]:
+        return (tenant_id or "default", record_id)
 
     def save(self, record: PolicyApprovalRecord) -> PolicyApprovalRecord:
-        self._records[record.record_id] = record
+        key = self._tenant_key(record.record_id, tenant_id=record.tenant_id or "default")
+        self._records[key] = record
         return record
 
-    def get(self, record_id: str) -> PolicyApprovalRecord | None:
-        return self._records.get(record_id)
+    def get(self, record_id: str, *, tenant_id: str = "default") -> PolicyApprovalRecord | None:
+        return self._records.get(self._tenant_key(record_id, tenant_id=tenant_id))
 
-    def revoke(self, record_id: str, revoked_at: str) -> PolicyApprovalRecord:
-        record = self._records.get(record_id)
+    def revoke(
+        self, record_id: str, revoked_at: str, *, tenant_id: str = "default"
+    ) -> PolicyApprovalRecord:
+        key = self._tenant_key(record_id, tenant_id=tenant_id)
+        record = self._records.get(key)
         if record is None:
             raise KeyError(f"policy approval record not found: {record_id}")
         updated = record.revoke(revoked_at)
-        self._records[record_id] = updated
+        self._records[key] = updated
         return updated
 
-    def consume(self, record_id: str) -> PolicyApprovalRecord:
-        record = self._records.get(record_id)
+    def consume(self, record_id: str, *, tenant_id: str = "default") -> PolicyApprovalRecord:
+        key = self._tenant_key(record_id, tenant_id=tenant_id)
+        record = self._records.get(key)
         if record is None:
             raise KeyError(f"policy approval record not found: {record_id}")
         updated = replace(record, status="consumed")
-        self._records[record_id] = updated
+        self._records[key] = updated
         return updated
 
-    def is_active(self, record_id: str, *, policy_version: str) -> bool:
-        record = self._records.get(record_id)
+    def is_active(
+        self, record_id: str, *, tenant_id: str = "default", policy_version: str
+    ) -> bool:
+        record = self._records.get(self._tenant_key(record_id, tenant_id=tenant_id))
         if record is None:
             return False
         if record.status != "active":
@@ -409,12 +424,14 @@ class PolicyEngine:
     def is_approval_valid(self, record_id: str, *, tenant_id: str) -> bool:
         policy = self._policies.get(tenant_id)
         version = policy.version if policy is not None else ""
-        return self._store.is_active(record_id, policy_version=version)
+        return self._store.is_active(
+            record_id, tenant_id=tenant_id, policy_version=version
+        )
 
-    def revoke_approval(self, record_id: str) -> PolicyApprovalRecord:
-        return self._store.revoke(record_id, self._now())
+    def revoke_approval(self, record_id: str, *, tenant_id: str) -> PolicyApprovalRecord:
+        return self._store.revoke(record_id, self._now(), tenant_id=tenant_id)
 
-    def consume_approval(self, record_id: str) -> PolicyApprovalRecord:
+    def consume_approval(self, record_id: str, *, tenant_id: str) -> PolicyApprovalRecord:
         """Consume a policy approval record at execution time.
 
         F1 (AR-20260707): re-checks the pause shell (C7 supremacy) and record
@@ -422,14 +439,16 @@ class PolicyEngine:
         """
         if self._paused():
             raise PolicyApprovalConsumed(record_id, reason="paused_at_consume")
-        record = self._store.get(record_id)
+        record = self._store.get(record_id, tenant_id=tenant_id)
         if record is None:
             raise KeyError(f"policy approval record not found: {record_id}")
-        policy = self._policies.get(record.tenant_id)
+        policy = self._policies.get(tenant_id)
         version = policy.version if policy is not None else ""
-        if not self._store.is_active(record_id, policy_version=version):
+        if not self._store.is_active(
+            record_id, tenant_id=tenant_id, policy_version=version
+        ):
             raise PolicyApprovalConsumed(record_id, reason="record_not_active")
-        consumed = self._store.consume(record_id)
+        consumed = self._store.consume(record_id, tenant_id=tenant_id)
         self._trace_step(
             consumed.proposal_id,
             OperationState.EXECUTED,
