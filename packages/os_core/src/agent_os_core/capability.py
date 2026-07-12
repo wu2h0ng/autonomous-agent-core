@@ -55,10 +55,14 @@ class WorkspaceSandbox:
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = Path(artifacts or self.root / ".agent-os-artifacts").resolve()
         self.artifacts.mkdir(parents=True, exist_ok=True)
-        self._snapshots: dict[str, tuple[Path, bool]] = {}
         self._idempotency_store = idempotency_store
 
-    def specs(self, now: datetime | None = None) -> dict[str, CapabilitySpec]:
+    def specs(
+        self,
+        now: datetime | None = None,
+        *,
+        include_internal: bool = False,
+    ) -> dict[str, CapabilitySpec]:
         at = now or datetime.now(timezone.utc)
         common: dict[str, Any] = dict(
             input_contract="json:object:1",
@@ -71,7 +75,7 @@ class WorkspaceSandbox:
             created_by="system",
             created_at=at,
         )
-        return {
+        specs = {
             "workspace.read": CapabilitySpec(
                 capability_id="workspace.read", version="1", display_name="Read workspace file",
                 side_effect_guarantee=SideEffectGuarantee.READ_ONLY, idempotency_supported=True,
@@ -93,6 +97,18 @@ class WorkspaceSandbox:
                 cancellation_supported=True, compensation_supported=False, **common,
             ),
         }
+        if include_internal:
+            specs["workspace.compensate_patch"] = CapabilitySpec(
+                capability_id="workspace.compensate_patch",
+                version="1",
+                display_name="Restore governed patch snapshot",
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE,
+                idempotency_supported=True,
+                cancellation_supported=True,
+                compensation_supported=True,
+                **common,
+            )
+        return specs
 
     def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionAuthority, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
@@ -112,16 +128,32 @@ class WorkspaceSandbox:
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):
             raise CapabilityDenied("capability arguments must be an object")
-        stored = self._get_idempotency(action.idempotency_key)
+        intent_fingerprint = _intent_fingerprint(action)
+        stored = self._get_idempotency(
+            action.idempotency_key,
+            intent_fingerprint,
+        )
         if stored is not None:
             output: dict[str, object] = stored
-            status = ReceiptStatus.SUCCEEDED
+            status = (
+                ReceiptStatus.COMPENSATED
+                if action.capability_id == "workspace.compensate_patch"
+                else ReceiptStatus.SUCCEEDED
+            )
             error_code = "error:none"
         else:
             try:
                 output = self._dispatch(action.capability_id, args, action.idempotency_key)
-                self._put_idempotency(action.idempotency_key, output)
-                status = ReceiptStatus.SUCCEEDED
+                self._put_idempotency(
+                    action.idempotency_key,
+                    intent_fingerprint,
+                    output,
+                )
+                status = (
+                    ReceiptStatus.COMPENSATED
+                    if action.capability_id == "workspace.compensate_patch"
+                    else ReceiptStatus.SUCCEEDED
+                )
                 error_code = "error:none"
             except Exception as exc:
                 output = {"error": type(exc).__name__}
@@ -134,22 +166,54 @@ class WorkspaceSandbox:
             connector_id=action.capability_id, status=status,
             idempotency_key=action.idempotency_key, attempt=attempt,
             output_artifact_ids=tuple(str(value) for value in _as_sequence(output.get("artifact_ids", ()))),
-            error_code=error_code, occurred_at=datetime.now(timezone.utc),
+            error_code=error_code,
+            detail_ref=str(output.get("compensation_ref", "detail:none")),
+            occurred_at=datetime.now(timezone.utc),
         )
         return CapabilityResult(receipt=receipt, output=output)
 
-    def _get_idempotency(self, key: str) -> dict[str, object] | None:
+    def _get_idempotency(
+        self,
+        key: str,
+        intent_fingerprint: str,
+    ) -> dict[str, object] | None:
         if self._idempotency_store is None:
             return None
         getter = getattr(self._idempotency_store, "get_idempotency", None)
-        return getter("capability", key) if getter is not None else None
+        stored = getter("capability", key) if getter is not None else None
+        if stored is None:
+            return None
+        if not isinstance(stored, dict):
+            raise CapabilityDenied("invalid idempotency record")
+        if stored.get("intent_fingerprint") != intent_fingerprint:
+            raise CapabilityDenied("idempotency key reused for a different action intent")
+        output = stored.get("output")
+        if not isinstance(output, dict):
+            raise CapabilityDenied("invalid idempotency output record")
+        return output
 
-    def _put_idempotency(self, key: str, output: dict[str, object]) -> None:
+    def _put_idempotency(
+        self,
+        key: str,
+        intent_fingerprint: str,
+        output: dict[str, object],
+    ) -> None:
         if self._idempotency_store is None:
             return
         setter = getattr(self._idempotency_store, "put_idempotency", None)
         if setter is not None:
-            setter("capability", key, output, datetime.now(timezone.utc).isoformat())
+            stored = {
+                "intent_fingerprint": intent_fingerprint,
+                "output": output,
+            }
+            inserted = setter(
+                "capability",
+                key,
+                stored,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            if inserted is False:
+                self._get_idempotency(key, intent_fingerprint)
 
     def _dispatch(self, capability_id: str, args: dict[str, object], action_key: str) -> dict[str, object]:
         if capability_id == "workspace.read":
@@ -160,6 +224,8 @@ class WorkspaceSandbox:
             return {"path": str(path.relative_to(self.root)), "content": content, "sha256": _sha256(content.encode())}
         if capability_id == "workspace.apply_patch":
             return self._apply_patch(args, action_key)
+        if capability_id == "workspace.compensate_patch":
+            return self._compensate_patch(args)
         if capability_id == "workspace.run_tests":
             return self._run_tests(args, action_key)
         if capability_id == "artifact.write":
@@ -185,31 +251,255 @@ class WorkspaceSandbox:
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         path = self._safe_path(str(args.get("path", "")))
         content = str(args.get("content", ""))
+        content_bytes = content.encode("utf-8")
+        relative_path = str(path.relative_to(self.root))
+        key_digest = _sha256(action_key.encode("utf-8"))
+        compensation_ref = f"compensation:{key_digest}"
+        snapshot_dir = self.artifacts / "compensation" / key_digest
+        applied_sha256 = _sha256(content_bytes)
+        if snapshot_dir.exists():
+            manifest, manifest_sha256, state, before_bytes = self._load_snapshot(
+                compensation_ref
+            )
+            if manifest["action_key_sha256"] != key_digest:
+                raise CapabilityDenied("snapshot action key binding mismatch")
+            if manifest["relative_path"] != relative_path:
+                raise CapabilityDenied("snapshot path binding mismatch")
+            if manifest["applied_sha256"] != applied_sha256:
+                raise CapabilityDenied("idempotency key reused for different patch content")
+            current_matches_applied = (
+                path.exists() and _sha256(path.read_bytes()) == applied_sha256
+            )
+            before_existed = bool(manifest["before_existed"])
+            current_matches_before = (
+                path.exists()
+                and before_existed
+                and _sha256(path.read_bytes()) == manifest["before_sha256"]
+            ) or (not path.exists() and not before_existed)
+            if current_matches_before:
+                self._atomic_write(path, content_bytes)
+            elif not current_matches_applied:
+                raise CapabilityDenied("workspace changed outside the durable patch replay")
+            if state != "APPLIED":
+                self._write_snapshot_state(snapshot_dir, "APPLIED")
+            return {
+                "path": relative_path,
+                "sha256": applied_sha256,
+                "before_sha256": manifest["before_sha256"],
+                "applied_sha256": applied_sha256,
+                "compensation_ref": compensation_ref,
+                "manifest_sha256": manifest_sha256,
+                "replayed": True,
+            }
         expected = args.get("expected_sha256")
-        actual = _sha256(path.read_bytes()) if path.exists() else None
+        before_existed = path.exists()
+        before_bytes = path.read_bytes() if before_existed else b""
+        actual = _sha256(before_bytes) if before_existed else None
         if expected is not None and expected != actual:
             raise CapabilityDenied("workspace changed since proposal")
-        if action_key in self._snapshots:
-            return {"path": str(path.relative_to(self.root)), "sha256": _sha256(path.read_bytes()), "replayed": True}
-        snapshot = Path(tempfile.mkdtemp(prefix="agent-os-snapshot-")) / "before"
-        if path.exists():
-            shutil.copy2(path, snapshot)
-        else:
-            snapshot.write_text("", encoding="utf-8")
-        self._snapshots[action_key] = (snapshot, path.exists())
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        return {"path": str(path.relative_to(self.root)), "sha256": _sha256(content.encode()), "replayed": False}
+        manifest: dict[str, object] = {
+            "schema_version": "1.0",
+            "compensation_ref": compensation_ref,
+            "action_key_sha256": key_digest,
+            "relative_path": relative_path,
+            "before_existed": before_existed,
+            "before_sha256": _sha256(before_bytes),
+            "applied_sha256": applied_sha256,
+        }
+        manifest_sha256 = self._persist_snapshot(
+            snapshot_dir,
+            manifest,
+            before_bytes,
+        )
+        self._atomic_write(path, content_bytes)
+        self._write_snapshot_state(snapshot_dir, "APPLIED")
+        return {
+            "path": relative_path,
+            "sha256": applied_sha256,
+            "before_sha256": manifest["before_sha256"],
+            "applied_sha256": applied_sha256,
+            "compensation_ref": compensation_ref,
+            "manifest_sha256": manifest_sha256,
+            "replayed": False,
+        }
 
     def compensate(self, action_key: str, path: str) -> None:
-        snapshot_record = self._snapshots.get(action_key)
-        target = self._safe_path(path)
-        if snapshot_record is not None:
-            snapshot, existed = snapshot_record
-            if not existed:
+        compensation_ref = f"compensation:{_sha256(action_key.encode('utf-8'))}"
+        _, manifest_sha256, _, _ = self._load_snapshot(compensation_ref)
+        self._compensate_patch(
+            {
+                "path": path,
+                "original_action_key": action_key,
+                "compensation_ref": compensation_ref,
+                "manifest_sha256": manifest_sha256,
+            }
+        )
+
+    def _compensate_patch(self, args: dict[str, object]) -> dict[str, object]:
+        relative_path = str(args.get("path", ""))
+        target = self._safe_path(relative_path)
+        action_key = str(args.get("original_action_key", ""))
+        compensation_ref = str(args.get("compensation_ref", ""))
+        expected_manifest_sha256 = str(args.get("manifest_sha256", ""))
+        manifest, manifest_sha256, state, before_bytes = self._load_snapshot(
+            compensation_ref,
+            expected_manifest_sha256=expected_manifest_sha256,
+        )
+        if manifest["action_key_sha256"] != _sha256(action_key.encode("utf-8")):
+            raise CapabilityDenied("snapshot action key binding mismatch")
+        if manifest["relative_path"] != relative_path:
+            raise CapabilityDenied("snapshot path binding mismatch")
+        applied_sha256 = str(manifest["applied_sha256"])
+        before_existed = bool(manifest["before_existed"])
+        before_sha256 = str(manifest["before_sha256"])
+        current_is_applied = (
+            target.exists() and _sha256(target.read_bytes()) == applied_sha256
+        )
+        current_is_before = (
+            target.exists()
+            and before_existed
+            and _sha256(target.read_bytes()) == before_sha256
+        ) or (not target.exists() and not before_existed)
+        replayed = current_is_before and state == "COMPENSATED"
+        if current_is_applied:
+            if before_existed:
+                self._atomic_write(target, before_bytes)
+            else:
                 target.unlink(missing_ok=True)
-                return
-            shutil.copy2(snapshot, target)
+        elif not current_is_before:
+            raise CapabilityDenied("target changed after patch; compensation refused")
+        self._write_snapshot_state(
+            self.artifacts
+            / "compensation"
+            / compensation_ref.removeprefix("compensation:"),
+            "COMPENSATED",
+        )
+        return {
+            "path": relative_path,
+            "compensation_ref": compensation_ref,
+            "manifest_sha256": manifest_sha256,
+            "compensated": True,
+            "replayed": replayed,
+        }
+
+    def _persist_snapshot(
+        self,
+        snapshot_dir: Path,
+        manifest: dict[str, object],
+        before_bytes: bytes,
+    ) -> str:
+        root = snapshot_dir.parent
+        root.mkdir(parents=True, exist_ok=True)
+        manifest_bytes = _canonical_json_bytes(manifest)
+        manifest_sha256 = _sha256(manifest_bytes)
+        staging = Path(tempfile.mkdtemp(prefix=".snapshot-", dir=root))
+        try:
+            self._write_new_file(staging / "manifest.json", manifest_bytes)
+            if bool(manifest["before_existed"]):
+                self._write_new_file(staging / "before.bin", before_bytes)
+            self._write_new_file(
+                staging / "state.json",
+                _canonical_json_bytes({"state": "PREPARED"}),
+            )
+            _fsync_directory(staging)
+            try:
+                os.rename(staging, snapshot_dir)
+            except FileExistsError:
+                raise CapabilityDenied("snapshot already exists for action key")
+            _fsync_directory(root)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+        return manifest_sha256
+
+    def _load_snapshot(
+        self,
+        compensation_ref: str,
+        *,
+        expected_manifest_sha256: str | None = None,
+    ) -> tuple[dict[str, object], str, str, bytes]:
+        if not compensation_ref.startswith("compensation:"):
+            raise CapabilityDenied("invalid compensation reference")
+        digest = compensation_ref.removeprefix("compensation:")
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            raise CapabilityDenied("invalid compensation reference digest")
+        snapshot_dir = self.artifacts / "compensation" / digest
+        manifest_path = snapshot_dir / "manifest.json"
+        state_path = snapshot_dir / "state.json"
+        if not manifest_path.is_file() or not state_path.is_file():
+            raise CapabilityDenied("compensation manifest or state is missing")
+        manifest_bytes = manifest_path.read_bytes()
+        manifest_sha256 = _sha256(manifest_bytes)
+        if (
+            expected_manifest_sha256 is not None
+            and manifest_sha256 != expected_manifest_sha256
+        ):
+            raise CapabilityDenied("compensation manifest digest mismatch")
+        try:
+            manifest_value = json.loads(manifest_bytes)
+            state_value = json.loads(state_path.read_bytes())
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise CapabilityDenied("invalid compensation manifest JSON") from exc
+        if not isinstance(manifest_value, dict) or not isinstance(state_value, dict):
+            raise CapabilityDenied("invalid compensation manifest shape")
+        manifest: dict[str, object] = manifest_value
+        required = {
+            "schema_version",
+            "compensation_ref",
+            "action_key_sha256",
+            "relative_path",
+            "before_existed",
+            "before_sha256",
+            "applied_sha256",
+        }
+        if set(manifest) != required:
+            raise CapabilityDenied("invalid compensation manifest fields")
+        if manifest["compensation_ref"] != compensation_ref:
+            raise CapabilityDenied("compensation manifest reference mismatch")
+        state = state_value.get("state")
+        if state not in {"PREPARED", "APPLIED", "COMPENSATED"}:
+            raise CapabilityDenied("invalid compensation snapshot state")
+        before_existed = bool(manifest["before_existed"])
+        before_path = snapshot_dir / "before.bin"
+        if before_existed:
+            if not before_path.is_file():
+                raise CapabilityDenied("compensation before image is missing")
+            before_bytes = before_path.read_bytes()
+        else:
+            if before_path.exists():
+                raise CapabilityDenied("unexpected compensation before image")
+            before_bytes = b""
+        if _sha256(before_bytes) != manifest["before_sha256"]:
+            raise CapabilityDenied("compensation before image digest mismatch")
+        return manifest, manifest_sha256, str(state), before_bytes
+
+    def _write_snapshot_state(self, snapshot_dir: Path, state: str) -> None:
+        self._atomic_write(
+            snapshot_dir / "state.json",
+            _canonical_json_bytes({"state": state}),
+        )
+
+    @staticmethod
+    def _write_new_file(path: Path, value: bytes) -> None:
+        with path.open("xb") as handle:
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    @staticmethod
+    def _atomic_write(path: Path, value: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, raw_temp = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+        temp_path = Path(raw_temp)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(value)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, path)
+            _fsync_directory(path.parent)
+        finally:
+            temp_path.unlink(missing_ok=True)
 
     def _run_tests(self, args: dict[str, object], action_key: str) -> dict[str, object]:
         command = str(args.get("command", ""))
@@ -231,6 +521,42 @@ class WorkspaceSandbox:
 
 def _sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def _intent_fingerprint(action: ActionContract) -> str:
+    return _sha256(
+        _canonical_json_bytes(
+            {
+                "tenant_id": action.tenant_id,
+                "workspace_id": action.workspace_id,
+                "principal_id": action.principal_id,
+                "run_id": action.run_id,
+                "node_id": action.node_id,
+                "capability_id": action.capability_id,
+                "capability_version": action.capability_version,
+                "arguments_json": action.arguments_json,
+                "policy_version": action.policy_version,
+                "expected_outcome_id": action.expected_outcome_id,
+            }
+        )
+    )
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _as_sequence(value: object) -> tuple[object, ...]:

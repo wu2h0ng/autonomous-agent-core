@@ -22,6 +22,7 @@ def _action(
     *,
     action_id: str = "action:artifact",
     idempotency_key: str = "run:artifact",
+    content: str = "must not be written",
 ) -> ActionContract:
     return ActionContract(
         action_id=action_id,
@@ -33,7 +34,7 @@ def _action(
         workspace_id="workspace:local",
         capability_id="artifact.write",
         capability_version="1",
-        arguments_json=json.dumps({"content": "must not be written"}),
+        arguments_json=json.dumps({"content": content}),
         risk_tier=1,
         idempotency_key=idempotency_key,
         estimated_budget=ResourceBudget(
@@ -138,3 +139,145 @@ def test_forged_current_epoch_permit_cannot_bypass_halt(tmp_path: Path) -> None:
         sandbox.invoke(action, permit, correction)
 
     assert not any(sandbox.artifacts.iterdir())
+
+
+def test_patch_snapshot_survives_new_sandbox_instance(tmp_path: Path) -> None:
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    first = WorkspaceSandbox(tmp_path)
+
+    output = first._dispatch(
+        "workspace.apply_patch",
+        {"path": "fixture.txt", "content": "after\n"},
+        "run:apply",
+    )
+    assert target.read_text(encoding="utf-8") == "after\n"
+
+    second = WorkspaceSandbox(tmp_path)
+    restored = second._dispatch(
+        "workspace.compensate_patch",
+        {
+            "path": "fixture.txt",
+            "original_action_key": "run:apply",
+            "compensation_ref": output["compensation_ref"],
+            "manifest_sha256": output["manifest_sha256"],
+        },
+        "run:compensate:apply",
+    )
+
+    assert target.read_text(encoding="utf-8") == "before\n"
+    assert restored["compensated"] is True
+
+
+def test_compensation_refuses_to_overwrite_later_user_edit(tmp_path: Path) -> None:
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    sandbox = WorkspaceSandbox(tmp_path)
+    output = sandbox._dispatch(
+        "workspace.apply_patch",
+        {"path": "fixture.txt", "content": "after\n"},
+        "run:apply",
+    )
+    target.write_text("user edit\n", encoding="utf-8")
+
+    with pytest.raises(CapabilityDenied, match="changed after patch"):
+        WorkspaceSandbox(tmp_path)._dispatch(
+            "workspace.compensate_patch",
+            {
+                "path": "fixture.txt",
+                "original_action_key": "run:apply",
+                "compensation_ref": output["compensation_ref"],
+                "manifest_sha256": output["manifest_sha256"],
+            },
+            "run:compensate:apply",
+        )
+
+    assert target.read_text(encoding="utf-8") == "user edit\n"
+
+
+def test_snapshot_write_failure_has_zero_patch_effect(tmp_path: Path) -> None:
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    sandbox = WorkspaceSandbox(tmp_path)
+
+    def fail_snapshot(*args: object, **kwargs: object) -> None:
+        raise OSError("injected snapshot failure")
+
+    sandbox._persist_snapshot = fail_snapshot  # type: ignore[attr-defined,method-assign]
+
+    with pytest.raises(OSError, match="snapshot failure"):
+        sandbox._dispatch(
+            "workspace.apply_patch",
+            {"path": "fixture.txt", "content": "after\n"},
+            "run:apply",
+        )
+
+    assert target.read_text(encoding="utf-8") == "before\n"
+
+
+def test_missing_or_tampered_snapshot_fails_closed(tmp_path: Path) -> None:
+    target = tmp_path / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    sandbox = WorkspaceSandbox(tmp_path)
+    output = sandbox._dispatch(
+        "workspace.apply_patch",
+        {"path": "fixture.txt", "content": "after\n"},
+        "run:apply",
+    )
+    snapshot_dir = (
+        sandbox.artifacts
+        / "compensation"
+        / str(output["compensation_ref"]).removeprefix("compensation:")
+    )
+    (snapshot_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(CapabilityDenied, match="manifest"):
+        WorkspaceSandbox(tmp_path)._dispatch(
+            "workspace.compensate_patch",
+            {
+                "path": "fixture.txt",
+                "original_action_key": "run:apply",
+                "compensation_ref": output["compensation_ref"],
+                "manifest_sha256": output["manifest_sha256"],
+            },
+            "run:compensate:apply",
+        )
+
+    assert target.read_text(encoding="utf-8") == "after\n"
+
+
+def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    store = SQLiteTaskEventStore(tmp_path / "state.sqlite3")
+    correction = CorrectionAuthority(store)
+    sandbox = WorkspaceSandbox(tmp_path, idempotency_store=store)
+    first = _action(
+        correction,
+        now,
+        action_id="action:first",
+        idempotency_key="same-key",
+        content="first",
+    )
+    sandbox.invoke(
+        first,
+        _permit(first, issued_at=now, expires_at=now + timedelta(minutes=5)),
+        correction,
+    )
+    changed = _action(
+        correction,
+        now,
+        action_id="action:changed",
+        idempotency_key="same-key",
+        content="changed",
+    )
+
+    with pytest.raises(CapabilityDenied, match="idempotency key reused"):
+        sandbox.invoke(
+            changed,
+            _permit(
+                changed,
+                issued_at=now,
+                expires_at=now + timedelta(minutes=5),
+            ),
+            correction,
+        )
