@@ -18,7 +18,12 @@ from agent_os_contracts import (
     TaskStatus,
     WorkflowGraph,
 )
-from agent_os_core import DeterministicProvider, RunCoordinator, TaskService
+from agent_os_core import (
+    DeterministicProvider,
+    InvalidTransitionError,
+    RunCoordinator,
+    TaskService,
+)
 from apps.api_server.app import AgentOSApplication
 
 
@@ -175,6 +180,34 @@ def _replanned_workflow(now: datetime) -> WorkflowGraph:
             )
         ),
         max_replans=1,
+    )
+
+
+def _replanned_with_preserved_apply(now: datetime) -> WorkflowGraph:
+    base = _replanned_workflow(now)
+    apply = NodeSpec(
+        node_id="apply",
+        kind=NodeKind.TOOL,
+        capability="workspace.apply_patch",
+        idempotency=IdempotencyMode.COMPENSATABLE,
+    )
+    nodes = tuple(
+        node if node.node_id != "tests" else apply for node in base.nodes
+    ) + (
+        next(node for node in base.nodes if node.node_id == "tests"),
+    )
+    return base.model_copy(
+        update={
+            "nodes": nodes,
+            "edges": (
+                EdgeSpec(source="read", target="provider"),
+                EdgeSpec(source="provider", target="inspect"),
+                EdgeSpec(source="inspect", target="apply"),
+                EdgeSpec(source="apply", target="tests"),
+                EdgeSpec(source="tests", target="evaluate"),
+                EdgeSpec(source="evaluate", target="done"),
+            ),
+        }
     )
 
 
@@ -397,6 +430,15 @@ def test_rebind_clears_invalidated_action_projection_and_approval(tmp_path: Path
         task_id,
         {"disposition": "APPROVE", "reason": "approve only the original plan"},
     )
+    app.tasks.append_event(
+        task_id,
+        TaskEventType.ARTIFACT_RECORDED,
+        {
+            "artifact_id": "artifact:partial-old-plan",
+            "node_id": "apply",
+            "action_id": "action:partial-old-plan",
+        },
+    )
 
     rebound = app.tasks.replan_task(
         task_id,
@@ -424,3 +466,99 @@ def test_rebind_clears_invalidated_action_projection_and_approval(tmp_path: Path
     assert "action:workspace.apply_patch" not in restored
     assert "workspace.apply_patch" not in restored
     assert "provider" in restored
+    assert "artifact:partial-old-plan" not in restored.get("evidence_refs", ())
+
+    result = app.run_task(task_id, _inputs())
+
+    assert result.status is TaskStatus.COMPLETED
+    assert result.run is not None
+    assert result.run.status is RunStatus.SUCCEEDED
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"
+
+
+def test_rebind_clears_old_action_for_preserved_but_uncompleted_node(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(tmp_path, _provider_wait_workflow(now))
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:preserved-node",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps({"path": "fixture.txt", "content": "changed\n"}),
+            ),
+        )
+    )
+    app.run_task(task_id, _inputs())
+
+    rebound = app.tasks.replan_task(
+        task_id,
+        _replanned_with_preserved_apply(now),
+        requested_by="user:local",
+        reason="preserve node shape but invalidate old proposal authority",
+    )
+    assert rebound.last_rebound is not None
+    assert "apply" in rebound.last_rebound.preserved_node_ids
+    runner = RunCoordinator(
+        app.tasks,
+        app.sandbox,
+        app.provider,
+        app.provider_profile,
+        app.policy,
+        app.correction,
+        app.grants,
+    )
+
+    restored = runner._restore_context(task_id, _inputs())
+
+    assert "action:workspace.apply_patch" not in restored
+    assert "workspace.apply_patch" not in restored
+
+
+def test_approval_cannot_cross_rebind_between_scan_and_append(tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(tmp_path, _provider_wait_workflow(now))
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:racing",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps({"path": "fixture.txt", "content": "changed\n"}),
+            ),
+        )
+    )
+    app.run_task(task_id, _inputs())
+    original_record = getattr(app.tasks, "record_approval", None)
+
+    def record_after_rebind(task: str, approval: object):
+        assert callable(original_record)
+        app.tasks.record_approval = original_record  # type: ignore[attr-defined,method-assign]
+        app.tasks.replan_task(
+            task,
+            _replanned_workflow(now),
+            requested_by="user:local",
+            reason="race before approval append",
+        )
+        return original_record(task, approval)
+
+    app.tasks.record_approval = record_after_rebind  # type: ignore[attr-defined,method-assign]
+
+    with pytest.raises(InvalidTransitionError, match="pending action"):
+        app.record_approval(
+            task_id,
+            {"disposition": "APPROVE", "reason": "must bind to current plan"},
+        )
+
+    events = app.store.read(task_id)
+    rebound_sequence = max(
+        event.sequence
+        for event in events
+        if event.event_type is TaskEventType.RUN_PLAN_REBOUND
+    )
+    assert not any(
+        event.event_type is TaskEventType.APPROVAL_RECORDED
+        and event.sequence > rebound_sequence
+        for event in events
+    )
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "stable\n"

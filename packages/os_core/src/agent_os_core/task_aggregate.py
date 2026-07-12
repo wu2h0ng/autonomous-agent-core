@@ -314,6 +314,7 @@ class TaskAggregate:
                     raise EventStreamError("run event requires an active run")
                 run_payload = payload.get("run")
                 run = AgentRun.model_validate(run_payload) if run_payload else self.run
+                self._validate_run_projection_bindings(run)
                 task_status = self.status
                 if event.event_type in {
                     TaskEventType.RUN_QUEUED,
@@ -396,10 +397,13 @@ class TaskAggregate:
             raise ScopeMismatchError("expected outcome evaluator is not bound to workflow")
 
     def _validate_run_bindings(self, run: AgentRun) -> None:
-        if self.commitment is None or self.workflow is None or self.expected_outcome is None:
-            raise InvalidTransitionError("task is missing committed contracts")
         if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
             raise ScopeMismatchError("RUN_STARTED requires run status QUEUED or RUNNING")
+        self._validate_run_projection_bindings(run)
+
+    def _validate_run_projection_bindings(self, run: AgentRun) -> None:
+        if self.commitment is None or self.workflow is None or self.expected_outcome is None:
+            raise InvalidTransitionError("task is missing committed contracts")
         if run.task_id != self.task_id:
             raise ScopeMismatchError("run task binding mismatch")
         if run.commitment_id != self.commitment.commitment_id:

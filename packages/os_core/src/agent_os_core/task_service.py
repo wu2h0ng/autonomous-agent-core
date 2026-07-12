@@ -5,7 +5,9 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from agent_os_contracts import (
+    ActionContract,
     AgentRun,
+    ApprovalDecision,
     Commitment,
     ExpectedOutcome,
     ExternalSignal,
@@ -513,6 +515,47 @@ class TaskService:
                     completed.add(node_id)
         return completed
 
+    def record_approval(
+        self,
+        task_id: str,
+        approval: ApprovalDecision,
+    ) -> TaskAggregate:
+        events = self._event_store.read(task_id)
+        if not events:
+            raise TaskNotFoundError(f"task not found: {task_id}")
+        aggregate = TaskAggregate.rehydrate(events)
+        pending: ActionContract | None = None
+        for event in reversed(events):
+            if event.event_type in {
+                TaskEventType.RUN_PLAN_REBOUND,
+                TaskEventType.APPROVAL_RECORDED,
+            }:
+                break
+            if event.event_type is not TaskEventType.ACTION_PROPOSED:
+                continue
+            candidate = event.decoded_payload().get("action")
+            if isinstance(candidate, dict):
+                pending = ActionContract.model_validate(candidate)
+                break
+        if pending is None:
+            raise InvalidTransitionError("task has no pending action in the current plan")
+        if pending.task_id != task_id:
+            raise InvalidTransitionError("pending action task binding mismatch")
+        if aggregate.run is None or pending.run_id != aggregate.run.run_id:
+            raise InvalidTransitionError("pending action run binding mismatch")
+        if approval.action_digest != pending.action_digest():
+            raise InvalidTransitionError("approval does not bind the pending action")
+        return self._append_batch(
+            aggregate,
+            (
+                (
+                    TaskEventType.APPROVAL_RECORDED,
+                    {"approval": approval.model_dump(mode="json")},
+                ),
+            ),
+            correlation_id=aggregate.run.run_id,
+        )
+
     def update_run_status(
         self,
         task_id: str,
@@ -545,10 +588,9 @@ class TaskService:
         if lease_fence is not None:
             updates["lease_fence"] = lease_fence
         run = aggregate.run.model_copy(update=updates)
-        return self.append_event(
-            task_id,
-            event_type,
-            {"run": run.model_dump(mode="json")},
+        return self._append_batch(
+            aggregate,
+            ((event_type, {"run": run.model_dump(mode="json")}),),
             correlation_id=run.run_id,
         )
 

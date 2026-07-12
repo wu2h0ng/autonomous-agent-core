@@ -310,7 +310,21 @@ class RunCoordinator:
                         "score": outcome.score,
                     }
                 elif node.kind in {NodeKind.TRANSFORM, NodeKind.DECISION}:
-                    context[node.node_id] = context.get(node.node_id, context)
+                    existing = context.get(node.node_id)
+                    context[node.node_id] = (
+                        existing
+                        if isinstance(existing, dict)
+                        else {
+                            "available_context_keys": tuple(
+                                sorted(
+                                    key
+                                    for key in context
+                                    if key != node.node_id
+                                    and not key.startswith("action:")
+                                )
+                            )
+                        }
+                    )
                 elif node.kind is NodeKind.APPROVAL:
                     action = next(
                         (
@@ -568,14 +582,18 @@ class RunCoordinator:
 
     def _restore_context(self, task_id: str, inputs: dict[str, Any]) -> dict[str, Any]:
         context = dict(inputs)
-        evidence: list[str] = []
+        completed: set[str] = set()
+        proposal_capabilities: set[str] = set()
+        evidence: list[tuple[str, str | None]] = []
         for event in self.tasks._event_store.read(task_id):
             payload = event.decoded_payload()
             if event.event_type is TaskEventType.NODE_COMPLETED:
                 output = payload.get("output")
                 node_id = payload.get("node_id")
-                if isinstance(node_id, str) and isinstance(output, dict):
-                    context[node_id] = output
+                if isinstance(node_id, str):
+                    completed.add(node_id)
+                    if isinstance(output, dict):
+                        context[node_id] = output
             elif event.event_type is TaskEventType.PROVIDER_RESPONDED:
                 provider_output = payload.get("provider_output")
                 node_id = payload.get("node_id")
@@ -591,6 +609,7 @@ class RunCoordinator:
                                     arguments = json.loads(arguments_json)
                                     if isinstance(arguments, dict):
                                         context[capability_id] = arguments
+                                        proposal_capabilities.add(capability_id)
             elif event.event_type is TaskEventType.ACTION_PROPOSED:
                 action_payload = payload.get("action")
                 if isinstance(action_payload, dict):
@@ -609,16 +628,27 @@ class RunCoordinator:
                         value, ActionContract
                     ):
                         continue
-                    if value.node_id not in invalidated:
-                        continue
                     context.pop(key, None)
                     context.pop(value.capability_id, None)
+                for capability_id in proposal_capabilities:
+                    context.pop(capability_id, None)
+                proposal_capabilities.clear()
+                evidence = [
+                    (artifact_id, node_id)
+                    for artifact_id, node_id in evidence
+                    if node_id is not None and node_id in completed
+                ]
             elif event.event_type is TaskEventType.ARTIFACT_RECORDED:
                 artifact_id = payload.get("artifact_id")
                 if isinstance(artifact_id, str):
-                    evidence.append(artifact_id)
+                    node_id = payload.get("node_id")
+                    evidence.append(
+                        (artifact_id, node_id if isinstance(node_id, str) else None)
+                    )
         if evidence:
-            context["evidence_refs"] = tuple(evidence)
+            context["evidence_refs"] = tuple(
+                artifact_id for artifact_id, _ in evidence
+            )
         return context
 
     def _completed_nodes(self, task_id: str) -> set[str]:

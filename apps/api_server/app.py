@@ -299,13 +299,7 @@ class AgentOSApplication:
             decided_at=now,
             expires_at=now + timedelta(minutes=10),
         )
-        self.tasks.append_event(
-            task_id,
-            TaskEventType.APPROVAL_RECORDED,
-            {"approval": approval.model_dump(mode="json")},
-            correlation_id=task.run.run_id if task.run else task_id,
-        )
-        return self.tasks.get_task(task_id)
+        return self.tasks.record_approval(task_id, approval)
 
     def read_artifact(self, artifact_id: str) -> bytes:
         if not artifact_id.startswith("artifact:"):

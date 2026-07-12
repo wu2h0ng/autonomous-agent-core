@@ -51,6 +51,21 @@ class MutableClock:
         return self.value
 
 
+class SecondReadHookStore(InMemoryTaskEventStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.read_count = 0
+        self.on_second_read: object | None = None
+
+    def read(self, task_id: str):  # type: ignore[no-untyped-def]
+        self.read_count += 1
+        if self.read_count == 2 and callable(self.on_second_read):
+            hook = self.on_second_read
+            self.on_second_read = None
+            hook()
+        return super().read(task_id)
+
+
 def _goal() -> Goal:
     return Goal(
         goal_id="goal:long",
@@ -394,3 +409,45 @@ def test_replan_cannot_raise_budget_or_run_twice() -> None:
             requested_by="user:local",
             reason="second replan",
         )
+
+
+def test_status_update_cannot_append_stale_run_after_concurrent_rebind() -> None:
+    store = SecondReadHookStore()
+    service = TaskService(
+        store,
+        id_factory=DeterministicIdFactory(),
+        clock=MutableClock(NOW),
+    )
+    task = service.create_task(_goal())
+    service.commit_task(
+        task.task_id,
+        _commitment(task.task_id),
+        _workflow(),
+        _expected(task.task_id),
+    )
+    service.start_run(task.task_id)
+    service.update_run_status(
+        task.task_id,
+        RunStatus.RUNNING,
+        event_type=TaskEventType.RUN_QUEUED,
+    )
+    service.register_wait(task.task_id, _wait_node())
+    store.read_count = 0
+    store.on_second_read = lambda: service.replan_task(
+        task.task_id,
+        _replanned_workflow(),
+        requested_by="user:local",
+        reason="concurrent authorized rebind",
+    )
+
+    result = service.update_run_status(
+        task.task_id,
+        RunStatus.PAUSED,
+        event_type=TaskEventType.RUN_PAUSED,
+    )
+
+    assert result.workflow is not None
+    assert result.run is not None
+    assert result.workflow.version == 2
+    assert result.run.workflow_version == result.workflow.version
+    assert result.run.workflow_digest == result.workflow.canonical_digest()
