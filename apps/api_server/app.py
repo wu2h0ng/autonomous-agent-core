@@ -43,6 +43,7 @@ from agent_os_core import (
     WorkspaceSandbox,
     EnvCredentialBroker,
     OpenAICompatibleProvider,
+    build_recovery_snapshot,
 )
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
@@ -354,6 +355,9 @@ class AgentOSApplication:
                 TaskEventType.OUTCOME_OBSERVED,
             }
         ]
+
+    def recovery_json(self, task_id: str) -> dict[str, Any]:
+        return build_recovery_snapshot(self.store.read(task_id)).model_dump(mode="json")
 
     def task_json(self, task_id: str) -> dict[str, Any]:
         task = self.tasks.get_task(task_id)

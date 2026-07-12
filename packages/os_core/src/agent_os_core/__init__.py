@@ -22,6 +22,7 @@ from .provider import (
     OpenAICompatibleProvider,
     ProviderPort,
 )
+from .recovery import build_recovery_snapshot
 from .capability import CapabilityBroker, CapabilityDenied, CapabilityResult, WorkspaceSandbox
 from .execution import DeterministicOutcomeEvaluator, RunCoordinator, RunExecutionError, UnsupportedNodeError, WorkerInterrupted
 from .task_aggregate import TaskAggregate
@@ -55,6 +56,7 @@ __all__ = [
     "EnvCredentialBroker",
     "OpenAICompatibleProvider",
     "ProviderPort",
+    "build_recovery_snapshot",
     "CapabilityDenied",
     "CapabilityBroker",
     "CapabilityResult",
