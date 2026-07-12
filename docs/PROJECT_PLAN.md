@@ -1,12 +1,12 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 > Status: Active handoff document
 > First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` -> this file -> `codebase_index.md` -> current ADRs.
 
 ## 1. Current Truth
 
-This repository is now the complete Agent OS main monorepo by founder decision. It has a Product Track and a Research Track. The current implementation is still research-heavy; SPINE-0 is PM-accepted for the bounded local developer golden path, while market-parity and enterprise-production runtime remain to be built. Research verdicts keep their exact historical meaning and do not establish product delivery.
+This repository is now the complete Agent OS main monorepo by founder decision. It has a Product Track and a Research Track. The current implementation is still research-heavy; SPINE-0 is PM-accepted for the bounded local developer golden path, and `T-P-OS-LH-BOUND-1` has passed a bounded local long-horizon Product acceptance slice. Market-parity, enterprise-production runtime and long-horizon advantage remain unproved. Research verdicts keep their exact historical meaning and do not establish product delivery.
 
 Blueprint v1.1 and ADR-0055 now bind the product interaction and organ model: one Agent
 Surface, ephemeral `Ask`, durable `Work`, plural task-appropriate world models, optional
@@ -37,8 +37,8 @@ Do not describe the current stage as P1, P2, P3, or P4. Those are historical pha
 Latest verification truth:
 
 ```text
-product: 96 passed, 1 skipped; ruff clean; pyright 0 errors
-full regression: 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
+product branch: 166 passed, 1 skipped; ruff clean; pyright 0 errors
+whole-repository historical baseline (not rerun on this branch): 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
 ```
 
 The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The full suite verifies the reconciled Product and Research tracks. It does not establish Agent OS Blueprint completion, Codex parity or superiority.
@@ -105,10 +105,11 @@ SPINE-0 implemented from the reviewed test-first packets:
 SPINE-0 evidence:
 
 ```text
-product: 96 passed, 1 skipped
+current Product branch: 166 passed, 1 skipped
+SPINE-0 PM-acceptance baseline: 96 passed, 1 skipped
 ruff: All checks passed
 pyright: 0 errors, 0 warnings
-full regression: 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
+whole-repository historical baseline (not rerun in this task): 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
 PM Product Acceptance: ACCEPT
 ```
 
@@ -117,8 +118,9 @@ with allowlisted pytest. Production KMS/SSO/tenancy, multi-file/general coding-a
 execution, arbitrary shell/browser control, visual workflow editing, marketplace,
 subagent swarms, CWM/belief promotion and SPINE-1 migration remain `NOT_IMPLEMENTED`.
 
-Next packet: founder/CTO chooses between SPINE-0 production hardening and ADR-0054-gated
-SPINE-1 migration readiness. PM acceptance does not authorize donor migration.
+The founder selected bounded durable-runtime hardening and `T-P-OS-LH-BOUND-1` below. Its
+local acceptance does not authorize donor migration, `LH-RECOVERY-1`, or a general autonomy
+claim. The next packet is a separate founder/CTO decision after the slice evidence is reviewed.
 
 The next horizontal product packet must also bind `InteractionDecision` before the desktop
 shell or generative UI is treated as a runtime product surface. Its minimum acceptance is:
@@ -151,6 +153,78 @@ recommendation only and does not supersede the founder/CTO choice between SPINE-
 and ADR-0054-gated SPINE-1 readiness.
 
 This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
+
+### T-P-OS-LH-BOUND-1 - Bounded Long-Horizon Local Recovery Slice
+
+Status:
+
+```text
+LOCAL_ACCEPTANCE_VERIFIED
+phase label: LH_PRODUCT_SLICE_E2
+evidence scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY
+LH-RECOVERY-1: NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN
+```
+
+Authority:
+
+- `docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md`
+- `docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md`
+- founder implementation-ownership amendment recorded in
+  `../.agent_runs/agent-os-e2e-long-horizon-20260712/`.
+
+Delivered Product Track behavior:
+
+- typed `WAIT_EVENT`, `ExternalSignal`, immutable Commitment/wait deadlines and exact signal
+  replay;
+- dependency blocking plus one explicit local-Principal suffix rebind, bounded by
+  `max_replans`, with completed-prefix and evidence protection;
+- restart reconstruction from append-only task events, lease fencing and stale-worker
+  recovery;
+- persistent C7 epochs and final connector checks for expiry, halt and epoch drift;
+- snapshot-before-write `workspace.apply_patch`, digest/state validation and restart-safe
+  automatic/manual governed compensation;
+- pure event-derived recovery projection;
+- Application, HTTP and CLI entries for signal, replan, correction resume, compensation and
+  recovery.
+
+Acceptance and negative paths:
+
+- success: wait -> process reconstruction -> signal -> one rebind -> provider -> approval ->
+  patch -> real pytest -> evaluator -> `VERIFIED`;
+- failure: bad patch -> worker interruption -> process reconstruction -> `NOT_MET` -> exactly
+  one automatic compensation restoring the original file;
+- C7: automatic and manual rollback blocked while halted; ordinary task resume does not clear
+  correction; Worker cannot resume correction; Principal resume is audited before exactly one
+  governed compensation;
+- public surfaces: real HTTP/CLI persistence, exact signal replay, wrong-scope denial, late
+  signal denial and replan-budget denial;
+- rebind regression: a physically written partial artifact is removed from authoritative
+  evidence after suffix replacement, while completed-prefix evidence and action binding remain.
+
+Evidence:
+
+```text
+implementation branch: codex/agent-os-e2e-long-horizon-20260712
+Claude Code primary LH_PRODUCT_SLICE_E2 commit integrated as: 38d91a9
+OpenCode public-surface commit integrated as: 88a8918
+Kimi rebind-regression commit integrated as: 879e286
+Product tests: 166 passed, 1 skipped
+Ruff: All checks passed
+Pyright: 0 errors, 0 warnings
+Independent coordinator/rebind review: ACCEPT
+Independent compensation/C7 review: ACCEPT
+```
+
+Honest boundary: this is a local SQLite + single-workspace + fixed local-Principal acceptance
+slice. It has no background scheduler or 7x24 worker fleet, no multi-hour/day comparison, no
+physical exactly-once guarantee, no automatic LLM replan, no general loop/parallel/subworkflow,
+no production authentication/tenancy, and no CWM, BeliefLedger, AgentSelfModel, continual
+learning or self-evolution product integration. It does not solve the general long-horizon,
+autonomous-agent-system or self-evolution problems.
+
+Next gate: founder/CTO may choose a separately frozen `SPINE-E2E-1` / `LH-RECOVERY-1`
+evaluation with long-duration workloads and strong baselines, or another bounded production
+hardening packet. SPINE-1 remains independently ADR-0054-gated.
 
 ### T-P-OS-SPINE-1 - Data Agent History-Safe Migration (Successor / Blocked)
 
@@ -656,7 +730,9 @@ G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035/G12, ADR
 
 ## 6. Non-Negotiable Boundaries
 
-- No LLM in the control path.
+- Research Track: no LLM in the deterministic disposer/control path.
+- Product Track: an LLM/provider may propose language or typed actions, but policy, permit,
+  exact approval and C7 retain final authority; the model never self-authorizes execution.
 - No business semantics in this repository.
 - No cross-repo imports.
 - No moving preregistered gates after seeing results.

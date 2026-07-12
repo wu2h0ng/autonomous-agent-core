@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-11
+> Last updated: 2026-07-12
 > Purpose: fast map from Agent OS product authority and current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`.
 
@@ -22,6 +22,8 @@
 | `.github/pull_request_template.md` | Track-aware Product/Research/Docs PR evidence and boundary checklist |
 | `docs/superpowers/plans/2026-07-10-agent-os-product-blueprint-v1.md` | Docs-only finalization and verification plan |
 | `docs/superpowers/plans/2026-07-10-t-p-os-spine-0-p0a-contracts-run-kernel.md` | Executed test-first P0A implementation plan for contracts, WorkflowGraph, event replay and TaskService |
+| `docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md` | Founder-authorized Product Track design for bounded wait/signal/rebind/restart/compensation and event-derived recovery; explicitly not `LH-RECOVERY-1` |
+| `docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md` | Executed multi-agent implementation plan and file-ownership boundary for `T-P-OS-LH-BOUND-1` |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:
 research-heavy with SPINE-0 PM-accepted for the bounded local independent-developer golden
@@ -36,15 +38,17 @@ product: Agent OS
 product_blueprint: FINAL_FOUNDER_RATIFIED_V1_1
 product_architecture: T-P-OS-SPINE-0 PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
 topology: dual-track layered monorepo
-implementation: typed provider patch proposal + exact approval + durable run + governed workspace tools + API/CLI/Task Workspace
+implementation: typed provider patch proposal + exact approval + durable wait/signal/rebind/restart + governed workspace tools/compensation + recovery projection + API/CLI/Task Workspace
+long_horizon_product_slice: LH_PRODUCT_SLICE_E2 / BOUNDED_LONG_HORIZON_LOCAL_SLICE_VERIFIED
+long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; LH-RECOVERY-1 NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN
 interaction_definition: one Agent Surface; Ask ephemeral; Work durable; governed-action escalation
 organ_definition: provider-neutral LLM + plural task-appropriate world models; CWM optional/evidence-gated
 skill_definition: external compatibility input only; no canonical Skill kernel object
 research_source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
 research_stage: reconciled open-world + IGI organ-stack/CWM lines; exact verdicts in CURRENT_STATE
-product_tests: 96 passed, 1 skipped; ruff clean; pyright 0 errors
-full_tests: 1321 passed, 14 skipped, 5 subtests passed
-product_claim_from_tests: SPINE-0 bounded local developer path only; no Codex parity, Blueprint completion or superiority
+product_tests: 166 passed, 1 skipped; ruff clean; pyright 0 errors
+full_tests_historical_baseline_not_rerun_on_branch: 1321 passed, 14 skipped, 5 subtests passed
+product_claim_from_tests: SPINE-0 plus bounded local long-horizon acceptance only; no multi-hour/day advantage, 7x24 autonomy, physical exactly-once, LH-RECOVERY-1, Codex parity, Blueprint completion or superiority
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
@@ -58,29 +62,48 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `packages/os_core/pyproject.toml` | `agent-os-core` distribution metadata and exact contracts dependency |
 | `packages/contracts/src/agent_os_contracts/common.py` | Strict immutable contract base, timezone normalization, canonical JSON and SHA-256 digest |
 | `packages/contracts/src/agent_os_contracts/task.py` | `Goal` and `Commitment` with task/scope/authority fields |
-| `packages/contracts/src/agent_os_contracts/workflow.py` | `WorkflowGraph` v1, bounded node families, duplicate/endpoint/cycle/terminal validation and order-stable digest |
+| `packages/contracts/src/agent_os_contracts/workflow.py` | `WorkflowGraph` v1, bounded node families, typed WAIT_EVENT binding, max-replan budget, duplicate/endpoint/cycle/terminal validation and order-stable digest |
 | `packages/contracts/src/agent_os_contracts/outcome.py` | Separate expected/observed outcome contracts; verified outcomes require score and evidence |
-| `packages/contracts/src/agent_os_contracts/runtime.py` | Task/run states plus immutable canonical-payload task events and `AgentRun` binding |
+| `packages/contracts/src/agent_os_contracts/runtime.py` | Task/run states plus immutable canonical-payload events, WAITING_EVENT, ExternalSignal, WaitCondition, plan rebound, recovery and compensation contracts |
 | `packages/os_core/src/agent_os_core/event_store.py` | `TaskEventStore` port and concurrency-safe in-memory adapter; explicitly not durable storage |
-| `packages/os_core/src/agent_os_core/task_aggregate.py` | Event-rehydrated Task aggregate; scope, transition and workflow-digest invariants |
-| `packages/os_core/src/agent_os_core/task_service.py` | Public create/commit/start/get call path using load/validate/append/rehydrate |
-| `packages/os_core/src/agent_os_core/persistence.py` | SQLite WAL task events, idempotency, lease fencing and correction authority persistence |
-| `packages/os_core/src/agent_os_core/postgres.py` | PostgreSQL adapter for the same event/lease/idempotency authority ports |
+| `packages/os_core/src/agent_os_core/task_aggregate.py` | Event-rehydrated Task aggregate; explicit wait/signal/rebind/compensation replay plus scope, transition and workflow-digest invariants |
+| `packages/os_core/src/agent_os_core/task_service.py` | Atomic create/commit/start/status/wait/signal/deadline/rebind/approval event commands with optimistic concurrency |
+| `packages/os_core/src/agent_os_core/persistence.py` | SQLite WAL task events, idempotency, lease fencing and atomically advanced persistent correction epochs |
+| `packages/os_core/src/agent_os_core/postgres.py` | PostgreSQL adapter for the same event/lease/idempotency/correction authority ports |
 | `packages/os_core/src/agent_os_core/provider.py` | Credential broker, deterministic test provider and typed OpenAI-compatible provider adapter |
-| `packages/os_core/src/agent_os_core/execution.py` | Durable read-provider-approval-apply-test-evaluate coordinator, proposal binding and recovery |
-| `packages/os_core/src/agent_os_core/capability.py` | Path-confined workspace read/patch/test/artifact capabilities behind permits |
-| `apps/api_server/` | Product composition root, HTTP API, responsive Codex-style Task Workspace and `/preview-zh` static scene-driven UX prototype with stable Shell, deterministic fixture `UISceneSpec` validation, registered components, eight browser-local locale catalogs and governed interaction simulation |
+| `packages/os_core/src/agent_os_core/execution.py` | Durable coordinator for wait no-op/timeout, restart, suffix rebind, proposal/approval binding, lease recovery and governed automatic/manual patch compensation |
+| `packages/os_core/src/agent_os_core/capability.py` | Path-confined workspace tools plus snapshot-before-write, digest-validated restart-safe patch/compensation state machine |
+| `packages/os_core/src/agent_os_core/governance.py` | Persistent correction live reads plus final permit-expiry, halt and epoch checks at connector boundary |
+| `packages/os_core/src/agent_os_core/recovery.py` | Pure event-derived recovery counters; never infers physical exactly-once or long-horizon superiority |
+| `apps/api_server/` | Product composition root and HTTP entries for signal/replan/correction-resume/compensation/recovery, plus responsive Task Workspace and bounded static UX preview |
 | `docs/superpowers/specs/2026-07-10-agent-os-unified-workbench-i18n-design.md` | Founder-approved UX model and verified static-prototype boundary: three workspace profiles, Ask/Work, soft scene presets, governed generative workspace and i18n separation |
-| `apps/cli/` | Local CLI over the same application execution path |
+| `apps/cli/` | Local CLI over the same application execution path, including signal, replan, correction-resume, compensation and recovery commands |
 | `domain_packs/developer_agent/` | Versioned developer-agent domain manifest for the accepted golden path |
 | `docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md` | First PM reject, remediation evidence and final bounded `ACCEPT` verdict |
 | `docs/product/AGENT-PRODUCT-DESIGN-SOURCE-STUDY-2026-07-10.md` | Dated commercial-product and pinned-source study; maps real agent-product pain points to Agent OS engineering mechanisms and recommends the next hardening packet without authorizing dependencies |
-| `tests/product/` | 96 Product Track contract, execution, security, provider, API, persistence and recovery tests |
+| `tests/product/test_e2_long_horizon_recovery.py` | Claude-authored three-scenario local composition-root acceptance: verified wait/rebind, NOT_MET compensation and C7-governed recovery |
+| `tests/product/test_public_long_horizon_negative_paths.py` | OpenCode-authored real HTTP/CLI SQLite persistence, idempotency, scope, late-signal and replan-budget negative paths |
+| `tests/product/test_rebind_partial_evidence_regression.py` | Kimi-authored real tool interruption/rebind regression for node/action binding and authoritative evidence filtering |
+| `tests/product/` | 166 Product Track contract, execution, security, provider, API, persistence and recovery tests; one live-provider test skipped by default |
 
 SPINE-0 is accepted only for the local, single-workspace, one-file replacement path with an
 allowlisted verifier. Production KMS/SSO/tenancy, general coding-agent execution, arbitrary
 shell/browser control, visual workflow editing, marketplace, subagent swarms, CWM/belief
 promotion and SPINE-1 migration remain absent.
+
+## Bounded Long-Horizon Product Slice (2026-07-12)
+
+`T-P-OS-LH-BOUND-1` is `LOCAL_ACCEPTANCE_VERIFIED` on
+`codex/agent-os-e2e-long-horizon-20260712`. It adds durable typed waits/signals, immutable
+deadlines, one bounded explicit suffix rebind, restart reconstruction, persistent C7 checks,
+restart-safe patch compensation and an event-derived recovery projection. Application, HTTP and
+CLI use the same service/coordinator path.
+
+This is `LH_PRODUCT_SLICE_E2`, a Product implementation label, not the Blueprint's research
+evidence level E2. `LH-RECOVERY-1` is `NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN`. There is no
+background scheduler, 7x24 fleet, multi-hour/day comparison, physical exactly-once claim,
+automatic LLM replan, general loop/parallel/subworkflow runtime, CWM/Belief/AgentSelfModel
+product integration, continual learning or self-evolution evidence.
 
 ## Strong-Locus Structure Crossover Harness (2026-07-06)
 
@@ -445,17 +468,21 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 
 ## Current Tests
 
-Current full suite:
+Current verification truth:
 
 ```text
-781 tests OK (13 skipped)
-740 tests OK
+Product Track on current branch: 166 passed, 1 skipped; Ruff clean; Pyright 0 errors
+Whole-repository historical baseline from 2026-07-10, not rerun on this branch:
+1321 passed, 14 skipped, 5 subtests passed
 ```
 
 Important current test files:
 
 | Path | Covers |
 |---|---|
+| `tests/product/test_e2_long_horizon_recovery.py` | bounded local `LH_PRODUCT_SLICE_E2` composition-root wait/rebind/compensation/C7 acceptance |
+| `tests/product/test_public_long_horizon_negative_paths.py` | real HTTP/CLI long-horizon negative paths and durable store effects |
+| `tests/product/test_rebind_partial_evidence_regression.py` | real execution partial-artifact filtering after authorized suffix rebind |
 | `tests/test_confidence_gated_policy.py` | G9 policy gate, C6/C7 guards, deterministic replay |
 | `tests/test_confidence_gated_g10.py` | G10 fresh-seed confirmation guards |
 | `tests/test_completeness_g10.py` | G10 completeness additive temperature wiring |

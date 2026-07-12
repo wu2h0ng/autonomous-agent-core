@@ -1,4 +1,4 @@
-updated: "2026-07-11"  # RECONCILE branch reconcile/igi-organstack-into-open-world-arc-2026-07-10 (RR-0051 §4): merges origin/main's open-world causal self-discovery arc (760 OK, landed from research/stage0-gate-sovereignty-2026-07-03) INTO feat/selfdiscovery-a-stage-a-20260705's IGI organ-stack + CWM real-data / end-to-end adapter line (1032 OK). Kept BOTH capability sets; agent.py __init__ resolved as additive union (self_model_updater/organ_regulator/self_maintenance/weight_memory AND belief_ledger). Full suite re-verified post-merge (see last_verified_tests). FINALIZATION HYGIENE only — no new claim, gate move, or un-park; founder fast-forwards main after review.
+updated: "2026-07-12"  # Product Track bounded long-horizon local slice verified on codex/agent-os-e2e-long-horizon-20260712. Research baseline and all research verdicts below are unchanged.
 # Preserved from origin/main (open-world arc landing): RR-0046 §22 real-data structure win is oracle-fed; non-oracle self-discovery on the real 11-node Sachs DAG remains an OPEN problem ("超当前能力"). All founder-reserved gates unchanged.
 product_blueprint:
   status: "FINAL_FOUNDER_RATIFIED_V1_1"
@@ -26,20 +26,34 @@ product_architecture:
   implementation_review: "Claude Opus P0A review returned APPROVE_WITH_REQUIRED_CHANGES; separate Product distributions, clean install isolation, replay-digest mutation test, import-boundary expansion and claim narrowing closed every required finding. Independent remediation re-review verdict: APPROVE."
   spine_0_scope: "Generic durable developer golden path; no donor import or Data Agent seam completion requirement."
   spine_1_scope: "ADR-0054-gated history-safe Data Agent migration, generic/domain-pack extraction and shared-spine seam."
-  implementation_status: "SPINE_0_IMPLEMENTED_AND_PM_ACCEPTED_LOCAL: canonical contracts; provider-generated typed patch proposal; exact-digest approval; durable SQLite/PostgreSQL event-store adapters; leases, idempotency and failure recovery; provider/credential boundary; policy/correction; sandbox capabilities; evaluator; API, CLI and Codex-style Task Workspace."
+  implementation_status: "SPINE_0_IMPLEMENTED_AND_PM_ACCEPTED_LOCAL_PLUS_BOUNDED_LONG_HORIZON_LOCAL_ACCEPTANCE: canonical contracts; provider-generated typed patch proposal; exact-digest approval; durable SQLite/PostgreSQL event-store adapters; leases, typed wait/signal/deadline/rebind events, idempotency and restart recovery; persistent correction authority; restart-safe workspace patch compensation; event-derived recovery projection; evaluator; API, CLI and Codex-style Task Workspace."
   storage_truth: "SQLITE_WAL_LOCAL_AUTHORITY_POSTGRES_ADAPTER_AVAILABLE"
   package_truth: "agent-os-contracts and agent-os-core are separate installable distributions with declared runtime dependencies; clean-environment smoke proves imports and absence of aac/envs."
-  contract_scope: "SPINE_0_BOUNDED: strict Goal/Commitment/Workflow/Run/Action/Provider/Capability/Evidence/Outcome contracts cover the accepted one-file developer path; broader Blueprint contracts remain staged."
-  workflow_scope: "SPINE_0_EXECUTABLE_DAG: canonical digest, duplicate/endpoint/cycle/reachability/terminal validation plus the accepted read-provider-approval-apply-test-evaluate path; general loop, parallel, subworkflow and visual-editor semantics remain staged."
-  run_scope: "DURABLE_LOCAL: DRAFT -> COMMITTED -> RUNNING -> WAITING_APPROVAL/FAILED/PAUSED -> resumed -> SUCCEEDED/CANCELLED with persisted events, lease fencing, idempotency and explicit stale-worker recovery."
-  not_implemented: "Runtime InteractionDecision/Ask-Work router; ScenePreset compiler; WorldModelPort/CWM product integration; LearnedProcedure promotion; production KMS/SSO/multi-tenant deployment; persistent encrypted provider rotation; multi-file/general coding-agent execution; full visual Workflow Studio/marketplace; arbitrary shell/browser control; external consequential actions; belief learning/subagent swarms; and SPINE-1 donor migration."
+  contract_scope: "SPINE_0_BOUNDED_PLUS_LH_PRODUCT_SLICE: strict Goal/Commitment/Workflow/Run/Action/Provider/Capability/Evidence/Outcome plus ExternalSignal/WaitCondition/RunPlanRebound/RunRecoverySnapshot/PatchCompensation contracts cover the local one-file developer path; broader Blueprint contracts remain staged."
+  workflow_scope: "BOUNDED_EXECUTABLE_DAG: canonical digest and graph validation plus read/wait/provider/approval/apply/test/evaluate; exactly one explicit local-principal suffix rebind is accepted under a frozen max_replans budget. General loop, parallel-map, subworkflow, automatic LLM replan and visual-editor semantics remain staged."
+  run_scope: "DURABLE_LOCAL: DRAFT -> COMMITTED -> RUNNING -> WAITING_APPROVAL/WAITING_EVENT/FAILED/PAUSED -> resumed -> SUCCEEDED/CANCELLED with append-only events, frozen Commitment/wait deadlines, lease fencing, restart recovery, persistent C7 checks and governed patch compensation."
+  not_implemented: "Background scheduler or 7x24 worker fleet; multi-hour/day or multi-week task-benefit evidence; physical exactly-once guarantee; automatic LLM replan; general LOOP/PARALLEL_MAP/SUBWORKFLOW runtime; production KMS/SSO/multi-tenant authentication; persistent encrypted provider rotation; multi-file/general coding-agent execution; full visual Workflow Studio/marketplace; arbitrary shell/browser control; external consequential actions; Runtime InteractionDecision/Ask-Work router; ScenePreset compiler; WorldModelPort/CWM product integration; BeliefLedger/AgentSelfModel product integration; continual learning or self-evolution; subagent swarms; and SPINE-1 donor migration."
   migration_status: "DESIGN_ONLY_NOT_EXECUTED"
-  next_gate: "Founder/CTO selects the next Product Track packet: SPINE-0 production hardening versus ADR-0054-gated SPINE-1 migration readiness. PM acceptance does not itself authorize donor migration."
+  next_gate: "After bounded local acceptance and independent review, founder/CTO decides whether to preregister a separate SPINE-E2E-1/LH-RECOVERY-1 evaluation or open another production-hardening packet. LH-RECOVERY-1 remains not preregistered/frozen/run; SPINE-1 remains independently gated and unauthorized for execution."
   product_claim: "SPINE_0_PM_ACCEPTED_FOR_BOUNDED_LOCAL_INDEPENDENT_DEVELOPER_REPOSITORY_GOLDEN_PATH"
   live_provider_acceptance: "docs/architecture/SPINE-0-LIVE-PROVIDER-ACCEPTANCE-2026-07-10.md"
   ux_preview: "STATIC_SCENE_PROTOTYPE_VERIFIED_LOCAL_2026_07_11: /preview-zh now demonstrates a stable Agent OS Shell plus validated deterministic fixture UISceneSpec rendering through a registered component set; Personal/Developer/Organization workspace profiles; Ask-to-Work context continuity; replaceable soft scene presets; metrics, relation graph, evidence, Agent/environment status, timeline and concrete-action approval; canonical pause/correct/approve/reject controls; and live browser-local switching across eight locale catalogs. Browser/IAB verification passed at 1440x900, 1024x768 German expansion and 390x844 with no relevant console errors, horizontal overflow or approval/command overlap. This does not establish persistent multi-workspace tenancy, a preset compiler, model/runtime scene generation, production catalog parity or production i18n."
   competitor_source_study: "docs/product/AGENT-PRODUCT-DESIGN-SOURCE-STUDY-2026-07-10.md; official-product review plus pinned OpenHands/Cline/OpenAI-Agents-SDK/LangGraph/Dify source inspection. Recommendation only: prioritize Workspace/Preset contracts plus durable runtime hardening; no external framework dependency or implementation authorization."
   definition_alignment: "DOCS_ONLY_2026_07_11: ADR-0055 and Blueprint v1.1 define one Agent Surface, Ask/Work routing, plural world models, optional evidence-gated CWM, no canonical Skill kernel object, and Data Agent EvidenceChain as a domain projection into generic Agent OS evidence primitives. This records product semantics only and does not implement the router, preset compiler, WorldModelPort, a new generic EvidenceChain schema or LearnedProcedure runtime."
+  long_horizon_product_slice:
+    task_id: "T-P-OS-LH-BOUND-1"
+    phase_label: "LH_PRODUCT_SLICE_E2"
+    status: "BOUNDED_LONG_HORIZON_LOCAL_SLICE_VERIFIED"
+    track: "PRODUCT_ONLY"
+    authority: "docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md"
+    implementation_plan: "docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md"
+    evidence_scope: "PRODUCT_LOCAL_ACCEPTANCE_ONLY"
+    runtime_scope: "Local SQLite WAL authority plus one filesystem workspace and allowlisted pytest subprocess; explicit local Principal only."
+    delivered: "Typed WAIT_EVENT and ExternalSignal; immutable Commitment/wait deadlines; dependency blocking; one bounded explicit suffix rebind with completed-prefix/evidence protection; restart recovery; persistent C7 epochs; snapshot-before-write workspace.apply_patch compensation; recovery projection; Application/HTTP/CLI signal, replan, correction-resume, compensation and recovery entries."
+    acceptance: "Three real composition-root scenarios cover wait/restart/signal/rebind to VERIFIED, interrupted bad patch to NOT_MET plus automatic compensation, and C7-blocked recovery followed by Principal correction resume and exactly-one governed compensation."
+    independent_review: "Coordinator/rebind review ACCEPT; compensation/C7 review ACCEPT; Claude Code primary LH_PRODUCT_SLICE_E2 implementation reviewed by Codex; OpenCode HTTP/CLI and Kimi partial-evidence implementations reviewed by Codex."
+    lh_recovery_1_status: "NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN"
+    claim_boundary: "Does not establish multi-hour/day advantage, multi-week execution, 7x24 autonomy, physical exactly-once, CWM/Belief/AgentSelfModel integration, continual learning, self-evolution, AGI or Blueprint completion."
 pm_product_acceptance:
   status: "ACCEPT"
   date: "2026-07-10"
@@ -55,7 +69,7 @@ pm_product_acceptance:
 worktree_update_current: "AGDE-T3 fresh scored gate completed NULL; CWM-LEARN-5e-2 zero-shot and first functional-forms calibrations found no freeze-ready region; hard bandpass functional-forms arena found a candidate region, fresh scored gate returned MET on disjoint seeds 40..45, and preregistered r-final returned MET on seeds 60..69 (proposed=1.0000, pair_screening=0.0000, random=0.0000, proposed > cheap controls 10/10, Condition-B collapse). Evidence level r_final_preregistered for hard non-enumerable form channel only; no autonomy/product/LLM/C6-C7 claim."
 owner: "founder-delegated CTO"
 repo: "autonomous-agent-core"
-branch: "reconcile/igi-organstack-into-open-world-arc-2026-07-10"
+branch: "codex/agent-os-e2e-long-horizon-20260712"
 research_baseline_branch: "reconcile/igi-organstack-into-open-world-arc-2026-07-10"
 status: "P6 consolidated; G10 confirmed and trap-complete; ADR-0034 partial; ADR-0035/G12 completed inconclusive; ADR-0036/G13 r-final completed NOT MET; R-CSL-1 PARKED by founder-ratified 2026-06-27 reduction to generic structured memory before freeze/run; old VH/G-Eco operationalization PARK_BY_§7A_C_NOT_SUPPORTED after pre-Gate-2 halt. G-ECO-REOPEN-1 fresh NBSC variant completed r-final on 2026-07-04 and is NOT_MET: fair MINIMAX absorbs the candidate probe path. Strong-locus structure crossover Stage 1 harness built 2026-07-06 and offline-verified on synthetic data; Stage 2 independent non-Claude firewall certification completed and CERTIFIED by opencode on 2026-07-06. No Gate-2 revival, ADR-0037 decision, C6/C7 change, autonomy claim, product-capability claim from research evidence, or R4/R5 execution is authorized."
 test_command: "PYTHONPATH=src python -m unittest discover -s tests -v"
@@ -66,9 +80,9 @@ product_quality_commands:
   - "uv build --wheel --out-dir <external-temp-dir> packages/contracts"
   - "uv build --wheel --out-dir <external-temp-dir> packages/os_core"
 product_last_verified_tests:
-  count: 96
-  result: "OK (passed=96; skipped=1; static UX regression)"
-  source: "Latest Product Track verification after the static scene-workspace redesign (2026-07-11): uv product-test environment -> 96 passed, 1 skipped in 2.50s; ruff -> All checks passed; pyright -> 0 errors, 0 warnings. Browser/IAB static-preview acceptance passed separately; the PM-accepted real-provider evidence remains the 2026-07-10 bounded SPINE-0 journey."
+  count: 166
+  result: "OK (passed=166; skipped=1)"
+  source: "Fresh Product Track verification on codex/agent-os-e2e-long-horizon-20260712 (2026-07-12): uv run --extra product-test pytest tests/product -q -> 166 passed, 1 skipped in 11.34s; focused multi-agent integration -> 12 passed in 5.64s; Ruff -> All checks passed; Pyright -> 0 errors, 0 warnings; CURRENT_STATE YAML and Product-only diff boundary -> OK. Scope is local Product acceptance only."
 last_verified_tests:
   count: 1321
   result: "OK (skipped=14; subtests=5)"

@@ -82,9 +82,11 @@ Research Track 涉及机制/门/边界时先写或更新 ADR，继续遵守 free
 - codebase_index.md 已更新;罩分离断言未被削弱。
 - 未为过门而调机制(自我声明写进 PR)。
 - Product Track 变更说明用户入口、typed contract、权限/凭据、可观测性、outcome 验证和回滚路径。
-- Product Track P0A 当前只证明 minimum strict contract shapes、结构化 graph 校验与
-  event-replayed TaskService；`InMemoryTaskEventStore` 不得写成 process durability。
-  Commitment budget/expiry、outcome failure semantics、完整 executable-graph 规则、
-  queued durable run、PostgreSQL、provider/credential、policy/correction、
-  capability/tool 和 public surfaces 均未实现。
+- Product Track live truth 必须读 `docs/CURRENT_STATE.yaml`。截至 2026-07-12，SPINE-0
+  本地开发者路径及受限 long-horizon Product slice 已实现 strict contracts、完整受限
+  DAG、SQLite durability/PostgreSQL adapter、provider/credential、policy/correction、
+  capability/tool、outcome/eval 与 public surfaces；`InMemoryTaskEventStore` 仍不得写成
+  process durability。后台 scheduler、7x24 fleet、生产认证/多租户、general loop、
+  multi-hour/day 优势证据、CWM/Belief/AgentSelfModel 产品接入、持续学习/自我进化和
+  SPINE-1 仍未实现，`LH-RECOVERY-1` 仍未预注册/冻结/运行。
 - 结论明确标注为产品实现、研究结果或内部流程，禁止互相回填。
