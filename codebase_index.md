@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 > Purpose: fast map from Agent OS product authority and current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`.
 
@@ -8,7 +8,8 @@
 
 | File | Role |
 |---|---|
-| `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` | Final Agent OS product definition, dual-track layered monorepo, user surfaces, canonical model, market-parity requirements, research audit and superiority gates |
+| `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` | Final Agent OS Product Blueprint v1.1: unified Agent Surface, Ask/Work boundary, plural world models, canonical reusable assets, dual-track monorepo, market parity and evidence gates |
+| `docs/adr/ADR-0055-agent-os-interaction-and-organ-boundaries.md` | Accepted docs-only boundary: LLM as probabilistic language/reasoning organ, optional evidence-gated CWM, no canonical Skill kernel object, deterministic authority retained |
 | `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md` | Accepted, independently re-reviewed architecture for the first executable Product Track spine: modular monolith, canonical contracts, durable runtime, provider/credentials, authority split, outcomes and acceptance gates |
 | `docs/adr/ADR-0054-one-time-data-agent-history-migration.md` | Accepted bounded Hard Boundary #19 exception for a one-time history-safe Data Agent migration; planning authorized, execution remains gated |
 | `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml` | Design-only SPINE-1 mapping with full-history safety scan, direct-or-filtered import, generic/domain extraction and no runtime federation; no migration executed |
@@ -23,28 +24,32 @@
 | `docs/superpowers/plans/2026-07-10-t-p-os-spine-0-p0a-contracts-run-kernel.md` | Executed test-first P0A implementation plan for contracts, WorkflowGraph, event replay and TaskService |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:
-research-heavy with the first staged Product Track kernel implemented; market-parity apps,
-durable runtime and full SPINE-0 are not delivered. Existing `src/aac`, `experiments` and
-research adapters remain Research Track unless explicitly promoted.
+research-heavy with SPINE-0 PM-accepted for the bounded local independent-developer golden
+path. Market parity, enterprise production and the rest of the Blueprint are not delivered.
+Existing `src/aac`, `experiments` and research adapters remain Research Track unless
+explicitly promoted.
 
 ## Current Snapshot
 
 ```yaml
 product: Agent OS
-product_blueprint: FINAL_FOUNDER_RATIFIED
-product_architecture: T-P-OS-SPINE-0 P0A_CONTRACTS_AND_RUN_KERNEL_IMPLEMENTED_VERIFIED
+product_blueprint: FINAL_FOUNDER_RATIFIED_V1_1
+product_architecture: T-P-OS-SPINE-0 PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
 topology: dual-track layered monorepo
-implementation: staged minimum strict contracts + structural/canonical WorkflowGraph + event-replayed TaskService; in-memory adapter only
+implementation: typed provider patch proposal + exact approval + durable run + governed workspace tools + API/CLI/Task Workspace
+interaction_definition: one Agent Surface; Ask ephemeral; Work durable; governed-action escalation
+organ_definition: provider-neutral LLM + plural task-appropriate world models; CWM optional/evidence-gated
+skill_definition: external compatibility input only; no canonical Skill kernel object
 research_source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
 research_stage: reconciled open-world + IGI organ-stack/CWM lines; exact verdicts in CURRENT_STATE
-product_tests: 45 passed; ruff clean; pyright 0 errors; isolated package smoke passed
-research_tests: 1237 OK (16 skipped in this worktree; 3 additional skips are optional anndata/numpy tests)
-product_claim_from_tests: NOT_AUTHORIZED
+product_tests: 96 passed, 1 skipped; ruff clean; pyright 0 errors
+full_tests: 1321 passed, 14 skipped, 5 subtests passed
+product_claim_from_tests: SPINE-0 bounded local developer path only; no Codex parity, Blueprint completion or superiority
 ```
 
 Do not use older references that say the current stage is P1, P2, P3, or P4. They are historical.
 
-## Product Track P0A - Contracts and Run Kernel (2026-07-10)
+## Product Track SPINE-0 - Accepted Local Developer Slice (2026-07-10)
 
 | File | Role |
 |---|---|
@@ -59,13 +64,23 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `packages/os_core/src/agent_os_core/event_store.py` | `TaskEventStore` port and concurrency-safe in-memory adapter; explicitly not durable storage |
 | `packages/os_core/src/agent_os_core/task_aggregate.py` | Event-rehydrated Task aggregate; scope, transition and workflow-digest invariants |
 | `packages/os_core/src/agent_os_core/task_service.py` | Public create/commit/start/get call path using load/validate/append/rehydrate |
-| `tests/product/` | 45 Product Track contract, graph, event, aggregate, service, package-isolation and import-boundary tests |
+| `packages/os_core/src/agent_os_core/persistence.py` | SQLite WAL task events, idempotency, lease fencing and correction authority persistence |
+| `packages/os_core/src/agent_os_core/postgres.py` | PostgreSQL adapter for the same event/lease/idempotency authority ports |
+| `packages/os_core/src/agent_os_core/provider.py` | Credential broker, deterministic test provider and typed OpenAI-compatible provider adapter |
+| `packages/os_core/src/agent_os_core/execution.py` | Durable read-provider-approval-apply-test-evaluate coordinator, proposal binding and recovery |
+| `packages/os_core/src/agent_os_core/capability.py` | Path-confined workspace read/patch/test/artifact capabilities behind permits |
+| `apps/api_server/` | Product composition root, HTTP API, responsive Codex-style Task Workspace and `/preview-zh` static scene-driven UX prototype with stable Shell, deterministic fixture `UISceneSpec` validation, registered components, eight browser-local locale catalogs and governed interaction simulation |
+| `docs/superpowers/specs/2026-07-10-agent-os-unified-workbench-i18n-design.md` | Founder-approved UX model and verified static-prototype boundary: three workspace profiles, Ask/Work, soft scene presets, governed generative workspace and i18n separation |
+| `apps/cli/` | Local CLI over the same application execution path |
+| `domain_packs/developer_agent/` | Versioned developer-agent domain manifest for the accepted golden path |
+| `docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md` | First PM reject, remediation evidence and final bounded `ACCEPT` verdict |
+| `docs/product/AGENT-PRODUCT-DESIGN-SOURCE-STUDY-2026-07-10.md` | Dated commercial-product and pinned-source study; maps real agent-product pain points to Agent OS engineering mechanisms and recommends the next hardening packet without authorizing dependencies |
+| `tests/product/` | 96 Product Track contract, execution, security, provider, API, persistence and recovery tests |
 
-P0A is a staged minimum kernel, not complete SPINE-0. Commitment budget/expiry, explicit
-outcome failure semantics, complete executable-graph semantics, queued durable run
-coordination, PostgreSQL, provider/credentials, DecisionPolicy/PolicyKernel/
-CorrectionAuthority, capability/tool execution and all public API/CLI/UI surfaces remain
-absent.
+SPINE-0 is accepted only for the local, single-workspace, one-file replacement path with an
+allowlisted verifier. Production KMS/SSO/tenancy, general coding-agent execution, arbitrary
+shell/browser control, visual workflow editing, marketplace, subagent swarms, CWM/belief
+promotion and SPINE-1 migration remain absent.
 
 ## Strong-Locus Structure Crossover Harness (2026-07-06)
 

@@ -168,6 +168,7 @@ mapping:
     target: "domain_packs/data_agent"
     conditions:
       - "Use shared Goal, Commitment, WorkflowGraph, AgentRun, policy, correction, event and outcome contracts."
+      - "Map Data Agent EvidenceChain into generic Agent OS evidence primitives; SQL, MetricContract, QueryResult and DataProduct fields stay data_agent-scoped."
       - "Preserve existing SQL safety, evidence and approval negative-path tests."
       - "No forked provider, task runtime, identity or credential subsystem remains."
 

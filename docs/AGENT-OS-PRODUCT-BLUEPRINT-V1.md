@@ -1,8 +1,8 @@
-# Agent OS Product Blueprint v1
+# Agent OS Product Blueprint v1.1
 
 > Status: **FINAL / Founder-ratified product authority**
-> Version: 1.0
-> Date: 2026-07-10
+> Version: 1.1
+> Date: 2026-07-11
 > Product: **Agent OS**
 > Repository: `autonomous-agent-core` (historical repository name; now the Agent OS monorepo)
 > Architecture: **dual-track layered monorepo**
@@ -26,11 +26,13 @@ Consequences:
 1. **Agent OS is the product.** Agent Core is an internal runtime/kernel concept, not the product name.
 2. **Research is part of the product program, not the whole product.** Existing experiments remain valid research assets with their original verdicts and limits.
 3. **Data Agent is the first official enterprise domain pack and commercial vertical.** It is not the entire end state and must not inject data-domain semantics into OS core.
-4. **The default front door is a Codex-style Task Workspace.** Chat is an interaction mode inside a persistent task, not the primary product container.
+4. **The default front door is one unified Agent Surface with `Ask` and `Work`.** `Ask` handles ephemeral, low-risk interaction; `Work` enters a persistent Task Workspace. Consequential, long-running or outcome-verified activity must use `Work`.
 5. **Workflow authoring is bidirectional.** Users can visually drag and configure a graph or generate/edit the same graph through natural language.
 6. **Market parity is mandatory but not the moat.** Provider access, BYOK, tools, plugins, knowledge/RAG, subagents, workflow, eval, governance and deployment must first reach credible product parity.
 7. **The candidate moat is evidence-gated.** CWM, belief ledger and governed outcome learning earn promotion only through real workflow comparisons.
 8. **No universal-superiority claim is authorized.** Superiority is decided per operating envelope by reproducible held-out tests against named baselines.
+9. **`Skill` is not a canonical kernel object.** External skill packages are compatibility inputs only; the OS decomposes them into typed capabilities, procedure/workflow candidates, knowledge dependencies and policy requirements before use.
+10. **Evidence is a generic Agent OS primitive.** Data Agent `EvidenceChain` is a domain-specific projection of the generic Agent OS evidence contract, not the source model for OS Core. SQL, metric, query-result and data-product semantics stay inside `domain_packs/data_agent` adapters.
 
 This decision changes repository identity and target architecture. It does **not** rewrite historical ADRs, turn `NOT_MET` into progress, authorize unsafe self-modification, or claim that the current research-heavy tree already implements the product below.
 
@@ -74,6 +76,7 @@ Agent OS is not:
 - a research harness exposed directly to customers;
 - a swarm whose activity is mistaken for intelligence;
 - a promise of recursive self-improvement or metaphysical autonomy;
+- a requirement that every AI interaction become a persistent or agentic task;
 - a requirement that one world model, one planner or one foundation model solve every domain.
 
 ### 1.4 Product promise
@@ -150,9 +153,56 @@ The following corrections are binding for product architecture:
 6. **Swarm topology is not intelligence.** Subagents are justified by measured specialization, parallelism or review value and remain under one accountable run, authority envelope and budget.
 7. **Useful self-improvement is mostly governed artifact evolution.** Prompts, workflows, tools, memory policies, evaluators and configurations may generate candidates and pass sandbox/eval/approval. Runtime safety and correction substrates do not self-authorize rewrites.
 
+### 2.6 Canonical organ and reusable-asset boundaries
+
+The user-facing agent is the governed product-level loop, not a foundation model or one
+planner. Its probabilistic organs may include provider-neutral LLMs for language, code,
+semantic reasoning and candidate generation. Task-appropriate world models are plural:
+causal models, simulators, statistical predictors, rules and observational fallbacks may
+all be selected. A CWM is activated only where variables, interventions and outcomes are
+sufficiently identifiable; it is not the universal brain of every task.
+
+Reusable product assets use these canonical names:
+
+- `CapabilitySpec`: a typed, permission-scoped action the OS may admit;
+- `ToolPlugin`: an adapter that implements one or more capabilities;
+- `WorkflowTemplate`: a reusable procedure over the typed workflow IR;
+- `ScenePreset`: replaceable defaults for interaction, tools, knowledge, UI and evaluation;
+- `DomainPack`: domain contracts, connectors, ontology, policies and evaluators;
+- `LearnedProcedure`: an outcome-validated, versioned and reversible procedural candidate.
+- `EvidenceChain`: a generic provenance and verification structure explaining why a
+  conclusion, action, approval or observed outcome is trusted enough for its risk class.
+
+An external `SkillPackage` never executes by name or prompt authority. It must be scanned,
+decomposed into the assets above, tested, policy-bound and explicitly published. The
+long-term direction is to reduce dependence on hand-authored prompt/skill glue while
+retaining explicit capability and correction boundaries.
+
+Domain packs may project their own evidence sources into the generic evidence structure.
+For the first enterprise vertical, `MetricContract`, `SQLSafetyResult`, `QueryPlan`,
+`QueryResult`, `ProviderContract` and `DataProduct` are Data Agent evidence inputs. They
+must populate generic evidence references, claims, methods, observations, limitations,
+confidence and artifact bindings without becoming OS Core vocabulary.
+
 ## 3. User experience and product surfaces
 
-### 3.1 Task Workspace: the primary container
+### 3.1 Unified Agent Surface
+
+The first interaction surface is one coherent agent, not a dashboard of internal organs.
+An `InteractionDecision` routes each request to the minimum sufficient path:
+
+- `ASK`: direct or read-only assistance with ephemeral context and no automatic durable
+  learning;
+- `WORK`: durable task execution with commitment, workflow, evidence and outcome state;
+- `GOVERNED_ACTION`: work that can cause external effects and therefore requires typed
+  capability, policy and approval handling.
+
+The route may escalate as requirements or side effects become clear, but it may not
+silently downgrade an already-bound authority requirement. Users may inspect the route,
+override permitted defaults and promote successful work into a reusable preset or
+procedure candidate.
+
+### 3.2 Task Workspace: the consequential-work container
 
 Every consequential activity lives in a persistent Task Workspace containing:
 
@@ -167,7 +217,7 @@ Every consequential activity lives in a persistent Task Workspace containing:
 
 The workspace must support foreground interaction and background execution. A process restart, browser close or provider failure must not erase the task's durable state.
 
-### 3.2 Workflow Studio
+### 3.3 Workflow Studio
 
 Workflow authoring has one canonical `WorkflowGraph` representation and three synchronized views:
 
@@ -179,7 +229,7 @@ Round-trip integrity is mandatory: a natural-language change produces a graph di
 
 Required node families include agent, model, tool, knowledge retrieval, transform, decision, approval, evaluation, wait/event, loop, parallel map, subworkflow and terminal outcome. Every node defines input/output contracts, retries, timeout, idempotency and error routing.
 
-### 3.3 Agent Studio
+### 3.4 Agent Studio
 
 Users may create domain agents, but an agent is a versioned configuration over stable OS primitives rather than an unconstrained persona prompt. It binds:
 
@@ -195,7 +245,7 @@ Users may create domain agents, but an agent is a versioned configuration over s
 
 Agent templates, workflow templates, tools, domain packs and evaluators are separate composable assets. This prevents plugin-market prompts from bypassing runtime governance.
 
-### 3.4 Integration Center
+### 3.5 Integration Center
 
 The Integration Center provides:
 
@@ -234,11 +284,15 @@ The product includes run monitoring, approval inbox, policy management, eval sui
 | Object | Responsibility |
 |---|---|
 | `Goal` | Desired state, constraints, priority and acceptance intent |
+| `InteractionDecision` | Explainable Ask/Work/governed-action route plus persistence and feedback policy |
 | `Commitment` | Negotiated promise: scope, assumptions, deadline, budget, risk and exit conditions |
 | `Task` | Persistent unit of accountable work and user interaction |
 | `WorkflowGraph` | Versioned executable graph with typed nodes, policies and failure paths |
 | `AgentRun` | One resumable execution of a task/workflow under a fixed authority envelope |
 | `Agent` | Versioned role/capability/knowledge/eval configuration |
+| `ScenePreset` | Replaceable defaults compiled into workflow, capability, knowledge, UI and evaluation bindings |
+| `WorldModelPort` | Task-selected interface for causal, simulated, statistical, rule or observational models |
+| `LearnedProcedure` | Versioned procedural candidate promoted only through outcome evaluation and rollback controls |
 | `Provider` | Model or service provider and its declared capabilities/health |
 | `CredentialRef` | Non-secret reference to a separately protected credential |
 | `ToolPlugin` | Typed capability, permissions, side effects and lifecycle metadata |
@@ -599,6 +653,7 @@ Until these gates pass, the authorized language is "target," "candidate," "imple
 
 - execute the reviewed `T-P-OS-SPINE-0` modular-monolith developer vertical without a
   donor import dependency;
+- add the unified Agent Surface and explainable `Ask`/`Work` interaction router;
 - canonical contracts and event model;
 - persistent Task Workspace and durable AgentRun;
 - provider registry, BYOK credential broker and model routing;

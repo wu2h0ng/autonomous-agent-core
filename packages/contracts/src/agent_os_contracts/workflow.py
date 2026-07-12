@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from collections import deque
 from enum import Enum
 
 from pydantic import Field, field_validator, model_validator
 
-from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
+from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json, content_digest
 from .resource import RiskTier
 
 
@@ -42,6 +43,9 @@ class NodeSpec(ContractModel):
     max_iterations: int | None = Field(default=None, ge=1)
     max_concurrency: int | None = Field(default=None, ge=1)
     subworkflow_ref: NonEmptyStr | None = None
+    failure_edge: NonEmptyStr | None = None
+    retry_class: NonEmptyStr = "never"
+    stop_predicate: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _validate_kind_requirements(self) -> NodeSpec:
@@ -59,6 +63,10 @@ class NodeSpec(ContractModel):
             raise ValueError("subworkflow node requires subworkflow_ref")
         if self.kind is not NodeKind.SUBWORKFLOW and self.subworkflow_ref is not None:
             raise ValueError("subworkflow_ref is valid only for subworkflow nodes")
+        if self.kind is NodeKind.LOOP and self.stop_predicate is None:
+            raise ValueError("loop node requires stop_predicate")
+        if self.kind is not NodeKind.LOOP and self.stop_predicate is not None:
+            raise ValueError("stop_predicate is valid only for loop nodes")
         return self
 
 
@@ -66,6 +74,27 @@ class EdgeSpec(ContractModel):
     source: NonEmptyStr
     target: NonEmptyStr
     condition: NonEmptyStr | None = None
+
+
+class GraphPatch(ContractModel):
+    patch_id: NonEmptyStr
+    workflow_id: NonEmptyStr
+    base_version: int = Field(ge=1)
+    base_digest: NonEmptyStr
+    operations_json: NonEmptyStr
+    created_by: NonEmptyStr
+    created_at: UtcDateTime
+
+    @field_validator("operations_json", mode="after")
+    @classmethod
+    def _canonicalize_operations(cls, value: str) -> str:
+        try:
+            operations = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("operations_json must be valid JSON") from exc
+        if not isinstance(operations, list) or not all(isinstance(item, dict) for item in operations):
+            raise ValueError("operations_json must encode a list of objects")
+        return canonical_json(operations)
 
 
 class WorkflowGraph(ContractModel):
@@ -114,6 +143,13 @@ class WorkflowGraph(ContractModel):
             adjacency[edge.source].append(edge.target)
             indegree[edge.target] += 1
 
+        for node in self.nodes:
+            if node.failure_edge is not None:
+                if node.failure_edge not in nodes_by_id:
+                    raise ValueError("node failure_edge references unknown node")
+                if node.failure_edge == node.node_id:
+                    raise ValueError("node failure_edge cannot target itself")
+
         ready = deque(sorted(node_id for node_id, degree in indegree.items() if degree == 0))
         visited = 0
         while ready:
@@ -126,6 +162,34 @@ class WorkflowGraph(ContractModel):
 
         if visited != len(node_ids):
             raise ValueError("workflow graph must be acyclic")
+
+        roots = [node_id for node_id, degree in indegree.items() if degree == 0]
+        reachable: set[str] = set()
+        frontier = list(roots)
+        while frontier:
+            current = frontier.pop()
+            if current in reachable:
+                continue
+            reachable.add(current)
+            frontier.extend(adjacency[current])
+        if reachable != set(node_ids):
+            raise ValueError("workflow graph contains unreachable nodes")
+
+        reverse = {node_id: [] for node_id in node_ids}
+        for source, targets in adjacency.items():
+            for target in targets:
+                reverse[target].append(source)
+        terminals = [node.node_id for node in self.nodes if node.kind is NodeKind.TERMINAL]
+        can_terminate: set[str] = set(terminals)
+        frontier = list(terminals)
+        while frontier:
+            current = frontier.pop()
+            for source in reverse[current]:
+                if source not in can_terminate:
+                    can_terminate.add(source)
+                    frontier.append(source)
+        if can_terminate != set(node_ids):
+            raise ValueError("workflow graph contains a node that cannot reach terminal")
         return self
 
     def canonical_digest(self) -> str:

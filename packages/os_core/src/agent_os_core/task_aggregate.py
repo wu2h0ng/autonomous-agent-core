@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from agent_os_contracts import (
     AgentRun,
+    ApprovalDecision,
     Commitment,
     ExpectedOutcome,
     Goal,
@@ -17,6 +18,7 @@ from agent_os_contracts import (
     TaskEventType,
     TaskStatus,
     WorkflowGraph,
+    ObservedOutcome,
 )
 
 from .errors import EventStreamError, InvalidTransitionError, ScopeMismatchError
@@ -33,6 +35,9 @@ class TaskAggregate:
     expected_outcome: ExpectedOutcome | None = None
     run: AgentRun | None = None
     last_event_id: str | None = None
+    observed_outcome: ObservedOutcome | None = None
+    artifacts: tuple[str, ...] = ()
+    approval: ApprovalDecision | None = None
 
     @classmethod
     def create_task(
@@ -171,6 +176,90 @@ class TaskAggregate:
                     sequence=event.sequence,
                     status=TaskStatus.RUNNING,
                     run=run,
+                    approval=self.approval,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.APPROVAL_RECORDED:
+                approval = ApprovalDecision.model_validate(payload["approval"])
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    approval=approval,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type in {
+                TaskEventType.RUN_QUEUED,
+                TaskEventType.NODE_STARTED,
+                TaskEventType.NODE_COMPLETED,
+                TaskEventType.NODE_FAILED,
+                TaskEventType.ACTION_PROPOSED,
+                TaskEventType.CANDIDATES_GENERATED,
+                TaskEventType.PROVIDER_RESPONDED,
+                TaskEventType.POLICY_DECIDED,
+                TaskEventType.ACTION_RECEIPT_RECORDED,
+                TaskEventType.APPROVAL_REQUESTED,
+                TaskEventType.CORRECTION_WRITTEN,
+                TaskEventType.RUN_PAUSED,
+                TaskEventType.RUN_RESUMED,
+                TaskEventType.RUN_CANCELLED,
+                TaskEventType.RUN_SUCCEEDED,
+                TaskEventType.RUN_FAILED,
+            }:
+                if self.run is None:
+                    raise EventStreamError("run event requires an active run")
+                run_payload = payload.get("run")
+                run = AgentRun.model_validate(run_payload) if run_payload else self.run
+                task_status = self.status
+                if event.event_type in {
+                    TaskEventType.RUN_QUEUED,
+                    TaskEventType.RUN_RESUMED,
+                }:
+                    task_status = TaskStatus.RUNNING
+                elif (
+                    event.event_type is TaskEventType.APPROVAL_REQUESTED
+                    and run.status is RunStatus.WAITING_APPROVAL
+                ):
+                    task_status = TaskStatus.WAITING
+                elif event.event_type is TaskEventType.RUN_PAUSED:
+                    task_status = TaskStatus.PAUSED
+                elif event.event_type is TaskEventType.RUN_CANCELLED:
+                    task_status = TaskStatus.CANCELLED
+                elif event.event_type is TaskEventType.RUN_SUCCEEDED:
+                    task_status = TaskStatus.COMPLETED
+                elif event.event_type is TaskEventType.RUN_FAILED:
+                    task_status = TaskStatus.FAILED
+                approval = self.approval
+                if event.event_type is TaskEventType.APPROVAL_RECORDED:
+                    approval = ApprovalDecision.model_validate(payload["approval"])
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    status=task_status,
+                    run=run,
+                    approval=approval,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.OUTCOME_OBSERVED:
+                if self.run is None:
+                    raise EventStreamError("outcome requires an active run")
+                outcome = ObservedOutcome.model_validate(payload["outcome"])
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    observed_outcome=outcome,
+                    status=TaskStatus.VERIFYING,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.ARTIFACT_RECORDED:
+                artifact_id = str(payload["artifact_id"])
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    artifacts=self.artifacts + (artifact_id,),
                     last_event_id=event.event_id,
                 )
         except (KeyError, ValidationError, ScopeMismatchError) as exc:
@@ -206,8 +295,8 @@ class TaskAggregate:
     def _validate_run_bindings(self, run: AgentRun) -> None:
         if self.commitment is None or self.workflow is None or self.expected_outcome is None:
             raise InvalidTransitionError("task is missing committed contracts")
-        if run.status is not RunStatus.RUNNING:
-            raise ScopeMismatchError("RUN_STARTED requires run status RUNNING")
+        if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
+            raise ScopeMismatchError("RUN_STARTED requires run status QUEUED or RUNNING")
         if run.task_id != self.task_id:
             raise ScopeMismatchError("run task binding mismatch")
         if run.commitment_id != self.commitment.commitment_id:
@@ -221,6 +310,8 @@ class TaskAggregate:
             raise ScopeMismatchError("run workflow digest mismatch")
         if run.expected_outcome_id != self.expected_outcome.expected_outcome_id:
             raise ScopeMismatchError("run expected outcome binding mismatch")
+        if run.policy_version != self.workflow.policy_version:
+            raise ScopeMismatchError("run policy version binding mismatch")
         if run.tenant_id != self.commitment.tenant_id:
             raise ScopeMismatchError("run tenant scope mismatch")
         if run.workspace_id != self.commitment.workspace_id:

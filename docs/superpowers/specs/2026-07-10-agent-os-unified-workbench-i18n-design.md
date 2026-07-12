@@ -2,21 +2,29 @@
 
 > Date: 2026-07-10
 > Track: Product
-> Status: Proposed for implementation
+> Status: Founder-approved; P0 static prototype slice implemented and verified locally (production UX packet pending)
+> Prototype verification: 2026-07-11 at 1440x900, 1024x768 German expansion and 390x844 in Browser/IAB
 > Product boundary: Agent OS is the product; Data Agent and other domains are optional capability packs.
 
 ## 1. Decision
 
-Agent OS will not ask users to choose a persona, industry or target object before they can
-work. The primary product model is universal:
+Agent OS uses one shared runtime with three first-class workspace profiles. These profiles
+are context, ownership and governance boundaries rather than separate products or kernels:
 
 ```text
-Space -> Task -> Context -> Plan / Workflow -> Run -> Artifact / Outcome -> Reusable Knowledge
+Account
+  -> Workspace Profile (Personal / Developer / Organization)
+  -> Space / Project
+  -> Interaction Contract (Ask / Work)
+  -> composable ScenePreset
+  -> Task -> Context -> WorkflowGraph -> Run -> Outcome -> Reusable Knowledge
 ```
 
-The interface adapts to the task's context, requested outcome and risk. It does not fork
-into separate personal, developer and enterprise products. Domain packs add capabilities,
-contracts, evaluators and specialized result views without changing top-level navigation.
+The profiles provide suitable defaults for personal work, software development and
+organizational operations while preserving one identity, task model, capability ecosystem
+and execution core. Scene presets reduce cold-start friction inside each profile; they are
+soft, composable, inspectable and versioned. A user can switch profiles, use the generic
+workspace, or modify a preset without adopting a permanent persona.
 
 The first implementation will also add a real internationalization substrate for eight
 launch locales:
@@ -34,8 +42,8 @@ launch locales:
 
 1. **Task first, not chat first.** Conversation is one input method. The durable product
    object is a task with context, execution state and outcome.
-2. **No persona gate.** The same user may code, research, analyze data and automate work in
-   one day. The product learns from the task, not a permanent role label.
+2. **No persona lock.** A user may own personal, developer and organization spaces at the
+   same time. Onboarding selects a default profile but never permanently classifies the user.
 3. **Progressive disclosure.** Simple tasks stay simple. Workflow, authority, budget,
    provider, tool and trace details appear when they affect the current job.
 4. **Evidence over narration.** Completion means a visible artifact, test, citation,
@@ -70,7 +78,23 @@ Primary references:
 
 ## 4. Universal object model
 
-### 4.1 Space
+### 4.1 Workspace profile
+
+Three workspace profiles are first-class product surfaces:
+
+- **Personal:** research, files, content and daily automation; individual ownership and
+  local-first defaults.
+- **Developer:** repositories, branches, terminals, tests, reviews and releases; sandbox,
+  worktree and CI-oriented defaults.
+- **Organization:** enterprise data, approvals, operating decisions, audit and governed
+  automation; tenant, RBAC, separation-of-duty and retention defaults.
+
+Profiles do not duplicate Runtime, Provider, WorkflowGraph, Knowledge, Evidence, Policy or
+UI infrastructure. Cross-profile data movement is explicit and auditable. An organization
+profile is not merely a visual preset because tenant isolation and authority are system
+boundaries.
+
+### 4.2 Space
 
 A Space is a persistent context and authority boundary. It may contain a repository,
 documents, data sources, instructions, provider profiles, tools and knowledge. It is not a
@@ -80,7 +104,33 @@ The first implementation maps the attached local workspace to one `Local Space`.
 not claim a durable multi-Space backend until a typed Space contract and persistence path
 exist.
 
-### 4.2 Task
+### 4.3 Interaction contract
+
+- **Ask** is lightweight and read-only by default. It may inspect and explain available
+  context without creating a durable execution run.
+- **Work** creates a durable task with tools, workflow, artifacts, verification and outcomes.
+- Ask can be promoted to Work while retaining question, citations and selected context.
+
+Ask and Work share identity, history and knowledge boundaries; they are not separate data
+silos or products.
+
+### 4.4 Scene preset
+
+A `ScenePresetManifest` references independently versioned assets rather than embedding a
+monolithic configuration:
+
+```text
+workflow_template_ref + capability_pack_refs + policy_profile_ref
++ knowledge_profile_ref + ontology_seed_ref + evaluation_suite_ref
++ memory_policy_ref + ui_scene_seed_ref
+```
+
+The preset compiler produces an immutable `TaskConfigurationSnapshot`. A preset can narrow
+authority or declare required grants but can never widen effective user, Space or runtime
+authority. Switching a preset during a run creates a validated configuration and GraphPatch
+proposal; it never silently mutates the active WorkflowGraph.
+
+### 4.5 Task
 
 A Task captures:
 
@@ -95,7 +145,7 @@ The first implementation continues to use the existing Goal, Commitment, Workflo
 AgentRun and Outcome contracts. UI labels may be localized; stored enums and contracts may
 not be translated.
 
-### 4.3 Context
+### 4.6 Context
 
 Context is shown as inspectable sources rather than an opaque token bucket. The first
 implementation exposes:
@@ -107,14 +157,14 @@ implementation exposes:
 - available capability count;
 - explicit absence of knowledge sources or external connectors.
 
-### 4.4 Plan and workflow
+### 4.7 Plan and workflow
 
 The task composer shows a concise execution outline before commitment. Advanced users can
 open the workflow representation. Natural-language workflow generation and drag/drop
 editing remain later packets, but the UI reserves one stable `Plan` surface rather than a
 domain-specific builder.
 
-### 4.5 Run and outcome
+### 4.8 Run and outcome
 
 The run view answers, in order:
 
@@ -125,7 +175,7 @@ The run view answers, in order:
 5. What evidence proves the outcome?
 6. What can be retried, corrected, reused or exported?
 
-### 4.6 Generative Workspace scene boundary
+### 4.9 Generative Workspace scene boundary
 
 The stable Agent OS Shell owns identity, authority, task navigation, notifications and
 canonical pause/correct/approve/reject controls. The inner workspace may adapt to the task,
@@ -167,13 +217,16 @@ Scene constraints:
 ### 5.1 Global frame
 
 - Product identity: Agent OS
-- Current Space switcher/status
+- Workspace profile and current Space switcher/status
+- Ask / Work interaction switch
+- current soft scene preset, recommendation source and version
 - New task command
 - Recent and filtered tasks
 - Integrations/settings
 - Locale selector
 
-No personal/developer/enterprise navigation categories are introduced.
+Personal, Developer and Organization appear only in the workspace switcher. They do not
+become three separate global navigation trees or three products.
 
 ### 5.2 Task composer
 
@@ -288,7 +341,7 @@ success from translated prose.
 - make terminal outcomes surface evidence, next action and retry/correction availability;
 - keep current provider-driven patch golden path fully functional.
 
-### P0 prototype: stable Shell plus deterministic scene renderer
+### P0 prototype: stable Shell plus deterministic scene renderer (implemented 2026-07-11)
 
 - create an isolated Chinese static prototype without replacing the PM-accepted runtime
   UI;
@@ -300,6 +353,24 @@ success from translated prose.
 - keep scene data in a structured fixture separate from component rendering;
 - expose the prototype through a standalone static server for browser review;
 - make no runtime, provider, policy, workflow or capability claim from the prototype.
+
+Static-prototype evidence is deliberately narrower than the production P0 sections above:
+
+- `/preview-zh` renders validated deterministic fixture `UISceneSpec` objects through a
+  frozen component registry; it does not accept model-produced markup or callbacks;
+- the stable Shell retains workspace, Ask/Work, pause, correct and concrete-action
+  approval controls while Personal, Developer and Organization reuse the same components;
+- eight browser-local catalogs support live locale switching and persistence; automated
+  structure checks cover every locale option, while Browser/IAB exercised Chinese,
+  English and German directly;
+- Ask-to-Work promotion, evidence inspection, pause/resume, correction and approval were
+  exercised in Browser/IAB with no relevant console errors;
+- 1440x900, 1024x768 German expansion and 390x844 passed without horizontal page
+  overflow; the approval controls remain visible and do not overlap the command dock;
+- Product Track regression is `96 passed, 1 skipped`; Ruff and Pyright are clean.
+
+This evidence does not satisfy the production-shell requirements for modular assets,
+backend locale negotiation, catalog-parity tooling or the live SPINE-0 Task Workspace.
 
 ### P1: product-quality details included in this slice
 

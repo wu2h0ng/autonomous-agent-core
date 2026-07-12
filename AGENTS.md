@@ -18,7 +18,7 @@ Minimal read order for agent handoff:
 
 本仓库是完整 **Agent OS 产品主仓**，采用 Product Track + Research Track 的双轨分层 monorepo。历史目录目前主要承载通用智能机制研究；后续产品应用、包、domain packs 与研究候选在同仓演化，但有严格的真值和依赖边界。
 
-- Product Track = Task Workspace、WorkflowGraph、运行时、provider/BYOK、插件、知识/RAG、agent/subagent、治理、eval、SDK 与 domain packs。
+- Product Track = 统一 Agent Surface、Ask/Work 路由、Task Workspace、WorkflowGraph、运行时、provider/BYOK、插件、知识/RAG、agent/subagent、治理、eval、SDK 与 domain packs。
 - Research Track = CWM、belief/action、belief ledger、outcome learning、corrigibility、形式化模型、预注册实验和负结果。
 - `domain_packs/data_agent` = 目标中的首个企业垂直；现有外部 Data OS 仓只作
   ADR-0054 / SPINE-1 迁移来源。SPINE-0 不依赖 donor；任何阶段都禁止 runtime
@@ -42,6 +42,9 @@ Minimal read order for agent handoff:
 7. **测试按轨分层**:确定性机制用单元测试，研究比较用冻结实验；产品能力必须有真实入口、失败路径、集成测试和端到端验收。任何一层的绿灯不得替代另一层。
 8. **C7 靠隔离而非不可知**:更正/暂停/权限边界必须 non-writable、non-bypassable、可审计；不得把“agent 无法建模 C7”当安全假设。
 9. **凭据和租户数据隔离**:API key、OAuth token、企业敏感数据不得进入 prompt、事件、日志或模型可见记忆；只通过受保护的 `CredentialRef`/broker 使用。
+10. **CWM 非普适默认大脑**:产品使用复数、任务适配的世界模型；CWM 只在变量、干预与结果可识别时作为候选规划/验证器官。Research Track 结果未经产品对照复验不得写成内置产品能力。
+11. **Skill 非内核对象**:第三方 `SkillPackage` 仅为兼容输入，必须拆解为 typed Capability、Workflow/Procedure 候选、Knowledge 依赖与 Policy 要求后再经扫描、测试和发布。核心合同不得授予 Prompt/Skill 名称执行权。
+12. **Agent 表面与权威面分离**:用户面对一个统一 Agent；LLM 是 provider-neutral 概率型语言/推理器官。所有有后果动作仍由 `CapabilityBroker`、确定性 Policy/Disposer 与 non-writable/non-bypassable C7 把关。
 
 ## 3. 命令
 

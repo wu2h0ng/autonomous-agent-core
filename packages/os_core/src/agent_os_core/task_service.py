@@ -12,6 +12,9 @@ from agent_os_contracts import (
     RunStatus,
     TaskStatus,
     WorkflowGraph,
+    TaskEventDraft,
+    TaskEventType,
+    ObservedOutcome,
 )
 
 from .errors import InvalidTransitionError, TaskNotFoundError
@@ -76,7 +79,7 @@ class TaskService:
         )
         return self.get_task(task_id)
 
-    def start_run(self, task_id: str) -> TaskAggregate:
+    def start_run(self, task_id: str, *, provider_profile_id: str = "provider-profile:unbound") -> TaskAggregate:
         aggregate = self.get_task(task_id)
         if aggregate.status is not TaskStatus.COMMITTED:
             raise InvalidTransitionError(
@@ -100,8 +103,10 @@ class TaskService:
             expected_outcome_id=aggregate.expected_outcome.expected_outcome_id,
             tenant_id=aggregate.commitment.tenant_id,
             workspace_id=aggregate.commitment.workspace_id,
-            status=RunStatus.RUNNING,
+            status=RunStatus.QUEUED,
             created_at=self._clock(),
+            provider_profile_id=provider_profile_id,
+            policy_version=aggregate.workflow.policy_version,
         )
         draft = aggregate.start(
             run,
@@ -120,3 +125,80 @@ class TaskService:
         if not events:
             raise TaskNotFoundError(f"task not found: {task_id}")
         return TaskAggregate.rehydrate(events)
+
+    def append_event(
+        self,
+        task_id: str,
+        event_type: TaskEventType,
+        payload: dict[str, object],
+        *,
+        correlation_id: str | None = None,
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        draft = TaskEventDraft.build(
+            event_id=self._id_factory("event"),
+            task_id=task_id,
+            event_type=event_type,
+            payload=payload,
+            occurred_at=self._clock(),
+            correlation_id=correlation_id or task_id,
+            causation_id=aggregate.last_event_id,
+        )
+        self._event_store.append(
+            task_id, expected_sequence=aggregate.sequence, drafts=(draft,)
+        )
+        return self.get_task(task_id)
+
+    def update_run_status(
+        self,
+        task_id: str,
+        status: RunStatus,
+        *,
+        event_type: TaskEventType,
+        active_node_id: str | None = None,
+        lease_fence: int | None = None,
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        if aggregate.run is None:
+            raise InvalidTransitionError("task has no run")
+        allowed: dict[RunStatus, set[RunStatus]] = {
+            RunStatus.CREATED: {RunStatus.QUEUED, RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.QUEUED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.RUNNING: {RunStatus.RUNNING, RunStatus.WAITING_APPROVAL, RunStatus.WAITING_EVENT, RunStatus.PAUSED, RunStatus.VERIFYING, RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED},
+            RunStatus.WAITING_APPROVAL: {RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.CANCELLED, RunStatus.FAILED},
+            RunStatus.WAITING_EVENT: {RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.CANCELLED, RunStatus.FAILED},
+            RunStatus.PAUSED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.VERIFYING: {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.PAUSED},
+            RunStatus.SUCCEEDED: set(),
+            RunStatus.FAILED: {RunStatus.RUNNING, RunStatus.CANCELLED},
+            RunStatus.CANCELLED: set(),
+        }
+        if status not in allowed[aggregate.run.status]:
+            raise InvalidTransitionError(
+                f"cannot move run from {aggregate.run.status.value} to {status.value}"
+            )
+        updates: dict[str, object] = {"status": status, "active_node_id": active_node_id}
+        if lease_fence is not None:
+            updates["lease_fence"] = lease_fence
+        run = aggregate.run.model_copy(update=updates)
+        return self.append_event(
+            task_id,
+            event_type,
+            {"run": run.model_dump(mode="json")},
+            correlation_id=run.run_id,
+        )
+
+    def record_outcome(self, task_id: str, outcome: ObservedOutcome) -> TaskAggregate:
+        return self.append_event(
+            task_id,
+            TaskEventType.OUTCOME_OBSERVED,
+            {"outcome": outcome.model_dump(mode="json")},
+            correlation_id=outcome.run_id,
+        )
+
+    def record_artifact(self, task_id: str, artifact_id: str) -> TaskAggregate:
+        return self.append_event(
+            task_id,
+            TaskEventType.ARTIFACT_RECORDED,
+            {"artifact_id": artifact_id},
+        )

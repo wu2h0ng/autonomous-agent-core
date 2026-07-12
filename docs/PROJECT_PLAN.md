@@ -1,12 +1,18 @@
 # PROJECT_PLAN - autonomous-agent-core
 
-> Last updated: 2026-07-10
+> Last updated: 2026-07-11
 > Status: Active handoff document
 > First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` -> this file -> `codebase_index.md` -> current ADRs.
 
 ## 1. Current Truth
 
-This repository is now the complete Agent OS main monorepo by founder decision. It has a Product Track and a Research Track. The current implementation is still research-heavy; the product blueprint is final, while the market-parity product runtime remains to be built. Research verdicts keep their exact historical meaning and do not establish product delivery.
+This repository is now the complete Agent OS main monorepo by founder decision. It has a Product Track and a Research Track. The current implementation is still research-heavy; SPINE-0 is PM-accepted for the bounded local developer golden path, while market-parity and enterprise-production runtime remain to be built. Research verdicts keep their exact historical meaning and do not establish product delivery.
+
+Blueprint v1.1 and ADR-0055 now bind the product interaction and organ model: one Agent
+Surface, ephemeral `Ask`, durable `Work`, plural task-appropriate world models, optional
+evidence-gated CWM, and no canonical `Skill` kernel object. This is a docs-only definition
+change; the runtime router, preset compiler, WorldModelPort and LearnedProcedure promotion
+remain unimplemented.
 
 Product authority:
 
@@ -28,14 +34,14 @@ product/autonomy claim from these results: NOT_AUTHORIZED
 
 Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
 
-Latest test truth:
+Latest verification truth:
 
 ```text
-PYTHONPATH=src python -m unittest discover -s tests -v
-1237 tests OK (16 skipped in this worktree environment)
+product: 96 passed, 1 skipped; ruff clean; pyright 0 errors
+full regression: 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
 ```
 
-The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. Thirteen skips are intentional sentinels; three additional Replogle preprocessing methods are skipped because optional `anndata/numpy` are not installed in this worktree environment. This suite verifies the reconciled research tree, not Agent OS Product Done.
+The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The full suite verifies the reconciled Product and Research tracks. It does not establish Agent OS Blueprint completion, Codex parity or superiority.
 
 ## 2. Product Track Immediate Task
 
@@ -44,8 +50,8 @@ The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before co
 Status:
 
 ```text
-P0A_CONTRACTS_AND_RUN_KERNEL_IMPLEMENTED_VERIFIED
-SPINE-0 completion: NOT_MET
+SPINE_0_PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
+SPINE-0 completion: MET for bounded local independent-developer golden path
 SPINE-0 donor migration dependency: NONE
 ```
 
@@ -81,41 +87,68 @@ Claude first returned `APPROVE_WITH_REQUIRED_CHANGES`; the required ADR, history
 scope and connector-guarantee changes were applied. Independent remediation re-review
 closed all six findings and returned `APPROVE`.
 
-P0A implemented from the reviewed test-first plan:
+SPINE-0 implemented from the reviewed test-first packets:
 
-- minimum strict immutable `Goal`, `Commitment`, `ExpectedOutcome`, `ObservedOutcome`
-  contract shapes;
-- structural `WorkflowGraph` with stable digest and fail-closed duplicate/endpoint/cycle/
-  terminal/bound validation;
-- typed append-only `TaskEventStore` port and local in-memory adapter;
-- event-rehydrated `TaskAggregate` with `DRAFT -> COMMITTED -> RUNNING` invariants;
-- public `TaskService.create_task/commit_task/start_run/get_task` call path;
-- Product/Research AST import boundary test.
+- strict immutable Goal, Commitment, Workflow, Run, Action, Provider, Capability,
+  Evidence and Outcome contracts;
+- SQLite WAL authority plus PostgreSQL adapter, event replay, lease fencing, idempotency
+  and explicit stale-worker recovery;
+- provider-generated `workspace.apply_patch` proposal compiled into a typed ActionContract,
+  exact-digest approval and policy/permit/broker enforcement before file effects;
+- repository attach boundary, local provider Integration Center, API, CLI and Codex-style
+  Task Workspace with task history, diff, stages, recovery and evidence;
+- real Kimi browser journey from clean workspace to pytest-backed VERIFIED outcome without
+  user-supplied final patch content;
+- malformed provider output and interrupted-worker recovery tests with zero unapproved
+  write effects.
 
-P0A evidence:
+SPINE-0 evidence:
 
 ```text
-python3 -m pytest tests/product -q
-45 passed
+product: 96 passed, 1 skipped
 ruff: All checks passed
 pyright: 0 errors, 0 warnings
-package smoke: separate wheels clean-install/import; aac/envs absent
-Research regression: 1237 OK (16 skipped)
+full regression: 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
+PM Product Acceptance: ACCEPT
 ```
 
-Honest boundary: `InMemoryTaskEventStore` is a port adapter for tests/local composition,
-not process durability. Commitment budget/expiry, explicit outcome failure semantics,
-complete executable-graph semantics, queued durable run coordination, PostgreSQL,
-provider/CredentialRef, PolicyKernel/correction, CapabilityBroker/tools, API/CLI/UI and full
-SPINE-0 acceptance remain `NOT_IMPLEMENTED`.
+Honest boundary: the accepted slice is local, single-workspace and one-file replacement
+with allowlisted pytest. Production KMS/SSO/tenancy, multi-file/general coding-agent
+execution, arbitrary shell/browser control, visual workflow editing, marketplace,
+subagent swarms, CWM/belief promotion and SPINE-1 migration remain `NOT_IMPLEMENTED`.
 
-Next packet: P0B governed capability/provider contracts and negative paths. It must bind
-CredentialRef/ProviderPort, DecisionPolicy vs PolicyKernel, external CorrectionAuthority
-and sandbox capability guarantee classes before any real tool effect.
+Next packet: founder/CTO chooses between SPINE-0 production hardening and ADR-0054-gated
+SPINE-1 migration readiness. PM acceptance does not authorize donor migration.
+
+The next horizontal product packet must also bind `InteractionDecision` before the desktop
+shell or generative UI is treated as a runtime product surface. Its minimum acceptance is:
+
+- direct/read-only `Ask` without Task/Workflow/Outcome creation or durable learning;
+- promotion to `Work` with context continuity when tools, persistence or verification become necessary;
+- deterministic escalation to governed action when an external side effect is proposed;
+- replaceable ScenePreset matching without Prompt/Skill execution authority;
+- explicit persistence and feedback policy plus negative-path tests.
 
 Independent P0A implementation review: Claude Opus initially returned
 `APPROVE_WITH_REQUIRED_CHANGES`; all required packaging, replay-integrity, boundary-test and
 claim-scope findings were remediated. Independent re-review returned `APPROVE`.
+
+Product UX preview: `/preview-zh` now demonstrates one Agent OS with a stable Shell,
+Personal/Developer/Organization workspace profiles, Ask-to-Work context continuity,
+replaceable soft scene presets and deterministic fixture `UISceneSpec` rendering through a
+registered component set. The scene includes metrics, relation hypotheses, evidence,
+Agent/environment state, event replay, concrete-action approval and canonical
+pause/correct controls. Eight browser-local locale catalogs demonstrate live presentation
+switching. This is static product-evaluation state, not evidence of persistent tenancy, a
+preset compiler, model/runtime scene generation, production catalog parity or production
+internationalization.
+
+External product/source study: `docs/product/AGENT-PRODUCT-DESIGN-SOURCE-STUDY-2026-07-10.md`
+finds the next shared bottleneck in typed Workspace/Preset compilation, durable workers,
+environment reproducibility, effect idempotency and outcome verification. Its recommended
+next packet is `P0 Workspace/Preset Contract + Durable Runtime Hardening`; this is a product
+recommendation only and does not supersede the founder/CTO choice between SPINE-0 hardening
+and ADR-0054-gated SPINE-1 readiness.
 
 This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
 

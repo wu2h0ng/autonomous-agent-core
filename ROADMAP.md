@@ -5,23 +5,27 @@
 
 ## Product Track dependency order
 
-1. **T-P-OS-SPINE-0 product spine (P0A implemented, overall NOT DONE):** P0A provides
-   separately installable minimum contracts, structural/canonical WorkflowGraph,
-   event-replayed Task aggregate and public TaskService with an in-memory port adapter.
-   Remaining: contract completion, executable-graph semantics, durable run states,
-   PostgreSQL durability,
-   provider/CredentialRef, typed sandbox tools, baseline policy/correction, public
-   Task Workspace/API/CLI and verified developer outcome. No donor import dependency.
-2. **T-P-OS-SPINE-1 Data Agent migration:** after SPINE-0, execute ADR-0054 full-history
+1. **T-P-OS-SPINE-0 product spine (PM ACCEPT for bounded local developer slice):** ships
+   installable contracts/core, durable local task/run events, PostgreSQL adapter,
+   provider/CredentialRef, typed sandbox tools, policy/correction, API/CLI, Codex-style
+   Task Workspace and a real-provider, pytest-verified one-file outcome. Market parity,
+   production readiness and Blueprint completion remain unestablished. No donor import
+   dependency.
+2. **T-P-OS-INTERACTION-ROUTER-0:** implement the Blueprint v1.1 `InteractionDecision`
+   boundary: ephemeral Ask, durable Work, governed-action escalation, context continuity
+   and replaceable ScenePreset matching. No Skill-name execution authority and no automatic
+   durable learning from a simple answer.
+3. **T-P-OS-SPINE-1 Data Agent migration:** after SPINE-0, execute ADR-0054 full-history
    safety/provenance gates, import approved history, extract generic packages and
    `domain_packs/data_agent`, then pass the shared-spine seam.
-3. **Complete workflows:** natural-language + visual WorkflowGraph editing, expanded
+4. **Complete workflows:** natural-language + visual WorkflowGraph editing, expanded
    developer dogfood and private personal path.
-4. **Operational completeness:** knowledge/context graph, subagents, scheduling, crash
+5. **Operational completeness:** knowledge/context graph, subagents, scheduling, crash
    recovery, approvals, identity/tenancy, eval and operations surfaces.
-5. **Outcome compounding:** belief ledger, verified outcome learning,
+6. **Outcome compounding:** belief ledger, verified outcome learning,
    invalidation/rollback and long-horizon recovery.
-6. **Research promotion:** CWM, G10-like action calibration or other mechanisms only after
+7. **Research promotion:** plural `WorldModelPort` adapters, including CWM where applicable,
+   G10-like action calibration or other mechanisms only after
    a `ResearchCandidateManifest` and held-out product comparison.
 
 The Product Track exits through Product Done, Moat Done and Superior Done as defined in the Blueprint. Stages are dependency-ordered and do not promise calendar dates.

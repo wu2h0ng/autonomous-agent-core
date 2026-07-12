@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Agent OS · 生成式工作空间</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --surface-muted: #f8f9fb;
+      --sidebar: #f7f8fa;
+      --line: #e1e5ea;
+      --line-strong: #ccd3db;
+      --text: #17202a;
+      --muted: #67717f;
+      --subtle: #8b95a3;
+      --blue: #2368d8;
+      --blue-soft: #edf4ff;
+      --green: #198754;
+      --green-soft: #edf8f2;
+      --amber: #a86300;
+      --amber-soft: #fff7e6;
+      --red: #bf3d3d;
+      --red-soft: #fff0f0;
+      --purple: #7557b8;
+      --shadow-menu: 0 14px 40px rgba(24, 32, 42, 0.14);
+      --radius: 6px;
+      --sidebar-width: 248px;
+      --topbar-height: 58px;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-size: 14px;
+      line-height: 1.45;
+      letter-spacing: 0;
+      overflow-x: hidden;
+    }
+    button, input, textarea, select { font: inherit; letter-spacing: 0; }
+    button { color: inherit; }
+    button, select { cursor: pointer; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid rgba(35, 104, 216, 0.34);
+      outline-offset: 2px;
+    }
+    svg { display: block; }
+    .icon { width: 17px; height: 17px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .icon-sm { width: 15px; height: 15px; }
+    .icon-lg { width: 20px; height: 20px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .hidden { display: none !important; }
+
+    .app-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 30;
+      width: var(--sidebar-width);
+      display: flex;
+      flex-direction: column;
+      background: var(--sidebar);
+      border-right: 1px solid var(--line);
+    }
+    .brand-row { height: 58px; display: flex; align-items: center; padding: 0 16px; gap: 10px; }
+    .brand-mark {
+      width: 29px; height: 29px; display: grid; place-items: center;
+      background: #182433; color: #fff; border-radius: 6px; font-weight: 730; font-size: 12px;
+    }
+    .brand-copy { min-width: 0; }
+    .brand-name { font-weight: 700; font-size: 14px; line-height: 1.1; }
+    .brand-edition { margin-top: 3px; color: var(--subtle); font-size: 10px; line-height: 1; text-transform: uppercase; }
+    .mobile-close { display: none; margin-left: auto; }
+
+    .workspace-block { position: relative; padding: 4px 12px 0; }
+    .workspace-trigger {
+      width: 100%; min-height: 50px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 16px;
+      align-items: center; gap: 9px; padding: 7px 8px; border: 1px solid var(--line); border-radius: var(--radius);
+      background: var(--surface); text-align: left;
+    }
+    .workspace-avatar {
+      width: 30px; height: 30px; border-radius: 5px; display: grid; place-items: center;
+      color: #fff; background: var(--blue); font-size: 11px; font-weight: 700;
+    }
+    .workspace-text { min-width: 0; }
+    .workspace-name { display: block; font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .workspace-meta { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .workspace-menu, .language-menu {
+      position: absolute; z-index: 70; background: var(--surface); border: 1px solid var(--line-strong);
+      border-radius: var(--radius); box-shadow: var(--shadow-menu); padding: 5px;
+    }
+    .workspace-menu { top: 60px; left: 12px; right: 12px; }
+    .workspace-option {
+      width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr) 16px; gap: 9px;
+      align-items: center; min-height: 47px; padding: 6px 7px; border: 0; border-radius: 4px; background: transparent; text-align: left;
+    }
+    .workspace-option:hover, .workspace-option[aria-current="true"] { background: var(--surface-muted); }
+    .workspace-option .check { color: var(--blue); visibility: hidden; }
+    .workspace-option[aria-current="true"] .check { visibility: visible; }
+
+    .mode-switch {
+      margin: 10px 12px 8px; padding: 3px; display: grid; grid-template-columns: 1fr 1fr;
+      gap: 3px; background: #e9edf1; border-radius: var(--radius);
+    }
+    .mode-button { min-height: 32px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 620; }
+    .mode-button.active { color: var(--text); background: var(--surface); box-shadow: 0 1px 2px rgba(24, 32, 42, 0.08); }
+    .new-task {
+      margin: 0 12px 9px; min-height: 38px; display: flex; justify-content: center; align-items: center; gap: 8px;
+      border: 1px solid #1c2734; border-radius: var(--radius); background: #1c2734; color: #fff; font-size: 13px; font-weight: 640;
+    }
+
+    .primary-nav { padding: 2px 9px 0; }
+    .nav-item {
+      width: 100%; min-height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 9px;
+      border: 0; border-radius: 5px; background: transparent; color: #4c5765; text-align: left;
+    }
+    .nav-item:hover { background: #eef1f4; color: var(--text); }
+    .nav-item.active { background: #e9eef6; color: #1f57a7; font-weight: 650; }
+    .nav-item .nav-count { margin-left: auto; color: var(--subtle); font-size: 11px; }
+    .nav-section-label { padding: 14px 9px 6px; color: var(--subtle); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+
+    .recent-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 9px; }
+    .task-search-wrap { position: relative; margin: 0 0 5px; }
+    .task-search-wrap .icon { position: absolute; left: 9px; top: 9px; color: var(--subtle); }
+    .task-search {
+      width: 100%; height: 34px; padding: 0 10px 0 31px; border: 1px solid transparent; border-radius: 5px;
+      background: transparent; color: var(--text); font-size: 12px;
+    }
+    .task-search:focus { background: var(--surface); border-color: var(--line-strong); }
+    .recent-task {
+      width: 100%; min-height: 44px; display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 8px;
+      align-items: start; padding: 7px 8px; border: 0; border-radius: 5px; background: transparent; text-align: left;
+    }
+    .recent-task:hover, .recent-task.active { background: #edf0f4; }
+    .task-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--line-strong); }
+    .task-dot.running { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+    .task-dot.waiting { background: #d48817; }
+    .task-dot.done { background: var(--green); }
+    .recent-title { display: block; font-size: 12px; font-weight: 590; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .recent-meta { display: block; margin-top: 3px; color: var(--subtle); font-size: 10px; }
+
+    .sidebar-footer { padding: 9px 12px 12px; border-top: 1px solid var(--line); }
+    .provider-status { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 7px; padding: 6px 4px; color: var(--muted); font-size: 11px; }
+    .provider-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .profile-button { width: 100%; min-height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 5px; border: 0; background: transparent; text-align: left; }
+    .profile-avatar { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: #dfe5ec; color: #475462; font-size: 10px; font-weight: 700; }
+
+    .shell-main { grid-column: 2; min-width: 0; min-height: 100vh; display: flex; flex-direction: column; }
+    .topbar {
+      position: sticky; top: 0; z-index: 25; height: var(--topbar-height); display: flex; align-items: center;
+      gap: 12px; padding: 0 18px; background: rgba(255, 255, 255, 0.96); border-bottom: 1px solid var(--line);
+    }
+    .mobile-menu { display: none; }
+    .top-task { min-width: 0; display: flex; align-items: center; gap: 9px; }
+    .top-task-title { max-width: 380px; font-size: 13px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 25px; padding: 0 8px; border-radius: 999px; color: #2865bb; background: var(--blue-soft); font-size: 11px; font-weight: 620; white-space: nowrap; }
+    .status-chip .pulse { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .top-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .top-separator { width: 1px; height: 24px; margin: 0 3px; background: var(--line); }
+    .toolbar-button {
+      min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 0 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #44505e; font-size: 12px;
+    }
+    .toolbar-button:hover { background: var(--surface-muted); border-color: var(--line); }
+    .toolbar-button.danger { color: var(--red); }
+    .provider-button { color: var(--muted); }
+    .language-wrap { position: relative; }
+    .language-menu { top: 40px; right: 0; width: 184px; }
+    .language-option { width: 100%; min-height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; }
+    .language-option:hover, .language-option[aria-current="true"] { background: var(--surface-muted); }
+    .language-option .locale-code { color: var(--subtle); font-size: 10px; }
+
+    .main-scroll { flex: 1; min-height: 0; }
+    .workspace-surface { width: 100%; max-width: 1660px; margin: 0 auto; padding: 22px 22px 112px; }
+    .task-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: start; margin-bottom: 16px; }
+    .task-kicker { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    .task-title { margin: 0; max-width: 920px; font-size: clamp(22px, 2.2vw, 30px); line-height: 1.2; font-weight: 720; }
+    .task-subtitle { max-width: 850px; margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .task-header-actions { display: flex; align-items: center; gap: 7px; }
+    .secondary-button, .primary-button, .danger-button {
+      min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 0 11px; border-radius: 5px; font-size: 12px; font-weight: 630;
+    }
+    .secondary-button { border: 1px solid var(--line-strong); background: var(--surface); color: #374352; }
+    .secondary-button:hover { background: var(--surface-muted); }
+    .primary-button { border: 1px solid var(--blue); background: var(--blue); color: #fff; }
+    .primary-button:hover { background: #1e5fc8; }
+    .danger-button { border: 1px solid #e3b9b9; background: var(--surface); color: var(--red); }
+    .danger-button:hover { background: var(--red-soft); }
+    .button-quiet { min-height: 31px; padding: 0 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; }
+    .button-quiet:hover { border-color: var(--line); background: var(--surface-muted); color: var(--text); }
+
+    .context-bar {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-height: 42px; margin-bottom: 12px;
+      padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+    }
+    .context-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    .context-chip { min-height: 25px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-muted); color: #475361; font-size: 11px; }
+    .context-chip .context-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+    .context-spacer { flex: 1; }
+    .preset-select { min-height: 28px; max-width: 230px; padding: 0 26px 0 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: #46515f; font-size: 11px; }
+
+    .stage-rail {
+      display: grid; grid-template-columns: repeat(5, minmax(112px, 1fr)); margin-bottom: 12px;
+      border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden;
+    }
+    .stage-item { position: relative; min-height: 54px; display: flex; align-items: center; gap: 9px; padding: 8px 13px; border-right: 1px solid var(--line); }
+    .stage-item:last-child { border-right: 0; }
+    .stage-number { width: 24px; height: 24px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); font-size: 10px; font-weight: 700; }
+    .stage-copy { min-width: 0; }
+    .stage-name { display: block; font-size: 11px; font-weight: 650; white-space: nowrap; }
+    .stage-state { display: block; margin-top: 2px; color: var(--subtle); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stage-item.done .stage-number { border-color: #b7dcc9; background: var(--green-soft); color: var(--green); }
+    .stage-item.active { background: var(--blue-soft); box-shadow: inset 0 -2px 0 var(--blue); }
+    .stage-item.active .stage-number { border-color: var(--blue); background: var(--blue); color: #fff; }
+
+    .scene-grid { display: grid; grid-template-columns: minmax(0, 1fr) 306px; gap: 12px; align-items: start; }
+    .scene-primary { min-width: 0; display: grid; gap: 12px; }
+    .analysis-row { min-width: 0; display: grid; grid-template-columns: minmax(360px, 0.9fr) minmax(430px, 1.1fr); gap: 12px; }
+    .scene-rail { min-width: 0; display: grid; gap: 12px; }
+    .surface-panel { min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+    .panel-header { min-height: 47px; display: flex; align-items: center; gap: 9px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+    .panel-title-group { min-width: 0; }
+    .panel-title { margin: 0; font-size: 12px; font-weight: 700; }
+    .panel-subtitle { margin-top: 2px; color: var(--subtle); font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .panel-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+    .source-ref { display: inline-flex; align-items: center; min-height: 21px; padding: 0 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--subtle); background: var(--surface-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; }
+    .panel-body { min-width: 0; }
+
+    .metrics-grid { display: grid; grid-template-columns: repeat(4, 1fr); border-bottom: 1px solid var(--line); }
+    .metric { min-width: 0; padding: 13px 12px 11px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .metric-label { color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .metric-value { margin-top: 5px; font-size: 19px; line-height: 1.15; font-weight: 720; white-space: nowrap; }
+    .metric-change { margin-top: 5px; display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 9px; }
+    .metric-change.down { color: var(--red); }
+    .metric-change.up { color: var(--green); }
+    .chart-wrap { padding: 12px 13px 10px; }
+    .chart-legend { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; color: var(--subtle); font-size: 9px; }
+    .chart-canvas { width: 100%; height: 138px; overflow: visible; }
+    .chart-grid-line { stroke: #e7eaee; stroke-width: 1; }
+    .chart-area { fill: rgba(35, 104, 216, 0.08); }
+    .chart-line { fill: none; stroke: var(--blue); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    .chart-point { fill: var(--surface); stroke: var(--blue); stroke-width: 1.8; }
+    .chart-label { fill: var(--subtle); font-size: 8px; }
+
+    .graph-toolbar { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; }
+    .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .legend-dot.hypothesis { background: var(--amber); }
+    .legend-line { width: 16px; border-top: 1px dashed var(--subtle); }
+    .graph-canvas { position: relative; min-height: 263px; overflow: hidden; background: #fbfcfd; }
+    .graph-svg { width: 100%; height: 263px; }
+    .graph-edge { fill: none; stroke: #aab4c0; stroke-width: 1.3; }
+    .graph-edge.hypothesis { stroke: #c8821a; stroke-dasharray: 5 4; }
+    .graph-node circle { fill: #fff; stroke: #b9c3cf; stroke-width: 1.4; }
+    .graph-node.verified circle { fill: var(--blue-soft); stroke: var(--blue); }
+    .graph-node.risk circle { fill: var(--amber-soft); stroke: #c8821a; }
+    .graph-node text { fill: #354150; font-size: 10px; font-weight: 620; text-anchor: middle; dominant-baseline: middle; }
+    .graph-note { position: absolute; left: 12px; bottom: 10px; right: 12px; display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-left: 2px solid var(--amber); background: rgba(255, 247, 230, 0.94); color: #714c18; font-size: 9px; }
+
+    .evidence-table-wrap { overflow-x: auto; }
+    .evidence-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    .evidence-table th { height: 34px; padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--subtle); background: var(--surface-muted); font-size: 9px; font-weight: 650; text-align: left; }
+    .evidence-table td { height: 47px; padding: 7px 12px; border-bottom: 1px solid var(--line); font-size: 10px; vertical-align: middle; }
+    .evidence-table tr:last-child td { border-bottom: 0; }
+    .evidence-table tbody tr { cursor: pointer; }
+    .evidence-table tbody tr:hover, .evidence-table tbody tr.selected { background: #f7faff; }
+    .evidence-name { display: block; max-width: 390px; font-weight: 620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .evidence-ref { display: block; margin-top: 2px; color: var(--subtle); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; }
+    .evidence-status { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 9px; font-weight: 630; }
+    .confidence { display: flex; align-items: center; gap: 7px; }
+    .confidence-track { width: 52px; height: 4px; overflow: hidden; border-radius: 2px; background: #e6e9ed; }
+    .confidence-fill { height: 100%; background: var(--green); }
+
+    .agent-list { padding: 2px 12px 5px; }
+    .agent-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 38px; border-bottom: 1px solid #edf0f3; }
+    .agent-row:last-child { border-bottom: 0; }
+    .agent-avatar { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 5px; color: #fff; background: #526172; font-size: 9px; font-weight: 700; }
+    .agent-avatar.main { background: var(--blue); }
+    .agent-avatar.risk { background: var(--amber); }
+    .agent-name { display: block; font-size: 10px; font-weight: 650; }
+    .agent-task { display: block; margin-top: 2px; color: var(--subtle); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .agent-state { color: var(--green); font-size: 8px; font-weight: 650; }
+    .agent-state.waiting { color: var(--amber); }
+    .progress-block { padding: 0 12px 9px; }
+    .progress-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; color: var(--muted); font-size: 9px; }
+    .progress-track { height: 5px; overflow: hidden; border-radius: 3px; background: #e8ebef; }
+    .progress-fill { height: 100%; background: var(--blue); transition: width 180ms ease; }
+
+    .environment-list { padding: 3px 12px 8px; }
+    .environment-row { min-height: 35px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid #edf0f3; }
+    .environment-row:last-child { border-bottom: 0; }
+    .environment-key { color: var(--muted); font-size: 9px; }
+    .environment-value { max-width: 150px; color: #344252; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .environment-value.ready { color: var(--green); font-family: inherit; font-weight: 650; }
+
+    .timeline { padding: 8px 12px 12px; }
+    .timeline-item { position: relative; display: grid; grid-template-columns: 44px 10px minmax(0, 1fr); gap: 6px; min-height: 39px; }
+    .timeline-time { padding-top: 2px; color: var(--subtle); font-size: 8px; }
+    .timeline-marker { position: relative; }
+    .timeline-marker::before { content: ""; position: absolute; left: 4px; top: 7px; bottom: -10px; width: 1px; background: var(--line); }
+    .timeline-item:last-child .timeline-marker::before { display: none; }
+    .timeline-marker::after { content: ""; position: absolute; left: 1px; top: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+    .timeline-item.active .timeline-marker::after { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+    .timeline-copy { padding-bottom: 8px; color: #4c5866; font-size: 9px; line-height: 1.45; }
+    .timeline-copy strong { display: block; margin-bottom: 2px; color: var(--text); font-size: 9px; }
+
+    .approval-panel { border-color: #e5c994; }
+    .approval-panel .panel-header { background: var(--amber-soft); border-bottom-color: #ecd9b4; }
+    .approval-body { padding: 10px 13px 11px; }
+    .approval-action { font-size: 12px; font-weight: 700; }
+    .approval-impact { margin: 5px 0 7px; color: #67583f; font-size: 9px; line-height: 1.5; }
+    .approval-meta { display: grid; gap: 4px; margin-bottom: 8px; padding: 6px 0; border-top: 1px solid #eee3ce; border-bottom: 1px solid #eee3ce; }
+    .approval-meta-row { display: grid; grid-template-columns: 55px minmax(0, 1fr); gap: 8px; font-size: 8px; }
+    .approval-meta-row span:first-child { color: var(--subtle); }
+    .approval-meta-row span:last-child { color: #4b4437; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .approval-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .approval-result { min-height: 34px; display: flex; align-items: center; gap: 7px; padding: 0 9px; border-radius: 4px; font-size: 10px; font-weight: 650; }
+    .approval-result.approved { color: var(--green); background: var(--green-soft); }
+    .approval-result.rejected { color: var(--red); background: var(--red-soft); }
+
+    .command-dock {
+      position: fixed; z-index: 20; left: calc(var(--sidebar-width) + 22px); right: 22px; bottom: 14px;
+      max-width: 1160px; margin: 0 auto; padding: 7px; border: 1px solid var(--line-strong); border-radius: 7px;
+      background: rgba(255, 255, 255, 0.97); box-shadow: 0 10px 30px rgba(25, 35, 48, 0.13);
+    }
+    .command-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 7px; align-items: end; }
+    .command-context { align-self: center; display: inline-flex; align-items: center; gap: 5px; min-height: 31px; padding: 0 7px; border-right: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+    .command-input { width: 100%; min-height: 34px; max-height: 88px; resize: vertical; padding: 8px 5px 5px; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 12px; line-height: 1.4; }
+    .command-submit { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 5px; background: var(--blue); color: #fff; }
+    .command-submit:hover { background: #1e5fc8; }
+    .command-suggestions { display: flex; gap: 5px; margin: 4px 41px 0 77px; overflow-x: auto; scrollbar-width: none; }
+    .command-suggestions::-webkit-scrollbar { display: none; }
+    .suggestion { flex: 0 0 auto; min-height: 23px; padding: 0 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-muted); color: var(--muted); font-size: 9px; }
+    .suggestion:hover { border-color: var(--line-strong); color: var(--text); }
+
+    .ask-surface { display: none; max-width: 880px; margin: 28px auto 0; padding: 10px 8px 140px; }
+    .ask-surface.active { display: block; }
+    .ask-heading { margin: 0; font-size: 26px; font-weight: 720; }
+    .ask-copy { margin: 7px 0 20px; color: var(--muted); font-size: 13px; }
+    .ask-composer { padding: 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); }
+    .ask-composer textarea { width: 100%; min-height: 94px; resize: vertical; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 15px; line-height: 1.55; }
+    .ask-composer-footer { display: flex; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .ask-hint { color: var(--subtle); font-size: 10px; }
+    .ask-submit { margin-left: auto; }
+    .ask-suggestions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 16px; }
+    .ask-suggestion { min-height: 78px; padding: 11px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: left; }
+    .ask-suggestion:hover { border-color: var(--line-strong); background: #fbfcfd; }
+    .ask-suggestion strong { display: block; margin-bottom: 5px; font-size: 11px; }
+    .ask-suggestion span { color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .ask-result { display: none; margin-top: 18px; padding-top: 17px; border-top: 1px solid var(--line); }
+    .ask-result.visible { display: block; }
+    .ask-answer { color: #354251; font-size: 13px; line-height: 1.65; }
+    .ask-source-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+
+    .drawer-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(18, 26, 36, 0.18); }
+    .drawer {
+      position: fixed; z-index: 90; top: 0; right: 0; bottom: 0; width: min(430px, 94vw); display: flex; flex-direction: column;
+      background: var(--surface); border-left: 1px solid var(--line-strong); box-shadow: -16px 0 45px rgba(25, 35, 48, 0.15);
+    }
+    .drawer-header { min-height: 59px; display: flex; align-items: center; gap: 9px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+    .drawer-title { font-size: 13px; font-weight: 700; }
+    .drawer-close { margin-left: auto; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; }
+    .drawer-close:hover { background: var(--surface-muted); }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 17px; }
+    .drawer-section { margin-bottom: 20px; }
+    .drawer-label { margin-bottom: 6px; color: var(--subtle); font-size: 9px; font-weight: 680; text-transform: uppercase; }
+    .drawer-value { color: #344150; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .drawer-code { padding: 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-muted); color: #3b4857; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+    .drawer-footer { padding: 12px 16px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
+    .correction-input { width: 100%; min-height: 150px; padding: 10px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--text); background: var(--surface); line-height: 1.55; }
+
+    .toast {
+      position: fixed; z-index: 120; left: 50%; bottom: 104px; transform: translateX(-50%); max-width: min(520px, calc(100vw - 32px));
+      min-height: 38px; display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid #c8d2de;
+      border-radius: 5px; background: #263342; color: #fff; box-shadow: var(--shadow-menu); font-size: 11px;
+    }
+    .empty-state { padding: 30px 18px; color: var(--muted); text-align: center; font-size: 11px; }
+
+    @media (max-width: 1260px) {
+      .analysis-row { grid-template-columns: 1fr; }
+      .metrics-grid { grid-template-columns: repeat(4, 1fr); }
+      .graph-canvas, .graph-svg { min-height: 290px; height: 290px; }
+      .provider-button span { display: none; }
+    }
+    @media (max-width: 1030px) {
+      .scene-grid { grid-template-columns: 1fr; }
+      .scene-rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .approval-panel { grid-column: span 2; }
+      .command-dock { max-width: none; }
+    }
+    @media (max-width: 820px) {
+      :root { --sidebar-width: 0px; }
+      .app-shell { display: block; }
+      .sidebar { width: 264px; transform: translateX(-102%); transition: transform 170ms ease; box-shadow: 14px 0 40px rgba(25, 35, 48, 0.16); }
+      .sidebar.open { transform: translateX(0); }
+      .mobile-close, .mobile-menu { display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 5px; background: transparent; }
+      .mobile-menu:hover, .mobile-close:hover { background: var(--surface-muted); }
+      .shell-main { min-height: 100vh; }
+      .topbar { padding: 0 10px; }
+      .top-task-title { max-width: 230px; }
+      .toolbar-button span.toolbar-label { display: none; }
+      .workspace-surface { padding: 18px 14px 112px; }
+      .task-header { grid-template-columns: 1fr; gap: 11px; }
+      .task-header-actions { justify-content: flex-start; }
+      .stage-rail { overflow-x: auto; grid-template-columns: repeat(5, 146px); }
+      .command-dock { left: 12px; right: 12px; bottom: 10px; }
+    }
+    @media (max-width: 620px) {
+      .top-task-title, .provider-button, .top-separator { display: none; }
+      .status-chip { max-width: 98px; overflow: hidden; text-overflow: ellipsis; }
+      .toolbar-button { width: 34px; padding: 0; }
+      .language-wrap .toolbar-button { width: auto; min-width: 48px; padding: 0 7px; }
+      .task-title { font-size: 23px; }
+      .task-header-actions { width: 100%; }
+      .task-header-actions .secondary-button { flex: 1; }
+      .context-spacer { display: none; }
+      .context-bar { align-items: flex-start; }
+      .preset-select { width: 100%; max-width: none; }
+      .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+      .metric:nth-child(2) { border-right: 0; }
+      .metric:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+      .scene-rail { grid-template-columns: 1fr; }
+      .approval-panel { grid-column: auto; }
+      .ask-suggestions { grid-template-columns: 1fr; }
+      .command-context { display: none; }
+      .command-row { grid-template-columns: minmax(0, 1fr) auto; }
+      .command-suggestions { margin-left: 5px; margin-right: 40px; }
+      .graph-canvas, .graph-svg { min-height: 250px; height: 250px; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="sr-only" aria-hidden="true">
+    <defs>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-tasks" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></symbol>
+      <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h4a4 4 0 0 1 4 4v5"/></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 5.5v14"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol>
+      <symbol id="i-correct" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+      <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4"/></symbol>
+      <symbol id="i-context" viewBox="0 0 24 24"><path d="M3 7h18M6 3v4M18 3v4M5 11h5v5H5zM14 11h5M14 15h5M5 20h14"/></symbol>
+      <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16M7 12h10M10 19h4"/></symbol>
+      <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9"/><path d="M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6"/></symbol>
+      <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 5v14"/></symbol>
+      <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="m19 12-7 7-7-7M12 19V5"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4zM22 2 11 13"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12"/><circle cx="12" cy="12" r="2.5"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Agent OS">
+      <div class="brand-row">
+        <div class="brand-mark">AO</div>
+        <div class="brand-copy">
+          <div class="brand-name">Agent OS</div>
+          <div class="brand-edition" data-i18n="edition">Adaptive workspace</div>
+        </div>
+        <button class="mobile-close" type="button" data-action="close-mobile-menu" aria-label="关闭菜单">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <div class="workspace-block" data-testid="workspace-switcher">
+        <button class="workspace-trigger" id="workspace-trigger" type="button" data-action="toggle-workspace-menu" aria-haspopup="menu" aria-expanded="false">
+          <span class="workspace-avatar" id="workspace-avatar">ORG</span>
+          <span class="workspace-text">
+            <span class="workspace-name" id="workspace-name">组织空间</span>
+            <span class="workspace-meta" id="workspace-meta">Northstar 运营</span>
+          </span>
+          <svg class="icon icon-sm"><use href="#i-chevron-down"/></svg>
+        </button>
+        <div class="workspace-menu hidden" id="workspace-menu" role="menu">
+          <button class="workspace-option" type="button" role="menuitem" data-action="switch-workspace" data-profile="personal">
+            <span class="workspace-avatar" style="background:#7557b8">ME</span>
+            <span class="workspace-text"><span class="workspace-name" data-i18n="personalSpace">个人空间</span><span class="workspace-meta" data-i18n="personalMeta">研究、文件与日常自动化</span></span>
+            <svg class="icon icon-sm check"><use href="#i-check"/></svg>
+          </button>
+          <button class="workspace-option" type="button" role="menuitem" data-action="switch-workspace" data-profile="developer">
+            <span class="workspace-avatar" style="background:#435466">DEV</span>
+            <span class="workspace-text"><span class="workspace-name" data-i18n="developerSpace">开发空间</span><span class="workspace-meta" data-i18n="developerMeta">代码、测试与发布</span></span>
+            <svg class="icon icon-sm check"><use href="#i-check"/></svg>
+          </button>
+          <button class="workspace-option" type="button" role="menuitem" data-action="switch-workspace" data-profile="organization" aria-current="true">
+            <span class="workspace-avatar">ORG</span>
+            <span class="workspace-text"><span class="workspace-name" data-i18n="organizationSpace">组织空间</span><span class="workspace-meta" data-i18n="organizationMeta">数据、决策与受控运营</span></span>
+            <svg class="icon icon-sm check"><use href="#i-check"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="mode-switch" data-testid="interaction-mode" aria-label="交互模式">
+        <button class="mode-button" type="button" data-action="switch-mode" data-mode="ask">Ask</button>
+        <button class="mode-button active" type="button" data-action="switch-mode" data-mode="work">Work</button>
+      </div>
+      <button class="new-task" type="button" data-action="create-task">
+        <svg class="icon"><use href="#i-plus"/></svg><span data-i18n="newTask">新建任务</span>
+      </button>
+
+      <nav class="primary-nav" aria-label="主导航">
+        <button class="nav-item active" type="button" data-nav="tasks" aria-current="page"><svg class="icon"><use href="#i-tasks"/></svg><span data-i18n="tasks">任务</span><span class="nav-count">4</span></button>
+        <button class="nav-item" type="button" data-nav="workflows"><svg class="icon"><use href="#i-workflow"/></svg><span data-i18n="workflows">工作流</span></button>
+        <button class="nav-item" type="button" data-nav="knowledge"><svg class="icon"><use href="#i-book"/></svg><span data-i18n="knowledge">知识</span></button>
+        <button class="nav-item" type="button" data-nav="automations"><svg class="icon"><use href="#i-clock"/></svg><span data-i18n="automations">自动化</span></button>
+      </nav>
+
+      <div class="nav-section-label" data-i18n="recentTasks">最近任务</div>
+      <div class="recent-list">
+        <div class="task-search-wrap">
+          <svg class="icon icon-sm"><use href="#i-search"/></svg>
+          <input class="task-search" data-testid="task-search" id="task-search" type="search" data-i18n-placeholder="searchTasks" placeholder="搜索任务">
+        </div>
+        <div id="recent-tasks"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="provider-status"><span class="provider-dot"></span><span data-i18n="providerReady">Provider 已连接</span><span>Kimi K2</span></div>
+        <button class="profile-button" type="button"><span class="profile-avatar">MI</span><span class="workspace-text"><span class="workspace-name">Mima</span><span class="workspace-meta" data-i18n="localPrototype">本地原型</span></span></button>
+      </div>
+    </aside>
+
+    <main class="shell-main">
+      <header class="topbar">
+        <button class="mobile-menu" type="button" data-action="open-mobile-menu" aria-label="打开菜单"><svg class="icon"><use href="#i-menu"/></svg></button>
+        <div class="top-task">
+          <span class="top-task-title" id="top-task-title">诊断本月利润下降原因</span>
+          <span class="status-chip" id="run-status"><span class="pulse"></span><span data-i18n="running">运行中</span></span>
+        </div>
+        <div class="top-actions">
+          <button class="toolbar-button provider-button" type="button" data-action="show-environment"><svg class="icon"><use href="#i-shield"/></svg><span>Kimi K2 · <span data-i18n="governed">受控</span></span></button>
+          <span class="top-separator"></span>
+          <button class="toolbar-button danger" type="button" data-action="pause-run" title="暂停任务"><svg class="icon"><use id="pause-icon-use" href="#i-pause"/></svg><span class="toolbar-label" id="pause-label" data-i18n="pause">暂停</span></button>
+          <button class="toolbar-button" type="button" data-action="correct-run" title="纠正任务"><svg class="icon"><use href="#i-correct"/></svg><span class="toolbar-label" data-i18n="correct">纠正</span></button>
+          <button class="toolbar-button" type="button" data-action="share-task" title="共享"><svg class="icon"><use href="#i-share"/></svg></button>
+          <div class="language-wrap">
+            <button class="toolbar-button" type="button" data-action="toggle-language-menu" aria-haspopup="menu" aria-expanded="false"><svg class="icon"><use href="#i-globe"/></svg><span id="locale-label">简中</span></button>
+            <div class="language-menu hidden" id="language-menu" data-testid="language-menu" role="menu">
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="zh-CN" aria-current="true"><span>简体中文</span><span class="locale-code">ZH-CN</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="zh-TW"><span>繁體中文</span><span class="locale-code">ZH-TW</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="en"><span>English</span><span class="locale-code">EN</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="ja"><span>日本語</span><span class="locale-code">JA</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="ko"><span>한국어</span><span class="locale-code">KO</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="es"><span>Español</span><span class="locale-code">ES</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="fr"><span>Français</span><span class="locale-code">FR</span></button>
+              <button class="language-option" type="button" role="menuitem" data-action="switch-locale" data-locale="de"><span>Deutsch</span><span class="locale-code">DE</span></button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="main-scroll">
+        <section class="workspace-surface" id="work-surface" data-scene-source="fixture">
+          <header class="task-header">
+            <div>
+              <div class="task-kicker"><span data-i18n="workTask">Work · 持久任务</span> · <span id="task-id">TASK-1048</span></div>
+              <h1 class="task-title" id="task-title">诊断本月利润下降原因</h1>
+              <p class="task-subtitle" id="task-subtitle">汇总业务指标、验证关键假设，并在证据充分后提出可审批的运营动作。</p>
+            </div>
+            <div class="task-header-actions">
+              <button class="secondary-button" type="button" data-action="open-trace"><svg class="icon icon-sm"><use href="#i-eye"/></svg><span data-i18n="trace">追踪</span></button>
+              <button class="secondary-button" type="button" data-action="export-outcome"><svg class="icon icon-sm"><use href="#i-external"/></svg><span data-i18n="outcome">成果</span></button>
+            </div>
+          </header>
+
+          <div class="context-bar" data-testid="context-bar">
+            <span class="context-label"><svg class="icon icon-sm"><use href="#i-context"/></svg><span data-i18n="context">上下文</span></span>
+            <div id="context-chips" style="display:contents"></div>
+            <span class="context-spacer"></span>
+            <label class="sr-only" for="preset-select">场景预设</label>
+            <select class="preset-select" id="preset-select" data-testid="scene-preset" data-action="change-preset" aria-label="场景预设"></select>
+          </div>
+
+          <div class="stage-rail" data-testid="scene-stage-rail" id="stage-rail" aria-label="任务阶段"></div>
+
+          <div class="scene-grid">
+            <div class="scene-primary">
+              <div class="analysis-row">
+                <section class="surface-panel" data-testid="scene-metrics" data-scene-slot="metrics"></section>
+                <section class="surface-panel" data-testid="scene-graph" data-scene-slot="graph"></section>
+              </div>
+              <section class="surface-panel" data-testid="evidence-table" data-scene-slot="evidence"></section>
+            </div>
+            <aside class="scene-rail" aria-label="任务控制与状态">
+              <section class="surface-panel" data-testid="agent-topology" data-scene-slot="agents"></section>
+              <section class="surface-panel approval-panel" data-testid="approval-card" data-scene-slot="approval"></section>
+              <section class="surface-panel" data-testid="environment-status" data-scene-slot="environment"></section>
+              <section class="surface-panel" data-testid="event-timeline" data-scene-slot="timeline"></section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="ask-surface" id="ask-surface">
+          <h1 class="ask-heading" data-i18n="askHeading">从当前空间开始提问</h1>
+          <p class="ask-copy" data-i18n="askCopy">Ask 默认只读。需要工具、后台执行或可验证交付物时，可保留上下文升级为 Work。</p>
+          <div class="ask-composer">
+            <textarea id="ask-input" data-i18n-placeholder="askPlaceholder" placeholder="询问文档、数据、代码或当前任务…"></textarea>
+            <div class="ask-composer-footer">
+              <span class="ask-hint" id="ask-context-hint">Northstar 运营 · 6 个只读来源</span>
+              <button class="primary-button ask-submit" type="button" data-action="submit-ask"><svg class="icon icon-sm"><use href="#i-send"/></svg><span data-i18n="askAction">提问</span></button>
+            </div>
+          </div>
+          <div class="ask-suggestions" id="ask-suggestions"></div>
+          <div class="ask-result" id="ask-result" aria-live="polite">
+            <div class="ask-answer" id="ask-answer"></div>
+            <div class="ask-source-list" id="ask-sources"></div>
+            <button class="secondary-button" type="button" data-action="promote-to-work"><svg class="icon icon-sm"><use href="#i-workflow"/></svg><span data-i18n="promoteWork">保留上下文，升级为 Work</span></button>
+          </div>
+        </section>
+      </div>
+
+      <div class="command-dock" data-testid="command-bar" id="command-dock">
+        <div class="command-row">
+          <span class="command-context"><svg class="icon icon-sm"><use href="#i-context"/></svg><span data-i18n="currentScene">当前场景</span></span>
+          <textarea class="command-input" id="command-input" rows="1" data-i18n-placeholder="commandPlaceholder" placeholder="指向当前结果继续工作，例如：深入分析复购率下降…"></textarea>
+          <button class="command-submit" type="button" data-action="submit-command" aria-label="发送指令"><svg class="icon"><use href="#i-send"/></svg></button>
+        </div>
+        <div class="command-suggestions" id="command-suggestions"></div>
+      </div>
+    </main>
+  </div>
+
+  <div class="drawer-backdrop hidden" id="drawer-backdrop" data-action="close-drawer"></div>
+  <aside class="drawer hidden" id="evidence-drawer" aria-modal="true" role="dialog" aria-labelledby="evidence-drawer-title">
+    <div class="drawer-header"><svg class="icon"><use href="#i-eye"/></svg><span class="drawer-title" id="evidence-drawer-title" data-i18n="evidenceDetail">证据详情</span><button class="drawer-close" type="button" data-action="close-drawer" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
+    <div class="drawer-body" id="evidence-drawer-body"></div>
+    <div class="drawer-footer"><button class="secondary-button" type="button" data-action="copy-evidence"><svg class="icon icon-sm"><use href="#i-copy"/></svg><span data-i18n="copyReference">复制引用</span></button><button class="primary-button" type="button" data-action="close-drawer" data-i18n="done">完成</button></div>
+  </aside>
+  <aside class="drawer hidden" id="correction-drawer" aria-modal="true" role="dialog" aria-labelledby="correction-title">
+    <div class="drawer-header"><svg class="icon"><use href="#i-correct"/></svg><span class="drawer-title" id="correction-title" data-i18n="correctTask">纠正当前任务</span><button class="drawer-close" type="button" data-action="close-drawer" aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button></div>
+    <div class="drawer-body">
+      <div class="drawer-section"><div class="drawer-label" data-i18n="correctionEffect">纠正将产生什么</div><div class="drawer-value" data-i18n="correctionCopy">系统会记录一条 InteractionIntent，并生成可检查的计划变更；不会静默覆盖现有证据或权限。</div></div>
+      <label class="drawer-label" for="correction-input" data-i18n="correctionLabel">纠正内容</label>
+      <textarea class="correction-input" id="correction-input" data-i18n-placeholder="correctionPlaceholder" placeholder="例如：排除一次性促销订单，并把分析窗口改为最近 90 天。"></textarea>
+    </div>
+    <div class="drawer-footer"><button class="secondary-button" type="button" data-action="close-drawer" data-i18n="cancel">取消</button><button class="primary-button" type="button" data-action="apply-correction"><svg class="icon icon-sm"><use href="#i-check"/></svg><span data-i18n="applyCorrection">提交纠正</span></button></div>
+  </aside>
+
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+  <div class="sr-only" id="announcer" aria-live="polite"></div>
+
+  <script>
+    const localeNames = {
+      "zh-CN": "简中", "zh-TW": "繁中", en: "EN", ja: "日本語", ko: "한국어", es: "ES", fr: "FR", de: "DE"
+    };
+
+    const catalogs = {
+      "zh-CN": {
+        edition: "生成式工作空间", personalSpace: "个人空间", developerSpace: "开发空间", organizationSpace: "组织空间",
+        personalMeta: "研究、文件与日常自动化", developerMeta: "代码、测试与发布", organizationMeta: "数据、决策与受控运营",
+        newTask: "新建任务", tasks: "任务", workflows: "工作流", knowledge: "知识", automations: "自动化", recentTasks: "最近任务", searchTasks: "搜索任务",
+        providerReady: "Provider 已连接", localPrototype: "本地原型", running: "运行中", paused: "已暂停", governed: "受控", pause: "暂停", resume: "继续", correct: "纠正",
+        workTask: "Work · 持久任务", trace: "追踪", outcome: "成果", context: "上下文", scenePreset: "场景预设", currentScene: "当前场景",
+        metrics: "关键指标", metricSubtitle: "相对上月与基线的变化", relationGraph: "关系与假设", graphSubtitle: "已验证关系与待证伪假设", evidence: "证据", evidenceSubtitle: "支持当前判断的可追溯来源",
+        agents: "Agent 协作", agentsSubtitle: "由任务依赖触发，不按角色堆叠", environment: "运行环境", environmentSubtitle: "执行前冻结的环境快照", timeline: "事件时间线", timelineSubtitle: "可回放的任务状态变化",
+        approval: "需要你的审批", approvalSubtitle: "权限只绑定到这项具体动作", approve: "批准", reject: "拒绝", approved: "已批准，等待受控执行", rejected: "已拒绝，不会执行",
+        source: "来源", freshness: "新鲜度", confidenceLabel: "置信度", status: "状态", verified: "已验证", inspect: "查看", overallProgress: "整体进度", complete: "完成",
+        askHeading: "从当前空间开始提问", askCopy: "Ask 默认只读。需要工具、后台执行或可验证交付物时，可保留上下文升级为 Work。", askPlaceholder: "询问文档、数据、代码或当前任务…", askAction: "提问",
+        promoteWork: "保留上下文，升级为 Work", commandPlaceholder: "指向当前结果继续工作，例如：深入分析复购率下降…", evidenceDetail: "证据详情", copyReference: "复制引用", done: "完成",
+        correctTask: "纠正当前任务", correctionEffect: "纠正将产生什么", correctionCopy: "系统会记录一条 InteractionIntent，并生成可检查的计划变更；不会静默覆盖现有证据或权限。", correctionLabel: "纠正内容", correctionPlaceholder: "例如：排除一次性促销订单，并把分析窗口改为最近 90 天。", cancel: "取消", applyCorrection: "提交纠正",
+        orgTask: "诊断本月利润下降原因", orgSubtitle: "汇总业务指标、验证关键假设，并在证据充分后提出可审批的运营动作。",
+        devTask: "修复结算重试导致的重复扣款", devSubtitle: "定位并复现缺陷，生成最小补丁，完成测试与发布前审查。",
+        personalTask: "整理访谈资料并形成研究结论", personalSubtitle: "读取本地文件，聚类主题，标记证据，并生成可继续编辑的研究简报。",
+        understand: "理解目标", gather: "收集证据", hypothesize: "形成假设", verifyStage: "验证判断", decide: "决策与交付", doneState: "已完成", activeState: "进行中", pendingState: "待处理", waitingState: "等待审批",
+        environmentReady: "环境就绪", snapshot: "快照", provider: "Provider", dataMount: "数据挂载", policy: "策略", verifier: "验证器",
+        askReadOnly: "只读来源", noMatches: "没有匹配的任务", fixtureNotice: "静态原型：InteractionIntent 已记录，未调用真实运行时。"
+      },
+      "zh-TW": {
+        edition: "生成式工作空間", personalSpace: "個人空間", developerSpace: "開發空間", organizationSpace: "組織空間",
+        personalMeta: "研究、檔案與日常自動化", developerMeta: "程式碼、測試與發布", organizationMeta: "資料、決策與受控營運",
+        newTask: "新增任務", tasks: "任務", workflows: "工作流程", knowledge: "知識", automations: "自動化", recentTasks: "最近任務", searchTasks: "搜尋任務",
+        providerReady: "Provider 已連線", localPrototype: "本機原型", running: "執行中", paused: "已暫停", governed: "受控", pause: "暫停", resume: "繼續", correct: "修正",
+        workTask: "Work · 持久任務", trace: "追蹤", outcome: "成果", context: "上下文", currentScene: "目前場景",
+        metrics: "關鍵指標", metricSubtitle: "相對上月與基準的變化", relationGraph: "關係與假設", graphSubtitle: "已驗證關係與待證偽假設", evidence: "證據", evidenceSubtitle: "支援目前判斷的可追溯來源",
+        agents: "Agent 協作", agentsSubtitle: "由任務依賴觸發，不按角色堆疊", environment: "執行環境", environmentSubtitle: "執行前凍結的環境快照", timeline: "事件時間軸", timelineSubtitle: "可回放的任務狀態變化",
+        approval: "需要你的核准", approvalSubtitle: "權限只綁定到這項具體動作", approve: "核准", reject: "拒絕", approved: "已核准，等待受控執行", rejected: "已拒絕，不會執行",
+        source: "來源", freshness: "新鮮度", confidenceLabel: "信心度", status: "狀態", verified: "已驗證", inspect: "查看", overallProgress: "整體進度", complete: "完成",
+        askHeading: "從目前空間開始提問", askCopy: "Ask 預設唯讀。需要工具、背景執行或可驗證交付物時，可保留上下文升級為 Work。", askPlaceholder: "詢問文件、資料、程式碼或目前任務…", askAction: "提問",
+        promoteWork: "保留上下文，升級為 Work", commandPlaceholder: "針對目前結果繼續工作…", evidenceDetail: "證據詳情", copyReference: "複製引用", done: "完成",
+        correctTask: "修正目前任務", correctionEffect: "修正將產生什麼", correctionCopy: "系統會記錄 InteractionIntent 並產生可檢查的計畫變更，不會靜默覆蓋證據或權限。", correctionLabel: "修正內容", correctionPlaceholder: "例如：排除一次性促銷訂單。", cancel: "取消", applyCorrection: "提交修正",
+        orgTask: "診斷本月利潤下降原因", orgSubtitle: "彙總業務指標、驗證關鍵假設，並提出可核准的營運動作。", devTask: "修復重試造成的重複扣款", devSubtitle: "定位缺陷、產生最小修補並完成測試與審查。", personalTask: "整理訪談資料並形成研究結論", personalSubtitle: "讀取本機檔案、聚類主題、標記證據並產生研究簡報。",
+        understand: "理解目標", gather: "收集證據", hypothesize: "形成假設", verifyStage: "驗證判斷", decide: "決策與交付", doneState: "已完成", activeState: "進行中", pendingState: "待處理", waitingState: "等待核准", environmentReady: "環境就緒", snapshot: "快照", provider: "Provider", dataMount: "資料掛載", policy: "策略", verifier: "驗證器", askReadOnly: "唯讀來源", noMatches: "沒有相符任務", fixtureNotice: "靜態原型：已記錄 InteractionIntent，未呼叫真實執行階段。"
+      },
+      en: {
+        edition: "Generative workspace", personalSpace: "Personal", developerSpace: "Developer", organizationSpace: "Organization", personalMeta: "Research, files and daily automation", developerMeta: "Code, tests and releases", organizationMeta: "Data, decisions and governed operations",
+        newTask: "New task", tasks: "Tasks", workflows: "Workflows", knowledge: "Knowledge", automations: "Automations", recentTasks: "Recent tasks", searchTasks: "Search tasks", providerReady: "Provider connected", localPrototype: "Local prototype",
+        running: "Running", paused: "Paused", governed: "Governed", pause: "Pause", resume: "Resume", correct: "Correct", workTask: "Work · Durable task", trace: "Trace", outcome: "Outcome", context: "Context", currentScene: "Current scene",
+        metrics: "Key metrics", metricSubtitle: "Change against last month and baseline", relationGraph: "Relations and hypotheses", graphSubtitle: "Verified links and falsifiable hypotheses", evidence: "Evidence", evidenceSubtitle: "Traceable sources supporting the current judgment",
+        agents: "Agent coordination", agentsSubtitle: "Spawned by task dependencies, not role theater", environment: "Environment", environmentSubtitle: "Frozen execution snapshot", timeline: "Event timeline", timelineSubtitle: "Replayable task state changes",
+        approval: "Your approval is required", approvalSubtitle: "Authority is bound to this specific action", approve: "Approve", reject: "Reject", approved: "Approved, awaiting governed execution", rejected: "Rejected; no action will run",
+        source: "Source", freshness: "Freshness", confidenceLabel: "Confidence", status: "Status", verified: "Verified", inspect: "Inspect", overallProgress: "Overall progress", complete: "Complete",
+        askHeading: "Ask from this workspace", askCopy: "Ask is read-only by default. Promote to Work with context intact when you need tools, background execution, or a verified deliverable.", askPlaceholder: "Ask about documents, data, code, or the current task…", askAction: "Ask",
+        promoteWork: "Keep context and promote to Work", commandPlaceholder: "Continue from the current result, e.g. investigate retention…", evidenceDetail: "Evidence detail", copyReference: "Copy reference", done: "Done",
+        correctTask: "Correct this task", correctionEffect: "What correction creates", correctionCopy: "The system records an InteractionIntent and proposes an inspectable plan change. It never silently overwrites evidence or authority.", correctionLabel: "Correction", correctionPlaceholder: "Example: exclude one-off promotion orders and use a 90-day window.", cancel: "Cancel", applyCorrection: "Submit correction",
+        orgTask: "Diagnose this month's profit decline", orgSubtitle: "Combine operating metrics, test key hypotheses, and propose an approvable action once evidence is sufficient.", devTask: "Fix duplicate charges caused by settlement retries", devSubtitle: "Reproduce the defect, create a minimal patch, run tests, and complete release review.", personalTask: "Synthesize interview notes into research findings", personalSubtitle: "Read local files, cluster themes, bind evidence, and produce an editable brief.",
+        understand: "Understand", gather: "Gather evidence", hypothesize: "Form hypotheses", verifyStage: "Verify", decide: "Decide and deliver", doneState: "Complete", activeState: "In progress", pendingState: "Pending", waitingState: "Awaiting approval", environmentReady: "Environment ready", snapshot: "Snapshot", provider: "Provider", dataMount: "Data mounts", policy: "Policy", verifier: "Verifier", askReadOnly: "read-only sources", noMatches: "No matching tasks", fixtureNotice: "Static prototype: InteractionIntent recorded; no runtime was invoked."
+      },
+      ja: {
+        edition: "生成ワークスペース", personalSpace: "個人", developerSpace: "開発", organizationSpace: "組織", personalMeta: "調査・ファイル・日常自動化", developerMeta: "コード・テスト・リリース", organizationMeta: "データ・意思決定・統制運用", newTask: "新規タスク", tasks: "タスク", workflows: "ワークフロー", knowledge: "ナレッジ", automations: "自動化", recentTasks: "最近のタスク", searchTasks: "タスクを検索", providerReady: "Provider 接続済み", localPrototype: "ローカルプロトタイプ", running: "実行中", paused: "一時停止", governed: "統制済み", pause: "一時停止", resume: "再開", correct: "修正", workTask: "Work · 永続タスク", trace: "トレース", outcome: "成果", context: "コンテキスト", currentScene: "現在のシーン", metrics: "主要指標", metricSubtitle: "前月と基準値からの変化", relationGraph: "関係と仮説", graphSubtitle: "検証済み関係と反証可能な仮説", evidence: "エビデンス", evidenceSubtitle: "現在の判断を支える追跡可能な情報源", agents: "Agent 協調", environment: "実行環境", timeline: "イベント履歴", approval: "承認が必要です", approve: "承認", reject: "拒否", verified: "検証済み", overallProgress: "全体進捗", askHeading: "このワークスペースで質問", askCopy: "Ask は既定で読み取り専用です。実行が必要ならコンテキストを維持したまま Work に移行します。", askPlaceholder: "ドキュメント、データ、コードについて質問…", askAction: "質問", promoteWork: "コンテキストを保持して Work へ", orgTask: "今月の利益減少を診断", orgSubtitle: "業務指標を統合し、仮説を検証して承認可能な施策を提示します。", devTask: "再試行による二重課金を修正", devSubtitle: "不具合を再現し、最小パッチとテスト、リリース審査を行います。", personalTask: "インタビュー資料を研究結果に整理", personalSubtitle: "ローカル資料を読み、テーマと証拠を整理して編集可能な概要を作成します。", understand: "目標理解", gather: "証拠収集", hypothesize: "仮説形成", verifyStage: "判断検証", decide: "決定と納品", doneState: "完了", activeState: "進行中", pendingState: "保留", waitingState: "承認待ち", source: "情報源", freshness: "鮮度", confidenceLabel: "確信度", status: "状態", inspect: "表示", complete: "完了", commandPlaceholder: "現在の結果から作業を続ける…", evidenceDetail: "エビデンス詳細", copyReference: "参照をコピー", done: "完了", correctTask: "タスクを修正", correctionEffect: "修正の結果", correctionCopy: "InteractionIntent と確認可能な計画変更を記録します。証拠や権限は上書きしません。", correctionLabel: "修正内容", correctionPlaceholder: "例：一時的な販促注文を除外する。", cancel: "キャンセル", applyCorrection: "修正を送信", environmentReady: "環境準備完了", snapshot: "スナップショット", provider: "Provider", dataMount: "データ", policy: "ポリシー", verifier: "検証", askReadOnly: "読み取り専用ソース", noMatches: "該当タスクなし", fixtureNotice: "静的プロトタイプ：InteractionIntent を記録しました。実ランタイムは未実行です。"
+      },
+      ko: {
+        edition: "생성형 워크스페이스", personalSpace: "개인", developerSpace: "개발", organizationSpace: "조직", personalMeta: "리서치, 파일, 일상 자동화", developerMeta: "코드, 테스트, 릴리스", organizationMeta: "데이터, 의사결정, 통제 운영", newTask: "새 작업", tasks: "작업", workflows: "워크플로", knowledge: "지식", automations: "자동화", recentTasks: "최근 작업", searchTasks: "작업 검색", providerReady: "Provider 연결됨", localPrototype: "로컬 프로토타입", running: "실행 중", paused: "일시 중지", governed: "통제됨", pause: "일시 중지", resume: "계속", correct: "수정", workTask: "Work · 지속 작업", trace: "추적", outcome: "결과", context: "컨텍스트", currentScene: "현재 장면", metrics: "핵심 지표", metricSubtitle: "전월 및 기준 대비 변화", relationGraph: "관계와 가설", graphSubtitle: "검증된 관계와 반증 가능한 가설", evidence: "근거", evidenceSubtitle: "현재 판단을 뒷받침하는 추적 가능한 출처", agents: "Agent 협업", environment: "실행 환경", timeline: "이벤트 타임라인", approval: "승인이 필요합니다", approve: "승인", reject: "거부", verified: "검증됨", overallProgress: "전체 진행률", askHeading: "현재 워크스페이스에서 질문", askCopy: "Ask는 기본적으로 읽기 전용입니다. 실행이 필요하면 컨텍스트를 유지한 채 Work로 전환합니다.", askPlaceholder: "문서, 데이터, 코드에 대해 질문…", askAction: "질문", promoteWork: "컨텍스트를 유지하고 Work로 전환", orgTask: "이번 달 이익 감소 원인 진단", orgSubtitle: "운영 지표를 결합하고 가설을 검증한 뒤 승인 가능한 조치를 제안합니다.", devTask: "재시도로 인한 중복 결제 수정", devSubtitle: "결함을 재현하고 최소 패치, 테스트, 릴리스 검토를 완료합니다.", personalTask: "인터뷰 자료를 연구 결과로 정리", personalSubtitle: "로컬 파일을 읽고 주제와 근거를 묶어 편집 가능한 브리프를 만듭니다.", understand: "목표 이해", gather: "근거 수집", hypothesize: "가설 형성", verifyStage: "판단 검증", decide: "결정 및 전달", doneState: "완료", activeState: "진행 중", pendingState: "대기", waitingState: "승인 대기", source: "출처", freshness: "최신성", confidenceLabel: "신뢰도", status: "상태", inspect: "보기", complete: "완료", commandPlaceholder: "현재 결과에서 계속 작업…", evidenceDetail: "근거 세부 정보", copyReference: "참조 복사", done: "완료", correctTask: "작업 수정", correctionEffect: "수정 결과", correctionCopy: "InteractionIntent와 검토 가능한 계획 변경을 기록합니다. 근거나 권한을 덮어쓰지 않습니다.", correctionLabel: "수정 내용", correctionPlaceholder: "예: 일회성 프로모션 주문 제외.", cancel: "취소", applyCorrection: "수정 제출", environmentReady: "환경 준비 완료", snapshot: "스냅샷", provider: "Provider", dataMount: "데이터 마운트", policy: "정책", verifier: "검증기", askReadOnly: "읽기 전용 소스", noMatches: "일치하는 작업 없음", fixtureNotice: "정적 프로토타입: InteractionIntent가 기록되었으며 실제 런타임은 호출되지 않았습니다."
+      },
+      es: {
+        edition: "Espacio generativo", personalSpace: "Personal", developerSpace: "Desarrollo", organizationSpace: "Organización", personalMeta: "Investigación, archivos y automatización", developerMeta: "Código, pruebas y entregas", organizationMeta: "Datos, decisiones y operaciones gobernadas", newTask: "Nueva tarea", tasks: "Tareas", workflows: "Flujos", knowledge: "Conocimiento", automations: "Automatizaciones", recentTasks: "Tareas recientes", searchTasks: "Buscar tareas", providerReady: "Provider conectado", localPrototype: "Prototipo local", running: "En ejecución", paused: "Pausado", governed: "Gobernado", pause: "Pausar", resume: "Continuar", correct: "Corregir", workTask: "Work · Tarea persistente", trace: "Trazas", outcome: "Resultado", context: "Contexto", currentScene: "Escena actual", metrics: "Métricas clave", metricSubtitle: "Cambio frente al mes anterior y la base", relationGraph: "Relaciones e hipótesis", graphSubtitle: "Relaciones verificadas e hipótesis falsables", evidence: "Evidencia", evidenceSubtitle: "Fuentes trazables para la decisión actual", agents: "Coordinación de Agent", environment: "Entorno", timeline: "Cronología", approval: "Se requiere tu aprobación", approve: "Aprobar", reject: "Rechazar", verified: "Verificado", overallProgress: "Progreso total", askHeading: "Pregunta desde este espacio", askCopy: "Ask es de solo lectura por defecto. Pasa a Work manteniendo el contexto cuando necesites ejecución.", askPlaceholder: "Pregunta por documentos, datos o código…", askAction: "Preguntar", promoteWork: "Mantener contexto y pasar a Work", orgTask: "Diagnosticar la caída del beneficio mensual", orgSubtitle: "Combina métricas, prueba hipótesis y propone una acción aprobable.", devTask: "Corregir cobros duplicados por reintentos", devSubtitle: "Reproduce el fallo, crea un parche mínimo y completa pruebas y revisión.", personalTask: "Convertir entrevistas en conclusiones", personalSubtitle: "Lee archivos locales, agrupa temas, vincula evidencia y crea un informe editable.", understand: "Comprender", gather: "Reunir evidencia", hypothesize: "Formar hipótesis", verifyStage: "Verificar", decide: "Decidir y entregar", doneState: "Completado", activeState: "En curso", pendingState: "Pendiente", waitingState: "Esperando aprobación", source: "Fuente", freshness: "Actualidad", confidenceLabel: "Confianza", status: "Estado", inspect: "Ver", complete: "Completo", commandPlaceholder: "Continúa desde el resultado actual…", evidenceDetail: "Detalle de evidencia", copyReference: "Copiar referencia", done: "Listo", correctTask: "Corregir tarea", correctionEffect: "Efecto de la corrección", correctionCopy: "Se registra InteractionIntent y se propone un cambio revisable sin sobrescribir evidencia ni autoridad.", correctionLabel: "Corrección", correctionPlaceholder: "Ejemplo: excluir pedidos promocionales únicos.", cancel: "Cancelar", applyCorrection: "Enviar corrección", environmentReady: "Entorno listo", snapshot: "Instantánea", provider: "Provider", dataMount: "Datos", policy: "Política", verifier: "Verificador", askReadOnly: "fuentes de solo lectura", noMatches: "Sin tareas coincidentes", fixtureNotice: "Prototipo estático: InteractionIntent registrado; no se invocó el runtime real."
+      },
+      fr: {
+        edition: "Espace génératif", personalSpace: "Personnel", developerSpace: "Développement", organizationSpace: "Organisation", personalMeta: "Recherche, fichiers et automatisation", developerMeta: "Code, tests et versions", organizationMeta: "Données, décisions et opérations gouvernées", newTask: "Nouvelle tâche", tasks: "Tâches", workflows: "Workflows", knowledge: "Connaissances", automations: "Automatisations", recentTasks: "Tâches récentes", searchTasks: "Rechercher", providerReady: "Provider connecté", localPrototype: "Prototype local", running: "En cours", paused: "En pause", governed: "Gouverné", pause: "Pause", resume: "Reprendre", correct: "Corriger", workTask: "Work · Tâche durable", trace: "Trace", outcome: "Résultat", context: "Contexte", currentScene: "Scène actuelle", metrics: "Indicateurs clés", metricSubtitle: "Évolution par rapport au mois précédent", relationGraph: "Relations et hypothèses", graphSubtitle: "Relations vérifiées et hypothèses réfutables", evidence: "Preuves", evidenceSubtitle: "Sources traçables soutenant le jugement", agents: "Coordination des Agent", environment: "Environnement", timeline: "Chronologie", approval: "Votre approbation est requise", approve: "Approuver", reject: "Rejeter", verified: "Vérifié", overallProgress: "Progression globale", askHeading: "Interroger cet espace", askCopy: "Ask est en lecture seule par défaut. Passez à Work avec le contexte intact pour exécuter.", askPlaceholder: "Interroger les documents, données ou code…", askAction: "Demander", promoteWork: "Garder le contexte et passer à Work", orgTask: "Diagnostiquer la baisse du bénéfice mensuel", orgSubtitle: "Combine les indicateurs, teste les hypothèses et propose une action approuvable.", devTask: "Corriger les doubles débits dus aux relances", devSubtitle: "Reproduit le défaut, crée un correctif minimal et exécute tests et revue.", personalTask: "Synthétiser les entretiens en résultats", personalSubtitle: "Lit les fichiers, regroupe les thèmes, lie les preuves et produit une note éditable.", understand: "Comprendre", gather: "Collecter", hypothesize: "Formuler", verifyStage: "Vérifier", decide: "Décider et livrer", doneState: "Terminé", activeState: "En cours", pendingState: "En attente", waitingState: "Approbation requise", source: "Source", freshness: "Fraîcheur", confidenceLabel: "Confiance", status: "Statut", inspect: "Voir", complete: "Terminé", commandPlaceholder: "Continuer à partir du résultat actuel…", evidenceDetail: "Détail de la preuve", copyReference: "Copier la référence", done: "Terminé", correctTask: "Corriger la tâche", correctionEffect: "Effet de la correction", correctionCopy: "Un InteractionIntent et un changement de plan vérifiable sont enregistrés sans écraser preuves ni autorité.", correctionLabel: "Correction", correctionPlaceholder: "Exemple : exclure les commandes promotionnelles ponctuelles.", cancel: "Annuler", applyCorrection: "Envoyer", environmentReady: "Environnement prêt", snapshot: "Instantané", provider: "Provider", dataMount: "Données", policy: "Politique", verifier: "Vérificateur", askReadOnly: "sources en lecture seule", noMatches: "Aucune tâche correspondante", fixtureNotice: "Prototype statique : InteractionIntent enregistré, aucun runtime réel invoqué."
+      },
+      de: {
+        edition: "Generativer Arbeitsbereich", personalSpace: "Persönlich", developerSpace: "Entwicklung", organizationSpace: "Organisation", personalMeta: "Recherche, Dateien und Automatisierung", developerMeta: "Code, Tests und Releases", organizationMeta: "Daten, Entscheidungen und kontrollierter Betrieb", newTask: "Neue Aufgabe", tasks: "Aufgaben", workflows: "Workflows", knowledge: "Wissen", automations: "Automationen", recentTasks: "Letzte Aufgaben", searchTasks: "Aufgaben suchen", providerReady: "Provider verbunden", localPrototype: "Lokaler Prototyp", running: "Läuft", paused: "Pausiert", governed: "Kontrolliert", pause: "Pause", resume: "Fortsetzen", correct: "Korrigieren", workTask: "Work · Dauerhafte Aufgabe", trace: "Ablauf", outcome: "Ergebnis", context: "Kontext", currentScene: "Aktuelle Szene", metrics: "Kennzahlen", metricSubtitle: "Änderung zum Vormonat und zur Basis", relationGraph: "Beziehungen und Hypothesen", graphSubtitle: "Geprüfte Beziehungen und falsifizierbare Hypothesen", evidence: "Evidenz", evidenceSubtitle: "Nachverfolgbare Quellen für die aktuelle Beurteilung", agents: "Agent-Koordination", environment: "Umgebung", timeline: "Ereignisverlauf", approval: "Ihre Freigabe ist erforderlich", approve: "Freigeben", reject: "Ablehnen", verified: "Geprüft", overallProgress: "Gesamtfortschritt", askHeading: "In diesem Bereich fragen", askCopy: "Ask ist standardmäßig schreibgeschützt. Für Ausführung mit Kontext zu Work wechseln.", askPlaceholder: "Dokumente, Daten oder Code befragen…", askAction: "Fragen", promoteWork: "Kontext behalten und zu Work wechseln", orgTask: "Gewinnrückgang dieses Monats diagnostizieren", orgSubtitle: "Kennzahlen verbinden, Hypothesen prüfen und eine freigabefähige Maßnahme vorschlagen.", devTask: "Doppelabbuchungen durch Wiederholungen beheben", devSubtitle: "Fehler reproduzieren, minimalen Patch erstellen, Tests und Review abschließen.", personalTask: "Interviews in Forschungsergebnisse überführen", personalSubtitle: "Lokale Dateien lesen, Themen gruppieren, Belege binden und ein editierbares Briefing erstellen.", understand: "Verstehen", gather: "Evidenz sammeln", hypothesize: "Hypothesen bilden", verifyStage: "Prüfen", decide: "Entscheiden", doneState: "Fertig", activeState: "In Arbeit", pendingState: "Ausstehend", waitingState: "Wartet auf Freigabe", source: "Quelle", freshness: "Aktualität", confidenceLabel: "Konfidenz", status: "Status", inspect: "Ansehen", complete: "Fertig", commandPlaceholder: "Vom aktuellen Ergebnis aus weiterarbeiten…", evidenceDetail: "Evidenzdetails", copyReference: "Referenz kopieren", done: "Fertig", correctTask: "Aufgabe korrigieren", correctionEffect: "Wirkung der Korrektur", correctionCopy: "Ein InteractionIntent und eine prüfbare Planänderung werden erfasst. Evidenz und Rechte werden nicht überschrieben.", correctionLabel: "Korrektur", correctionPlaceholder: "Beispiel: einmalige Aktionsbestellungen ausschließen.", cancel: "Abbrechen", applyCorrection: "Korrektur senden", environmentReady: "Umgebung bereit", snapshot: "Snapshot", provider: "Provider", dataMount: "Daten", policy: "Richtlinie", verifier: "Prüfung", askReadOnly: "schreibgeschützte Quellen", noMatches: "Keine passenden Aufgaben", fixtureNotice: "Statischer Prototyp: InteractionIntent erfasst; keine echte Runtime aufgerufen."
+      }
+    };
+
+    const workspaceProfiles = {
+      personal: { labelKey: "personalSpace", metaKey: "personalMeta", short: "ME", color: "#7557b8", space: "Mima Lab", taskKey: "personalTask", subtitleKey: "personalSubtitle", id: "TASK-0782" },
+      developer: { labelKey: "developerSpace", metaKey: "developerMeta", short: "DEV", color: "#435466", space: "agent-os / main", taskKey: "devTask", subtitleKey: "devSubtitle", id: "TASK-0931" },
+      organization: { labelKey: "organizationSpace", metaKey: "organizationMeta", short: "ORG", color: "#2368d8", space: "Northstar 运营", taskKey: "orgTask", subtitleKey: "orgSubtitle", id: "TASK-1048" }
+    };
+
+    const UISceneSpecs = {
+      personal: {
+        goal: "synthesize-research", layout: "investigation", preset: "研究综合", panels: [
+          { slot: "metrics", type: "metric_delta", source: "evidence:personal-12" }, { slot: "graph", type: "relation_graph", source: "belief:personal-6" },
+          { slot: "evidence", type: "evidence_table", source: "evidence-set:personal-4" }, { slot: "agents", type: "agent_topology", source: "run:personal-31" },
+          { slot: "environment", type: "environment_status", source: "environment:personal-local" }, { slot: "timeline", type: "event_timeline", source: "trace:personal-31" },
+          { slot: "approval", type: "approval", source: "action:personal-9" }
+        ]
+      },
+      developer: {
+        goal: "repair-duplicate-charge", layout: "engineering", preset: "安全修复", panels: [
+          { slot: "metrics", type: "metric_delta", source: "evidence:dev-44" }, { slot: "graph", type: "relation_graph", source: "belief:dev-18" },
+          { slot: "evidence", type: "evidence_table", source: "evidence-set:dev-9" }, { slot: "agents", type: "agent_topology", source: "run:dev-65" },
+          { slot: "environment", type: "environment_status", source: "environment:dev-worktree" }, { slot: "timeline", type: "event_timeline", source: "trace:dev-65" },
+          { slot: "approval", type: "approval", source: "action:dev-22" }
+        ]
+      },
+      organization: {
+        goal: "diagnose-profit-decline", layout: "decision", preset: "经营诊断", panels: [
+          { slot: "metrics", type: "metric_delta", source: "evidence:org-23" }, { slot: "graph", type: "relation_graph", source: "belief:org-8" },
+          { slot: "evidence", type: "evidence_table", source: "evidence-set:org-17" }, { slot: "agents", type: "agent_topology", source: "run:org-1048" },
+          { slot: "environment", type: "environment_status", source: "environment:org-snapshot-7" }, { slot: "timeline", type: "event_timeline", source: "trace:org-1048" },
+          { slot: "approval", type: "approval", source: "action:org-17" }
+        ]
+      }
+    };
+
+    const sceneData = {
+      organization: {
+        contexts: ["订单仓库 · 只读", "财务指标 v3.2", "近 90 天", "策略：R2 审批"],
+        presets: ["经营诊断", "周度复盘", "通用工作空间"],
+        metrics: [
+          { label: "毛利润", value: "¥4.82M", change: "−18.6%", trend: "down" }, { label: "营业收入", value: "¥12.7M", change: "+2.4%", trend: "up" },
+          { label: "毛利率", value: "38.0%", change: "−9.1 pt", trend: "down" }, { label: "复购率", value: "27.4%", change: "−6.8 pt", trend: "down" }
+        ],
+        chart: { labels: ["W1", "W2", "W3", "W4", "W5", "W6"], values: [78, 74, 68, 65, 58, 54], note: "毛利润趋势 · ¥100k" },
+        graph: { nodes: [
+          { id: "discount", label: "折扣率", x: 84, y: 72, kind: "verified" }, { id: "margin", label: "毛利率", x: 236, y: 62, kind: "verified" },
+          { id: "profit", label: "利润", x: 364, y: 132, kind: "verified" }, { id: "repeat", label: "复购率", x: 224, y: 202, kind: "risk" },
+          { id: "spend", label: "投放成本", x: 74, y: 194, kind: "risk" }
+        ], edges: [
+          { from: "discount", to: "margin", label: "−0.72" }, { from: "margin", to: "profit", label: "+0.81" },
+          { from: "repeat", to: "profit", label: "+0.43", hypothesis: true }, { from: "spend", to: "repeat", label: "?", hypothesis: true }
+        ], note: "待证伪：新客投放质量下降是否通过复购率影响利润。" },
+        evidence: [
+          { id: "EV-023", name: "促销订单占比升至 31%，折扣深度增加", source: "warehouse.orders_daily", fresh: "8 分钟", confidence: 96, detail: "过去 30 天促销订单占比由 19% 升至 31%。剔除退款后，折扣深度变化仍显著。", lineage: "orders_daily → promotion_mix_v3 → metric:gross_margin" },
+          { id: "EV-027", name: "高折扣渠道贡献 61% 的毛利率下降", source: "semantic.margin_v3", fresh: "12 分钟", confidence: 91, detail: "渠道分解显示 affiliate 与 live 两类渠道贡献了 61% 的毛利率下降。", lineage: "channel_orders → margin_bridge → evidence:org-27" },
+          { id: "EV-031", name: "复购率下降集中于 4 月新客批次", source: "cohort.retention_90d", fresh: "18 分钟", confidence: 84, detail: "4 月获客批次的 30 日复购率低于前三批次中位数 7.1 个百分点。", lineage: "customer_cohort → retention_30d → belief:org-8" },
+          { id: "EV-035", name: "履约与退款未出现结构性异常", source: "ops.quality_guardrail", fresh: "7 分钟", confidence: 89, detail: "退款率、缺货率、延迟履约率均在已冻结的警戒范围内。", lineage: "ops_daily → quality_guardrail → counterevidence:org-4" }
+        ],
+        agents: [
+          { short: "OS", name: "主 Agent", task: "整合证据并维护任务状态", state: "active", avatar: "main" },
+          { short: "DA", name: "数据 Agent", task: "完成指标分解与队列校验", state: "done" },
+          { short: "CA", name: "分析 Agent", task: "检验渠道与复购假设", state: "active" },
+          { short: "RA", name: "风险 Agent", task: "等待动作合同", state: "waiting", avatar: "risk" }
+        ],
+        progress: 72,
+        environment: [{ key: "snapshot", value: "org-snapshot-7" }, { key: "provider", value: "Kimi K2 · routed" }, { key: "dataMount", value: "4 read-only" }, { key: "policy", value: "org-r2-v6" }, { key: "verifier", value: "metric-eval-3" }],
+        timeline: [
+          { time: "10:42", title: "证据集更新", copy: "新增 2 条队列与渠道分解证据", active: true }, { time: "10:38", title: "假设被削弱", copy: "履约异常解释未通过反证" },
+          { time: "10:31", title: "子任务合并", copy: "数据 Agent 返回指标桥接结果" }, { time: "10:26", title: "环境冻结", copy: "来源、策略与验证器摘要已绑定" }
+        ],
+        approval: { action: "暂停高折扣渠道预算 24 小时", impact: "预计影响当日广告预算 ¥120k；不修改长期投放策略，可在 24 小时内自动恢复。", policy: "policy:org-r2-v6", contract: "action:org-17", evidence: "evidence-set:org-17" },
+        suggestions: ["深入 4 月新客批次", "挑战折扣率假设", "生成管理层简报"],
+        askSuggestions: [["解释利润变化", "只读取当前证据，概括主要驱动因素"], ["比较两个渠道", "在不执行动作的情况下比较指标"], ["查询术语", "从财务指标定义中解释口径"]],
+        recent: [["诊断本月利润下降原因", "running", "10:42"], ["复盘华东库存异常", "done", "昨天"], ["审核 Q2 运营方案", "waiting", "周二"]]
+      },
+      developer: {
+        contexts: ["agent-os · worktree", "分支 codex/retry-fix", "Python 3.13", "策略：写入需审批"], presets: ["安全修复", "代码审查", "通用工作空间"],
+        metrics: [{ label: "失败测试", value: "3", change: "−7", trend: "up" }, { label: "修改文件", value: "4", change: "+126 行", trend: "neutral" }, { label: "覆盖率", value: "91.8%", change: "+1.2 pt", trend: "up" }, { label: "风险项", value: "1", change: "需审批", trend: "down" }],
+        chart: { labels: ["复现", "定位", "补丁", "单测", "回归", "审查"], values: [18, 30, 48, 67, 82, 91], note: "修复验证进度 · %" },
+        graph: { nodes: [
+          { id: "retry", label: "重试", x: 80, y: 78, kind: "verified" }, { id: "key", label: "幂等键", x: 228, y: 62, kind: "risk" }, { id: "charge", label: "扣款", x: 364, y: 132, kind: "verified" }, { id: "receipt", label: "回执", x: 220, y: 204, kind: "verified" }, { id: "queue", label: "超时队列", x: 76, y: 196, kind: "risk" }
+        ], edges: [{ from: "retry", to: "key", label: "缺失" }, { from: "key", to: "charge", label: "重复" }, { from: "receipt", to: "charge", label: "校验", hypothesis: true }, { from: "queue", to: "retry", label: "+1.0" }], note: "待验证：回执落库失败是否会绕过现有幂等检查。" },
+        evidence: [
+          { id: "EV-D44", name: "超时后第二次请求生成了新的幂等键", source: "tests/test_settlement_retry.py", fresh: "当前工作树", confidence: 98, detail: "失败测试复现了首次扣款成功但回执超时后生成新键的路径。", lineage: "test → SettlementRetry → payment.submit" },
+          { id: "EV-D47", name: "幂等键只绑定请求生命周期", source: "src/payments/retry.py:118", fresh: "当前工作树", confidence: 95, detail: "当前键在 retry() 内生成，未绑定 settlement_id。", lineage: "request_id → retry() → idempotency_key" },
+          { id: "EV-D51", name: "补丁通过重复回执与并发回归", source: "pytest targeted", fresh: "2 分钟", confidence: 92, detail: "新增回归覆盖超时、重复回执与两个 worker 竞争。", lineage: "patch → 14 targeted tests → verifier:pytest" }
+        ],
+        agents: [{ short: "OS", name: "主 Agent", task: "维护补丁与验证边界", state: "active", avatar: "main" }, { short: "EX", name: "探索 Agent", task: "复现并定位失败路径", state: "done" }, { short: "TE", name: "测试 Agent", task: "运行定向与回归测试", state: "active" }, { short: "RV", name: "审查 Agent", task: "等待完整 diff", state: "waiting", avatar: "risk" }],
+        progress: 81, environment: [{ key: "snapshot", value: "worktree:8d2f7c" }, { key: "provider", value: "Kimi K2 · code" }, { key: "dataMount", value: "repo read-write" }, { key: "policy", value: "dev-write-v4" }, { key: "verifier", value: "pytest + ruff" }],
+        timeline: [{ time: "14:18", title: "回归通过", copy: "14 个定向测试已通过", active: true }, { time: "14:11", title: "补丁更新", copy: "将幂等键绑定 settlement_id" }, { time: "13:54", title: "缺陷复现", copy: "确认超时队列触发重复扣款" }, { time: "13:48", title: "工作树冻结", copy: "HEAD 与环境摘要已绑定" }],
+        approval: { action: "应用补丁并运行完整测试集", impact: "将修改 4 个文件并使用本地计算资源；不会提交、推送或发布。", policy: "policy:dev-write-v4", contract: "action:dev-22", evidence: "evidence-set:dev-9" },
+        suggestions: ["查看最小 diff", "挑战幂等性假设", "运行并发回归"], askSuggestions: [["解释失败路径", "只读分析调用链与测试输出"], ["查找相关实现", "定位所有幂等键生成位置"], ["总结改动风险", "根据当前 diff 给出审查摘要"]],
+        recent: [["修复结算重试导致的重复扣款", "running", "14:18"], ["审查 provider 路由改动", "done", "昨天"], ["发布 v0.4.1", "waiting", "周三"]]
+      },
+      personal: {
+        contexts: ["Mima Lab · 本地", "访谈文件夹 · 只读", "12 份材料", "记忆：需确认"], presets: ["研究综合", "文件整理", "通用工作空间"],
+        metrics: [{ label: "材料", value: "12", change: "全部索引", trend: "up" }, { label: "核心主题", value: "5", change: "+2 新发现", trend: "up" }, { label: "待核实", value: "3", change: "需回访", trend: "down" }, { label: "覆盖率", value: "87%", change: "+16 pt", trend: "up" }],
+        chart: { labels: ["检索", "编码", "聚类", "反例", "综合", "成稿"], values: [28, 46, 65, 73, 86, 92], note: "研究综合进度 · %" },
+        graph: { nodes: [{ id: "time", label: "时间成本", x: 76, y: 74, kind: "verified" }, { id: "trust", label: "信任", x: 228, y: 62, kind: "verified" }, { id: "adopt", label: "采用意愿", x: 362, y: 132, kind: "verified" }, { id: "control", label: "可控感", x: 222, y: 204, kind: "risk" }, { id: "privacy", label: "隐私顾虑", x: 76, y: 194, kind: "risk" }], edges: [{ from: "time", to: "adopt", label: "+0.58" }, { from: "trust", to: "adopt", label: "+0.71" }, { from: "control", to: "trust", label: "+?", hypothesis: true }, { from: "privacy", to: "trust", label: "−0.46" }], note: "待核实：可控感可能比任务速度更能解释长期采用。" },
+        evidence: [
+          { id: "EV-P12", name: "9/12 位受访者主动提到需要暂停与纠正", source: "interviews/batch-a", fresh: "今天", confidence: 93, detail: "该主题跨个人、开发与运营角色出现，且不是访谈提纲中的引导问题。", lineage: "transcripts → open coding → theme:control" },
+          { id: "EV-P16", name: "速度优势在高风险任务中让位于可检查性", source: "notes/risk-matrix.md", fresh: "今天", confidence: 86, detail: "低风险整理偏好速度，高风险动作更重视证据与可撤销性。", lineage: "coded quotes → risk matrix → finding:inspectability" },
+          { id: "EV-P19", name: "跨设备连续性是独立于模型质量的需求", source: "interviews/batch-b", fresh: "昨天", confidence: 78, detail: "5 位受访者描述了从移动端发起、桌面端继续的任务。", lineage: "transcripts → device journey → finding:continuity" }
+        ],
+        agents: [{ short: "OS", name: "主 Agent", task: "维持研究问题与证据边界", state: "active", avatar: "main" }, { short: "FI", name: "文件 Agent", task: "完成转录与索引", state: "done" }, { short: "RS", name: "研究 Agent", task: "聚类主题并寻找反例", state: "active" }, { short: "ED", name: "编辑 Agent", task: "等待结论冻结", state: "waiting", avatar: "risk" }],
+        progress: 76, environment: [{ key: "snapshot", value: "local-files:12" }, { key: "provider", value: "Kimi K2 · local" }, { key: "dataMount", value: "folder read-only" }, { key: "policy", value: "personal-local-v2" }, { key: "verifier", value: "citation-check" }],
+        timeline: [{ time: "16:04", title: "发现反例", copy: "2 位受访者更偏好全自动模式", active: true }, { time: "15:51", title: "主题重组", copy: "合并透明度与可控感编码" }, { time: "15:30", title: "材料索引完成", copy: "12 份访谈已建立引用锚点" }, { time: "15:18", title: "本地快照建立", copy: "文件摘要与访问边界已绑定" }],
+        approval: { action: "将 5 条研究结论写入知识库", impact: "只保存结论、引用与适用边界；原始访谈不会进入长期记忆，可随时删除。", policy: "policy:personal-memory-v2", contract: "action:personal-9", evidence: "evidence-set:personal-4" },
+        suggestions: ["深入可控感主题", "查找相反证据", "生成研究简报"], askSuggestions: [["概括访谈主题", "只读汇总已索引材料"], ["查找具体引用", "按主题返回带锚点的原话位置"], ["比较两组受访者", "比较个人与企业用户差异"]],
+        recent: [["整理访谈资料并形成研究结论", "running", "16:04"], ["归档五月票据", "done", "昨天"], ["整理旅行资料", "done", "周一"]]
+      }
+    };
+
+    const state = {
+      profile: "organization", mode: "work", locale: readLocale(), runStatus: "running", decision: "pending", selectedEvidence: null,
+      timelineAdditions: [], intents: [], presetByProfile: {}, taskFilter: ""
+    };
+
+    function readLocale() {
+      try {
+        const saved = localStorage.getItem("agent-os.locale");
+        return catalogs[saved] ? saved : "zh-CN";
+      } catch (_) {
+        return "zh-CN";
+      }
+    }
+
+    function t(key) {
+      return (catalogs[state.locale] && catalogs[state.locale][key]) || catalogs.en[key] || catalogs["zh-CN"][key] || key;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+    }
+
+    function icon(id, extra = "") {
+      return `<svg class="icon ${extra}" aria-hidden="true"><use href="#${id}"/></svg>`;
+    }
+
+    function sourceRef(source) {
+      return `<span class="source-ref">${escapeHtml(source)}</span>`;
+    }
+
+    function panelHeader(title, subtitle, source, action = "") {
+      return `<header class="panel-header"><div class="panel-title-group"><h2 class="panel-title">${escapeHtml(title)}</h2><div class="panel-subtitle">${escapeHtml(subtitle)}</div></div><div class="panel-actions">${sourceRef(source)}${action}</div></header>`;
+    }
+
+    function linePath(values, width = 430, height = 120, pad = 12) {
+      const min = Math.min(...values) - 5;
+      const max = Math.max(...values) + 5;
+      return values.map((value, index) => {
+        const x = pad + index * ((width - pad * 2) / Math.max(values.length - 1, 1));
+        const y = height - pad - ((value - min) / Math.max(max - min, 1)) * (height - pad * 2);
+        return { x, y, command: `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}` };
+      });
+    }
+
+    function renderMetricDelta(panel, data) {
+      const points = linePath(data.chart.values);
+      const line = points.map(point => point.command).join(" ");
+      const area = `${line} L${points.at(-1).x.toFixed(1)} 112 L${points[0].x.toFixed(1)} 112 Z`;
+      return `${panelHeader(t("metrics"), t("metricSubtitle"), panel.source)}<div class="panel-body"><div class="metrics-grid">${data.metrics.map(metric => `
+        <div class="metric"><div class="metric-label">${escapeHtml(metric.label)}</div><div class="metric-value">${escapeHtml(metric.value)}</div><div class="metric-change ${metric.trend}">${icon(metric.trend === "down" ? "i-arrow-down" : "i-arrow-up", "icon-sm")}<span>${escapeHtml(metric.change)}</span></div></div>`).join("")}</div>
+        <div class="chart-wrap"><div class="chart-legend"><span>${escapeHtml(data.chart.note)}</span><span>baseline · 100</span></div><svg class="chart-canvas" viewBox="0 0 430 138" preserveAspectRatio="none" role="img" aria-label="趋势图">
+          <line class="chart-grid-line" x1="12" y1="26" x2="418" y2="26"/><line class="chart-grid-line" x1="12" y1="69" x2="418" y2="69"/><line class="chart-grid-line" x1="12" y1="112" x2="418" y2="112"/>
+          <path class="chart-area" d="${area}"/><path class="chart-line" d="${line}"/>${points.map(point => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="3"/>`).join("")}
+          ${points.map((point, index) => `<text class="chart-label" x="${point.x}" y="132" text-anchor="middle">${escapeHtml(data.chart.labels[index])}</text>`).join("")}</svg></div></div>`;
+    }
+
+    function renderRelationGraph(panel, data) {
+      const byId = Object.fromEntries(data.graph.nodes.map(node => [node.id, node]));
+      const edges = data.graph.edges.map(edge => {
+        const from = byId[edge.from]; const to = byId[edge.to];
+        const midX = (from.x + to.x) / 2; const midY = (from.y + to.y) / 2 - 7;
+        return `<g><path class="graph-edge ${edge.hypothesis ? "hypothesis" : ""}" d="M${from.x} ${from.y} L${to.x} ${to.y}"/><text class="chart-label" x="${midX}" y="${midY}" text-anchor="middle">${escapeHtml(edge.label)}</text></g>`;
+      }).join("");
+      const nodes = data.graph.nodes.map(node => `<g class="graph-node ${node.kind}" transform="translate(${node.x} ${node.y})"><circle r="30"/><text>${escapeHtml(node.label)}</text></g>`).join("");
+      return `${panelHeader(t("relationGraph"), t("graphSubtitle"), panel.source)}<div class="graph-toolbar"><span class="legend-dot"></span><span>${t("verified")}</span><span class="legend-dot hypothesis"></span><span>${t("pendingState")}</span><span class="legend-line"></span><span>hypothesis</span></div><div class="graph-canvas"><svg class="graph-svg" viewBox="0 0 440 263" role="img" aria-label="关系图">${edges}${nodes}</svg><div class="graph-note">${icon("i-shield", "icon-sm")}<span>${escapeHtml(data.graph.note)}</span></div></div>`;
+    }
+
+    function renderEvidenceTable(panel, data) {
+      const rows = data.evidence.map(item => `<tr data-action="inspect-evidence" data-evidence-id="${escapeHtml(item.id)}" tabindex="0"><td><span class="evidence-name">${escapeHtml(item.name)}</span><span class="evidence-ref">${escapeHtml(item.id)}</span></td><td>${escapeHtml(item.source)}</td><td>${escapeHtml(item.fresh)}</td><td><div class="confidence"><span>${item.confidence}%</span><span class="confidence-track"><span class="confidence-fill" style="width:${item.confidence}%"></span></span></div></td><td><span class="evidence-status"><span class="provider-dot"></span>${t("verified")}</span></td><td><button class="button-quiet" type="button" data-action="inspect-evidence" data-evidence-id="${escapeHtml(item.id)}">${t("inspect")}</button></td></tr>`).join("");
+      return `${panelHeader(t("evidence"), t("evidenceSubtitle"), panel.source, `<button class="button-quiet" type="button" data-action="filter-evidence">${icon("i-filter", "icon-sm")}</button>`)}<div class="evidence-table-wrap"><table class="evidence-table"><thead><tr><th>${t("evidence")}</th><th>${t("source")}</th><th>${t("freshness")}</th><th>${t("confidenceLabel")}</th><th>${t("status")}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    }
+
+    function renderAgentTopology(panel, data) {
+      const rows = data.agents.map(agent => `<div class="agent-row"><span class="agent-avatar ${agent.avatar || ""}">${escapeHtml(agent.short)}</span><span style="min-width:0"><span class="agent-name">${escapeHtml(agent.name)}</span><span class="agent-task">${escapeHtml(agent.task)}</span></span><span class="agent-state ${agent.state === "waiting" ? "waiting" : ""}">${agent.state === "done" ? t("doneState") : agent.state === "waiting" ? t("waitingState") : t("activeState")}</span></div>`).join("");
+      return `${panelHeader(t("agents"), t("agentsSubtitle"), panel.source)}<div class="agent-list">${rows}</div><div class="progress-block"><div class="progress-meta"><span>${t("overallProgress")}</span><strong>${data.progress}%</strong></div><div class="progress-track"><div class="progress-fill" style="width:${data.progress}%"></div></div></div>`;
+    }
+
+    function renderEnvironmentStatus(panel, data) {
+      const rows = data.environment.map((item, index) => `<div class="environment-row"><span class="environment-key">${t(item.key)}</span><span class="environment-value ${index === 0 ? "ready" : ""}">${index === 0 ? `${escapeHtml(item.value)} · ${t("environmentReady")}` : escapeHtml(item.value)}</span></div>`).join("");
+      return `${panelHeader(t("environment"), t("environmentSubtitle"), panel.source)}<div class="environment-list">${rows}</div>`;
+    }
+
+    function renderEventTimeline(panel, data) {
+      const additions = state.timelineAdditions.map(item => ({ ...item, active: true }));
+      const timeline = [...additions, ...data.timeline].slice(0, 5);
+      const rows = timeline.map(item => `<div class="timeline-item ${item.active ? "active" : ""}"><span class="timeline-time">${escapeHtml(item.time)}</span><span class="timeline-marker"></span><span class="timeline-copy"><strong>${escapeHtml(item.title)}</strong>${escapeHtml(item.copy)}</span></div>`).join("");
+      return `${panelHeader(t("timeline"), t("timelineSubtitle"), panel.source)}<div class="timeline">${rows}</div>`;
+    }
+
+    function renderApproval(panel, data) {
+      const approval = data.approval;
+      let controls = `<div class="approval-actions"><button class="danger-button" type="button" data-action="reject-action">${icon("i-x", "icon-sm")}<span>${t("reject")}</span></button><button class="primary-button" type="button" data-action="approve-action">${icon("i-check", "icon-sm")}<span>${t("approve")}</span></button></div>`;
+      if (state.decision !== "pending") controls = `<div class="approval-result ${state.decision}">${icon(state.decision === "approved" ? "i-check" : "i-x", "icon-sm")}<span>${t(state.decision)}</span></div>`;
+      return `${panelHeader(t("approval"), t("approvalSubtitle"), panel.source)}<div class="approval-body"><div class="approval-action">${escapeHtml(approval.action)}</div><p class="approval-impact">${escapeHtml(approval.impact)}</p><div class="approval-meta"><div class="approval-meta-row"><span>Policy</span><span>${escapeHtml(approval.policy)}</span></div><div class="approval-meta-row"><span>Contract</span><span>${escapeHtml(approval.contract)}</span></div><div class="approval-meta-row"><span>Evidence</span><span>${escapeHtml(approval.evidence)}</span></div></div>${controls}</div>`;
+    }
+
+    const componentRegistry = Object.freeze({
+      metric_delta: renderMetricDelta, relation_graph: renderRelationGraph, evidence_table: renderEvidenceTable,
+      agent_topology: renderAgentTopology, environment_status: renderEnvironmentStatus, event_timeline: renderEventTimeline, approval: renderApproval
+    });
+
+    function validateUISceneSpec(spec) {
+      const allowedLayouts = new Set(["investigation", "engineering", "decision"]);
+      const sourcePattern = /^(evidence|evidence-set|belief|run|environment|trace|action):[a-z0-9-]+$/;
+      return Boolean(spec && allowedLayouts.has(spec.layout) && Array.isArray(spec.panels) && spec.panels.length === 7 && spec.panels.every(panel => componentRegistry[panel.type] && sourcePattern.test(panel.source)));
+    }
+
+    function renderScene() {
+      const spec = UISceneSpecs[state.profile];
+      const data = sceneData[state.profile];
+      if (!validateUISceneSpec(spec)) {
+        document.querySelectorAll("[data-scene-slot]").forEach(slot => { slot.innerHTML = `<div class="empty-state">Invalid UISceneSpec</div>`; });
+        return;
+      }
+      spec.panels.forEach(panel => {
+        const slot = document.querySelector(`[data-scene-slot="${panel.slot}"]`);
+        slot.innerHTML = componentRegistry[panel.type](panel, data);
+      });
+    }
+
+    function renderStages() {
+      const labels = ["understand", "gather", "hypothesize", "verifyStage", "decide"];
+      document.getElementById("stage-rail").innerHTML = labels.map((key, index) => {
+        const isResolved = state.decision !== "pending";
+        const className = isResolved || index < 4 ? "done" : "active";
+        const stateKey = isResolved || index < 4 ? "doneState" : state.runStatus === "paused" ? "paused" : "waitingState";
+        return `<div class="stage-item ${className}"><span class="stage-number">${isResolved || index < 4 ? icon("i-check", "icon-sm") : index + 1}</span><span class="stage-copy"><span class="stage-name">${t(key)}</span><span class="stage-state">${t(stateKey)}</span></span></div>`;
+      }).join("");
+    }
+
+    function renderContext() {
+      const data = sceneData[state.profile];
+      document.getElementById("context-chips").innerHTML = data.contexts.map((value, index) => `<span class="context-chip"><span class="context-dot" style="${index === data.contexts.length - 1 ? "background:#a86300" : ""}"></span>${escapeHtml(value)}</span>`).join("");
+      const select = document.getElementById("preset-select");
+      const selected = state.presetByProfile[state.profile] || data.presets[0];
+      select.innerHTML = data.presets.map(preset => `<option ${preset === selected ? "selected" : ""}>${escapeHtml(preset)}</option>`).join("");
+      select.setAttribute("aria-label", `${t("scenePreset")} · ${selected}`);
+    }
+
+    function renderWorkspace() {
+      const profile = workspaceProfiles[state.profile];
+      document.getElementById("workspace-avatar").textContent = profile.short;
+      document.getElementById("workspace-avatar").style.background = profile.color;
+      document.getElementById("workspace-name").textContent = t(profile.labelKey);
+      document.getElementById("workspace-meta").textContent = profile.space;
+      document.getElementById("task-title").textContent = t(profile.taskKey);
+      document.getElementById("top-task-title").textContent = t(profile.taskKey);
+      document.getElementById("task-subtitle").textContent = t(profile.subtitleKey);
+      document.getElementById("task-id").textContent = profile.id;
+      document.getElementById("ask-context-hint").textContent = `${profile.space} · ${sceneData[state.profile].evidence.length} ${t("askReadOnly")}`;
+      document.querySelectorAll("[data-profile]").forEach(button => button.setAttribute("aria-current", String(button.dataset.profile === state.profile)));
+      renderRecentTasks(); renderContext(); renderStages(); renderScene(); renderSuggestions();
+    }
+
+    function renderRecentTasks() {
+      const tasks = sceneData[state.profile].recent.filter(task => task[0].toLowerCase().includes(state.taskFilter.toLowerCase()));
+      document.getElementById("recent-tasks").innerHTML = tasks.length ? tasks.map((task, index) => `<button class="recent-task ${index === 0 ? "active" : ""}" type="button" data-action="open-recent-task"><span class="task-dot ${task[1]}"></span><span><span class="recent-title">${escapeHtml(task[0])}</span><span class="recent-meta">${escapeHtml(task[2])}</span></span></button>`).join("") : `<div class="empty-state">${t("noMatches")}</div>`;
+    }
+
+    function renderSuggestions() {
+      const data = sceneData[state.profile];
+      document.getElementById("command-suggestions").innerHTML = data.suggestions.map(value => `<button class="suggestion" type="button" data-action="use-suggestion" data-value="${escapeHtml(value)}">${escapeHtml(value)}</button>`).join("");
+      document.getElementById("ask-suggestions").innerHTML = data.askSuggestions.map(item => `<button class="ask-suggestion" type="button" data-action="use-ask-suggestion" data-value="${escapeHtml(item[0])}"><strong>${escapeHtml(item[0])}</strong><span>${escapeHtml(item[1])}</span></button>`).join("");
+    }
+
+    function applyLocale() {
+      document.documentElement.lang = state.locale;
+      document.title = `Agent OS · ${t("edition")}`;
+      document.getElementById("locale-label").textContent = localeNames[state.locale];
+      document.querySelectorAll("[data-i18n]").forEach(element => { element.textContent = t(element.dataset.i18n); });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(element => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+      document.querySelectorAll("[data-locale]").forEach(button => button.setAttribute("aria-current", String(button.dataset.locale === state.locale)));
+      renderWorkspace(); renderRunStatus();
+      try { localStorage.setItem("agent-os.locale", state.locale); } catch (_) { /* presentation preference only */ }
+    }
+
+    function renderRunStatus() {
+      const status = document.getElementById("run-status");
+      status.querySelector("span:last-child").textContent = t(state.runStatus === "paused" ? "paused" : "running");
+      status.style.color = state.runStatus === "paused" ? "#a86300" : "#2865bb";
+      status.style.background = state.runStatus === "paused" ? "#fff7e6" : "#edf4ff";
+      document.getElementById("pause-label").textContent = t(state.runStatus === "paused" ? "resume" : "pause");
+      document.getElementById("pause-icon-use").setAttribute("href", state.runStatus === "paused" ? "#i-play" : "#i-pause");
+    }
+
+    function switchMode(mode) {
+      state.mode = mode;
+      document.querySelectorAll("[data-mode]").forEach(button => button.classList.toggle("active", button.dataset.mode === mode));
+      document.getElementById("work-surface").classList.toggle("hidden", mode !== "work");
+      document.getElementById("ask-surface").classList.toggle("active", mode === "ask");
+      document.getElementById("command-dock").classList.toggle("hidden", mode !== "work");
+      if (mode === "ask") setTimeout(() => document.getElementById("ask-input").focus(), 20);
+    }
+
+    function recordIntent(type, payload = {}) {
+      const intent = Object.freeze({ type, taskId: workspaceProfiles[state.profile].id, profile: state.profile, at: new Date().toISOString(), payload });
+      state.intents.unshift(intent);
+      document.getElementById("announcer").textContent = `${type}: ${t("fixtureNotice")}`;
+      return intent;
+    }
+
+    function addTimeline(title, copy) {
+      state.timelineAdditions.unshift({ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), title, copy });
+      const panel = UISceneSpecs[state.profile].panels.find(item => item.type === "event_timeline");
+      document.querySelector('[data-scene-slot="timeline"]').innerHTML = renderEventTimeline(panel, sceneData[state.profile]);
+    }
+
+    let toastTimer;
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      toast.innerHTML = `${icon("i-check", "icon-sm")}<span>${escapeHtml(message)}</span>`;
+      toast.classList.remove("hidden");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.add("hidden"), 2600);
+    }
+
+    function toggleMenu(id, force) {
+      const menu = document.getElementById(id);
+      const shouldOpen = force === undefined ? menu.classList.contains("hidden") : force;
+      if (shouldOpen) {
+        document.querySelectorAll(".workspace-menu, .language-menu").forEach(other => { if (other !== menu) other.classList.add("hidden"); });
+        const otherTrigger = id === "workspace-menu" ? document.querySelector('[data-action="toggle-language-menu"]') : document.getElementById("workspace-trigger");
+        otherTrigger.setAttribute("aria-expanded", "false");
+      }
+      menu.classList.toggle("hidden", !shouldOpen);
+      const trigger = id === "workspace-menu" ? document.getElementById("workspace-trigger") : document.querySelector('[data-action="toggle-language-menu"]');
+      trigger.setAttribute("aria-expanded", String(shouldOpen));
+    }
+
+    function openDrawer(id) {
+      document.getElementById("drawer-backdrop").classList.remove("hidden");
+      document.getElementById(id).classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+      setTimeout(() => document.querySelector(`#${id} button`)?.focus(), 20);
+    }
+
+    function closeDrawers() {
+      document.getElementById("drawer-backdrop").classList.add("hidden");
+      document.querySelectorAll(".drawer").forEach(drawer => drawer.classList.add("hidden"));
+      document.body.style.overflow = "";
+    }
+
+    function inspectEvidence(id) {
+      const item = sceneData[state.profile].evidence.find(entry => entry.id === id);
+      if (!item) return;
+      state.selectedEvidence = item;
+      document.querySelectorAll(".evidence-table tbody tr").forEach(row => row.classList.toggle("selected", row.dataset.evidenceId === id));
+      document.getElementById("evidence-drawer-body").innerHTML = `
+        <div class="drawer-section"><div class="drawer-label">Evidence ID</div><div class="drawer-code">${escapeHtml(item.id)}</div></div>
+        <div class="drawer-section"><div class="drawer-label">${t("evidence")}</div><div class="drawer-value">${escapeHtml(item.detail)}</div></div>
+        <div class="drawer-section"><div class="drawer-label">Lineage</div><div class="drawer-code">${escapeHtml(item.lineage)}</div></div>
+        <div class="drawer-section"><div class="drawer-label">${t("source")}</div><div class="drawer-value">${escapeHtml(item.source)} · ${escapeHtml(item.fresh)} · ${item.confidence}%</div></div>`;
+      recordIntent("evidence.inspect", { evidenceId: id });
+      openDrawer("evidence-drawer");
+    }
+
+    function handleAction(target) {
+      const action = target.dataset.action;
+      if (action === "toggle-workspace-menu") toggleMenu("workspace-menu");
+      if (action === "toggle-language-menu") toggleMenu("language-menu");
+      if (action === "switch-workspace") {
+        state.profile = target.dataset.profile; state.decision = "pending"; state.runStatus = "running"; state.timelineAdditions = [];
+        recordIntent("workspace.switch", { profile: state.profile }); renderWorkspace(); renderRunStatus(); toggleMenu("workspace-menu", false); closeMobileMenu();
+      }
+      if (action === "switch-mode") switchMode(target.dataset.mode);
+      if (action === "switch-locale") { state.locale = target.dataset.locale; applyLocale(); toggleMenu("language-menu", false); }
+      if (action === "change-preset") { state.presetByProfile[state.profile] = target.value; recordIntent("preset.select", { preset: target.value }); showToast(`${t("scenePreset")}: ${target.value}`); }
+      if (action === "create-task") { switchMode("work"); document.getElementById("command-input").value = ""; document.getElementById("command-input").focus(); showToast(t("fixtureNotice")); }
+      if (action === "pause-run") {
+        state.runStatus = state.runStatus === "paused" ? "running" : "paused"; recordIntent(state.runStatus === "paused" ? "run.pause" : "run.resume");
+        addTimeline(state.runStatus === "paused" ? t("paused") : t("running"), t("fixtureNotice")); renderRunStatus(); renderStages();
+      }
+      if (action === "correct-run") openDrawer("correction-drawer");
+      if (action === "apply-correction") {
+        const value = document.getElementById("correction-input").value.trim();
+        if (!value) { document.getElementById("correction-input").focus(); return; }
+        recordIntent("run.correct", { instruction: value }); addTimeline(t("correctTask"), value); closeDrawers(); showToast(t("fixtureNotice"));
+      }
+      if (action === "inspect-evidence") inspectEvidence(target.dataset.evidenceId || target.closest("tr")?.dataset.evidenceId);
+      if (action === "approve-action" || action === "reject-action") {
+        state.decision = action === "approve-action" ? "approved" : "rejected"; recordIntent(`action.${state.decision}`, { action: sceneData[state.profile].approval.contract });
+        addTimeline(t(state.decision), sceneData[state.profile].approval.action); renderScene(); renderStages(); showToast(t(state.decision));
+      }
+      if (action === "close-drawer") closeDrawers();
+      if (action === "copy-evidence" && state.selectedEvidence) {
+        const reference = `${state.selectedEvidence.id} · ${state.selectedEvidence.source}`;
+        if (navigator.clipboard) navigator.clipboard.writeText(reference).catch(() => {});
+        showToast(reference); recordIntent("evidence.copy", { evidenceId: state.selectedEvidence.id });
+      }
+      if (action === "use-suggestion") { document.getElementById("command-input").value = target.dataset.value; document.getElementById("command-input").focus(); }
+      if (action === "submit-command") submitCommand();
+      if (action === "use-ask-suggestion") { document.getElementById("ask-input").value = target.dataset.value; submitAsk(); }
+      if (action === "submit-ask") submitAsk();
+      if (action === "promote-to-work") { recordIntent("ask.promote", { question: document.getElementById("ask-input").value }); switchMode("work"); document.getElementById("command-input").value = document.getElementById("ask-input").value; showToast(t("fixtureNotice")); }
+      if (action === "open-mobile-menu") document.getElementById("sidebar").classList.add("open");
+      if (action === "close-mobile-menu") closeMobileMenu();
+      if (["show-environment", "share-task", "open-trace", "export-outcome", "filter-evidence", "open-recent-task"].includes(action)) { recordIntent(`ui.${action}`); showToast(t("fixtureNotice")); }
+    }
+
+    function submitCommand() {
+      const input = document.getElementById("command-input"); const value = input.value.trim();
+      if (!value) { input.focus(); return; }
+      recordIntent("task.instruct", { instruction: value }); addTimeline(t("currentScene"), value); input.value = ""; showToast(t("fixtureNotice"));
+    }
+
+    function submitAsk() {
+      const input = document.getElementById("ask-input"); const value = input.value.trim();
+      if (!value) { input.focus(); return; }
+      recordIntent("ask.submit", { question: value });
+      const data = sceneData[state.profile];
+      document.getElementById("ask-answer").textContent = `${value}：当前静态场景中有 ${data.evidence.length} 条只读证据。Ask 不会执行工具或修改任务；下面的来源可用于继续检查。`;
+      document.getElementById("ask-sources").innerHTML = data.evidence.slice(0, 3).map(item => `<button class="context-chip" type="button" data-action="inspect-evidence" data-evidence-id="${escapeHtml(item.id)}">${escapeHtml(item.id)} · ${escapeHtml(item.source)}</button>`).join("");
+      document.getElementById("ask-result").classList.add("visible");
+    }
+
+    function closeMobileMenu() { document.getElementById("sidebar").classList.remove("open"); }
+
+    document.addEventListener("click", event => {
+      const actionTarget = event.target.closest("[data-action]");
+      if (actionTarget) handleAction(actionTarget);
+      const workspaceScope = actionTarget?.closest(".workspace-block") || event.target.closest(".workspace-block");
+      const languageScope = actionTarget?.closest(".language-wrap") || event.target.closest(".language-wrap");
+      if (!workspaceScope) toggleMenu("workspace-menu", false);
+      if (!languageScope) toggleMenu("language-menu", false);
+      const nav = event.target.closest("[data-nav]");
+      if (nav) { document.querySelectorAll("[data-nav]").forEach(item => item.classList.toggle("active", item === nav)); if (nav.dataset.nav !== "tasks") showToast(t("fixtureNotice")); }
+    });
+
+    document.getElementById("task-search").addEventListener("input", event => { state.taskFilter = event.target.value; renderRecentTasks(); });
+    document.getElementById("preset-select").addEventListener("change", event => handleAction(event.target));
+    document.getElementById("command-input").addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submitCommand(); } });
+    document.getElementById("ask-input").addEventListener("keydown", event => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); submitAsk(); } });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") { closeDrawers(); toggleMenu("workspace-menu", false); toggleMenu("language-menu", false); closeMobileMenu(); }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); (state.mode === "work" ? document.getElementById("command-input") : document.getElementById("ask-input")).focus(); }
+    });
+    window.addEventListener("resize", () => { if (window.innerWidth > 820) closeMobileMenu(); });
+
+    applyLocale();
+    switchMode("work");
+  </script>
+</body>
+</html>

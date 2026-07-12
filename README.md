@@ -6,59 +6,63 @@
 
 Read `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` for the final product definition and `docs/CURRENT_STATE.yaml` for live implementation/research truth.
 
-Agent OS is a persistent, governed work operating system for individuals, independent developers and enterprises. Its primary surface is a Codex-style Task Workspace; workflows share one typed graph across natural-language generation, visual drag-and-drop editing and structured configuration. Data Agent is the first official enterprise domain pack.
+Agent OS is a persistent, governed work operating system for individuals, independent developers and enterprises. Its primary surface is one coherent agent with `Ask` for ephemeral low-risk interaction and `Work` for durable consequential tasks. Workflows remain an inspectable typed IR rather than the default user experience. Data Agent is the first official enterprise domain pack.
+
+Provider-neutral LLMs are probabilistic language/reasoning organs. World models are plural;
+CWM is optional and evidence-gated for tasks with identifiable variables, interventions and
+outcomes. `Skill` is not a kernel object: external skill packages must compile into typed
+capabilities, procedure candidates, knowledge dependencies and policy requirements. Final
+authority remains with deterministic policy/disposer and the non-bypassable correction plane.
 
 The repository uses a **dual-track layered monorepo** model:
 
 - **Product Track:** Task Workspace, workflow, runtime, providers/BYOK, tools/plugins, knowledge/RAG, agents/subagents, governance, eval, SDK and domain packs.
 - **Research Track:** CWM, belief/action mechanisms, belief ledger, outcome learning, corrigibility, formal models, preregistered experiments and negative-result maps.
 
-The current tree remains research-heavy, but Product Track P0A now implements minimum
-strict contract shapes, structural WorkflowGraph validation and canonical digesting, an append-only event-store port,
-event-rehydrated Task aggregate and public TaskService lifecycle. Its current storage is an
-in-memory adapter only; this is not the durable Agent OS runtime or market-parity layer, and
-no research result becomes a product claim by proximity.
+The current tree remains research-heavy. Product Track SPINE-0 is now PM-accepted for the
+bounded local independent-developer path: durable task/run events, provider-generated typed
+patch proposals, exact-digest approval, governed workspace tools, pytest evidence and a
+Codex-style Task Workspace. This is not market parity, enterprise production or Blueprint
+completion, and no research result becomes a product claim by proximity.
 
 ## Current State
 
 Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the current branch, stage, next task, latest tests, latest ADRs, and known drift risks.
 
-As of 2026-07-10, Product P0A records `45 passed`, ruff clean and pyright `0 errors`.
-The full Research Track regression records `1237 tests OK (16 skipped)`: 13 intentional
-sentinels plus 3 optional Replogle preprocessing tests skipped because `anndata/numpy` are
-not installed in this environment. `G10` remains a narrow positive result; `G13` and
+As of 2026-07-11, Product SPINE-0 records `96 passed, 1 skipped`, ruff clean and
+pyright `0 errors`. The full reconciled regression records `1321 passed, 14 skipped,
+5 subtests passed`; the opt-in live-provider smoke separately passes. `G10` remains a narrow positive result; `G13` and
 `G-ECO-REOPEN-1` remain `NOT_MET`; the strong-locus Stage 4 result remains
 `INSUFFICIENT_DATA_HONEST_NEGATIVE`; CWM hard-form evidence remains limited to its
 preregistered channel. See `docs/CURRENT_STATE.yaml` for exact authority. Neither suite
 establishes Product Done.
 
-## Product Track P0A
+## Product Track SPINE-0
 
 ```text
 packages/contracts/                         agent-os-contracts distribution
 packages/os_core/                           agent-os-core distribution
+apps/api_server/                            HTTP API + Task Workspace
+apps/cli/                                   local CLI
+domain_packs/developer_agent/               developer golden-path manifest
 tests/product/                              Product Track tests
 ```
 
 Install Product Track development extras and run its gates:
 
 ```bash
-python3 -m pip install -e packages/contracts
-python3 -m pip install -e packages/os_core
-python3 -m pip install -e '.[product-test]'
-python3 -m pytest tests/product -q
-ruff check packages/contracts/src packages/os_core/src tests/product
-pyright
+uv run --extra product-test pytest tests/product -q
+uv run --extra product-test ruff check apps packages/contracts/src packages/os_core/src tests/product
+uv run --extra product-test pyright apps packages/contracts/src packages/os_core/src tests/product
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/contracts
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/os_core
 ```
 
 The Product distributions declare their own runtime dependencies and do not ship `aac` or
-`envs`. `InMemoryTaskEventStore` is for port verification/local composition. Commitment
-budget/expiry, explicit outcome failure semantics, executable-graph reachability/loop-body
-rules, queued durable run transitions, PostgreSQL, provider/CredentialRef,
-policy/correction, capability execution, API/CLI/UI and complete SPINE-0 remain
-unimplemented.
+`envs`. SPINE-0 is bounded to local single-workspace, one-file replacement and allowlisted
+verification. Production KMS/SSO/tenancy, multi-file/general coding-agent execution,
+arbitrary shell/browser control, visual workflow editing, marketplace, subagent swarms,
+CWM/belief promotion and SPINE-1 migration remain unimplemented.
 
 ## Research Track: historical four claims
 

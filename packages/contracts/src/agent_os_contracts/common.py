@@ -30,7 +30,7 @@ class ContractModel(BaseModel):
 _JSON_ADAPTER = TypeAdapter(Any)
 
 
-def canonical_json(value: BaseModel | Mapping[str, Any]) -> str:
+def canonical_json(value: Any) -> str:
     if isinstance(value, BaseModel):
         payload = value.model_dump(mode="json", exclude_none=True)
     else:

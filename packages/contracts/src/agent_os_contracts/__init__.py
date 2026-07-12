@@ -24,6 +24,7 @@ from .capability import (
     SideEffectGuarantee,
 )
 from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json, content_digest
+from .domain import DomainPackManifest
 from .evidence import (
     ArtifactLocationClass,
     ArtifactRef,
@@ -48,7 +49,7 @@ from .provider import (
 from .resource import ResourceBudget, RiskTier
 from .runtime import AgentRun, RunStatus, TaskEvent, TaskEventDraft, TaskEventType, TaskStatus
 from .task import Commitment, Goal
-from .workflow import EdgeSpec, IdempotencyMode, NodeKind, NodeSpec, WorkflowGraph
+from .workflow import EdgeSpec, GraphPatch, IdempotencyMode, NodeKind, NodeSpec, WorkflowGraph
 
 __all__ = [
     "ActionContract",
@@ -65,6 +66,7 @@ __all__ = [
     "CapabilitySpec",
     "Commitment",
     "ContractModel",
+    "DomainPackManifest",
     "CorrectionEpochVector",
     "CorrectionScope",
     "CorrectionSnapshot",
@@ -76,6 +78,7 @@ __all__ = [
     "EvidenceSourceKind",
     "ExpectedOutcome",
     "EdgeSpec",
+    "GraphPatch",
     "Goal",
     "IdempotencyMode",
     "NonEmptyStr",

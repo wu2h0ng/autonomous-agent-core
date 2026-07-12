@@ -38,6 +38,25 @@ class TaskEventType(str, Enum):
     TASK_CREATED = "TASK_CREATED"
     TASK_COMMITTED = "TASK_COMMITTED"
     RUN_STARTED = "RUN_STARTED"
+    RUN_QUEUED = "RUN_QUEUED"
+    NODE_STARTED = "NODE_STARTED"
+    NODE_COMPLETED = "NODE_COMPLETED"
+    NODE_FAILED = "NODE_FAILED"
+    ACTION_PROPOSED = "ACTION_PROPOSED"
+    CANDIDATES_GENERATED = "CANDIDATES_GENERATED"
+    PROVIDER_RESPONDED = "PROVIDER_RESPONDED"
+    POLICY_DECIDED = "POLICY_DECIDED"
+    ACTION_RECEIPT_RECORDED = "ACTION_RECEIPT_RECORDED"
+    APPROVAL_REQUESTED = "APPROVAL_REQUESTED"
+    APPROVAL_RECORDED = "APPROVAL_RECORDED"
+    CORRECTION_WRITTEN = "CORRECTION_WRITTEN"
+    OUTCOME_OBSERVED = "OUTCOME_OBSERVED"
+    ARTIFACT_RECORDED = "ARTIFACT_RECORDED"
+    RUN_PAUSED = "RUN_PAUSED"
+    RUN_RESUMED = "RUN_RESUMED"
+    RUN_CANCELLED = "RUN_CANCELLED"
+    RUN_SUCCEEDED = "RUN_SUCCEEDED"
+    RUN_FAILED = "RUN_FAILED"
 
 
 class TaskEventDraft(ContractModel):
@@ -105,3 +124,8 @@ class AgentRun(ContractModel):
     workspace_id: NonEmptyStr
     status: RunStatus = RunStatus.CREATED
     created_at: UtcDateTime
+    provider_profile_id: NonEmptyStr = "provider-profile:unbound"
+    policy_version: NonEmptyStr = "policy-1"
+    lease_fence: int = Field(default=0, ge=0)
+    active_node_id: str | None = None
+    attempt: int = Field(default=1, ge=1)

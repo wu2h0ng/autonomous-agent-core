@@ -298,6 +298,7 @@ boundaries until a declared compatibility policy says otherwise.
 | `TaskEvent` | append-only, sequenced state transition with correlation and causation IDs |
 | `ArtifactRef` | content digest, media type, location class, ACL and retention metadata |
 | `EvidenceRef` | source/provenance relation to artifacts, events or external observations |
+| `EvidenceChain` | reserved generic grouping of evidence refs, claims, methods, observations, limitations, confidence and artifact bindings; SPINE-0 uses evidence primitives and does not require the full grouped schema |
 | `ExpectedOutcome` | pre-action evaluator/version, threshold, evidence requirements and observation window |
 | `ObservedOutcome` | measured result, evaluator output, evidence, confidence and unresolved gaps |
 
@@ -610,9 +611,11 @@ A domain pack may not:
 - introduce domain fields into generic core contracts;
 - claim product-wide promotion from a vertical result.
 
-`data_agent` owns Metric/Semantic/DataProduct/SQL Safety/EvidenceChain and business action
-semantics. The generic spine owns Goal, Commitment, WorkflowGraph, AgentRun, capability,
-credential, policy, correction, task events and outcome envelopes.
+`data_agent` owns Metric/Semantic/DataProduct/SQL Safety, data-specific evidence adapters
+and business action semantics. The generic spine owns Goal, Commitment, WorkflowGraph,
+AgentRun, capability, credential, policy, correction, task events, generic evidence
+primitives and outcome envelopes. Data Agent `EvidenceChain` is a projection into generic
+Agent OS evidence, not a model that imports SQL/metric vocabulary into OS Core.
 
 ## 13. Successor SPINE-1 migration architecture
 

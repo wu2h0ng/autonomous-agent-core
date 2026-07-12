@@ -36,21 +36,21 @@ Research Track 提交前本地门:
 PYTHONPATH=src python -m unittest discover -s tests   # 必须 OK
 ```
 
-Product Track P0A 当前建立的本地门是：
+Product Track SPINE-0 当前建立的本地门是：
 
 ```bash
-python3 -m pytest tests/product -q
-ruff check packages/contracts/src packages/os_core/src tests/product
-pyright
+uv run --extra product-test pytest tests/product -q
+uv run --extra product-test ruff check apps packages/contracts/src packages/os_core/src tests/product
+uv run --extra product-test pyright apps packages/contracts/src packages/os_core/src tests/product
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/contracts
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/os_core
 ```
 
 两个 wheel 必须可在隔离环境中一起安装；Product wheel 不得包含 `aac`/`envs`。
-这些门只覆盖 P0A-minimum contracts/run-kernel。后续 contract-completion、
-provider/tool/PostgreSQL/API/UI packet 必须
-各自增加 integration/e2e/security 和可重复构建命令；不得用 P0A 绿灯替代完整
-SPINE-0 验收，也不得把 schema、mock 或 UI shell 记为产品能力。
+这些门覆盖已通过 PM 验收的本地单工作区、单文件 developer golden path。后续
+production KMS/SSO/tenancy、多文件 coding execution、visual workflow、marketplace、
+SPINE-1 等 packet 必须各自增加 integration/e2e/security 和可重复构建命令；不得
+用 SPINE-0 绿灯替代完整 Blueprint、market parity 或 production readiness 验收。
 
 PR 必须使用 `.github/pull_request_template.md` 并按所选轨粘贴质量门。Research Track 机制/实验变更继续包含**证伪声明**:"本变更未为通过任何预注册门而调整机制参数/结构"。
 

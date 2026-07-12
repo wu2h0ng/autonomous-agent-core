@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent OS</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17191c;
+      --muted: #687078;
+      --line: #dfe3e7;
+      --soft: #f4f6f8;
+      --panel: #ffffff;
+      --accent: #176b52;
+      --accent-strong: #0e523e;
+      --warn: #a4520a;
+      --danger: #b42318;
+      --focus: #1666b1;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; background: var(--panel); color: var(--ink); font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    button, input, textarea, select { font: inherit; letter-spacing: 0; }
+    button { min-height: 34px; border: 1px solid var(--line); border-radius: 5px; background: #fff; color: var(--ink); padding: 6px 11px; cursor: pointer; }
+    button:hover { border-color: #aeb6bd; background: var(--soft); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    button.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+    button.primary:hover { background: var(--accent-strong); }
+    button.danger { color: var(--danger); }
+    input, textarea { width: 100%; border: 1px solid #cbd1d6; border-radius: 5px; background: #fff; color: var(--ink); padding: 8px 10px; }
+    textarea { min-height: 92px; resize: vertical; }
+    label { display: block; margin-bottom: 5px; color: #444a50; font-size: 12px; font-weight: 650; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 252px minmax(0, 1fr); }
+    aside { min-width: 0; background: var(--soft); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+    .brand { height: 58px; display: flex; align-items: center; gap: 9px; padding: 0 16px; border-bottom: 1px solid var(--line); font-size: 17px; font-weight: 720; }
+    .brand-mark { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 5px; background: var(--ink); color: #fff; font-size: 12px; }
+    .sidebar-actions { padding: 12px; }
+    .sidebar-actions button { width: 100%; text-align: left; }
+    .side-heading { padding: 9px 14px 5px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    #task-list { overflow-y: auto; flex: 1; padding: 0 7px 14px; }
+    .task-row { width: 100%; min-height: 52px; border: 0; background: transparent; text-align: left; padding: 8px; display: grid; gap: 2px; }
+    .task-row.active { background: #e7ecef; }
+    .task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 610; }
+    .task-meta { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; gap: 8px; }
+    .sidebar-foot { padding: 10px 12px; border-top: 1px solid var(--line); }
+    .sidebar-foot button { width: 100%; text-align: left; }
+    main { min-width: 0; background: #fff; }
+    .topbar { height: 58px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; }
+    .task-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
+    .top-status { display: flex; gap: 8px; align-items: center; }
+    .signal { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; border: 1px solid var(--line); border-radius: 4px; padding: 4px 7px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #9aa2a9; }
+    .dot.ok { background: var(--accent); }
+    .workspace { max-width: 1180px; margin: 0 auto; }
+    .setup { border-bottom: 1px solid var(--line); background: #fafbfc; }
+    .setup summary { list-style: none; cursor: pointer; padding: 11px 24px; font-weight: 650; }
+    .setup summary::-webkit-details-marker { display: none; }
+    .setup-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(300px, 1.4fr); gap: 24px; padding: 2px 24px 18px; }
+    .setup-group { min-width: 0; }
+    .inline { display: flex; gap: 8px; align-items: end; }
+    .inline > div { min-width: 0; flex: 1; }
+    .provider-grid { display: grid; grid-template-columns: 1.4fr .8fr .8fr; gap: 8px; align-items: end; }
+    .provider-grid .key { grid-column: 1 / 3; }
+    .compose { padding: 28px 24px 22px; border-bottom: 1px solid var(--line); }
+    .compose h1 { margin: 0 0 18px; font-size: 22px; line-height: 1.25; }
+    .fields { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; }
+    .goal-field { grid-row: span 2; }
+    .compose-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+    .task-id { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+    .workflow-band { padding: 14px 24px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .steps { min-width: 690px; display: grid; grid-template-columns: repeat(7, 1fr); }
+    .step { position: relative; padding: 0 8px; text-align: center; color: var(--muted); font-size: 11px; }
+    .step::before { content: ""; position: absolute; z-index: 0; top: 8px; left: 0; right: 0; height: 1px; background: var(--line); }
+    .step:first-child::before { left: 50%; }
+    .step:last-child::before { right: 50%; }
+    .step-mark { position: relative; z-index: 1; width: 17px; height: 17px; margin: 0 auto 5px; border: 2px solid #b7bec4; border-radius: 50%; background: #fff; }
+    .step.done .step-mark { border-color: var(--accent); background: var(--accent); }
+    .step.active { color: var(--ink); font-weight: 650; }
+    .step.active .step-mark { border-color: var(--warn); background: #fff3e7; }
+    #error { display: none; margin: 18px 24px 0; border-left: 3px solid var(--danger); background: #fff4f2; padding: 10px 12px; color: #7a271a; }
+    #error.visible { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .review { display: none; padding: 22px 24px; border-bottom: 1px solid var(--line); }
+    .review.visible { display: block; }
+    .review-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .review-head h2 { margin: 0; font-size: 16px; }
+    .review-actions { display: flex; gap: 8px; }
+    .diff { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+    .diff-pane { min-width: 0; }
+    .diff-pane + .diff-pane { border-left: 1px solid var(--line); }
+    .diff-label { padding: 6px 10px; background: var(--soft); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    pre { margin: 0; padding: 12px; min-height: 120px; max-height: 380px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .tabs { display: flex; gap: 2px; padding: 12px 24px 0; border-bottom: 1px solid var(--line); }
+    .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); }
+    .tab.active { border-bottom-color: var(--ink); color: var(--ink); }
+    .detail { padding: 18px 24px 48px; }
+    .detail-view { display: none; }
+    .detail-view.active { display: block; }
+    .empty { color: var(--muted); padding: 22px 0; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+    .metric { min-width: 0; padding: 12px; }
+    .metric + .metric { border-left: 1px solid var(--line); }
+    .metric span { display: block; color: var(--muted); font-size: 11px; }
+    .metric strong { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .timeline { border-left: 1px solid var(--line); margin-left: 7px; }
+    .event { position: relative; padding: 0 0 15px 18px; }
+    .event::before { content: ""; position: absolute; left: -4px; top: 5px; width: 7px; height: 7px; border-radius: 50%; background: #7e8790; }
+    .event strong { font-size: 12px; }
+    .event div { color: var(--muted); font-size: 11px; }
+    .artifact-list { display: grid; gap: 8px; }
+    .artifact-list a { color: var(--focus); overflow-wrap: anywhere; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    @media (max-width: 800px) {
+      .shell { grid-template-columns: 1fr; }
+      aside { display: none; }
+      .topbar { padding: 0 14px; }
+      .top-status .signal:first-child { display: none; }
+      .setup-grid, .fields, .provider-grid, .diff, .summary-grid { grid-template-columns: 1fr; }
+      .goal-field { grid-row: auto; }
+      .provider-grid .key { grid-column: auto; }
+      .diff-pane + .diff-pane, .metric + .metric { border-left: 0; border-top: 1px solid var(--line); }
+      .compose, .review, .detail { padding-left: 14px; padding-right: 14px; }
+      .setup summary, .workflow-band, .tabs { padding-left: 14px; padding-right: 14px; }
+      #error { margin-left: 14px; margin-right: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="brand-mark">AO</span>Agent OS</div>
+      <div class="sidebar-actions"><button type="button" onclick="newTask()">+ New task</button></div>
+      <div class="side-heading">Recent tasks</div>
+      <div id="task-list"><div class="empty">No tasks</div></div>
+      <div class="sidebar-foot"><button type="button" onclick="toggleSetup()">Settings</button></div>
+    </aside>
+    <main>
+      <div class="topbar">
+        <div class="task-name" id="task-name">Task Workspace</div>
+        <div class="top-status">
+          <span class="signal" id="workspace-signal"><span class="dot"></span>No workspace</span>
+          <span class="signal" id="provider-signal"><span class="dot"></span>No provider</span>
+        </div>
+      </div>
+      <div class="workspace">
+        <details class="setup" id="setup">
+          <summary>Workspace and provider</summary>
+          <div class="setup-grid">
+            <div class="setup-group">
+              <label for="workspace-path">Repository path</label>
+              <div class="inline"><div><input id="workspace-path" autocomplete="off" placeholder="/absolute/path/to/repository"></div><button type="button" onclick="attachWorkspace()">Attach</button></div>
+            </div>
+            <div class="setup-group provider-grid">
+              <div><label for="provider-url">Provider base URL</label><input id="provider-url" autocomplete="off" placeholder="https://api.example.com/v1"></div>
+              <div><label for="provider-model">Model</label><input id="provider-model" autocomplete="off" placeholder="model-id"></div>
+              <div><label for="provider-temp">Temperature</label><input id="provider-temp" inputmode="decimal" value="1.0"></div>
+              <div class="key"><label for="provider-key">API key</label><input id="provider-key" type="password" autocomplete="new-password" placeholder="Stored as a local credential reference"></div>
+              <button type="button" onclick="configureProvider()">Connect</button>
+            </div>
+          </div>
+        </details>
+        <section class="compose">
+          <h1 id="compose-title">Run a repository task</h1>
+          <div class="fields">
+            <div class="goal-field"><label for="goal">Goal</label><textarea id="goal" placeholder="Describe the repository outcome"></textarea></div>
+            <div><label for="target-path">Target file</label><input id="target-path" autocomplete="off" placeholder="src/module.py"></div>
+            <div><label for="test-command">Verification</label><input id="test-command" value="python -m pytest"></div>
+          </div>
+          <div class="compose-actions">
+            <button class="primary" type="button" id="prepare" onclick="prepareTask()">Create and commit</button>
+            <button type="button" id="run" onclick="runTask()" disabled>Run</button>
+            <span class="task-id" id="task-id"></span>
+          </div>
+        </section>
+        <section class="workflow-band" aria-label="Workflow status">
+          <div class="steps" id="steps"></div>
+        </section>
+        <div id="error"><span id="error-message"></span><button type="button" onclick="runTask()">Retry</button></div>
+        <section class="review" id="review">
+          <div class="review-head"><h2>Proposed change</h2><div class="review-actions"><button class="danger" type="button" onclick="reviewAction('REJECT')">Reject</button><button class="primary" type="button" onclick="reviewAction('APPROVE')">Approve and run</button></div></div>
+          <div class="diff"><div class="diff-pane"><div class="diff-label">Current</div><pre id="before"></pre></div><div class="diff-pane"><div class="diff-label">Proposed</div><pre id="after"></pre></div></div>
+        </section>
+        <nav class="tabs" aria-label="Task details">
+          <button class="tab active" data-tab="overview" onclick="selectTab('overview')">Overview</button>
+          <button class="tab" data-tab="events" onclick="selectTab('events')">Events</button>
+          <button class="tab" data-tab="evidence" onclick="selectTab('evidence')">Evidence</button>
+          <button class="tab" data-tab="workflow" onclick="selectTab('workflow')">Workflow</button>
+        </nav>
+        <section class="detail">
+          <div class="detail-view active" id="view-overview"><div class="empty">No task selected</div></div>
+          <div class="detail-view" id="view-events"></div>
+          <div class="detail-view" id="view-evidence"></div>
+          <div class="detail-view" id="view-workflow"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script>
+    const $ = id => document.getElementById(id);
+    const stageOrder = ['read', 'provider', 'approve', 'apply', 'tests', 'evaluate', 'done'];
+    let current = null;
+    let setupState = {workspace: null, provider: null};
+
+    async function call(path, method = 'GET', body) {
+      const response = await fetch(path, {
+        method,
+        headers: body ? {'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID()} : {},
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const value = await response.json();
+      if (!response.ok) throw value;
+      return value;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    }
+
+    function showError(error) {
+      $('error-message').textContent = error.message || error.error || String(error);
+      $('error').classList.add('visible');
+    }
+
+    function clearError() { $('error').classList.remove('visible'); }
+
+    function signal(id, ok, text) {
+      const node = $(id);
+      node.innerHTML = `<span class="dot ${ok ? 'ok' : ''}"></span>${escapeHtml(text)}`;
+    }
+
+    async function boot() {
+      try {
+        const [workspace, provider] = await Promise.all([call('/v1/workspace'), call('/v1/provider')]);
+        setupState = {workspace, provider};
+        $('workspace-path').value = workspace.root || '';
+        $('provider-model').value = provider.configured ? provider.model_id : '';
+        signal('workspace-signal', workspace.attached, workspace.attached ? workspace.root : 'No workspace');
+        signal('provider-signal', provider.configured, provider.configured ? provider.model_id : 'No provider');
+        await refreshTasks();
+      } catch (error) { showError(error); }
+    }
+
+    async function refreshTasks() {
+      const data = await call('/v1/tasks');
+      $('task-list').innerHTML = data.tasks.length ? data.tasks.map(task => `
+        <button class="task-row ${current && current.task_id === task.task_id ? 'active' : ''}" onclick="loadTask('${escapeHtml(task.task_id)}')">
+          <span class="task-title">${escapeHtml(task.statement || 'Untitled task')}</span>
+          <span class="task-meta"><span>${escapeHtml(task.run_status || task.status)}</span><span>${task.sequence} events</span></span>
+        </button>`).join('') : '<div class="empty">No tasks</div>';
+    }
+
+    function workflow() {
+      const node = (node_id, kind, capability, idempotency = 'none') => ({node_id, kind, capability, input_contract:'json:object:1', output_contract:'json:object:1', timeout_seconds:120, max_attempts:1, risk_tier:1, idempotency});
+      return {
+        workflow_id:'workflow:developer-golden-path', version:1, tenant_id:'tenant:local', workspace_id:'workspace:local', created_by:'user:local', created_at:new Date().toISOString(), policy_version:'policy-1', evaluator_refs:['evaluator:pytest:1'],
+        nodes:[node('read','tool','workspace.read','idempotent'), node('provider','provider','provider.chat'), node('approve','approval'), node('apply','tool','workspace.apply_patch','compensatable'), node('tests','tool','workspace.run_tests','compensatable'), node('evaluate','evaluation'), node('done','terminal')],
+        edges:[['read','provider'],['provider','approve'],['approve','apply'],['apply','tests'],['tests','evaluate'],['evaluate','done']].map(edge => ({source:edge[0], target:edge[1]}))
+      };
+    }
+
+    async function prepareTask() {
+      clearError();
+      try {
+        if (!setupState.workspace?.attached || !setupState.provider?.configured) throw {message:'Attach a repository and connect a provider first.'};
+        const goal = $('goal').value.trim();
+        const target = $('target-path').value.trim();
+        if (!goal || !target) throw {message:'Goal and target file are required.'};
+        const now = new Date().toISOString();
+        const task = await call('/v1/tasks', 'POST', {goal_id:'goal:'+crypto.randomUUID(), tenant_id:'tenant:local', workspace_id:'workspace:local', created_by:'user:local', created_at:now, statement:goal});
+        const committed = await call('/v1/tasks/'+task.task_id+':commit', 'POST', {
+          commitment:{commitment_id:'commitment:'+task.task_id, task_id:task.task_id, goal_id:task.goal.goal_id, tenant_id:'tenant:local', workspace_id:'workspace:local', accepted_by:'user:local', accepted_at:now, deliverables:[target], acceptance_criteria:['verification passes'], authority_scopes:['workspace:read','workspace:write'], budget:{max_cost_usd:'1',max_duration_seconds:300,max_provider_tokens:16000,max_tool_calls:10}, risk_tier:1, exit_conditions:['verified'], expires_at:new Date(Date.now()+3600000).toISOString()},
+          workflow:workflow(),
+          expected_outcome:{expected_outcome_id:'expected:'+task.task_id, task_id:task.task_id, tenant_id:'tenant:local', workspace_id:'workspace:local', evaluator_type:'pytest', evaluator_version:'1', evidence_requirements:['test-report'], failure_semantics:['non-zero exit'], threshold:1, observation_window_seconds:60, frozen_at:now}
+        });
+        renderTask(committed);
+        await refreshTasks();
+      } catch (error) { showError(error); }
+    }
+
+    async function loadTask(taskId, preserveError = false) {
+      if (!preserveError) clearError();
+      try { renderTask(await call('/v1/tasks/'+taskId)); await refreshTasks(); }
+      catch (error) { showError(error); }
+    }
+
+    async function runTask() {
+      clearError();
+      if (!current) return showError({message:'Create or select a task first.'});
+      try {
+        const result = await call('/v1/tasks/'+current.task_id+'/run', 'POST', {target_path:$('target-path').value.trim(), test_command:$('test-command').value.trim(), recover_stale_lease:true});
+        renderTask(result);
+        await refreshTasks();
+      } catch (error) { showError(error); if (current) await loadTask(current.task_id, true); }
+    }
+
+    async function reviewAction(disposition) {
+      clearError();
+      try {
+        const reviewed = await call('/v1/tasks/'+current.task_id+'/approval', 'POST', {disposition, reason: disposition === 'APPROVE' ? 'Reviewed provider patch' : 'Rejected in Task Workspace'});
+        renderTask(reviewed);
+        if (disposition === 'APPROVE') await runTask();
+      } catch (error) { showError(error); }
+    }
+
+    async function taskControl(operation) {
+      clearError();
+      try {
+        const body = operation === 'correction' ? {reason:'Principal correction'} : {};
+        renderTask(await call('/v1/tasks/'+current.task_id+'/'+operation, 'POST', body));
+        await refreshTasks();
+      } catch (error) { showError(error); }
+    }
+
+    async function attachWorkspace() {
+      clearError();
+      try {
+        setupState.workspace = await call('/v1/workspace', 'POST', {path:$('workspace-path').value.trim()});
+        signal('workspace-signal', true, setupState.workspace.root);
+      } catch (error) { showError(error); }
+    }
+
+    async function configureProvider() {
+      clearError();
+      try {
+        setupState.provider = await call('/v1/provider', 'POST', {base_url:$('provider-url').value.trim(), model:$('provider-model').value.trim(), api_key:$('provider-key').value, temperature:Number($('provider-temp').value)});
+        $('provider-key').value = '';
+        signal('provider-signal', true, setupState.provider.model_id);
+      } catch (error) { $('provider-key').value = ''; showError(error); }
+    }
+
+    function renderTask(task) {
+      current = task;
+      $('task-name').textContent = task.goal?.statement || 'Task Workspace';
+      $('compose-title').textContent = task.goal?.statement || 'Run a repository task';
+      $('goal').value = task.goal?.statement || $('goal').value;
+      if (task.commitment?.deliverables?.[0]) $('target-path').value = task.commitment.deliverables[0];
+      $('task-id').textContent = task.task_id;
+      $('prepare').disabled = true;
+      $('run').disabled = !['COMMITTED','QUEUED','RUNNING','WAITING_EVENT','FAILED','PAUSED'].includes(task.run?.status || task.status);
+      if (task.workspace?.root) {
+        setupState.workspace = task.workspace;
+        signal('workspace-signal', true, task.workspace.root);
+      }
+      if (task.provider) {
+        setupState.provider = task.provider;
+        signal('provider-signal', task.provider.configured, task.provider.configured ? task.provider.model_id : 'No provider');
+      }
+      renderSteps(task);
+      renderReview(task);
+      renderDetails(task);
+    }
+
+    function renderSteps(task) {
+      const completed = new Set(task.events.filter(event => event.event_type === 'NODE_COMPLETED').map(event => event.payload.node_id));
+      const active = task.run?.active_node_id;
+      $('steps').innerHTML = stageOrder.map(stage => `<div class="step ${completed.has(stage) ? 'done' : ''} ${active === stage ? 'active' : ''}"><div class="step-mark"></div><span>${escapeHtml(stage)}</span></div>`).join('');
+    }
+
+    function renderReview(task) {
+      const waiting = task.run?.status === 'WAITING_APPROVAL' && task.proposed_action;
+      $('review').classList.toggle('visible', Boolean(waiting));
+      if (!task.proposed_action) return;
+      const read = [...task.events].reverse().find(event => event.event_type === 'NODE_COMPLETED' && event.payload.node_id === 'read');
+      $('before').textContent = read?.payload?.output?.content || '';
+      $('after').textContent = task.proposed_action.arguments?.content || '';
+      if (task.proposed_action.arguments?.path) $('target-path').value = task.proposed_action.arguments.path;
+    }
+
+    function renderDetails(task) {
+      const usage = task.provider?.usage;
+      const runStatus = task.run?.status || 'NOT_STARTED';
+      const terminal = ['SUCCEEDED','FAILED','CANCELLED'].includes(runStatus);
+      const pauseDisabled = !['RUNNING','WAITING_APPROVAL','WAITING_EVENT'].includes(runStatus);
+      const resumeDisabled = !['PAUSED','WAITING_EVENT'].includes(runStatus);
+      $('view-overview').innerHTML = `<div class="summary-grid">
+        <div class="metric"><span>Task</span><strong>${escapeHtml(task.status)}</strong></div>
+        <div class="metric"><span>Run</span><strong>${escapeHtml(task.run?.status || 'Not started')}</strong></div>
+        <div class="metric"><span>Provider tokens</span><strong>${escapeHtml(usage?.total_tokens ?? 0)}</strong></div>
+        <div class="metric"><span>Outcome</span><strong>${escapeHtml(task.observed_outcome?.status || 'Pending')}</strong></div>
+      </div><div class="controls">
+        <button type="button" onclick="taskControl('pause')" ${pauseDisabled ? 'disabled' : ''}>Pause</button><button type="button" onclick="taskControl('resume')" ${resumeDisabled ? 'disabled' : ''}>Resume</button><button type="button" onclick="taskControl('cancel')" ${terminal ? 'disabled' : ''}>Cancel</button><button class="danger" type="button" onclick="taskControl('correction')" ${terminal ? 'disabled' : ''}>Correct</button>
+      </div>`;
+      $('view-events').innerHTML = task.events.length ? `<div class="timeline">${task.events.map(event => `<div class="event"><strong>${escapeHtml(event.event_type)}</strong><div>#${event.sequence} ${escapeHtml(eventDetail(event))}</div></div>`).join('')}</div>` : '<div class="empty">No events</div>';
+      $('view-evidence').innerHTML = task.artifacts.length ? `<div class="artifact-list">${task.artifacts.map((id, index) => `<a target="_blank" rel="noopener" href="/v1/tasks/${encodeURIComponent(task.task_id)}/artifacts/${encodeURIComponent(id.replace('artifact:',''))}">Open verification report ${index + 1}</a>`).join('')}</div>` : '<div class="empty">No evidence artifacts</div>';
+      $('view-workflow').innerHTML = task.workflow ? `<pre>${escapeHtml(JSON.stringify(task.workflow, null, 2))}</pre>` : '<div class="empty">No workflow committed</div>';
+    }
+
+    function eventDetail(event) {
+      if (event.event_type === 'POLICY_DECIDED') {
+        const decision = event.payload?.decision;
+        return `${decision?.verdict || 'UNKNOWN'} - ${(decision?.reason_codes || []).join(', ')}`;
+      }
+      if (event.event_type === 'NODE_STARTED' || event.event_type === 'NODE_COMPLETED' || event.event_type === 'NODE_FAILED') {
+        return event.payload?.node_id || event.occurred_at;
+      }
+      if (event.event_type === 'ACTION_RECEIPT_RECORDED') {
+        return `${event.payload?.receipt?.connector_id || 'capability'} - ${event.payload?.receipt?.status || 'UNKNOWN'}`;
+      }
+      return event.occurred_at;
+    }
+
+    function selectTab(name) {
+      document.querySelectorAll('.tab').forEach(node => node.classList.toggle('active', node.dataset.tab === name));
+      document.querySelectorAll('.detail-view').forEach(node => node.classList.toggle('active', node.id === 'view-'+name));
+    }
+
+    function newTask() {
+      current = null;
+      $('task-name').textContent = 'Task Workspace';
+      $('compose-title').textContent = 'Run a repository task';
+      $('goal').value = '';
+      $('target-path').value = '';
+      $('task-id').textContent = '';
+      $('prepare').disabled = false;
+      $('run').disabled = true;
+      $('review').classList.remove('visible');
+      $('view-overview').innerHTML = '<div class="empty">No task selected</div>';
+      renderSteps({events:[], run:null});
+      refreshTasks();
+    }
+
+    function toggleSetup() { $('setup').open = !$('setup').open; }
+    renderSteps({events:[], run:null});
+    boot();
+  </script>
+</body>
+</html>
