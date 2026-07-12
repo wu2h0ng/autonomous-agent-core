@@ -102,10 +102,10 @@ class WorkspaceSandbox:
                 capability_id="workspace.compensate_patch",
                 version="1",
                 display_name="Restore governed patch snapshot",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE,
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT,
                 idempotency_supported=True,
                 cancellation_supported=True,
-                compensation_supported=True,
+                compensation_supported=False,
                 **common,
             )
         return specs
@@ -134,6 +134,10 @@ class WorkspaceSandbox:
             intent_fingerprint,
         )
         if stored is not None:
+            if action.capability_id == "workspace.apply_patch":
+                self._validate_cached_patch_effect(args, stored)
+            elif action.capability_id == "workspace.compensate_patch":
+                self._validate_cached_compensation_effect(args, stored)
             output: dict[str, object] = stored
             status = (
                 ReceiptStatus.COMPENSATED
@@ -240,12 +244,16 @@ class WorkspaceSandbox:
     def _safe_path(self, value: str) -> Path:
         if not value or value.startswith("/") or "\\" in value:
             raise CapabilityDenied("path must be a relative workspace path")
+        if Path(value).parts and Path(value).parts[0] == ".agent-os-artifacts":
+            raise CapabilityDenied("workspace artifact state is reserved")
         raw = self.root / value
         if any(part.is_symlink() for part in (self.root, *raw.parents) if part.exists()):
             raise CapabilityDenied("symlink paths are forbidden")
         candidate = raw.resolve()
         if candidate != self.root and self.root not in candidate.parents:
             raise CapabilityDenied("path escapes workspace")
+        if candidate == self.artifacts or self.artifacts in candidate.parents:
+            raise CapabilityDenied("workspace artifact state is reserved")
         return candidate
 
     def _apply_patch(self, args: dict[str, object], action_key: str) -> dict[str, object]:
@@ -258,9 +266,11 @@ class WorkspaceSandbox:
         snapshot_dir = self.artifacts / "compensation" / key_digest
         applied_sha256 = _sha256(content_bytes)
         if snapshot_dir.exists():
-            manifest, manifest_sha256, state, before_bytes = self._load_snapshot(
+            manifest, manifest_sha256, state, _ = self._load_snapshot(
                 compensation_ref
             )
+            if state == "COMPENSATED":
+                raise CapabilityDenied("patch was already compensated and cannot replay")
             if manifest["action_key_sha256"] != key_digest:
                 raise CapabilityDenied("snapshot action key binding mismatch")
             if manifest["relative_path"] != relative_path:
@@ -276,12 +286,18 @@ class WorkspaceSandbox:
                 and before_existed
                 and _sha256(path.read_bytes()) == manifest["before_sha256"]
             ) or (not path.exists() and not before_existed)
-            if current_matches_before:
-                self._atomic_write(path, content_bytes)
-            elif not current_matches_applied:
-                raise CapabilityDenied("workspace changed outside the durable patch replay")
-            if state != "APPLIED":
+            if state == "PREPARED":
+                if current_matches_before:
+                    self._atomic_write(path, content_bytes)
+                elif not current_matches_applied:
+                    raise CapabilityDenied(
+                        "workspace changed outside the prepared patch replay"
+                    )
                 self._write_snapshot_state(snapshot_dir, "APPLIED")
+            elif state == "APPLIED" and not current_matches_applied:
+                raise CapabilityDenied(
+                    "APPLIED snapshot no longer matches the patch effect"
+                )
             return {
                 "path": relative_path,
                 "sha256": applied_sha256,
@@ -323,6 +339,64 @@ class WorkspaceSandbox:
             "replayed": False,
         }
 
+    def _validate_cached_patch_effect(
+        self,
+        args: dict[str, object],
+        output: dict[str, object],
+    ) -> None:
+        compensation_ref = output.get("compensation_ref")
+        manifest_sha256 = output.get("manifest_sha256")
+        applied_sha256 = output.get("applied_sha256")
+        if not all(
+            isinstance(value, str)
+            for value in (compensation_ref, manifest_sha256, applied_sha256)
+        ):
+            raise CapabilityDenied("cached patch lacks durable compensation binding")
+        _, _, state, _ = self._load_snapshot(
+            str(compensation_ref),
+            expected_manifest_sha256=str(manifest_sha256),
+        )
+        if state == "COMPENSATED":
+            raise CapabilityDenied("cached patch was already compensated")
+        target = self._safe_path(str(args.get("path", "")))
+        if not target.is_file() or _sha256(target.read_bytes()) != applied_sha256:
+            raise CapabilityDenied("cached patch effect is no longer present")
+
+    def _validate_cached_compensation_effect(
+        self,
+        args: dict[str, object],
+        output: dict[str, object],
+    ) -> None:
+        compensation_ref = output.get("compensation_ref")
+        manifest_sha256 = output.get("manifest_sha256")
+        if not isinstance(compensation_ref, str) or not isinstance(
+            manifest_sha256, str
+        ):
+            raise CapabilityDenied("cached compensation lacks snapshot binding")
+        if compensation_ref != args.get("compensation_ref"):
+            raise CapabilityDenied("cached compensation reference mismatch")
+        manifest, _, state, _ = self._load_snapshot(
+            compensation_ref,
+            expected_manifest_sha256=manifest_sha256,
+        )
+        if state != "COMPENSATED":
+            raise CapabilityDenied("cached compensation state is not terminal")
+        action_key = str(args.get("original_action_key", ""))
+        if manifest["action_key_sha256"] != _sha256(action_key.encode("utf-8")):
+            raise CapabilityDenied("cached compensation action key mismatch")
+        relative_path = str(args.get("path", ""))
+        if manifest["relative_path"] != relative_path:
+            raise CapabilityDenied("cached compensation path mismatch")
+        target = self._safe_path(relative_path)
+        before_existed = bool(manifest["before_existed"])
+        current_is_before = (
+            target.exists()
+            and before_existed
+            and _sha256(target.read_bytes()) == manifest["before_sha256"]
+        ) or (not target.exists() and not before_existed)
+        if not current_is_before:
+            raise CapabilityDenied("cached compensation effect is no longer present")
+
     def compensate(self, action_key: str, path: str) -> None:
         compensation_ref = f"compensation:{_sha256(action_key.encode('utf-8'))}"
         _, manifest_sha256, _, _ = self._load_snapshot(compensation_ref)
@@ -360,7 +434,20 @@ class WorkspaceSandbox:
             and before_existed
             and _sha256(target.read_bytes()) == before_sha256
         ) or (not target.exists() and not before_existed)
-        replayed = current_is_before and state == "COMPENSATED"
+        if state == "COMPENSATED":
+            if not current_is_before:
+                raise CapabilityDenied(
+                    "COMPENSATED snapshot is terminal and target has changed"
+                )
+            return {
+                "path": relative_path,
+                "compensation_ref": compensation_ref,
+                "manifest_sha256": manifest_sha256,
+                "compensated": True,
+                "replayed": True,
+            }
+        if state != "APPLIED":
+            raise CapabilityDenied("patch snapshot is not in APPLIED state")
         if current_is_applied:
             if before_existed:
                 self._atomic_write(target, before_bytes)
@@ -379,7 +466,7 @@ class WorkspaceSandbox:
             "compensation_ref": compensation_ref,
             "manifest_sha256": manifest_sha256,
             "compensated": True,
-            "replayed": replayed,
+            "replayed": current_is_before,
         }
 
     def _persist_snapshot(

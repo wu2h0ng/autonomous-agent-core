@@ -126,12 +126,20 @@ class PolicyKernel:
         verdict = PolicyVerdict.ALLOW
         if action.policy_version != self.policy_version:
             verdict, reasons = PolicyVerdict.DENY, ["POLICY_VERSION_MISMATCH"]
+        elif action.principal_id != context.principal.principal_id:
+            verdict, reasons = PolicyVerdict.DENY, ["PRINCIPAL_MISMATCH"]
         elif action.tenant_id != context.principal.tenant_id or action.workspace_id != context.principal.workspace_id:
             verdict, reasons = PolicyVerdict.DENY, ["SCOPE_MISMATCH"]
         elif context.capability is None or context.grant is None:
             verdict, reasons = PolicyVerdict.DENY, ["CAPABILITY_NOT_GRANTED"]
         elif context.grant.status is not CapabilityGrantStatus.ACTIVE:
             verdict, reasons = PolicyVerdict.DENY, ["GRANT_REVOKED"]
+        elif (
+            context.grant.principal_id != action.principal_id
+            or context.grant.tenant_id != action.tenant_id
+            or context.grant.workspace_id != action.workspace_id
+        ):
+            verdict, reasons = PolicyVerdict.DENY, ["GRANT_SCOPE_MISMATCH"]
         elif context.grant.capability_id != action.capability_id or context.grant.capability_version != action.capability_version:
             verdict, reasons = PolicyVerdict.DENY, ["CAPABILITY_VERSION_MISMATCH"]
         elif action.risk_tier > context.grant.max_risk_tier:

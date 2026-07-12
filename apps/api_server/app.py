@@ -20,6 +20,7 @@ from agent_os_contracts import (
     CredentialRef,
     CredentialStatus,
     ExpectedOutcome,
+    ExternalSignal,
     Goal,
     PrincipalIdentity,
     PrincipalRole,
@@ -293,6 +294,83 @@ class AgentOSApplication:
         epoch = self.correction.correct("task", task_id, reason)
         self.tasks.append_event(task_id, TaskEventType.CORRECTION_WRITTEN, {"scope": "TASK", "epoch": epoch, "reason": reason})
         return self.tasks.get_task(task_id)
+
+    def signal_task(self, task_id: str, payload: dict[str, Any]):
+        task = self.tasks.get_task(task_id)
+        if task.run is None or task.commitment is None:
+            raise ValueError("signal requires an active committed run")
+        values = dict(payload)
+        values.setdefault("task_id", task_id)
+        values.setdefault("run_id", task.run.run_id)
+        values.setdefault("tenant_id", task.commitment.tenant_id)
+        values.setdefault("workspace_id", task.commitment.workspace_id)
+        values.setdefault("occurred_at", datetime.now(timezone.utc))
+        signal = ExternalSignal.model_validate(values)
+        return self.tasks.record_signal(task_id, signal)
+
+    def replan_task(self, task_id: str, payload: dict[str, Any]):
+        workflow_payload = payload.get("workflow")
+        if not isinstance(workflow_payload, dict):
+            raise ValueError("replan requires a workflow object")
+        reason = str(payload.get("reason", "")).strip()
+        if not reason:
+            raise ValueError("replan reason is required")
+        workflow = WorkflowGraph.model_validate(workflow_payload)
+        return self.tasks.replan_task(
+            task_id,
+            workflow,
+            requested_by=self.principal.principal_id,
+            reason=reason,
+        )
+
+    def resume_correction(
+        self,
+        task_id: str,
+        reason: str,
+        *,
+        principal: PrincipalIdentity | None = None,
+    ):
+        actor = principal or self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("correction resume requires principal authority")
+        task = self.tasks.get_task(task_id)
+        if task.run is None or task.commitment is None:
+            raise ValueError("correction resume requires an active committed run")
+        if (
+            actor.tenant_id != task.commitment.tenant_id
+            or actor.workspace_id != task.commitment.workspace_id
+        ):
+            raise PermissionError("correction resume scope mismatch")
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("correction resume reason is required")
+        epoch = self.correction.resume("task", task_id, normalized_reason)
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.CORRECTION_WRITTEN,
+            {
+                "scope": "TASK",
+                "epoch": epoch,
+                "halted": False,
+                "reason": normalized_reason,
+                "written_by": actor.principal_id,
+            },
+            correlation_id=task.run.run_id,
+        )
+        return self.tasks.get_task(task_id)
+
+    def compensate_task(self, task_id: str):
+        runner = RunCoordinator(
+            self.tasks,
+            self.sandbox,
+            self.provider,
+            self.provider_profile,
+            self.policy,
+            self.correction,
+            self.grants,
+            compensation_grant=self.compensation_grant,
+        )
+        return runner.compensate_task(task_id, self.principal)
 
     def record_approval(self, task_id: str, payload: dict[str, Any]):
         task = self.tasks.get_task(task_id)

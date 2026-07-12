@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import threading
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
+from agent_os_contracts import EdgeSpec, NodeKind, NodeSpec, RunStatus, TaskEventType, WorkflowGraph
+from agent_os_core import DeterministicProvider
 
 
 class ProviderHandler(BaseHTTPRequestHandler):
@@ -171,5 +173,174 @@ def test_http_api_and_workspace_use_application_path(tmp_path) -> None:
     finally:
         provider_server.shutdown()
         provider_server.server_close()
+        server.shutdown()
+        server.server_close()
+
+
+def _waiting_task(app: AgentOSApplication, suffix: str) -> tuple[str, WorkflowGraph]:
+    now = datetime.now(timezone.utc)
+    workflow = WorkflowGraph(
+        workflow_id=f"workflow:http-wait:{suffix}",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=(
+            NodeSpec(
+                node_id="wait",
+                kind=NodeKind.WAIT_EVENT,
+                wait_signal_name="build.finished",
+                wait_correlation_key=f"build:{suffix}",
+            ),
+            NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+        ),
+        edges=(EdgeSpec(source="wait", target="done"),),
+        max_replans=1,
+    )
+    task = app.create_task(
+        {
+            "goal_id": f"goal:http-wait:{suffix}",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": now,
+            "statement": f"wait for build {suffix}",
+        }
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": f"commitment:http-wait:{suffix}",
+                "task_id": task.task_id,
+                "goal_id": f"goal:http-wait:{suffix}",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "accepted_by": "user:local",
+                "accepted_at": now,
+                "deliverables": ["build signal"],
+                "acceptance_criteria": ["signal recorded"],
+                "authority_scopes": ["workspace:read"],
+                "budget": {
+                    "max_cost_usd": "1",
+                    "max_duration_seconds": 300,
+                    "max_provider_tokens": 100,
+                    "max_tool_calls": 5,
+                },
+                "risk_tier": 1,
+                "exit_conditions": ["signal"],
+                "expires_at": now + timedelta(hours=1),
+            },
+            "workflow": workflow.model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": f"expected:http-wait:{suffix}",
+                "task_id": task.task_id,
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "evaluator_type": "pytest",
+                "evaluator_version": "1",
+                "evidence_requirements": ["signal"],
+                "failure_semantics": ["missing signal"],
+                "threshold": 1,
+                "observation_window_seconds": 60,
+                "frozen_at": now,
+            },
+        },
+    )
+    waiting = app.run_task(task.task_id)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_EVENT
+    return task.task_id, workflow
+
+
+def test_http_long_horizon_commands_share_application_path(tmp_path) -> None:
+    app = AgentOSApplication(database=tmp_path / "api-long.sqlite3", workspace=tmp_path)
+    app.provider = DeterministicProvider()
+    app.provider_configured = True
+    signal_task_id, _ = _waiting_task(app, "signal")
+    replan_task_id, current = _waiting_task(app, "replan")
+    failed_task_id, _ = _waiting_task(app, "compensate")
+    app.tasks.update_run_status(
+        failed_task_id,
+        RunStatus.FAILED,
+        event_type=TaskEventType.RUN_FAILED,
+    )
+    handler = type("TestLongAgentOSHandler", (Handler,), {"application": app})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        signalled = _request_json(
+            base,
+            f"/v1/tasks/{signal_task_id}/signals",
+            "POST",
+            {
+                "signal_id": "signal:http",
+                "signal_name": "build.finished",
+                "correlation_key": "build:signal",
+                "payload_json": '{"status":"passed"}',
+                "evidence_refs": ["artifact:http-build"],
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        assert signalled["run"]["status"] == "RUNNING"
+        recovery = _request_json(
+            base,
+            f"/v1/tasks/{signal_task_id}/recovery",
+        )
+        assert recovery["wait_registered_count"] == 1
+        assert recovery["signal_satisfied_count"] == 1
+
+        replanned_workflow = WorkflowGraph(
+            workflow_id=current.workflow_id,
+            version=2,
+            tenant_id=current.tenant_id,
+            workspace_id=current.workspace_id,
+            created_by=current.created_by,
+            created_at=current.created_at,
+            policy_version=current.policy_version,
+            evaluator_refs=current.evaluator_refs,
+            nodes=(NodeSpec(node_id="done", kind=NodeKind.TERMINAL),),
+            edges=(),
+            max_replans=1,
+        )
+        replanned = _request_json(
+            base,
+            f"/v1/tasks/{replan_task_id}/replan",
+            "POST",
+            {
+                "workflow": replanned_workflow.model_dump(mode="json"),
+                "reason": "replace external wait",
+            },
+        )
+        assert replanned["workflow"]["version"] == 2
+        assert replanned["run"]["status"] == "PAUSED"
+
+        app.correct_task(replan_task_id, "temporary principal halt")
+        correction = _request_json(
+            base,
+            f"/v1/tasks/{replan_task_id}/correction/resume",
+            "POST",
+            {"reason": "principal reviewed and resumed correction"},
+        )
+        assert correction["task_id"] == replan_task_id
+        assert not app.correction.halted(
+            replan_task_id,
+            app.tasks.get_task(replan_task_id).run.run_id,  # type: ignore[union-attr]
+            "workspace.read",
+        )
+
+        compensated = _request_json(
+            base,
+            f"/v1/tasks/{failed_task_id}/compensate",
+            "POST",
+            {},
+        )
+        assert compensated["task_id"] == failed_task_id
+    finally:
         server.shutdown()
         server.server_close()

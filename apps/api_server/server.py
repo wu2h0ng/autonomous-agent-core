@@ -110,6 +110,10 @@ class Handler(BaseHTTPRequestHandler):
                     task_id = task_id[:-9].rstrip("/")
                     self._json(200, {"task_id": task_id, "evidence": self.application.evidence_json(task_id)})
                     return
+                if task_id.endswith("/recovery"):
+                    task_id = task_id[:-9].rstrip("/")
+                    self._json(200, self.application.recovery_json(task_id))
+                    return
                 self._json(200, self.application.task_json(task_id))
             except Exception as exc:
                 self._json(404, {"error": type(exc).__name__, "message": str(exc)})
@@ -158,6 +162,29 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "approval":
                 task = self.application.record_approval(parts[2], body)
+                self._json(200, self.application.task_json(task.task_id))
+                return
+            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "signals":
+                task = self.application.signal_task(parts[2], body)
+                self._json(200, self.application.task_json(task.task_id))
+                return
+            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "replan":
+                task = self.application.replan_task(parts[2], body)
+                self._json(200, self.application.task_json(task.task_id))
+                return
+            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "compensate":
+                task = self.application.compensate_task(parts[2])
+                self._json(200, self.application.task_json(task.task_id))
+                return
+            if (
+                len(parts) == 5
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3:] == ["correction", "resume"]
+            ):
+                task = self.application.resume_correction(
+                    parts[2],
+                    str(body.get("reason", "")),
+                )
                 self._json(200, self.application.task_json(task.task_id))
                 return
             if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] in {"pause", "resume", "cancel", "correction"}:

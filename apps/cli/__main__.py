@@ -24,6 +24,20 @@ def main() -> None:
     commit = sub.add_parser("task-commit")
     commit.add_argument("task_id")
     commit.add_argument("commitment_json", type=Path)
+    signal = sub.add_parser("task-signal")
+    signal.add_argument("task_id")
+    signal.add_argument("signal_json", type=Path)
+    replan = sub.add_parser("task-replan")
+    replan.add_argument("task_id")
+    replan.add_argument("workflow_json", type=Path)
+    replan.add_argument("--reason", required=True)
+    correction_resume = sub.add_parser("correction-resume")
+    correction_resume.add_argument("task_id")
+    correction_resume.add_argument("--reason", required=True)
+    compensate = sub.add_parser("task-compensate")
+    compensate.add_argument("task_id")
+    recovery = sub.add_parser("task-recovery")
+    recovery.add_argument("task_id")
     args = parser.parse_args()
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
     if args.command == "task-create":
@@ -43,7 +57,30 @@ def main() -> None:
         payload = json.loads(args.commitment_json.read_text(encoding="utf-8"))
         task = app.commit_task(args.task_id, payload)
         print(json.dumps(app.task_json(task.task_id), indent=2, default=str))
-    else:
+    elif args.command == "task-signal":
+        payload = json.loads(args.signal_json.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("signal JSON must be an object")
+        task = app.signal_task(args.task_id, payload)
+        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))
+    elif args.command == "task-replan":
+        workflow = json.loads(args.workflow_json.read_text(encoding="utf-8"))
+        if not isinstance(workflow, dict):
+            raise ValueError("workflow JSON must be an object")
+        task = app.replan_task(
+            args.task_id,
+            {"workflow": workflow, "reason": args.reason},
+        )
+        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))
+    elif args.command == "correction-resume":
+        task = app.resume_correction(args.task_id, args.reason)
+        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))
+    elif args.command == "task-compensate":
+        task = app.compensate_task(args.task_id)
+        print(json.dumps(app.task_json(task.task_id), indent=2, default=str))
+    elif args.command == "task-recovery":
+        print(json.dumps(app.recovery_json(args.task_id), indent=2, default=str))
+    elif args.command == "task-run":
         task = app.run_task(args.task_id, {"prompt": args.prompt})
         print(json.dumps(app.task_json(task.task_id), indent=2, default=str))
 
