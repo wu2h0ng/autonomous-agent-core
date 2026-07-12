@@ -176,3 +176,40 @@ class PostgresTaskEventStore:
                 "ON CONFLICT(scope,scope_id) DO UPDATE SET epoch=EXCLUDED.epoch,halted=EXCLUDED.halted,reason=EXCLUDED.reason,written_by=EXCLUDED.written_by,written_at=EXCLUDED.written_at",
                 (scope, scope_id, tenant_id, workspace_id, epoch, halted, reason, written_by, written_at),
             )
+
+    def advance_correction(
+        self,
+        scope: str,
+        scope_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        halted: bool,
+        reason: str,
+        written_by: str,
+        written_at: str,
+    ) -> tuple[int, bool, str]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO correction_epochs(scope,scope_id,tenant_id,workspace_id,"
+                "epoch,halted,reason,written_by,written_at) "
+                "VALUES (%s,%s,%s,%s,1,%s,%s,%s,%s) "
+                "ON CONFLICT(scope,scope_id) DO UPDATE SET "
+                "tenant_id=EXCLUDED.tenant_id,workspace_id=EXCLUDED.workspace_id,"
+                "epoch=correction_epochs.epoch+1,halted=EXCLUDED.halted,"
+                "reason=EXCLUDED.reason,written_by=EXCLUDED.written_by,"
+                "written_at=EXCLUDED.written_at RETURNING epoch,halted,reason",
+                (
+                    scope,
+                    scope_id,
+                    tenant_id,
+                    workspace_id,
+                    halted,
+                    reason,
+                    written_by,
+                    written_at,
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:  # pragma: no cover - PostgreSQL RETURNING contract
+            raise RuntimeError("correction advance returned no row")
+        return int(row[0]), bool(row[1]), str(row[2])

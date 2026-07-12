@@ -97,7 +97,17 @@ class WorkspaceSandbox:
     def invoke(self, action: ActionContract, permit: ActionPermit, correction: CorrectionAuthority, attempt: int = 1) -> CapabilityResult:
         if not permit.matches(action):
             raise CapabilityDenied("permit does not match action")
-        if correction.snapshot(action.task_id, action.run_id, action.capability_id) != permit.correction_epochs:
+        if permit.expires_at <= datetime.now(timezone.utc):
+            raise CapabilityDenied("permit expired before capability dispatch")
+        if correction.halted(action.task_id, action.run_id, action.capability_id):
+            raise CapabilityDenied("correction authority is halted")
+        current_epochs = correction.snapshot(
+            action.task_id, action.run_id, action.capability_id
+        )
+        if (
+            current_epochs != permit.correction_epochs
+            or current_epochs != action.observed_correction_epochs
+        ):
             raise CapabilityDenied("stale correction epoch")
         args = json.loads(action.arguments_json)
         if not isinstance(args, dict):

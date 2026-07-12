@@ -267,3 +267,50 @@ class SQLiteTaskEventStore:
                 (scope, scope_id, tenant_id, workspace_id, epoch, int(halted), reason, written_by, written_at),
             )
             self._db.commit()
+
+    def advance_correction(
+        self,
+        scope: str,
+        scope_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        halted: bool,
+        reason: str,
+        written_by: str,
+        written_at: str,
+    ) -> tuple[int, bool, str]:
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                row = self._db.execute(
+                    "SELECT epoch FROM correction_epochs "
+                    "WHERE scope = ? AND scope_id = ?",
+                    (scope, scope_id),
+                ).fetchone()
+                epoch = (int(row["epoch"]) if row is not None else 0) + 1
+                self._db.execute(
+                    "INSERT INTO correction_epochs(scope, scope_id, tenant_id, "
+                    "workspace_id, epoch, halted, reason, written_by, written_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(scope, scope_id) DO UPDATE SET "
+                    "tenant_id=excluded.tenant_id, workspace_id=excluded.workspace_id, "
+                    "epoch=excluded.epoch, halted=excluded.halted, reason=excluded.reason, "
+                    "written_by=excluded.written_by, written_at=excluded.written_at",
+                    (
+                        scope,
+                        scope_id,
+                        tenant_id,
+                        workspace_id,
+                        epoch,
+                        int(halted),
+                        reason,
+                        written_by,
+                        written_at,
+                    ),
+                )
+                self._db.commit()
+                return epoch, halted, reason
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise

@@ -12,7 +12,7 @@ from agent_os_contracts import (
 from agent_os_core import CapabilityDenied, CorrectionAuthority, PolicyInput, PolicyKernel, SQLiteTaskEventStore, WorkspaceSandbox
 
 
-NOW = datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 
 
 def test_sqlite_idempotency_survives_reopen(tmp_path) -> None:
@@ -79,7 +79,7 @@ def test_correction_after_permit_blocks_actual_dispatch(tmp_path) -> None:
         lease_fence=0, issued_at=now, expires_at=now + timedelta(minutes=1),
     )
     correction.correct("task", "task-1", "operator pause")
-    with pytest.raises(CapabilityDenied, match="stale correction"):
+    with pytest.raises(CapabilityDenied, match="halted"):
         sandbox.invoke(action, permit, correction)
 
 

@@ -49,26 +49,54 @@ class CorrectionAuthority:
     def correct(self, scope: str, scope_id: str, reason: str) -> int:
         if scope not in {"task", "run", "capability"}:
             raise ValueError("unsupported correction scope")
+        advance = getattr(self._persistence, "advance_correction", None)
+        if advance is not None:
+            value = advance(
+                scope,
+                scope_id,
+                self._tenant_id,
+                self._workspace_id,
+                True,
+                reason,
+                self._written_by,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            self._epochs[(scope, scope_id)] = value
+            return value[0]
         epoch, _, _ = self._epoch(scope, scope_id)
         self._epochs[(scope, scope_id)] = (epoch + 1, True, reason)
         self._persist(scope, scope_id, epoch + 1, True, reason)
         return epoch + 1
 
     def resume(self, scope: str, scope_id: str, reason: str = "resumed") -> int:
+        if scope not in {"task", "run", "capability"}:
+            raise ValueError("unsupported correction scope")
+        advance = getattr(self._persistence, "advance_correction", None)
+        if advance is not None:
+            value = advance(
+                scope,
+                scope_id,
+                self._tenant_id,
+                self._workspace_id,
+                False,
+                reason,
+                self._written_by,
+                datetime.now(timezone.utc).isoformat(),
+            )
+            self._epochs[(scope, scope_id)] = value
+            return value[0]
         epoch, _, _ = self._epoch(scope, scope_id)
         self._epochs[(scope, scope_id)] = (epoch + 1, False, reason)
         self._persist(scope, scope_id, epoch + 1, False, reason)
         return epoch + 1
 
     def _epoch(self, scope: str, scope_id: str) -> tuple[int, bool, str]:
-        cached = self._epochs.get((scope, scope_id))
-        if cached is not None:
-            return cached
         reader = getattr(self._persistence, "read_correction", None)
-        persisted = reader(scope, scope_id) if reader is not None else None
-        value = persisted or (0, False, "none")
-        self._epochs[(scope, scope_id)] = value
-        return value
+        if reader is not None:
+            value = reader(scope, scope_id) or (0, False, "none")
+            self._epochs[(scope, scope_id)] = value
+            return value
+        return self._epochs.get((scope, scope_id), (0, False, "none"))
 
     def _persist(self, scope: str, scope_id: str, epoch: int, halted: bool, reason: str) -> None:
         writer = getattr(self._persistence, "write_correction", None)
