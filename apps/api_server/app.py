@@ -272,6 +272,8 @@ class AgentOSApplication:
             raise ValueError("approval requires an active committed task")
         action: ActionContract | None = None
         for event in reversed(self.store.read(task_id)):
+            if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
+                break
             if event.event_type is not TaskEventType.ACTION_PROPOSED:
                 continue
             candidate = event.decoded_payload().get("action")

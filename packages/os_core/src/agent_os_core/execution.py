@@ -22,6 +22,7 @@ from agent_os_contracts import (
     ProviderFailure,
     ProviderToolProposal,
     ResourceBudget,
+    RunPlanRebound,
     RunStatus,
     TaskEventType,
     WorkflowGraph,
@@ -30,6 +31,7 @@ from agent_os_contracts import (
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
+from .errors import ConcurrentWriteError
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
 from .provider import ProviderPort
 from .task_service import TaskService
@@ -134,20 +136,55 @@ class RunCoordinator:
             expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
             try:
                 lease_fence = acquire_lease(run.run_id, owner, expiry)
-            except Exception:
+            except ConcurrentWriteError:
                 if not recover_stale_lease:
                     raise
                 recover = getattr(self.tasks._event_store, "recover_lease", None)
                 if recover is None:
                     raise
                 lease_fence = recover(run.run_id, owner, expiry)
+        aggregate = self.tasks.get_task(task_id)
+        if (
+            aggregate.run is None
+            or aggregate.workflow is None
+            or aggregate.commitment is None
+            or aggregate.expected_outcome is None
+        ):
+            self._release_lease(run.run_id, owner)
+            raise RunExecutionError("task bindings changed while acquiring the lease")
+        run = aggregate.run
+        if run.status in {RunStatus.SUCCEEDED, RunStatus.CANCELLED}:
+            self._release_lease(run.run_id, owner)
+            return aggregate
+        if run.status is RunStatus.WAITING_EVENT:
+            condition = run.wait_condition
+            if condition is None:
+                self._release_lease(run.run_id, owner)
+                raise RunExecutionError(
+                    "WAITING_EVENT run is missing its durable wait condition"
+                )
+            try:
+                now = self.tasks.now()
+                if now >= aggregate.commitment.expires_at:
+                    return self.tasks.expire_commitment(task_id)
+                if now >= condition.deadline:
+                    return self.tasks.expire_wait(task_id)
+                return self.tasks.get_task(task_id)
+            except ConcurrentWriteError:
+                return self.tasks.get_task(task_id)
+            finally:
+                self._release_lease(run.run_id, owner)
+        if self.tasks.now() >= aggregate.commitment.expires_at:
+            try:
+                return self.tasks.expire_commitment(task_id)
+            finally:
+                self._release_lease(run.run_id, owner)
         resume_states = {
             RunStatus.WAITING_APPROVAL,
-            RunStatus.WAITING_EVENT,
             RunStatus.PAUSED,
             RunStatus.FAILED,
         }
-        self.tasks.update_run_status(
+        aggregate = self.tasks.update_run_status(
             task_id,
             RunStatus.RUNNING,
             event_type=(
@@ -157,6 +194,15 @@ class RunCoordinator:
             ),
             lease_fence=lease_fence,
         )
+        if (
+            aggregate.run is None
+            or aggregate.workflow is None
+            or aggregate.commitment is None
+            or aggregate.expected_outcome is None
+        ):
+            self._release_lease(run.run_id, owner)
+            raise RunExecutionError("task bindings disappeared after lease binding")
+        run = aggregate.run
         context = self._restore_context(task_id, inputs)
         for workflow_node in aggregate.workflow.nodes:
             restored_output = context.get(workflow_node.node_id)
@@ -296,9 +342,9 @@ class RunCoordinator:
                         self._release_lease(run.run_id, owner)
                         return self.tasks.get_task(task_id)
                 elif node.kind is NodeKind.WAIT_EVENT:
-                    self.tasks.update_run_status(task_id, RunStatus.WAITING_EVENT, event_type=TaskEventType.NODE_STARTED, active_node_id=node.node_id)
+                    waiting = self.tasks.register_wait(task_id, node)
                     self._release_lease(run.run_id, owner)
-                    return self.tasks.get_task(task_id)
+                    return waiting
                 elif node.kind in {NodeKind.LOOP, NodeKind.PARALLEL_MAP, NodeKind.SUBWORKFLOW}:
                     raise UnsupportedNodeError(f"node kind {node.kind.value} requires an explicit runtime extension")
                 elif node.kind is NodeKind.TERMINAL:
@@ -550,6 +596,23 @@ class RunCoordinator:
                 if isinstance(action_payload, dict):
                     action = ActionContract.model_validate(action_payload)
                     context[f"action:{action.capability_id}"] = action
+            elif event.event_type is TaskEventType.RUN_PLAN_REBOUND:
+                rebound_payload = payload.get("rebound")
+                if not isinstance(rebound_payload, dict):
+                    raise RunExecutionError("run plan rebound payload is missing")
+                rebound = RunPlanRebound.model_validate(rebound_payload)
+                invalidated = set(rebound.invalidated_node_ids)
+                for node_id in invalidated:
+                    context.pop(node_id, None)
+                for key, value in tuple(context.items()):
+                    if not key.startswith("action:") or not isinstance(
+                        value, ActionContract
+                    ):
+                        continue
+                    if value.node_id not in invalidated:
+                        continue
+                    context.pop(key, None)
+                    context.pop(value.capability_id, None)
             elif event.event_type is TaskEventType.ARTIFACT_RECORDED:
                 artifact_id = payload.get("artifact_id")
                 if isinstance(artifact_id, str):
