@@ -84,13 +84,13 @@ class WorkspaceSandbox:
             ),
             "workspace.run_tests": CapabilitySpec(
                 capability_id="workspace.run_tests", version="1", display_name="Run allowlisted tests",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=True, **common,
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **common,
             ),
             "artifact.write": CapabilitySpec(
                 capability_id="artifact.write", version="1", display_name="Write content-addressed artifact",
-                side_effect_guarantee=SideEffectGuarantee.SANDBOX_COMPENSATABLE, idempotency_supported=True,
-                cancellation_supported=True, compensation_supported=True, **common,
+                side_effect_guarantee=SideEffectGuarantee.SANDBOX_IDEMPOTENT, idempotency_supported=True,
+                cancellation_supported=True, compensation_supported=False, **common,
             ),
         }
 

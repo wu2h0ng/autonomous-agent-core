@@ -46,6 +46,8 @@ class NodeSpec(ContractModel):
     failure_edge: NonEmptyStr | None = None
     retry_class: NonEmptyStr = "never"
     stop_predicate: NonEmptyStr | None = None
+    wait_signal_name: NonEmptyStr | None = None
+    wait_correlation_key: NonEmptyStr | None = None
 
     @model_validator(mode="after")
     def _validate_kind_requirements(self) -> NodeSpec:
@@ -67,6 +69,15 @@ class NodeSpec(ContractModel):
             raise ValueError("loop node requires stop_predicate")
         if self.kind is not NodeKind.LOOP and self.stop_predicate is not None:
             raise ValueError("stop_predicate is valid only for loop nodes")
+        wait_fields = (self.wait_signal_name, self.wait_correlation_key)
+        if self.kind is NodeKind.WAIT_EVENT and any(value is None for value in wait_fields):
+            raise ValueError(
+                "wait_event node requires wait_signal_name and wait_correlation_key"
+            )
+        if self.kind is not NodeKind.WAIT_EVENT and any(
+            value is not None for value in wait_fields
+        ):
+            raise ValueError("wait fields are valid only for wait_event nodes")
         return self
 
 
@@ -108,6 +119,7 @@ class WorkflowGraph(ContractModel):
     evaluator_refs: tuple[NonEmptyStr, ...] = Field(min_length=1)
     nodes: tuple[NodeSpec, ...] = Field(min_length=1)
     edges: tuple[EdgeSpec, ...] = ()
+    max_replans: int = Field(default=1, ge=0, le=3)
 
     @field_validator("evaluator_refs", mode="after")
     @classmethod

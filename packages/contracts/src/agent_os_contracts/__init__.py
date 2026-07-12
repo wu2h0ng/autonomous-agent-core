@@ -47,7 +47,18 @@ from .provider import (
     ProviderUsage,
 )
 from .resource import ResourceBudget, RiskTier
-from .runtime import AgentRun, RunStatus, TaskEvent, TaskEventDraft, TaskEventType, TaskStatus
+from .runtime import (
+    AgentRun,
+    ExternalSignal,
+    RunPlanRebound,
+    RunRecoverySnapshot,
+    RunStatus,
+    TaskEvent,
+    TaskEventDraft,
+    TaskEventType,
+    TaskStatus,
+    WaitCondition,
+)
 from .task import Commitment, Goal
 from .workflow import EdgeSpec, GraphPatch, IdempotencyMode, NodeKind, NodeSpec, WorkflowGraph
 
@@ -74,6 +85,7 @@ __all__ = [
     "CredentialRef",
     "CredentialStatus",
     "AgentRun",
+    "ExternalSignal",
     "EvidenceRef",
     "EvidenceSourceKind",
     "ExpectedOutcome",
@@ -101,6 +113,8 @@ __all__ = [
     "ProviderToolProposal",
     "ProviderUsage",
     "ReceiptStatus",
+    "RunPlanRebound",
+    "RunRecoverySnapshot",
     "RunStatus",
     "ResourceBudget",
     "RiskTier",
@@ -111,6 +125,7 @@ __all__ = [
     "TaskEventType",
     "TaskStatus",
     "UtcDateTime",
+    "WaitCondition",
     "WorkflowGraph",
     "canonical_json",
     "content_digest",

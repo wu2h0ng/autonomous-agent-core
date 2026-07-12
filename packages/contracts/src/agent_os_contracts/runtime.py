@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from typing import Any, Mapping
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json
 
@@ -57,6 +57,115 @@ class TaskEventType(str, Enum):
     RUN_CANCELLED = "RUN_CANCELLED"
     RUN_SUCCEEDED = "RUN_SUCCEEDED"
     RUN_FAILED = "RUN_FAILED"
+    WAIT_REGISTERED = "WAIT_REGISTERED"
+    EXTERNAL_SIGNAL_RECORDED = "EXTERNAL_SIGNAL_RECORDED"
+    WAIT_SATISFIED = "WAIT_SATISFIED"
+    WAIT_TIMED_OUT = "WAIT_TIMED_OUT"
+    COMMITMENT_EXPIRED = "COMMITMENT_EXPIRED"
+    RUN_PLAN_REBOUND = "RUN_PLAN_REBOUND"
+    COMPENSATION_STARTED = "COMPENSATION_STARTED"
+    ACTION_COMPENSATED = "ACTION_COMPENSATED"
+    COMPENSATION_FAILED = "COMPENSATION_FAILED"
+    COMPENSATION_BLOCKED = "COMPENSATION_BLOCKED"
+
+
+class WaitCondition(ContractModel):
+    node_id: NonEmptyStr
+    signal_name: NonEmptyStr
+    correlation_key: NonEmptyStr
+    registered_at: UtcDateTime
+    deadline: UtcDateTime
+
+    @model_validator(mode="after")
+    def _validate_deadline(self) -> WaitCondition:
+        if self.deadline <= self.registered_at:
+            raise ValueError("wait deadline must be after registered_at")
+        return self
+
+
+class ExternalSignal(ContractModel):
+    signal_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    signal_name: NonEmptyStr
+    correlation_key: NonEmptyStr
+    payload_json: NonEmptyStr
+    evidence_refs: tuple[NonEmptyStr, ...] = ()
+    occurred_at: UtcDateTime
+
+    @field_validator("payload_json", mode="after")
+    @classmethod
+    def _canonicalize_payload_json(cls, value: str) -> str:
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("signal payload_json must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("signal payload_json must encode an object")
+        return canonical_json(payload)
+
+    @field_validator("evidence_refs", mode="after")
+    @classmethod
+    def _normalize_evidence_refs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+    def decoded_payload(self) -> dict[str, Any]:
+        payload = json.loads(self.payload_json)
+        if not isinstance(payload, dict):
+            raise ValueError("signal payload_json must encode an object")
+        return payload
+
+
+class RunPlanRebound(ContractModel):
+    rebound_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    previous_workflow_version: int = Field(ge=1)
+    previous_workflow_digest: NonEmptyStr
+    new_workflow_version: int = Field(ge=2)
+    new_workflow_digest: NonEmptyStr
+    preserved_node_ids: tuple[NonEmptyStr, ...] = ()
+    invalidated_node_ids: tuple[NonEmptyStr, ...] = ()
+    new_node_ids: tuple[NonEmptyStr, ...] = ()
+    requested_by: NonEmptyStr
+    reason: NonEmptyStr
+    created_at: UtcDateTime
+
+    @field_validator(
+        "preserved_node_ids", "invalidated_node_ids", "new_node_ids", mode="after"
+    )
+    @classmethod
+    def _normalize_node_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+    @model_validator(mode="after")
+    def _validate_versions_and_sets(self) -> RunPlanRebound:
+        if self.new_workflow_version != self.previous_workflow_version + 1:
+            raise ValueError("rebound workflow version must increase by exactly one")
+        groups = (
+            set(self.preserved_node_ids),
+            set(self.invalidated_node_ids),
+            set(self.new_node_ids),
+        )
+        if groups[0] & groups[1] or groups[0] & groups[2] or groups[1] & groups[2]:
+            raise ValueError("rebound node sets must be disjoint")
+        return self
+
+
+class RunRecoverySnapshot(ContractModel):
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    event_sequence: int = Field(ge=1)
+    run_resumed_count: int = Field(default=0, ge=0)
+    wait_registered_count: int = Field(default=0, ge=0)
+    signal_satisfied_count: int = Field(default=0, ge=0)
+    replan_count: int = Field(default=0, ge=0)
+    compensation_count: int = Field(default=0, ge=0)
+    action_receipt_count: int = Field(default=0, ge=0)
+    unique_logical_action_count: int = Field(default=0, ge=0)
+    outcome_status: NonEmptyStr | None = None
 
 
 class TaskEventDraft(ContractModel):
@@ -129,3 +238,5 @@ class AgentRun(ContractModel):
     lease_fence: int = Field(default=0, ge=0)
     active_node_id: str | None = None
     attempt: int = Field(default=1, ge=1)
+    wait_condition: WaitCondition | None = None
+    replan_count: int = Field(default=0, ge=0)

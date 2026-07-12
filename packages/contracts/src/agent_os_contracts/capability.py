@@ -13,6 +13,7 @@ class SideEffectGuarantee(str, Enum):
     TRANSACTIONAL_INTERNAL = "TRANSACTIONAL_INTERNAL"
     IDEMPOTENT_EXTERNAL = "IDEMPOTENT_EXTERNAL"
     CANCELLABLE_EXTERNAL = "CANCELLABLE_EXTERNAL"
+    SANDBOX_IDEMPOTENT = "SANDBOX_IDEMPOTENT"
     SANDBOX_COMPENSATABLE = "SANDBOX_COMPENSATABLE"
     NON_IDEMPOTENT_NON_QUERYABLE = "NON_IDEMPOTENT_NON_QUERYABLE"
 
@@ -50,6 +51,12 @@ class CapabilitySpec(ContractModel):
             raise ValueError(
                 "sandbox compensatable capability requires idempotency, cancellation, "
                 "and compensation"
+            )
+        if self.side_effect_guarantee is SideEffectGuarantee.SANDBOX_IDEMPOTENT and not (
+            self.idempotency_supported and self.cancellation_supported
+        ):
+            raise ValueError(
+                "sandbox idempotent capability requires idempotency and cancellation"
             )
         if (
             self.side_effect_guarantee
