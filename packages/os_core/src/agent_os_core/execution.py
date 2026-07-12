@@ -11,6 +11,8 @@ from agent_os_contracts import (
     ApprovalDisposition,
     CapabilityGrant,
     CandidateGenerationEnvelope,
+    CompensationMode,
+    CompensationStatus,
     ExpectedOutcome,
     NodeKind,
     PolicyVerdict,
@@ -21,6 +23,7 @@ from agent_os_contracts import (
     ProviderRequest,
     ProviderFailure,
     ProviderToolProposal,
+    ReceiptStatus,
     ResourceBudget,
     RunPlanRebound,
     RunStatus,
@@ -28,6 +31,7 @@ from agent_os_contracts import (
     WorkflowGraph,
     ObservedOutcome,
     OutcomeStatus,
+    PatchCompensationRecord,
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
@@ -103,6 +107,7 @@ class RunCoordinator:
         grant: CapabilityGrant | dict[str, CapabilityGrant],
         *,
         evaluator: DeterministicOutcomeEvaluator | None = None,
+        compensation_grant: CapabilityGrant | None = None,
     ) -> None:
         self.tasks = task_service
         self.sandbox = sandbox
@@ -112,6 +117,7 @@ class RunCoordinator:
         self.policy = policy
         self.correction = correction
         self.grant = grant
+        self.compensation_grant = compensation_grant
         self.evaluator = evaluator or DeterministicOutcomeEvaluator()
 
     def run(
@@ -388,6 +394,11 @@ class RunCoordinator:
                 try:
                     self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
                     self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
+                    self.compensate_task(
+                        task_id,
+                        principal,
+                        mode=CompensationMode.AUTOMATIC,
+                    )
                 finally:
                     self._release_lease(run.run_id, owner)
                 raise RunExecutionError(f"node {node.node_id} failed: {type(exc).__name__}") from exc
@@ -404,9 +415,293 @@ class RunCoordinator:
                 if observed_outcome.status is OutcomeStatus.VERIFIED
                 else TaskEventType.RUN_FAILED,
             )
+            if observed_outcome.status is OutcomeStatus.NOT_MET:
+                self.compensate_task(
+                    task_id,
+                    principal,
+                    mode=CompensationMode.AUTOMATIC,
+                )
         finally:
             self._release_lease(run.run_id, owner)
         return self.tasks.get_task(task_id)
+
+    def compensate_task(
+        self,
+        task_id: str,
+        principal: PrincipalIdentity,
+        *,
+        mode: CompensationMode = CompensationMode.MANUAL,
+    ):
+        aggregate = self.tasks.get_task(task_id)
+        if aggregate.run is None or aggregate.workflow is None:
+            raise RunExecutionError("compensation requires an active workflow run")
+        run = aggregate.run
+        events = self.tasks._event_store.read(task_id)
+        actions_by_node: dict[str, ActionContract] = {}
+        outputs_by_node: dict[str, dict[str, Any]] = {}
+        compensated_nodes: set[str] = set()
+        for event in events:
+            payload = event.decoded_payload()
+            if event.event_type is TaskEventType.ACTION_PROPOSED:
+                value = payload.get("action")
+                if isinstance(value, dict):
+                    action = ActionContract.model_validate(value)
+                    actions_by_node[action.node_id] = action
+            elif event.event_type is TaskEventType.NODE_COMPLETED:
+                node_id = payload.get("node_id")
+                output = payload.get("output")
+                if isinstance(node_id, str) and isinstance(output, dict):
+                    outputs_by_node[node_id] = output
+            elif event.event_type is TaskEventType.ACTION_COMPENSATED:
+                value = payload.get("compensation")
+                if isinstance(value, dict):
+                    record = PatchCompensationRecord.model_validate(value)
+                    compensated_nodes.add(record.node_id)
+
+        candidates = [
+            node
+            for node in reversed(self._ordered_nodes(aggregate.workflow))
+            if node.capability == "workspace.apply_patch"
+            and node.idempotency.value == "compensatable"
+            and node.node_id in outputs_by_node
+            and node.node_id not in compensated_nodes
+        ]
+        for node in candidates:
+            original = actions_by_node.get(node.node_id)
+            output = outputs_by_node[node.node_id]
+            compensation_ref = output.get("compensation_ref")
+            manifest_sha256 = output.get("manifest_sha256")
+            path = output.get("path")
+            attempt_id = f"compensation-{uuid4()}"
+            if (
+                original is None
+                or not isinstance(compensation_ref, str)
+                or not isinstance(manifest_sha256, str)
+                or not isinstance(path, str)
+            ):
+                missing = PatchCompensationRecord(
+                    compensation_id=attempt_id,
+                    task_id=task_id,
+                    run_id=run.run_id,
+                    node_id=node.node_id,
+                    original_action_id=(
+                        original.action_id
+                        if original is not None
+                        else f"action:missing:{node.node_id}"
+                    ),
+                    mode=mode,
+                    status=CompensationStatus.FAILED,
+                    reason="durable compensation binding is missing",
+                    manual_intervention_required=True,
+                    created_at=self.tasks.now(),
+                )
+                self._append_compensation_record(
+                    task_id,
+                    run.run_id,
+                    TaskEventType.COMPENSATION_FAILED,
+                    missing,
+                )
+                continue
+
+            arguments = {
+                "path": path,
+                "original_action_key": original.idempotency_key,
+                "compensation_ref": compensation_ref,
+                "manifest_sha256": manifest_sha256,
+            }
+            compensation_action = ActionContract(
+                action_id=f"action-{uuid4()}",
+                task_id=task_id,
+                run_id=run.run_id,
+                node_id=node.node_id,
+                principal_id=principal.principal_id,
+                tenant_id=principal.tenant_id,
+                workspace_id=principal.workspace_id,
+                capability_id="workspace.compensate_patch",
+                capability_version="1",
+                arguments_json=json.dumps(arguments),
+                risk_tier=1,
+                idempotency_key=f"{run.run_id}:compensate:{node.node_id}",
+                estimated_budget=ResourceBudget(
+                    max_cost_usd=Decimal("0"),
+                    max_duration_seconds=120,
+                    max_provider_tokens=0,
+                    max_tool_calls=1,
+                ),
+                policy_version=self.policy.policy_version,
+                observed_correction_epochs=self.correction.snapshot(
+                    task_id,
+                    run.run_id,
+                    "workspace.compensate_patch",
+                ),
+                expected_outcome_id=original.expected_outcome_id,
+                candidate_envelope_id=original.candidate_envelope_id,
+                created_at=self.tasks.now(),
+            )
+            record_kwargs = {
+                "compensation_id": attempt_id,
+                "task_id": task_id,
+                "run_id": run.run_id,
+                "node_id": node.node_id,
+                "original_action_id": original.action_id,
+                "compensation_action_id": compensation_action.action_id,
+                "compensation_ref": compensation_ref,
+                "manifest_sha256": manifest_sha256,
+                "mode": mode,
+            }
+            if self.correction.halted(
+                task_id,
+                run.run_id,
+                "workspace.compensate_patch",
+            ):
+                blocked = PatchCompensationRecord(
+                    **record_kwargs,
+                    status=CompensationStatus.BLOCKED,
+                    reason="correction authority halted compensation",
+                    manual_intervention_required=True,
+                    created_at=self.tasks.now(),
+                )
+                self._append_compensation_record(
+                    task_id,
+                    run.run_id,
+                    TaskEventType.COMPENSATION_BLOCKED,
+                    blocked,
+                )
+                continue
+            if self.compensation_grant is None:
+                failed = PatchCompensationRecord(
+                    **record_kwargs,
+                    status=CompensationStatus.FAILED,
+                    reason="internal compensation grant is unavailable",
+                    manual_intervention_required=True,
+                    created_at=self.tasks.now(),
+                )
+                self._append_compensation_record(
+                    task_id,
+                    run.run_id,
+                    TaskEventType.COMPENSATION_FAILED,
+                    failed,
+                )
+                continue
+
+            started = PatchCompensationRecord(
+                **record_kwargs,
+                status=CompensationStatus.STARTED,
+                reason="governed patch compensation started",
+                manual_intervention_required=False,
+                created_at=self.tasks.now(),
+            )
+            self._append_compensation_record(
+                task_id,
+                run.run_id,
+                TaskEventType.COMPENSATION_STARTED,
+                started,
+            )
+            try:
+                capability = self.sandbox.specs(include_internal=True).get(
+                    "workspace.compensate_patch"
+                )
+                decision = self.policy.decide(
+                    compensation_action,
+                    PolicyInput(
+                        principal=principal,
+                        grant=self.compensation_grant,
+                        capability=capability,
+                    ),
+                )
+                self.tasks.append_event(
+                    task_id,
+                    TaskEventType.POLICY_DECIDED,
+                    {"decision": decision.model_dump(mode="json")},
+                    correlation_id=run.run_id,
+                )
+                if decision.verdict is not PolicyVerdict.ALLOW:
+                    raise PermissionError(
+                        f"policy denied compensation: {decision.reason_codes}"
+                    )
+                current = self.tasks.get_task(task_id)
+                lease_fence = current.run.lease_fence if current.run is not None else 0
+                permit = self.policy.permit(
+                    compensation_action,
+                    decision,
+                    self.compensation_grant,
+                    lease_fence=lease_fence,
+                )
+                current_fence = getattr(
+                    self.tasks._event_store,
+                    "lease_fence",
+                    lambda _run_id: lease_fence,
+                )(run.run_id)
+                if current_fence != permit.lease_fence:
+                    raise PermissionError("stale worker lease for compensation")
+                result = self.broker.invoke(compensation_action, permit)
+                self.tasks.append_event(
+                    task_id,
+                    TaskEventType.ACTION_RECEIPT_RECORDED,
+                    {"receipt": result.receipt.model_dump(mode="json")},
+                    correlation_id=run.run_id,
+                )
+                if result.receipt.status is not ReceiptStatus.COMPENSATED:
+                    raise RunExecutionError(
+                        f"compensation failed: {result.receipt.error_code}"
+                    )
+                compensated = PatchCompensationRecord(
+                    **record_kwargs,
+                    status=CompensationStatus.COMPENSATED,
+                    reason="governed patch compensation completed",
+                    manual_intervention_required=False,
+                    receipt_id=result.receipt.receipt_id,
+                    created_at=self.tasks.now(),
+                )
+                self._append_compensation_record(
+                    task_id,
+                    run.run_id,
+                    TaskEventType.ACTION_COMPENSATED,
+                    compensated,
+                )
+            except Exception as exc:
+                blocked_by_correction = self.correction.halted(
+                    task_id,
+                    run.run_id,
+                    "workspace.compensate_patch",
+                )
+                failed = PatchCompensationRecord(
+                    **record_kwargs,
+                    status=(
+                        CompensationStatus.BLOCKED
+                        if blocked_by_correction
+                        else CompensationStatus.FAILED
+                    ),
+                    reason=f"compensation stopped: {type(exc).__name__}",
+                    manual_intervention_required=True,
+                    created_at=self.tasks.now(),
+                )
+                self._append_compensation_record(
+                    task_id,
+                    run.run_id,
+                    (
+                        TaskEventType.COMPENSATION_BLOCKED
+                        if blocked_by_correction
+                        else TaskEventType.COMPENSATION_FAILED
+                    ),
+                    failed,
+                )
+                break
+        return self.tasks.get_task(task_id)
+
+    def _append_compensation_record(
+        self,
+        task_id: str,
+        run_id: str,
+        event_type: TaskEventType,
+        record: PatchCompensationRecord,
+    ) -> None:
+        self.tasks.append_event(
+            task_id,
+            event_type,
+            {"compensation": record.model_dump(mode="json")},
+            correlation_id=run_id,
+        )
 
     def _call_provider(self, run_id: str, task_id: str, capability: str, context: dict[str, Any]) -> dict[str, Any]:
         target_path = str(context.get("target_path") or context.get("path") or "")
@@ -483,6 +778,10 @@ class RunCoordinator:
         }
 
     def _call_tool(self, task_id: str, run_id: str, node_id: str, capability_id: str, principal: PrincipalIdentity, args: Any, expected: ExpectedOutcome, envelope_id: str, approval: Any = None, risk_tier: int = 0, proposed_action: Any = None) -> CapabilityResult:
+        if capability_id == "workspace.compensate_patch":
+            raise RunExecutionError(
+                "workspace.compensate_patch is coordinator-only"
+            )
         if not isinstance(args, dict):
             args = {"value": args}
         if capability_id == "workspace.apply_patch" and not isinstance(proposed_action, ActionContract):

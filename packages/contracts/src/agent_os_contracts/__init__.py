@@ -49,7 +49,10 @@ from .provider import (
 from .resource import ResourceBudget, RiskTier
 from .runtime import (
     AgentRun,
+    CompensationMode,
+    CompensationStatus,
     ExternalSignal,
+    PatchCompensationRecord,
     RunPlanRebound,
     RunRecoverySnapshot,
     RunStatus,
@@ -76,6 +79,8 @@ __all__ = [
     "CapabilityGrantStatus",
     "CapabilitySpec",
     "Commitment",
+    "CompensationMode",
+    "CompensationStatus",
     "ContractModel",
     "DomainPackManifest",
     "CorrectionEpochVector",
@@ -99,6 +104,7 @@ __all__ = [
     "NO_APPROVAL_ID",
     "ObservedOutcome",
     "OutcomeStatus",
+    "PatchCompensationRecord",
     "PolicyDecision",
     "PolicyVerdict",
     "PrincipalIdentity",

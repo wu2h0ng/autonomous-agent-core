@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json
+from .evidence import Sha256Digest
 
 
 class TaskStatus(str, Enum):
@@ -32,6 +33,18 @@ class RunStatus(str, Enum):
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+
+
+class CompensationMode(str, Enum):
+    AUTOMATIC = "AUTOMATIC"
+    MANUAL = "MANUAL"
+
+
+class CompensationStatus(str, Enum):
+    STARTED = "STARTED"
+    COMPENSATED = "COMPENSATED"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
 
 
 class TaskEventType(str, Enum):
@@ -151,6 +164,57 @@ class RunPlanRebound(ContractModel):
         )
         if groups[0] & groups[1] or groups[0] & groups[2] or groups[1] & groups[2]:
             raise ValueError("rebound node sets must be disjoint")
+        return self
+
+
+class PatchCompensationRecord(ContractModel):
+    compensation_id: NonEmptyStr
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    node_id: NonEmptyStr
+    original_action_id: NonEmptyStr
+    compensation_action_id: NonEmptyStr | None = None
+    compensation_ref: NonEmptyStr | None = None
+    manifest_sha256: Sha256Digest | None = None
+    mode: CompensationMode
+    status: CompensationStatus
+    reason: NonEmptyStr
+    manual_intervention_required: bool = False
+    receipt_id: NonEmptyStr | None = None
+    created_at: UtcDateTime
+
+    @model_validator(mode="after")
+    def _validate_compensation_state(self) -> PatchCompensationRecord:
+        if self.status in {
+            CompensationStatus.STARTED,
+            CompensationStatus.COMPENSATED,
+        } and (
+            self.compensation_action_id is None
+            or self.compensation_ref is None
+            or self.manifest_sha256 is None
+        ):
+            raise ValueError(
+                "started/compensated record requires action and snapshot bindings"
+            )
+        if (
+            self.status is CompensationStatus.COMPENSATED
+            and self.receipt_id is None
+        ):
+            raise ValueError("compensated record requires receipt_id")
+        if self.status in {
+            CompensationStatus.FAILED,
+            CompensationStatus.BLOCKED,
+        } and not self.manual_intervention_required:
+            raise ValueError(
+                "failed/blocked record requires manual_intervention_required"
+            )
+        if self.status in {
+            CompensationStatus.STARTED,
+            CompensationStatus.COMPENSATED,
+        } and self.manual_intervention_required:
+            raise ValueError(
+                "active/successful compensation cannot require manual intervention"
+            )
         return self
 
 

@@ -11,8 +11,27 @@ from agent_os_contracts import ActionContract, ActionPermit, ResourceBudget
 from agent_os_core import (
     CapabilityDenied,
     CorrectionAuthority,
+    DeterministicProvider,
+    RunCoordinator,
+    RunExecutionError,
     SQLiteTaskEventStore,
+    WorkerInterrupted,
     WorkspaceSandbox,
+)
+from apps.api_server.app import AgentOSApplication
+
+from agent_os_contracts import (
+    CompensationMode,
+    CompensationStatus,
+    EdgeSpec,
+    IdempotencyMode,
+    NodeKind,
+    NodeSpec,
+    ProviderToolProposal,
+    RunStatus,
+    TaskEventType,
+    TaskStatus,
+    WorkflowGraph,
 )
 
 
@@ -281,3 +300,232 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
             ),
             correction,
         )
+
+
+def _patch_failure_workflow(now: datetime) -> WorkflowGraph:
+    nodes = (
+        NodeSpec(
+            node_id="read",
+            kind=NodeKind.TOOL,
+            capability="workspace.read",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"),
+        NodeSpec(node_id="approve", kind=NodeKind.APPROVAL),
+        NodeSpec(
+            node_id="apply",
+            kind=NodeKind.TOOL,
+            capability="workspace.apply_patch",
+            idempotency=IdempotencyMode.COMPENSATABLE,
+        ),
+        NodeSpec(
+            node_id="tests",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    return WorkflowGraph(
+        workflow_id="workflow:compensation-failure",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=tuple(
+            EdgeSpec(source=source, target=target)
+            for source, target in (
+                ("read", "provider"),
+                ("provider", "approve"),
+                ("approve", "apply"),
+                ("apply", "tests"),
+                ("tests", "evaluate"),
+                ("evaluate", "done"),
+            )
+        ),
+    )
+
+
+def _interrupt_after_patch(root: Path) -> tuple[Path, str]:
+    now = datetime.now(timezone.utc)
+    database = root / "agent-os.sqlite3"
+    target = root / "fixture.txt"
+    target.write_text("before\n", encoding="utf-8")
+    (root / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert open('fixture.txt').read() == 'expected\\n'\n",
+        encoding="utf-8",
+    )
+    app = AgentOSApplication(database=database, workspace=root)
+    app.provider = DeterministicProvider(
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:bad-patch",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "bad\n"}
+                ),
+            ),
+        )
+    )
+    app.provider_configured = True
+    task = app.create_task(
+        {
+            "goal_id": "goal:compensate",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": now,
+            "statement": "apply then verify a deliberately failing patch",
+        }
+    )
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": {
+                "commitment_id": "commitment:compensate",
+                "task_id": task.task_id,
+                "goal_id": "goal:compensate",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "accepted_by": "user:local",
+                "accepted_at": now,
+                "deliverables": ["verified patch"],
+                "acceptance_criteria": ["pytest passes"],
+                "authority_scopes": ["workspace:read", "workspace:write"],
+                "budget": {
+                    "max_cost_usd": "1",
+                    "max_duration_seconds": 3600,
+                    "max_provider_tokens": 1000,
+                    "max_tool_calls": 20,
+                },
+                "risk_tier": 1,
+                "exit_conditions": ["verified"],
+                "expires_at": now + timedelta(hours=1),
+            },
+            "workflow": _patch_failure_workflow(now).model_dump(mode="json"),
+            "expected_outcome": {
+                "expected_outcome_id": "expected:compensate",
+                "task_id": task.task_id,
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "evaluator_type": "pytest",
+                "evaluator_version": "1",
+                "evidence_requirements": ["test-report"],
+                "failure_semantics": ["non-zero exit"],
+                "threshold": 1,
+                "observation_window_seconds": 60,
+                "frozen_at": now,
+            },
+        },
+    )
+    inputs = {"target_path": "fixture.txt", "test_command": "python -m pytest"}
+    waiting = app.run_task(task.task_id, inputs)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    app.record_approval(
+        task.task_id,
+        {"disposition": "APPROVE", "reason": "exercise compensation path"},
+    )
+    with pytest.raises(WorkerInterrupted):
+        app.run_task(task.task_id, inputs, stop_after_node="apply")
+    assert target.read_text(encoding="utf-8") == "bad\n"
+    return database, task.task_id
+
+
+def test_not_met_after_worker_restart_compensates_completed_patch(
+    tmp_path: Path,
+) -> None:
+    database, task_id = _interrupt_after_patch(tmp_path)
+    restarted = AgentOSApplication(database=database, workspace=tmp_path)
+    restarted.provider = DeterministicProvider()
+    restarted.provider_configured = True
+
+    result = restarted.run_task(
+        task_id,
+        {"target_path": "fixture.txt", "test_command": "python -m pytest"},
+        recover_stale_lease=True,
+    )
+
+    assert result.status is TaskStatus.FAILED
+    assert result.run is not None
+    assert result.run.status is RunStatus.FAILED
+    assert result.observed_outcome is not None
+    assert result.observed_outcome.status.value == "NOT_MET"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
+    records = [
+        event.decoded_payload()["compensation"]
+        for event in restarted.store.read(task_id)
+        if event.event_type is TaskEventType.ACTION_COMPENSATED
+    ]
+    assert len(records) == 1
+    assert records[0]["status"] == CompensationStatus.COMPENSATED.value
+
+
+def test_c7_halt_requires_principal_resume_before_manual_compensation(
+    tmp_path: Path,
+) -> None:
+    database, task_id = _interrupt_after_patch(tmp_path)
+    restarted = AgentOSApplication(database=database, workspace=tmp_path)
+    restarted.provider = DeterministicProvider()
+    restarted.provider_configured = True
+    restarted.correct_task(task_id, "principal halt before recovery")
+
+    with pytest.raises(RunExecutionError, match="node tests failed"):
+        restarted.run_task(
+            task_id,
+            {"target_path": "fixture.txt", "test_command": "python -m pytest"},
+            recover_stale_lease=True,
+        )
+
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "bad\n"
+    assert any(
+        event.event_type is TaskEventType.COMPENSATION_BLOCKED
+        for event in restarted.store.read(task_id)
+    )
+    restarted.resume_task(task_id)
+    assert restarted.correction.halted(
+        task_id,
+        restarted.tasks.get_task(task_id).run.run_id,  # type: ignore[union-attr]
+        "workspace.compensate_patch",
+    )
+    runner = RunCoordinator(
+        restarted.tasks,
+        restarted.sandbox,
+        restarted.provider,
+        restarted.provider_profile,
+        restarted.policy,
+        restarted.correction,
+        restarted.grants,
+        compensation_grant=restarted.compensation_grant,
+    )
+    runner.compensate_task(
+        task_id,
+        restarted.principal,
+        mode=CompensationMode.MANUAL,
+    )
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "bad\n"
+
+    restarted.correction.resume("task", task_id, "principal correction resume")
+    runner.compensate_task(
+        task_id,
+        restarted.principal,
+        mode=CompensationMode.MANUAL,
+    )
+
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
+    assert sum(
+        event.event_type is TaskEventType.ACTION_COMPENSATED
+        for event in restarted.store.read(task_id)
+    ) == 1
+
+
+def test_internal_compensation_capability_is_not_ordinary_grant(tmp_path: Path) -> None:
+    app = AgentOSApplication(database=tmp_path / "state.sqlite3", workspace=tmp_path)
+
+    assert "workspace.compensate_patch" not in app.grants
+    assert "workspace.compensate_patch" in app.sandbox.specs(include_internal=True)

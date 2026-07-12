@@ -10,6 +10,7 @@ from agent_os_contracts import (
     AgentRun,
     ApprovalDecision,
     Commitment,
+    CompensationStatus,
     ExpectedOutcome,
     Goal,
     RunStatus,
@@ -20,6 +21,7 @@ from agent_os_contracts import (
     TaskStatus,
     WorkflowGraph,
     ObservedOutcome,
+    PatchCompensationRecord,
 )
 
 from .errors import EventStreamError, InvalidTransitionError, ScopeMismatchError
@@ -40,6 +42,7 @@ class TaskAggregate:
     artifacts: tuple[str, ...] = ()
     approval: ApprovalDecision | None = None
     last_rebound: RunPlanRebound | None = None
+    compensations: tuple[PatchCompensationRecord, ...] = ()
 
     @classmethod
     def create_task(
@@ -286,9 +289,23 @@ class TaskAggregate:
             }:
                 if self.run is None:
                     raise EventStreamError("compensation event requires an active run")
+                record = PatchCompensationRecord.model_validate(
+                    payload["compensation"]
+                )
+                expected_status = {
+                    TaskEventType.COMPENSATION_STARTED: CompensationStatus.STARTED,
+                    TaskEventType.ACTION_COMPENSATED: CompensationStatus.COMPENSATED,
+                    TaskEventType.COMPENSATION_FAILED: CompensationStatus.FAILED,
+                    TaskEventType.COMPENSATION_BLOCKED: CompensationStatus.BLOCKED,
+                }[event.event_type]
+                if record.status is not expected_status:
+                    raise EventStreamError("compensation event/status mismatch")
+                if record.task_id != self.task_id or record.run_id != self.run.run_id:
+                    raise EventStreamError("compensation record scope mismatch")
                 return replace(
                     self,
                     sequence=event.sequence,
+                    compensations=self.compensations + (record,),
                     last_event_id=event.event_id,
                 )
 

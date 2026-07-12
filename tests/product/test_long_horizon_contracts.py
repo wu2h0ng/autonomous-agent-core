@@ -7,9 +7,12 @@ from pydantic import ValidationError
 
 from agent_os_contracts import (
     CapabilitySpec,
+    CompensationMode,
+    CompensationStatus,
     ExternalSignal,
     NodeKind,
     NodeSpec,
+    PatchCompensationRecord,
     RunPlanRebound,
     SideEffectGuarantee,
     WaitCondition,
@@ -172,3 +175,40 @@ def test_wait_deadline_can_be_capped_by_commitment_expiry() -> None:
     )
 
     assert wait.deadline == NOW + timedelta(seconds=30)
+
+
+def test_failed_compensation_record_requires_manual_intervention() -> None:
+    with pytest.raises(ValidationError, match="manual_intervention_required"):
+        PatchCompensationRecord(
+            compensation_id="compensation:record-1",
+            task_id="task:7",
+            run_id="run:7",
+            node_id="apply",
+            original_action_id="action:apply",
+            mode=CompensationMode.AUTOMATIC,
+            status=CompensationStatus.FAILED,
+            reason="snapshot missing",
+            manual_intervention_required=False,
+            created_at=NOW,
+        )
+
+
+def test_compensated_record_binds_action_snapshot_and_receipt() -> None:
+    record = PatchCompensationRecord(
+        compensation_id="compensation:record-1",
+        task_id="task:7",
+        run_id="run:7",
+        node_id="apply",
+        original_action_id="action:apply",
+        compensation_action_id="action:compensate-apply",
+        compensation_ref="compensation:" + "a" * 64,
+        manifest_sha256="b" * 64,
+        mode=CompensationMode.MANUAL,
+        status=CompensationStatus.COMPENSATED,
+        reason="principal requested governed restore",
+        manual_intervention_required=False,
+        receipt_id="receipt:compensate-apply",
+        created_at=NOW,
+    )
+
+    assert record.status is CompensationStatus.COMPENSATED

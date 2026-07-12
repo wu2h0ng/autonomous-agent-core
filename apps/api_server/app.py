@@ -86,6 +86,7 @@ class AgentOSApplication:
         )
         self.provider_configured = bool(live_base_url)
         self.grants = self._build_grants(now)
+        self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
@@ -100,6 +101,31 @@ class AgentOSApplication:
                 expires_at=issued + timedelta(days=30),
             ) for capability_id in self.sandbox.specs(issued)
         }
+
+    def _build_compensation_grant(
+        self,
+        now: datetime | None = None,
+    ) -> CapabilityGrant:
+        issued = now or datetime.now(timezone.utc)
+        return CapabilityGrant(
+            grant_id="grant:internal:workspace.compensate_patch",
+            principal_id=self.principal.principal_id,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            capability_id="workspace.compensate_patch",
+            capability_version="1",
+            max_risk_tier=1,
+            budget_limit=ResourceBudget(
+                max_cost_usd=Decimal("10"),
+                max_duration_seconds=3600,
+                max_provider_tokens=0,
+                max_tool_calls=100,
+            ),
+            status=CapabilityGrantStatus.ACTIVE,
+            granted_by="system:coordinator",
+            granted_at=issued,
+            expires_at=issued + timedelta(days=30),
+        )
 
     def list_tasks(self) -> list[dict[str, Any]]:
         tasks: list[dict[str, Any]] = []
@@ -249,6 +275,7 @@ class AgentOSApplication:
         runner = RunCoordinator(
             self.tasks, self.sandbox, self.provider, self.provider_profile,
             self.policy, self.correction, self.grants,
+            compensation_grant=self.compensation_grant,
         )
         return runner.run(task_id, self.principal, inputs, stop_after_node=stop_after_node, recover_stale_lease=recover_stale_lease)
 
