@@ -19,6 +19,7 @@ from agent_os_contracts import (
     WorkflowGraph,
 )
 from agent_os_core import (
+    ConcurrentWriteError,
     DeterministicProvider,
     InvalidTransitionError,
     RunCoordinator,
@@ -78,6 +79,64 @@ def _simple_workflow(now: datetime, *, timeout_seconds: int = 120) -> WorkflowGr
                 ("evaluate", "done"),
             )
         ),
+        max_replans=1,
+    )
+
+
+def _artifact_before_wait_workflow(
+    now: datetime,
+    *,
+    version: int = 1,
+) -> WorkflowGraph:
+    read = NodeSpec(
+        node_id="read",
+        kind=NodeKind.TOOL,
+        capability="workspace.read",
+        idempotency=IdempotencyMode.IDEMPOTENT,
+    )
+    tests = NodeSpec(
+        node_id="tests",
+        kind=NodeKind.TOOL,
+        capability="workspace.run_tests",
+        idempotency=IdempotencyMode.IDEMPOTENT,
+    )
+    evaluate = NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION)
+    done = NodeSpec(node_id="done", kind=NodeKind.TERMINAL)
+    if version == 1:
+        middle = NodeSpec(
+            node_id="wait",
+            kind=NodeKind.WAIT_EVENT,
+            wait_signal_name="review.ready",
+            wait_correlation_key="review:artifact",
+            timeout_seconds=120,
+        )
+        nodes = (read, tests, middle, evaluate, done)
+        edges = (
+            EdgeSpec(source="read", target="tests"),
+            EdgeSpec(source="tests", target="wait"),
+            EdgeSpec(source="wait", target="evaluate"),
+            EdgeSpec(source="evaluate", target="done"),
+        )
+    else:
+        middle = NodeSpec(node_id="inspect", kind=NodeKind.TRANSFORM)
+        nodes = (read, tests, middle, evaluate, done)
+        edges = (
+            EdgeSpec(source="read", target="tests"),
+            EdgeSpec(source="tests", target="inspect"),
+            EdgeSpec(source="inspect", target="evaluate"),
+            EdgeSpec(source="evaluate", target="done"),
+        )
+    return WorkflowGraph(
+        workflow_id="workflow:artifact-before-wait",
+        version=version,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=edges,
         max_replans=1,
     )
 
@@ -410,6 +469,73 @@ def test_wait_timeout_fails_without_downstream_action(tmp_path: Path) -> None:
         and event.decoded_payload().get("node_id") == "tests"
         for event in events
     )
+
+
+def test_status_cas_failure_releases_acquired_lease(tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(tmp_path, _simple_workflow(now))
+    started = app.start_run(task_id)
+    assert started.run is not None
+    run_id = started.run.run_id
+
+    def fail_status_update(*args: object, **kwargs: object):
+        raise ConcurrentWriteError("injected status CAS conflict")
+
+    app.tasks.update_run_status = fail_status_update  # type: ignore[method-assign]
+
+    with pytest.raises(ConcurrentWriteError, match="status CAS"):
+        app.run_task(task_id, _inputs())
+
+    fence = app.store.acquire_lease(
+        run_id,
+        "worker:probe",
+        (now + timedelta(minutes=5)).isoformat(),
+    )
+    assert fence >= 2
+
+
+def test_completed_tool_artifact_remains_active_evidence_after_rebind(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(
+        tmp_path,
+        _artifact_before_wait_workflow(now),
+    )
+    waiting = app.run_task(task_id, _inputs())
+    assert waiting.run is not None
+    artifact_event = next(
+        event
+        for event in app.store.read(task_id)
+        if event.event_type is TaskEventType.ARTIFACT_RECORDED
+    )
+    artifact_payload = artifact_event.decoded_payload()
+    artifact_id = artifact_payload["artifact_id"]
+    assert artifact_payload["node_id"] == "tests"
+    assert str(artifact_payload["action_id"]).startswith("action-")
+
+    app.tasks.replan_task(
+        task_id,
+        _artifact_before_wait_workflow(now, version=2),
+        requested_by="user:local",
+        reason="replace wait after verified test artifact",
+    )
+    runner = RunCoordinator(
+        app.tasks,
+        app.sandbox,
+        app.provider,
+        app.provider_profile,
+        app.policy,
+        app.correction,
+        app.grants,
+    )
+    restored = runner._restore_context(task_id, _inputs())
+
+    assert artifact_id in restored["evidence_refs"]
+    result = app.run_task(task_id, _inputs())
+    assert result.status is TaskStatus.COMPLETED
+    assert result.run is not None
+    assert result.run.status is RunStatus.SUCCEEDED
 
 
 def test_rebind_clears_invalidated_action_projection_and_approval(tmp_path: Path) -> None:

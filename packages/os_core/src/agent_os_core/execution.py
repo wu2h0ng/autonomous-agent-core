@@ -184,16 +184,20 @@ class RunCoordinator:
             RunStatus.PAUSED,
             RunStatus.FAILED,
         }
-        aggregate = self.tasks.update_run_status(
-            task_id,
-            RunStatus.RUNNING,
-            event_type=(
-                TaskEventType.RUN_RESUMED
-                if run.status in resume_states
-                else TaskEventType.RUN_QUEUED
-            ),
-            lease_fence=lease_fence,
-        )
+        try:
+            aggregate = self.tasks.update_run_status(
+                task_id,
+                RunStatus.RUNNING,
+                event_type=(
+                    TaskEventType.RUN_RESUMED
+                    if run.status in resume_states
+                    else TaskEventType.RUN_QUEUED
+                ),
+                lease_fence=lease_fence,
+            )
+        except Exception:
+            self._release_lease(run.run_id, owner)
+            raise
         if (
             aggregate.run is None
             or aggregate.workflow is None
@@ -203,41 +207,49 @@ class RunCoordinator:
             self._release_lease(run.run_id, owner)
             raise RunExecutionError("task bindings disappeared after lease binding")
         run = aggregate.run
-        context = self._restore_context(task_id, inputs)
-        for workflow_node in aggregate.workflow.nodes:
-            restored_output = context.get(workflow_node.node_id)
-            if workflow_node.capability and isinstance(restored_output, dict):
-                context[workflow_node.capability] = restored_output
-        if aggregate.goal is not None:
-            context.setdefault("goal", aggregate.goal.statement)
-        completed_nodes = self._completed_nodes(task_id)
-        restored_evidence = context.get("evidence_refs", ())
-        evidence: list[str] = (
-            [str(item) for item in restored_evidence]
-            if isinstance(restored_evidence, (tuple, list))
-            else []
-        )
-        test_output = context.get("workspace.run_tests")
-        test_exit_code = (
-            int(str(test_output.get("exit_code", 1)))
-            if isinstance(test_output, dict)
-            else None
-        )
-        observed_outcome = aggregate.observed_outcome
-        envelope = CandidateGenerationEnvelope(
-            envelope_id=f"envelope-{uuid4()}", task_id=task_id, run_id=run.run_id,
-            tenant_id=run.tenant_id, workspace_id=run.workspace_id,
-            generator_id="developer-golden-path", generator_version="1",
-            allowed_capability_ids=tuple(sorted(self.sandbox.specs())),
-            resource_budget=aggregate.commitment.budget,
-            candidate_ids=tuple(node.node_id for node in aggregate.workflow.nodes),
-            has_abstain=True, has_ask=True, has_no_action=True, created_at=datetime.now(timezone.utc),
-        )
-        self.tasks.append_event(task_id, TaskEventType.CANDIDATES_GENERATED, {"envelope": envelope.model_dump(mode="json")}, correlation_id=run.run_id)
+        try:
+            context = self._restore_context(task_id, inputs)
+            for workflow_node in aggregate.workflow.nodes:
+                restored_output = context.get(workflow_node.node_id)
+                if workflow_node.capability and isinstance(restored_output, dict):
+                    context[workflow_node.capability] = restored_output
+            if aggregate.goal is not None:
+                context.setdefault("goal", aggregate.goal.statement)
+            completed_nodes = self._completed_nodes(task_id)
+            restored_evidence = context.get("evidence_refs", ())
+            evidence: list[str] = (
+                [str(item) for item in restored_evidence]
+                if isinstance(restored_evidence, (tuple, list))
+                else []
+            )
+            test_output = context.get("workspace.run_tests")
+            test_exit_code = (
+                int(str(test_output.get("exit_code", 1)))
+                if isinstance(test_output, dict)
+                else None
+            )
+            observed_outcome = aggregate.observed_outcome
+            envelope = CandidateGenerationEnvelope(
+                envelope_id=f"envelope-{uuid4()}", task_id=task_id, run_id=run.run_id,
+                tenant_id=run.tenant_id, workspace_id=run.workspace_id,
+                generator_id="developer-golden-path", generator_version="1",
+                allowed_capability_ids=tuple(sorted(self.sandbox.specs())),
+                resource_budget=aggregate.commitment.budget,
+                candidate_ids=tuple(node.node_id for node in aggregate.workflow.nodes),
+                has_abstain=True, has_ask=True, has_no_action=True, created_at=datetime.now(timezone.utc),
+            )
+            self.tasks.append_event(task_id, TaskEventType.CANDIDATES_GENERATED, {"envelope": envelope.model_dump(mode="json")}, correlation_id=run.run_id)
+        except Exception:
+            self._release_lease(run.run_id, owner)
+            raise
         for node in self._ordered_nodes(aggregate.workflow):
             if node.node_id in completed_nodes:
                 continue
-            self.tasks.append_event(task_id, TaskEventType.NODE_STARTED, {"node_id": node.node_id}, correlation_id=run.run_id)
+            try:
+                self.tasks.append_event(task_id, TaskEventType.NODE_STARTED, {"node_id": node.node_id}, correlation_id=run.run_id)
+            except Exception:
+                self._release_lease(run.run_id, owner)
+                raise
             try:
                 if node.kind is NodeKind.PROVIDER:
                     provider_output = self._call_provider(run.run_id, task_id, node.capability or "provider", context)
@@ -373,23 +385,27 @@ class RunCoordinator:
             except WorkerInterrupted:
                 raise
             except Exception as exc:
-                self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
-                self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
-                self._release_lease(run.run_id, owner)
+                try:
+                    self.tasks.append_event(task_id, TaskEventType.NODE_FAILED, {"node_id": node.node_id, "error": type(exc).__name__}, correlation_id=run.run_id)
+                    self.tasks.update_run_status(task_id, RunStatus.FAILED, event_type=TaskEventType.RUN_FAILED, active_node_id=node.node_id)
+                finally:
+                    self._release_lease(run.run_id, owner)
                 raise RunExecutionError(f"node {node.node_id} failed: {type(exc).__name__}") from exc
         if observed_outcome is None:
             self._release_lease(run.run_id, owner)
             raise RunExecutionError("workflow completed without an evaluation node")
-        self.tasks.update_run_status(
-            task_id,
-            RunStatus.SUCCEEDED
-            if observed_outcome.status is OutcomeStatus.VERIFIED
-            else RunStatus.FAILED,
-            event_type=TaskEventType.RUN_SUCCEEDED
-            if observed_outcome.status is OutcomeStatus.VERIFIED
-            else TaskEventType.RUN_FAILED,
-        )
-        self._release_lease(run.run_id, owner)
+        try:
+            self.tasks.update_run_status(
+                task_id,
+                RunStatus.SUCCEEDED
+                if observed_outcome.status is OutcomeStatus.VERIFIED
+                else RunStatus.FAILED,
+                event_type=TaskEventType.RUN_SUCCEEDED
+                if observed_outcome.status is OutcomeStatus.VERIFIED
+                else TaskEventType.RUN_FAILED,
+            )
+        finally:
+            self._release_lease(run.run_id, owner)
         return self.tasks.get_task(task_id)
 
     def _call_provider(self, run_id: str, task_id: str, capability: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -517,7 +533,12 @@ class RunCoordinator:
         if result.receipt.status.value != "SUCCEEDED":
             raise RunExecutionError(f"tool failed: {result.receipt.error_code}")
         for artifact_id in result.receipt.output_artifact_ids:
-            self.tasks.record_artifact(task_id, artifact_id)
+            self.tasks.record_artifact(
+                task_id,
+                artifact_id,
+                node_id=node_id,
+                action_id=action.action_id,
+            )
         return result
 
     def _build_action(

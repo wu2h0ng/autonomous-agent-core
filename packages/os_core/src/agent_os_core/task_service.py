@@ -602,9 +602,20 @@ class TaskService:
             correlation_id=outcome.run_id,
         )
 
-    def record_artifact(self, task_id: str, artifact_id: str) -> TaskAggregate:
+    def record_artifact(
+        self,
+        task_id: str,
+        artifact_id: str,
+        *,
+        node_id: str,
+        action_id: str,
+    ) -> TaskAggregate:
         return self.append_event(
             task_id,
             TaskEventType.ARTIFACT_RECORDED,
-            {"artifact_id": artifact_id},
+            {
+                "artifact_id": artifact_id,
+                "node_id": node_id,
+                "action_id": action_id,
+            },
         )
