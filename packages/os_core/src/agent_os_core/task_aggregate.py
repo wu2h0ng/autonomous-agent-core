@@ -13,6 +13,7 @@ from agent_os_contracts import (
     ExpectedOutcome,
     Goal,
     RunStatus,
+    RunPlanRebound,
     TaskEvent,
     TaskEventDraft,
     TaskEventType,
@@ -38,6 +39,7 @@ class TaskAggregate:
     observed_outcome: ObservedOutcome | None = None
     artifacts: tuple[str, ...] = ()
     approval: ApprovalDecision | None = None
+    last_rebound: RunPlanRebound | None = None
 
     @classmethod
     def create_task(
@@ -186,6 +188,107 @@ class TaskAggregate:
                     self,
                     sequence=event.sequence,
                     approval=approval,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.WAIT_REGISTERED:
+                if self.run is None:
+                    raise EventStreamError("wait registration requires an active run")
+                run = AgentRun.model_validate(payload["run"])
+                if run.status is not RunStatus.WAITING_EVENT or run.wait_condition is None:
+                    raise EventStreamError("WAIT_REGISTERED requires WAITING_EVENT run state")
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    status=TaskStatus.WAITING,
+                    run=run,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.EXTERNAL_SIGNAL_RECORDED:
+                if self.run is None:
+                    raise EventStreamError("external signal requires an active run")
+                if not isinstance(payload.get("signal"), dict):
+                    raise EventStreamError("external signal payload is missing")
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.WAIT_SATISFIED:
+                if self.run is None:
+                    raise EventStreamError("wait satisfaction requires an active run")
+                run = AgentRun.model_validate(payload["run"])
+                if run.status is not RunStatus.RUNNING or run.wait_condition is not None:
+                    raise EventStreamError("WAIT_SATISFIED requires a resumed run")
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    status=TaskStatus.RUNNING,
+                    run=run,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type in {
+                TaskEventType.WAIT_TIMED_OUT,
+                TaskEventType.COMMITMENT_EXPIRED,
+            }:
+                if self.run is None:
+                    raise EventStreamError("deadline event requires an active run")
+                run = AgentRun.model_validate(payload["run"])
+                if run.status is not RunStatus.FAILED:
+                    raise EventStreamError("deadline event requires FAILED run state")
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    status=TaskStatus.FAILED,
+                    run=run,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type is TaskEventType.RUN_PLAN_REBOUND:
+                if self.run is None or self.workflow is None:
+                    raise EventStreamError("run plan rebound requires an active workflow")
+                workflow = WorkflowGraph.model_validate(payload["workflow"])
+                rebound = RunPlanRebound.model_validate(payload["rebound"])
+                run = AgentRun.model_validate(payload["run"])
+                if rebound.task_id != self.task_id or rebound.run_id != self.run.run_id:
+                    raise EventStreamError("run plan rebound scope mismatch")
+                if rebound.previous_workflow_version != self.workflow.version:
+                    raise EventStreamError("run plan rebound base version mismatch")
+                if rebound.previous_workflow_digest != self.workflow.canonical_digest():
+                    raise EventStreamError("run plan rebound base digest mismatch")
+                if rebound.new_workflow_digest != workflow.canonical_digest():
+                    raise EventStreamError("run plan rebound new digest mismatch")
+                if (
+                    run.workflow_version != workflow.version
+                    or run.workflow_digest != workflow.canonical_digest()
+                    or run.status is not RunStatus.PAUSED
+                ):
+                    raise EventStreamError("run plan rebound run binding mismatch")
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    status=TaskStatus.PAUSED,
+                    workflow=workflow,
+                    run=run,
+                    approval=None,
+                    last_rebound=rebound,
+                    last_event_id=event.event_id,
+                )
+
+            if event.event_type in {
+                TaskEventType.COMPENSATION_STARTED,
+                TaskEventType.ACTION_COMPENSATED,
+                TaskEventType.COMPENSATION_FAILED,
+                TaskEventType.COMPENSATION_BLOCKED,
+            }:
+                if self.run is None:
+                    raise EventStreamError("compensation event requires an active run")
+                return replace(
+                    self,
+                    sequence=event.sequence,
                     last_event_id=event.event_id,
                 )
 

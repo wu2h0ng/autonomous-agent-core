@@ -27,3 +27,19 @@ class ScopeMismatchError(AgentOSCoreError):
 
 class TaskNotFoundError(AgentOSCoreError):
     pass
+
+
+class CommitmentExpiredError(InvalidTransitionError):
+    pass
+
+
+class SignalMismatchError(InvalidTransitionError):
+    pass
+
+
+class WaitExpiredError(InvalidTransitionError):
+    pass
+
+
+class ReplanRejectedError(InvalidTransitionError):
+    pass

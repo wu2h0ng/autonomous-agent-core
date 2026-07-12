@@ -19,7 +19,7 @@ from apps.api_server.app import AgentOSApplication
 from agent_os_core import DeterministicProvider, RunExecutionError, WorkerInterrupted
 
 
-NOW = datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc)
 
 
 def _workflow() -> WorkflowGraph:

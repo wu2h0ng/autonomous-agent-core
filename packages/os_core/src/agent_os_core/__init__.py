@@ -1,11 +1,15 @@
 from .errors import (
     AgentOSCoreError,
+    CommitmentExpiredError,
     ConcurrentWriteError,
     DuplicateEventError,
     EventStreamError,
     InvalidTransitionError,
+    ReplanRejectedError,
     ScopeMismatchError,
+    SignalMismatchError,
     TaskNotFoundError,
+    WaitExpiredError,
 )
 from .event_store import InMemoryTaskEventStore, TaskEventStore
 from .persistence import SQLiteTaskEventStore
@@ -25,6 +29,7 @@ from .task_service import Clock, IdFactory, TaskService
 
 __all__ = [
     "AgentOSCoreError",
+    "CommitmentExpiredError",
     "ConcurrentWriteError",
     "Clock",
     "DuplicateEventError",
@@ -33,12 +38,15 @@ __all__ = [
     "SQLiteTaskEventStore",
     "PostgresTaskEventStore",
     "InvalidTransitionError",
+    "ReplanRejectedError",
     "IdFactory",
     "ScopeMismatchError",
+    "SignalMismatchError",
     "TaskEventStore",
     "TaskAggregate",
     "TaskService",
     "TaskNotFoundError",
+    "WaitExpiredError",
     "CorrectionAuthority",
     "PolicyInput",
     "PolicyKernel",
