@@ -25,8 +25,10 @@
 | `docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md` | Founder-authorized Product Track design for bounded wait/signal/rebind/restart/compensation and event-derived recovery; explicitly not `LH-RECOVERY-1` |
 | `docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md` | Executed multi-agent implementation plan and file-ownership boundary for `T-P-OS-LH-BOUND-1` |
 | `docs/research/SPINE-E2E-1-result.md` | Binding fresh frozen evaluation result: `INVALID` due receipt-accounting instrumentation false positive; no Product failure, PASS, D2 or parent LH run claim |
-| `docs/research/SPINE-E2E-2-preregistration-spec.yaml` | Independently reviewed corrected-successor draft: apply-specific ordered receipt-key instrument plus fixed-interpreter genesis preflight; not frozen and not run |
-| `product_evals/spine_e2e_2/` | Fresh corrected SPINE successor namespace; preserves E2E-1 immutability and remains outside claim authority until new freeze and fresh run |
+| `docs/research/SPINE-E2E-2-preregistration-spec.yaml` | Frozen successor specification bound to candidate ec6c07f; the one fresh run ended INVALID before Product execution |
+| `product_evals/spine_e2e_2/` | Frozen successor instrument preserved for audit; do not repair, rerun, or reuse this identity |
+| `docs/research/SPINE-E2E-2-result.md` | Binding fresh frozen result: INVALID before Product execution because 12/12 provider-bank digests and bearer identity were inconsistent; no PASS, Product NOT_PASS, D2, or LH claim |
+| `docs/research/LH-RECOVERY-1-final-decision-2026-07-13.md` | Terminal decision for the founder-authorized chain: prerequisite PASS absent, D2 not constructed, parent BLOCKED_NOT_RUN |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:
 research-heavy with SPINE-0 PM-accepted for the bounded local independent-developer golden
@@ -43,7 +45,7 @@ product_architecture: T-P-OS-SPINE-0 PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
 topology: dual-track layered monorepo
 implementation: typed provider patch proposal + exact approval + durable wait/signal/rebind/restart + governed workspace tools/compensation + recovery projection + API/CLI/Task Workspace
 long_horizon_product_slice: LH_PRODUCT_SLICE_E2 / BOUNDED_LONG_HORIZON_LOCAL_SLICE_VERIFIED
-long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1 FRESH_FROZEN_INVALID_INSTRUMENT; SPINE-E2E-2 IMPLEMENTED_REVIEWED_DRAFT_NOT_FROZEN_NOT_RUN; LH-RECOVERY-1 BLOCKED_NOT_RUN
+long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1 FRESH_FROZEN_INVALID_INSTRUMENT; SPINE-E2E-2 FRESH_FROZEN_INVALID_BEFORE_PRODUCT; D2 NOT_CONSTRUCTED; LH-RECOVERY-1 BLOCKED_NOT_RUN
 interaction_definition: one Agent Surface; Ask ephemeral; Work durable; governed-action escalation
 organ_definition: provider-neutral LLM + plural task-appropriate world models; CWM optional/evidence-gated
 skill_definition: external compatibility input only; no canonical Skill kernel object
@@ -111,12 +113,11 @@ background scheduler, 7x24 fleet, multi-hour/day comparison, physical exactly-on
 automatic LLM replan, general loop/parallel/subworkflow runtime, CWM/Belief/AgentSelfModel
 product integration, continual learning or self-evolution evidence.
 
-The fresh corrected successor `SPINE-E2E-2` is implemented in its own namespace and its
-implementation/preregistration draft received independent diff-review `ACCEPT`. It observes the
-complete ordered `workspace.apply_patch` idempotency-key sequence, allows legitimate non-apply
-receipts during resume, and uses the preflighted runner interpreter. It is explicitly
-`DRAFT_NOT_FROZEN_NOT_RUN`; no experiment phase, result, D2 construction, or parent-LH upgrade has
-occurred.
+The fresh corrected successor SPINE-E2E-2 was independently reviewed, frozen, and run once. It
+failed in prepare before Product execution because all twelve provider requests retained stale
+E2E-1 digests after their model identity changed; a stale E2E-1 bearer constant was also frozen.
+The binding result is INVALID, not Product NOT_PASS. D2 was not constructed and the parent
+LH-RECOVERY-1 decision for this authorized chain is BLOCKED_NOT_RUN.
 
 ## Strong-Locus Structure Crossover Harness (2026-07-06)
 
@@ -484,7 +485,10 @@ Stage 1 harness for the H_locus / H_process crossover per `PREREG-DRAFT-strong-l
 Current verification truth:
 
 ```text
-Product Track on current branch: 166 passed, 1 skipped; Ruff clean; Pyright 0 errors
+Pre-run frozen candidate: 425 passed, 1 skipped; focused successor 18 passed; Ruff clean
+Post-run verification: 424 passed, 1 failed, 1 skipped because the frozen preflight test is not
+isolated from the preserved run ledger; evaluator defect, not Product regression
+Post-run Product-only verification: 169 passed, 1 skipped
 Whole-repository historical baseline from 2026-07-10, not rerun on this branch:
 1321 passed, 14 skipped, 5 subtests passed
 ```
