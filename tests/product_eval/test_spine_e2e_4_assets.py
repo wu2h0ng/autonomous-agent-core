@@ -30,6 +30,9 @@ RUNNER_HEAD = "087f5907cd181c6e071fb24f135292abd9681ca7"
 PREDECESSOR_IDENTITY = re.compile(
     rb"(?:spine-e2e-[123]|SPINE-E2E-[123]|spine_e2e_[123]|SPINE_E2E_[123])"
 )
+ANY_SUCCESSOR_IDENTITY = re.compile(
+    rb"(?:spine-e2e-\d+|SPINE-E2E-\d+|spine_e2e_\d+|SPINE_E2E_\d+)"
+)
 
 
 def _identity_module() -> Any:
@@ -82,6 +85,20 @@ def test_generated_provider_assets_have_no_copied_model_or_digest_constants() ->
         assert entry["digest"] == request_body_digest(entry["request"])
         assert entry["request"]["model"] == identity.provider_model
         assert entry["response"]["model"] == identity.provider_model
+
+
+def test_frozen_cases_reuse_the_verified_identity_free_common_corpus() -> None:
+    predecessor_corpora = tuple(
+        (
+            REPO_ROOT / f"product_evals/spine_e2e_{sequence}/frozen_cases.json"
+        ).read_bytes()
+        for sequence in (1, 2, 3)
+    )
+
+    assert len(set(predecessor_corpora)) == 1
+    common_corpus = predecessor_corpora[0]
+    assert ANY_SUCCESSOR_IDENTITY.search(common_corpus) is None
+    assert (ASSET_ROOT / "frozen_cases.json").read_bytes() == common_corpus
 
 
 def test_runner_schema_snapshot_is_exact_live_export_not_a_handwritten_projection() -> (
@@ -144,6 +161,7 @@ def test_e2e4_assets_contain_no_predecessor_identity_literal() -> None:
 
     assert {
         "__init__.py",
+        "frozen_cases.json",
         "identity.py",
         "instrument_qualification_receipt.json",
         "provider_responses.json",
