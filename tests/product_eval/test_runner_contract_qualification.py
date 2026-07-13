@@ -375,6 +375,127 @@ def test_qualification_rejects_scratch_formal_alias(tmp_path: Path) -> None:
     assert not scratch.exists()
 
 
+def test_qualification_rejects_preexisting_formal_ledger_before_any_output(
+    tmp_path: Path,
+) -> None:
+    formal_paths = _formal_paths(tmp_path)
+    formal_paths[0].parent.mkdir(parents=True, exist_ok=True)
+    formal_paths[0].write_text("{}\n", encoding="utf-8")
+    schema_path = tmp_path / "runner_team_event_schema.json"
+    scratch = tmp_path / "scratch"
+
+    with pytest.raises(ValueError, match="INVALID_EVALUATION_GENESIS"):
+        _qualify(
+            tmp_path,
+            schema_path=schema_path,
+            scratch_workspace=scratch,
+            formal_paths=formal_paths,
+        )
+
+    assert not schema_path.exists()
+    assert not scratch.exists()
+
+
+def test_qualification_never_overwrites_an_existing_schema_snapshot(
+    tmp_path: Path,
+) -> None:
+    schema_path = tmp_path / "runner_team_event_schema.json"
+    original = b"do-not-overwrite-a-bound-schema-snapshot\n"
+    schema_path.write_bytes(original)
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
+        _qualify(tmp_path, schema_path=schema_path)
+
+    assert schema_path.read_bytes() == original
+    assert not (tmp_path / "scratch").exists()
+
+
+def test_reverification_reads_but_never_rewrites_the_schema_snapshot(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    receipt = _qualify(tmp_path)
+    schema_path = tmp_path / "runner_team_event_schema.json"
+    original_write_bytes = Path.write_bytes
+
+    def reject_schema_rewrite(path: Path, data: bytes) -> int:
+        if path.resolve() == schema_path.resolve():
+            pytest.fail("reverification rewrote the bound schema snapshot")
+        return original_write_bytes(path, data)
+
+    monkeypatch.setattr(Path, "write_bytes", reject_schema_rewrite)
+
+    assert _verify(tmp_path, receipt) == receipt
+
+
+def test_authority_exactness_rejects_permission_action_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _module()
+    original_canary = module._run_scratch_canary
+
+    def drift_permission_action(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        event = original_canary(*args, **kwargs)
+        event["permission_action"] = "team.event.other"
+        return event
+
+    monkeypatch.setattr(module, "_run_scratch_canary", drift_permission_action)
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
+        _qualify(tmp_path)
+
+
+def test_qualification_rechecks_runner_identity_after_real_canary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _module()
+    original_identity_check = module._verify_runner_identity
+    original_canary = module._run_scratch_canary
+    canary_completed = False
+    identity_checks = 0
+
+    def observe_canary(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal canary_completed
+        event = original_canary(*args, **kwargs)
+        canary_completed = True
+        return event
+
+    def drift_after_canary(*args: Any, **kwargs: Any) -> Any:
+        nonlocal identity_checks
+        identity_checks += 1
+        if identity_checks == 1:
+            assert canary_completed is False
+            return original_identity_check(*args, **kwargs)
+        assert canary_completed is True
+        raise ValueError("INVALID_RUNNER_IDENTITY")
+
+    monkeypatch.setattr(module, "_run_scratch_canary", observe_canary)
+    monkeypatch.setattr(module, "_verify_runner_identity", drift_after_canary)
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_IDENTITY"):
+        _qualify(tmp_path)
+
+    assert identity_checks == 2
+
+
+def test_malformed_runner_schema_uses_qualification_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _module()
+    original_run_runner = module._run_runner
+
+    def malformed_schema(*args: str, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if args == ("team", "event-schema"):
+            return subprocess.CompletedProcess(
+                args=args, returncode=0, stdout="{not-json"
+            )
+        return original_run_runner(*args, **kwargs)
+
+    monkeypatch.setattr(module, "_run_runner", malformed_schema)
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
+        _qualify(tmp_path)
+
+
 def test_reverification_rejects_consumer_source_drift(tmp_path: Path) -> None:
     consumer_copy = tmp_path / "json_schema_contract.py"
     shutil.copyfile(CONSUMER_SOURCE, consumer_copy)
