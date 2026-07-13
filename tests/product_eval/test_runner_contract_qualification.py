@@ -29,6 +29,7 @@ RUNNER_PYTHON = WORKSPACE_ROOT / "ai-agent-engineering-workflow/.venv/bin/python
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
 RUNNER_HEAD = "087f5907cd181c6e071fb24f135292abd9681ca7"
 CANARY_RUN_ID = "runner-contract-canary"
+VERIFIED_REQUEST_ID_MARKER = "<verified-authority-request-id>"
 CONSUMER_SOURCE = REPO_ROOT / "product_evals/common/json_schema_contract.py"
 AUTHORITY_SOURCE = REPO_ROOT / "product_evals/common/authority_binding.py"
 
@@ -210,7 +211,6 @@ def test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import(
     raw_schema, schema = _live_schema()
     independent_event = _emit_live_event(tmp_path / "independent", run_id=CANARY_RUN_ID)
     validate_closed_record(independent_event, schema)
-    normalized = normalize_timestamped_record(independent_event, schema)
 
     receipt = _qualify(tmp_path)
 
@@ -225,9 +225,13 @@ def test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import(
         tmp_path / "scratch/.agent_runs" / CANARY_RUN_ID / "agent_events.jsonl"
     )
     canary_event = json.loads(canary_event_path.read_text().splitlines()[0])
+    normalized_canary = normalize_timestamped_record(canary_event, schema)
+    assert canary_event["approval_request_id"] == binding.request_id
     assert canary_event["source_decision_id"] == binding.source_decision_id
     assert canary_event["source_goal_id"] == binding.source_goal_id
     assert canary_event["source_decision_type"] == binding.source_decision_type
+    assert tuple(canary_event["evidence_refs"]) == binding.evidence_refs
+    normalized_canary["approval_request_id"] = VERIFIED_REQUEST_ID_MARKER
 
     assert (tmp_path / "runner_team_event_schema.json").read_bytes() == raw_schema
     assert receipt["runner"]["branch"] == RUNNER_BRANCH
@@ -245,7 +249,7 @@ def test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import(
     assert receipt["schema"]["version"] == schema["title"]
     assert (
         receipt["emitted_fixture_sha256"]
-        == hashlib.sha256(canonical_json_bytes(normalized)).hexdigest()
+        == hashlib.sha256(canonical_json_bytes(normalized_canary)).hexdigest()
     )
     assert receipt["source_sha256"] == {
         "authority_binding.py": hashlib.sha256(
@@ -263,6 +267,13 @@ def test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import(
         "scratch_formal_non_alias": True,
         "schema_closed": True,
     }
+    stable_receipt_bytes = canonical_json_bytes(receipt)
+    for ephemeral_authority_value in (
+        binding.request_id,
+        binding.request_sha256,
+        binding.approval_sha256,
+    ):
+        assert ephemeral_authority_value.encode() not in stable_receipt_bytes
     assert _verify(tmp_path, receipt) == receipt
     assert not any(path.exists() for path in _formal_paths(tmp_path))
 
