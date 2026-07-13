@@ -1,0 +1,388 @@
+prereg_id: SPINE-E2E-3
+status: DRAFT_NOT_REVIEWED_NOT_FROZEN_NOT_RUN
+schema_version: spine-e2e-3-prereg-v1
+claim_class: deployment-product
+track: product_eval
+experiment_id: SPINE-E2E-3
+run_id: spine-e2e-3-20260713
+builder_id: codex-cto
+reviewed_by: spine-e2e-3-content-reviewer
+target_repo: autonomous-agent-core
+bounded_claim: >-
+  On one frozen local same-boot run, all twelve public Agent OS developer tasks
+  preserve the same verified terminal projection after a real interrupted apply,
+  an active-lease denial, natural lease expiry, restart, and replay, with no
+  duplicate provider call or apply receipt.
+claim_exclusions:
+  - no multi-day or multi-week advantage claim
+  - no 7x24 fleet or physical exactly-once claim
+  - no live-provider robustness or coding-agent parity claim
+  - no autonomy, continual-learning, self-evolution, AGI, or research verdict
+
+mechanism:
+  name: SPINE-E2E-3 public recovery instrument
+  channel_claim: other(product-eval)
+  files:
+    - product_evals/__init__.py
+    - product_evals/common/__init__.py
+    - product_evals/common/artifacts.py
+    - product_evals/common/bank_generator.py
+    - product_evals/common/instrument_qualification.py
+    - product_evals/common/provider_bank.py
+    - product_evals/common/spine_identity.py
+    - product_evals/spine_e2e_3/__init__.py
+    - product_evals/spine_e2e_3/cli.py
+    - product_evals/spine_e2e_3/coordinator.py
+    - product_evals/spine_e2e_3/identity.py
+    - product_evals/spine_e2e_3/protocol.py
+    - product_evals/spine_e2e_3/public_surface.py
+    - product_evals/spine_e2e_3/frozen_cases.json
+    - product_evals/spine_e2e_3/instrument_qualification_receipt.json
+    - product_evals/spine_e2e_3/provider_responses.json
+    - product_evals/spine_e2e_3/request_template.json
+    - apps/api_server/app.py
+    - apps/api_server/server.py
+    - apps/api_server/__main__.py
+    - apps/cli/__main__.py
+    - domain_packs/developer_agent/__init__.py
+    - packages/contracts/src/agent_os_contracts/__init__.py
+    - packages/contracts/src/agent_os_contracts/authority.py
+    - packages/contracts/src/agent_os_contracts/capability.py
+    - packages/contracts/src/agent_os_contracts/common.py
+    - packages/contracts/src/agent_os_contracts/domain.py
+    - packages/contracts/src/agent_os_contracts/evidence.py
+    - packages/contracts/src/agent_os_contracts/outcome.py
+    - packages/contracts/src/agent_os_contracts/provider.py
+    - packages/contracts/src/agent_os_contracts/resource.py
+    - packages/contracts/src/agent_os_contracts/runtime.py
+    - packages/contracts/src/agent_os_contracts/task.py
+    - packages/contracts/src/agent_os_contracts/workflow.py
+    - packages/os_core/src/agent_os_core/__init__.py
+    - packages/os_core/src/agent_os_core/capability.py
+    - packages/os_core/src/agent_os_core/errors.py
+    - packages/os_core/src/agent_os_core/event_store.py
+    - packages/os_core/src/agent_os_core/execution.py
+    - packages/os_core/src/agent_os_core/governance.py
+    - packages/os_core/src/agent_os_core/persistence.py
+    - packages/os_core/src/agent_os_core/postgres.py
+    - packages/os_core/src/agent_os_core/provider.py
+    - packages/os_core/src/agent_os_core/recovery.py
+    - packages/os_core/src/agent_os_core/task_aggregate.py
+    - packages/os_core/src/agent_os_core/task_service.py
+    - tests/product/test_e2_long_horizon_recovery.py
+    - tests/product_eval/test_common_integrity.py
+    - tests/product_eval/test_instrument_qualification.py
+    - tests/product_eval/test_provider_bank.py
+    - tests/product_eval/test_spine_e2e_3_assets.py
+    - tests/product_eval/test_spine_e2e_3_protocol.py
+    - tests/product_eval/test_spine_e2e_3_cli.py
+    - pyproject.toml
+    - uv.lock
+    - packages/contracts/pyproject.toml
+    - packages/os_core/pyproject.toml
+
+cases:
+  path: product_evals/spine_e2e_3/frozen_cases.json
+  digest: raw_file_sha256
+  case_ids:
+    - st_reverse
+    - st_title
+    - st_trim_lower
+    - nr_sum
+    - nr_max
+    - nr_factorial
+    - val_email
+    - val_palindrome
+    - val_positive_int
+    - fmt_json
+    - fmt_csv
+    - fmt_table
+
+contracts:
+  contract_time: internally sampled once per case during prepare, shared across both arms, and persisted in prepare payload
+  goal:
+    fields: [goal_id, tenant_id, workspace_id, created_by, created_at, statement]
+    scope: {tenant_id: "tenant:local", workspace_id: "workspace:local", created_by: "user:local"}
+  commitment:
+    deliverables: [subject.py patch]
+    acceptance_criteria: [python -m pytest exits 0]
+    authority_scopes: ["workspace:read", "workspace:write"]
+    budget: {max_cost_usd: "10", max_duration_seconds: 3600, max_provider_tokens: 100000, max_tool_calls: 100}
+    risk_tier: 1
+    exit_conditions: [verified]
+  request_inputs: {target_path: subject.py, test_command: python -m pytest}
+  workflow:
+    version: 1
+    policy_version: policy-1
+    max_replans: 0
+    evaluator_refs: ["evaluator:pytest:1"]
+    nodes: [read, provider, approve, apply, tests, evaluate, done]
+    edges:
+      - [read, provider]
+      - [provider, approve]
+      - [approve, apply]
+      - [apply, tests]
+      - [tests, evaluate]
+      - [evaluate, done]
+  outcome:
+    evaluator_type: pytest
+    evaluator_version: "1"
+    threshold: 1.0
+    observation_window_seconds: 3600
+    evidence_requirements: [pytest-report, apply-receipt, final-workspace-digest]
+  storage:
+    case_root_template: evaluation/cases/{case_id}/{arm}
+    workspace_template: evaluation/cases/{case_id}/{arm}/workspace
+    database_template: evaluation/cases/{case_id}/{arm}/state/agent-os.sqlite3
+    in_memory_database_forbidden: true
+
+provider:
+  bank_path: product_evals/spine_e2e_3/provider_responses.json
+  digest: raw_file_sha256
+  protocol: OpenAI-compatible local loopback
+  model: spine-e2e-3-frozen
+  temperature: "0"
+  expected_calls_per_case_digest: 2
+  rejected_attempts: exactly 0
+  unknown_request: fail_closed
+  deterministic_fallback: forbidden
+  ambient_credentials_cleared: [OPENAI_API_KEY, AGENT_OS_RUNTIME_PROVIDER_KEY]
+  semantic_headers: [authorization, content-type]
+  ignored_transport_headers: [host, content-length, connection, accept-encoding, user-agent]
+
+instrument_qualification:
+  template_path: product_evals/spine_e2e_3/request_template.json
+  bank_path: product_evals/spine_e2e_3/provider_responses.json
+  receipt_path: product_evals/spine_e2e_3/instrument_qualification_receipt.json
+  identity_source: product_evals/spine_e2e_3/identity.py
+  generator_owns: [provider_model, request_digest]
+  template_forbids: [model, digest, numbered_spine_identity_literal]
+  canary: [wrong_bearer_rejected, derived_bearer_accepted]
+  canary_ledgers: scratch_only
+  formal_ledger_alias: fail_closed
+  receipt_source_binding:
+    - bank_generator.py
+    - instrument_qualification.py
+    - provider_bank.py
+    - spine_identity.py
+  receipt_reverification: rerun_canary_and_compare_exact_receipt
+
+recovery:
+  lease_seconds: 300
+  interrupt_seam: literal stop_after_node=apply
+  probe_recover_stale_lease: false
+  resume_recover_stale_lease: false
+  terminal_replay_recover_stale_lease: false
+  duplicate_provider_calls_allowed: 0
+  duplicate_apply_receipts_allowed: 0
+
+timing:
+  evidence_level: local_same_boot_monotonic_self_attestation_v1
+  probe:
+    anchor: interrupt_batch_started.mono_before_ns
+    sample: probe_active_lease_completed.mono_after_ns
+    maximum_seconds: 60
+  resume_minimum:
+    anchor: interrupt_batch_completed.mono_after_ns
+    sample: resume_started.mono_before_ns
+    minimum_seconds: 360
+  resume_maximum:
+    anchor: prepare_started.mono_before_ns
+    sample: resume_completed.mono_after_ns
+    maximum_seconds: 1800
+  no_clock_injection: true
+  no_threshold_override: true
+  utc_fallback: forbidden
+
+platform_identity:
+  Darwin:
+    boot: sysctl -n kern.bootsessionuuid
+    host: IOPlatformExpertDevice.IOPlatformUUID
+  Linux:
+    boot: /proc/sys/kernel/random/boot_id
+    host: /etc/machine-id
+  persistence: context-salted lowercase SHA-256 only
+  raw_identity_persistence: forbidden
+  continuity: [boot_hash, host_hash, monotonic_implementation, adjustability, resolution]
+  unsupported_or_missing: fail_closed
+
+context_binding:
+  algorithm: canonical_sha256(exact_16_key_mapping)
+  keys:
+    - schema
+    - experiment_id
+    - run_id
+    - target_head
+    - prereg_lock_sha256
+    - spec_sha256
+    - mechanism_manifest_sha256
+    - corpus_sha256
+    - provider_bank_sha256
+    - provider_template_sha256
+    - qualification_receipt_sha256
+    - evaluator_sha256
+    - runner_common_dir
+    - runner_head
+    - request_row_sha256
+    - approval_row_sha256
+  mechanism_manifest_sha256: canonical_sha256(sorted lock mechanism_files mapping)
+  corpus_sha256: raw SHA-256 of frozen_cases.json
+  provider_bank_sha256: raw SHA-256 of provider_responses.json
+  provider_template_sha256: raw SHA-256 of request_template.json
+  qualification_receipt_sha256: raw SHA-256 of instrument_qualification_receipt.json
+  evaluator_sha256: raw SHA-256 of protocol.py
+  target_head_source: prereg.lock
+  spec_sha256_source: prereg.lock
+
+runner_binding:
+  worktree: ai-agent-engineering-workflow/.worktrees/lh-prereg-target-fix-20260712
+  common_dir: ai-agent-engineering-workflow/.git
+  branch: codex/agent-os-product-prereg-target-20260712
+  head: 804c8d54bf5b78d9d850edb452db4affe3c1cd22
+  clean_required: true
+  invocation: subprocess_only
+  runtime_import: forbidden
+
+permission_binding:
+  action: team.event.record
+  request_id: perm_6be957f2b552ccd7
+  requester: codex-cto
+  affected_path: .agent_runs/spine-e2e-3-20260713/agent_events.jsonl
+  evidence_refs:
+    - evaluation/anchor_requests/prepare.json
+    - evaluation/anchor_requests/interrupt_batch.json
+    - evaluation/anchor_requests/probe_active_lease.json
+    - evaluation/anchor_requests/resume.json
+    - evaluation/anchor_requests/adjudicate.json
+  request_row_sha256: f42209feaa630e99e02901e2128d6ccfba606b3217d7021686d766bb95e25239
+  approval_row_sha256: cb7af0b5ef52e545430664272050db3950036029b413e91a72d0bf2493ca7606
+  request_timestamp: "2026-07-13T08:54:55+00:00"
+  approval_timestamp: "2026-07-13T08:55:03+00:00"
+  decision: approved_session
+  decided_by: founder
+  exactly_one_request_and_approval: true
+  later_conflicting_decision_forbidden: true
+  approved_once_forbidden: true
+  authority_scope: anchor recording only; no Product execution or verdict authority
+
+phase_protocol:
+  order: [prepare, interrupt_batch, probe_active_lease, resume, adjudicate]
+  ledger_records_per_phase: [started, completed]
+  failed_record_terminal: true
+  partial_or_replay: INVALID_PARTIAL_PHASE
+  payload_write: O_EXCL write-once before completed record
+  prepare_has_no_prior_anchor: true
+  later_side_effect_requires_prior_exact_runner_anchor: true
+  adjudication_payload_completed_phases: [prepare, interrupt_batch, probe_active_lease, resume]
+  finalize_verifies_adjudicate_completion_and_anchor: true
+  finalize_product_side_effects: forbidden
+
+anchors:
+  schema_version: spine-e2e-3-anchor-request-v1
+  event_type: EVIDENCE_APPENDED
+  agent_id: codex-cto
+  summary: SPINE_PHASE_ANCHOR phase=<phase> request_sha256=<64hex>
+  artifact_equals_evidence_ref: true
+  fields:
+    - phase_record_head_sha256
+    - phase_ledger_sha256
+    - provider_ledger_head_sha256
+    - provider_ledger_sha256
+    - payload_sha256
+    - boot_id_sha256
+    - host_id_sha256
+    - context_sha256
+    - runner_common_dir
+    - runner_branch
+    - runner_head
+    - approval_request_id
+    - permission_action
+    - request_row_sha256
+    - approval_row_sha256
+
+adjudication:
+  result_verdicts: [PASS, NOT_PASS, INVALID]
+  pass_rule: all 12 cases PASS and no invalidity code
+  invalidity_precedence: true
+  reason_codes:
+    - INPUT_SCHEMA
+    - INPUT_SCHEMA_VERSION
+    - CASE_MANIFEST
+    - CASE_COVERAGE
+    - BINDINGS_SCHEMA
+    - BINDING_DRIFT
+    - PHASE_SCHEMA
+    - PHASE_DRIFT
+    - RUNNER_ANCHOR_COVERAGE
+    - RUNNER_ANCHOR_DRIFT
+    - RECOVERY_CONFIGURATION
+    - MISSING_CASE:<case_id>
+    - CASE_SCHEMA:<case_id>
+    - CASE_INSTRUMENTATION:<case_id>
+    - SNAPSHOT_SCHEMA:<case_id>
+    - PROBE_MUTATION:<case_id>
+    - PROVIDER_COUNT:<case_id>
+    - WORKFLOW_RELATION:<case_id>
+    - TARGET_RELATION:<case_id>
+    - WORKSPACE_RELATION:<case_id>
+    - LEASE_FENCE:<case_id>
+    - DUPLICATE_EFFECT:<case_id>
+    - TERMINAL_REPLAY:<case_id>
+    - PRODUCT_FAILURE:<case_id>
+  phase_failure_codes:
+    - INVALID_GIT_STATE
+    - INVALID_CONTEXT
+    - INVALID_BINDING
+    - INVALID_PERMISSION
+    - INVALID_RUNNER_ANCHOR
+    - INVALID_PLATFORM_IDENTITY
+    - INVALID_TIMING
+    - INVALID_PARTIAL_PHASE
+    - INVALID_PROVIDER
+    - INVALID_PRODUCT_PROTOCOL
+    - INVALID_WRITE_ONCE
+    - INVALID_INTERNAL_ERROR
+  unknown_exception_mapping: INVALID_INTERNAL_ERROR
+
+result_contract:
+  path: evaluation/result.json
+  write_once: true
+  required_integrity: [spec_sha256, prereg_lock_sha256, context_sha256, phase_ledger_sha256, provider_ledger_sha256]
+  external_final_check: workflow runner prereg verify --result
+  rerun_or_rescue: forbidden
+  preserve_not_pass_or_invalid: true
+
+review_and_freeze:
+  sequence:
+    - founder approved_session permission decision
+    - clean candidate commit
+    - RR-0031 controlled delta review and verify
+    - exact-content manifest verify
+    - independent content review
+    - independent architecture review
+    - freeze by identity distinct from reviewer
+    - prereg verify
+    - one real run
+  builder_reviewer_distinct: true
+  reviewer_freezer_distinct: true
+  frozen_gate_edit_after_run_start: invalidates_result
+
+
+successor_instrument:
+  predecessor_result: immutable_INVALID_not_authority
+  observation_variable: ordered_workspace_apply_patch_idempotency_keys
+  receipt_filter:
+    event_type: ACTION_RECEIPT_RECORDED
+    connector_id: workspace.apply_patch
+    idempotency_key: required_non_empty_string
+    malformed_identity: fail_closed
+  interrupt_relation: prior_sequence_exact_prefix_and_exactly_one_new_key
+  resume_relation: complete_apply_key_sequence_byte_for_byte_equal
+  allowed_non_apply_change: workspace.run_tests_receipt_may_increase_total_receipt_count
+  forbidden: [second_apply, replaced_apply_key_equal_count, missing_connector, missing_or_blank_apply_key]
+
+evaluation_genesis_preflight:
+  before_first_phase_ledger_write: true
+  product_interpreter_imports: [agent_os_core, agent_os_contracts]
+  fixed_runner_interpreter_imports: [yaml]
+  failure_requires_absent_ledgers: [evaluation/phases.jsonl, evaluation/provider_calls.jsonl]

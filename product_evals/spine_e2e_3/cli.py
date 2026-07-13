@@ -55,9 +55,13 @@ RUNNER_BRANCH = "codex/agent-os-product-prereg-target-20260712"
 RUNNER_COMMON_DIR = "ai-agent-engineering-workflow/.git"
 # Bound only after a fresh successor permission request and founder decision exist.
 # None is deliberately non-runnable; predecessor authority is never copied forward.
-APPROVAL_REQUEST_ID: str | None = None
-REQUEST_ROW_SHA256: str | None = None
-APPROVAL_ROW_SHA256: str | None = None
+APPROVAL_REQUEST_ID: str | None = "perm_6be957f2b552ccd7"
+REQUEST_ROW_SHA256: str | None = (
+    "f42209feaa630e99e02901e2128d6ccfba606b3217d7021686d766bb95e25239"
+)
+APPROVAL_ROW_SHA256: str | None = (
+    "cb7af0b5ef52e545430664272050db3950036029b413e91a72d0bf2493ca7606"
+)
 RUNNER_WORKTREE_REL = (
     "ai-agent-engineering-workflow/.worktrees/lh-prereg-target-fix-20260712"
 )

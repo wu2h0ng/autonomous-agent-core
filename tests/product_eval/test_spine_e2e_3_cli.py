@@ -27,10 +27,19 @@ def _run(tmp_path: Path) -> SimpleNamespace:
     )
 
 
-def test_authority_is_explicitly_unbound_until_fresh_permission_exists(
-    tmp_path: Path,
+def test_authority_is_bound_only_to_the_fresh_successor_permission(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     run = _run(tmp_path)
+    cli._assert_authority_bound()
+    assert cli.APPROVAL_REQUEST_ID == "perm_6be957f2b552ccd7"
+    assert cli.REQUEST_ROW_SHA256 == (
+        "f42209feaa630e99e02901e2128d6ccfba606b3217d7021686d766bb95e25239"
+    )
+    assert cli.APPROVAL_ROW_SHA256 == (
+        "cb7af0b5ef52e545430664272050db3950036029b413e91a72d0bf2493ca7606"
+    )
+    monkeypatch.setattr(cli, "APPROVAL_REQUEST_ID", None)
     with pytest.raises(ValueError, match="UNBOUND_SUCCESSOR_AUTHORITY"):
         cli._assert_authority_bound()
     assert not run.phase_ledger.exists()
