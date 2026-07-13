@@ -219,6 +219,8 @@ def _export_schema(
     schema_path: Path,
     runner_worktree: Path,
     runner_python: Path,
+    *,
+    write_snapshot: bool,
 ) -> tuple[bytes, dict[str, Any]]:
     completed = _run_runner(
         "team",
@@ -228,7 +230,13 @@ def _export_schema(
     )
     raw_schema = completed.stdout.encode("utf-8")
     schema = json.loads(completed.stdout)
-    schema_path.write_bytes(raw_schema)
+    if write_snapshot:
+        # A qualification snapshot is an immutable input to later receipt
+        # verification.  Exclusive creation prevents a stale or already-bound
+        # digest from being silently replaced.
+        Path(schema_path).parent.mkdir(parents=True, exist_ok=True)
+        with Path(schema_path).open("xb") as snapshot:
+            snapshot.write(raw_schema)
     return raw_schema, schema
 
 
@@ -239,6 +247,7 @@ def _run_scratch_canary(
     runner_python: Path,
 ) -> dict[str, Any]:
     workspace = Path(scratch_workspace)
+    _require_fresh_scratch_run(workspace, canary_run_id)
     workspace.mkdir(parents=True, exist_ok=True)
 
     _run_runner(
@@ -344,6 +353,13 @@ def _run_scratch_canary(
     return rows[0]
 
 
+def _require_fresh_scratch_run(scratch_workspace: Path, canary_run_id: str) -> None:
+    run_root = Path(scratch_workspace) / ".agent_runs" / canary_run_id
+    # lexists also rejects a dangling symlink occupying the run identity.
+    if os.path.lexists(run_root):
+        raise ValueError(_QUALIFICATION_ERROR)
+
+
 def _compute_source_sha256(
     consumer_source_path: Path,
     authority_source_path: Path,
@@ -355,7 +371,42 @@ def _compute_source_sha256(
         "authority_binding.py": hashlib.sha256(
             Path(authority_source_path).resolve().read_bytes()
         ).hexdigest(),
+        "runner_contract_qualification.py": hashlib.sha256(
+            Path(__file__).resolve().read_bytes()
+        ).hexdigest(),
     }
+
+
+def _single_ledger_row(path: Path) -> dict[str, Any]:
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError(_QUALIFICATION_ERROR)
+    return rows[0]
+
+
+def _authority_semantic_sha256(run_root: Path) -> str:
+    """Bind stable authority semantics without timestamps or random IDs.
+
+    The typed verifier remains authoritative.  This projection only makes its
+    already-verified request/approval semantics receipt-stable across fresh
+    canaries, whose timestamps and request identifiers necessarily differ.
+    """
+
+    request = _single_ledger_row(run_root / "approval_requests.jsonl")
+    approval = _single_ledger_row(run_root / "approvals.jsonl")
+    request_projection = {
+        key: value for key, value in request.items() if key not in {"request_id", "ts"}
+    }
+    approval_projection = {
+        key: value for key, value in approval.items() if key not in {"request_id", "ts"}
+    }
+    request_projection["request_id"] = _VERIFIED_REQUEST_ID_MARKER
+    approval_projection["request_id"] = _VERIFIED_REQUEST_ID_MARKER
+    semantic_projection = {
+        "request": request_projection,
+        "approval": approval_projection,
+    }
+    return hashlib.sha256(canonical_json_bytes(semantic_projection)).hexdigest()
 
 
 def _verify_schema_snapshot(
@@ -378,6 +429,11 @@ def _verify_schema_snapshot(
         raise ValueError(_QUALIFICATION_ERROR) from exc
 
 
+def _require_formal_genesis(formal_paths: tuple[Path, ...]) -> None:
+    if any(Path(path).exists() for path in formal_paths):
+        raise ValueError("INVALID_EVALUATION_GENESIS")
+
+
 def _build_receipt(
     *,
     runner_worktree: Path,
@@ -390,8 +446,15 @@ def _build_receipt(
     formal_paths: tuple[Path, ...],
     consumer_source_path: Path,
     authority_source_path: Path,
+    write_schema_snapshot: bool,
 ) -> dict[str, Any]:
     _check_paths_non_alias(scratch_workspace, formal_paths)
+    _require_formal_genesis(formal_paths)
+
+    if write_schema_snapshot and Path(schema_path).exists():
+        raise ValueError(_QUALIFICATION_ERROR)
+
+    _require_fresh_scratch_run(scratch_workspace, canary_run_id)
 
     resolved_interpreter, import_path, git_dir, clean_ok, actual_branch = (
         _verify_runner_identity(
@@ -402,15 +465,11 @@ def _build_receipt(
         )
     )
 
-    formal_ledgers_absent = True
-    for fp in formal_paths:
-        if Path(fp).exists():
-            formal_ledgers_absent = False
-
     raw_schema, schema = _export_schema(
         schema_path=schema_path,
         runner_worktree=runner_worktree,
         runner_python=runner_python,
+        write_snapshot=write_schema_snapshot,
     )
 
     schema_closed = schema.get("additionalProperties") is False
@@ -426,11 +485,30 @@ def _build_receipt(
         runner_python=runner_python,
     )
 
+    # The producer identity is a live execution dependency, not just a setup
+    # assertion.  Recheck it after the canary to close branch/head/dirty/import
+    # TOCTOU between qualification and receipt construction.
+    post_canary_identity = _verify_runner_identity(
+        runner_worktree=runner_worktree,
+        runner_python=runner_python,
+        expected_branch=expected_branch,
+        expected_head=expected_head,
+    )
+    if post_canary_identity != (
+        resolved_interpreter,
+        import_path,
+        git_dir,
+        clean_ok,
+        actual_branch,
+    ):
+        raise ValueError("INVALID_RUNNER_IDENTITY")
+
     validate_closed_record(event, schema)
 
+    canary_run_root = Path(scratch_workspace) / ".agent_runs" / canary_run_id
     try:
         authority_binding = verify_authority_binding(
-            Path(scratch_workspace) / ".agent_runs" / canary_run_id,
+            canary_run_root,
             run_id=canary_run_id,
             action=_CANARY_ACTION,
             affected_path=f".agent_runs/{canary_run_id}/agent_events.jsonl",
@@ -439,6 +517,8 @@ def _build_receipt(
         raise ValueError(_QUALIFICATION_ERROR) from exc
     authority_binding_exact = (
         event["approval_request_id"] == authority_binding.request_id
+        and event["permission_action"] == _CANARY_ACTION
+        and event["permission_action"] == authority_binding.action
         and event["source_decision_id"] == authority_binding.source_decision_id
         and event["source_goal_id"] == authority_binding.source_goal_id
         and event["source_decision_type"] == authority_binding.source_decision_type
@@ -446,6 +526,23 @@ def _build_receipt(
     )
     if not authority_binding_exact:
         raise ValueError(_QUALIFICATION_ERROR)
+
+    # Reverify before consuming ledger semantics so the projection cannot be
+    # confused with an unverified row parse.
+    try:
+        if (
+            verify_authority_binding(
+                canary_run_root,
+                run_id=canary_run_id,
+                action=_CANARY_ACTION,
+                affected_path=f".agent_runs/{canary_run_id}/agent_events.jsonl",
+            )
+            != authority_binding
+        ):
+            raise ValueError(_QUALIFICATION_ERROR)
+        authority_semantic_sha256 = _authority_semantic_sha256(canary_run_root)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError(_QUALIFICATION_ERROR) from exc
 
     normalized = normalize_timestamped_record(event, schema)
     normalized["approval_request_id"] = _VERIFIED_REQUEST_ID_MARKER
@@ -458,11 +555,14 @@ def _build_receipt(
         authority_source_path=authority_source_path,
     )
 
-    scratch_formal_non_alias = True
     try:
         _check_paths_non_alias(scratch_workspace, formal_paths)
-    except ValueError:
-        scratch_formal_non_alias = False
+    except ValueError as exc:
+        raise ValueError(_QUALIFICATION_ERROR) from exc
+    scratch_formal_non_alias = True
+
+    _require_formal_genesis(formal_paths)
+    formal_ledgers_absent = True
 
     runner_import_bound = Path(import_path).is_relative_to(
         Path(runner_worktree).resolve() / "src"
@@ -476,6 +576,8 @@ def _build_receipt(
         "scratch_formal_non_alias": scratch_formal_non_alias,
         "schema_closed": schema_closed,
     }
+    if not all(checks.values()):
+        raise ValueError(_QUALIFICATION_ERROR)
 
     return {
         "runner": {
@@ -492,6 +594,7 @@ def _build_receipt(
             "version": schema_version,
         },
         "emitted_fixture_sha256": emitted_fixture_sha256,
+        "authority_semantic_sha256": authority_semantic_sha256,
         "source_sha256": source_sha256,
         "checks": checks,
     }
@@ -522,9 +625,16 @@ def qualify_runner_contract(
             formal_paths=formal_paths,
             consumer_source_path=consumer_source_path,
             authority_source_path=authority_source_path,
+            write_schema_snapshot=True,
         )
-    except ValueError:
-        raise
+    except ValueError as exc:
+        if str(exc) in {
+            "INVALID_RUNNER_IDENTITY",
+            "INVALID_QUALIFICATION_PATHS",
+            "INVALID_EVALUATION_GENESIS",
+        }:
+            raise
+        raise ValueError(_QUALIFICATION_ERROR) from exc
     except (
         OSError,
         subprocess.SubprocessError,
@@ -562,6 +672,7 @@ def verify_runner_contract_receipt(
             formal_paths=formal_paths,
             consumer_source_path=consumer_source_path,
             authority_source_path=authority_source_path,
+            write_schema_snapshot=False,
         )
     except (
         OSError,
