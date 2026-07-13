@@ -173,12 +173,23 @@ def test_run_terminal_state_cannot_be_reopened() -> None:
     ids = DeterministicIdFactory()
     service = _service(store, ids)
     created = service.create_task(_goal())
-    service.commit_task(created.task_id, _commitment(created.task_id), _workflow(), _expected(created.task_id))
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        _expected(created.task_id),
+    )
     service.start_run(created.task_id)
-    service.update_run_status(created.task_id, RunStatus.RUNNING, event_type=TaskEventType.RUN_QUEUED)
-    service.update_run_status(created.task_id, RunStatus.SUCCEEDED, event_type=TaskEventType.RUN_SUCCEEDED)
+    service.update_run_status(
+        created.task_id, RunStatus.RUNNING, event_type=TaskEventType.RUN_QUEUED
+    )
+    service.update_run_status(
+        created.task_id, RunStatus.SUCCEEDED, event_type=TaskEventType.RUN_SUCCEEDED
+    )
     with pytest.raises(InvalidTransitionError, match="SUCCEEDED"):
-        service.update_run_status(created.task_id, RunStatus.RUNNING, event_type=TaskEventType.RUN_RESUMED)
+        service.update_run_status(
+            created.task_id, RunStatus.RUNNING, event_type=TaskEventType.RUN_RESUMED
+        )
 
 
 def test_commit_scope_mismatch_fails_without_writing_event() -> None:

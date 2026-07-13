@@ -73,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
         prefix = "/v1/tasks/"
         if parsed.path.startswith(prefix):
             try:
-                task_id = parsed.path[len(prefix):]
+                task_id = parsed.path[len(prefix) :]
                 if task_id.endswith("/events"):
                     task_id = task_id[:-7].rstrip("/")
                     events = self.application.store.read(task_id)
@@ -93,7 +93,13 @@ class Handler(BaseHTTPRequestHandler):
                     task = self.application.tasks.get_task(task_id)
                     if task.workflow is None:
                         raise ValueError("task has no workflow")
-                    self._json(200, {"workflow": task.workflow.model_dump(mode="json"), "workflow_digest": task.workflow.canonical_digest()})
+                    self._json(
+                        200,
+                        {
+                            "workflow": task.workflow.model_dump(mode="json"),
+                            "workflow_digest": task.workflow.canonical_digest(),
+                        },
+                    )
                     return
                 if "/artifacts/" in task_id:
                     task_id, artifact_id = task_id.split("/artifacts/", 1)
@@ -108,7 +114,13 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if task_id.endswith("/evidence"):
                     task_id = task_id[:-9].rstrip("/")
-                    self._json(200, {"task_id": task_id, "evidence": self.application.evidence_json(task_id)})
+                    self._json(
+                        200,
+                        {
+                            "task_id": task_id,
+                            "evidence": self.application.evidence_json(task_id),
+                        },
+                    )
                     return
                 if task_id.endswith("/recovery"):
                     task_id = task_id[:-9].rstrip("/")
@@ -144,7 +156,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(201, self.application.task_json(task.task_id))
                 return
             parts = parsed.path.strip("/").split("/")
-            if len(parts) == 3 and parts[:2] == ["v1", "tasks"] and parts[2].endswith(":commit"):
+            if (
+                len(parts) == 3
+                and parts[:2] == ["v1", "tasks"]
+                and parts[2].endswith(":commit")
+            ):
                 task_id = parts[2][:-7]
                 task = self.application.commit_task(task_id, body)
                 self._json(200, self.application.task_json(task.task_id))
@@ -160,19 +176,35 @@ class Handler(BaseHTTPRequestHandler):
                 task = self.application.start_run(parts[2])
                 self._json(200, self.application.task_json(task.task_id))
                 return
-            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "approval":
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "approval"
+            ):
                 task = self.application.record_approval(parts[2], body)
                 self._json(200, self.application.task_json(task.task_id))
                 return
-            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "signals":
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "signals"
+            ):
                 task = self.application.signal_task(parts[2], body)
                 self._json(200, self.application.task_json(task.task_id))
                 return
-            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "replan":
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "replan"
+            ):
                 task = self.application.replan_task(parts[2], body)
                 self._json(200, self.application.task_json(task.task_id))
                 return
-            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "compensate":
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "compensate"
+            ):
                 task = self.application.compensate_task(parts[2])
                 self._json(200, self.application.task_json(task.task_id))
                 return
@@ -187,7 +219,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self._json(200, self.application.task_json(task.task_id))
                 return
-            if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] in {"pause", "resume", "cancel", "correction"}:
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] in {"pause", "resume", "cancel", "correction"}
+            ):
                 operation = parts[3]
                 if operation == "pause":
                     task = self.application.pause_task(parts[2])
@@ -196,7 +232,9 @@ class Handler(BaseHTTPRequestHandler):
                 elif operation == "cancel":
                     task = self.application.cancel_task(parts[2])
                 else:
-                    task = self.application.correct_task(parts[2], str(body.get("reason", "principal correction")))
+                    task = self.application.correct_task(
+                        parts[2], str(body.get("reason", "principal correction"))
+                    )
                 self._json(200, self.application.task_json(task.task_id))
                 return
             self._json(404, {"error": "not_found"})
@@ -207,6 +245,8 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-def serve(application: AgentOSApplication, host: str = "127.0.0.1", port: int = 8787) -> None:
+def serve(
+    application: AgentOSApplication, host: str = "127.0.0.1", port: int = 8787
+) -> None:
     handler = type("AgentOSHandler", (Handler,), {"application": application})
     ThreadingHTTPServer((host, port), handler).serve_forever()

@@ -52,7 +52,9 @@ from domain_packs.developer_agent import manifest as developer_agent_manifest
 class AgentOSApplication:
     """Composition root used unchanged by the CLI, HTTP API and tests."""
 
-    def __init__(self, *, database: str | Path = ":memory:", workspace: str | Path = ".") -> None:
+    def __init__(
+        self, *, database: str | Path = ":memory:", workspace: str | Path = "."
+    ) -> None:
         self.store = SQLiteTaskEventStore(database)
         self.tasks = TaskService(self.store)
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
@@ -60,31 +62,50 @@ class AgentOSApplication:
         self.policy = PolicyKernel(self.correction)
         now = datetime.now(timezone.utc)
         self.principal = PrincipalIdentity(
-            principal_id="user:local", tenant_id="tenant:local", workspace_id="workspace:local",
-            role=PrincipalRole.PRINCIPAL, authenticated_at=now,
+            principal_id="user:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=now,
         )
         live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
         live_model = os.environ.get("AGENT_OS_PROVIDER_MODEL", "gpt-4o-mini")
-        credential_key = os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY")
+        credential_key = os.environ.get(
+            "AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY"
+        )
         credential_ref = CredentialRef(
-            credential_ref_id="credential:default", owner_principal_id=self.principal.principal_id,
-            tenant_id=self.principal.tenant_id, workspace_id=self.principal.workspace_id,
-            provider_id="openai-compatible", resolver_key=credential_key, scopes=("chat",),
-            status=CredentialStatus.ACTIVE, created_at=now, expires_at=now + timedelta(days=30),
+            credential_ref_id="credential:default",
+            owner_principal_id=self.principal.principal_id,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            provider_id="openai-compatible",
+            resolver_key=credential_key,
+            scopes=("chat",),
+            status=CredentialStatus.ACTIVE,
+            created_at=now,
+            expires_at=now + timedelta(days=30),
         )
         self.provider_profile = ProviderProfile(
-            profile_id="provider-profile:default", provider_id="openai-compatible" if live_base_url else "deterministic",
+            profile_id="provider-profile:default",
+            provider_id="openai-compatible" if live_base_url else "deterministic",
             model_id=live_model if live_base_url else "deterministic-v1",
-            endpoint_class="openai-compatible" if live_base_url else "test", credential_ref_id=credential_ref.credential_ref_id,
-            capabilities=("chat",), max_context_tokens=16_000, request_timeout_seconds=60,
+            endpoint_class="openai-compatible" if live_base_url else "test",
+            credential_ref_id=credential_ref.credential_ref_id,
+            capabilities=("chat",),
+            max_context_tokens=16_000,
+            request_timeout_seconds=60,
             created_at=now,
         )
         self.provider = (
             OpenAICompatibleProvider(
-                base_url=live_base_url, model=live_model, credential=credential_ref,
-                credentials=EnvCredentialBroker(), timeout_seconds=60,
+                base_url=live_base_url,
+                model=live_model,
+                credential=credential_ref,
+                credentials=EnvCredentialBroker(),
+                timeout_seconds=60,
             )
-            if live_base_url else DeterministicProvider(text="provider proposal accepted")
+            if live_base_url
+            else DeterministicProvider(text="provider proposal accepted")
         )
         self.provider_configured = bool(live_base_url)
         self.grants = self._build_grants(now)
@@ -95,13 +116,25 @@ class AgentOSApplication:
         issued = now or datetime.now(timezone.utc)
         return {
             capability_id: CapabilityGrant(
-                grant_id=f"grant:{capability_id}", principal_id=self.principal.principal_id,
-                tenant_id=self.principal.tenant_id, workspace_id=self.principal.workspace_id,
-                capability_id=capability_id, capability_version="1", max_risk_tier=1,
-                budget_limit=ResourceBudget(max_cost_usd=Decimal("10"), max_duration_seconds=3600, max_provider_tokens=100_000, max_tool_calls=100),
-                status=CapabilityGrantStatus.ACTIVE, granted_by="system", granted_at=issued,
+                grant_id=f"grant:{capability_id}",
+                principal_id=self.principal.principal_id,
+                tenant_id=self.principal.tenant_id,
+                workspace_id=self.principal.workspace_id,
+                capability_id=capability_id,
+                capability_version="1",
+                max_risk_tier=1,
+                budget_limit=ResourceBudget(
+                    max_cost_usd=Decimal("10"),
+                    max_duration_seconds=3600,
+                    max_provider_tokens=100_000,
+                    max_tool_calls=100,
+                ),
+                status=CapabilityGrantStatus.ACTIVE,
+                granted_by="system",
+                granted_at=issued,
                 expires_at=issued + timedelta(days=30),
-            ) for capability_id in self.sandbox.specs(issued)
+            )
+            for capability_id in self.sandbox.specs(issued)
         }
 
     def _build_compensation_grant(
@@ -166,8 +199,14 @@ class AgentOSApplication:
         allowed_roots = [Path.home().resolve(), Path(tempfile.gettempdir()).resolve()]
         configured = os.environ.get("AGENT_OS_ALLOWED_WORKSPACE_ROOTS")
         if configured:
-            allowed_roots = [Path(value).expanduser().resolve() for value in configured.split(os.pathsep) if value]
-        if not any(root == allowed or allowed in root.parents for allowed in allowed_roots):
+            allowed_roots = [
+                Path(value).expanduser().resolve()
+                for value in configured.split(os.pathsep)
+                if value
+            ]
+        if not any(
+            root == allowed or allowed in root.parents for allowed in allowed_roots
+        ):
             raise PermissionError("workspace path is outside the local allowlist")
         self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
         self.grants = self._build_grants()
@@ -190,7 +229,10 @@ class AgentOSApplication:
         api_key = payload.get("api_key")
         temperature = float(payload.get("temperature", 1.0))
         parsed = urlparse(base_url)
-        local_http = parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+        local_http = parsed.scheme == "http" and parsed.hostname in {
+            "127.0.0.1",
+            "localhost",
+        }
         if (parsed.scheme != "https" and not local_http) or not parsed.netloc:
             raise ValueError("provider endpoint must use HTTPS or local HTTP")
         if not model or not isinstance(api_key, str) or not api_key:
@@ -235,7 +277,11 @@ class AgentOSApplication:
                 task_id="task:provider-check",
                 run_id="run:provider-check",
                 provider_profile_id=profile.profile_id,
-                messages=(ProviderMessage(role=ProviderMessageRole.USER, content="Reply with OK."),),
+                messages=(
+                    ProviderMessage(
+                        role=ProviderMessageRole.USER, content="Reply with OK."
+                    ),
+                ),
                 timeout_seconds=30,
                 created_at=now,
             )
@@ -266,33 +312,65 @@ class AgentOSApplication:
         }
 
     def start_run(self, task_id: str):
-        return self.tasks.start_run(task_id, provider_profile_id=self.provider_profile.profile_id)
+        return self.tasks.start_run(
+            task_id, provider_profile_id=self.provider_profile.profile_id
+        )
 
-    def run_task(self, task_id: str, inputs: dict[str, Any] | None = None, *, stop_after_node: str | None = None, recover_stale_lease: bool = False):
+    def run_task(
+        self,
+        task_id: str,
+        inputs: dict[str, Any] | None = None,
+        *,
+        stop_after_node: str | None = None,
+        recover_stale_lease: bool = False,
+    ):
         if not self.provider_configured:
-            raise ConnectionError("configure and verify a provider before running a task")
+            raise ConnectionError(
+                "configure and verify a provider before running a task"
+            )
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None:
             aggregate = self.start_run(task_id)
         runner = RunCoordinator(
-            self.tasks, self.sandbox, self.provider, self.provider_profile,
-            self.policy, self.correction, self.grants,
+            self.tasks,
+            self.sandbox,
+            self.provider,
+            self.provider_profile,
+            self.policy,
+            self.correction,
+            self.grants,
             compensation_grant=self.compensation_grant,
         )
-        return runner.run(task_id, self.principal, inputs, stop_after_node=stop_after_node, recover_stale_lease=recover_stale_lease)
+        return runner.run(
+            task_id,
+            self.principal,
+            inputs,
+            stop_after_node=stop_after_node,
+            recover_stale_lease=recover_stale_lease,
+        )
 
     def pause_task(self, task_id: str):
-        return self.tasks.update_run_status(task_id, RunStatus.PAUSED, event_type=TaskEventType.RUN_PAUSED)
+        return self.tasks.update_run_status(
+            task_id, RunStatus.PAUSED, event_type=TaskEventType.RUN_PAUSED
+        )
 
     def resume_task(self, task_id: str):
-        return self.tasks.update_run_status(task_id, RunStatus.RUNNING, event_type=TaskEventType.RUN_RESUMED)
+        return self.tasks.update_run_status(
+            task_id, RunStatus.RUNNING, event_type=TaskEventType.RUN_RESUMED
+        )
 
     def cancel_task(self, task_id: str):
-        return self.tasks.update_run_status(task_id, RunStatus.CANCELLED, event_type=TaskEventType.RUN_CANCELLED)
+        return self.tasks.update_run_status(
+            task_id, RunStatus.CANCELLED, event_type=TaskEventType.RUN_CANCELLED
+        )
 
     def correct_task(self, task_id: str, reason: str):
         epoch = self.correction.correct("task", task_id, reason)
-        self.tasks.append_event(task_id, TaskEventType.CORRECTION_WRITTEN, {"scope": "TASK", "epoch": epoch, "reason": reason})
+        self.tasks.append_event(
+            task_id,
+            TaskEventType.CORRECTION_WRITTEN,
+            {"scope": "TASK", "epoch": epoch, "reason": reason},
+        )
         return self.tasks.get_task(task_id)
 
     def signal_task(self, task_id: str, payload: dict[str, Any]):
@@ -389,7 +467,9 @@ class AgentOSApplication:
         if action is None:
             raise ValueError("no pending provider action is available for review")
         disposition = ApprovalDisposition(str(payload.get("disposition", "APPROVE")))
-        reason = str(payload.get("reason", "Reviewed in Agent OS Task Workspace")).strip()
+        reason = str(
+            payload.get("reason", "Reviewed in Agent OS Task Workspace")
+        ).strip()
         if not reason:
             raise ValueError("approval reason is required")
         now = datetime.now(timezone.utc)
@@ -427,7 +507,8 @@ class AgentOSApplication:
                 "payload": event.decoded_payload(),
             }
             for event in self.store.read(task_id)
-            if event.event_type in {
+            if event.event_type
+            in {
                 TaskEventType.ACTION_RECEIPT_RECORDED,
                 TaskEventType.ARTIFACT_RECORDED,
                 TaskEventType.OUTCOME_OBSERVED,
@@ -444,7 +525,10 @@ class AgentOSApplication:
         provider_usage: dict[str, Any] | None = None
         for event in reversed(events):
             payload = event.decoded_payload()
-            if proposed_action is None and event.event_type is TaskEventType.ACTION_PROPOSED:
+            if (
+                proposed_action is None
+                and event.event_type is TaskEventType.ACTION_PROPOSED
+            ):
                 action_payload = payload.get("action")
                 if isinstance(action_payload, dict):
                     action = ActionContract.model_validate(action_payload)
@@ -453,22 +537,38 @@ class AgentOSApplication:
                         "arguments": json.loads(action.arguments_json),
                         "action_digest": action.action_digest(),
                     }
-            if provider_usage is None and event.event_type is TaskEventType.PROVIDER_RESPONDED:
+            if (
+                provider_usage is None
+                and event.event_type is TaskEventType.PROVIDER_RESPONDED
+            ):
                 provider_output = payload.get("provider_output")
-                if isinstance(provider_output, dict) and isinstance(provider_output.get("usage"), dict):
+                if isinstance(provider_output, dict) and isinstance(
+                    provider_output.get("usage"), dict
+                ):
                     provider_usage = provider_output["usage"]
             if proposed_action is not None and provider_usage is not None:
                 break
         return {
-            "task_id": task.task_id, "sequence": task.sequence,
+            "task_id": task.task_id,
+            "sequence": task.sequence,
             "status": task.status.value if task.status else None,
             "goal": task.goal.model_dump(mode="json") if task.goal else None,
-            "commitment": task.commitment.model_dump(mode="json") if task.commitment else None,
-            "workflow": task.workflow.model_dump(mode="json") if task.workflow else None,
+            "commitment": task.commitment.model_dump(mode="json")
+            if task.commitment
+            else None,
+            "workflow": task.workflow.model_dump(mode="json")
+            if task.workflow
+            else None,
             "run": task.run.model_dump(mode="json") if task.run else None,
-            "expected_outcome": task.expected_outcome.model_dump(mode="json") if task.expected_outcome else None,
-            "observed_outcome": task.observed_outcome.model_dump(mode="json") if task.observed_outcome else None,
-            "approval": task.approval.model_dump(mode="json") if task.approval else None,
+            "expected_outcome": task.expected_outcome.model_dump(mode="json")
+            if task.expected_outcome
+            else None,
+            "observed_outcome": task.observed_outcome.model_dump(mode="json")
+            if task.observed_outcome
+            else None,
+            "approval": task.approval.model_dump(mode="json")
+            if task.approval
+            else None,
             "proposed_action": proposed_action,
             "provider": {**self.provider_status(), "usage": provider_usage},
             "workspace": self.workspace_status(),

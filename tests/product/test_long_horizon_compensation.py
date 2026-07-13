@@ -96,7 +96,9 @@ def _permit(
     )
 
 
-def test_second_authority_observes_external_halt_without_restart(tmp_path: Path) -> None:
+def test_second_authority_observes_external_halt_without_restart(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "authority.sqlite3"
     first = CorrectionAuthority(SQLiteTaskEventStore(database))
     second = CorrectionAuthority(SQLiteTaskEventStore(database))
@@ -105,12 +107,12 @@ def test_second_authority_observes_external_halt_without_restart(tmp_path: Path)
     first.correct("task", "task:long", "external principal halt")
 
     assert second.halted("task:long", "run:long", "artifact.write")
-    assert second.snapshot(
-        "task:long", "run:long", "artifact.write"
-    ).task_epoch == 1
+    assert second.snapshot("task:long", "run:long", "artifact.write").task_epoch == 1
 
 
-def test_stale_authorities_advance_correction_epoch_monotonically(tmp_path: Path) -> None:
+def test_stale_authorities_advance_correction_epoch_monotonically(
+    tmp_path: Path,
+) -> None:
     database = tmp_path / "authority.sqlite3"
     first = CorrectionAuthority(SQLiteTaskEventStore(database))
     second = CorrectionAuthority(SQLiteTaskEventStore(database))
@@ -121,9 +123,7 @@ def test_stale_authorities_advance_correction_epoch_monotonically(tmp_path: Path
     assert second.correct("task", "task:long", "second halt") == 2
 
     reloaded = CorrectionAuthority(SQLiteTaskEventStore(database))
-    assert reloaded.snapshot(
-        "task:long", "run:long", "artifact.write"
-    ).task_epoch == 2
+    assert reloaded.snapshot("task:long", "run:long", "artifact.write").task_epoch == 2
 
 
 def test_connector_rejects_expired_permit_before_side_effect(tmp_path: Path) -> None:
@@ -254,9 +254,7 @@ def test_persistent_apply_replay_cannot_resurrect_compensated_patch(
         workspace_id="workspace:local",
         capability_id="workspace.apply_patch",
         capability_version="1",
-        arguments_json=json.dumps(
-            {"path": "fixture.txt", "content": "after\n"}
-        ),
+        arguments_json=json.dumps({"path": "fixture.txt", "content": "after\n"}),
         risk_tier=1,
         idempotency_key="run:persistent-apply",
         estimated_budget=ResourceBudget(
@@ -449,7 +447,9 @@ def test_same_idempotency_key_with_changed_intent_is_rejected(tmp_path: Path) ->
         )
 
 
-def test_workspace_capability_cannot_write_reserved_artifact_state(tmp_path: Path) -> None:
+def test_workspace_capability_cannot_write_reserved_artifact_state(
+    tmp_path: Path,
+) -> None:
     sandbox = WorkspaceSandbox(tmp_path)
 
     with pytest.raises(CapabilityDenied, match="reserved"):
@@ -471,7 +471,9 @@ def _patch_failure_workflow(now: datetime) -> WorkflowGraph:
             capability="workspace.read",
             idempotency=IdempotencyMode.IDEMPOTENT,
         ),
-        NodeSpec(node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"),
+        NodeSpec(
+            node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"
+        ),
         NodeSpec(node_id="approve", kind=NodeKind.APPROVAL),
         NodeSpec(
             node_id="apply",
@@ -527,9 +529,7 @@ def _interrupt_after_patch(root: Path) -> tuple[Path, str]:
             ProviderToolProposal(
                 proposal_id="proposal:bad-patch",
                 capability_id="workspace.apply_patch",
-                arguments_json=json.dumps(
-                    {"path": "fixture.txt", "content": "bad\n"}
-                ),
+                arguments_json=json.dumps({"path": "fixture.txt", "content": "bad\n"}),
             ),
         )
     )
@@ -801,10 +801,13 @@ def test_c7_halt_requires_principal_resume_before_manual_compensation(
     )
 
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
-    assert sum(
-        event.event_type is TaskEventType.ACTION_COMPENSATED
-        for event in restarted.store.read(task_id)
-    ) == 1
+    assert (
+        sum(
+            event.event_type is TaskEventType.ACTION_COMPENSATED
+            for event in restarted.store.read(task_id)
+        )
+        == 1
+    )
 
 
 def test_original_patch_capability_halt_blocks_automatic_compensation(

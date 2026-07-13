@@ -132,7 +132,10 @@ def _workflow(
         policy_version="policy-1",
         evaluator_refs=("evaluator:pytest:1",),
         nodes=(read, wait, done),
-        edges=(EdgeSpec(source="read", target="wait"), EdgeSpec(source="wait", target="done")),
+        edges=(
+            EdgeSpec(source="read", target="wait"),
+            EdgeSpec(source="wait", target="done"),
+        ),
         max_replans=max_replans,
     )
 

@@ -50,11 +50,7 @@ def test_boundary_detector_covers_all_forbidden_product_prefixes(
 
 
 def test_product_packages_do_not_import_research_or_domain_modules() -> None:
-    product_files = tuple(
-        path
-        for root in PRODUCT_ROOTS
-        for path in root.rglob("*.py")
-    )
+    product_files = tuple(path for root in PRODUCT_ROOTS for path in root.rglob("*.py"))
     assert product_files
 
     for path in product_files:

@@ -237,6 +237,4 @@ def test_rehydrate_rejects_second_creation_event() -> None:
     duplicate = created_draft.model_copy(update={"event_id": "event-created-2"})
 
     with pytest.raises(EventStreamError, match="TASK_CREATED"):
-        TaskAggregate.rehydrate(
-            (_persist(created_draft, 1), _persist(duplicate, 2))
-        )
+        TaskAggregate.rehydrate((_persist(created_draft, 1), _persist(duplicate, 2)))

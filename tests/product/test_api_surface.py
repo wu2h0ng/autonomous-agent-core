@@ -8,7 +8,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
-from agent_os_contracts import EdgeSpec, NodeKind, NodeSpec, RunStatus, TaskEventType, WorkflowGraph
+from agent_os_contracts import (
+    EdgeSpec,
+    NodeKind,
+    NodeSpec,
+    RunStatus,
+    TaskEventType,
+    WorkflowGraph,
+)
 from agent_os_core import DeterministicProvider
 
 
@@ -19,11 +26,17 @@ class ProviderHandler(BaseHTTPRequestHandler):
         type(self).seen_authorization = self.headers.get("Authorization", "")
         length = int(self.headers.get("Content-Length", "0"))
         self.rfile.read(length)
-        payload = json.dumps({
-            "id": "response:check",
-            "choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        }).encode()
+        payload = json.dumps(
+            {
+                "id": "response:check",
+                "choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -34,11 +47,16 @@ class ProviderHandler(BaseHTTPRequestHandler):
         return
 
 
-def _request_json(base: str, path: str, method: str = "GET", body: dict | None = None) -> dict:
+def _request_json(
+    base: str, path: str, method: str = "GET", body: dict | None = None
+) -> dict:
     request = urllib.request.Request(
         base + path,
         data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json", "Idempotency-Key": f"test:{path}:{method}"},
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": f"test:{path}:{method}",
+        },
         method=method,
     )
     with urllib.request.urlopen(request) as response:
@@ -55,19 +73,29 @@ def test_http_api_and_workspace_use_application_path(tmp_path) -> None:
     thread.start()
     base = f"http://127.0.0.1:{server.server_address[1]}"
     provider_server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderHandler)
-    provider_thread = threading.Thread(target=provider_server.serve_forever, daemon=True)
+    provider_thread = threading.Thread(
+        target=provider_server.serve_forever, daemon=True
+    )
     provider_thread.start()
     try:
         with urllib.request.urlopen(base + "/v1/health") as response:
             assert json.loads(response.read())["product"] == "Agent OS"
         payload = {
-            "goal_id": "goal:http", "tenant_id": "tenant:local", "workspace_id": "workspace:local",
-            "created_by": "user:local", "created_at": datetime.now(timezone.utc).isoformat(),
+            "goal_id": "goal:http",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "statement": "inspect repository",
         }
         request = urllib.request.Request(
-            base + "/v1/tasks", data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", "Idempotency-Key": "create:http"}, method="POST",
+            base + "/v1/tasks",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "create:http",
+            },
+            method="POST",
         )
         with urllib.request.urlopen(request) as response:
             task = json.loads(response.read())
@@ -79,7 +107,9 @@ def test_http_api_and_workspace_use_application_path(tmp_path) -> None:
         assert listed["tasks"][0]["task_id"] == task["task_id"]
         workspace = _request_json(base, "/v1/workspace")
         assert workspace["root"] == str(tmp_path.resolve())
-        attached = _request_json(base, "/v1/workspace", "POST", {"path": str(tmp_path.resolve())})
+        attached = _request_json(
+            base, "/v1/workspace", "POST", {"path": str(tmp_path.resolve())}
+        )
         assert attached["attached"] is True
         assert _request_json(base, "/v1/provider")["configured"] is False
         secret = "pm-secret-never-return"
@@ -98,21 +128,30 @@ def test_http_api_and_workspace_use_application_path(tmp_path) -> None:
         assert secret not in json.dumps(configured)
         assert ProviderHandler.seen_authorization == f"Bearer {secret}"
         workflow = {
-            "workflow_id": "workflow:http", "version": 1, "tenant_id": "tenant:local",
-            "workspace_id": "workspace:local", "created_by": "user:local",
-            "created_at": datetime.now(timezone.utc).isoformat(), "policy_version": "policy-1",
+            "workflow_id": "workflow:http",
+            "version": 1,
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "policy_version": "policy-1",
             "evaluator_refs": ["evaluator:pytest:1"],
-            "nodes": [{"node_id": "done", "kind": "terminal"}], "edges": [],
+            "nodes": [{"node_id": "done", "kind": "terminal"}],
+            "edges": [],
         }
         request = urllib.request.Request(
-            base + "/v1/workflows/validate", data=json.dumps(workflow).encode(),
-            headers={"Content-Type": "application/json"}, method="POST",
+            base + "/v1/workflows/validate",
+            data=json.dumps(workflow).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         with urllib.request.urlopen(request) as response:
             validated = json.loads(response.read())
         assert validated["valid"] is True
         assert len(validated["workflow_digest"]) == 64
-        with urllib.request.urlopen(base + "/v1/tasks/" + task["task_id"] + "/evidence") as response:
+        with urllib.request.urlopen(
+            base + "/v1/tasks/" + task["task_id"] + "/evidence"
+        ) as response:
             assert json.loads(response.read())["evidence"] == []
         with urllib.request.urlopen(base + "/") as response:
             page = response.read().decode()

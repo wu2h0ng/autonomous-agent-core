@@ -107,7 +107,9 @@ def test_graph_rejects_duplicate_edges() -> None:
 
 def test_graph_requires_terminal_node() -> None:
     with pytest.raises(ValidationError, match="terminal"):
-        _graph(nodes=tuple(node for node in _nodes() if node.kind is not NodeKind.TERMINAL))
+        _graph(
+            nodes=tuple(node for node in _nodes() if node.kind is not NodeKind.TERMINAL)
+        )
 
 
 def test_tool_node_requires_capability() -> None:

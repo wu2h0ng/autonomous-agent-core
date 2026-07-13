@@ -77,7 +77,9 @@ def _prepare_workspace(root: Path) -> None:
     )
 
 
-def _committed_app(root: Path, workflow: WorkflowGraph) -> tuple[AgentOSApplication, str]:
+def _committed_app(
+    root: Path, workflow: WorkflowGraph
+) -> tuple[AgentOSApplication, str]:
     _prepare_workspace(root)
     database = root / "agent-os.sqlite3"
     app = AgentOSApplication(database=database, workspace=root)
@@ -145,7 +147,9 @@ def _inputs() -> dict[str, object]:
     }
 
 
-def _artifact_events(task_id: str, store: TaskEventStore) -> list[tuple[int, str, str, str]]:
+def _artifact_events(
+    task_id: str, store: TaskEventStore
+) -> list[tuple[int, str, str, str]]:
     return [
         (
             event.sequence,
@@ -199,9 +203,8 @@ def test_rebind_removes_partial_artifact_evidence_and_keeps_completed_prefix(
     assert sequences == list(range(1, len(events) + 1))
     assert event_types.count(TaskEventType.ARTIFACT_RECORDED) == 2
     assert event_types.count(TaskEventType.NODE_COMPLETED) == 1
-    assert (
-        event_types.index(TaskEventType.ARTIFACT_RECORDED)
-        < event_types.index(TaskEventType.NODE_COMPLETED)
+    assert event_types.index(TaskEventType.ARTIFACT_RECORDED) < event_types.index(
+        TaskEventType.NODE_COMPLETED
     )
 
     artifact_records = _artifact_events(task_id, app.store)

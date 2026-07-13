@@ -149,7 +149,9 @@ def _provider_wait_workflow(now: datetime) -> WorkflowGraph:
             capability="workspace.read",
             idempotency=IdempotencyMode.IDEMPOTENT,
         ),
-        NodeSpec(node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"),
+        NodeSpec(
+            node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"
+        ),
         NodeSpec(
             node_id="wait",
             kind=NodeKind.WAIT_EVENT,
@@ -207,7 +209,9 @@ def _replanned_workflow(now: datetime) -> WorkflowGraph:
             capability="workspace.read",
             idempotency=IdempotencyMode.IDEMPOTENT,
         ),
-        NodeSpec(node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"),
+        NodeSpec(
+            node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"
+        ),
         NodeSpec(node_id="inspect", kind=NodeKind.TRANSFORM),
         NodeSpec(
             node_id="tests",
@@ -250,9 +254,7 @@ def _replanned_with_preserved_apply(now: datetime) -> WorkflowGraph:
         capability="workspace.apply_patch",
         idempotency=IdempotencyMode.COMPENSATABLE,
     )
-    nodes = tuple(
-        node if node.node_id != "tests" else apply for node in base.nodes
-    ) + (
+    nodes = tuple(node if node.node_id != "tests" else apply for node in base.nodes) + (
         next(node for node in base.nodes if node.node_id == "tests"),
     )
     return base.model_copy(
@@ -350,7 +352,9 @@ def _inputs() -> dict[str, str]:
     return {"target_path": "fixture.txt", "test_command": "python -m pytest"}
 
 
-def _signal(app: AgentOSApplication, task_id: str, *, name: str = "build.finished") -> ExternalSignal:
+def _signal(
+    app: AgentOSApplication, task_id: str, *, name: str = "build.finished"
+) -> ExternalSignal:
     task = app.tasks.get_task(task_id)
     assert task.run is not None
     return ExternalSignal(
@@ -378,7 +382,9 @@ def test_run_stops_at_typed_wait_without_downstream_execution(tmp_path: Path) ->
     assert result.run is not None
     assert result.run.status is RunStatus.WAITING_EVENT
     assert result.run.wait_condition is not None
-    assert [event.event_type for event in events].count(TaskEventType.WAIT_REGISTERED) == 1
+    assert [event.event_type for event in events].count(
+        TaskEventType.WAIT_REGISTERED
+    ) == 1
     assert not any(
         event.event_type is TaskEventType.NODE_STARTED
         and event.decoded_payload().get("node_id") == "tests"
@@ -398,7 +404,9 @@ def test_run_while_wait_is_live_is_an_event_stream_noop(tmp_path: Path) -> None:
     assert tuple(app.store.read(task_id)) == before
 
 
-def test_matching_signal_then_new_process_resumes_after_completed_wait(tmp_path: Path) -> None:
+def test_matching_signal_then_new_process_resumes_after_completed_wait(
+    tmp_path: Path,
+) -> None:
     now = datetime.now(timezone.utc)
     database = tmp_path / "agent-os.sqlite3"
     app, task_id = _committed_app(tmp_path, _simple_workflow(now))
@@ -415,8 +423,12 @@ def test_matching_signal_then_new_process_resumes_after_completed_wait(tmp_path:
     assert result.status is TaskStatus.COMPLETED
     assert result.run is not None
     assert result.run.status is RunStatus.SUCCEEDED
-    assert [event.event_type for event in events].count(TaskEventType.WAIT_REGISTERED) == 1
-    assert [event.event_type for event in events].count(TaskEventType.WAIT_SATISFIED) == 1
+    assert [event.event_type for event in events].count(
+        TaskEventType.WAIT_REGISTERED
+    ) == 1
+    assert [event.event_type for event in events].count(
+        TaskEventType.WAIT_SATISFIED
+    ) == 1
     assert [
         event.decoded_payload().get("node_id")
         for event in events
@@ -538,7 +550,9 @@ def test_completed_tool_artifact_remains_active_evidence_after_rebind(
     assert result.run.status is RunStatus.SUCCEEDED
 
 
-def test_rebind_clears_invalidated_action_projection_and_approval(tmp_path: Path) -> None:
+def test_rebind_clears_invalidated_action_projection_and_approval(
+    tmp_path: Path,
+) -> None:
     now = datetime.now(timezone.utc)
     app, task_id = _committed_app(tmp_path, _provider_wait_workflow(now))
     app.provider = DeterministicProvider(
@@ -546,7 +560,9 @@ def test_rebind_clears_invalidated_action_projection_and_approval(tmp_path: Path
             ProviderToolProposal(
                 proposal_id="proposal:stale",
                 capability_id="workspace.apply_patch",
-                arguments_json=json.dumps({"path": "fixture.txt", "content": "changed\n"}),
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "changed\n"}
+                ),
             ),
         )
     )
@@ -612,7 +628,9 @@ def test_rebind_clears_old_action_for_preserved_but_uncompleted_node(
             ProviderToolProposal(
                 proposal_id="proposal:preserved-node",
                 capability_id="workspace.apply_patch",
-                arguments_json=json.dumps({"path": "fixture.txt", "content": "changed\n"}),
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "changed\n"}
+                ),
             ),
         )
     )
@@ -650,7 +668,9 @@ def test_approval_cannot_cross_rebind_between_scan_and_append(tmp_path: Path) ->
             ProviderToolProposal(
                 proposal_id="proposal:racing",
                 capability_id="workspace.apply_patch",
-                arguments_json=json.dumps({"path": "fixture.txt", "content": "changed\n"}),
+                arguments_json=json.dumps(
+                    {"path": "fixture.txt", "content": "changed\n"}
+                ),
             ),
         )
     )

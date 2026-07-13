@@ -127,8 +127,10 @@ def _serve(app: AgentOSApplication):
 def _post(base: str, path: str, body: dict) -> dict:
     data = json.dumps(body).encode()
     req = urllib.request.Request(
-        base + path, data=data,
-        headers={"Content-Type": "application/json"}, method="POST",
+        base + path,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
@@ -137,8 +139,10 @@ def _post(base: str, path: str, body: dict) -> dict:
 def _post400(base: str, path: str, body: dict) -> dict:
     data = json.dumps(body).encode()
     req = urllib.request.Request(
-        base + path, data=data,
-        headers={"Content-Type": "application/json"}, method="POST",
+        base + path,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
     try:
         with urllib.request.urlopen(req) as resp:
@@ -150,7 +154,10 @@ def _post400(base: str, path: str, body: dict) -> dict:
 
 class TestCLISignalAndRecoveryThroughRealApplication:
     def test_cli_signal_and_recovery_use_real_application_and_durable_store(
-        self, tmp_path: Path, monkeypatch, capsys,
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        capsys,
     ) -> None:
         db_path = tmp_path / "real-cli.sqlite3"
         app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="real-cli.sqlite3")
@@ -166,9 +173,18 @@ class TestCLISignalAndRecoveryThroughRealApplication:
         signal_path.write_text(json.dumps(signal_payload), encoding="utf-8")
 
         monkeypatch.setattr(
-            sys, "argv",
-            ["agent-os", "--database", str(db_path), "--workspace", str(tmp_path),
-             "task-signal", task_id, str(signal_path)],
+            sys,
+            "argv",
+            [
+                "agent-os",
+                "--database",
+                str(db_path),
+                "--workspace",
+                str(tmp_path),
+                "task-signal",
+                task_id,
+                str(signal_path),
+            ],
         )
         cli.main()
         stdout = json.loads(capsys.readouterr().out)
@@ -181,9 +197,17 @@ class TestCLISignalAndRecoveryThroughRealApplication:
         assert TaskEventType.NODE_COMPLETED in event_types
 
         monkeypatch.setattr(
-            sys, "argv",
-            ["agent-os", "--database", str(db_path), "--workspace", str(tmp_path),
-             "task-recovery", task_id],
+            sys,
+            "argv",
+            [
+                "agent-os",
+                "--database",
+                str(db_path),
+                "--workspace",
+                str(tmp_path),
+                "task-recovery",
+                task_id,
+            ],
         )
         cli.main()
         recovery = json.loads(capsys.readouterr().out)
@@ -191,7 +215,10 @@ class TestCLISignalAndRecoveryThroughRealApplication:
         assert recovery["wait_registered_count"] == 1
 
     def test_cli_signal_replay_through_real_app_is_idempotent(
-        self, tmp_path: Path, monkeypatch, capsys,
+        self,
+        tmp_path: Path,
+        monkeypatch,
+        capsys,
     ) -> None:
         db_path = tmp_path / "idem-cli.sqlite3"
         app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="idem-cli.sqlite3")
@@ -208,9 +235,18 @@ class TestCLISignalAndRecoveryThroughRealApplication:
 
         def _invoke() -> dict:
             monkeypatch.setattr(
-                sys, "argv",
-                ["agent-os", "--database", str(db_path), "--workspace", str(tmp_path),
-                 "task-signal", task_id, str(signal_path)],
+                sys,
+                "argv",
+                [
+                    "agent-os",
+                    "--database",
+                    str(db_path),
+                    "--workspace",
+                    str(tmp_path),
+                    "task-signal",
+                    task_id,
+                    str(signal_path),
+                ],
             )
             cli.main()
             return json.loads(capsys.readouterr().out)
@@ -223,8 +259,17 @@ class TestCLISignalAndRecoveryThroughRealApplication:
         assert second["run"]["status"] == "RUNNING"
 
         events = app.store.read(task_id)
-        assert sum(1 for e in events if e.event_type is TaskEventType.EXTERNAL_SIGNAL_RECORDED) == 1
-        assert sum(1 for e in events if e.event_type is TaskEventType.WAIT_SATISFIED) == 1
+        assert (
+            sum(
+                1
+                for e in events
+                if e.event_type is TaskEventType.EXTERNAL_SIGNAL_RECORDED
+            )
+            == 1
+        )
+        assert (
+            sum(1 for e in events if e.event_type is TaskEventType.WAIT_SATISFIED) == 1
+        )
 
 
 class TestHTTPPublicNegativePaths:
@@ -247,13 +292,24 @@ class TestHTTPPublicNegativePaths:
             assert second["sequence"] == first["sequence"]
 
             events = app.store.read(task_id)
-            assert sum(1 for e in events if e.event_type is TaskEventType.EXTERNAL_SIGNAL_RECORDED) == 1
-            assert sum(1 for e in events if e.event_type is TaskEventType.WAIT_SATISFIED) == 1
+            assert (
+                sum(
+                    1
+                    for e in events
+                    if e.event_type is TaskEventType.EXTERNAL_SIGNAL_RECORDED
+                )
+                == 1
+            )
+            assert (
+                sum(1 for e in events if e.event_type is TaskEventType.WAIT_SATISFIED)
+                == 1
+            )
         finally:
             server.shutdown()
 
     def test_spoofed_signal_scope_returns_400_zero_new_events(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="http-scope.sqlite3")
         before_count = len(app.store.read(task_id))
@@ -280,14 +336,18 @@ class TestHTTPPublicNegativePaths:
             server.shutdown()
 
     def test_spoofed_run_id_and_correlation_key_returns_400(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
-        app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="http-scope2.sqlite3")
+        app, task_id, _ = _app_with_waiting_task(
+            tmp_path, db_name="http-scope2.sqlite3"
+        )
         before_count = len(app.store.read(task_id))
         server, base = _serve(app)
         try:
             stale_run = _post400(
-                base, f"/v1/tasks/{task_id}/signals",
+                base,
+                f"/v1/tasks/{task_id}/signals",
                 {
                     "signal_id": "signal:http-stale",
                     "signal_name": "build.finished",
@@ -301,7 +361,8 @@ class TestHTTPPublicNegativePaths:
             assert "run" in stale_run["message"].lower()
 
             wrong_corr = _post400(
-                base, f"/v1/tasks/{task_id}/signals",
+                base,
+                f"/v1/tasks/{task_id}/signals",
                 {
                     "signal_id": "signal:http-corr",
                     "signal_name": "build.finished",
@@ -320,7 +381,8 @@ class TestHTTPPublicNegativePaths:
             server.shutdown()
 
     def test_late_signal_after_expired_wait_returns_400_stays_failed(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         app, task_id, _ = _app_with_waiting_task(tmp_path, db_name="http-late.sqlite3")
 
@@ -333,7 +395,8 @@ class TestHTTPPublicNegativePaths:
         server, base = _serve(app)
         try:
             err = _post400(
-                base, f"/v1/tasks/{task_id}/signals",
+                base,
+                f"/v1/tasks/{task_id}/signals",
                 {
                     "signal_id": "signal:http-late",
                     "signal_name": "build.finished",
@@ -359,10 +422,12 @@ class TestHTTPPublicNegativePaths:
             server.shutdown()
 
     def test_replan_budget_exhaustion_returns_400_no_extra_rebound(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         app, task_id, now = _app_with_waiting_task(
-            tmp_path, db_name="http-budget.sqlite3",
+            tmp_path,
+            db_name="http-budget.sqlite3",
         )
         current = app.tasks.get_task(task_id).workflow
         assert current is not None
@@ -370,17 +435,22 @@ class TestHTTPPublicNegativePaths:
         server, base = _serve(app)
         try:
             v2 = WorkflowGraph(
-                workflow_id=current.workflow_id, version=2,
-                tenant_id=current.tenant_id, workspace_id=current.workspace_id,
-                created_by=current.created_by, created_at=current.created_at,
+                workflow_id=current.workflow_id,
+                version=2,
+                tenant_id=current.tenant_id,
+                workspace_id=current.workspace_id,
+                created_by=current.created_by,
+                created_at=current.created_at,
                 policy_version=current.policy_version,
                 evaluator_refs=current.evaluator_refs,
                 nodes=(NodeSpec(node_id="done", kind=NodeKind.TERMINAL),),
-                edges=(), max_replans=1,
+                edges=(),
+                max_replans=1,
             )
 
             first = _post(
-                base, f"/v1/tasks/{task_id}/replan",
+                base,
+                f"/v1/tasks/{task_id}/replan",
                 {"workflow": v2.model_dump(mode="json"), "reason": "first replan"},
             )
             assert first["workflow"]["version"] == 2
@@ -389,22 +459,28 @@ class TestHTTPPublicNegativePaths:
 
             v3 = v2.model_copy(update={"version": 3})
             err = _post400(
-                base, f"/v1/tasks/{task_id}/replan",
+                base,
+                f"/v1/tasks/{task_id}/replan",
                 {"workflow": v3.model_dump(mode="json"), "reason": "second replan"},
             )
             assert err["error"] == "ReplanRejectedError"
             assert "budget" in err["message"].lower()
 
             events = app.store.read(task_id)
-            assert sum(1 for e in events if e.event_type is TaskEventType.RUN_PLAN_REBOUND) == 1
+            assert (
+                sum(1 for e in events if e.event_type is TaskEventType.RUN_PLAN_REBOUND)
+                == 1
+            )
         finally:
             server.shutdown()
 
     def test_replan_scope_denial_returns_400_zero_rebound(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         app, task_id, now = _app_with_waiting_task(
-            tmp_path, db_name="http-replan-scope.sqlite3",
+            tmp_path,
+            db_name="http-replan-scope.sqlite3",
         )
         current = app.tasks.get_task(task_id).workflow
         assert current is not None
@@ -412,19 +488,25 @@ class TestHTTPPublicNegativePaths:
         server, base = _serve(app)
         try:
             v2_wrong_tenant = WorkflowGraph(
-                workflow_id=current.workflow_id, version=2,
+                workflow_id=current.workflow_id,
+                version=2,
                 tenant_id="tenant:evil",
                 workspace_id=current.workspace_id,
-                created_by=current.created_by, created_at=current.created_at,
+                created_by=current.created_by,
+                created_at=current.created_at,
                 policy_version=current.policy_version,
                 evaluator_refs=current.evaluator_refs,
                 nodes=(NodeSpec(node_id="done", kind=NodeKind.TERMINAL),),
-                edges=(), max_replans=1,
+                edges=(),
+                max_replans=1,
             )
             err = _post400(
-                base, f"/v1/tasks/{task_id}/replan",
-                {"workflow": v2_wrong_tenant.model_dump(mode="json"),
-                 "reason": "cross-tenant attack"},
+                base,
+                f"/v1/tasks/{task_id}/replan",
+                {
+                    "workflow": v2_wrong_tenant.model_dump(mode="json"),
+                    "reason": "cross-tenant attack",
+                },
             )
             assert err["error"] == "ReplanRejectedError"
             assert "scope" in err["message"].lower()

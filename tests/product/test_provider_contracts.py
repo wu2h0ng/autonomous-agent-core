@@ -65,7 +65,9 @@ def _request(**updates: Any) -> ProviderRequest:
         "run_id": "run-1",
         "provider_profile_id": "profile-1",
         "messages": (
-            ProviderMessage(role=ProviderMessageRole.USER, content="Inspect the repository"),
+            ProviderMessage(
+                role=ProviderMessageRole.USER, content="Inspect the repository"
+            ),
         ),
         "allowed_capability_ids": ("workspace.read",),
         "timeout_seconds": 30,

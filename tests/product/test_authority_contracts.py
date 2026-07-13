@@ -183,18 +183,22 @@ def test_action_digest_changes_for_every_authority_field(
 ) -> None:
     action = _action()
 
-    assert action.action_digest() != action.model_copy(
-        update={field: value}
-    ).action_digest()
+    assert (
+        action.action_digest()
+        != action.model_copy(update={field: value}).action_digest()
+    )
 
 
 def test_action_digest_changes_for_correction_epoch_vector() -> None:
     action = _action()
     changed = action.observed_correction_epochs.model_copy(update={"run_epoch": 1})
 
-    assert action.action_digest() != action.model_copy(
-        update={"observed_correction_epochs": changed}
-    ).action_digest()
+    assert (
+        action.action_digest()
+        != action.model_copy(
+            update={"observed_correction_epochs": changed}
+        ).action_digest()
+    )
 
 
 def test_action_arguments_are_canonical_and_object_only() -> None:
@@ -208,7 +212,11 @@ def test_action_arguments_are_canonical_and_object_only() -> None:
 def test_candidate_envelope_normalizes_set_like_fields() -> None:
     envelope = _envelope(
         candidate_ids=("candidate-no-action", "candidate-patch", "candidate-patch"),
-        allowed_capability_ids=("workspace.read", "workspace.apply_patch", "workspace.read"),
+        allowed_capability_ids=(
+            "workspace.read",
+            "workspace.apply_patch",
+            "workspace.read",
+        ),
     )
 
     assert envelope.candidate_ids == ("candidate-no-action", "candidate-patch")
@@ -255,7 +263,9 @@ def test_permit_binds_principal_and_action_digest() -> None:
 
     assert permit.matches(action)
     assert not permit.matches(action.model_copy(update={"principal_id": "principal-2"}))
-    assert not permit.matches(action.model_copy(update={"arguments_json": '{"patch":"other"}'}))
+    assert not permit.matches(
+        action.model_copy(update={"arguments_json": '{"patch":"other"}'})
+    )
 
 
 def test_permit_expiry_must_follow_issue_time() -> None:
