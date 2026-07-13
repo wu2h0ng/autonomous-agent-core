@@ -1,0 +1,700 @@
+{
+  "entries": [
+    {
+      "case_id": "st_reverse",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=st_reverse\nfamily=string_transform\ngoal=Return the input string reversed.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "ac9c10e9cd34eca298dddd80d0834616a50aa8a3b96964027e5481e4e06aa6b5",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-st_reverse",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_st_reverse",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def reverse_string(s):\\n    return s[::-1]\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "st_title",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=st_title\nfamily=string_transform\ngoal=Return the input string with each word capitalized.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "ac157a3e39c8c305a995d2135686aee02623441c7dfca9a54059a2906c623e80",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-st_title",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_st_title",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def capitalize_words(s):\\n    return s.title()\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "st_trim_lower",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=st_trim_lower\nfamily=string_transform\ngoal=Return the trimmed lowercase version of the input.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "6765068674bfcfb4b9898539ed8d4ef898678a3d1d507700fabe7b9bf420715b",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-st_trim_lower",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_st_trim_lower",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def normalize(s):\\n    return s.strip().lower()\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "nr_sum",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=nr_sum\nfamily=numeric_reducer\ngoal=Return the sum of all numbers in the list.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "e460689d0b206a9486d0e52acc65dff977de468d5fd67f404dc9cfe8dab4c792",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-nr_sum",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_nr_sum",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def sum_list(numbers):\\n    return sum(numbers)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "nr_max",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=nr_max\nfamily=numeric_reducer\ngoal=Return the maximum value in the list.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "885337856b40300c54d6a73b096846ba114629e1eea30064a0ede51ece822e29",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-nr_max",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_nr_max",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def max_value(numbers):\\n    return max(numbers)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "nr_factorial",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=nr_factorial\nfamily=numeric_reducer\ngoal=Return the factorial of a non-negative integer.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "77f19f2166bbd4db61690398be11d2dafe3897f8f178b5012f03512481d0c312",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-nr_factorial",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_nr_factorial",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def factorial(n):\\n    if n < 0:\\n        raise ValueError('n must be non-negative')\\n    result = 1\\n    for i in range(2, n + 1):\\n        result *= i\\n    return result\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "val_email",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=val_email\nfamily=validator\ngoal=Return True if the email address contains exactly one @ and a domain dot.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "42ba4d784d1a165ea2b44293a8d77958a320f498b45374908899a45c098d37d8",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-val_email",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_val_email",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def is_valid_email(email):\\n    if email.count('@') != 1:\\n        return False\\n    local, domain = email.split('@')\\n    return bool(local) and '.' in domain and not domain.startswith('.') and not domain.endswith('.')\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "val_palindrome",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=val_palindrome\nfamily=validator\ngoal=Return True if the input string is a palindrome ignoring case.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "42975f3cc69cc7f790bc50564a7818cab4039ca2372add8f0d947205141aeabd",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-val_palindrome",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_val_palindrome",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def is_palindrome(text):\\n    lowered = text.lower()\\n    return lowered == lowered[::-1]\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "val_positive_int",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=val_positive_int\nfamily=validator\ngoal=Return True only for positive integers.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "b33130f1f6f41970b86b8524bf1813b45b6917d467683a793d1146debe22e69b",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-val_positive_int",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_val_positive_int",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def is_positive_int(value):\\n    return type(value) is int and value > 0\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "fmt_json",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=fmt_json\nfamily=formatter\ngoal=Return a canonical compact JSON string for the given object.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "f664d602f377d62e6c3e9bbd2e8949f81c561b5cd378853a509bdcb4bfdd0f66",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-fmt_json",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_fmt_json",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"import json\\n\\ndef format_json(obj):\\n    return json.dumps(obj, sort_keys=True, separators=(',', ':'))\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "fmt_csv",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=fmt_csv\nfamily=formatter\ngoal=Return a CSV string from a list of rows.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "c59965ad3b0772ec8a31ef4345e9de38ecb555907bdf013edadd5e845a4076b6",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-fmt_csv",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_fmt_csv",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def format_csv(rows):\\n    return '\\\\n'.join(','.join(str(cell) for cell in row) for row in rows)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "fmt_table",
+      "request": {
+        "model": "spine-e2e-1-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "case_id=fmt_table\nfamily=formatter\ngoal=Return a pipe-separated table string from rows.\ntarget_path=subject.py\ntest_command=python -m pytest\n\nPropose a workspace.apply_patch to subject.py that fulfills the goal and makes the test pass."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "89873374816ccc510f8a31e342d6df3597fa9c9befceab6010d85f802d392c68",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-fmt_table",
+        "model": "spine-e2e-1-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_fmt_table",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def format_table(rows):\\n    return '\\\\n'.join(' | '.join(str(cell) for cell in row) for row in rows)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    }
+  ]
+}
