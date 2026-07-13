@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from product_evals.common.artifacts import canonical_sha256
 from product_evals.common.authority_binding import verify_authority_binding
 from product_evals.common.bank_generator import canonical_json_bytes
 from product_evals.common.json_schema_contract import (
@@ -406,7 +407,7 @@ def _authority_semantic_sha256(run_root: Path) -> str:
         "request": request_projection,
         "approval": approval_projection,
     }
-    return hashlib.sha256(canonical_json_bytes(semantic_projection)).hexdigest()
+    return canonical_sha256(semantic_projection)
 
 
 def _verify_schema_snapshot(
