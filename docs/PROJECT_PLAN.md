@@ -162,7 +162,7 @@ Status:
 LOCAL_ACCEPTANCE_VERIFIED
 phase label: LH_PRODUCT_SLICE_E2
 evidence scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY
-LH-RECOVERY-1: NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN
+LH-RECOVERY-1: BLOCKED_NOT_RUN; SPINE-E2E-1/2/3 INVALID
 ```
 
 Authority:
@@ -222,9 +222,16 @@ no production authentication/tenancy, and no CWM, BeliefLedger, AgentSelfModel, 
 learning or self-evolution product integration. It does not solve the general long-horizon,
 autonomous-agent-system or self-evolution problems.
 
-Next gate: founder/CTO may choose a separately frozen `SPINE-E2E-1` / `LH-RECOVERY-1`
-evaluation with long-duration workloads and strong baselines, or another bounded production
-hardening packet. SPINE-1 remains independently ADR-0054-gated.
+Three fresh frozen SPINE successors are preserved as INVALID instrument evidence. E2E-3
+completed prepare, but its frozen 11-field anchor consumer rejected the pinned runner's valid
+13-field governed event. It is not Product NOT_PASS. D2 was not constructed and parent
+`LH-RECOVERY-1` remains BLOCKED_NOT_RUN.
+
+Next gate: a new successor identity may be proposed only after the pinned runner's real event
+producer is included in a scratch producer-to-consumer contract canary and the exported schema,
+normalized fixture and contract receipt are bound into qualification. Fresh permission,
+independent reviews, freeze and one-run discipline remain mandatory. SPINE-1 remains
+independently ADR-0054-gated.
 
 ### T-P-OS-SPINE-1 - Data Agent History-Safe Migration (Successor / Blocked)
 
