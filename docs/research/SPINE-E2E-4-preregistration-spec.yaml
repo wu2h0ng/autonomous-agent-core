@@ -1,5 +1,5 @@
 prereg_id: SPINE-E2E-4
-status: DRAFT_NOT_REVIEWED_NOT_FROZEN_NOT_RUN
+status: PERMISSION_BOUND_NOT_REVIEWED_NOT_FROZEN_NOT_RUN
 schema_version: spine-e2e-4-prereg-v1
 claim_class: deployment-product
 track: product_eval
@@ -308,8 +308,8 @@ runner_binding:
 
 permission_binding:
   action: team.event.record
-  request_id: PRE_FREEZE_PERMISSION_UNBOUND
-  requester: PRE_FREEZE_PERMISSION_UNBOUND
+  request_id: perm_a478adec823b6df2
+  requester: codex-cto
   affected_path: .agent_runs/spine-e2e-4-20260713/agent_events.jsonl
   evidence_refs:
     - evaluation/anchor_requests/prepare.json
@@ -317,15 +317,15 @@ permission_binding:
     - evaluation/anchor_requests/probe_active_lease.json
     - evaluation/anchor_requests/resume.json
     - evaluation/anchor_requests/adjudicate.json
-  request_row_sha256: PRE_FREEZE_PERMISSION_UNBOUND
-  approval_row_sha256: PRE_FREEZE_PERMISSION_UNBOUND
-  request_timestamp: PRE_FREEZE_PERMISSION_UNBOUND
-  approval_timestamp: PRE_FREEZE_PERMISSION_UNBOUND
-  decision: PRE_FREEZE_PERMISSION_UNBOUND
-  decided_by: PRE_FREEZE_PERMISSION_UNBOUND
-  source_decision_id: PRE_FREEZE_PERMISSION_UNBOUND
-  source_goal_id: PRE_FREEZE_PERMISSION_UNBOUND
-  source_decision_type: PRE_FREEZE_PERMISSION_UNBOUND
+  request_row_sha256: 3f83f44ca9f4dbba11e3d40f1ddb393b71bfeea1efeabe9dc1fea21d3ebdc256
+  approval_row_sha256: 1a3c61250f3f78c42dcaebc1fedea397b31dd016381ee3322d9a8a521e4b5898
+  request_timestamp: "2026-07-13T13:35:06+00:00"
+  approval_timestamp: "2026-07-13T13:35:14+00:00"
+  decision: approved_session
+  decided_by: founder
+  source_decision_id: founder-decision-spine-e2e-4-20260713
+  source_goal_id: SPINE-E2E-4
+  source_decision_type: founder_authorization
   exactly_one_request_and_approval: true
   later_conflicting_decision_forbidden: true
   approved_once_forbidden: true

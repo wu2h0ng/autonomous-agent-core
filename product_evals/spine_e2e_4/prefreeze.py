@@ -1,10 +1,9 @@
-"""E2E4 product-side pre-freeze permission sentinel brake.
+"""E2E4 product-side pre-freeze permission binding brake.
 
-The generic preregistration runner does not understand experiment-local
-sentinels.  This command therefore must run before manifest review/freeze.  It
-is read-only: it parses the draft spec, verifies the current permission ledgers
-through the typed authority verifier, and requires byte-independent semantic
-equality for every frozen permission field.
+The pinned generic runner rejects unresolved pre-freeze sentinels.  This
+experiment-local command additionally proves that the resolved permission
+fields equal the one typed authority pair in the run ledgers.  It is read-only
+and must pass before manifest review/freeze.
 """
 
 from __future__ import annotations
