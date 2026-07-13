@@ -28,6 +28,10 @@ class _AuthorityError(ValueError):
     """Internal marker; every failure surfaces as ``INVALID_AUTHORITY_BINDING``."""
 
 
+def _reject_non_finite(token: str) -> Any:
+    raise _AuthorityError("non-finite JSON constant")
+
+
 @dataclass(frozen=True)
 class AuthorityBinding:
     request_sha256: str
@@ -64,7 +68,11 @@ def _read_rows(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             raise _AuthorityError("blank ledger line")
         try:
-            row = json.loads(line, object_pairs_hook=_reject_duplicate_keys)
+            row = json.loads(
+                line,
+                object_pairs_hook=_reject_duplicate_keys,
+                parse_constant=_reject_non_finite,
+            )
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise _AuthorityError("malformed ledger JSON") from exc
         if not isinstance(row, dict):
@@ -132,6 +140,9 @@ def verify_authority_binding(
     """
 
     try:
+        run_id = _require_nonblank(run_id)
+        action = _require_nonblank(action)
+        affected_path = _require_nonblank(affected_path)
         requests = _read_rows(run_root / _REQUEST_LEDGER)
         approvals = _read_rows(run_root / _APPROVAL_LEDGER)
         if len(requests) != 1 or len(approvals) != 1:
