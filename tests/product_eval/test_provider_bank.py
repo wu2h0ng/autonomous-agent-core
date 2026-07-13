@@ -17,11 +17,18 @@ import pytest
 from agent_os_contracts import (
     CredentialRef,
     CredentialStatus,
+    EdgeSpec,
+    IdempotencyMode,
+    NodeKind,
+    NodeSpec,
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
     ProviderResponse,
+    RunStatus,
+    WorkflowGraph,
 )
+from apps.api_server.app import AgentOSApplication
 from agent_os_core import EnvCredentialBroker, OpenAICompatibleProvider
 
 from product_evals.common import provider_bank
@@ -63,6 +70,36 @@ def _entries() -> list[dict[str, object]]:
     value = _load(BANK_PATH)
     assert isinstance(value, dict)
     return value["entries"]  # type: ignore[return-value]
+
+
+def _runtime_request(case: dict[str, object]) -> dict[str, object]:
+    initial_content = str(case["initial_content"])
+    prompt = (
+        f"Repository task: {case['goal']}\n"
+        f"Target path: {case['target_path']}\n"
+        f"Current SHA-256: {hashlib.sha256(initial_content.encode('utf-8')).hexdigest()}\n"
+        "Current file content follows:\n"
+        f"---BEGIN FILE---\n{initial_content}\n---END FILE---\n"
+        "Propose the complete replacement content by calling only the "
+        "workspace.apply_patch tool. Include path and content. Do not call any "
+        "other capability and do not claim that the patch was applied."
+    )
+    return {
+        "model": "spine-e2e-1-frozen",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.0,
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "workspace__apply_patch",
+                    "description": "Invoke typed capability workspace.apply_patch",
+                    "parameters": {"type": "object", "additionalProperties": True},
+                },
+            }
+        ],
+        "tool_choice": "auto",
+    }
 
 
 def _request(
@@ -175,33 +212,7 @@ def test_frozen_corpus_has_twelve_distinct_real_cases_and_exact_provider_wire() 
         assert ".." not in Path(case["target_path"]).parts
         assert entry["expected_calls"] == 2
         request = entry["request"]
-        assert request == {
-            "model": "spine-e2e-1-frozen",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": (
-                        f"case_id={case['case_id']}\nfamily={case['family']}\n"
-                        f"goal={case['goal']}\ntarget_path=subject.py\n"
-                        "test_command=python -m pytest\n\n"
-                        "Propose a workspace.apply_patch to subject.py that fulfills "
-                        "the goal and makes the test pass."
-                    ),
-                }
-            ],
-            "temperature": 0.0,
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "workspace__apply_patch",
-                        "description": "Invoke typed capability workspace.apply_patch",
-                        "parameters": {"type": "object", "additionalProperties": True},
-                    },
-                }
-            ],
-            "tool_choice": "auto",
-        }
+        assert request == _runtime_request(case)
         assert entry["digest"] == request_body_digest(request)
         response = entry["response"]
         assert response["choices"][0]["finish_reason"] == "tool_calls"
@@ -218,6 +229,147 @@ def test_frozen_corpus_has_twelve_distinct_real_cases_and_exact_provider_wire() 
             "content": case["patched_content"],
         }
         assert set(arguments) == {"path", "content"}
+
+
+def test_real_application_provider_wire_matches_frozen_single_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _load(CASES_PATH)["cases"][0]
+    entry = next(item for item in _entries() if item["case_id"] == case["case_id"])
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / case["target_path"]).write_text(
+        case["initial_content"], encoding="utf-8"
+    )
+    (workspace / case["test_path"]).write_text(case["pytest_source"], encoding="utf-8")
+    ledger_path = tmp_path / "provider_calls.jsonl"
+    server = FrozenProviderServer(
+        BANK_PATH, ledger_path=ledger_path, context_sha256=CONTEXT
+    )
+    server.start()
+    now = datetime.now(timezone.utc)
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", server.base_url)
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "spine-e2e-1-frozen")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_TEMPERATURE", "0")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "SPINE_E2E_1_TEST_BEARER")
+    monkeypatch.setenv("SPINE_E2E_1_TEST_BEARER", DUMMY_BEARER)
+    app = AgentOSApplication(
+        database=tmp_path / "agent-os.sqlite3", workspace=workspace
+    )
+    task = app.create_task(
+        {
+            "goal_id": "goal:provider-wire",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": now,
+            "statement": case["goal"],
+        }
+    )
+    nodes = (
+        NodeSpec(
+            node_id="read",
+            kind=NodeKind.TOOL,
+            capability="workspace.read",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(
+            node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"
+        ),
+        NodeSpec(node_id="approve", kind=NodeKind.APPROVAL),
+        NodeSpec(
+            node_id="apply",
+            kind=NodeKind.TOOL,
+            capability="workspace.apply_patch",
+            idempotency=IdempotencyMode.COMPENSATABLE,
+            risk_tier=1,
+        ),
+        NodeSpec(
+            node_id="tests",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    workflow = WorkflowGraph(
+        workflow_id="workflow:provider-wire",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=tuple(
+            EdgeSpec(source=source, target=target)
+            for source, target in (
+                ("read", "provider"),
+                ("provider", "approve"),
+                ("approve", "apply"),
+                ("apply", "tests"),
+                ("tests", "evaluate"),
+                ("evaluate", "done"),
+            )
+        ),
+    )
+    commitment = {
+        "commitment_id": "commitment:provider-wire",
+        "task_id": task.task_id,
+        "goal_id": "goal:provider-wire",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "accepted_by": "user:local",
+        "accepted_at": now,
+        "deliverables": ["subject.py patch"],
+        "acceptance_criteria": ["python -m pytest exits 0"],
+        "authority_scopes": ["workspace:read", "workspace:write"],
+        "budget": {
+            "max_cost_usd": "1",
+            "max_duration_seconds": 300,
+            "max_provider_tokens": 1000,
+            "max_tool_calls": 10,
+        },
+        "risk_tier": 1,
+        "exit_conditions": ["verified"],
+        "expires_at": now + timedelta(hours=1),
+    }
+    expected = {
+        "expected_outcome_id": "expected:provider-wire",
+        "task_id": task.task_id,
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "evaluator_type": "pytest",
+        "evaluator_version": "1",
+        "evidence_requirements": ["pytest-report"],
+        "failure_semantics": ["non-zero exit"],
+        "threshold": 1,
+        "observation_window_seconds": 60,
+        "frozen_at": now,
+    }
+    app.commit_task(
+        task.task_id,
+        {
+            "commitment": commitment,
+            "workflow": workflow.model_dump(mode="json"),
+            "expected_outcome": expected,
+        },
+    )
+    try:
+        waiting = app.run_task(
+            task.task_id,
+            {"target_path": case["target_path"], "test_command": "python -m pytest"},
+        )
+    finally:
+        server.close(validate_counts=False)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    records = _ledger(ledger_path)
+    assert len(records) == 1
+    assert records[0]["accepted"] is True
+    assert records[0]["request_digest"] == entry["digest"]
 
 
 def test_canonical_request_replays_stored_response_verbatim_after_json_decode(
