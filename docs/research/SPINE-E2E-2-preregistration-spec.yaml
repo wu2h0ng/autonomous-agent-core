@@ -5,8 +5,8 @@ claim_class: deployment-product
 track: product_eval
 experiment_id: SPINE-E2E-2
 run_id: spine-e2e-2-20260713
-builder_id: spine-spec-writer
-reviewed_by: spine-independent-reviewer
+builder_id: codex-cto
+reviewed_by: spine-e2e-2-content-reviewer
 target_repo: autonomous-agent-core
 bounded_claim: >-
   On one frozen local same-boot run, all twelve public Agent OS developer tasks
@@ -217,7 +217,7 @@ runner_binding:
 
 permission_binding:
   action: team.event.record
-  request_id: DRAFT_NOT_PREAPPROVED
+  request_id: perm_7899acc56c72d31a
   requester: codex-cto
   affected_path: .agent_runs/spine-e2e-2-20260713/agent_events.jsonl
   evidence_refs:
@@ -226,13 +226,13 @@ permission_binding:
     - evaluation/anchor_requests/probe_active_lease.json
     - evaluation/anchor_requests/resume.json
     - evaluation/anchor_requests/adjudicate.json
-  request_row_sha256: 0000000000000000000000000000000000000000000000000000000000000000
-  approval_row_sha256: 0000000000000000000000000000000000000000000000000000000000000000
-  request_timestamp: DRAFT_NOT_CREATED
-  approval_timestamp: DRAFT_NOT_CREATED
-  decision: DRAFT_NOT_DECIDED
-  decided_by: DRAFT_NOT_DECIDED
-  exactly_one_request_and_approval: false
+  request_row_sha256: 47be0703644b7478a5dffa65d817b3c7334c494c51ba8761731585bdf4ba3123
+  approval_row_sha256: 92bed5f1a8e9565d3f640b5f8aab593fab61f8f76894115af2a7260baf058d1e
+  request_timestamp: "2026-07-13T07:13:28+00:00"
+  approval_timestamp: "2026-07-13T07:13:42+00:00"
+  decision: approved_session
+  decided_by: founder
+  exactly_one_request_and_approval: true
   later_conflicting_decision_forbidden: true
   approved_once_forbidden: true
   authority_scope: anchor recording only; no Product execution or verdict authority
