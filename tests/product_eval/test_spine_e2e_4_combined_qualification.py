@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 from pathlib import Path
@@ -28,9 +29,22 @@ RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
 RUNNER_HEAD = "087f5907cd181c6e071fb24f135292abd9681ca7"
 CONSUMER_SOURCE = REPO_ROOT / "product_evals/common/json_schema_contract.py"
 AUTHORITY_SOURCE = REPO_ROOT / "product_evals/common/authority_binding.py"
+RUNNER_QUALIFICATION_SOURCE = (
+    REPO_ROOT / "product_evals/common/runner_contract_qualification.py"
+)
+LEGACY_QUALIFICATION_SOURCE = (
+    REPO_ROOT / "product_evals/common/instrument_qualification.py"
+)
+E2E3_RECEIPT = (
+    REPO_ROOT / "product_evals/spine_e2e_3/instrument_qualification_receipt.json"
+)
 
 
 def _module() -> Any:
+    return importlib.import_module("product_evals.spine_e2e_4.qualification")
+
+
+def _legacy_module() -> Any:
     return importlib.import_module("product_evals.common.instrument_qualification")
 
 
@@ -103,8 +117,28 @@ def _verify(paths: dict[str, Path], **overrides: Any) -> dict[str, Any]:
     return _module().verify_combined_qualification_receipt(**arguments)
 
 
-def test_combined_receipt_is_canonical_stable_and_write_once(tmp_path: Path) -> None:
+def test_legacy_qualification_source_remains_bound_to_e2e3_receipt() -> None:
+    receipt = json.loads(E2E3_RECEIPT.read_bytes())
+
+    assert (
+        hashlib.sha256(LEGACY_QUALIFICATION_SOURCE.read_bytes()).hexdigest()
+        == (receipt["source_sha256"]["instrument_qualification.py"])
+    )
+
+
+def test_combined_receipt_is_canonical_stable_and_write_once(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     paths = _paths(tmp_path)
+    request_ids: list[str] = []
+    original_runner_canary = _runner_module()._run_scratch_canary
+
+    def runner_spy(*args: Any, **kwargs: Any) -> Any:
+        event = original_runner_canary(*args, **kwargs)
+        request_ids.append(event["approval_request_id"])
+        return event
+
+    monkeypatch.setattr(_runner_module(), "_run_scratch_canary", runner_spy)
 
     first = _qualify(paths)
     first_bytes = paths["receipt"].read_bytes()
@@ -124,6 +158,18 @@ def test_combined_receipt_is_canonical_stable_and_write_once(tmp_path: Path) -> 
     }
     assert first["checks"]["provider_canary"] is True
     assert first["checks"]["runner_contract_canary"] is True
+    assert (
+        first["runner_contract"]["authority_semantic_sha256"]
+        == second["runner_contract"]["authority_semantic_sha256"]
+    )
+    assert len(first["runner_contract"]["authority_semantic_sha256"]) == 64
+    assert (
+        first["runner_contract"]["source_sha256"]["runner_contract_qualification.py"]
+        == hashlib.sha256(RUNNER_QUALIFICATION_SOURCE.read_bytes()).hexdigest()
+    )
+    assert len(request_ids) == 2
+    assert request_ids[0] != request_ids[1]
+    assert all(request_id.encode() not in first_bytes for request_id in request_ids)
 
     paths["receipt"].write_bytes(first_bytes + b" ")
     with pytest.raises(ValueError, match="INVALID_INSTRUMENT_QUALIFICATION"):
@@ -137,7 +183,7 @@ def test_reverification_reexecutes_both_canaries_and_exact_compares(
     expected = _qualify(paths)
     provider_calls = 0
     runner_calls = 0
-    original_provider_canary = _module()._run_canary
+    original_provider_canary = _legacy_module()._run_canary
     original_runner_canary = _runner_module()._run_scratch_canary
 
     def provider_spy(*args: Any, **kwargs: Any) -> Any:
@@ -150,12 +196,34 @@ def test_reverification_reexecutes_both_canaries_and_exact_compares(
         runner_calls += 1
         return original_runner_canary(*args, **kwargs)
 
-    monkeypatch.setattr(_module(), "_run_canary", provider_spy)
+    monkeypatch.setattr(_legacy_module(), "_run_canary", provider_spy)
     monkeypatch.setattr(_runner_module(), "_run_scratch_canary", runner_spy)
 
     assert _verify(paths) == expected
     assert provider_calls == 1
     assert runner_calls == 1
+
+
+@pytest.mark.parametrize(
+    ("constant", "drifted"),
+    [
+        ("_CANARY_REQUEST_NOTE", "drifted request note"),
+        ("_CANARY_DECISION_NOTE", "drifted approval note"),
+        ("_CANARY_DECIDER", "independent-founder-delegate"),
+    ],
+)
+def test_reverification_rejects_authority_semantic_drift_not_present_in_event(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    constant: str,
+    drifted: str,
+) -> None:
+    paths = _paths(tmp_path)
+    _qualify(paths)
+    monkeypatch.setattr(_runner_module(), constant, drifted)
+
+    with pytest.raises(ValueError, match="INVALID_INSTRUMENT_QUALIFICATION"):
+        _verify(paths)
 
 
 class _BearerDriftIdentity(SpineEvaluationIdentity):
@@ -262,7 +330,7 @@ def test_qualification_rejects_any_preexisting_formal_ledger_before_canaries(
     paths[preexisting].parent.mkdir(parents=True, exist_ok=True)
     paths[preexisting].write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(
-        _module(),
+        _legacy_module(),
         "_run_canary",
         lambda *args, **kwargs: pytest.fail("provider canary ran before genesis gate"),
     )
