@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,6 +15,70 @@ from product_evals.spine_e2e_3.identity import IDENTITY
 
 ROOT = Path(__file__).resolve().parents[2]
 E2E3 = ROOT / "product_evals/spine_e2e_3"
+
+
+def _permission_rows() -> tuple[dict[str, object], dict[str, object]]:
+    request = {
+        "action": "team.event.record",
+        "affected_paths": [cli.PERMISSION_PATH],
+        "agent_id": "codex-cto",
+        "evidence_refs": list(cli.ANCHOR_REFS),
+        "hard_gated": False,
+        "note": "isolated test authority",
+        "request_id": cli.APPROVAL_REQUEST_ID,
+        "risk_level": "medium",
+        "run_id": cli.RUN_ID,
+        "source_decision_id": "test-founder-decision",
+        "source_decision_type": "founder_authorization",
+        "source_goal_id": "SPINE-E2E-3",
+        "status": "pending",
+        "ts": "2026-07-13T08:54:55+00:00",
+    }
+    approval = {
+        "decided_by": "founder",
+        "decision": "approved_session",
+        "note": "isolated test approval",
+        "request_id": cli.APPROVAL_REQUEST_ID,
+        "run_id": cli.RUN_ID,
+        "source_decision_id": "test-founder-decision",
+        "source_decision_type": "founder_authorization",
+        "source_goal_id": "SPINE-E2E-3",
+        "ts": "2026-07-13T08:55:03+00:00",
+    }
+    return request, approval
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def _write_permission_ledgers(
+    monkeypatch: pytest.MonkeyPatch,
+    run_root: Path,
+    *,
+    requests: list[dict[str, object]] | None = None,
+    approvals: list[dict[str, object]] | None = None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    request, approval = _permission_rows()
+    request_rows = requests or [request]
+    approval_rows = approvals or [approval]
+    _write_jsonl(run_root / "approval_requests.jsonl", request_rows)
+    _write_jsonl(run_root / "approvals.jsonl", approval_rows)
+    bound_request = next(
+        row for row in request_rows if row.get("request_id") == cli.APPROVAL_REQUEST_ID
+    )
+    bound_approval = next(
+        row for row in approval_rows if row.get("request_id") == cli.APPROVAL_REQUEST_ID
+    )
+    monkeypatch.setattr(cli, "REQUEST_ROW_SHA256", cli.canonical_sha256(bound_request))
+    monkeypatch.setattr(
+        cli, "APPROVAL_ROW_SHA256", cli.canonical_sha256(bound_approval)
+    )
+    return request, approval
 
 
 def _run(tmp_path: Path) -> SimpleNamespace:
@@ -44,6 +109,97 @@ def test_authority_is_bound_only_to_the_fresh_successor_permission(
         cli._assert_authority_bound()
     assert not run.phase_ledger.exists()
     assert not run.provider_ledger.exists()
+
+
+def test_permission_rejects_a_second_request_for_the_same_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    request, approval = _permission_rows()
+    duplicate_scope = {
+        **request,
+        "request_id": "perm_conflicting_scope",
+        "ts": "2026-07-13T08:55:01+00:00",
+    }
+    _write_permission_ledgers(
+        monkeypatch,
+        tmp_path,
+        requests=[request, duplicate_scope],
+        approvals=[approval],
+    )
+
+    with pytest.raises(ValueError, match="INVALID_PERMISSION"):
+        cli._verify_permission_rows(tmp_path)
+
+
+@pytest.mark.parametrize("decision", ["denied", "revoked", "approved_once"])
+def test_permission_rejects_a_later_conflicting_decision(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, decision: str
+) -> None:
+    request, approval = _permission_rows()
+    later_decision = {
+        **approval,
+        "decision": decision,
+        "ts": "2026-07-13T08:55:04+00:00",
+    }
+    _write_permission_ledgers(
+        monkeypatch,
+        tmp_path,
+        requests=[request],
+        approvals=[approval, later_decision],
+    )
+
+    with pytest.raises(ValueError, match="INVALID_PERMISSION"):
+        cli._verify_permission_rows(tmp_path)
+
+
+def test_permission_rejects_a_later_decision_for_an_orphan_request(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    request, approval = _permission_rows()
+    orphan_decision = {
+        **approval,
+        "request_id": "perm_orphan_conflict",
+        "decision": "denied",
+        "ts": "2026-07-13T08:55:04+00:00",
+    }
+    _write_permission_ledgers(
+        monkeypatch,
+        tmp_path,
+        requests=[request],
+        approvals=[approval, orphan_decision],
+    )
+
+    with pytest.raises(ValueError, match="INVALID_PERMISSION"):
+        cli._verify_permission_rows(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("request_ts", "approval_ts"),
+    [
+        ("2026-07-13T08:55:03+00:00", "2026-07-13T08:55:03+00:00"),
+        ("2026-07-13T08:55:04+00:00", "2026-07-13T08:55:03+00:00"),
+        ("not-a-timestamp", "2026-07-13T08:55:03+00:00"),
+        ("2026-07-13T08:54:55", "2026-07-13T08:55:03+00:00"),
+    ],
+)
+def test_permission_rejects_invalid_or_non_monotonic_timestamps(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    request_ts: str,
+    approval_ts: str,
+) -> None:
+    request, approval = _permission_rows()
+    request["ts"] = request_ts
+    approval["ts"] = approval_ts
+    _write_permission_ledgers(
+        monkeypatch,
+        tmp_path,
+        requests=[request],
+        approvals=[approval],
+    )
+
+    with pytest.raises(ValueError, match="INVALID_PERMISSION"):
+        cli._verify_permission_rows(tmp_path)
 
 
 def test_context_binding_algorithm_tracks_the_actual_mapping_size() -> None:

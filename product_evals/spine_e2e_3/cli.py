@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -204,17 +205,30 @@ def _verify_runner(workspace: Path, runner: Path) -> None:
 
 def _verify_permission_rows(run_root: Path) -> None:
     _assert_authority_bound()
-    requests = [
+    request_rows = _jsonl(run_root / "approval_requests.jsonl")
+    approval_rows = _jsonl(run_root / "approvals.jsonl")
+    scoped_requests = [
         row
-        for row in _jsonl(run_root / "approval_requests.jsonl")
-        if row.get("request_id") == APPROVAL_REQUEST_ID
+        for row in request_rows
+        if row.get("run_id") == RUN_ID
+        and row.get("action") == "team.event.record"
+        and row.get("affected_paths") == [PERMISSION_PATH]
+    ]
+    requests = [
+        row for row in request_rows if row.get("request_id") == APPROVAL_REQUEST_ID
     ]
     approvals = [
-        row
-        for row in _jsonl(run_root / "approvals.jsonl")
-        if row.get("request_id") == APPROVAL_REQUEST_ID
+        row for row in approval_rows if row.get("request_id") == APPROVAL_REQUEST_ID
     ]
-    if len(requests) != 1 or len(approvals) != 1:
+    run_approvals = [row for row in approval_rows if row.get("run_id") == RUN_ID]
+    if (
+        len(scoped_requests) != 1
+        or scoped_requests[0].get("request_id") != APPROVAL_REQUEST_ID
+        or len(requests) != 1
+        or len(approvals) != 1
+        or len(run_approvals) != 1
+        or run_approvals[0].get("request_id") != APPROVAL_REQUEST_ID
+    ):
         raise ValueError("INVALID_PERMISSION")
     request, approval = requests[0], approvals[0]
     if canonical_sha256(request) != REQUEST_ROW_SHA256:
@@ -227,12 +241,23 @@ def _verify_permission_rows(run_root: Path) -> None:
         or request.get("action") != "team.event.record"
         or request.get("affected_paths") != [PERMISSION_PATH]
         or request.get("evidence_refs") != list(ANCHOR_REFS)
+        or approval.get("run_id") != RUN_ID
         or approval.get("decision") != "approved_session"
         or approval.get("decided_by") != "founder"
     ):
         raise ValueError("INVALID_PERMISSION")
-    forbidden = {"approved_once", "approved_until_expiry"}
-    if any(row.get("decision") in forbidden for row in approvals):
+    try:
+        request_ts = datetime.fromisoformat(str(request["ts"]))
+        approval_ts = datetime.fromisoformat(str(approval["ts"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("INVALID_PERMISSION") from exc
+    if (
+        request_ts.tzinfo is None
+        or request_ts.utcoffset() is None
+        or approval_ts.tzinfo is None
+        or approval_ts.utcoffset() is None
+        or approval_ts <= request_ts
+    ):
         raise ValueError("INVALID_PERMISSION")
 
 

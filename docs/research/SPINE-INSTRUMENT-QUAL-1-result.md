@@ -31,7 +31,9 @@ The qualification boundary now:
 ## Verification
 
 - focused qualification/successor/legacy-isolation suite: `109 passed`;
-- full `tests/product_eval`: `305 passed`;
+- prior full `tests/product_eval` snapshot: `305 passed`;
+- remediation snapshot at exact HEAD `540fd4d`: `308 passed`;
+- pre-freeze content-remediation candidate: `331 passed`;
 - Ruff check and format check: passed;
 - independent boundary review: `ACCEPT`;
 - independent adversarial diff review: `APPROVE`;

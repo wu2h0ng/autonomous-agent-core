@@ -6,7 +6,7 @@ track: product_eval
 experiment_id: SPINE-E2E-3
 run_id: spine-e2e-3-20260713
 builder_id: codex-cto
-reviewed_by: spine-e2e-3-content-reviewer
+reviewed_by: spine-e2e-3-content-reviewer-v2
 target_repo: autonomous-agent-core
 bounded_claim: >-
   On one frozen local same-boot run, all twelve public Agent OS developer tasks
@@ -76,6 +76,7 @@ mechanism:
     - tests/product_eval/test_spine_e2e_3_assets.py
     - tests/product_eval/test_spine_e2e_3_protocol.py
     - tests/product_eval/test_spine_e2e_3_cli.py
+    - tests/product_eval/test_spine_e2e_3_scratch_cli.py
     - pyproject.toml
     - uv.lock
     - packages/contracts/pyproject.toml
