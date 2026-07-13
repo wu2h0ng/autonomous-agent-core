@@ -702,3 +702,557 @@ def test_task3_protocol_has_no_cli_or_phase_authority() -> None:
     protocol = _module("product_evals.spine_e2e_1.protocol")
     assert not hasattr(protocol, "PHASE_COMMANDS")
     assert not hasattr(protocol, "main")
+
+
+# Task 4: pure mechanical adjudication.  The builder deliberately contains the
+# whole successful input contract so every mutation below changes one rule.
+_ADJUDICATION_PHASES = [
+    "prepare",
+    "interrupt_batch",
+    "probe_active_lease",
+    "resume",
+    "adjudicate",
+]
+_ADJUDICATION_NODES = [
+    "read",
+    "provider",
+    "approve",
+    "apply",
+    "tests",
+    "evaluate",
+    "done",
+]
+_ADJUDICATION_RESULT_KEYS = {
+    "schema_version",
+    "verdict",
+    "reason_codes",
+    "verified_case_count",
+    "case_results",
+    "input_sha256",
+}
+
+
+def _sha(label: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(label.encode("utf-8")).hexdigest()
+
+
+def _canonical_sha(value: object) -> str:
+    import hashlib
+
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _receipt(case_id: str, arm: str) -> dict[str, str]:
+    return {
+        "capability_id": "workspace.apply_patch",
+        "idempotency_key": f"spine:{case_id}:{arm}:apply",
+    }
+
+
+def _terminal(
+    case_id: str,
+    *,
+    workflow_sha256: str,
+    target_sha256: str,
+    arm: str,
+    fence: int,
+) -> dict[str, object]:
+    return {
+        "case_id": case_id,
+        "task_sequence": 21,
+        "task_status": "COMPLETED",
+        "run_status": "SUCCEEDED",
+        "outcome_status": "VERIFIED",
+        "outcome_score": 1,
+        "evaluator_type": "pytest",
+        "evaluator_version": "1",
+        "workflow_sha256": workflow_sha256,
+        "completed_node_ids": list(_ADJUDICATION_NODES),
+        "target_sha256": target_sha256,
+        "pytest_exit_code": 0,
+        "apply_receipts": [_receipt(case_id, arm)],
+        "lease_fence": fence,
+        "evidence_sha256": _sha(f"{case_id}:{arm}:terminal-evidence"),
+        "workspace_tree_sha256": _sha(f"{case_id}:final-workspace"),
+        "provider_request_count": 2,
+        "normalized_projection": {
+            "task_status": "COMPLETED",
+            "run_status": "SUCCEEDED",
+            "outcome_status": "VERIFIED",
+            "completed_node_ids": list(_ADJUDICATION_NODES),
+            "target_sha256": target_sha256,
+        },
+    }
+
+
+def _successful_adjudication_payload() -> dict[str, object]:
+    from copy import deepcopy
+
+    case_ids = [
+        case["case_id"]
+        for case in json.loads(CASES.read_text(encoding="utf-8"))["cases"]
+    ]
+    bindings = {
+        "case_manifest_sha256": _sha("case-manifest"),
+        "workflow_sha256": _sha("workflow"),
+        "evaluator_sha256": _sha("evaluator"),
+        "provider_bank_sha256": _sha("provider-bank"),
+    }
+    cases: dict[str, object] = {}
+    for case_id in case_ids:
+        target = _sha(f"{case_id}:target")
+        uninterrupted = _terminal(
+            case_id,
+            workflow_sha256=bindings["workflow_sha256"],
+            target_sha256=target,
+            arm="uninterrupted",
+            fence=1,
+        )
+        interrupted = {
+            "case_id": case_id,
+            "task_sequence": 14,
+            "task_status": "ACTIVE",
+            "run_status": "RUNNING",
+            "workflow_sha256": bindings["workflow_sha256"],
+            "target_sha256": target,
+            "apply_receipts": [_receipt(case_id, "interrupted")],
+            "lease_fence": 7,
+            "evidence_sha256": _sha(f"{case_id}:interrupted-evidence"),
+            "workspace_tree_sha256": _sha(f"{case_id}:final-workspace"),
+            "provider_request_count": 2,
+            "normalized_projection": {
+                "task_status": "ACTIVE",
+                "run_status": "RUNNING",
+                "target_sha256": target,
+            },
+        }
+        probe = {**deepcopy(interrupted), "denial_type": "ConcurrentWriteError"}
+        resumed = _terminal(
+            case_id,
+            workflow_sha256=bindings["workflow_sha256"],
+            target_sha256=target,
+            arm="interrupted",
+            fence=8,
+        )
+        # Cross-arm normalized semantic equality excludes random arm identity.
+        uninterrupted["normalized_projection"] = deepcopy(
+            resumed["normalized_projection"]
+        )
+        cases[case_id] = {
+            "expected_final_target_sha256": target,
+            "unexpected_policy_events": [],
+            "unexpected_correction_events": [],
+            "uninterrupted_terminal": uninterrupted,
+            "interrupted_after_apply": interrupted,
+            "probe": probe,
+            "resumed_terminal": resumed,
+            "terminal_replay": deepcopy(resumed),
+        }
+    context = _sha("phase-context")
+    boot = _sha("boot-id")
+    return {
+        "schema_version": "spine-e2e-1-adjudication-input-v1",
+        "expected_case_ids": case_ids,
+        "bindings": {"expected": bindings, "observed": deepcopy(bindings)},
+        "phases": {
+            "expected_order": list(_ADJUDICATION_PHASES),
+            "completed": list(_ADJUDICATION_PHASES),
+            "context_sha256": context,
+            "boot_id_sha256": boot,
+            "runner_anchors": {
+                phase: {
+                    "context_sha256": context,
+                    "boot_id_sha256": boot,
+                    "anchor_sha256": _sha(f"anchor:{phase}"),
+                }
+                for phase in _ADJUDICATION_PHASES
+            },
+        },
+        "recovery_configuration": [
+            {"phase": "probe_active_lease", "recover_stale_lease": False},
+            {"phase": "resume", "recover_stale_lease": False},
+            {"phase": "terminal_replay", "recover_stale_lease": False},
+        ],
+        "cases": cases,
+    }
+
+
+def _adjudicate(payload: dict[str, object]) -> dict[str, object]:
+    protocol = _module("product_evals.spine_e2e_1.protocol")
+    return protocol.adjudicate_spine(payload)
+
+
+def _assert_result_shape(
+    result: dict[str, object], payload: dict[str, object], verdict: str
+) -> None:
+    assert set(result) == _ADJUDICATION_RESULT_KEYS
+    assert result["schema_version"] == "spine-e2e-1-adjudication-result-v1"
+    assert result["verdict"] == verdict
+    assert result["input_sha256"] == _canonical_sha(payload)
+    assert type(result["verified_case_count"]) is int
+    reasons = result["reason_codes"]
+    assert reasons == sorted(set(reasons))
+    assert set(result["case_results"]) == set(payload["expected_case_ids"])
+
+
+def test_adjudicate_spine_passes_only_complete_twelve_case_baseline() -> None:
+    payload = _successful_adjudication_payload()
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "PASS")
+    assert result["reason_codes"] == []
+    assert result["verified_case_count"] == 12
+    assert set(result["case_results"].values()) == {"PASS"}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("task_status", "FAILED"),
+        ("run_status", "FAILED"),
+        ("outcome_status", "NOT_MET"),
+        ("outcome_score", 0),
+        ("evaluator_type", "unittest"),
+        ("evaluator_version", "2"),
+        ("workflow_sha256", _sha("wrong-workflow")),
+        ("completed_node_ids", _ADJUDICATION_NODES[:-1]),
+        ("target_sha256", _sha("wrong-target")),
+        ("pytest_exit_code", 1),
+    ],
+)
+def test_adjudicate_spine_intact_ordinary_product_failure_is_not_pass(
+    field: str, value: object
+) -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    terminal = payload["cases"][case_id]["uninterrupted_terminal"]
+    terminal[field] = value
+    if field in terminal["normalized_projection"]:
+        terminal["normalized_projection"][field] = value
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "NOT_PASS")
+    assert result["verified_case_count"] == 11
+    assert result["case_results"][case_id] == "NOT_PASS"
+
+
+def test_adjudicate_spine_invalidity_wins_over_product_failure() -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    payload["cases"][case_id]["uninterrupted_terminal"]["run_status"] = "FAILED"
+    payload["bindings"]["observed"]["workflow_sha256"] = _sha("drift")
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "INVALID")
+    assert result["case_results"][case_id] == "INVALID"
+
+
+@pytest.mark.parametrize(
+    "field", sorted(_successful_adjudication_payload()["bindings"]["observed"])
+)
+def test_adjudicate_spine_rejects_each_binding_drift(field: str) -> None:
+    payload = _successful_adjudication_payload()
+    payload["bindings"]["observed"][field] = _sha(f"drift:{field}")
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "INVALID")
+    assert set(result["case_results"].values()) == {"INVALID"}
+    assert result["verified_case_count"] == 0
+
+
+def test_adjudicate_spine_cross_arm_semantic_mismatch_is_not_pass() -> None:
+    from copy import deepcopy
+
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    case = payload["cases"][case_id]
+    wrong_target = _sha("self-consistent-cross-arm-target")
+    case["resumed_terminal"]["target_sha256"] = wrong_target
+    case["resumed_terminal"]["normalized_projection"]["target_sha256"] = wrong_target
+    case["terminal_replay"] = deepcopy(case["resumed_terminal"])
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "NOT_PASS")
+    assert result["case_results"][case_id] == "NOT_PASS"
+    assert result["verified_case_count"] == 11
+
+
+def test_adjudicate_spine_snapshot_projection_contradiction_is_invalid() -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    payload["cases"][case_id]["uninterrupted_terminal"]["run_status"] = "FAILED"
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "INVALID")
+    assert result["case_results"][case_id] == "INVALID"
+    assert result["verified_case_count"] == 11
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["terminal_missing", "terminal_extra", "interrupted_missing", "probe_extra"],
+)
+def test_adjudicate_spine_normalized_projection_schema_is_exact(
+    mutation: str,
+) -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    case = payload["cases"][case_id]
+    if mutation == "terminal_missing":
+        del case["uninterrupted_terminal"]["normalized_projection"]["run_status"]
+    elif mutation == "terminal_extra":
+        case["resumed_terminal"]["normalized_projection"]["extra"] = "forbidden"
+        case["terminal_replay"]["normalized_projection"]["extra"] = "forbidden"
+    elif mutation == "interrupted_missing":
+        del case["interrupted_after_apply"]["normalized_projection"]["task_status"]
+    else:
+        case["probe"]["normalized_projection"]["extra"] = "forbidden"
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "INVALID")
+    assert result["case_results"][case_id] == "INVALID"
+    assert result["verified_case_count"] == 11
+
+
+def test_adjudicate_spine_intact_recovery_failure_is_not_pass() -> None:
+    from copy import deepcopy
+
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    case = payload["cases"][case_id]
+    resumed = case["resumed_terminal"]
+    resumed.update(
+        {
+            "task_status": "FAILED",
+            "run_status": "FAILED",
+            "outcome_status": "NOT_MET",
+            "pytest_exit_code": 1,
+        }
+    )
+    resumed["normalized_projection"].update(
+        {
+            "task_status": "FAILED",
+            "run_status": "FAILED",
+            "outcome_status": "NOT_MET",
+        }
+    )
+    case["terminal_replay"] = deepcopy(resumed)
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "NOT_PASS")
+    assert result["case_results"][case_id] == "NOT_PASS"
+    assert result["verified_case_count"] == 11
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "interrupted_workflow",
+        "probe_workflow",
+        "interrupted_target",
+        "probe_target",
+        "resumed_workspace",
+        "replay_workspace",
+    ],
+)
+def test_adjudicate_spine_cross_phase_evidence_relation_drift_is_invalid(
+    mutation: str,
+) -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    case = payload["cases"][case_id]
+    if mutation == "interrupted_workflow":
+        case["interrupted_after_apply"]["workflow_sha256"] = _sha("drift")
+    elif mutation == "probe_workflow":
+        case["probe"]["workflow_sha256"] = _sha("drift")
+    elif mutation == "interrupted_target":
+        case["interrupted_after_apply"]["target_sha256"] = _sha("drift")
+        case["interrupted_after_apply"]["normalized_projection"]["target_sha256"] = (
+            case["interrupted_after_apply"]["target_sha256"]
+        )
+    elif mutation == "probe_target":
+        case["probe"]["target_sha256"] = _sha("drift")
+        case["probe"]["normalized_projection"]["target_sha256"] = case["probe"][
+            "target_sha256"
+        ]
+    elif mutation == "resumed_workspace":
+        case["resumed_terminal"]["workspace_tree_sha256"] = _sha("drift")
+    else:
+        case["terminal_replay"]["workspace_tree_sha256"] = _sha("drift")
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "INVALID")
+    assert result["case_results"][case_id] == "INVALID"
+    assert result["verified_case_count"] == 11
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_case",
+        "extra_case",
+        "wrong_case_id",
+        "binding_drift",
+        "phase_order_drift",
+        "incomplete_phase",
+        "phase_context_drift",
+        "phase_boot_drift",
+        "missing_anchor",
+        "anchor_context_drift",
+        "anchor_boot_drift",
+        "forced_takeover",
+        "probe_wrong_denial",
+        "probe_state_mutation",
+        "provider_count_drift",
+        "lease_fence_drift",
+        "duplicate_receipt",
+        "duplicate_idempotency_key",
+        "terminal_replay_mismatch",
+        "policy_event",
+        "correction_event",
+    ],
+)
+def test_adjudicate_spine_protocol_and_instrumentation_mutations_are_invalid(
+    mutation: str,
+) -> None:
+    from copy import deepcopy
+
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    case = payload["cases"][case_id]
+    if mutation == "missing_case":
+        del payload["cases"][case_id]
+    elif mutation == "extra_case":
+        payload["cases"]["extra"] = deepcopy(case)
+    elif mutation == "wrong_case_id":
+        case["probe"]["case_id"] = "wrong"
+    elif mutation == "binding_drift":
+        payload["bindings"]["observed"]["provider_bank_sha256"] = _sha("drift")
+    elif mutation == "phase_order_drift":
+        payload["phases"]["expected_order"] = list(reversed(_ADJUDICATION_PHASES))
+    elif mutation == "incomplete_phase":
+        payload["phases"]["completed"].pop()
+    elif mutation == "phase_context_drift":
+        payload["phases"]["context_sha256"] = _sha("drift")
+    elif mutation == "phase_boot_drift":
+        payload["phases"]["boot_id_sha256"] = _sha("drift")
+    elif mutation == "missing_anchor":
+        del payload["phases"]["runner_anchors"]["probe_active_lease"]
+    elif mutation == "anchor_context_drift":
+        payload["phases"]["runner_anchors"]["resume"]["context_sha256"] = _sha("drift")
+    elif mutation == "anchor_boot_drift":
+        payload["phases"]["runner_anchors"]["resume"]["boot_id_sha256"] = _sha("drift")
+    elif mutation == "forced_takeover":
+        payload["recovery_configuration"][1]["recover_stale_lease"] = True
+    elif mutation == "probe_wrong_denial":
+        case["probe"]["denial_type"] = "TimeoutError"
+    elif mutation == "probe_state_mutation":
+        case["probe"]["task_sequence"] += 1
+    elif mutation == "provider_count_drift":
+        case["resumed_terminal"]["provider_request_count"] = 3
+        case["terminal_replay"] = deepcopy(case["resumed_terminal"])
+    elif mutation == "lease_fence_drift":
+        case["resumed_terminal"]["lease_fence"] += 1
+        case["terminal_replay"] = deepcopy(case["resumed_terminal"])
+    elif mutation == "duplicate_receipt":
+        case["resumed_terminal"]["apply_receipts"].append(
+            _receipt(case_id, "duplicate")
+        )
+        case["terminal_replay"] = deepcopy(case["resumed_terminal"])
+    elif mutation == "duplicate_idempotency_key":
+        receipt = deepcopy(case["resumed_terminal"]["apply_receipts"][0])
+        case["resumed_terminal"]["apply_receipts"].append(receipt)
+        case["terminal_replay"] = deepcopy(case["resumed_terminal"])
+    elif mutation == "terminal_replay_mismatch":
+        case["terminal_replay"]["task_sequence"] += 1
+    elif mutation == "policy_event":
+        case["unexpected_policy_events"].append({"type": "POLICY_DENIED"})
+    elif mutation == "correction_event":
+        case["unexpected_correction_events"].append({"type": "PAUSED"})
+    result = _adjudicate(payload)
+    _assert_result_shape(result, payload, "INVALID")
+    assert result["case_results"][case_id] == "INVALID"
+    global_mutations = {
+        "missing_case",
+        "extra_case",
+        "binding_drift",
+        "phase_order_drift",
+        "incomplete_phase",
+        "phase_context_drift",
+        "phase_boot_drift",
+        "missing_anchor",
+        "anchor_context_drift",
+        "anchor_boot_drift",
+        "forced_takeover",
+    }
+    if mutation in global_mutations:
+        assert result["verified_case_count"] == 0
+        assert set(result["case_results"].values()) == {"INVALID"}
+    else:
+        assert result["verified_case_count"] == 11
+        assert set(result["case_results"].values()) == {"PASS", "INVALID"}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "top_unknown_field",
+        "case_unknown_field",
+        "wrong_integer_bool",
+        "duplicate_expected_case",
+        "duplicate_completed_phase",
+        "non_json_value",
+        "missing_evidence",
+        "malformed_evidence",
+        "wrong_receipt_capability",
+        "blank_idempotency",
+        "receipt_missing_field",
+        "receipt_extra_field",
+        "nested_missing_field",
+        "nested_wrong_type",
+    ],
+)
+def test_adjudicate_spine_exact_schema_rejects_unknown_wrong_and_duplicate_values(
+    mutation: str,
+) -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    if mutation == "top_unknown_field":
+        payload["unknown"] = "forbidden"
+    elif mutation == "case_unknown_field":
+        payload["cases"][case_id]["unknown"] = "forbidden"
+    elif mutation == "wrong_integer_bool":
+        payload["cases"][case_id]["probe"]["provider_request_count"] = True
+    elif mutation == "duplicate_expected_case":
+        payload["expected_case_ids"].append(case_id)
+    elif mutation == "duplicate_completed_phase":
+        payload["phases"]["completed"].append("adjudicate")
+    elif mutation == "non_json_value":
+        payload["cases"][case_id]["probe"]["normalized_projection"] = {case_id}
+    elif mutation == "missing_evidence":
+        del payload["cases"][case_id]["probe"]["evidence_sha256"]
+    elif mutation == "malformed_evidence":
+        payload["cases"][case_id]["probe"]["evidence_sha256"] = "not-a-digest"
+    elif mutation == "wrong_receipt_capability":
+        payload["cases"][case_id]["resumed_terminal"]["apply_receipts"][0][
+            "capability_id"
+        ] = "workspace.read"
+    elif mutation == "blank_idempotency":
+        payload["cases"][case_id]["resumed_terminal"]["apply_receipts"][0][
+            "idempotency_key"
+        ] = ""
+    elif mutation == "receipt_missing_field":
+        del payload["cases"][case_id]["resumed_terminal"]["apply_receipts"][0][
+            "idempotency_key"
+        ]
+    elif mutation == "receipt_extra_field":
+        payload["cases"][case_id]["resumed_terminal"]["apply_receipts"][0]["extra"] = (
+            "forbidden"
+        )
+    elif mutation == "nested_missing_field":
+        del payload["phases"]["runner_anchors"]["resume"]["anchor_sha256"]
+    elif mutation == "nested_wrong_type":
+        payload["cases"][case_id]["resumed_terminal"]["lease_fence"] = "8"
+    result = _adjudicate(payload)
+    assert set(result) == _ADJUDICATION_RESULT_KEYS
+    assert result["verdict"] == "INVALID"
