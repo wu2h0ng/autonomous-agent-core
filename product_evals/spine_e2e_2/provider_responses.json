@@ -1,0 +1,700 @@
+{
+  "entries": [
+    {
+      "case_id": "st_reverse",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return the input string reversed.\nTarget path: subject.py\nCurrent SHA-256: 361530fc02ed505e1f7f1e4887a2d469e68927637c55306c34ca45a1d625bf2f\nCurrent file content follows:\n---BEGIN FILE---\ndef reverse_string(s):\n    return s\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "4670bd59eaecb91f753eb9476500f3ae13766aa0edf83cdd31040359a667e78b",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-st_reverse",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_st_reverse",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def reverse_string(s):\\n    return s[::-1]\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "st_title",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return the input string with each word capitalized.\nTarget path: subject.py\nCurrent SHA-256: e3c219f567c7e2d869a6ee63f55e1178449ac83c6f205e6b15460241f962a651\nCurrent file content follows:\n---BEGIN FILE---\ndef capitalize_words(s):\n    return s\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "4b6e242aae25d1ef857005b452fdfe8e972d89c91b4c7092f7c0efcbc9dd7eb0",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-st_title",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_st_title",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def capitalize_words(s):\\n    return s.title()\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "st_trim_lower",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return the trimmed lowercase version of the input.\nTarget path: subject.py\nCurrent SHA-256: 5342e922446e5ee167335172ad6270fb9656c74ad00b5cf9084a992b5be4918f\nCurrent file content follows:\n---BEGIN FILE---\ndef normalize(s):\n    return s\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "924ffcc615afaf41032150b44555495b3792dffcbba3e51d2242ea1046d42532",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-st_trim_lower",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_st_trim_lower",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def normalize(s):\\n    return s.strip().lower()\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "nr_sum",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return the sum of all numbers in the list.\nTarget path: subject.py\nCurrent SHA-256: ceac78b91fac34b1aa629bc6ec36ffeef0364a7b08b2518e09dba84a320d4298\nCurrent file content follows:\n---BEGIN FILE---\ndef sum_list(numbers):\n    return 0\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "81bf8c516cc42b6471131b42b66dce59776c562a5947b2a8880f653ec395d430",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-nr_sum",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_nr_sum",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def sum_list(numbers):\\n    return sum(numbers)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "nr_max",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return the maximum value in the list.\nTarget path: subject.py\nCurrent SHA-256: ed4aa8f08bfdc457ac6658bb50240fa5671c7f1a1d0e16bb7f883556d864b683\nCurrent file content follows:\n---BEGIN FILE---\ndef max_value(numbers):\n    return numbers[0]\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "f49b9e21624e1d8c6cd533380516eca6f1b99e8ee1989f0ce621d5890961c679",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-nr_max",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_nr_max",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def max_value(numbers):\\n    return max(numbers)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "nr_factorial",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return the factorial of a non-negative integer.\nTarget path: subject.py\nCurrent SHA-256: ca6b2c60ee3bc22ec0534d5bca4779eac951e4066464dd2db406b56368d7dab8\nCurrent file content follows:\n---BEGIN FILE---\ndef factorial(n):\n    return 1\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "4c169154a11fc9b36e74b77dd8d558fa620deebd50ffb8dcac56bf7651c5b908",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-nr_factorial",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_nr_factorial",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def factorial(n):\\n    if n < 0:\\n        raise ValueError('n must be non-negative')\\n    result = 1\\n    for i in range(2, n + 1):\\n        result *= i\\n    return result\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "val_email",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return True if the email address contains exactly one @ and a domain dot.\nTarget path: subject.py\nCurrent SHA-256: af6a3e94735f759ef3f1da4f529ddaa356f58e5e1fbbda8610a4270d8bc976ec\nCurrent file content follows:\n---BEGIN FILE---\ndef is_valid_email(email):\n    return True\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "190600b6b86691a6e94e9351309fddda3a680d196d8ee972b827bf1856818ffb",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-val_email",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_val_email",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def is_valid_email(email):\\n    if email.count('@') != 1:\\n        return False\\n    local, domain = email.split('@')\\n    return bool(local) and '.' in domain and not domain.startswith('.') and not domain.endswith('.')\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "val_palindrome",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return True if the input string is a palindrome ignoring case.\nTarget path: subject.py\nCurrent SHA-256: 50c9e1ec1ed2b6a5d35f6ef766d648ed33060fa6b4699b60be8a91d0d699ef9e\nCurrent file content follows:\n---BEGIN FILE---\ndef is_palindrome(text):\n    return True\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "26e210ea464fad3ddb167d1ed07ab7cf2c06d45279a0b23131d4c6ccf0364c76",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-val_palindrome",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_val_palindrome",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def is_palindrome(text):\\n    lowered = text.lower()\\n    return lowered == lowered[::-1]\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "val_positive_int",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return True only for positive integers.\nTarget path: subject.py\nCurrent SHA-256: 7c94e6c48de56b566338396d2075bc6c08e6182091f7697f88ca001be2360b8e\nCurrent file content follows:\n---BEGIN FILE---\ndef is_positive_int(value):\n    return True\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "423740df2932e95ea85462bad48c825ec7439f218df97435d8b98ea3cb33cd73",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-val_positive_int",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_val_positive_int",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def is_positive_int(value):\\n    return type(value) is int and value > 0\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "fmt_json",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return a canonical compact JSON string for the given object.\nTarget path: subject.py\nCurrent SHA-256: da1199b561865ca89df1fd1288c71adeb53f4d2fcde458d158e6afd237a8fde4\nCurrent file content follows:\n---BEGIN FILE---\ndef format_json(obj):\n    return str(obj)\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "cd61313b813ed8cdd5f68c6ed77bd05f0e5f9e5fc9fd5c58a23d805f3511c7d2",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-fmt_json",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_fmt_json",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"import json\\n\\ndef format_json(obj):\\n    return json.dumps(obj, sort_keys=True, separators=(',', ':'))\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "fmt_csv",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return a CSV string from a list of rows.\nTarget path: subject.py\nCurrent SHA-256: 346672ff5e2c8f3362b83666dfc0daac5ec8167d60ab63b67eaa53b58eafcf84\nCurrent file content follows:\n---BEGIN FILE---\ndef format_csv(rows):\n    return ''\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "1f882a289be60646c28c098b1bf7062b376175f08d72573a8f1054fbc1583680",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-fmt_csv",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_fmt_csv",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def format_csv(rows):\\n    return '\\\\n'.join(','.join(str(cell) for cell in row) for row in rows)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    },
+    {
+      "case_id": "fmt_table",
+      "request": {
+        "model": "spine-e2e-2-frozen",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Repository task: Return a pipe-separated table string from rows.\nTarget path: subject.py\nCurrent SHA-256: 16ec93b2de6219ec46066c7bc78fe569369746ad779aff9b93bd96c765f47cfd\nCurrent file content follows:\n---BEGIN FILE---\ndef format_table(rows):\n    return ''\n\n---END FILE---\nPropose the complete replacement content by calling only the workspace.apply_patch tool. Include path and content. Do not call any other capability and do not claim that the patch was applied."
+          }
+        ],
+        "temperature": 0.0,
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "workspace__apply_patch",
+              "description": "Invoke typed capability workspace.apply_patch",
+              "parameters": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      },
+      "digest": "e29c94446eea804920fc4a0e5fbe12e7a8a7c175f532e942ecd5229f390956a8",
+      "expected_calls": 2,
+      "response": {
+        "id": "chatcmpl-frozen-fmt_table",
+        "model": "spine-e2e-2-frozen",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_frozen_fmt_table",
+                  "type": "function",
+                  "function": {
+                    "name": "workspace__apply_patch",
+                    "arguments": "{\"content\":\"def format_table(rows):\\n    return '\\\\n'.join(' | '.join(str(cell) for cell in row) for row in rows)\\n\",\"path\":\"subject.py\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 48,
+          "completion_tokens": 24,
+          "total_tokens": 72
+        }
+      }
+    }
+  ]
+}

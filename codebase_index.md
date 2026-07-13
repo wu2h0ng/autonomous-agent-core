@@ -25,6 +25,8 @@
 | `docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md` | Founder-authorized Product Track design for bounded wait/signal/rebind/restart/compensation and event-derived recovery; explicitly not `LH-RECOVERY-1` |
 | `docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md` | Executed multi-agent implementation plan and file-ownership boundary for `T-P-OS-LH-BOUND-1` |
 | `docs/research/SPINE-E2E-1-result.md` | Binding fresh frozen evaluation result: `INVALID` due receipt-accounting instrumentation false positive; no Product failure, PASS, D2 or parent LH run claim |
+| `docs/research/SPINE-E2E-2-preregistration-spec.yaml` | Independently reviewed corrected-successor draft: apply-specific ordered receipt-key instrument plus fixed-interpreter genesis preflight; not frozen and not run |
+| `product_evals/spine_e2e_2/` | Fresh corrected SPINE successor namespace; preserves E2E-1 immutability and remains outside claim authority until new freeze and fresh run |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:
 research-heavy with SPINE-0 PM-accepted for the bounded local independent-developer golden
@@ -41,7 +43,7 @@ product_architecture: T-P-OS-SPINE-0 PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
 topology: dual-track layered monorepo
 implementation: typed provider patch proposal + exact approval + durable wait/signal/rebind/restart + governed workspace tools/compensation + recovery projection + API/CLI/Task Workspace
 long_horizon_product_slice: LH_PRODUCT_SLICE_E2 / BOUNDED_LONG_HORIZON_LOCAL_SLICE_VERIFIED
-long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1 FRESH_FROZEN_INVALID_INSTRUMENT; LH-RECOVERY-1 BLOCKED_NOT_RUN
+long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1 FRESH_FROZEN_INVALID_INSTRUMENT; SPINE-E2E-2 IMPLEMENTED_REVIEWED_DRAFT_NOT_FROZEN_NOT_RUN; LH-RECOVERY-1 BLOCKED_NOT_RUN
 interaction_definition: one Agent Surface; Ask ephemeral; Work durable; governed-action escalation
 organ_definition: provider-neutral LLM + plural task-appropriate world models; CWM optional/evidence-gated
 skill_definition: external compatibility input only; no canonical Skill kernel object
@@ -108,6 +110,13 @@ normal tests receipt as a duplicate apply receipt; it is neither PASS nor Produc
 background scheduler, 7x24 fleet, multi-hour/day comparison, physical exactly-once claim,
 automatic LLM replan, general loop/parallel/subworkflow runtime, CWM/Belief/AgentSelfModel
 product integration, continual learning or self-evolution evidence.
+
+The fresh corrected successor `SPINE-E2E-2` is implemented in its own namespace and its
+implementation/preregistration draft received independent diff-review `ACCEPT`. It observes the
+complete ordered `workspace.apply_patch` idempotency-key sequence, allows legitimate non-apply
+receipts during resume, and uses the preflighted runner interpreter. It is explicitly
+`DRAFT_NOT_FROZEN_NOT_RUN`; no experiment phase, result, D2 construction, or parent-LH upgrade has
+occurred.
 
 ## Strong-Locus Structure Crossover Harness (2026-07-06)
 
