@@ -496,6 +496,60 @@ def test_malformed_runner_schema_uses_qualification_error(
         _qualify(tmp_path)
 
 
+def test_qualification_rejects_reused_scratch_without_appending(
+    tmp_path: Path,
+) -> None:
+    _qualify(tmp_path)
+    run_root = tmp_path / "scratch/.agent_runs" / CANARY_RUN_ID
+    before = {
+        path.relative_to(run_root): path.read_bytes()
+        for path in run_root.rglob("*")
+        if path.is_file()
+    }
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
+        _qualify(tmp_path)
+
+    after = {
+        path.relative_to(run_root): path.read_bytes()
+        for path in run_root.rglob("*")
+        if path.is_file()
+    }
+    assert after == before
+
+
+def test_qualification_never_returns_a_receipt_with_a_false_check(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    module = _module()
+    original_check = module._check_paths_non_alias
+    calls = 0
+
+    def drift_after_initial_path_gate(*args: Any, **kwargs: Any) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            original_check(*args, **kwargs)
+            return
+        raise ValueError("INVALID_QUALIFICATION_PATHS")
+
+    monkeypatch.setattr(module, "_check_paths_non_alias", drift_after_initial_path_gate)
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
+        _qualify(tmp_path)
+
+
+def test_source_evidence_refs_remains_optional_and_out_of_scope_for_pinned_cli(
+    tmp_path: Path,
+) -> None:
+    _, schema = _live_schema()
+    event = _emit_live_event(tmp_path / "source-boundary", run_id=CANARY_RUN_ID)
+
+    assert "source_evidence_refs" in schema["properties"]
+    assert "source_evidence_refs" not in schema["required"]
+    assert "source_evidence_refs" not in event
+
+
 def test_reverification_rejects_consumer_source_drift(tmp_path: Path) -> None:
     consumer_copy = tmp_path / "json_schema_contract.py"
     shutil.copyfile(CONSUMER_SOURCE, consumer_copy)
