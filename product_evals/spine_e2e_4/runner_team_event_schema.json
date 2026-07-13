@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "agent_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "approval_request_id": {
+      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "artifact": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "permission_action": {
+      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "const": "team-event-v1",
+      "type": "string"
+    },
+    "source_decision_id": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "type": "string"
+    },
+    "source_decision_type": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "type": "string"
+    },
+    "source_evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "source_goal_id": {
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "type": "string"
+    },
+    "stream_file": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ts": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "AGENT_STARTED",
+        "AGENT_STREAM_DELTA",
+        "APPROVAL_DECIDED",
+        "APPROVAL_REQUESTED",
+        "ARTIFACT_PROPOSED",
+        "BLOCKED",
+        "EVIDENCE_APPENDED",
+        "RISK_RAISED",
+        "TASK_ASSIGNED",
+        "TASK_CREATED",
+        "TASK_DONE",
+        "TASK_NOT_MET",
+        "TEAM_SUMMARY"
+      ],
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "ts",
+    "type",
+    "agent_id",
+    "task_id",
+    "summary",
+    "artifact",
+    "stream_file",
+    "permission_action",
+    "approval_request_id",
+    "evidence_refs"
+  ],
+  "title": "team-event-v1",
+  "type": "object"
+}
