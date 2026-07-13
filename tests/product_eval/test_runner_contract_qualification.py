@@ -32,6 +32,7 @@ CANARY_RUN_ID = "runner-contract-canary"
 VERIFIED_REQUEST_ID_MARKER = "<verified-authority-request-id>"
 CONSUMER_SOURCE = REPO_ROOT / "product_evals/common/json_schema_contract.py"
 AUTHORITY_SOURCE = REPO_ROOT / "product_evals/common/authority_binding.py"
+QUALIFIER_SOURCE = REPO_ROOT / "product_evals/common/runner_contract_qualification.py"
 
 
 def _module() -> Any:
@@ -63,6 +64,29 @@ def _run_runner(
 def _live_schema() -> tuple[bytes, dict[str, Any]]:
     completed = _run_runner("team", "event-schema")
     return completed.stdout.encode("utf-8"), json.loads(completed.stdout)
+
+
+def _authority_semantic_sha256(run_root: Path) -> str:
+    projection: dict[str, dict[str, Any]] = {}
+    for name, filename in (
+        ("request", "approval_requests.jsonl"),
+        ("approval", "approvals.jsonl"),
+    ):
+        rows = [
+            json.loads(line) for line in (run_root / filename).read_text().splitlines()
+        ]
+        assert len(rows) == 1
+        normalized = {key: value for key, value in rows[0].items() if key != "ts"}
+        normalized["request_id"] = VERIFIED_REQUEST_ID_MARKER
+        projection[name] = normalized
+    return hashlib.sha256(canonical_json_bytes(projection)).hexdigest()
+
+
+def _rewrite_single_jsonl(path: Path, mutate: Any) -> None:
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(rows) == 1
+    mutate(rows[0])
+    path.write_bytes(canonical_json_bytes(rows[0]))
 
 
 def _emit_live_event(workspace: Path, *, run_id: str) -> dict[str, Any]:
@@ -225,6 +249,7 @@ def test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import(
         tmp_path / "scratch/.agent_runs" / CANARY_RUN_ID / "agent_events.jsonl"
     )
     canary_event = json.loads(canary_event_path.read_text().splitlines()[0])
+    canary_run_root = canary_event_path.parent
     normalized_canary = normalize_timestamped_record(canary_event, schema)
     assert canary_event["approval_request_id"] == binding.request_id
     assert canary_event["source_decision_id"] == binding.source_decision_id
@@ -258,7 +283,13 @@ def test_real_pinned_runner_canary_binds_schema_fixture_sources_and_import(
         "json_schema_contract.py": hashlib.sha256(
             CONSUMER_SOURCE.read_bytes()
         ).hexdigest(),
+        "runner_contract_qualification.py": hashlib.sha256(
+            QUALIFIER_SOURCE.read_bytes()
+        ).hexdigest(),
     }
+    assert receipt["authority_semantic_sha256"] == _authority_semantic_sha256(
+        canary_run_root
+    )
     assert receipt["checks"] == {
         "authority_binding_exact": True,
         "formal_ledgers_absent": True,
@@ -296,8 +327,10 @@ def _formal_paths(tmp_path: Path) -> tuple[Path, ...]:
         ("schema", "raw_sha256"),
         ("schema", "canonical_sha256"),
         (None, "emitted_fixture_sha256"),
+        (None, "authority_semantic_sha256"),
         ("source_sha256", "json_schema_contract.py"),
         ("source_sha256", "authority_binding.py"),
+        ("source_sha256", "runner_contract_qualification.py"),
     ],
 )
 def test_receipt_reverification_rejects_every_bound_mutation(
@@ -321,6 +354,99 @@ def test_schema_snapshot_mutation_invalidates_reverification(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
         _verify(tmp_path, receipt)
+
+
+@pytest.mark.parametrize(
+    ("ledger", "field", "value"),
+    [
+        ("approval_requests.jsonl", "note", "mutated request note"),
+        ("approvals.jsonl", "note", "mutated approval note"),
+        ("approvals.jsonl", "decided_by", "independent-reviewer"),
+    ],
+)
+def test_stable_authority_projection_changes_for_bound_semantic_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    ledger: str,
+    field: str,
+    value: str,
+) -> None:
+    pristine_root = tmp_path / "pristine"
+    mutated_root = tmp_path / "mutated"
+    pristine_root.mkdir()
+    mutated_root.mkdir()
+    pristine = _qualify(pristine_root)
+    module = _module()
+    original_canary = module._run_scratch_canary
+
+    def mutate_after_real_canary(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        event = original_canary(*args, **kwargs)
+        run_root = (
+            Path(kwargs["scratch_workspace"]) / ".agent_runs" / kwargs["canary_run_id"]
+        )
+        _rewrite_single_jsonl(
+            run_root / ledger,
+            lambda row: row.__setitem__(field, value),
+        )
+        return event
+
+    monkeypatch.setattr(module, "_run_scratch_canary", mutate_after_real_canary)
+    mutated = _qualify(mutated_root)
+
+    assert mutated["authority_semantic_sha256"] != pristine["authority_semantic_sha256"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["action", "path", "source", "evidence", "decision"],
+)
+def test_authority_semantic_scope_mutation_fails_qualification(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mutation: str
+) -> None:
+    module = _module()
+    original_canary = module._run_scratch_canary
+
+    def mutate_after_real_canary(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        event = original_canary(*args, **kwargs)
+        run_root = (
+            Path(kwargs["scratch_workspace"]) / ".agent_runs" / kwargs["canary_run_id"]
+        )
+        request_path = run_root / "approval_requests.jsonl"
+        approval_path = run_root / "approvals.jsonl"
+        if mutation == "action":
+            _rewrite_single_jsonl(
+                request_path,
+                lambda row: row.__setitem__("action", "team.event.other"),
+            )
+        elif mutation == "path":
+            _rewrite_single_jsonl(
+                request_path,
+                lambda row: row.__setitem__("affected_paths", ["other.jsonl"]),
+            )
+        elif mutation == "source":
+            for path in (request_path, approval_path):
+                _rewrite_single_jsonl(
+                    path,
+                    lambda row: row.__setitem__(
+                        "source_decision_id", "mutated-decision"
+                    ),
+                )
+        elif mutation == "evidence":
+            _rewrite_single_jsonl(
+                request_path,
+                lambda row: row.__setitem__("evidence_refs", ["self_check_report.md"]),
+            )
+        else:
+            _rewrite_single_jsonl(
+                approval_path,
+                lambda row: row.__setitem__("decision", "approved_once"),
+            )
+        return event
+
+    monkeypatch.setattr(module, "_run_scratch_canary", mutate_after_real_canary)
+
+    with pytest.raises(ValueError, match="INVALID_RUNNER_CONTRACT_QUALIFICATION"):
+        _qualify(tmp_path)
 
 
 @pytest.mark.parametrize(
