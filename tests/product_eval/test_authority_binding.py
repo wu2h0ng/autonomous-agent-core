@@ -199,9 +199,13 @@ def test_rejects_orphan_approval_request_id(tmp_path: Path) -> None:
     ("row_name", "field", "value"),
     [
         ("request", "run_id", "wrong-run"),
+        ("request", "run_id", ""),
+        ("approval", "run_id", "   "),
         ("approval", "run_id", "wrong-run"),
         ("request", "action", "wrong.action"),
+        ("request", "action", "   "),
         ("request", "affected_paths", ["wrong/path"]),
+        ("request", "affected_paths", ["   "]),
         ("request", "affected_paths", [AFFECTED_PATH, "extra/path"]),
         ("request", "request_id", ""),
         ("request", "agent_id", ""),
@@ -219,6 +223,36 @@ def test_rejects_wrong_scope_identity_or_decision(
 
     with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
         _verify(tmp_path)
+
+
+@pytest.mark.parametrize("scope", ["run_id", "action", "affected_path"])
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_rejects_blank_expected_scope_even_when_ledger_matches(
+    tmp_path: Path, scope: str, blank: str
+) -> None:
+    request, approval = _permission_rows()
+    run_id = RUN_ID
+    action = ACTION
+    affected_path = AFFECTED_PATH
+    if scope == "run_id":
+        run_id = blank
+        request["run_id"] = blank
+        approval["run_id"] = blank
+    elif scope == "action":
+        action = blank
+        request["action"] = blank
+    else:
+        affected_path = blank
+        request["affected_paths"] = [blank]
+    _write_ledgers(tmp_path, requests=[request], approvals=[approval])
+
+    with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
+        verify_authority_binding(
+            tmp_path,
+            run_id=run_id,
+            action=action,
+            affected_path=affected_path,
+        )
 
 
 def test_rejects_self_approval(tmp_path: Path) -> None:
@@ -341,6 +375,20 @@ def test_full_ledger_scan_rejects_duplicate_json_keys(tmp_path: Path) -> None:
     raw = request_path.read_text(encoding="utf-8").rstrip()
     duplicate_key_row = raw[:-1] + ',"request_id":"shadowed-request"}'
     request_path.write_text(duplicate_key_row + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
+        _verify(tmp_path)
+
+
+@pytest.mark.parametrize("ledger", ["request", "approval"])
+@pytest.mark.parametrize("non_finite", [float("nan"), float("inf"), float("-inf")])
+def test_rejects_non_finite_json_with_uniform_fail_closed_error(
+    tmp_path: Path, ledger: str, non_finite: float
+) -> None:
+    request, approval = _permission_rows()
+    row = request if ledger == "request" else approval
+    row["non_finite_probe"] = non_finite
+    _write_ledgers(tmp_path, requests=[request], approvals=[approval])
 
     with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
         _verify(tmp_path)
