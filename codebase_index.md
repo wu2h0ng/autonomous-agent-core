@@ -28,6 +28,9 @@
 | `docs/research/SPINE-E2E-2-preregistration-spec.yaml` | Frozen successor specification bound to candidate ec6c07f; the one fresh run ended INVALID before Product execution |
 | `product_evals/spine_e2e_2/` | Frozen successor instrument preserved for audit; do not repair, rerun, or reuse this identity |
 | `docs/research/SPINE-E2E-2-result.md` | Binding fresh frozen result: INVALID before Product execution because 12/12 provider-bank digests and bearer identity were inconsistent; no PASS, Product NOT_PASS, D2, or LH claim |
+| `product_evals/common/spine_identity.py`, `bank_generator.py`, `instrument_qualification.py` | Qualified successor-instrument boundary: single derived identity, generated request digests, scratch bearer canary, source-bound receipt verification, and formal-ledger alias rejection |
+| `product_evals/spine_e2e_3/` | Corrected successor candidate; qualified and independently reviewed, but not preregistered, frozen, or formally run |
+| `docs/research/SPINE-INSTRUMENT-QUAL-1-result.md` | Binding qualification result and claim boundary: `QUALIFIED_CANDIDATE_NOT_FROZEN_NOT_RUN` |
 | `docs/research/LH-RECOVERY-1-final-decision-2026-07-13.md` | Terminal decision for the founder-authorized chain: prerequisite PASS absent, D2 not constructed, parent BLOCKED_NOT_RUN |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:

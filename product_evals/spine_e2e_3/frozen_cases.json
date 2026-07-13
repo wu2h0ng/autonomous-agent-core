@@ -1,0 +1,124 @@
+{
+  "cases": [
+    {
+      "case_id": "st_reverse",
+      "family": "string_transform",
+      "goal": "Return the input string reversed.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def reverse_string(s):\n    return s\n",
+      "patched_content": "def reverse_string(s):\n    return s[::-1]\n",
+      "pytest_source": "from subject import reverse_string\n\ndef test_reverse_string():\n    assert reverse_string('abc') == 'cba'\n    assert reverse_string('hello') == 'olleh'\n"
+    },
+    {
+      "case_id": "st_title",
+      "family": "string_transform",
+      "goal": "Return the input string with each word capitalized.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def capitalize_words(s):\n    return s\n",
+      "patched_content": "def capitalize_words(s):\n    return s.title()\n",
+      "pytest_source": "from subject import capitalize_words\n\ndef test_capitalize_words():\n    assert capitalize_words('hello world') == 'Hello World'\n    assert capitalize_words('python') == 'Python'\n"
+    },
+    {
+      "case_id": "st_trim_lower",
+      "family": "string_transform",
+      "goal": "Return the trimmed lowercase version of the input.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def normalize(s):\n    return s\n",
+      "patched_content": "def normalize(s):\n    return s.strip().lower()\n",
+      "pytest_source": "from subject import normalize\n\ndef test_normalize():\n    assert normalize('  ABC ') == 'abc'\n    assert normalize('  Mixed  ') == 'mixed'\n"
+    },
+    {
+      "case_id": "nr_sum",
+      "family": "numeric_reducer",
+      "goal": "Return the sum of all numbers in the list.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def sum_list(numbers):\n    return 0\n",
+      "patched_content": "def sum_list(numbers):\n    return sum(numbers)\n",
+      "pytest_source": "from subject import sum_list\n\ndef test_sum_list():\n    assert sum_list([1, 2, 3]) == 6\n    assert sum_list([10, -2]) == 8\n"
+    },
+    {
+      "case_id": "nr_max",
+      "family": "numeric_reducer",
+      "goal": "Return the maximum value in the list.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def max_value(numbers):\n    return numbers[0]\n",
+      "patched_content": "def max_value(numbers):\n    return max(numbers)\n",
+      "pytest_source": "from subject import max_value\n\ndef test_max_value():\n    assert max_value([1, 9, 3]) == 9\n    assert max_value([4, 4, 2]) == 4\n"
+    },
+    {
+      "case_id": "nr_factorial",
+      "family": "numeric_reducer",
+      "goal": "Return the factorial of a non-negative integer.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def factorial(n):\n    return 1\n",
+      "patched_content": "def factorial(n):\n    if n < 0:\n        raise ValueError('n must be non-negative')\n    result = 1\n    for i in range(2, n + 1):\n        result *= i\n    return result\n",
+      "pytest_source": "from subject import factorial\n\ndef test_factorial():\n    assert factorial(0) == 1\n    assert factorial(5) == 120\n"
+    },
+    {
+      "case_id": "val_email",
+      "family": "validator",
+      "goal": "Return True if the email address contains exactly one @ and a domain dot.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def is_valid_email(email):\n    return True\n",
+      "patched_content": "def is_valid_email(email):\n    if email.count('@') != 1:\n        return False\n    local, domain = email.split('@')\n    return bool(local) and '.' in domain and not domain.startswith('.') and not domain.endswith('.')\n",
+      "pytest_source": "from subject import is_valid_email\n\ndef test_is_valid_email():\n    assert is_valid_email('a@b.com') is True\n    assert is_valid_email('a@b') is False\n    assert is_valid_email('ab.com') is False\n    assert is_valid_email('a@b@c.com') is False\n"
+    },
+    {
+      "case_id": "val_palindrome",
+      "family": "validator",
+      "goal": "Return True if the input string is a palindrome ignoring case.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def is_palindrome(text):\n    return True\n",
+      "patched_content": "def is_palindrome(text):\n    lowered = text.lower()\n    return lowered == lowered[::-1]\n",
+      "pytest_source": "from subject import is_palindrome\n\ndef test_is_palindrome():\n    assert is_palindrome('Racecar') is True\n    assert is_palindrome('hello') is False\n"
+    },
+    {
+      "case_id": "val_positive_int",
+      "family": "validator",
+      "goal": "Return True only for positive integers.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def is_positive_int(value):\n    return True\n",
+      "patched_content": "def is_positive_int(value):\n    return type(value) is int and value > 0\n",
+      "pytest_source": "from subject import is_positive_int\n\ndef test_is_positive_int():\n    assert is_positive_int(5) is True\n    assert is_positive_int(0) is False\n    assert is_positive_int('5') is False\n    assert is_positive_int(True) is False\n"
+    },
+    {
+      "case_id": "fmt_json",
+      "family": "formatter",
+      "goal": "Return a canonical compact JSON string for the given object.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def format_json(obj):\n    return str(obj)\n",
+      "patched_content": "import json\n\ndef format_json(obj):\n    return json.dumps(obj, sort_keys=True, separators=(',', ':'))\n",
+      "pytest_source": "from subject import format_json\n\ndef test_format_json():\n    assert format_json({'b': 2, 'a': 1}) == '{\"a\":1,\"b\":2}'\n"
+    },
+    {
+      "case_id": "fmt_csv",
+      "family": "formatter",
+      "goal": "Return a CSV string from a list of rows.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def format_csv(rows):\n    return ''\n",
+      "patched_content": "def format_csv(rows):\n    return '\\n'.join(','.join(str(cell) for cell in row) for row in rows)\n",
+      "pytest_source": "from subject import format_csv\n\ndef test_format_csv():\n    assert format_csv([[1, 2], [3, 4]]) == '1,2\\n3,4'\n"
+    },
+    {
+      "case_id": "fmt_table",
+      "family": "formatter",
+      "goal": "Return a pipe-separated table string from rows.",
+      "target_path": "subject.py",
+      "test_path": "test_subject.py",
+      "initial_content": "def format_table(rows):\n    return ''\n",
+      "patched_content": "def format_table(rows):\n    return '\\n'.join(' | '.join(str(cell) for cell in row) for row in rows)\n",
+      "pytest_source": "from subject import format_table\n\ndef test_format_table():\n    assert format_table([['a', 'b'], ['c', 'd']]) == 'a | b\\nc | d'\n"
+    }
+  ]
+}

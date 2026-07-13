@@ -136,6 +136,31 @@ def _server(tmp_path: Path, *, bank_path: Path = BANK_PATH) -> FrozenProviderSer
     return server
 
 
+def test_server_accepts_an_explicit_successor_bearer(tmp_path: Path) -> None:
+    successor_bearer = "spine-e2e-3-local-dummy"
+    server = FrozenProviderServer(
+        BANK_PATH,
+        ledger_path=tmp_path / "provider_calls.jsonl",
+        context_sha256=CONTEXT,
+        expected_bearer=successor_bearer,
+    )
+    server.start()
+    try:
+        body = _entries()[0]["request"]
+        status, payload = _request(
+            server,
+            body,
+            authorization=f"Bearer {successor_bearer}",
+        )
+        assert status == 200
+        assert payload == _entries()[0]["response"]
+        status, payload = _request(server, body)
+        assert status == 401
+        assert payload == {"error": "UNAUTHORIZED"}
+    finally:
+        server.close(validate_counts=False)
+
+
 def _ledger(path: Path) -> list[dict[str, object]]:
     raw = path.read_bytes()
     assert raw.endswith(b"\n")

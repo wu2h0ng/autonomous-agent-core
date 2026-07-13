@@ -30,6 +30,7 @@ def test_dependency_preflight_fails_before_evaluation_genesis(
 
 def test_preflight_uses_selected_product_and_fixed_runner_interpreters(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     calls: list[tuple[str, ...]] = []
 
@@ -38,7 +39,12 @@ def test_preflight_uses_selected_product_and_fixed_runner_interpreters(
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(cli.subprocess, "run", capture)
-    cli.evaluation_genesis_preflight()
+    cli.evaluation_genesis_preflight(
+        SimpleNamespace(
+            phase_ledger=tmp_path / "evaluation/phases.jsonl",
+            provider_ledger=tmp_path / "evaluation/provider_calls.jsonl",
+        )
+    )
     assert calls == [
         (str(cli.PRODUCT_INTERPRETER), "-c", cli.PRODUCT_IMPORT_CHECK),
         (str(cli.RUNNER_INTERPRETER), "-c", "import yaml"),

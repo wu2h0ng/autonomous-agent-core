@@ -1,4 +1,4 @@
-"""Frozen OpenAI-compatible provider replay server for SPINE-E2E-1."""
+"""Frozen OpenAI-compatible provider replay server for qualified SPINE evaluations."""
 
 from __future__ import annotations
 
@@ -176,12 +176,16 @@ class FrozenProviderServer:
         *,
         ledger_path: Path,
         context_sha256: str,
+        expected_bearer: str = _DUMMY_BEARER,
     ) -> None:
         if not _valid_digest(context_sha256):
             raise ValueError("invalid context_sha256")
+        if not isinstance(expected_bearer, str) or not expected_bearer:
+            raise ValueError("invalid expected_bearer")
         self.bank_path = Path(bank_path)
         self.ledger_path = Path(ledger_path)
         self.context_sha256 = context_sha256
+        self._expected_bearer = expected_bearer
         self._entries = self._load_bank()
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -393,7 +397,7 @@ class FrozenProviderServer:
         media_type = content_type.split(";", 1)[0].strip().lower()
         if handler.path != "/v1/chat/completions":
             self._record_and_reply(handler, digest, False, "PATH_NOT_FOUND", 404)
-        elif handler.headers.get("Authorization") != f"Bearer {_DUMMY_BEARER}":
+        elif handler.headers.get("Authorization") != f"Bearer {self._expected_bearer}":
             self._record_and_reply(handler, digest, False, "UNAUTHORIZED", 401)
         elif media_type != "application/json":
             self._record_and_reply(
