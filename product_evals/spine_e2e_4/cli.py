@@ -175,12 +175,19 @@ def _verify_runner(workspace: Path, runner: Path) -> None:
 
 
 def _authority_binding(run: FrozenRun) -> AuthorityBinding:
-    return verify_authority_binding(
+    binding = verify_authority_binding(
         run.run_root,
         run_id=RUN_ID,
         action=PERMISSION_ACTION,
         affected_path=PERMISSION_PATH,
     )
+    if (
+        binding.decision != "approved_session"
+        or binding.decided_by != "founder"
+        or binding.evidence_refs != ANCHOR_REFS
+    ):
+        raise ValueError("INVALID_AUTHORITY_BINDING")
+    return binding
 
 
 def evaluation_genesis_preflight(run: FrozenRun) -> None:
