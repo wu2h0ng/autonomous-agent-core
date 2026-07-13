@@ -213,9 +213,10 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[:2] == ["v1", "tasks"]
                 and parts[3:] == ["correction", "resume"]
             ):
+                raw_reason = body.get("reason")
                 task = self.application.resume_correction(
                     parts[2],
-                    str(body.get("reason", "")),
+                    raw_reason if isinstance(raw_reason, str) else "",
                 )
                 self._json(200, self.application.task_json(task.task_id))
                 return
@@ -232,8 +233,10 @@ class Handler(BaseHTTPRequestHandler):
                 elif operation == "cancel":
                     task = self.application.cancel_task(parts[2])
                 else:
+                    raw_reason = body.get("reason")
                     task = self.application.correct_task(
-                        parts[2], str(body.get("reason", "principal correction"))
+                        parts[2],
+                        raw_reason if isinstance(raw_reason, str) else "",
                     )
                 self._json(200, self.application.task_json(task.task_id))
                 return

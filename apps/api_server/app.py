@@ -364,12 +364,54 @@ class AgentOSApplication:
             task_id, RunStatus.CANCELLED, event_type=TaskEventType.RUN_CANCELLED
         )
 
-    def correct_task(self, task_id: str, reason: str):
-        epoch = self.correction.correct("task", task_id, reason)
+    def _validated_correction_command(
+        self,
+        task_id: str,
+        reason: str,
+        principal: PrincipalIdentity | None,
+    ) -> tuple[PrincipalIdentity, Any, str]:
+        actor = principal or self.principal
+        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
+            raise PermissionError("correction requires principal authority")
+        task = self.tasks.get_task(task_id)
+        if task.run is None or task.commitment is None:
+            raise ValueError("correction requires an active committed run")
+        if (
+            actor.tenant_id != task.commitment.tenant_id
+            or actor.workspace_id != task.commitment.workspace_id
+        ):
+            raise PermissionError("correction scope mismatch")
+        if task.run.status in {RunStatus.SUCCEEDED, RunStatus.CANCELLED}:
+            raise ValueError("correction is unavailable for a terminal run")
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ValueError("correction reason is required")
+        return actor, task, normalized_reason
+
+    def correct_task(
+        self,
+        task_id: str,
+        reason: str,
+        *,
+        principal: PrincipalIdentity | None = None,
+    ):
+        actor, task, normalized_reason = self._validated_correction_command(
+            task_id,
+            reason,
+            principal,
+        )
+        epoch = self.correction.correct("task", task_id, normalized_reason)
         self.tasks.append_event(
             task_id,
             TaskEventType.CORRECTION_WRITTEN,
-            {"scope": "TASK", "epoch": epoch, "reason": reason},
+            {
+                "scope": "TASK",
+                "epoch": epoch,
+                "halted": True,
+                "reason": normalized_reason,
+                "written_by": actor.principal_id,
+            },
+            correlation_id=task.run.run_id,
         )
         return self.tasks.get_task(task_id)
 
@@ -408,20 +450,11 @@ class AgentOSApplication:
         *,
         principal: PrincipalIdentity | None = None,
     ):
-        actor = principal or self.principal
-        if actor.role not in {PrincipalRole.PRINCIPAL, PrincipalRole.TENANT_ADMIN}:
-            raise PermissionError("correction resume requires principal authority")
-        task = self.tasks.get_task(task_id)
-        if task.run is None or task.commitment is None:
-            raise ValueError("correction resume requires an active committed run")
-        if (
-            actor.tenant_id != task.commitment.tenant_id
-            or actor.workspace_id != task.commitment.workspace_id
-        ):
-            raise PermissionError("correction resume scope mismatch")
-        normalized_reason = reason.strip()
-        if not normalized_reason:
-            raise ValueError("correction resume reason is required")
+        actor, task, normalized_reason = self._validated_correction_command(
+            task_id,
+            reason,
+            principal,
+        )
         epoch = self.correction.resume("task", task_id, normalized_reason)
         self.tasks.append_event(
             task_id,

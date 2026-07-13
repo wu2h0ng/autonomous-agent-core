@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import threading
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import pytest
 
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
@@ -63,6 +66,32 @@ def _request_json(
         value = json.loads(response.read())
     assert isinstance(value, dict)
     return value
+
+
+def _request_json_with_status(
+    base: str,
+    path: str,
+    method: str = "GET",
+    body: dict | None = None,
+) -> tuple[int, dict]:
+    request = urllib.request.Request(
+        base + path,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={
+            "Content-Type": "application/json",
+            "Idempotency-Key": f"test:{path}:{method}",
+        },
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request) as response:
+            status = response.status
+            value = json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        value = json.loads(exc.read())
+    assert isinstance(value, dict)
+    return status, value
 
 
 def test_http_api_and_workspace_use_application_path(tmp_path) -> None:
@@ -295,6 +324,76 @@ def _waiting_task(app: AgentOSApplication, suffix: str) -> tuple[str, WorkflowGr
     return task.task_id, workflow
 
 
+def _correction_audit_state(
+    app: AgentOSApplication,
+    task_id: str,
+) -> tuple[int, bool, int]:
+    task = app.tasks.get_task(task_id)
+    assert task.run is not None
+    run_id = task.run.run_id
+    snapshot = app.correction.snapshot(task_id, run_id, "capability:http-audit")
+    correction_event_count = sum(
+        event.event_type is TaskEventType.CORRECTION_WRITTEN
+        for event in app.store.read(task_id)
+    )
+    return (
+        snapshot.task_epoch,
+        app.correction.halted(task_id, run_id, "capability:http-audit"),
+        correction_event_count,
+    )
+
+
+@pytest.mark.parametrize("endpoint", ("correction", "correction/resume"))
+@pytest.mark.parametrize(
+    ("reason_case", "body"),
+    (
+        ("missing", {}),
+        ("null", {"reason": None}),
+        ("list", {"reason": ["not", "text"]}),
+        ("object", {"reason": {"not": "text"}}),
+    ),
+)
+def test_http_correction_invalid_reason_returns_400_without_mutation(
+    tmp_path,
+    endpoint: str,
+    reason_case: str,
+    body: dict,
+) -> None:
+    app = AgentOSApplication(
+        database=tmp_path
+        / f"api-invalid-reason-{endpoint.replace('/', '-')}-{reason_case}.sqlite3",
+        workspace=tmp_path,
+    )
+    app.provider = DeterministicProvider()
+    app.provider_configured = True
+    task_id, _ = _waiting_task(
+        app,
+        f"invalid-reason-{endpoint.replace('/', '-')}-{reason_case}",
+    )
+    before = _correction_audit_state(app, task_id)
+    handler = type("TestMissingReasonHandler", (Handler,), {"application": app})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        status, payload = _request_json_with_status(
+            base,
+            f"/v1/tasks/{task_id}/{endpoint}",
+            "POST",
+            body,
+        )
+        after = _correction_audit_state(app, task_id)
+
+        assert after == before, "invalid HTTP reason mutated correction epoch or event"
+        assert status == 400
+        assert payload["error"] == "ValueError"
+        assert "reason" in payload["message"].lower()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_http_long_horizon_commands_share_application_path(tmp_path) -> None:
     app = AgentOSApplication(database=tmp_path / "api-long.sqlite3", workspace=tmp_path)
     app.provider = DeterministicProvider()
@@ -307,6 +406,9 @@ def test_http_long_horizon_commands_share_application_path(tmp_path) -> None:
         RunStatus.FAILED,
         event_type=TaskEventType.RUN_FAILED,
     )
+    replan_run = app.tasks.get_task(replan_task_id).run
+    assert replan_run is not None
+    replan_run_id = replan_run.run_id
     handler = type("TestLongAgentOSHandler", (Handler,), {"application": app})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -359,19 +461,60 @@ def test_http_long_horizon_commands_share_application_path(tmp_path) -> None:
         assert replanned["workflow"]["version"] == 2
         assert replanned["run"]["status"] == "PAUSED"
 
-        app.correct_task(replan_task_id, "temporary principal halt")
+        corrected = _request_json(
+            base,
+            f"/v1/tasks/{replan_task_id}/correction",
+            "POST",
+            {"reason": "  temporary principal halt  "},
+        )
+        assert corrected["task_id"] == replan_task_id
+        assert app.correction.halted(
+            replan_task_id,
+            replan_run_id,
+            "workspace.read",
+        )
         correction = _request_json(
             base,
             f"/v1/tasks/{replan_task_id}/correction/resume",
             "POST",
-            {"reason": "principal reviewed and resumed correction"},
+            {"reason": "  principal reviewed and resumed correction  "},
         )
         assert correction["task_id"] == replan_task_id
         assert not app.correction.halted(
             replan_task_id,
-            app.tasks.get_task(replan_task_id).run.run_id,  # type: ignore[union-attr]
+            replan_run_id,
             "workspace.read",
         )
+        correction_events = [
+            event
+            for event in app.store.read(replan_task_id)
+            if event.event_type is TaskEventType.CORRECTION_WRITTEN
+        ]
+        assert [
+            (event.decoded_payload(), event.correlation_id)
+            for event in correction_events
+        ] == [
+            (
+                {
+                    "scope": "TASK",
+                    "epoch": 1,
+                    "halted": True,
+                    "reason": "temporary principal halt",
+                    "written_by": app.principal.principal_id,
+                },
+                replan_run_id,
+            ),
+            (
+                {
+                    "scope": "TASK",
+                    "epoch": 2,
+                    "halted": False,
+                    "reason": "principal reviewed and resumed correction",
+                    "written_by": app.principal.principal_id,
+                },
+                replan_run_id,
+            ),
+        ]
 
         compensated = _request_json(
             base,

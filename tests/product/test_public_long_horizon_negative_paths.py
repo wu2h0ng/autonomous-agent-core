@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 import threading
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+
+import pytest
 
 from agent_os_contracts import (
     EdgeSpec,
     NodeKind,
     NodeSpec,
+    PrincipalIdentity,
+    PrincipalRole,
     RunStatus,
     TaskEventType,
     WorkflowGraph,
@@ -150,6 +156,285 @@ def _post400(base: str, path: str, body: dict) -> dict:
     except urllib.error.HTTPError as exc:
         assert exc.code == 400
         return json.loads(exc.read().decode())
+
+
+def _principal(
+    app: AgentOSApplication,
+    *,
+    principal_id: str,
+    role: PrincipalRole = PrincipalRole.PRINCIPAL,
+    tenant_id: str | None = None,
+    workspace_id: str | None = None,
+) -> PrincipalIdentity:
+    return PrincipalIdentity(
+        principal_id=principal_id,
+        tenant_id=tenant_id or app.principal.tenant_id,
+        workspace_id=workspace_id or app.principal.workspace_id,
+        role=role,
+        authenticated_at=datetime.now(timezone.utc),
+    )
+
+
+def _correction_audit_state(
+    app: AgentOSApplication,
+    task_id: str,
+) -> tuple[int, bool, int]:
+    run_id = "run:correction-audit"
+    snapshot = app.correction.snapshot(task_id, run_id, "capability:audit")
+    correction_event_count = sum(
+        event.event_type is TaskEventType.CORRECTION_WRITTEN
+        for event in app.store.read(task_id)
+    )
+    return (
+        snapshot.task_epoch,
+        app.correction.halted(task_id, run_id, "capability:audit"),
+        correction_event_count,
+    )
+
+
+def _assert_rejected_without_correction_mutation(
+    app: AgentOSApplication,
+    task_id: str,
+    invoke: Callable[[], object],
+    expected_error: type[Exception],
+) -> None:
+    before = _correction_audit_state(app, task_id)
+    caught: Exception | None = None
+    try:
+        invoke()
+    except Exception as exc:  # noqa: BLE001 - asserted public error is captured below
+        caught = exc
+    after = _correction_audit_state(app, task_id)
+
+    assert after == before, (
+        "rejected correction command mutated epoch, halt, or audit event"
+    )
+    assert isinstance(caught, expected_error), (
+        f"expected {expected_error.__name__}, got "
+        f"{type(caught).__name__ if caught is not None else 'no exception'}"
+    )
+
+
+@pytest.mark.parametrize("command", ("correct_task", "resume_correction"))
+@pytest.mark.parametrize(
+    ("actor", "expected_error"),
+    (
+        ("worker", PermissionError),
+        ("wrong-tenant", PermissionError),
+        ("wrong-workspace", PermissionError),
+    ),
+)
+def test_public_correction_rejects_role_and_scope_before_mutation(
+    tmp_path: Path,
+    command: str,
+    actor: str,
+    expected_error: type[Exception],
+) -> None:
+    app, task_id, _ = _app_with_waiting_task(
+        tmp_path,
+        db_name=f"correction-{command}-{actor}.sqlite3",
+    )
+    principals = {
+        "worker": _principal(
+            app,
+            principal_id="worker:untrusted",
+            role=PrincipalRole.WORKER,
+        ),
+        "wrong-tenant": _principal(
+            app,
+            principal_id="user:wrong-tenant",
+            tenant_id="tenant:other",
+        ),
+        "wrong-workspace": _principal(
+            app,
+            principal_id="user:wrong-workspace",
+            workspace_id="workspace:other",
+        ),
+    }
+
+    _assert_rejected_without_correction_mutation(
+        app,
+        task_id,
+        lambda: getattr(app, command)(
+            task_id,
+            "unauthorized correction",
+            principal=principals[actor],
+        ),
+        expected_error,
+    )
+
+
+@pytest.mark.parametrize("command", ("correct_task", "resume_correction"))
+def test_public_correction_rejects_missing_commitment_and_run_before_mutation(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    app = AgentOSApplication(
+        database=tmp_path / f"no-run-{command}.sqlite3", workspace=tmp_path
+    )
+    now = datetime.now(timezone.utc)
+    task = app.create_task(
+        {
+            "goal_id": f"goal:no-run:{command}",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": now.isoformat(),
+            "statement": "correction without commitment or run",
+        }
+    )
+
+    _assert_rejected_without_correction_mutation(
+        app,
+        task.task_id,
+        lambda: getattr(app, command)(task.task_id, "must not mutate"),
+        ValueError,
+    )
+
+
+@pytest.mark.parametrize("command", ("correct_task", "resume_correction"))
+def test_public_correction_rejects_blank_normalized_reason_before_mutation(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    app, task_id, _ = _app_with_waiting_task(
+        tmp_path,
+        db_name=f"blank-reason-{command}.sqlite3",
+    )
+
+    _assert_rejected_without_correction_mutation(
+        app,
+        task_id,
+        lambda: getattr(app, command)(task_id, "  \t\n  "),
+        ValueError,
+    )
+
+
+@pytest.mark.parametrize("command", ("correct_task", "resume_correction"))
+@pytest.mark.parametrize("terminal_status", (RunStatus.SUCCEEDED, RunStatus.CANCELLED))
+def test_public_correction_rejects_terminal_run_before_mutation(
+    tmp_path: Path,
+    command: str,
+    terminal_status: RunStatus,
+) -> None:
+    app, task_id, _ = _app_with_waiting_task(
+        tmp_path,
+        db_name=f"terminal-{terminal_status.value}-{command}.sqlite3",
+    )
+    if terminal_status is RunStatus.SUCCEEDED:
+        app.tasks.update_run_status(
+            task_id,
+            RunStatus.FAILED,
+            event_type=TaskEventType.RUN_FAILED,
+        )
+        app.tasks.update_run_status(
+            task_id,
+            RunStatus.RUNNING,
+            event_type=TaskEventType.RUN_RESUMED,
+        )
+        terminal_event = TaskEventType.RUN_SUCCEEDED
+    else:
+        terminal_event = TaskEventType.RUN_CANCELLED
+    app.tasks.update_run_status(
+        task_id,
+        terminal_status,
+        event_type=terminal_event,
+    )
+
+    _assert_rejected_without_correction_mutation(
+        app,
+        task_id,
+        lambda: getattr(app, command)(task_id, "terminal run must stay immutable"),
+        ValueError,
+    )
+
+
+def test_correct_task_declares_and_accepts_optional_keyword_only_principal(
+    tmp_path: Path,
+) -> None:
+    app, task_id, _ = _app_with_waiting_task(
+        tmp_path, db_name="correct-principal.sqlite3"
+    )
+    parameter = inspect.signature(app.correct_task).parameters.get("principal")
+
+    assert parameter is not None
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None
+    corrected = app.correct_task(
+        task_id,
+        "principal-authored halt",
+        principal=app.principal,
+    )
+    assert corrected.task_id == task_id
+
+
+def test_tenant_admin_can_halt_and_resume_failed_run_with_exact_audit_identity(
+    tmp_path: Path,
+) -> None:
+    app, task_id, _ = _app_with_waiting_task(
+        tmp_path,
+        db_name="tenant-admin-failed-run.sqlite3",
+    )
+    failed = app.tasks.update_run_status(
+        task_id,
+        RunStatus.FAILED,
+        event_type=TaskEventType.RUN_FAILED,
+    )
+    assert failed.run is not None
+    run_id = failed.run.run_id
+    admin = _principal(
+        app,
+        principal_id="admin:custom-c7",
+        role=PrincipalRole.TENANT_ADMIN,
+    )
+
+    corrected = app.correct_task(
+        task_id,
+        "  tenant admin halt  ",
+        principal=admin,
+    )
+    assert corrected.run is not None
+    assert corrected.run.status is RunStatus.FAILED
+    assert _correction_audit_state(app, task_id) == (1, True, 1)
+
+    resumed = app.resume_correction(
+        task_id,
+        "  tenant admin resume  ",
+        principal=admin,
+    )
+    assert resumed.run is not None
+    assert resumed.run.status is RunStatus.FAILED
+    assert _correction_audit_state(app, task_id) == (2, False, 2)
+
+    correction_events = [
+        event
+        for event in app.store.read(task_id)
+        if event.event_type is TaskEventType.CORRECTION_WRITTEN
+    ]
+    assert [
+        (event.decoded_payload(), event.correlation_id) for event in correction_events
+    ] == [
+        (
+            {
+                "scope": "TASK",
+                "epoch": 1,
+                "halted": True,
+                "reason": "tenant admin halt",
+                "written_by": admin.principal_id,
+            },
+            run_id,
+        ),
+        (
+            {
+                "scope": "TASK",
+                "epoch": 2,
+                "halted": False,
+                "reason": "tenant admin resume",
+                "written_by": admin.principal_id,
+            },
+            run_id,
+        ),
+    ]
 
 
 class TestCLISignalAndRecoveryThroughRealApplication:
