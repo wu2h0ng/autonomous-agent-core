@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
+import subprocess
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -13,12 +16,18 @@ import pytest
 
 from product_evals.common.artifacts import canonical_sha256, sha256_file
 from product_evals.common.authority_binding import AuthorityBinding
+from product_evals.common.json_schema_contract import validate_closed_record
 from product_evals.spine_e2e_4.identity import IDENTITY
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = ROOT.parents[2]
 FORMAL_ROOT = WORKSPACE / ".agent_runs" / IDENTITY.run_id
+RUNNER_WORKTREE = (
+    WORKSPACE
+    / "ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713"
+)
+RUNNER_PYTHON = WORKSPACE / "ai-agent-engineering-workflow/.venv/bin/python"
 
 
 def _cli() -> Any:
@@ -73,6 +82,56 @@ def _authority(cli: Any) -> AuthorityBinding:
     )
 
 
+def _runner_contract_value(script: str, payload: object | None = None) -> Any:
+    completed = subprocess.run(
+        [str(RUNNER_PYTHON), "-c", script],
+        cwd=RUNNER_WORKTREE,
+        env={**os.environ, "PYTHONPATH": str(RUNNER_WORKTREE / "src")},
+        input=None if payload is None else json.dumps(payload),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def _real_runner_event(binding: AuthorityBinding) -> dict[str, Any]:
+    value = _runner_contract_value(
+        "import json,sys; "
+        "from agent_workflow_runner.team_event_contract import "
+        "build_team_event_record; "
+        "json.dump(build_team_event_record(**json.load(sys.stdin)), sys.stdout)",
+        {
+            "ts": "2026-07-13T00:00:02+00:00",
+            "event_type": "EVIDENCE_APPENDED",
+            "agent_id": "codex-cto",
+            "task_id": None,
+            "summary": "anchor summary",
+            "artifact": "evaluation/anchor_requests/prepare.json",
+            "stream_file": None,
+            "permission_action": binding.action,
+            "approval_request_id": binding.request_id,
+            "evidence_refs": ["evaluation/anchor_requests/prepare.json"],
+            "source_decision_id": binding.source_decision_id,
+            "source_goal_id": binding.source_goal_id,
+            "source_decision_type": binding.source_decision_type,
+        },
+    )
+    assert isinstance(value, dict)
+    return value
+
+
+def _real_runner_schema() -> dict[str, Any]:
+    value = _runner_contract_value(
+        "import json; "
+        "from agent_workflow_runner.team_event_contract import "
+        "get_team_event_schema; "
+        "print(json.dumps(get_team_event_schema()))"
+    )
+    assert isinstance(value, dict)
+    return value
+
+
 def test_scratch_fixture_is_disjoint_from_the_forbidden_formal_root(
     tmp_path: Path,
 ) -> None:
@@ -85,6 +144,29 @@ def test_scratch_fixture_is_disjoint_from_the_forbidden_formal_root(
     ):
         assert not path.is_relative_to(FORMAL_ROOT)
     assert not FORMAL_ROOT.exists()
+
+
+def test_anchor_fixture_is_built_by_the_pinned_runner_public_builder() -> None:
+    binding = _authority(
+        SimpleNamespace(
+            datetime=datetime,
+            PHASES=(
+                "prepare",
+                "interrupt_batch",
+                "probe_active_lease",
+                "resume",
+                "adjudicate",
+            ),
+        )
+    )
+    event = _real_runner_event(binding)
+    schema = _real_runner_schema()
+
+    validate_closed_record(event, schema)
+    assert event["approval_request_id"] == binding.request_id
+    assert event["source_decision_id"] == binding.source_decision_id
+    assert event["source_goal_id"] == binding.source_goal_id
+    assert event["source_decision_type"] == binding.source_decision_type
 
 
 def test_phase_order_requires_the_immediately_prior_schema_driven_anchor(
@@ -146,29 +228,8 @@ def test_phase_anchor_invokes_closed_schema_consumer_and_typed_authority(
     run = _run(tmp_path)
     binding = _authority(cli)
     observed: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    event = {
-        "schema_version": "team-event-v1",
-        "ts": "2026-07-13T00:00:02+00:00",
-        "type": "EVIDENCE_APPENDED",
-        "agent_id": "codex-cto",
-        "task_id": None,
-        "summary": "anchor summary",
-        "artifact": "evaluation/anchor_requests/prepare.json",
-        "stream_file": None,
-        "permission_action": binding.action,
-        "approval_request_id": binding.request_id,
-        "evidence_refs": ["evaluation/anchor_requests/prepare.json"],
-        "source_decision_id": binding.source_decision_id,
-        "source_goal_id": binding.source_goal_id,
-        "source_decision_type": binding.source_decision_type,
-    }
-    schema = {
-        "title": "team-event-v1",
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {},
-        "required": [],
-    }
+    event = _real_runner_event(binding)
+    schema = _real_runner_schema()
     monkeypatch.setattr(cli, "_authority_binding", lambda value: binding)
     monkeypatch.setattr(cli, "_expected_anchor", lambda *args: {"phase": "prepare"})
     monkeypatch.setattr(
@@ -198,22 +259,7 @@ def test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event(
     cli = _cli()
     run = _run(tmp_path)
     binding = _authority(cli)
-    event = {
-        "schema_version": "team-event-v1",
-        "ts": "2026-07-13T00:00:02+00:00",
-        "type": "EVIDENCE_APPENDED",
-        "agent_id": "codex-cto",
-        "task_id": None,
-        "summary": "anchor summary",
-        "artifact": "evaluation/anchor_requests/prepare.json",
-        "stream_file": None,
-        "permission_action": binding.action,
-        "approval_request_id": binding.request_id,
-        "evidence_refs": ["evaluation/anchor_requests/prepare.json"],
-        "source_decision_id": binding.source_decision_id,
-        "source_goal_id": binding.source_goal_id,
-        "source_decision_type": binding.source_decision_type,
-    }
+    event = _real_runner_event(binding)
     rows = [event]
     if mutation == "extra":
         event = {**event, "predecessor_only": True}
