@@ -61,6 +61,13 @@ QUALIFIED_BINDINGS = {
     "qualification_receipt_sha256": "9" * 64,
 }
 
+E2E4_BINDINGS = {
+    **QUALIFIED_BINDINGS,
+    "experiment_id": "SPINE-E2E-4",
+    "run_id": "spine-e2e-4-20260713",
+    "runner_schema_sha256": "a" * 64,
+}
+
 
 # Helpers ----------------------------------------------------------------------
 
@@ -169,6 +176,41 @@ def test_phase_context_sha256_accepts_exact_qualified_instrument_bindings() -> N
     assert phase_context_sha256(QUALIFIED_BINDINGS) == canonical_sha256(
         QUALIFIED_BINDINGS
     )
+
+
+def test_phase_context_sha256_accepts_exact_e2e4_runner_qualified_bindings() -> None:
+    assert phase_context_sha256(E2E4_BINDINGS) == canonical_sha256(E2E4_BINDINGS)
+
+
+@pytest.mark.parametrize("legacy_size", [14, 16])
+def test_phase_context_sha256_rejects_e2e4_legacy_contexts(
+    legacy_size: int,
+) -> None:
+    bindings = dict(E2E4_BINDINGS)
+    bindings.pop("runner_schema_sha256")
+    if legacy_size == 14:
+        bindings.pop("provider_template_sha256")
+        bindings.pop("qualification_receipt_sha256")
+    with pytest.raises(ValueError, match="invalid context binding schema"):
+        phase_context_sha256(bindings)
+
+
+def test_phase_context_sha256_rejects_e2e4_same_size_wrong_keyset() -> None:
+    bindings = dict(E2E4_BINDINGS)
+    bindings.pop("runner_schema_sha256")
+    bindings["caller_selected_schema_sha256"] = "b" * 64
+    with pytest.raises(ValueError, match="invalid context binding schema"):
+        phase_context_sha256(bindings)
+
+
+@pytest.mark.parametrize("qualified", [False, True])
+def test_phase_context_sha256_preserves_e2e3_legacy_versions(
+    qualified: bool,
+) -> None:
+    bindings = dict(QUALIFIED_BINDINGS if qualified else FROZEN_BINDINGS)
+    bindings["experiment_id"] = "SPINE-E2E-3"
+    bindings["run_id"] = "spine-e2e-3-20260713"
+    assert phase_context_sha256(bindings) == canonical_sha256(bindings)
 
 
 @pytest.mark.parametrize(

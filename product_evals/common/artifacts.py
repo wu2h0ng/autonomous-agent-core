@@ -37,30 +37,53 @@ _ORDINALS = {
     for terminal, suffix in enumerate(("started", "completed"))
 }
 _ACTIVE_LEDGERS = threading.local()
-_LEGACY_CONTEXT_KEYS = frozenset(
-    {
-        "schema",
-        "experiment_id",
-        "run_id",
-        "target_head",
-        "prereg_lock_sha256",
-        "spec_sha256",
-        "mechanism_manifest_sha256",
-        "corpus_sha256",
-        "provider_bank_sha256",
-        "evaluator_sha256",
-        "runner_common_dir",
-        "runner_head",
-        "request_row_sha256",
-        "approval_row_sha256",
-    }
+_CONTEXT_BASE_V1_FIELDS = (
+    "schema",
+    "experiment_id",
+    "run_id",
+    "target_head",
+    "prereg_lock_sha256",
+    "spec_sha256",
+    "mechanism_manifest_sha256",
+    "corpus_sha256",
+    "provider_bank_sha256",
+    "evaluator_sha256",
+    "runner_common_dir",
+    "runner_head",
+    "request_row_sha256",
+    "approval_row_sha256",
 )
-_QUALIFIED_CONTEXT_KEYS = _LEGACY_CONTEXT_KEYS | {
-    "provider_template_sha256",
-    "qualification_receipt_sha256",
+_CONTEXT_FIELDS_BY_VERSION = {
+    "phase-context-v1": tuple(sorted(_CONTEXT_BASE_V1_FIELDS)),
+    "phase-context-provider-qualified-v1": tuple(
+        sorted(
+            _CONTEXT_BASE_V1_FIELDS
+            + (
+                "provider_template_sha256",
+                "qualification_receipt_sha256",
+            )
+        )
+    ),
+    "phase-context-runner-qualified-v1": tuple(
+        sorted(
+            _CONTEXT_BASE_V1_FIELDS
+            + (
+                "provider_template_sha256",
+                "qualification_receipt_sha256",
+                "runner_schema_sha256",
+            )
+        )
+    ),
 }
-_SUPPORTED_CONTEXT_SCHEMAS = frozenset(
-    {_LEGACY_CONTEXT_KEYS, frozenset(_QUALIFIED_CONTEXT_KEYS)}
+_CONTEXT_VERSION_BY_EXACT_FIELDS = {
+    fields: version for version, fields in _CONTEXT_FIELDS_BY_VERSION.items()
+}
+_CONTEXT_VERSIONS_BY_EXPERIMENT = {
+    "SPINE-E2E-4": ("phase-context-runner-qualified-v1",),
+}
+_PRE_E2E4_CONTEXT_VERSIONS = (
+    "phase-context-v1",
+    "phase-context-provider-qualified-v1",
 )
 
 
@@ -133,7 +156,14 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 def phase_context_sha256(bindings: Mapping[str, str]) -> str:
     if not isinstance(bindings, Mapping) or not bindings:
         raise ValueError("context bindings must be non-empty")
-    if frozenset(bindings) not in _SUPPORTED_CONTEXT_SCHEMAS:
+    if any(not isinstance(key, str) or not key for key in bindings):
+        raise ValueError("context bindings must have non-blank string keys")
+    exact_fields = tuple(sorted(bindings))
+    version = _CONTEXT_VERSION_BY_EXACT_FIELDS.get(exact_fields)
+    allowed_versions = _CONTEXT_VERSIONS_BY_EXPERIMENT.get(
+        bindings.get("experiment_id"), _PRE_E2E4_CONTEXT_VERSIONS
+    )
+    if version not in allowed_versions:
         raise ValueError("invalid context binding schema")
     if bindings.get("schema") != SCHEMA:
         raise ValueError("invalid context binding schema value")
