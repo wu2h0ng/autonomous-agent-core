@@ -50,7 +50,7 @@ def test_cli_identity_and_runner_are_successor_owned_not_predecessor_copies() ->
 
     assert cli.RUN_ID == IDENTITY.run_id
     assert cli.EXPERIMENT_ID == IDENTITY.experiment_id
-    assert cli.RUNNER_HEAD == "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
+    assert cli.RUNNER_HEAD == "50eb4d27b17688f0943f80207dddb702983afd51"
     assert cli.RUNNER_BRANCH == "codex/team-event-contract-v1-20260713"
     logical_runner_python = WORKSPACE / "ai-agent-engineering-workflow/.venv/bin/python"
     assert cli.RUNNER_INTERPRETER == logical_runner_python

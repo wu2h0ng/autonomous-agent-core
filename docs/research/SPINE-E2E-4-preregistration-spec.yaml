@@ -185,13 +185,13 @@ instrument_qualification:
     - authority_binding.py
     - runner_contract_qualification.py
   receipt_reverification: rerun_provider_and_runner_canaries_and_compare_exact_receipt
-  candidate_combined_receipt_sha256: 1bfbc6fac71244534866e0397b796433118bfa81e8147143bbcfaf21f24b6978
+  candidate_combined_receipt_sha256: 10a4c9e4c2ae3ccbfbe4c0c90a41028ad8f8b7fc247dd46d1e18ebe99f25c490
   candidate_provider_receipt_sha256: 8d899408e439b3c89b3f306783baacb75e863b29ffc946dac1e778939319e6e9
 
 runner_contract_qualification:
   worktree: ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713
   branch: codex/team-event-contract-v1-20260713
-  head: 3a3224a7af7da724d8b6ec82d34ed47d938620e4
+  head: 50eb4d27b17688f0943f80207dddb702983afd51
   invocation: subprocess_only
   runtime_import: forbidden
   command_exports:
@@ -207,7 +207,7 @@ runner_contract_qualification:
   source_binding:
     json_schema_contract.py: ccb5f302f8f8fd7607eb8a96cdcd879851a8f3fecb8d1b3dfee76de808dfc600
     authority_binding.py: f7c48cad28f2dc53e5c50e90f70fa58dd606b2b1858a1ee7a25e15d49c6aded7
-    runner_contract_qualification.py: 14385a14d458f51616fb2158b80c4af01fa9ea3e734f52faffcbab7245e3616c
+    runner_contract_qualification.py: daf25ebdc2c167b1d2e438eed9543caf3a2b58ec80f9d6396c2a130f698b280d
   schema_consumer_keywords:
     - $schema
     - title
@@ -301,7 +301,7 @@ runner_binding:
   worktree: ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713
   common_dir: ai-agent-engineering-workflow/.git
   branch: codex/team-event-contract-v1-20260713
-  head: 3a3224a7af7da724d8b6ec82d34ed47d938620e4
+  head: 50eb4d27b17688f0943f80207dddb702983afd51
   clean_required: true
   invocation: subprocess_only
   runtime_import: forbidden
@@ -345,7 +345,7 @@ prefreeze_machine_brake:
     --spec docs/research/SPINE-E2E-4-preregistration-spec.yaml
   required_before: [mechanism_manifest_review, prereg_review, prereg_architecture_review, prereg_freeze]
   generic_runner_sentinel_awareness: true
-  generic_runner_binding: 3a3224a7af7da724d8b6ec82d34ed47d938620e4 recursively rejects PRE_FREEZE_*_UNBOUND and DRAFT_NOT_REVIEWED root status
+  generic_runner_binding: 50eb4d27b17688f0943f80207dddb702983afd51 recursively rejects PRE_FREEZE_*_UNBOUND and DRAFT_NOT_REVIEWED root status
   sentinel_or_binding_mismatch: freeze_forbidden
   writes_permission_or_formal_ledgers: false
 

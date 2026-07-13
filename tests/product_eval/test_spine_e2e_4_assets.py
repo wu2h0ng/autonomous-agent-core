@@ -20,13 +20,17 @@ from product_evals.common.spine_identity import SpineEvaluationIdentity
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = REPO_ROOT.parents[2]
 ASSET_ROOT = REPO_ROOT / "product_evals/spine_e2e_4"
+SPEC_PATH = REPO_ROOT / "docs/research/SPINE-E2E-4-preregistration-spec.yaml"
+RUNNER_QUALIFICATION_SOURCE = (
+    REPO_ROOT / "product_evals/common/runner_contract_qualification.py"
+)
 RUNNER_WORKTREE = (
     WORKSPACE_ROOT
     / "ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713"
 )
 RUNNER_PYTHON = WORKSPACE_ROOT / "ai-agent-engineering-workflow/.venv/bin/python"
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
-RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
+RUNNER_HEAD = "50eb4d27b17688f0943f80207dddb702983afd51"
 PREDECESSOR_IDENTITY = re.compile(
     rb"(?:spine-e2e-[123]|SPINE-E2E-[123]|spine_e2e_[123]|SPINE_E2E_[123])"
 )
@@ -150,6 +154,34 @@ def test_combined_receipt_binds_identity_provider_and_runner_contract() -> None:
     )
     assert receipt["runner_contract"]["checks"]["scratch_formal_non_alias"] is True
     assert len(receipt["receipt_sha256"]) == 64
+
+
+def test_prereg_candidate_digests_are_derived_from_committed_assets() -> None:
+    receipt_path = ASSET_ROOT / "instrument_qualification_receipt.json"
+    receipt = _json(receipt_path)
+    spec = SPEC_PATH.read_text(encoding="utf-8")
+
+    expected_bindings = {
+        "candidate_combined_receipt_sha256": hashlib.sha256(
+            receipt_path.read_bytes()
+        ).hexdigest(),
+        "raw_sha256": receipt["runner_contract"]["schema"]["raw_sha256"],
+        "canonical_sha256": receipt["runner_contract"]["schema"]["canonical_sha256"],
+        "candidate_emitted_fixture_sha256": receipt["runner_contract"][
+            "emitted_fixture_sha256"
+        ],
+        "candidate_authority_semantic_sha256": receipt["runner_contract"][
+            "authority_semantic_sha256"
+        ],
+        "runner_contract_qualification.py": hashlib.sha256(
+            RUNNER_QUALIFICATION_SOURCE.read_bytes()
+        ).hexdigest(),
+    }
+    for key, digest in expected_bindings.items():
+        matches = re.findall(
+            rf"^\s*{re.escape(key)}:\s*([0-9a-f]{{64}})\s*$", spec, re.M
+        )
+        assert matches == [digest], key
 
 
 def test_e2e4_assets_contain_no_predecessor_identity_literal() -> None:

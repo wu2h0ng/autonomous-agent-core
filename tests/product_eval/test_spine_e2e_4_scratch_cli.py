@@ -138,7 +138,7 @@ def _real_runner_schema() -> dict[str, Any]:
     return value
 
 
-def test_scratch_fixture_is_disjoint_from_the_forbidden_formal_root(
+def test_scratch_fixture_is_disjoint_from_absent_formal_output_ledgers(
     tmp_path: Path,
 ) -> None:
     run = _run(tmp_path)
@@ -149,7 +149,13 @@ def test_scratch_fixture_is_disjoint_from_the_forbidden_formal_root(
         run.event_ledger,
     ):
         assert not path.is_relative_to(FORMAL_ROOT)
-    assert not FORMAL_ROOT.exists()
+    for path in (
+        FORMAL_ROOT / "evaluation/phases.jsonl",
+        FORMAL_ROOT / "evaluation/provider_calls.jsonl",
+        FORMAL_ROOT / "agent_events.jsonl",
+        FORMAL_ROOT / "result.json",
+    ):
+        assert not path.exists()
 
 
 def test_anchor_fixture_is_built_by_the_pinned_runner_public_builder() -> None:

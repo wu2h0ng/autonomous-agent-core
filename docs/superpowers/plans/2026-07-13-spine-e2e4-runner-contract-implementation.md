@@ -4,7 +4,7 @@
 
 **Goal:** Build a new SPINE successor whose provider identity and pinned-runner event contract are both generated, executed, and digest-bound before freeze.
 
-**Architecture:** Keep the generic JSON-Schema consumer and authority binding in focused Product-evaluation modules. Construct `spine_e2e_4` from a new identity, invoke pinned runner `3a3224a...` through subprocess in scratch, and bind the exported schema plus real emitted fixture into an exact qualification receipt. Formal anchors consume the same schema and typed authority binding; no predecessor event-field set is copied.
+**Architecture:** Keep the generic JSON-Schema consumer and authority binding in focused Product-evaluation modules. Construct `spine_e2e_4` from a new identity, invoke pinned runner `50eb4d27...` through subprocess in scratch, and bind the exported schema plus real emitted fixture into an exact qualification receipt. Formal anchors consume the same schema and typed authority binding; no predecessor event-field set is copied.
 
 **Tech Stack:** Python 3.12 stdlib, pytest, existing Product eval artifacts/phase ledger, fixed workflow runner subprocess, Git SHA-256 bindings.
 
@@ -12,7 +12,7 @@
 
 - Preserve SPINE-E2E-1/2/3 source directories, formal ledgers, locks, receipts, and result records byte-identically.
 - New identity: `SPINE-E2E-4`; new run: `spine-e2e-4-20260713`.
-- Pinned runner branch: `codex/team-event-contract-v1-20260713`; exact head: `3a3224a7af7da724d8b6ec82d34ed47d938620e4`.
+- Pinned runner branch: `codex/team-event-contract-v1-20260713`; exact head: `50eb4d27b17688f0943f80207dddb702983afd51`.
 - No cross-repo import. Runner interaction is subprocess-only.
 - No handwritten external event field set outside explicit predecessor-rejection fixtures.
 - Test first and observe each target test fail before production implementation.

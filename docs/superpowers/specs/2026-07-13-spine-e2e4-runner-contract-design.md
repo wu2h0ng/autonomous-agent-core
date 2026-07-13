@@ -49,7 +49,7 @@ level: integrity without compatibility.
 ### 3.1 Pinned producer
 
 The successor binds runner branch `codex/team-event-contract-v1-20260713` at exact commit
-`3a3224a7af7da724d8b6ec82d34ed47d938620e4` and invokes it only through its interpreter and CLI.
+`50eb4d27b17688f0943f80207dddb702983afd51` and invokes it only through its interpreter and CLI.
 No workflow package may be imported into Product or evaluation runtime.
 
 The runner supplies:

@@ -1,7 +1,7 @@
 """Subprocess-only pinned-runner contract qualification and receipt reverification.
 
 The pinned workflow runner at ``codex/team-event-contract-v1-20260713``,
-commit ``3a3224a7af7da724d8b6ec82d34ed47d938620e4``, is the sole producer of
+commit ``50eb4d27b17688f0943f80207dddb702983afd51``, is the sole producer of
 the ``TeamEvent`` JSON Schema, the governed event record, and the permission
 sequence used to construct the qualification receipt.
 

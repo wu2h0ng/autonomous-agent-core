@@ -20,16 +20,15 @@ from product_evals.common.json_schema_contract import (
 )
 
 
-RUNNER_WORKTREE = Path(
-    "/Users/mima1234/Documents/AI-Agent-Projects/ai-agent-engineering-workflow/"
-    ".worktrees/team-event-contract-v1-20260713"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+WORKSPACE_ROOT = REPO_ROOT.parents[2]
+RUNNER_WORKTREE = (
+    WORKSPACE_ROOT
+    / "ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713"
 )
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
-RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
-RUNNER_PYTHON = Path(
-    "/Users/mima1234/Documents/AI-Agent-Projects/ai-agent-engineering-workflow/"
-    ".venv/bin/python"
-)
+RUNNER_HEAD = "50eb4d27b17688f0943f80207dddb702983afd51"
+RUNNER_PYTHON = WORKSPACE_ROOT / "ai-agent-engineering-workflow/.venv/bin/python"
 
 
 def _runner_subprocess(*args: str) -> subprocess.CompletedProcess[str]:

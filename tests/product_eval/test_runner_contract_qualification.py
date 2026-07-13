@@ -28,7 +28,7 @@ RUNNER_WORKTREE = (
 )
 RUNNER_PYTHON = WORKSPACE_ROOT / "ai-agent-engineering-workflow/.venv/bin/python"
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
-RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
+RUNNER_HEAD = "50eb4d27b17688f0943f80207dddb702983afd51"
 CANARY_RUN_ID = "runner-contract-canary"
 VERIFIED_REQUEST_ID_MARKER = "<verified-authority-request-id>"
 CONSUMER_SOURCE = REPO_ROOT / "product_evals/common/json_schema_contract.py"

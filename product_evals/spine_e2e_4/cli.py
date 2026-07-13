@@ -53,7 +53,7 @@ from .qualification import verify_combined_qualification_receipt  # noqa: E402
 
 RUN_ID = IDENTITY.run_id
 EXPERIMENT_ID = IDENTITY.experiment_id
-RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
+RUNNER_HEAD = "50eb4d27b17688f0943f80207dddb702983afd51"
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
 RUNNER_WORKTREE_REL = (
     "ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713"
