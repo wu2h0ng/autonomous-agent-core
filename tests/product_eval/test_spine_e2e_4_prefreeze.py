@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from product_evals.common.authority_binding import AuthorityBinding
+from product_evals.spine_e2e_4.cli import ANCHOR_REFS
 from product_evals.spine_e2e_4 import prefreeze
 
 
@@ -23,7 +24,7 @@ def _authority() -> AuthorityBinding:
         source_decision_id="decision-e2e4",
         source_goal_id="SPINE-E2E-4",
         source_decision_type="founder_authorization",
-        evidence_refs=("evaluation/anchor_requests/prepare.json",),
+        evidence_refs=ANCHOR_REFS,
         request_ts=prefreeze.datetime.fromisoformat("2026-07-13T00:00:00+00:00"),
         approval_ts=prefreeze.datetime.fromisoformat("2026-07-13T00:00:01+00:00"),
     )
@@ -61,6 +62,25 @@ def test_prefreeze_accepts_only_exact_materialized_permission() -> None:
     authority = _authority()
 
     prefreeze.validate_prefreeze_permission(_permission(authority), authority)
+
+
+@pytest.mark.parametrize(
+    "evidence_refs",
+    [
+        list(ANCHOR_REFS[:-1]),
+        [ANCHOR_REFS[1], ANCHOR_REFS[0], *ANCHOR_REFS[2:]],
+    ],
+    ids=["missing-anchor", "reordered-anchors"],
+)
+def test_prefreeze_rejects_inexact_anchor_evidence_refs(
+    evidence_refs: list[str],
+) -> None:
+    authority = _authority()
+    permission = _permission(authority)
+    permission["evidence_refs"] = evidence_refs
+
+    with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
+        prefreeze.validate_prefreeze_permission(permission, authority)
 
 
 def test_prefreeze_cli_validates_yaml_and_current_ledgers(
