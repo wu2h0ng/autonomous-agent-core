@@ -162,7 +162,7 @@ Status:
 LOCAL_ACCEPTANCE_VERIFIED
 phase label: LH_PRODUCT_SLICE_E2
 evidence scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY
-LH-RECOVERY-1: BLOCKED_NOT_RUN; SPINE-E2E-1/2/3 INVALID
+LH-RECOVERY-1: OPEN_BLOCKED_NOT_RUN; SPINE-E2E-1/2/3 INVALID; SPINE-E2E-4 PASS; D2 NOT_CONSTRUCTED
 ```
 
 Authority:
@@ -222,16 +222,16 @@ no production authentication/tenancy, and no CWM, BeliefLedger, AgentSelfModel, 
 learning or self-evolution product integration. It does not solve the general long-horizon,
 autonomous-agent-system or self-evolution problems.
 
-Three fresh frozen SPINE successors are preserved as INVALID instrument evidence. E2E-3
-completed prepare, but its frozen 11-field anchor consumer rejected the pinned runner's valid
-13-field governed event. It is not Product NOT_PASS. D2 was not constructed and parent
-`LH-RECOVERY-1` remains BLOCKED_NOT_RUN.
+Three predecessor SPINE runs remain immutable INVALID instrument evidence. The fresh corrected
+`SPINE-E2E-4` successor bound the real runner contract, completed one frozen same-boot run, and
+was independently adjudicated PASS for the twelve-task bounded claim. D2 remains unconstructed
+because its D1, nonce, corpus, and oracle prerequisites are absent. Parent `LH-RECOVERY-1`
+remains OPEN/BLOCKED_NOT_RUN.
 
-Next gate: a new successor identity may be proposed only after the pinned runner's real event
-producer is included in a scratch producer-to-consumer contract canary and the exported schema,
-normalized fixture and contract receipt are bound into qualification. Fresh permission,
-independent reviews, freeze and one-run discipline remain mandatory. SPINE-1 remains
-independently ADR-0054-gated.
+Next gate: execute the already authorized D1 artifact-construction sequence for
+`LH-RECOVERY-1A`: frozen D1-E, sealed blind D1-F, combined D1, dual nonce commitments/reveals,
+corpus materialization, and a one-shot `432/432` oracle. Only then may D2 be preregistered.
+SPINE-1 remains independently ADR-0054-gated.
 
 ### T-P-OS-SPINE-1 - Data Agent History-Safe Migration (Successor / Blocked)
 

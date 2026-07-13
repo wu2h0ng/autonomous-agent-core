@@ -32,7 +32,9 @@
 | `product_evals/spine_e2e_3/` | Frozen E2E-3 instrument preserved for audit after its one formal run ended INVALID at runner-anchor verification; do not repair, rerun, or reuse this identity |
 | `docs/research/SPINE-INSTRUMENT-QUAL-1-result.md` | Binding qualification result and claim boundary: `QUALIFIED_CANDIDATE_NOT_FROZEN_NOT_RUN` |
 | `docs/research/SPINE-E2E-3-result.md` | Binding fresh frozen result: INVALID after prepare because the frozen 11-field anchor consumer rejected the pinned runner-emitted 13-field governed event; no PASS, Product NOT_PASS, D2, or LH claim |
-| `docs/research/LH-RECOVERY-1-final-decision-2026-07-13.md` | Terminal decision for the founder-authorized chain: prerequisite PASS absent, D2 not constructed, parent BLOCKED_NOT_RUN |
+| `product_evals/spine_e2e_4/` | Frozen runner-contract-qualified successor instrument; its one formal local same-boot run is complete and must not be rerun or modified |
+| `docs/research/SPINE-E2E-4-result.md` | Binding fresh frozen PASS for the bounded twelve-task local same-boot recovery-equivalence claim; no autonomy, multi-day, live-provider, or parent-LH claim |
+| `docs/research/LH-RECOVERY-1-final-decision-2026-07-13.md` | Updated chain decision: SPINE prerequisite PASS present, D2 still missing D1/nonces/corpus/oracle, parent OPEN/BLOCKED_NOT_RUN |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:
 research-heavy with SPINE-0 PM-accepted for the bounded local independent-developer golden
@@ -49,7 +51,7 @@ product_architecture: T-P-OS-SPINE-0 PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
 topology: dual-track layered monorepo
 implementation: typed provider patch proposal + exact approval + durable wait/signal/rebind/restart + governed workspace tools/compensation + recovery projection + API/CLI/Task Workspace
 long_horizon_product_slice: LH_PRODUCT_SLICE_E2 / BOUNDED_LONG_HORIZON_LOCAL_SLICE_VERIFIED
-long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1/2/3 FRESH_FROZEN_INVALID_INSTRUMENT; D2 NOT_CONSTRUCTED; LH-RECOVERY-1 BLOCKED_NOT_RUN
+long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1/2/3 IMMUTABLE_INVALID; SPINE-E2E-4 FRESH_FROZEN_PASS_BOUNDED_LOCAL_SAME_BOOT; D2 NOT_CONSTRUCTED; LH-RECOVERY-1 OPEN_BLOCKED_NOT_RUN
 interaction_definition: one Agent Surface; Ask ephemeral; Work durable; governed-action escalation
 organ_definition: provider-neutral LLM + plural task-appropriate world models; CWM optional/evidence-gated
 skill_definition: external compatibility input only; no canonical Skill kernel object
@@ -111,9 +113,11 @@ restart-safe patch compensation and an event-derived recovery projection. Applic
 CLI use the same service/coordinator path.
 
 This is `LH_PRODUCT_SLICE_E2`, a Product implementation label, not the Blueprint's research
-evidence level E2. Fresh frozen `SPINE-E2E-1`, `SPINE-E2E-2`, and `SPINE-E2E-3` each ended
-`INVALID` because of distinct instrument defects; none is PASS or Product NOT_PASS.
-`LH-RECOVERY-1A D2` was not constructed and parent `LH-RECOVERY-1` remains blocked/not run. There is no
+evidence level E2. `SPINE-E2E-1`, `SPINE-E2E-2`, and `SPINE-E2E-3` remain immutable `INVALID`
+instrument evidence. `SPINE-E2E-4` completed one fresh frozen run and independently verified
+the bounded local same-boot twelve-task claim. `LH-RECOVERY-1A D2` is still not constructed
+because D1/nonces/corpus/oracle prerequisites are absent, and parent `LH-RECOVERY-1` remains
+open/blocked/not run. There is no
 background scheduler, 7x24 fleet, multi-hour/day comparison, physical exactly-once claim,
 automatic LLM replan, general loop/parallel/subworkflow runtime, CWM/Belief/AgentSelfModel
 product integration, continual learning or self-evolution evidence.
@@ -129,6 +133,13 @@ qualification receipt, then passed independent review and freeze. Its one formal
 prepare but ended INVALID when its frozen 11-field event consumer rejected the
 pinned runner-emitted 13-field anchor event containing permission-derived source metadata. This is an instrument
 contract mismatch, not Product NOT_PASS. No later phase, D2, or parent LH run followed.
+
+SPINE-E2E-4 replaced the stale handwritten consumer with a runner-exported exact schema,
+generated fixture, real producer canary, typed founder permission binding, and current-asset
+digest guards. Its single formal run completed all five phases with 12/12 PASS, 24 accepted and
+zero rejected provider calls, five valid anchors, a 381.467-second natural expiry interval, and
+no duplicate apply receipt or rescue. This clears only the child SPINE prerequisite; D1 then D2
+remain required, and the parent cannot pass by implication.
 
 ## Strong-Locus Structure Crossover Harness (2026-07-06)
 
