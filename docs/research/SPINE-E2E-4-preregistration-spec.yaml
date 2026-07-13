@@ -1,12 +1,12 @@
 prereg_id: SPINE-E2E-4
-status: PERMISSION_BOUND_NOT_REVIEWED_NOT_FROZEN_NOT_RUN
+status: REVIEW_READY_NOT_FROZEN_NOT_RUN
 schema_version: spine-e2e-4-prereg-v1
 claim_class: deployment-product
 track: product_eval
 experiment_id: SPINE-E2E-4
 run_id: spine-e2e-4-20260713
 builder_id: codex-cto
-reviewed_by: PRE_FREEZE_REVIEWER_UNBOUND
+reviewed_by: kimi-e2e4-independent-reviewer-v1
 target_repo: autonomous-agent-core
 bounded_claim: >-
   On one frozen local same-boot run, the runner-contract-qualified successor
@@ -346,7 +346,6 @@ prefreeze_machine_brake:
   required_before: [mechanism_manifest_review, prereg_review, prereg_architecture_review, prereg_freeze]
   generic_runner_sentinel_awareness: true
   generic_runner_binding: 3a3224a7af7da724d8b6ec82d34ed47d938620e4 recursively rejects PRE_FREEZE_*_UNBOUND and DRAFT_NOT_REVIEWED root status
-  sentinel: PRE_FREEZE_PERMISSION_UNBOUND
   sentinel_or_binding_mismatch: freeze_forbidden
   writes_permission_or_formal_ledgers: false
 
