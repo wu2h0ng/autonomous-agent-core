@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Iterator, Mapping
 
 _SCHEMA = "agent-os-provider-call-ledger-v1"
-_DUMMY_BEARER = "spine-e2e-1-local-dummy"
 _HEX = frozenset("0123456789abcdef")
 _LEDGER_FIELDS = {
     "schema_version",
@@ -176,17 +175,21 @@ class FrozenProviderServer:
         *,
         ledger_path: Path,
         context_sha256: str,
-        expected_bearer: str = _DUMMY_BEARER,
+        expected_bearer: str | None = None,
     ) -> None:
         if not _valid_digest(context_sha256):
             raise ValueError("invalid context_sha256")
-        if not isinstance(expected_bearer, str) or not expected_bearer:
-            raise ValueError("invalid expected_bearer")
         self.bank_path = Path(bank_path)
         self.ledger_path = Path(ledger_path)
         self.context_sha256 = context_sha256
-        self._expected_bearer = expected_bearer
         self._entries = self._load_bank()
+        self._expected_bearer = (
+            self._infer_expected_bearer()
+            if expected_bearer is None
+            else expected_bearer
+        )
+        if not isinstance(self._expected_bearer, str) or not self._expected_bearer:
+            raise ValueError("invalid expected_bearer")
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self.base_url = ""
@@ -236,6 +239,16 @@ class FrozenProviderServer:
             case_ids.add(case_id)
             indexed[digest] = entry
         return indexed
+
+    def _infer_expected_bearer(self) -> str:
+        models = {str(entry["request"]["model"]) for entry in self._entries.values()}
+        if len(models) != 1:
+            raise ValueError("invalid provider model identity")
+        model = models.pop()
+        suffix = "-frozen"
+        if not model.endswith(suffix) or len(model) == len(suffix):
+            raise ValueError("invalid provider model identity")
+        return f"{model[: -len(suffix)]}-local-dummy"
 
     @staticmethod
     def _validate_response(response: object, request: dict[str, object]) -> None:

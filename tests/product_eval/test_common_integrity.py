@@ -55,6 +55,12 @@ FROZEN_BINDINGS: dict[str, str] = {
 
 VALID_CONTEXT = phase_context_sha256(FROZEN_BINDINGS)
 
+QUALIFIED_BINDINGS = {
+    **FROZEN_BINDINGS,
+    "provider_template_sha256": "8" * 64,
+    "qualification_receipt_sha256": "9" * 64,
+}
+
 
 # Helpers ----------------------------------------------------------------------
 
@@ -157,6 +163,25 @@ def test_phase_context_sha256_is_deterministic() -> None:
     b = phase_context_sha256(dict(reversed(list(FROZEN_BINDINGS.items()))))
     assert a == b
     assert len(a) == 64
+
+
+def test_phase_context_sha256_accepts_exact_qualified_instrument_bindings() -> None:
+    assert phase_context_sha256(QUALIFIED_BINDINGS) == canonical_sha256(
+        QUALIFIED_BINDINGS
+    )
+
+
+@pytest.mark.parametrize(
+    "removed",
+    ["provider_template_sha256", "qualification_receipt_sha256"],
+)
+def test_phase_context_sha256_rejects_partial_qualification_binding(
+    removed: str,
+) -> None:
+    bindings = dict(QUALIFIED_BINDINGS)
+    del bindings[removed]
+    with pytest.raises(ValueError, match="invalid context binding schema"):
+        phase_context_sha256(bindings)
 
 
 def test_phase_context_sha256_rejects_caller_selected_digests() -> None:
@@ -1261,6 +1286,6 @@ def test_phase_guard_required_binding_fails_closed(tmp_path: Path) -> None:
         "prepare_started",
         "prepare_failed",
     ]
-    assert json.loads((tmp_path / "prepare.failure.json").read_text())["error_code"] == (
-        "INVALID_WRITE_ONCE"
-    )
+    assert json.loads((tmp_path / "prepare.failure.json").read_text())[
+        "error_code"
+    ] == ("INVALID_WRITE_ONCE")

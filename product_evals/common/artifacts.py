@@ -37,7 +37,7 @@ _ORDINALS = {
     for terminal, suffix in enumerate(("started", "completed"))
 }
 _ACTIVE_LEDGERS = threading.local()
-_REQUIRED_CONTEXT_KEYS = frozenset(
+_LEGACY_CONTEXT_KEYS = frozenset(
     {
         "schema",
         "experiment_id",
@@ -54,6 +54,13 @@ _REQUIRED_CONTEXT_KEYS = frozenset(
         "request_row_sha256",
         "approval_row_sha256",
     }
+)
+_QUALIFIED_CONTEXT_KEYS = _LEGACY_CONTEXT_KEYS | {
+    "provider_template_sha256",
+    "qualification_receipt_sha256",
+}
+_SUPPORTED_CONTEXT_SCHEMAS = frozenset(
+    {_LEGACY_CONTEXT_KEYS, frozenset(_QUALIFIED_CONTEXT_KEYS)}
 )
 
 
@@ -126,7 +133,7 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 def phase_context_sha256(bindings: Mapping[str, str]) -> str:
     if not isinstance(bindings, Mapping) or not bindings:
         raise ValueError("context bindings must be non-empty")
-    if set(bindings) != _REQUIRED_CONTEXT_KEYS:
+    if frozenset(bindings) not in _SUPPORTED_CONTEXT_SCHEMAS:
         raise ValueError("invalid context binding schema")
     if bindings.get("schema") != SCHEMA:
         raise ValueError("invalid context binding schema value")
@@ -683,7 +690,11 @@ class PhaseGuard:
         try:
             records = _read_phases_unlocked(self.path, self.context)
             previous = records[-1].record_sha256
-            if exc is None and self._require_bound_payload and self._bound_payload is None:
+            if (
+                exc is None
+                and self._require_bound_payload
+                and self._bound_payload is None
+            ):
                 exc = ValueError("INVALID_WRITE_ONCE")
                 synthetic_failure = True
             if exc is None:

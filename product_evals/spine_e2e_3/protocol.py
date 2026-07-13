@@ -11,8 +11,8 @@ from typing import Any, Callable, Mapping
 from agent_os_contracts import WorkflowGraph
 from agent_os_core import ConcurrentWriteError, WorkerInterrupted
 
-from product_evals.common.public_surface import normalize_projection
 from .identity import IDENTITY
+from .public_surface import normalize_projection
 
 
 INPUTS = {"target_path": "subject.py", "test_command": "python -m pytest"}
