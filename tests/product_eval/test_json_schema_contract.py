@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 import pytest
 
+from product_evals.common.bank_generator import canonical_json_bytes
 from product_evals.common.json_schema_contract import (
     canonical_schema_sha256,
     normalize_timestamped_record,
@@ -161,16 +162,7 @@ def test_validator_rejects_unsupported_schema_keyword() -> None:
 def test_canonical_schema_sha256_is_order_independent_and_mutation_sensitive() -> None:
     schema = _live_schema()
     reordered = dict(reversed(list(schema.items())))
-    expected = hashlib.sha256(
-        json.dumps(
-            schema,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-        + b"\n"
-    ).hexdigest()
+    expected = hashlib.sha256(canonical_json_bytes(schema)).hexdigest()
 
     assert canonical_schema_sha256(schema) == expected
     assert canonical_schema_sha256(reordered) == expected
@@ -200,3 +192,15 @@ def test_normalization_rejects_non_string_source_evidence_item() -> None:
 
     with pytest.raises(ValueError):
         normalize_timestamped_record(record, schema)
+
+
+def test_normalization_deep_isolates_nested_evidence_lists() -> None:
+    schema = _live_schema()
+    record = _governed_record()
+
+    normalized = normalize_timestamped_record(record, schema)
+    normalized["evidence_refs"].append("normalized-only.md")
+    normalized["source_evidence_refs"].append("normalized-source-only.md")
+
+    assert record["evidence_refs"] == ["quality_report.md"]
+    assert record["source_evidence_refs"] == ["goal_card.md", "quality_report.md"]
