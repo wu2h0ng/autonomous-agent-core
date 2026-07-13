@@ -38,6 +38,7 @@ from agent_os_contracts import (
     WorkflowGraph,
 )
 from agent_os_core import (
+    ConcurrentWriteError,
     DeterministicProvider,
     ReplanRejectedError,
     RunExecutionError,
@@ -161,7 +162,12 @@ def _wait_then_draft_v1(now: datetime) -> WorkflowGraph:
         _evaluate_node(),
         _done_node(),
     )
-    edges = (("read", "wait"), ("wait", "draft"), ("draft", "evaluate"), ("evaluate", "done"))
+    edges = (
+        ("read", "wait"),
+        ("wait", "draft"),
+        ("draft", "evaluate"),
+        ("evaluate", "done"),
+    )
     return _graph("workflow:e2-wait", 1, nodes, edges, now)
 
 
@@ -171,7 +177,9 @@ def _wait_then_patch_v2(now: datetime) -> WorkflowGraph:
     nodes = (
         _read_node(),
         _wait_node(),
-        NodeSpec(node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"),
+        NodeSpec(
+            node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"
+        ),
         NodeSpec(node_id="approve", kind=NodeKind.APPROVAL),
         _apply_node(),
         _tests_node(),
@@ -195,7 +203,9 @@ def _patch_then_verify(now: datetime) -> WorkflowGraph:
 
     nodes = (
         _read_node(),
-        NodeSpec(node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"),
+        NodeSpec(
+            node_id="provider", kind=NodeKind.PROVIDER, capability="provider.chat"
+        ),
         NodeSpec(node_id="approve", kind=NodeKind.APPROVAL),
         _apply_node(),
         _tests_node(),
@@ -213,7 +223,9 @@ def _patch_then_verify(now: datetime) -> WorkflowGraph:
     return _graph("workflow:e2-patch", 1, nodes, edges, now)
 
 
-def _commit(app: AgentOSApplication, now: datetime, workflow: WorkflowGraph, *, goal_id: str) -> str:
+def _commit(
+    app: AgentOSApplication, now: datetime, workflow: WorkflowGraph, *, goal_id: str
+) -> str:
     task = app.create_task(
         {
             "goal_id": goal_id,
@@ -267,7 +279,9 @@ def _commit(app: AgentOSApplication, now: datetime, workflow: WorkflowGraph, *, 
     return task.task_id
 
 
-def _configured(app: AgentOSApplication, provider: DeterministicProvider) -> AgentOSApplication:
+def _configured(
+    app: AgentOSApplication, provider: DeterministicProvider
+) -> AgentOSApplication:
     app.provider = provider
     app.provider_configured = True
     return app
@@ -294,7 +308,10 @@ def _apply_patch_receipts(app: AgentOSApplication, task_id: str) -> list[dict]:
         if event.event_type is not TaskEventType.ACTION_RECEIPT_RECORDED:
             continue
         receipt = event.decoded_payload().get("receipt")
-        if isinstance(receipt, dict) and receipt.get("connector_id") == "workspace.apply_patch":
+        if (
+            isinstance(receipt, dict)
+            and receipt.get("connector_id") == "workspace.apply_patch"
+        ):
             receipts.append(receipt)
     return receipts
 
@@ -396,7 +413,9 @@ def test_a_wait_signal_rebind_reaches_verified(tmp_path: Path) -> None:
     assert proposed.run is not None
     assert proposed.run.status is RunStatus.WAITING_APPROVAL
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
-    second.record_approval(task_id, {"disposition": "APPROVE", "reason": "reviewed rebound patch"})
+    second.record_approval(
+        task_id, {"disposition": "APPROVE", "reason": "reviewed rebound patch"}
+    )
     result = second.run_task(task_id, INPUTS)
 
     assert result.status is TaskStatus.COMPLETED
@@ -437,7 +456,9 @@ def test_a_wait_signal_rebind_reaches_verified(tmp_path: Path) -> None:
     assert recovery["compensation_count"] == 0
     assert recovery["outcome_status"] == "VERIFIED"
     assert recovery["event_sequence"] == events[-1].sequence
-    assert recovery["action_receipt_count"] >= recovery["unique_logical_action_count"] >= 1
+    assert (
+        recovery["action_receipt_count"] >= recovery["unique_logical_action_count"] >= 1
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +468,9 @@ def test_a_wait_signal_rebind_reaches_verified(tmp_path: Path) -> None:
 
 
 def _interrupt_after_bad_patch(tmp_path: Path) -> tuple[Path, str]:
-    _write_workspace(tmp_path, expected_content="expected\n")  # pytest fails for "bad\n"
+    _write_workspace(
+        tmp_path, expected_content="expected\n"
+    )  # pytest fails for "bad\n"
     database = tmp_path / "agent-os.sqlite3"
     now = _now()
     app = _configured(
@@ -459,13 +482,91 @@ def _interrupt_after_bad_patch(tmp_path: Path) -> tuple[Path, str]:
     proposed = app.run_task(task_id, INPUTS)
     assert proposed.run is not None
     assert proposed.run.status is RunStatus.WAITING_APPROVAL
-    app.record_approval(task_id, {"disposition": "APPROVE", "reason": "exercise compensation path"})
+    app.record_approval(
+        task_id, {"disposition": "APPROVE", "reason": "exercise compensation path"}
+    )
 
     # Interrupt after the patch physically lands but before the run reaches a terminal state.
     with pytest.raises(WorkerInterrupted):
         app.run_task(task_id, INPUTS, stop_after_node="apply")
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "bad\n"
     return database, task_id
+
+
+def test_literal_apply_interrupt_keeps_lease_until_natural_expiry(
+    tmp_path: Path,
+) -> None:
+    """The public interruption seam must leave its durable lease fenced."""
+
+    database, task_id = _interrupt_after_bad_patch(tmp_path)
+    fresh = _configured(
+        AgentOSApplication(database=database, workspace=tmp_path),
+        DeterministicProvider(),
+    )
+
+    with pytest.raises(ConcurrentWriteError, match="leased"):
+        fresh.run_task(task_id, INPUTS, recover_stale_lease=False)
+
+
+def test_waiting_approval_normal_return_releases_lease(tmp_path: Path) -> None:
+    _write_workspace(tmp_path, expected_content="after\n")
+    database = tmp_path / "agent-os.sqlite3"
+    now = _now()
+    first = _configured(
+        AgentOSApplication(database=database, workspace=tmp_path),
+        _patch_provider("after\n"),
+    )
+    task_id = _commit(
+        first, now, _patch_then_verify(now), goal_id="goal:e2-lease-return"
+    )
+
+    waiting = first.run_task(task_id, INPUTS)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+
+    fresh = _configured(
+        AgentOSApplication(database=database, workspace=tmp_path),
+        DeterministicProvider(),
+    )
+    replay = fresh.run_task(task_id, INPUTS, recover_stale_lease=False)
+    assert replay.run is not None
+    assert replay.run.status is RunStatus.WAITING_APPROVAL
+
+
+def test_non_interrupt_failure_releases_lease(tmp_path: Path) -> None:
+    _write_workspace(tmp_path, expected_content="expected\n")
+    database = tmp_path / "agent-os.sqlite3"
+    now = _now()
+    first = _configured(
+        AgentOSApplication(database=database, workspace=tmp_path),
+        _patch_provider("bad\n"),
+    )
+    task_id = _commit(
+        first, now, _patch_then_verify(now), goal_id="goal:e2-lease-failure"
+    )
+    waiting = first.run_task(task_id, INPUTS)
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    first.record_approval(
+        task_id, {"disposition": "APPROVE", "reason": "exercise failure lease release"}
+    )
+
+    failed = first.run_task(task_id, INPUTS)
+    assert failed.run is not None
+    assert failed.run.status is RunStatus.FAILED
+
+    fresh = _configured(
+        AgentOSApplication(database=database, workspace=tmp_path),
+        DeterministicProvider(),
+    )
+    # A second public call may fail for the same workflow reason, but must not
+    # be rejected as an active concurrent lease.
+    try:
+        fresh.run_task(task_id, INPUTS, recover_stale_lease=False)
+    except ConcurrentWriteError as exc:  # pragma: no cover - assertion detail
+        pytest.fail(f"ordinary failure leaked its lease: {exc}")
+    except RunExecutionError:
+        pass
 
 
 def test_b_not_met_after_restart_compensates_bad_patch(tmp_path: Path) -> None:
@@ -515,7 +616,9 @@ def test_b_not_met_after_restart_compensates_bad_patch(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_c_c7_blocks_recovery_until_principal_resumes_correction(tmp_path: Path) -> None:
+def test_c_c7_blocks_recovery_until_principal_resumes_correction(
+    tmp_path: Path,
+) -> None:
     database, task_id = _interrupt_after_bad_patch(tmp_path)
 
     restarted = _configured(
@@ -542,7 +645,8 @@ def test_c_c7_blocks_recovery_until_principal_resumes_correction(tmp_path: Path)
     # A manual compensation request is also blocked while C7 is halted; the block
     # produces a fresh COMPENSATION_BLOCKED entry without executing any rollback.
     blocked_count_before_manual = sum(
-        1 for e in restarted.store.read(task_id)
+        1
+        for e in restarted.store.read(task_id)
         if e.event_type is TaskEventType.COMPENSATION_BLOCKED
     )
     restarted.compensate_task(task_id)
@@ -569,25 +673,32 @@ def test_c_c7_blocks_recovery_until_principal_resumes_correction(tmp_path: Path)
         authenticated_at=_now(),
     )
     with pytest.raises(PermissionError, match="principal authority"):
-        restarted.resume_correction(task_id, "worker must not resume correction", principal=worker)
+        restarted.resume_correction(
+            task_id, "worker must not resume correction", principal=worker
+        )
     assert restarted.correction.halted(task_id, run_id, "workspace.compensate_patch")
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "bad\n"
 
     # Only the external principal can resume the correction epoch; governed compensation
     # then restores the original file exactly once through policy/permit/broker.
-    restarted.resume_correction(task_id, "principal resumes correction for governed rollback")
+    restarted.resume_correction(
+        task_id, "principal resumes correction for governed rollback"
+    )
     restarted.compensate_task(task_id)
 
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
     final_events = list(restarted.store.read(task_id))
-    assert sum(e.event_type is TaskEventType.ACTION_COMPENSATED for e in final_events) == 1
+    assert (
+        sum(e.event_type is TaskEventType.ACTION_COMPENSATED for e in final_events) == 1
+    )
 
     # The CORRECTION_WRITTEN audit event produced by resume_correction (halted=False)
     # must precede the governed COMPENSATION_STARTED and ACTION_COMPENSATED in the
     # durable event sequence — proving the correction authority was restored before
     # any rollback could proceed.
     correction_resume_evt = next(
-        e for e in final_events
+        e
+        for e in final_events
         if e.event_type is TaskEventType.CORRECTION_WRITTEN
         and not e.decoded_payload().get("halted", True)
     )
