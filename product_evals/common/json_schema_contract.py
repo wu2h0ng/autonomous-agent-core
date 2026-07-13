@@ -63,7 +63,7 @@ def validate_closed_record(
     record violates any pinned constraint.
     """
 
-    _assert_supported_schema(schema, "$")
+    _assert_supported_schema(schema, "$", is_root=True)
     _validate_value(record, schema, "$")
 
 
@@ -86,21 +86,114 @@ def normalize_timestamped_record(
     }
 
 
-def _assert_supported_schema(node: Any, path: str) -> None:
+def _assert_supported_schema(node: Any, path: str, *, is_root: bool = False) -> None:
     if not isinstance(node, Mapping):
         raise ValueError(f"schema node at {path} is not an object")
     for keyword in node:
         if keyword not in _SUPPORTED_KEYWORDS:
             raise ValueError(f"unsupported schema keyword {keyword!r} at {path}")
+
+    _assert_additional_properties(node, path, is_root)
+    _assert_type_keyword(node, path)
+    _assert_required_keyword(node, path)
+    _assert_enum_keyword(node, path)
+    _assert_min_length_keyword(node, path)
+    _assert_pattern_keyword(node, path)
+
     properties = node.get("properties")
     if properties is not None:
         if not isinstance(properties, Mapping):
             raise ValueError(f"'properties' at {path} is not an object")
         for name, subschema in properties.items():
+            if not isinstance(name, str):
+                raise ValueError(f"'properties' key {name!r} at {path} is not a string")
             _assert_supported_schema(subschema, f"{path}.properties.{name}")
     items = node.get("items")
     if items is not None:
         _assert_supported_schema(items, f"{path}.items")
+
+
+def _assert_additional_properties(
+    node: Mapping[str, Any], path: str, is_root: bool
+) -> None:
+    if is_root and node.get("additionalProperties") is not False:
+        raise ValueError(
+            f"root schema at {path} must explicitly set additionalProperties false"
+        )
+    if "additionalProperties" in node and not isinstance(
+        node["additionalProperties"], bool
+    ):
+        raise ValueError(f"'additionalProperties' at {path} must be a boolean")
+
+
+def _assert_type_keyword(node: Mapping[str, Any], path: str) -> None:
+    if "type" not in node:
+        return
+    declared = node["type"]
+    if isinstance(declared, str):
+        names = [declared]
+    elif isinstance(declared, list):
+        if not declared:
+            raise ValueError(f"'type' list at {path} must be nonempty")
+        names = declared
+    else:
+        raise ValueError(f"'type' at {path} must be a string or list of strings")
+    seen: set[str] = set()
+    for name in names:
+        if not isinstance(name, str):
+            raise ValueError(f"'type' member {name!r} at {path} is not a string")
+        if name not in _JSON_TYPE_CHECKS:
+            raise ValueError(f"unsupported type {name!r} at {path}")
+        if name in seen:
+            raise ValueError(f"'type' list at {path} has duplicate {name!r}")
+        seen.add(name)
+
+
+def _assert_required_keyword(node: Mapping[str, Any], path: str) -> None:
+    if "required" not in node:
+        return
+    required = node["required"]
+    if not isinstance(required, list):
+        raise ValueError(f"'required' at {path} must be a list")
+    seen: set[str] = set()
+    for name in required:
+        if not isinstance(name, str):
+            raise ValueError(f"'required' member {name!r} at {path} is not a string")
+        if name in seen:
+            raise ValueError(f"'required' at {path} has duplicate {name!r}")
+        seen.add(name)
+
+
+def _assert_enum_keyword(node: Mapping[str, Any], path: str) -> None:
+    if "enum" not in node:
+        return
+    enum = node["enum"]
+    if not isinstance(enum, list) or not enum:
+        raise ValueError(f"'enum' at {path} must be a nonempty list")
+
+
+def _assert_min_length_keyword(node: Mapping[str, Any], path: str) -> None:
+    if "minLength" not in node:
+        return
+    min_length = node["minLength"]
+    if (
+        isinstance(min_length, bool)
+        or not isinstance(min_length, int)
+        or min_length < 0
+    ):
+        raise ValueError(f"'minLength' at {path} must be a nonnegative integer")
+
+
+def _assert_pattern_keyword(node: Mapping[str, Any], path: str) -> None:
+    if "pattern" not in node:
+        return
+    pattern = node["pattern"]
+    if not isinstance(pattern, str):
+        raise ValueError(f"'pattern' at {path} must be a string")
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        raise ValueError(f"'pattern' at {path} does not compile: {exc}") from exc
 
 
 def _validate_value(value: Any, schema: Mapping[str, Any], path: str) -> None:
