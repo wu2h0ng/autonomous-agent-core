@@ -37,6 +37,7 @@ class AuthorityBinding:
     request_sha256: str
     approval_sha256: str
     request_id: str
+    requester: str
     action: str
     affected_path: str
     decision: str
@@ -179,6 +180,7 @@ def verify_authority_binding(
             request_sha256=canonical_sha256(request),
             approval_sha256=canonical_sha256(approval),
             request_id=request_id,
+            requester=agent_id,
             action=action,
             affected_path=affected_path,
             decision=approval["decision"],

@@ -67,6 +67,7 @@ def _authority(cli: Any) -> AuthorityBinding:
         request_sha256="1" * 64,
         approval_sha256="2" * 64,
         request_id="permission-e2e4",
+        requester="codex-cto",
         action="team.event.record",
         affected_path=f".agent_runs/{IDENTITY.run_id}/agent_events.jsonl",
         decision="approved_session",

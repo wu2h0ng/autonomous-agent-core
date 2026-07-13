@@ -44,11 +44,16 @@ from product_evals.common.json_schema_contract import (  # noqa: E402
 from product_evals.common.provider_bank import FrozenProviderServer  # noqa: E402
 
 from .identity import IDENTITY  # noqa: E402
+from .prefreeze import (  # noqa: E402
+    PERMISSION_ACTION,
+    PERMISSION_PATH,
+    validate_prefreeze_permission,
+)
 from .qualification import verify_combined_qualification_receipt  # noqa: E402
 
 RUN_ID = IDENTITY.run_id
 EXPERIMENT_ID = IDENTITY.experiment_id
-RUNNER_HEAD = "087f5907cd181c6e071fb24f135292abd9681ca7"
+RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
 RUNNER_WORKTREE_REL = (
     "ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713"
@@ -57,8 +62,6 @@ RUNNER_COMMON_DIR = "ai-agent-engineering-workflow/.git"
 SPEC_REL = f"docs/research/{IDENTITY.experiment_id}-preregistration-spec.yaml"
 PHASES = ("prepare", "interrupt_batch", "probe_active_lease", "resume", "adjudicate")
 ANCHOR_REFS = tuple(f"evaluation/anchor_requests/{phase}.json" for phase in PHASES)
-PERMISSION_ACTION = "team.event.record"
-PERMISSION_PATH = f".agent_runs/{RUN_ID}/agent_events.jsonl"
 _PENDING = hashlib.sha256(
     f"{IDENTITY.experiment_id}-PAYLOAD-PENDING-v1".encode()
 ).hexdigest()
@@ -190,6 +193,14 @@ def _authority_binding(run: FrozenRun) -> AuthorityBinding:
     return binding
 
 
+def _verify_frozen_permission_binding(
+    spec: Mapping[str, Any], authority: AuthorityBinding
+) -> None:
+    """Bind frozen permission bytes to the one currently verified authority."""
+
+    validate_prefreeze_permission(spec.get("permission_binding"), authority)
+
+
 def evaluation_genesis_preflight(run: FrozenRun) -> None:
     """Requalify both producers before any dependency or formal output."""
 
@@ -286,6 +297,7 @@ def resolve_frozen_run() -> FrozenRun:
         action=PERMISSION_ACTION,
         affected_path=PERMISSION_PATH,
     )
+    _verify_frozen_permission_binding(spec, authority)
     bindings = {
         "schema": SCHEMA,
         "experiment_id": EXPERIMENT_ID,

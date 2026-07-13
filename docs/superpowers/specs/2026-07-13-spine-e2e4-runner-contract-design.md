@@ -49,7 +49,7 @@ level: integrity without compatibility.
 ### 3.1 Pinned producer
 
 The successor binds runner branch `codex/team-event-contract-v1-20260713` at exact commit
-`087f5907cd181c6e071fb24f135292abd9681ca7` and invokes it only through its interpreter and CLI.
+`3a3224a7af7da724d8b6ec82d34ed47d938620e4` and invokes it only through its interpreter and CLI.
 No workflow package may be imported into Product or evaluation runtime.
 
 The runner supplies:
@@ -155,4 +155,3 @@ continual learning, self-evolution, AGI, D2, or the parent LH verdict by implica
 - Scope: Product evaluation infrastructure only; no Product runtime or Research Track change.
 - Ambiguity: E2E-3 reuse, post-failure retry, schema open-world acceptance, and cross-repo import
   are explicitly forbidden.
-

@@ -25,7 +25,7 @@ RUNNER_WORKTREE = Path(
     ".worktrees/team-event-contract-v1-20260713"
 )
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
-RUNNER_HEAD = "087f5907cd181c6e071fb24f135292abd9681ca7"
+RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
 RUNNER_PYTHON = Path(
     "/Users/mima1234/Documents/AI-Agent-Projects/ai-agent-engineering-workflow/"
     ".venv/bin/python"

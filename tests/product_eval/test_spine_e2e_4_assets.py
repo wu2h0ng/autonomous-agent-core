@@ -26,7 +26,7 @@ RUNNER_WORKTREE = (
 )
 RUNNER_PYTHON = WORKSPACE_ROOT / "ai-agent-engineering-workflow/.venv/bin/python"
 RUNNER_BRANCH = "codex/team-event-contract-v1-20260713"
-RUNNER_HEAD = "087f5907cd181c6e071fb24f135292abd9681ca7"
+RUNNER_HEAD = "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
 PREDECESSOR_IDENTITY = re.compile(
     rb"(?:spine-e2e-[123]|SPINE-E2E-[123]|spine_e2e_[123]|SPINE_E2E_[123])"
 )

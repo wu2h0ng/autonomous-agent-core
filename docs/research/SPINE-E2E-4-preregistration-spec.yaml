@@ -42,6 +42,7 @@ mechanism:
     - product_evals/spine_e2e_4/coordinator.py
     - product_evals/spine_e2e_4/identity.py
     - product_evals/spine_e2e_4/protocol.py
+    - product_evals/spine_e2e_4/prefreeze.py
     - product_evals/spine_e2e_4/public_surface.py
     - product_evals/spine_e2e_4/qualification.py
     - product_evals/spine_e2e_4/frozen_cases.json
@@ -89,6 +90,7 @@ mechanism:
     - tests/product_eval/test_spine_e2e_4_cli.py
     - tests/product_eval/test_spine_e2e_4_combined_qualification.py
     - tests/product_eval/test_spine_e2e_4_protocol.py
+    - tests/product_eval/test_spine_e2e_4_prefreeze.py
     - tests/product_eval/test_spine_e2e_4_scratch_cli.py
     - pyproject.toml
     - uv.lock
@@ -183,13 +185,13 @@ instrument_qualification:
     - authority_binding.py
     - runner_contract_qualification.py
   receipt_reverification: rerun_provider_and_runner_canaries_and_compare_exact_receipt
-  candidate_combined_receipt_sha256: 0bf0a304dca80672e86365194fb29f1a597066c20714263363205a476a182035
+  candidate_combined_receipt_sha256: 1bfbc6fac71244534866e0397b796433118bfa81e8147143bbcfaf21f24b6978
   candidate_provider_receipt_sha256: 8d899408e439b3c89b3f306783baacb75e863b29ffc946dac1e778939319e6e9
 
 runner_contract_qualification:
   worktree: ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713
   branch: codex/team-event-contract-v1-20260713
-  head: 087f5907cd181c6e071fb24f135292abd9681ca7
+  head: 3a3224a7af7da724d8b6ec82d34ed47d938620e4
   invocation: subprocess_only
   runtime_import: forbidden
   command_exports:
@@ -204,8 +206,8 @@ runner_contract_qualification:
   candidate_authority_semantic_sha256: 7fd0d29b457ba1d23ccacb495b25da11032ef04cd4b88a7485f181e8e5322005
   source_binding:
     json_schema_contract.py: ccb5f302f8f8fd7607eb8a96cdcd879851a8f3fecb8d1b3dfee76de808dfc600
-    authority_binding.py: 65f2a939f1fb9b92e2a9eb4c89da9238d070e7bfb947147e334cb4403f11d7ca
-    runner_contract_qualification.py: 82d5834eabaad418b0f1c7afa65c9c7505a0423b6544c4fd8e1352d0b274b715
+    authority_binding.py: f7c48cad28f2dc53e5c50e90f70fa58dd606b2b1858a1ee7a25e15d49c6aded7
+    runner_contract_qualification.py: 14385a14d458f51616fb2158b80c4af01fa9ea3e734f52faffcbab7245e3616c
   schema_consumer_keywords:
     - $schema
     - title
@@ -299,7 +301,7 @@ runner_binding:
   worktree: ai-agent-engineering-workflow/.worktrees/team-event-contract-v1-20260713
   common_dir: ai-agent-engineering-workflow/.git
   branch: codex/team-event-contract-v1-20260713
-  head: 087f5907cd181c6e071fb24f135292abd9681ca7
+  head: 3a3224a7af7da724d8b6ec82d34ed47d938620e4
   clean_required: true
   invocation: subprocess_only
   runtime_import: forbidden
@@ -321,6 +323,9 @@ permission_binding:
   approval_timestamp: PRE_FREEZE_PERMISSION_UNBOUND
   decision: PRE_FREEZE_PERMISSION_UNBOUND
   decided_by: PRE_FREEZE_PERMISSION_UNBOUND
+  source_decision_id: PRE_FREEZE_PERMISSION_UNBOUND
+  source_goal_id: PRE_FREEZE_PERMISSION_UNBOUND
+  source_decision_type: PRE_FREEZE_PERMISSION_UNBOUND
   exactly_one_request_and_approval: true
   later_conflicting_decision_forbidden: true
   approved_once_forbidden: true
@@ -330,7 +335,20 @@ permission_binding:
     request/approval pair is materialized for this run identity, this section is
     updated with its real request_id, requester, request_row_sha256,
     approval_row_sha256, request_timestamp, approval_timestamp, decision, and
-    decided_by, and the updated spec is independently re-reviewed.
+    decided_by, source_decision_id, source_goal_id, and source_decision_type;
+    the product-side prefreeze validator passes; and the updated spec is
+    independently re-reviewed.
+
+prefreeze_machine_brake:
+  command: >-
+    .venv/bin/python -m product_evals.spine_e2e_4.prefreeze
+    --spec docs/research/SPINE-E2E-4-preregistration-spec.yaml
+  required_before: [mechanism_manifest_review, prereg_review, prereg_architecture_review, prereg_freeze]
+  generic_runner_sentinel_awareness: true
+  generic_runner_binding: 3a3224a7af7da724d8b6ec82d34ed47d938620e4 recursively rejects PRE_FREEZE_*_UNBOUND and DRAFT_NOT_REVIEWED root status
+  sentinel: PRE_FREEZE_PERMISSION_UNBOUND
+  sentinel_or_binding_mismatch: freeze_forbidden
+  writes_permission_or_formal_ledgers: false
 
 phase_protocol:
   order: [prepare, interrupt_batch, probe_active_lease, resume, adjudicate]
@@ -406,6 +424,7 @@ adjudication:
     - INVALID_PERMISSION
     - INVALID_AUTHORITY_BINDING
     - INVALID_INSTRUMENT_QUALIFICATION
+    - INVALID_QUALIFICATION_PATHS
     - INVALID_EVALUATION_GENESIS
     - INVALID_DEPENDENCY_PREFLIGHT
     - INVALID_RUNNER_ANCHOR

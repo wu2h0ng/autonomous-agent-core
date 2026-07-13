@@ -50,7 +50,7 @@ def test_cli_identity_and_runner_are_successor_owned_not_predecessor_copies() ->
 
     assert cli.RUN_ID == IDENTITY.run_id
     assert cli.EXPERIMENT_ID == IDENTITY.experiment_id
-    assert cli.RUNNER_HEAD == "087f5907cd181c6e071fb24f135292abd9681ca7"
+    assert cli.RUNNER_HEAD == "3a3224a7af7da724d8b6ec82d34ed47d938620e4"
     assert cli.RUNNER_BRANCH == "codex/team-event-contract-v1-20260713"
     logical_runner_python = WORKSPACE / "ai-agent-engineering-workflow/.venv/bin/python"
     assert cli.RUNNER_INTERPRETER == logical_runner_python
@@ -61,6 +61,8 @@ def test_cli_identity_and_runner_are_successor_owned_not_predecessor_copies() ->
     assert "event_fields" not in source
     assert "set(row)" not in source
     assert "strict_semantics" not in source
+    assert "PERMISSION_ACTION =" not in source
+    assert "PERMISSION_PATH =" not in source
 
 
 def test_genesis_reverifies_combined_receipt_before_dependencies_or_output(
@@ -108,6 +110,7 @@ def test_formal_authority_is_a_typed_binding_not_a_dictionary(
         request_sha256="a" * 64,
         approval_sha256="b" * 64,
         request_id="permission-request",
+        requester="codex-cto",
         action="team.event.record",
         affected_path=f".agent_runs/{IDENTITY.run_id}/agent_events.jsonl",
         decision="approved_session",
@@ -161,6 +164,7 @@ def test_formal_authority_rejects_non_exact_founder_anchor_scope(
         request_sha256="a" * 64,
         approval_sha256="b" * 64,
         request_id="permission-request",
+        requester="codex-cto",
         action="team.event.record",
         affected_path=f".agent_runs/{IDENTITY.run_id}/agent_events.jsonl",
         decision="approved_session",
@@ -195,6 +199,113 @@ def test_formal_authority_rejects_non_exact_founder_anchor_scope(
 
     with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
         cli._authority_binding(run)
+
+
+def test_resolver_calls_exact_frozen_permission_binding_check() -> None:
+    source = inspect.getsource(_cli().resolve_frozen_run)
+
+    assert "_verify_frozen_permission_binding(spec, authority)" in source
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("request_id", "replacement-request"),
+        ("requester", "replacement-agent"),
+        ("request_row_sha256", "3" * 64),
+        ("approval_row_sha256", "4" * 64),
+        ("request_timestamp", "2026-07-13T00:00:02+00:00"),
+        ("approval_timestamp", "2026-07-13T00:00:03+00:00"),
+        ("decision", "approved_once"),
+        ("decided_by", "replacement-founder"),
+        ("source_decision_id", "replacement-decision"),
+        ("source_goal_id", "replacement-goal"),
+        ("source_decision_type", "replacement-authorization"),
+        ("action", "team.event.other"),
+        ("affected_path", ".agent_runs/replacement/agent_events.jsonl"),
+        ("evidence_refs", ["evaluation/anchor_requests/replacement.json"]),
+    ],
+)
+def test_frozen_permission_binding_rejects_semantically_valid_replacement_rows(
+    field: str, replacement: object
+) -> None:
+    cli = _cli()
+    authority = AuthorityBinding(
+        request_sha256="1" * 64,
+        approval_sha256="2" * 64,
+        request_id="permission-e2e4",
+        requester="codex-cto",
+        action=cli.PERMISSION_ACTION,
+        affected_path=cli.PERMISSION_PATH,
+        decision="approved_session",
+        decided_by="founder",
+        source_decision_id="decision-e2e4",
+        source_goal_id="goal-e2e4",
+        source_decision_type="founder_authorization",
+        evidence_refs=cli.ANCHOR_REFS,
+        request_ts=cli.datetime.fromisoformat("2026-07-13T00:00:00+00:00"),
+        approval_ts=cli.datetime.fromisoformat("2026-07-13T00:00:01+00:00"),
+    )
+    permission = {
+        "action": authority.action,
+        "request_id": authority.request_id,
+        "requester": authority.requester,
+        "affected_path": authority.affected_path,
+        "evidence_refs": list(authority.evidence_refs),
+        "request_row_sha256": authority.request_sha256,
+        "approval_row_sha256": authority.approval_sha256,
+        "request_timestamp": authority.request_ts.isoformat(),
+        "approval_timestamp": authority.approval_ts.isoformat(),
+        "decision": authority.decision,
+        "decided_by": authority.decided_by,
+        "source_decision_id": authority.source_decision_id,
+        "source_goal_id": authority.source_goal_id,
+        "source_decision_type": authority.source_decision_type,
+    }
+    permission[field] = replacement
+
+    with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
+        cli._verify_frozen_permission_binding(
+            {"permission_binding": permission}, authority
+        )
+
+
+def test_frozen_permission_binding_accepts_only_the_exact_typed_binding() -> None:
+    cli = _cli()
+    authority = AuthorityBinding(
+        request_sha256="1" * 64,
+        approval_sha256="2" * 64,
+        request_id="permission-e2e4",
+        requester="codex-cto",
+        action=cli.PERMISSION_ACTION,
+        affected_path=cli.PERMISSION_PATH,
+        decision="approved_session",
+        decided_by="founder",
+        source_decision_id="decision-e2e4",
+        source_goal_id="goal-e2e4",
+        source_decision_type="founder_authorization",
+        evidence_refs=cli.ANCHOR_REFS,
+        request_ts=cli.datetime.fromisoformat("2026-07-13T00:00:00+00:00"),
+        approval_ts=cli.datetime.fromisoformat("2026-07-13T00:00:01+00:00"),
+    )
+    permission = {
+        "action": authority.action,
+        "request_id": authority.request_id,
+        "requester": authority.requester,
+        "affected_path": authority.affected_path,
+        "evidence_refs": list(authority.evidence_refs),
+        "request_row_sha256": authority.request_sha256,
+        "approval_row_sha256": authority.approval_sha256,
+        "request_timestamp": authority.request_ts.isoformat(),
+        "approval_timestamp": authority.approval_ts.isoformat(),
+        "decision": authority.decision,
+        "decided_by": authority.decided_by,
+        "source_decision_id": authority.source_decision_id,
+        "source_goal_id": authority.source_goal_id,
+        "source_decision_type": authority.source_decision_type,
+    }
+
+    cli._verify_frozen_permission_binding({"permission_binding": permission}, authority)
 
 
 def test_cli_parser_dispatches_every_frozen_command_to_one_resolved_run(
