@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -114,7 +115,7 @@ def test_formal_authority_is_a_typed_binding_not_a_dictionary(
         source_decision_id="decision-e2e4",
         source_goal_id="goal-e2e4",
         source_decision_type="founder_authorization",
-        evidence_refs=("evaluation/anchor_requests/prepare.json",),
+        evidence_refs=cli.ANCHOR_REFS,
         request_ts=cli.datetime.fromisoformat("2026-07-13T00:00:00+00:00"),
         approval_ts=cli.datetime.fromisoformat("2026-07-13T00:00:01+00:00"),
     )
@@ -130,12 +131,70 @@ def test_formal_authority_is_a_typed_binding_not_a_dictionary(
 
     assert binding is expected
     assert isinstance(binding, AuthorityBinding)
+    assert binding.decision == "approved_session"
+    assert binding.decided_by == "founder"
+    assert binding.evidence_refs == cli.ANCHOR_REFS
     assert observed == {
         "path": run.run_root,
         "run_id": IDENTITY.run_id,
         "action": "team.event.record",
         "affected_path": expected.affected_path,
     }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing-evidence",
+        "extra-evidence",
+        "reordered-evidence",
+        "non-founder",
+        "non-session-decision",
+    ],
+)
+def test_formal_authority_rejects_non_exact_founder_anchor_scope(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mutation: str
+) -> None:
+    cli = _cli()
+    run = _run(tmp_path)
+    valid = AuthorityBinding(
+        request_sha256="a" * 64,
+        approval_sha256="b" * 64,
+        request_id="permission-request",
+        action="team.event.record",
+        affected_path=f".agent_runs/{IDENTITY.run_id}/agent_events.jsonl",
+        decision="approved_session",
+        decided_by="founder",
+        source_decision_id="decision-e2e4",
+        source_goal_id="goal-e2e4",
+        source_decision_type="founder_authorization",
+        evidence_refs=cli.ANCHOR_REFS,
+        request_ts=cli.datetime.fromisoformat("2026-07-13T00:00:00+00:00"),
+        approval_ts=cli.datetime.fromisoformat("2026-07-13T00:00:01+00:00"),
+    )
+    if mutation == "missing-evidence":
+        invalid = replace(valid, evidence_refs=valid.evidence_refs[:-1])
+    elif mutation == "extra-evidence":
+        invalid = replace(
+            valid,
+            evidence_refs=(
+                *valid.evidence_refs,
+                "evaluation/anchor_requests/extra.json",
+            ),
+        )
+    elif mutation == "reordered-evidence":
+        invalid = replace(valid, evidence_refs=tuple(reversed(valid.evidence_refs)))
+    elif mutation == "non-founder":
+        invalid = replace(valid, decided_by="independent-reviewer")
+    else:
+        invalid = replace(valid, decision="approved_once")
+
+    monkeypatch.setattr(
+        cli, "verify_authority_binding", lambda *args, **kwargs: invalid
+    )
+
+    with pytest.raises(ValueError, match="INVALID_AUTHORITY_BINDING"):
+        cli._authority_binding(run)
 
 
 def test_cli_parser_dispatches_every_frozen_command_to_one_resolved_run(
