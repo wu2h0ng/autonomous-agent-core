@@ -8,6 +8,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping
 
+from agent_os_contracts import WorkflowGraph
 from agent_os_core import ConcurrentWriteError, WorkerInterrupted
 
 from product_evals.common.public_surface import normalize_projection
@@ -36,6 +37,14 @@ _ADJUDICATION_PHASES = (
     "probe_active_lease",
     "resume",
     "adjudicate",
+)
+# Phases completed when the adjudication payload is written (before adjudicate runs).
+# adjudicate must not be claimed here; finalize-result verifies it independently.
+_PAYLOAD_PHASES = (
+    "prepare",
+    "interrupt_batch",
+    "probe_active_lease",
+    "resume",
 )
 _ADJUDICATION_NODES = (
     "read",
@@ -88,6 +97,8 @@ _INTERRUPTED_FIELDS = {
 }
 _CASE_FIELDS = {
     "expected_final_target_sha256",
+    "expected_workflow_sha256",
+    "provider_rejected_attempt_count",
     "unexpected_policy_events",
     "unexpected_correction_events",
     "uninterrupted_terminal",
@@ -218,6 +229,13 @@ def build_case_contracts(
     }
 
 
+def expected_workflow_sha256(
+    case: Mapping[str, Any], contract_time: datetime
+) -> str:
+    payload = build_case_contracts(case, contract_time)
+    return WorkflowGraph.model_validate(payload["workflow"]).canonical_digest()
+
+
 def _projection(application: Any, task_id: str) -> dict[str, Any]:
     application.provider_status()
     return normalize_projection(
@@ -258,11 +276,8 @@ def _prepare_arm(
     )
     if complete:
         terminal = application.run_task(task_id, dict(INPUTS))
-        if (
-            terminal.observed_outcome is None
-            or terminal.observed_outcome.status.value != "VERIFIED"
-        ):
-            raise RuntimeError("uninterrupted arm did not verify")
+        if terminal.observed_outcome is None:
+            raise RuntimeError("uninterrupted arm did not produce an outcome")
     return task_id, _projection(application, task_id)
 
 
@@ -280,6 +295,10 @@ def prepare(
         interrupted_application, payload, complete=False
     )
     return {
+        "contract_time": payload["goal"]["created_at"].isoformat(),
+        "expected_workflow_sha256": WorkflowGraph.model_validate(
+            payload["workflow"]
+        ).canonical_digest(),
         "task_ids": {
             "uninterrupted": uninterrupted_id,
             "interrupted": interrupted_id,
@@ -340,11 +359,8 @@ def resume_spine(
     for task_id in task_ids:
         before = dict(evidence(application, task_id))
         resumed = application.run_task(task_id, dict(INPUTS), recover_stale_lease=False)
-        if (
-            resumed.observed_outcome is None
-            or resumed.observed_outcome.status.value != "VERIFIED"
-        ):
-            raise RuntimeError("resume did not reach VERIFIED")
+        if resumed.observed_outcome is None:
+            raise RuntimeError("resume did not produce an outcome")
         terminal = dict(evidence(application, task_id))
         if terminal["lease_fence"] != before["lease_fence"] + 1:
             raise RuntimeError("resume did not advance the lease fence exactly once")
@@ -353,9 +369,10 @@ def resume_spine(
         if terminal["provider_ledger_sha256"] != before["provider_ledger_sha256"]:
             raise RuntimeError("resume unexpectedly called the provider")
         application.run_task(task_id, dict(INPUTS), recover_stale_lease=False)
-        if dict(evidence(application, task_id)) != terminal:
+        replay = dict(evidence(application, task_id))
+        if replay != terminal:
             raise RuntimeError("terminal replay mutated public state")
-        results.append(terminal)
+        results.append({"resumed_terminal": terminal, "terminal_replay": replay})
     return results
 
 
@@ -499,15 +516,17 @@ def _terminal_product_passes(
     )
 
 
-def _case_verdict(
-    case_id: str, value: Any, expected_workflow: str
-) -> tuple[str, set[str]]:
+def _case_verdict(case_id: str, value: Any) -> tuple[str, set[str]]:
     reasons: set[str] = set()
     if not _exact_mapping(value, _CASE_FIELDS):
         return "INVALID", {f"CASE_SCHEMA:{case_id}"}
     expected_target = value["expected_final_target_sha256"]
+    expected_workflow = value["expected_workflow_sha256"]
     if (
         not _is_sha256(expected_target)
+        or not _is_sha256(expected_workflow)
+        or not _is_integer(value["provider_rejected_attempt_count"])
+        or value["provider_rejected_attempt_count"] != 0
         or not isinstance(value["unexpected_policy_events"], list)
         or not isinstance(value["unexpected_correction_events"], list)
         or value["unexpected_policy_events"]
@@ -613,14 +632,14 @@ def _global_invalid_reasons(payload: Mapping[str, Any]) -> set[str]:
     else:
         if (
             phases["expected_order"] != list(_ADJUDICATION_PHASES)
-            or phases["completed"] != list(_ADJUDICATION_PHASES)
+            or phases["completed"] != list(_PAYLOAD_PHASES)
             or not _is_sha256(phases["context_sha256"])
             or not _is_sha256(phases["boot_id_sha256"])
         ):
             reasons.add("PHASE_DRIFT")
         anchors = phases["runner_anchors"]
         if not isinstance(anchors, Mapping) or set(anchors) != set(
-            _ADJUDICATION_PHASES
+            _PAYLOAD_PHASES
         ):
             reasons.add("RUNNER_ANCHOR_COVERAGE")
         else:
@@ -667,22 +686,11 @@ def adjudicate_spine(payload: Mapping[str, Any]) -> dict[str, Any]:
     else:
         global_reasons.update(_global_invalid_reasons(payload))
         cases = payload["cases"]
-        bindings = payload["bindings"]
-        expected_bindings = (
-            bindings.get("expected") if isinstance(bindings, Mapping) else None
-        )
-        expected_workflow = (
-            expected_bindings.get("workflow_sha256")
-            if isinstance(expected_bindings, Mapping)
-            else ""
-        )
         for case_id in _ADJUDICATION_CASE_IDS:
             if not isinstance(cases, Mapping) or case_id not in cases:
                 reasons.add(f"MISSING_CASE:{case_id}")
                 continue
-            verdict, case_reasons = _case_verdict(
-                case_id, cases[case_id], str(expected_workflow)
-            )
+            verdict, case_reasons = _case_verdict(case_id, cases[case_id])
             case_results[case_id] = verdict
             reasons.update(case_reasons)
     reasons.update(global_reasons)

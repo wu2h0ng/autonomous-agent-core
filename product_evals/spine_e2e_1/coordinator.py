@@ -30,3 +30,4 @@ def run_interrupt_and_probe() -> None:
     subprocess.run(INTERRUPT_COMMAND, check=True)
     subprocess.run(RUNNER_ANCHOR_COMMAND, check=True)
     subprocess.run(PROBE_COMMAND, check=True)
+    subprocess.run(RUNNER_ANCHOR_COMMAND, check=True)

@@ -1133,7 +1133,7 @@ def test_phase_guard_failed_record_has_no_freeform_text(tmp_path: Path) -> None:
     expected_payload = {
         "schema_version": "agent-os-phase-ledger-v1",
         "phase": "prepare",
-        "error_code": "RUNTIME_ERROR",
+        "error_code": "INVALID_INTERNAL_ERROR",
     }
     assert failed.payload_sha256 == canonical_sha256(expected_payload)
     failure_path = tmp_path / "prepare.failure.json"
@@ -1227,3 +1227,40 @@ def test_phase_guard_yields_before_product_side_effects(
         observed.append(records[0].phase)
 
     assert observed == ["prepare_started"]
+
+
+def test_phase_guard_can_bind_a_payload_created_after_start(tmp_path: Path) -> None:
+    ledger = tmp_path / "phases.jsonl"
+    planned = _valid_payload_digest()
+    actual = hashlib.sha256(b"actual-write-once-payload").hexdigest()
+
+    with phase_guard(ledger, "prepare", planned, VALID_CONTEXT) as guard:
+        assert [record.phase for record in read_phases(ledger, VALID_CONTEXT)] == [
+            "prepare_started"
+        ]
+        guard.bind_payload(actual)
+
+    records = read_phases(ledger, VALID_CONTEXT)
+    assert records[-1].phase == "prepare_completed"
+    assert records[-1].payload_sha256 == actual
+
+
+def test_phase_guard_required_binding_fails_closed(tmp_path: Path) -> None:
+    ledger = tmp_path / "phases.jsonl"
+    with pytest.raises(ValueError, match="INVALID_WRITE_ONCE"):
+        with phase_guard(
+            ledger,
+            "prepare",
+            _valid_payload_digest(),
+            VALID_CONTEXT,
+            require_bound_payload=True,
+        ):
+            pass
+    records = read_phases(ledger, VALID_CONTEXT)
+    assert [record.phase for record in records] == [
+        "prepare_started",
+        "prepare_failed",
+    ]
+    assert json.loads((tmp_path / "prepare.failure.json").read_text())["error_code"] == (
+        "INVALID_WRITE_ONCE"
+    )

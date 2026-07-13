@@ -256,6 +256,17 @@ def test_frozen_contracts_are_exact() -> None:
     ]
 
 
+def test_workflow_binding_is_frozen_per_case_not_last_observation() -> None:
+    protocol = _module("product_evals.spine_e2e_1.protocol")
+    cases = json.loads(CASES.read_text(encoding="utf-8"))["cases"][:2]
+    contract_time = datetime(2026, 7, 13, 0, 0, tzinfo=timezone.utc)
+    digests = [
+        protocol.expected_workflow_sha256(case, contract_time) for case in cases
+    ]
+    assert len(set(digests)) == 2
+    assert all(len(digest) == 64 for digest in digests)
+
+
 def test_case_paths_and_database_are_explicit_and_isolated(tmp_path: Path) -> None:
     surface = _module("product_evals.common.public_surface")
     paths = surface.case_arm_paths(tmp_path, "st_reverse", "interrupted")
@@ -503,6 +514,13 @@ def test_real_single_case_prepare_interrupt_and_immediate_probe(tmp_path: Path) 
     server.start()
     try:
         prepared = surface.prepare_case(tmp_path, case, server.base_url, ledger)
+        observed_workflow = prepared["public_evidence"]["uninterrupted"][
+            "projection"
+        ]["task"]["run"]["workflow_digest"]
+        contract_time = datetime.fromisoformat(prepared["contract_time"])
+        assert observed_workflow == protocol.expected_workflow_sha256(
+            case, contract_time
+        )
         paths = surface.case_arm_paths(tmp_path, case["case_id"], "interrupted")
         surface.configure_provider_environment(server.base_url)
         interrupted = surface.open_application(paths.database, paths.workspace)
@@ -601,6 +619,37 @@ def test_interrupt_probe_and_resume_enforce_typed_public_behavior() -> None:
     ]
 
 
+def test_resume_preserves_ordinary_not_met_for_later_adjudication() -> None:
+    protocol = _module("product_evals.spine_e2e_1.protocol")
+    not_met = SimpleNamespace(
+        status=SimpleNamespace(value="COMPLETED"),
+        run=SimpleNamespace(status=SimpleNamespace(value="SUCCEEDED")),
+        observed_outcome=SimpleNamespace(status=SimpleNamespace(value="NOT_MET")),
+    )
+    resume = _ScriptedPublicApp("task:i", [not_met, not_met])
+    frozen = {
+        "status": "ACTIVE",
+        "lease_fence": 1,
+        "action_receipt_count": 1,
+        "workspace_tree_sha256": "after",
+        "provider_ledger_sha256": "provider",
+    }
+    terminal = {
+        **frozen,
+        "status": "COMPLETED",
+        "lease_fence": 2,
+    }
+    evidence = iter((frozen, terminal, terminal))
+    result = protocol.resume_spine(
+        resume,
+        ("task:i",),
+        lambda _application, _task_id: dict(next(evidence)),
+    )
+    assert result == [
+        {"resumed_terminal": terminal, "terminal_replay": terminal}
+    ]
+
+
 def test_protocol_exports_exact_public_phase_seams() -> None:
     protocol = _module("product_evals.spine_e2e_1.protocol")
     for name in ("prepare", "interrupt_batch", "probe_active_lease", "resume_spine"):
@@ -664,7 +713,7 @@ def test_coordinator_commands_and_immediate_order_are_frozen() -> None:
     assert "shell=True" not in source
 
 
-def test_coordinator_runs_three_exact_checked_commands(
+def test_coordinator_runs_four_exact_checked_commands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     coordinator = _module("product_evals.spine_e2e_1.coordinator")
@@ -679,6 +728,7 @@ def test_coordinator_runs_three_exact_checked_commands(
         (coordinator.INTERRUPT_COMMAND, True),
         (coordinator.RUNNER_ANCHOR_COMMAND, True),
         (coordinator.PROBE_COMMAND, True),
+        (coordinator.RUNNER_ANCHOR_COMMAND, True),
     ]
 
 
@@ -849,6 +899,8 @@ def _successful_adjudication_payload() -> dict[str, object]:
         )
         cases[case_id] = {
             "expected_final_target_sha256": target,
+            "expected_workflow_sha256": bindings["workflow_sha256"],
+            "provider_rejected_attempt_count": 0,
             "unexpected_policy_events": [],
             "unexpected_correction_events": [],
             "uninterrupted_terminal": uninterrupted,
@@ -859,13 +911,17 @@ def _successful_adjudication_payload() -> dict[str, object]:
         }
     context = _sha("phase-context")
     boot = _sha("boot-id")
+    # Payload is written before adjudicate runs; completed and runner_anchors
+    # cover only the four pre-adjudication phases.  finalize-result verifies
+    # the adjudicate completion/anchor independently.
+    _payload_phases = [p for p in _ADJUDICATION_PHASES if p != "adjudicate"]
     return {
         "schema_version": "spine-e2e-1-adjudication-input-v1",
         "expected_case_ids": case_ids,
         "bindings": {"expected": bindings, "observed": deepcopy(bindings)},
         "phases": {
             "expected_order": list(_ADJUDICATION_PHASES),
-            "completed": list(_ADJUDICATION_PHASES),
+            "completed": list(_payload_phases),
             "context_sha256": context,
             "boot_id_sha256": boot,
             "runner_anchors": {
@@ -874,7 +930,7 @@ def _successful_adjudication_payload() -> dict[str, object]:
                     "boot_id_sha256": boot,
                     "anchor_sha256": _sha(f"anchor:{phase}"),
                 }
-                for phase in _ADJUDICATION_PHASES
+                for phase in _payload_phases
             },
         },
         "recovery_configuration": [
@@ -911,6 +967,15 @@ def test_adjudicate_spine_passes_only_complete_twelve_case_baseline() -> None:
     assert result["reason_codes"] == []
     assert result["verified_case_count"] == 12
     assert set(result["case_results"].values()) == {"PASS"}
+
+
+def test_adjudicate_spine_rejects_any_provider_rejected_attempt() -> None:
+    payload = _successful_adjudication_payload()
+    case_id = payload["expected_case_ids"][0]
+    payload["cases"][case_id]["provider_rejected_attempt_count"] = 1
+    result = _adjudicate(payload)
+    assert result["verdict"] == "INVALID"
+    assert f"CASE_INSTRUMENTATION:{case_id}" in result["reason_codes"]
 
 
 @pytest.mark.parametrize(

@@ -616,6 +616,7 @@ class PhaseGuard:
         payload: str,
         context: str,
         gates: tuple[ElapsedGate, ...],
+        require_bound_payload: bool,
     ) -> None:
         self.path, self.phase, self.payload, self.context, self.gates = (
             path,
@@ -625,6 +626,17 @@ class PhaseGuard:
             gates,
         )
         self._stack = None
+        self._bound_payload: str | None = None
+        self._require_bound_payload = require_bound_payload
+
+    def bind_payload(self, payload_sha256: str) -> None:
+        """Bind a payload created after the phase's started record."""
+        _require_digest(payload_sha256, "payload_sha256")
+        if self._stack is None:
+            raise ValueError("phase guard is not active")
+        if self._bound_payload is not None:
+            raise ValueError("phase payload already bound")
+        self._bound_payload = payload_sha256
 
     def __enter__(self) -> PhaseGuard:
         from contextlib import ExitStack
@@ -667,9 +679,13 @@ class PhaseGuard:
     def __exit__(
         self, exc_type: object, exc: BaseException | None, traceback: object
     ) -> bool:
+        synthetic_failure = False
         try:
             records = _read_phases_unlocked(self.path, self.context)
             previous = records[-1].record_sha256
+            if exc is None and self._require_bound_payload and self._bound_payload is None:
+                exc = ValueError("INVALID_WRITE_ONCE")
+                synthetic_failure = True
             if exc is None:
                 clock = _validated_sample(self.context)
                 _validate_continuity(records[-1].clock, clock)
@@ -678,7 +694,7 @@ class PhaseGuard:
                     self.path,
                     _new_record(
                         f"{self.phase}_completed",
-                        self.payload,
+                        self._bound_payload or self.payload,
                         self.context,
                         clock,
                         previous,
@@ -700,6 +716,8 @@ class PhaseGuard:
                         f"{self.phase}_failed", digest, self.context, clock, previous
                     ),
                 )
+                if synthetic_failure:
+                    raise exc
         finally:
             self._close()
         return False
@@ -731,10 +749,26 @@ def _validate_continuity(previous: ClockSample, current: ClockSample) -> None:
 
 
 def _error_code(exc: BaseException) -> str:
-    name = type(exc).__name__
-    return "".join(
-        ("_" + char if char.isupper() else char.upper()) for char in name
-    ).lstrip("_")
+    allowed = {
+        "INVALID_GIT_STATE",
+        "INVALID_CONTEXT",
+        "INVALID_BINDING",
+        "INVALID_PERMISSION",
+        "INVALID_RUNNER_ANCHOR",
+        "INVALID_PLATFORM_IDENTITY",
+        "INVALID_TIMING",
+        "INVALID_PARTIAL_PHASE",
+        "INVALID_PROVIDER",
+        "INVALID_PRODUCT_PROTOCOL",
+        "INVALID_WRITE_ONCE",
+        "INVALID_INTERNAL_ERROR",
+    }
+    message = str(exc)
+    if message in allowed:
+        return message
+    if isinstance(exc, FileExistsError):
+        return "INVALID_WRITE_ONCE"
+    return "INVALID_INTERNAL_ERROR"
 
 
 def phase_guard(
@@ -744,7 +778,13 @@ def phase_guard(
     expected_context_sha256: str,
     *,
     elapsed_gates: tuple[ElapsedGate, ...] = (),
+    require_bound_payload: bool = False,
 ) -> PhaseGuard:
     return PhaseGuard(
-        path, phase, payload_sha256, expected_context_sha256, elapsed_gates
+        path,
+        phase,
+        payload_sha256,
+        expected_context_sha256,
+        elapsed_gates,
+        require_bound_payload,
     )
