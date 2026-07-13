@@ -95,7 +95,12 @@ def _runner_contract_value(script: str, payload: object | None = None) -> Any:
     return json.loads(completed.stdout)
 
 
-def _real_runner_event(binding: AuthorityBinding) -> dict[str, Any]:
+def _real_runner_event(
+    binding: AuthorityBinding,
+    *,
+    summary: str = "anchor summary",
+    artifact: str = "evaluation/anchor_requests/prepare.json",
+) -> dict[str, Any]:
     value = _runner_contract_value(
         "import json,sys; "
         "from agent_workflow_runner.team_event_contract import "
@@ -106,8 +111,8 @@ def _real_runner_event(binding: AuthorityBinding) -> dict[str, Any]:
             "event_type": "EVIDENCE_APPENDED",
             "agent_id": "codex-cto",
             "task_id": None,
-            "summary": "anchor summary",
-            "artifact": "evaluation/anchor_requests/prepare.json",
+            "summary": summary,
+            "artifact": artifact,
             "stream_file": None,
             "permission_action": binding.action,
             "approval_request_id": binding.request_id,
@@ -228,10 +233,14 @@ def test_phase_anchor_invokes_closed_schema_consumer_and_typed_authority(
     run = _run(tmp_path)
     binding = _authority(cli)
     observed: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    event = _real_runner_event(binding)
+    expected = {"phase": "prepare"}
+    expected_summary = (
+        f"SPINE_PHASE_ANCHOR phase=prepare request_sha256={canonical_sha256(expected)}"
+    )
+    event = _real_runner_event(binding, summary=expected_summary)
     schema = _real_runner_schema()
     monkeypatch.setattr(cli, "_authority_binding", lambda value: binding)
-    monkeypatch.setattr(cli, "_expected_anchor", lambda *args: {"phase": "prepare"})
+    monkeypatch.setattr(cli, "_expected_anchor", lambda *args: expected)
     monkeypatch.setattr(
         cli,
         "_json_file",
@@ -250,7 +259,24 @@ def test_phase_anchor_invokes_closed_schema_consumer_and_typed_authority(
     assert observed == [(event, schema)]
 
 
-@pytest.mark.parametrize("mutation", ["extra", "missing-source", "duplicate"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "extra",
+        "missing-source",
+        "duplicate",
+        "type",
+        "agent",
+        "summary",
+        "artifact",
+        "evidence",
+        "approval",
+        "permission-action",
+        "source-decision",
+        "source-goal",
+        "source-type",
+    ],
+)
 def test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -259,7 +285,11 @@ def test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event(
     cli = _cli()
     run = _run(tmp_path)
     binding = _authority(cli)
-    event = _real_runner_event(binding)
+    expected = {"phase": "prepare"}
+    expected_summary = (
+        f"SPINE_PHASE_ANCHOR phase=prepare request_sha256={canonical_sha256(expected)}"
+    )
+    event = _real_runner_event(binding, summary=expected_summary)
     rows = [event]
     if mutation == "extra":
         event = {**event, "predecessor_only": True}
@@ -268,11 +298,33 @@ def test_phase_anchor_fails_closed_for_unknown_partial_or_duplicate_event(
         event = dict(event)
         event.pop("source_goal_id")
         rows = [event]
-    else:
+    elif mutation == "duplicate":
         rows = [event, dict(event)]
+    else:
+        field, value = {
+            "type": ("type", "TASK_DONE"),
+            "agent": ("agent_id", "other-agent"),
+            "summary": ("summary", "other summary"),
+            "artifact": ("artifact", "evaluation/anchor_requests/resume.json"),
+            "evidence": (
+                "evidence_refs",
+                ["evaluation/anchor_requests/resume.json"],
+            ),
+            "approval": ("approval_request_id", "other-request"),
+            "permission-action": ("permission_action", "team.event.other"),
+            "source-decision": ("source_decision_id", "other-decision"),
+            "source-goal": ("source_goal_id", "other-goal"),
+            "source-type": ("source_decision_type", "other-type"),
+        }[mutation]
+        rows = [{**event, field: value}]
     monkeypatch.setattr(cli, "_authority_binding", lambda value: binding)
-    monkeypatch.setattr(cli, "_expected_anchor", lambda *args: {"phase": "prepare"})
-    monkeypatch.setattr(cli, "_json_file", lambda path: {"phase": "prepare"})
+    monkeypatch.setattr(cli, "_expected_anchor", lambda *args: expected)
+    schema = _real_runner_schema()
+    monkeypatch.setattr(
+        cli,
+        "_json_file",
+        lambda path: schema if path == run.runner_schema_path else expected,
+    )
     monkeypatch.setattr(cli, "_jsonl", lambda path: rows)
     monkeypatch.setattr(cli, "_verify_runner", lambda *args: None)
     if mutation == "duplicate":

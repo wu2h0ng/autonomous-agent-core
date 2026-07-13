@@ -51,12 +51,15 @@ def test_cli_identity_and_runner_are_successor_owned_not_predecessor_copies() ->
     assert cli.EXPERIMENT_ID == IDENTITY.experiment_id
     assert cli.RUNNER_HEAD == "087f5907cd181c6e071fb24f135292abd9681ca7"
     assert cli.RUNNER_BRANCH == "codex/team-event-contract-v1-20260713"
+    logical_runner_python = WORKSPACE / "ai-agent-engineering-workflow/.venv/bin/python"
+    assert cli.RUNNER_INTERPRETER == logical_runner_python
     source = inspect.getsource(cli)
     assert "spine_e2e_3" not in source
     assert "spine-e2e-3" not in source
     assert "_verify_permission_rows" not in source
     assert "event_fields" not in source
     assert "set(row)" not in source
+    assert "strict_semantics" not in source
 
 
 def test_genesis_reverifies_combined_receipt_before_dependencies_or_output(
