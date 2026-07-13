@@ -1,6 +1,6 @@
 # codebase_index - autonomous-agent-core
 
-> Last updated: 2026-07-12
+> Last updated: 2026-07-13
 > Purpose: fast map from Agent OS product authority and current research state to code, tests, experiments, and ADRs.
 > First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`.
 
@@ -24,6 +24,7 @@
 | `docs/superpowers/plans/2026-07-10-t-p-os-spine-0-p0a-contracts-run-kernel.md` | Executed test-first P0A implementation plan for contracts, WorkflowGraph, event replay and TaskService |
 | `docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md` | Founder-authorized Product Track design for bounded wait/signal/rebind/restart/compensation and event-derived recovery; explicitly not `LH-RECOVERY-1` |
 | `docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md` | Executed multi-agent implementation plan and file-ownership boundary for `T-P-OS-LH-BOUND-1` |
+| `docs/research/SPINE-E2E-1-result.md` | Binding fresh frozen evaluation result: `INVALID` due receipt-accounting instrumentation false positive; no Product failure, PASS, D2 or parent LH run claim |
 
 Repository identity: complete Agent OS main monorepo. Current implementation reality:
 research-heavy with SPINE-0 PM-accepted for the bounded local independent-developer golden
@@ -40,13 +41,13 @@ product_architecture: T-P-OS-SPINE-0 PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
 topology: dual-track layered monorepo
 implementation: typed provider patch proposal + exact approval + durable wait/signal/rebind/restart + governed workspace tools/compensation + recovery projection + API/CLI/Task Workspace
 long_horizon_product_slice: LH_PRODUCT_SLICE_E2 / BOUNDED_LONG_HORIZON_LOCAL_SLICE_VERIFIED
-long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; LH-RECOVERY-1 NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN
+long_horizon_evidence_scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY; SPINE-E2E-1 FRESH_FROZEN_INVALID_INSTRUMENT; LH-RECOVERY-1 BLOCKED_NOT_RUN
 interaction_definition: one Agent Surface; Ask ephemeral; Work durable; governed-action escalation
 organ_definition: provider-neutral LLM + plural task-appropriate world models; CWM optional/evidence-gated
 skill_definition: external compatibility input only; no canonical Skill kernel object
 research_source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
 research_stage: reconciled open-world + IGI organ-stack/CWM lines; exact verdicts in CURRENT_STATE
-product_tests: 166 passed, 1 skipped; ruff clean; pyright 0 errors
+product_tests: 407 passed, 1 skipped; ruff clean on candidate 8bd5aec
 full_tests_historical_baseline_not_rerun_on_branch: 1321 passed, 14 skipped, 5 subtests passed
 product_claim_from_tests: SPINE-0 plus bounded local long-horizon acceptance only; no multi-hour/day advantage, 7x24 autonomy, physical exactly-once, LH-RECOVERY-1, Codex parity, Blueprint completion or superiority
 ```
@@ -84,7 +85,8 @@ Do not use older references that say the current stage is P1, P2, P3, or P4. The
 | `tests/product/test_e2_long_horizon_recovery.py` | Claude-authored three-scenario local composition-root acceptance: verified wait/rebind, NOT_MET compensation and C7-governed recovery |
 | `tests/product/test_public_long_horizon_negative_paths.py` | OpenCode-authored real HTTP/CLI SQLite persistence, idempotency, scope, late-signal and replan-budget negative paths |
 | `tests/product/test_rebind_partial_evidence_regression.py` | Kimi-authored real tool interruption/rebind regression for node/action binding and authoritative evidence filtering |
-| `tests/product/` | 166 Product Track contract, execution, security, provider, API, persistence and recovery tests; one live-provider test skipped by default |
+| `product_evals/spine_e2e_1/` | Fresh frozen SPINE evaluation protocol and CLI; first run preserved `INVALID` because total action-receipt accounting falsely classified a normal tests receipt as duplicate apply |
+| `tests/product/` | Product Track contract, execution, security, provider, API, persistence and recovery tests; candidate-wide Product plus product-eval verification passed 407 with one live-provider skip |
 
 SPINE-0 is accepted only for the local, single-workspace, one-file replacement path with an
 allowlisted verifier. Production KMS/SSO/tenancy, general coding-agent execution, arbitrary
@@ -100,7 +102,9 @@ restart-safe patch compensation and an event-derived recovery projection. Applic
 CLI use the same service/coordinator path.
 
 This is `LH_PRODUCT_SLICE_E2`, a Product implementation label, not the Blueprint's research
-evidence level E2. `LH-RECOVERY-1` is `NOT_PREREGISTERED_NOT_FROZEN_NOT_RUN`. There is no
+evidence level E2. Fresh frozen `SPINE-E2E-1` ended `INVALID` because its protocol counted a
+normal tests receipt as a duplicate apply receipt; it is neither PASS nor Product NOT_PASS.
+`LH-RECOVERY-1A D2` was not constructed and parent `LH-RECOVERY-1` remains blocked/not run. There is no
 background scheduler, 7x24 fleet, multi-hour/day comparison, physical exactly-once claim,
 automatic LLM replan, general loop/parallel/subworkflow runtime, CWM/Belief/AgentSelfModel
 product integration, continual learning or self-evolution evidence.
