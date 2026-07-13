@@ -119,7 +119,7 @@ def _emit_live_event(workspace: Path, *, run_id: str) -> dict[str, Any]:
         "--request-id",
         request_id,
         "--decision",
-        "approved_once",
+        "approved_session",
         "--decided-by",
         "founder",
         "--note",
