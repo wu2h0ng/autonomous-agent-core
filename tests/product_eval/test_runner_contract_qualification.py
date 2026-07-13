@@ -11,6 +11,7 @@ from typing import Any, Mapping
 
 import pytest
 
+from product_evals.common.artifacts import canonical_sha256
 from product_evals.common.bank_generator import canonical_json_bytes
 from product_evals.common.json_schema_contract import (
     canonical_schema_sha256,
@@ -79,7 +80,7 @@ def _authority_semantic_sha256(run_root: Path) -> str:
         normalized = {key: value for key, value in rows[0].items() if key != "ts"}
         normalized["request_id"] = VERIFIED_REQUEST_ID_MARKER
         projection[name] = normalized
-    return hashlib.sha256(canonical_json_bytes(projection)).hexdigest()
+    return canonical_sha256(projection)
 
 
 def _rewrite_single_jsonl(path: Path, mutate: Any) -> None:
