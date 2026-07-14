@@ -965,6 +965,11 @@ def run(app, case) -> app.task_json():
 """,
         """
 def run(app, case):
+    claimed_call: app.run_task(case.case_id)
+    return case.requirement_v2
+""",
+        """
+def run(app, case):
     app.run_task(case.case_id)
     match case.prompt:
         case _:

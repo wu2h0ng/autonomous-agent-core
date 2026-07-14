@@ -837,6 +837,8 @@ def validate_public_protocol_source(source: str) -> tuple[str, ...]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             violations.append("IMPORT_FORBIDDEN")
+        if isinstance(node, ast.AnnAssign):
+            violations.append("ANNOTATIONS_FORBIDDEN")
         if isinstance(node, ast.Match):
             violations.append("MATCH_FORBIDDEN")
         if isinstance(node, ast.Lambda):
