@@ -3,7 +3,7 @@
 > 日期：2026-07-10
 > Track：Product
 > 状态：外部参考研究；形成架构建议，但不直接授权实现
-> 本地权威：`docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+> 当前产品权威：`docs/AGENT-OS-PRODUCT-BLUEPRINT.md`。本文件是 2026-07-10 来源研究，不覆盖当前蓝图或状态。
 > 产品事实：SPINE-0 仅在受限的本地独立开发者路径通过 PM 验收
 
 ## 1. 核心结论

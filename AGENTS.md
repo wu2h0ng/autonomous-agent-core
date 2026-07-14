@@ -1,90 +1,111 @@
-# AGENTS.md — Agent OS monorepo 智能体工作指令(权威版)
+# AGENTS.md — Agent OS Monorepo Instructions
 
-## 0. Current State First
+> Status: `ACTIVE`
+> Version: 2.0
+> Updated: 2026-07-14
+> Scope: `autonomous-agent-core/` Product Track 与 Research Track
 
-Before broad reading, read `docs/CURRENT_STATE.yaml`. It is the live handoff anchor for branch, implementation state, research verdicts, test count, ADR status and next task. Then read `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` for product authority. Static state summaries elsewhere are non-authoritative.
+## 1. Read current truth first
 
-Minimal read order for agent handoff:
+最小顺序：
 
 1. `docs/CURRENT_STATE.yaml`
-2. `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+2. `docs/AGENT-OS-PRODUCT-BLUEPRINT.md`
 3. `docs/PROJECT_PLAN.md`
 4. `codebase_index.md`
-5. ADRs/tests/code named by those files
+5. 当前状态直接引用的 ADR/RR/spec/result/review 与相关代码
 
-任何 AI agent(Claude 或其他)在本仓库工作前必须读完本文件。Claude Code 另见 `CLAUDE.md`(指回本文件并补充平台细节)。
+先比较 `CURRENT_STATE.updated`、live Git HEAD/working tree 和更新日期更晚的 durable decision。静态 README、计划和历史摘要不能覆盖 CURRENT_STATE；原始 prereg/result verdict 也不能被新叙事覆盖。
 
-## 1. 本仓库是什么
+## 2. Repository identity
 
-本仓库是完整 **Agent OS 产品主仓**，采用 Product Track + Research Track 的双轨分层 monorepo。历史目录目前主要承载通用智能机制研究；后续产品应用、包、domain packs 与研究候选在同仓演化，但有严格的真值和依赖边界。
+本仓是 Agent OS 产品主仓，采用隔离的双轨架构：
 
-- Product Track = 统一 Agent Surface、Ask/Work 路由、Task Workspace、WorkflowGraph、运行时、provider/BYOK、插件、知识/RAG、agent/subagent、治理、eval、SDK 与 domain packs。
-- Research Track = CWM、belief/action、belief ledger、outcome learning、corrigibility、形式化模型、预注册实验和负结果。
-- `domain_packs/data_agent` = 目标中的首个企业垂直；现有外部 Data OS 仓只作
-  ADR-0054 / SPINE-1 迁移来源。SPINE-0 不依赖 donor；任何阶段都禁止 runtime
-  cross-import。
-- `ai-agent-engineering-workflow` = 内部研发治理，不是产品运行时。
+- Product Track：统一 Agent Surface、Ask/Work、Task Workspace、typed contracts、Runtime/authority/evidence/correction、provider、knowledge、eval、SDK 和 domain packs。
+- Research Track：通用认知、世界模型、belief-action coupling、corrigibility、持续适应与核心演化候选的形式化、证伪和负结果。
+- Agent Core：内部 Runtime/Kernel，不是产品名。
+- Data Agent：第一个企业 domain pack；ADR-0054/SPINE-1 未执行前仍在外部 donor 仓物理独立运行。
 
-产品定义以 `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` 为准。研究宪法和历史证据仍由 baseline 工作区 RR 文档、本仓 ADR、结果文件及 `docs/CURRENT_STATE.yaml` 约束。Blueprint 不改写实验结论。
+双轨共仓不等于证据混合。产品代码不能直接 import 研究实验实现；研究结果必须经 `ResearchCandidateManifest`、稳定接口、held-out 产品门和独立 promotion decision 才可能晋升。
 
-## 2. 不可协商约束(宪法,违反即返工)
+## 3. Non-negotiable boundaries
 
-1. **罩的分离**:`CorrigibilityShell` 的 `op_*` 方法是外部主权面。Agent/策略/环境代码路径**永不**调用 `op_*`;不得给 Agent 添加任何能清除暂停、放宽禁令、改写审计的方法。测试必须持续断言这一点。
-2. **LLM 无无类型最终权限**:Product Track 可让 LLM 参与语义理解、规划、生成与验证，但模型输出必须通过 typed contract、capability policy 与 outcome/eval 路径；不得直接成为高后果命令。Research Track 已冻结实验继续遵守其原始 LLM 边界。
-3. **OS Core 零领域耦合**:通用产品包不得内置指标、SQL、电商等领域语义；业务语义只能进入 `domain_packs/`、插件或连接器。
-4. **无跨仓运行时 import**:外部仓库不能成为本产品运行时的隐式依赖。ADR-0054
-   仅授权 SPINE-0 验收后的一次 history-safe Data Agent 迁移：full-history scan 必须
-   在 import 前 `PASS`，否则 filtered mirror 或 `ABORT`。它不授权 runtime import、
-   双向同步、push/merge 或任何其他跨仓搬运。Research Track 也不得被 Product Track
-   直接 import；机制晋升必须经过 Blueprint 的 `ResearchCandidateManifest` 和产品复验。
-5. **证伪纪律(Research Track 最高工程纪律)**:每个实验的通过门在跑之前预注册；**绝不**为让门变绿而调机制；负结果如实记录进 ADR/RR，与正结果同等待遇。Product Track 的功能测试不得反向证明研究主张。
-6. **Stake-first 是研究约束,不是全产品效用公理**:受该承诺约束的历史机制必须保留推导链；产品层同时显式建模用户目标、政策、成本、SLO、风险与结果，不得强行把所有价值压成代谢变量。
-7. **测试按轨分层**:确定性机制用单元测试，研究比较用冻结实验；产品能力必须有真实入口、失败路径、集成测试和端到端验收。任何一层的绿灯不得替代另一层。
-8. **C7 靠隔离而非不可知**:更正/暂停/权限边界必须 non-writable、non-bypassable、可审计；不得把“agent 无法建模 C7”当安全假设。
-9. **凭据和租户数据隔离**:API key、OAuth token、企业敏感数据不得进入 prompt、事件、日志或模型可见记忆；只通过受保护的 `CredentialRef`/broker 使用。
-10. **CWM 非普适默认大脑**:产品使用复数、任务适配的世界模型；CWM 只在变量、干预与结果可识别时作为候选规划/验证器官。Research Track 结果未经产品对照复验不得写成内置产品能力。
-11. **Skill 非内核对象**:第三方 `SkillPackage` 仅为兼容输入，必须拆解为 typed Capability、Workflow/Procedure 候选、Knowledge 依赖与 Policy 要求后再经扫描、测试和发布。核心合同不得授予 Prompt/Skill 名称执行权。
-12. **Agent 表面与权威面分离**:用户面对一个统一 Agent；LLM 是 provider-neutral 概率型语言/推理器官。所有有后果动作仍由 `CapabilityBroker`、确定性 Policy/Disposer 与 non-writable/non-bypassable C7 把关。
+1. C7 是 non-writable、non-bypassable 的外部纠正权威；Agent 不得调用、模拟或清除 `op_*` 主权面。
+2. LLM/learned component 只能提议、规划、生成或验证；高后果动作必须经过 typed contract、CapabilityBroker/policy/disposer、evidence/trace 和 C7。
+3. OS Core 零 Data Agent 领域耦合；Metric、SemanticObject、DataProduct、SQL 和业务动作只进入 domain pack/adapter。
+4. CWM 不是默认万能脑；只在变量、干预和结果可识别的任务中作为候选世界模型器官。
+5. 外部 `Skill` 不是内核对象；先编译为 Capability、Procedure/Workflow candidate、Knowledge、Credential 与 Policy requirements。
+6. Agent OS 的 task state、authority/disposer、evidence/outcome、correction 和 promotion core 必须自研，不能外包给 Agent framework。
+7. 不得存储 secret、token、cookie、credential、敏感客户原始数据或让其进入模型可见记忆/日志。
+8. 禁止跨仓 runtime import/copy。ADR-0054 只允许 G0-G7 通过后的单次 history-safe migration，不授权预先 import、双向同步、push 或 merge。
+9. 产品、研究、开发流程和商业证据分别记账，禁止相互回填。
+10. 不得用 module existence、mock、constant-return test、局部 fixture 或绿灯包装能力完成。
 
-## 3. 命令
+## 4. Product Track flow
+
+```text
+Goal/Context
+  -> architecture/contract/security gate when applicable
+  -> failing or bypass-detecting test
+  -> implementation
+  -> unit/integration/e2e/eval
+  -> independent review
+  -> release authorization
+  -> CURRENT_STATE/index update
+```
+
+每项能力必须说明公共入口、typed contract、失败路径、集成点、Trace/Evidence/Outcome、权限、rollback/compensation 和证据等级。分别使用 `specified / implemented / tested / integrated / verified / released / generally validated`。
+
+Product Track 可按 ADR 使用成熟 UI、数据库、队列、模型 SDK、身份和 observability 依赖，但不得削弱 authority spine 或把研究控制变量误当永久产品栈。
+
+## 5. Research Track flow
+
+先遵守根仓 `docs/OPERATING-TRACKS.md`、Paradigm Innovation Loop 和 RR-0029，再进入 ADR/formal/algorithm/prereg/implementation。
+
+硬规则：
+
+- freeze before result-bearing run；
+- builder/reviewer 身份分离，review 必须绑定实际内容；
+- 不为过门修改机制、门、baseline、环境、轴、指标或种子；
+- post-hoc winner 只能在 disjoint fresh seeds/held-out tasks 上另立确认门；
+- `NOT_MET`、`INVALID`、`INCONCLUSIVE` 原样保留；
+- 无强 cheap baseline、消融、功效和失败分布时不得升级研究主张；
+- 自主主张使用 `Autonomy(S,E,O,V,T)`，G10 等局部结果不等于自主。
+
+当前核心演化边界：L0-L3 外部候选生成/隔离实现/训练/测试允许；L4 活跃 Runtime 自改关闭；L5 C7、权限、审计、评估和 promotion root 自改禁止。
+
+## 6. Verification entry points
+
+Research Track 基础门：
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -v   # 全量测试(必须全绿才能提交)
-PYTHONPATH=src python experiments/regime_shift.py         # 证伪测量(报告用)
-python3 -m pytest tests/product -q                        # Product Track
-ruff check packages/contracts/src packages/os_core/src tests/product
-pyright
+PYTHONPATH=src python -m unittest discover -s tests
+```
+
+Product Track 基础门：
+
+```bash
+uv run --extra product-test pytest tests/product -q
+uv run --extra product-test ruff check apps packages/contracts/src packages/os_core/src tests/product
+uv run --extra product-test pyright apps packages/contracts/src packages/os_core/src tests/product
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/contracts
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/os_core
 ```
 
-PowerShell: `$env:PYTHONPATH="src"; python -m unittest discover -s tests -v`
+这些是基础门，不自动证明 production readiness、market parity、Blueprint completion、SPINE-1 或研究晋升。实际任务还需运行任务包/CI 指定的 integration、security、e2e 和 receipt 验证。
 
-## 4. 工程流程
+## 7. Founder-reserved decisions
 
-```text
-选 Product/Research Track → 读对应任务卡 → 写失败测试/验收 → 实现
-→ 轨内验证 → 检查跨轨与产品/研究主张边界 → 更新 CURRENT_STATE/索引 → PR/评审
-```
+Agent 可设计与建议，但以下事项不能自行授权：C1-C7/SD4 移动、预注册门变更、medium/high-risk 路线选择或复活、高后果权限开放、research-to-product promotion、Agent OS 产品身份变化、ADR-0054 执行/迁移、外部发布、付费和 merge/release。
 
-Research Track 涉及机制/门/边界时先写或更新 ADR，继续遵守 freeze-before-run。Product Track 涉及 contract、provider、credential、plugin、knowledge、policy、action 或 outcome 时必须做架构/安全评审。技术栈与当前研究编码规范见 `ENGINEERING.md`；总体顺序见 `ROADMAP.md`。
+## 8. Completion and Git
 
-## 5. 自主决策协议(founder 已授权,见 ADR-0003)
+交付前：
 
-路线级决策由 agent 辩论(可用 decision-referee / technical-architect 等子 agent 或结构化自我批判)→ 对照 founder 决策倾向画像(`docs/PROJECT_PLAN.md` §2)→ 自审 → 拍板 → 记录 ADR(含反方意见)。
+- 运行目标验证并报告精确结果；
+- 检查产品/研究/流程主张边界；
+- 更新最小权威文档集；
+- `git status --short`，区分本任务与既有改动；
+- 报告未提交、提交、推送、PR 和 merge 状态。
 
-**保留给 founder 的决策**(agent 只可建议,不可代拍):修改 C1–C7 或任何预注册门判据；改变 Blueprint 产品身份/双轨边界；开放新的高后果执行权限；修改更正/权限安全基底；跨仓迁移或依赖边界变更；花钱/对外发布；对任一核心研究主张下“最终失败”结论。Founder 已通过 ADR-0054 对一次 Data Agent 迁移给出窄授权，但执行、push 和 merge 仍受该 ADR 的独立门约束；任何扩张需新 founder ADR。
-
-## 6. 完成门(任务交付前自查)
-
-- 真实入口调用了新代码;有失败路径测试;全量测试绿。
-- 机制变更有 ADR;实验结果(无论正负)已记录。
-- codebase_index.md 已更新;罩分离断言未被削弱。
-- 未为过门而调机制(自我声明写进 PR)。
-- Product Track 变更说明用户入口、typed contract、权限/凭据、可观测性、outcome 验证和回滚路径。
-- Product Track P0A 当前只证明 minimum strict contract shapes、结构化 graph 校验与
-  event-replayed TaskService；`InMemoryTaskEventStore` 不得写成 process durability。
-  Commitment budget/expiry、outcome failure semantics、完整 executable-graph 规则、
-  queued durable run、PostgreSQL、provider/credential、policy/correction、
-  capability/tool 和 public surfaces 均未实现。
-- 结论明确标注为产品实现、研究结果或内部流程，禁止互相回填。
+未经明确授权不得推送 `main/master` 或合并。Runtime、contract、安全、研究门和跨仓变更默认走 feature branch + 独立 review。

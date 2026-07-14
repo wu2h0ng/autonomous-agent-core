@@ -5,7 +5,7 @@
 - Deciders: founder (explicit Option B and review-remediation approval), delegated CTO
 - Claim class: `product-architecture` / `repository-migration`
 - Target track: Product Track
-- Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+- Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT.md`
 - Spine authority: `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`
 - Migration authority: `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
 - Satisfies: parent Hard Boundary #19 requirement for a founder/CTO-approved cross-repository ADR

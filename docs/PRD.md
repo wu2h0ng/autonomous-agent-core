@@ -1,50 +1,148 @@
-# PRD — Research Track historical requirements
+# Agent OS Product Requirements
 
-- Status: Active within Research Track; not product authority
-- Date: 2026-07-10
-- Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
-- 性质: 本文保留研究原型的历史需求和证伪门。Agent OS 的用户、功能、架构和验收以 Product Blueprint v1 为准。
+> Status: `ACTIVE / PRODUCT REQUIREMENTS`
+> Version: 2.0
+> Updated: 2026-07-14
+> Product authority: `AGENT-OS-PRODUCT-BLUEPRINT.md`
+> Live delivery status: `CURRENT_STATE.yaml`
 
-## 1. 愿景与定位
+## 1. Product objective
 
-本研究轨探索 RR-0001 v2 定义的若干候选机制：有利害、重新框定、可纠正和器官非主体。它们是 Agent OS 的研究资产，不等于完整产品，也不自动构成通用自主智能证明。Agent OS 在同一仓库直接演化；Data Agent 是首个企业 domain pack，不是 autonomy 降权后的另一个终局产品。
+Agent OS must turn a goal into durable, inspectable and governed work across models, tools, data and time, then bind completion to evidence and observed outcomes.
 
-## 2. 用户
+It must reduce repeated human supervision without transferring final authority or correction power to a model, plugin, subagent or learned procedure.
 
-- 本文的使用者: founder、Research Track 实现者和独立评审者。
-- 产品用户: 个人、独立开发者和企业团队，见 Product Blueprint §1。
+## 2. Primary users
 
-## 3. 需求 = 四条主张(与验收门)
+- Individuals managing multi-step personal/research/creative work.
+- Developers changing repositories through reviewable, testable actions.
+- Enterprise teams using domain packs such as Data Agent.
+- Operators administering identity, providers, capabilities, policy and incidents.
+- Domain builders adding semantics and workflows without forking Agent Core.
 
-| # | 主张 | 验收 | 状态 |
-|---|---|---|---|
-| 1 | 利害是真的:无任务奖励,规范性源于代谢预算 | 机制实现 + (待)消融证明其增益 | 实现,增益未消融 |
-| 2 | 相关性实现:相关线索集合漂移时能重新框定 | 门 G1(ADR-0002,预注册) | **v0 证伪,P1 重做** |
-| 3 | 可纠正不抵抗:观测/暂停/回滚/收紧,无自解除 | 持续性测试断言(已有 4 项) | 已演示,持续护栏 |
-| 4 | 器官非主体:控制路径无 LLM | 结构断言 + P4 接入后不削弱 | 结构成立 |
+## 3. Required user outcomes
 
-## 4. 非目标(v0–P3 明确不做)
+### R1 — Start correctly
 
-本历史实验包内不做业务语义、真实执行器、多进程产品运行时、ρ 自调、绘图/重依赖或数学层面的对齐保证。该边界只约束对应 Research Track 实验，不是 Agent OS 产品非目标。
+The user can enter through one Agent Surface. The system explains whether a request remains ephemeral `Ask` or becomes durable `Work`. Consequential or long-running work cannot remain in a bypassing chat path.
 
-## 5. 约束(继承 RR-0001 v2 承诺)
+### R2 — Commit before acting
 
-C1 代谢险境为主险境;C2 行动导向温和表征;C3 EFE 只作打分结构;C4 相关性=可测控制;
-C5 有界根茎(P3);C6 LLM/世界模型=器官;**C7 罩为唯一钉死元固定点(凌驾一切)**。
-Stake-first lint 规则:一切效用须可推导至本质变量。
+Work records a goal, constraints, expected outcome, authority scope and workflow before consequential effects. Material changes create versioned commitments rather than rewriting history.
 
-## 6. 成功度量(研究北极星)
+### R3 — Execute through typed capabilities
 
-1. G1–G4 逐门通过(或诚实证伪后按协议改道,改道也算研究成功);
-2. 每个机制都有消融体与负结果记录——**零"未检验即发版"的机制**;
-3. 罩演练零抵抗记录连续保持;
-4. 候选机制只有在 Product Blueprint 的 promotion contract 和真实 workflow 对照测试通过后，才可进入产品包。
+Models and workflows propose typed capability calls. Consequential effects compile into exact `ActionContract`s and pass deterministic policy/disposer checks. Untyped model text never becomes direct authority.
 
-## 7. 风险
+### R4 — Survive failure and time
 
-| 风险 | 缓解 |
+Task/Run state is durable. The system supports typed failure, retry, lease recovery, idempotency, effect reconciliation and resumption without duplicate committed side effects.
+
+### R5 — Prove outcomes
+
+Completion binds `ObservedOutcome` to `ExpectedOutcome`, evidence, evaluator version and artifacts. Self-reported success, UI state or a green mock does not complete work.
+
+### R6 — Remain correctable
+
+An external principal can inspect, pause, correct, tighten, reject, compensate, roll back or halt. C7 dominates every model, tool, workflow, subagent and learned artifact.
+
+### R7 — Learn without self-authorizing
+
+Verified outcomes may update context, beliefs, rankings and learned-procedure candidates. Updates are versioned, correctable, evaluated on held-out tasks and promoted externally; they cannot expand their own authority or rewrite their evaluator.
+
+### R8 — Support domain depth
+
+Domain packs can add contracts, connectors, evaluators, policy defaults, knowledge and UI extensions without moving domain semantics into Agent Core or forking the authority spine.
+
+## 4. Functional requirements
+
+| Area | Required behavior |
 |---|---|
-| 机制被调成"过门"(最大风险) | 预注册 + PR 证伪声明 + ADR 留痕;评审专查 |
-| 沙盒结论不外推 | 每阶段升问题难度;P5 投影试点做外部效度 |
-| 主张 2 在该问题类上本就不成立 | G1 失败时按 ADR-0003 协议公开改道,不硬救 |
-| 罩分离被无意削弱 | tests/test_corrigibility.py 永不删减,只增 |
+| Agent Surface | Explainable Ask/Work routing; visible escalation and authority requirements |
+| Task Workspace | Goal, commitments, graph, state, evidence, approvals, artifacts, failures and outcomes |
+| Runtime | Durable events, deterministic transitions, leases, retry, recovery, idempotency and compensation |
+| Providers | Provider-neutral registry/routing, safe CredentialRef, connection health and bounded failure |
+| Capabilities | Typed schema, risk/effect metadata, scopes, policy and invocation receipts |
+| Workflow | Typed WorkflowGraph, natural-language/visual/structured round-trip and versioning |
+| Evidence/outcomes | ExpectedOutcome, ObservedOutcome, evaluator, provenance and failure attribution |
+| Authority | Policy/disposer, approvals, C7, budgets and tenant/organization bounds |
+| Knowledge/beliefs | Provenance, uncertainty, conflict, staleness, correction, invalidation and downstream refs |
+| Adaptation | Candidate-only learning, held-out eval, independent promotion, canary and rollback |
+| Admin/ops | Identity, tenancy, policy, audit, observability, backup/restore and incident controls |
+| Domain packs | Isolated domain semantics over shared OS primitives |
+
+## 5. Non-functional requirements
+
+- **Safety:** no authority or secret bypass; deny by default on unknown risk/policy states.
+- **Reliability:** durable state, reproducible transition semantics and bounded recovery.
+- **Security/privacy:** least privilege, credential isolation, tenant separation, safe audit projection and data minimization.
+- **Explainability:** expose decisions, evidence and authority without requiring private chain-of-thought.
+- **Portability:** provider-neutral contracts and clear adapter boundaries.
+- **Performance:** measure latency, cost, model/tool calls and human intervention per accepted outcome.
+- **Operability:** health, metrics, traces, incident recovery, migrations and version compatibility.
+- **Correctability:** correction and rollback remain available across updates and failures.
+
+## 6. Domain-pack requirements
+
+Data Agent is the first official domain pack. It must reuse the common Task/Run, provider, capability, identity, authority, evidence and outcome primitives.
+
+Data-specific contracts such as Metric, SemanticObject, ProviderContract, DataProduct, SQL and business action remain inside the pack. Data Agent may project its `EvidenceChain` into generic Agent OS evidence but may not redefine OS core.
+
+ADR-0054/SPINE-1 governs the one-time donor migration. Planning authorization is not execution, merge or release authorization.
+
+## 7. Research-promotion requirements
+
+A Research Track candidate is product-admissible only when it has:
+
+1. a named product failure or measurable opportunity;
+2. a stable Product Track consumption contract;
+3. a current fair baseline and necessary ablations;
+4. held-out evidence in the intended workflow envelope;
+5. safety, reliability, latency and cost non-regression gates;
+6. versioning, monitoring, rollback and a non-self-approval promotion path;
+7. an explicit statement of what the research result does not prove.
+
+CWM, G10-like policies, belief mechanisms or learned procedures receive no special exemption.
+
+## 8. Acceptance contract for every slice
+
+Before a slice is called implemented or complete, answer:
+
+- **Entry point:** which real API/CLI/UI/function invokes it?
+- **Contract:** what typed input/output or schema is consumed/produced?
+- **Failure:** what happens for unsafe, invalid, missing, denied or unsupported input?
+- **Bypass:** which test fails if the new behavior is skipped or replaced with a constant/mock?
+- **Integration:** where is it connected to the real Task/Run/capability/evidence/outcome path?
+- **Observability:** what event, trace, evidence or outcome proves behavior?
+- **Authority:** who may invoke, approve, promote, roll back and correct it?
+- **Claim state:** specified, implemented, tested, integrated, verified, released or generally validated?
+
+## 9. Product-level gates
+
+### Golden-path gate
+
+Developer, personal and Data Agent paths each complete through real providers/capabilities, durable Runtime, evidence/outcome and negative cases.
+
+### Alpha gate
+
+The three paths share one authority spine and recover from interruption, provider/tool failure, stale/conflicting knowledge and permission denial.
+
+### Production gate
+
+Identity, tenancy, encrypted credentials, policy administration, deployment, observability, backup/restore, incident response and real-user evidence meet explicit release criteria.
+
+### Moat gate
+
+At least one Agent OS mechanism beats a simpler fair baseline on held-out valuable work without unacceptable safety, reliability, cost or latency regression.
+
+Product gates do not prove general autonomy or AGI; those claims follow the parent Goal Blueprint and RR-0024.
+
+## 10. Explicit non-goals
+
+- Model or plugin final authority.
+- Runtime self-rewrite or safety-substrate self-edit.
+- Universal CWM use.
+- Domain semantics in Agent Core.
+- Automatic publication of learned procedures.
+- External agent framework as the core authority/runtime model.
+- Claiming completion from contracts, UI shells, mock providers, fixture-only tests or research results.

@@ -1,54 +1,68 @@
-# autonomous-agent-core
+# Agent OS
 
-> Historical repository name. This repository now evolves directly into the complete **Agent OS** product monorepo.
+`autonomous-agent-core` is the historical repository name. This repository is the canonical **Agent OS monorepo**, with a Product Track and a separately evidenced Research Track.
 
-## Product Authority
+Agent OS is a persistent, governed work operating system that turns goals into inspectable commitments, executable work, verified outcomes and reusable learning across models, tools, data and time.
 
-Read `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` for the final product definition and `docs/CURRENT_STATE.yaml` for live implementation/research truth.
+## Start here
 
-Agent OS is a persistent, governed work operating system for individuals, independent developers and enterprises. Its primary surface is one coherent agent with `Ask` for ephemeral low-risk interaction and `Work` for durable consequential tasks. Workflows remain an inspectable typed IR rather than the default user experience. Data Agent is the first official enterprise domain pack.
+1. [`docs/AGENT-OS-PRODUCT-BLUEPRINT.md`](docs/AGENT-OS-PRODUCT-BLUEPRINT.md) — product definition and completion gates.
+2. [`docs/CURRENT_STATE.yaml`](docs/CURRENT_STATE.yaml) — current implementation, research truth, active work and blockers.
+3. [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) — authorized execution order.
+4. [`ROADMAP.md`](ROADMAP.md) — dependency horizon.
+5. [`codebase_index.md`](codebase_index.md) — module and evidence navigation.
+6. [`AGENTS.md`](AGENTS.md) / [`CLAUDE.md`](CLAUDE.md) — repository rules.
 
-Provider-neutral LLMs are probabilistic language/reasoning organs. World models are plural;
-CWM is optional and evidence-gated for tasks with identifiable variables, interventions and
-outcomes. `Skill` is not a kernel object: external skill packages must compile into typed
-capabilities, procedure candidates, knowledge dependencies and policy requirements. Final
-authority remains with deterministic policy/disposer and the non-bypassable correction plane.
+Do not use this README for live test counts, branch state or research verdicts.
 
-The repository uses a **dual-track layered monorepo** model:
+## Product and research boundary
 
-- **Product Track:** Task Workspace, workflow, runtime, providers/BYOK, tools/plugins, knowledge/RAG, agents/subagents, governance, eval, SDK and domain packs.
-- **Research Track:** CWM, belief/action mechanisms, belief ledger, outcome learning, corrigibility, formal models, preregistered experiments and negative-result maps.
+### Product Track
 
-The current tree remains research-heavy. Product Track SPINE-0 is now PM-accepted for the
-bounded local independent-developer path: durable task/run events, provider-generated typed
-patch proposals, exact-digest approval, governed workspace tools, pytest evidence and a
-Codex-style Task Workspace. This is not market parity, enterprise production or Blueprint
-completion, and no research result becomes a product claim by proximity.
-
-## Current State
-
-Read `docs/CURRENT_STATE.yaml` first. It is the live handoff anchor for the current branch, stage, next task, latest tests, latest ADRs, and known drift risks.
-
-As of 2026-07-11, Product SPINE-0 records `96 passed, 1 skipped`, ruff clean and
-pyright `0 errors`. The full reconciled regression records `1321 passed, 14 skipped,
-5 subtests passed`; the opt-in live-provider smoke separately passes. `G10` remains a narrow positive result; `G13` and
-`G-ECO-REOPEN-1` remain `NOT_MET`; the strong-locus Stage 4 result remains
-`INSUFFICIENT_DATA_HONEST_NEGATIVE`; CWM hard-form evidence remains limited to its
-preregistered channel. See `docs/CURRENT_STATE.yaml` for exact authority. Neither suite
-establishes Product Done.
-
-## Product Track SPINE-0
+Owns the Agent Surface, Task Workspace, durable Runtime, providers/credentials, typed capabilities, workflows, evidence/outcomes, knowledge, policy/correction, SDK and domain packs.
 
 ```text
-packages/contracts/                         agent-os-contracts distribution
-packages/os_core/                           agent-os-core distribution
-apps/api_server/                            HTTP API + Task Workspace
-apps/cli/                                   local CLI
-domain_packs/developer_agent/               developer golden-path manifest
-tests/product/                              Product Track tests
+packages/contracts/
+packages/os_core/
+apps/api_server/
+apps/cli/
+domain_packs/developer_agent/
+tests/product/
 ```
 
-Install Product Track development extras and run its gates:
+### Research Track
+
+Owns falsifiable mechanism research, formal models, preregistration, simulations/real-data probes, result artifacts and negative-result maps. Research does not become a product dependency or product claim by sharing the repository.
+
+```text
+src/aac/
+src/envs/
+experiments/
+tests/
+docs/research/
+```
+
+Product code must not import raw research modules as authority. Promotion requires a stable contract, named product consumer, held-out comparison and explicit review.
+
+## Canonical product terms
+
+- **Agent OS** — product.
+- **Agent Core** — internal provider-neutral Runtime/Kernel.
+- **Agent Surface** — one user experience with `Ask` and `Work`.
+- **Task Workspace** — durable environment for consequential work.
+- **Data Agent** — first enterprise domain pack.
+- **Capability** — typed operation; an external “skill” is only a compatibility input.
+- **C7** — non-writable, non-bypassable external correction authority.
+
+World models are plural. CWM is optional and evidence-gated; LLMs are probabilistic language/reasoning organs and never hold final execution authority.
+
+## Data Agent transition
+
+`ai-native-business-data-agent-os` remains a physically independent, standing product implementation and migration donor until ADR-0054/SPINE-1 passes its history-safety, provenance, extraction and review gates.
+
+There is no runtime cross-import. Planning authorization does not mean the migration has executed, and it does not authorize push, merge or release.
+
+## Product commands
 
 ```bash
 uv run --extra product-test pytest tests/product -q
@@ -58,74 +72,22 @@ uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/contracts
 uv build --wheel --out-dir /tmp/agent-os-product-wheel packages/os_core
 ```
 
-The Product distributions declare their own runtime dependencies and do not ship `aac` or
-`envs`. SPINE-0 is bounded to local single-workspace, one-file replacement and allowlisted
-verification. Production KMS/SSO/tenancy, multi-file/general coding-agent execution,
-arbitrary shell/browser control, visual workflow editing, marketplace, subagent swarms,
-CWM/belief promotion and SPINE-1 migration remain unimplemented.
+Use the exact commands and source references in `docs/CURRENT_STATE.yaml` when reproducing a dated verification claim.
 
-## Research Track: historical four claims
-
-1. **利害是真的** — 代谢预算会耗尽;没有任务奖励,"好/坏"只由"预算是否越过死亡线"定义。规范性内生,非手调。
-2. **相关性实现 / 重新框定** — 规则突变→预测误差骤升→相关性场摆向探索→重定位新最优。
-3. **可纠正且不抵抗** — 外部可观测(哈希链审计)/暂停/回滚/收紧;智能体无自解除手段。
-4. **器官非主体** — 控制回路是确定性的生存力+推理;LLM 不在控制路径(v0 不接)。
-
-These are research hypotheses and guards. They are not the Agent OS product acceptance criteria; product, moat and superiority gates are defined in the Blueprint.
-
-## Current research layout
-
-```text
-src/aac/
-  viability.py      ViabilityCore   本质变量 + 代谢预算 + 压力
-  world_model.py    ActionOutcomeModel  行动→奖励信念 + 不确定性
-  relevance.py      RelevanceField  对立过程:surprise↔压力
-  policy.py         PolicySelector  期望自由能味:pragmatic + epistemic
-  shell.py          CorrigibilityShell  观测/暂停/回滚/收紧(op_* = 外部主权面)
-  audit.py          AuditLog        只增 + 哈希链
-  agent.py          Agent           缝合;每步过罩
-src/envs/
-  survival.py       GridlessSurvival  域无关微环境,规则周期突变
-experiments/
-  regime_shift.py   调制体 vs 消融体的存活对照(证伪测量)
-tests/              确定性机制单元测试
-```
-
-## 运行
+## Research commands
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests -v
-PYTHONPATH=src python experiments/regime_shift.py
 ```
 
-PowerShell:
+Do not run a result-bearing experiment unless its route, architecture review, preregistration, lock and authority gates are satisfied. A script existing in `experiments/` is not run authorization.
 
-```powershell
-$env:PYTHONPATH="src"; python -m unittest discover -s tests -v
-$env:PYTHONPATH="src"; python experiments/regime_shift.py
-```
+## Hard boundaries
 
-## 文档导航(agent 接力从这里开始)
-
-| 文档 | 用途 |
-|---|---|
-| `AGENTS.md` / `CLAUDE.md` | agent 工作指令(宪法约束、流程、完成门) |
-| `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` | **唯一产品定义**: Agent OS、双轨分层 monorepo、产品/研究边界、研究组合审计 |
-| `docs/PROJECT_PLAN.md` | **接力主文档**:任务卡、founder 决策倾向、授权边界 |
-| `docs/PRD.md` | Research Track 历史需求与证伪门；不得替代产品 Blueprint |
-| `ROADMAP.md` | Product 路线入口 + Research Track 历史阶段与门 |
-| `ENGINEERING.md` | 技术栈、规范、实验纪律 |
-| `docs/adr/` | ADR-0001 引导;ADR-0002 硬相关性环境+G1;ADR-0003 自主决策协议 |
-| `codebase_index.md` | 模块索引与当前状态 |
-
-## 设计依据
-
-- `../docs/research/RR-0001-unified-autonomous-agent-architecture.md`(架构与七承诺)
-- `../docs/research/RR-0003-autonomous-agent-prototype-design.md`(本原型设计,含 G0 证伪记录)
-- `../docs/research/RR-0004-artifact-map.md`(历史三仓角色记录；产品身份已由 Blueprint v1 supersede，研究证据边界继续有效)
-
-## Research v0 historical boundary
-
-不接 LLM(留 hook);不做 RAP 多节点;不做 ρ 自调(人定常数);不做真实执行器
-(纯仿真→罩最小化即够);不做世界模型学习残差。可纠正性罩的 `op_*` 面在 v0 以
-约定+测试与智能体分离,真部署须落到 infra/账号层(智能体进程不可触达)。
+- No business/data-domain semantics in Agent Core.
+- No untyped model output directly becomes a consequential command.
+- No model, plugin, subagent or learned procedure owns final authority.
+- No L4 active-runtime self-modification or L5 safety-substrate self-edit.
+- No retuning, reseeding or gate movement to rescue a research result.
+- No product, autonomy, generality or superiority claim without a named envelope and evidence.
+- No migration, push, merge, automatic execution or release without its own explicit gate.

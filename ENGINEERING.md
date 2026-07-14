@@ -2,7 +2,7 @@
 
 ## 0. Scope
 
-产品架构以 `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` 为准。本文件原有 Python/stdlib/预注册规则继续约束当前 `src/aac`、`experiments`、研究 adapters 与 Research Track；不得把这些控制变量外推成 Product Track 的永久技术栈。
+产品架构以 `docs/AGENT-OS-PRODUCT-BLUEPRINT.md` 为准。本文件原有 Python/stdlib/预注册规则继续约束当前 `src/aac`、`experiments`、研究 adapters 与 Research Track；不得把这些控制变量外推成 Product Track 的永久技术栈。本文件不保存 live 测试数或阶段；当前事实以 `docs/CURRENT_STATE.yaml` 为准。
 
 ## 1. Research Track 技术栈(ADR-0001)
 
