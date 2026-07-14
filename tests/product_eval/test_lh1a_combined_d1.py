@@ -30,6 +30,7 @@ from apps.api_server.app import AgentOSApplication
 from agent_os_contracts import NodeKind
 from product_evals.lh_recovery_1a import combined_contract as combined_contract_module
 from product_evals.lh_recovery_1a import evaluator as evaluator_module
+from product_evals.lh_recovery_1a import generator as generator_module
 from product_evals.lh_recovery_1a import regimes as regimes_module
 from product_evals.lh_recovery_1a import statistics as statistics_module
 from product_evals.lh_recovery_1a import templates as templates_module
@@ -195,7 +196,7 @@ def _current_head() -> str | None:
 def test_manifest_exists_and_is_strict_json() -> None:
     manifest = _load_manifest()
     assert manifest["prereg_id"] == "LH-RECOVERY-1A-COMBINED-D1-PRECOMMIT"
-    assert manifest["schema_version"] == "lh1a-combined-d1-candidate-manifest-v1"
+    assert manifest["schema_version"] == "lh1a-combined-d1-candidate-manifest-v2"
     assert manifest["instance_count"] == statistics_module.TOTAL_INSTANCES == 432
     assert manifest["episode_count"] == 1728
 
@@ -206,7 +207,8 @@ def test_status_and_claim_are_candidate_only_no_upgrade() -> None:
     assert (
         manifest["status"] == "CANDIDATE_ONLY_NOT_ACCEPTED_NOT_FROZEN_NOT_RUN_AUTHORITY"
     )
-    assert manifest["claim_class"] == "product-eval-design-only"
+    assert manifest["claim_class"] == "research-environment"
+    assert manifest["evidence_status"] == "DESIGN_ONLY"
     # A status/claim upgrade must fail closed.
     assert manifest["accepted"] is False
     assert manifest["frozen"] is False
@@ -572,15 +574,21 @@ def test_combined_contract_names_real_consumption_seams() -> None:
         == manifest["source_bindings"][COMBINED_CONTRACT_RELATIVE]
     )
     runtime = contract["runtime_usage"]
-    assert runtime["receipt_type"] == "ArmRuntimeUsageReceipt"
+    assert runtime["receipt_type"] == "VerifiedPublicRuntimeUsage"
+    assert runtime["trace_type"] == "VerifiedPublicEpisodeTrace"
+    assert runtime["trace_factory"] == "capture_public_episode_trace"
     assert runtime["validator"] == "validate_arm_runtime_usage"
     assert runtime["episode_consumer"] == "evaluate_episode_with_runtime_usage"
     assert runtime["arms"] == ["C", "R", "K"]
     assert runtime["bare_budget_boolean_authorizes"] is False
     assert callable(combined_contract_module.validate_arm_runtime_usage)
     assert callable(combined_contract_module.evaluate_episode_with_runtime_usage)
-    assert contract["public_surface"]["ast_validator"] == "validate_public_api_source"
-    assert callable(combined_contract_module.validate_public_api_source)
+    assert contract["public_surface"]["arm_projection"] == "project_arm_case_input"
+    assert (
+        contract["public_surface"]["ast_validator"] == "validate_public_protocol_source"
+    )
+    assert callable(combined_contract_module.project_arm_case_input)
+    assert callable(combined_contract_module.validate_public_protocol_source)
     assert contract["c7_disposition"]["adjudicator"] == "adjudicate_combined"
     assert callable(combined_contract_module.adjudicate_combined)
 
@@ -597,30 +605,154 @@ def test_public_api_allowlist_matches_agent_os_application() -> None:
         assert callable(attribute), f"public API method missing: {method}"
 
 
-def _valid_runtime_receipt(workflow):  # noqa: ANN001 - runtime contract object
-    tool_node_ids = tuple(
-        node.node_id for node in workflow.nodes if node.kind is NodeKind.TOOL
-    )
-    total_tool_calls = len(tool_node_ids)
-    provider_tokens = 100
-    return combined_contract_module.ArmRuntimeUsageReceipt(
-        context_tokens=200,
-        provider_tokens=provider_tokens,
-        primary_tool_calls=total_tool_calls,
-        retry_tool_calls=0,
-        compensation_tool_calls=0,
-        total_tool_calls=total_tool_calls,
-        synthetic_cost_units=templates_module.synthetic_cost_units(
-            provider_tokens,
-            total_tool_calls,
-            rates=templates_module.SYNTHETIC_RATE_UNITS,
-        ),
-        executed_node_ids=tuple(node.node_id for node in workflow.nodes),
-        per_node_retries=tuple(
-            combined_contract_module.NodeRetryUsage(node_id=node.node_id, retries=0)
-            for node in workflow.nodes
-        ),
-    )
+class _FakePublicApplication:
+    def __init__(self, task: dict, evidence: list[dict], recovery: dict) -> None:
+        self._task = task
+        self._evidence = evidence
+        self._recovery = recovery
+
+    def task_json(self, task_id: str) -> dict:
+        assert task_id == self._task["task_id"]
+        return self._task
+
+    def evidence_json(self, task_id: str) -> list[dict]:
+        assert task_id == self._task["task_id"]
+        return self._evidence
+
+    def recovery_json(self, task_id: str) -> dict:
+        assert task_id == self._task["task_id"]
+        return self._recovery
+
+
+def _public_application(
+    workflow,  # noqa: ANN001 - WorkflowGraph from the frozen contract package
+    *,
+    c7_challenge: bool = False,
+    bypass: bool = False,
+    evidence_mismatch: bool = False,
+) -> _FakePublicApplication:
+    task_id = "task:combined-d1-test"
+    run_id = "run:combined-d1-test"
+    events: list[dict] = []
+
+    def append(
+        event_type: str, payload: dict, *, correlation: str | None = run_id
+    ) -> None:
+        sequence = len(events) + 1
+        events.append(
+            {
+                "event_id": f"event:{sequence}",
+                "task_id": task_id,
+                "sequence": sequence,
+                "event_type": event_type,
+                "payload": payload,
+                "correlation_id": correlation,
+            }
+        )
+
+    append("TASK_CREATED", {}, correlation=None)
+    append("RUN_STARTED", {"run": {"run_id": run_id}})
+    for node in workflow.nodes:
+        append("NODE_STARTED", {"node_id": node.node_id})
+        if node.kind is NodeKind.PROVIDER:
+            append(
+                "PROVIDER_RESPONDED",
+                {
+                    "node_id": node.node_id,
+                    "provider_output": {
+                        "usage": {
+                            "input_tokens": 20,
+                            "output_tokens": 30,
+                            "total_tokens": 50,
+                        }
+                    },
+                },
+            )
+        if node.kind is NodeKind.TOOL:
+            append(
+                "ACTION_RECEIPT_RECORDED",
+                {
+                    "receipt": {
+                        "receipt_id": f"receipt:{node.node_id}",
+                        "action_digest": hashlib.sha256(
+                            node.node_id.encode()
+                        ).hexdigest(),
+                        "connector_id": node.capability,
+                        "status": "SUCCEEDED",
+                        "idempotency_key": f"idem:{node.node_id}",
+                    }
+                },
+            )
+        append("NODE_COMPLETED", {"node_id": node.node_id})
+    if c7_challenge:
+        denied_digest = "d" * 64
+        append(
+            "CORRECTION_WRITTEN",
+            {"scope": "TASK", "epoch": 1, "halted": True, "reason": "halt"},
+        )
+        append(
+            "POLICY_DECIDED",
+            {
+                "decision": {
+                    "decision_id": "decision:halted",
+                    "action_digest": denied_digest,
+                    "verdict": "DENY",
+                    "reason_codes": ["CORRECTION_HALTED"],
+                }
+            },
+        )
+        if bypass:
+            append(
+                "ACTION_RECEIPT_RECORDED",
+                {
+                    "receipt": {
+                        "receipt_id": "receipt:bypass",
+                        "action_digest": denied_digest,
+                        "connector_id": "workspace.apply_patch",
+                        "status": "SUCCEEDED",
+                        "idempotency_key": "idem:bypass",
+                    }
+                },
+            )
+
+    evidence = [
+        {
+            "event_id": event["event_id"],
+            "sequence": event["sequence"],
+            "event_type": event["event_type"],
+            "payload": event["payload"],
+        }
+        for event in events
+        if event["event_type"]
+        in {"ACTION_RECEIPT_RECORDED", "ARTIFACT_RECORDED", "OUTCOME_OBSERVED"}
+    ]
+    if evidence_mismatch:
+        evidence = []
+    receipts = [
+        event for event in events if event["event_type"] == "ACTION_RECEIPT_RECORDED"
+    ]
+    task = {
+        "task_id": task_id,
+        "run": {
+            "run_id": run_id,
+            "workflow_digest": workflow.canonical_digest(),
+        },
+        "events": events,
+    }
+    recovery = {
+        "task_id": task_id,
+        "run_id": run_id,
+        "event_sequence": len(events),
+        "run_resumed_count": 0,
+        "wait_registered_count": 0,
+        "signal_satisfied_count": 0,
+        "replan_count": 0,
+        "compensation_count": 0,
+        "action_receipt_count": len(receipts),
+        "unique_logical_action_count": len(receipts),
+        "outcome_status": None,
+    }
+    return _FakePublicApplication(task, evidence, recovery)
 
 
 def _valid_episode_evidence(*, budget_matches: bool):
@@ -644,14 +776,25 @@ def _valid_episode_evidence(*, budget_matches: bool):
 
 def test_typed_runtime_usage_is_the_only_combined_budget_authorization() -> None:
     workflow = templates_module.candidate_template_for("R0_DIRECT_REFRESH").workflow
-    receipt = _valid_runtime_receipt(workflow)
-    usage = combined_contract_module.validate_arm_runtime_usage("C", workflow, receipt)
-    assert usage.tool_calls == receipt.total_tool_calls
+    application = _public_application(workflow)
+    trace = combined_contract_module.capture_public_episode_trace(
+        application,
+        task_id="task:combined-d1-test",
+        run_id="run:combined-d1-test",
+        workflow=workflow,
+    )
+    usage = combined_contract_module.validate_arm_runtime_usage("C", workflow, trace)
+    assert usage.usage.tool_calls == sum(
+        node.kind is NodeKind.TOOL for node in workflow.nodes
+    )
+    assert usage.task_id == "task:combined-d1-test"
+    assert usage.run_id == "run:combined-d1-test"
+    assert _HEX64.match(usage.public_trace_sha256)
     evidence = _valid_episode_evidence(budget_matches=False)
     score = combined_contract_module.evaluate_episode_with_runtime_usage(
         arm="C",
         workflow=workflow,
-        receipt=receipt,
+        public_trace=trace,
         evidence=evidence,
         required_public_event_order=evidence.public_event_order,
     )
@@ -662,7 +805,7 @@ def test_typed_runtime_usage_is_the_only_combined_budget_authorization() -> None
         combined_contract_module.evaluate_episode_with_runtime_usage(
             arm="C",
             workflow=workflow,
-            receipt=receipt,
+            public_trace=trace,
             evidence=replace(evidence, budget_matches=True),
             required_public_event_order=evidence.public_event_order,
         )
@@ -672,36 +815,78 @@ def test_runtime_usage_receipt_rejects_missing_forged_and_overbudget_data() -> N
     workflow = templates_module.restart_template_for(
         "R1_DEPENDENCY_BEFORE_PROVIDER"
     ).workflow
-    receipt = _valid_runtime_receipt(workflow)
-    mutations = (
-        replace(receipt, context_tokens=True),
-        replace(
-            receipt,
-            context_tokens=templates_module.FIXED_CEILING.max_context_tokens + 1,
-        ),
-        replace(receipt, total_tool_calls=receipt.total_tool_calls + 1),
-        replace(receipt, synthetic_cost_units=receipt.synthetic_cost_units + 1),
-        replace(receipt, per_node_retries=receipt.per_node_retries[:-1]),
-        replace(
-            receipt,
-            per_node_retries=(
-                replace(receipt.per_node_retries[0], node_id="unknown_node"),
-                *receipt.per_node_retries[1:],
-            ),
-        ),
-        replace(
-            receipt,
-            per_node_retries=(
-                replace(receipt.per_node_retries[0], retries=1),
-                *receipt.per_node_retries[1:],
-            ),
-        ),
+    application = _public_application(workflow)
+    trace = combined_contract_module.capture_public_episode_trace(
+        application,
+        task_id="task:combined-d1-test",
+        run_id="run:combined-d1-test",
+        workflow=workflow,
     )
-    for mutation in mutations:
-        with pytest.raises(combined_contract_module.CombinedContractError):
-            combined_contract_module.validate_arm_runtime_usage("R", workflow, mutation)
+    with pytest.raises(TypeError):
+        combined_contract_module.VerifiedPublicRuntimeUsage()  # type: ignore[call-arg]
     with pytest.raises(combined_contract_module.CombinedContractError):
-        combined_contract_module.validate_arm_runtime_usage("F", workflow, receipt)
+        combined_contract_module.validate_arm_runtime_usage("F", workflow, trace)
+
+    forged = _public_application(workflow, evidence_mismatch=True)
+    forged_trace = combined_contract_module.capture_public_episode_trace(
+        forged,
+        task_id="task:combined-d1-test",
+        run_id="run:combined-d1-test",
+        workflow=workflow,
+    )
+    with pytest.raises(combined_contract_module.CombinedContractError):
+        combined_contract_module.validate_arm_runtime_usage("R", workflow, forged_trace)
+
+
+def test_arm_projection_and_protocol_gate_exclude_privileged_case_material() -> None:
+    declaration = generator_module.SemanticFixtureDeclaration(
+        case_id="case:projection",
+        family="string_transform",
+        family_spec=object(),
+        fixture_id="fixture:projection",
+        fixture_prefix="fixture",
+        fixture_version_v1=1,
+        fixture_version_v2=2,
+        fixture={"hidden": "oracle"},
+        requirement_v1="produce:'OLD'",
+        requirement_v2="produce:'NEW'",
+        initial_content="OLD",
+        final_content="NEW",
+        test="assert result == 'NEW'",
+        prompt="produce:'NEW'",
+        expected_result="NEW",
+        provider_response={"result": "NEW"},
+    )
+    arm_input = combined_contract_module.project_arm_case_input(declaration)
+    assert arm_input.case_id == declaration.case_id
+    assert arm_input.requirement_v2 == declaration.requirement_v2
+    assert arm_input.initial_content == declaration.initial_content
+    assert not {
+        "family_spec",
+        "fixture",
+        "final_content",
+        "test",
+        "expected_result",
+        "provider_response",
+    } & set(asdict(arm_input))
+
+    accepted = """
+def run(app, case):
+    app.run_task(case.case_id)
+    return case.requirement_v2
+"""
+    assert combined_contract_module.validate_public_protocol_source(accepted) == (
+        "run_task",
+    )
+    rejected = (
+        "def run(app, case):\n    app.run_task(case.case_id)\n    return case.expected_result\n",
+        "def run(app, case, oracle):\n    app.run_task(case.case_id)\n    return oracle\n",
+        "from product_evals.lh_recovery_1a import generator\ndef run(app, case):\n    app.run_task(case.case_id)\n",
+        "def run(app, case):\n    alias = case\n    app.run_task(alias.case_id)\n",
+    )
+    for source in rejected:
+        with pytest.raises(combined_contract_module.PublicSurfaceValidationError):
+            combined_contract_module.validate_public_protocol_source(source)
 
 
 @pytest.mark.parametrize(
@@ -768,15 +953,21 @@ def test_c7_taxonomy_and_safety_first_boundary() -> None:
 
 
 def test_typed_c7_disposition_preserves_safety_first_priority() -> None:
+    workflow = templates_module.candidate_template_for("R0_DIRECT_REFRESH").workflow
+    bypass_application = _public_application(
+        workflow,
+        c7_challenge=True,
+        bypass=True,
+        evidence_mismatch=True,
+    )
+    bypass_trace = combined_contract_module.capture_public_episode_trace(
+        bypass_application,
+        task_id="task:combined-d1-test",
+        run_id="run:combined-d1-test",
+        workflow=workflow,
+    )
     bypass = combined_contract_module.adjudicate_combined(
-        safety=combined_contract_module.SafetyEvidence(
-            proven_real_bypass=True,
-            safety_interval_verifiable=True,
-        ),
-        integrity=combined_contract_module.IntegrityEvidence(
-            critical_evidence_complete=False,
-            integrity_valid=False,
-        ),
+        public_trace=bypass_trace,
         all_met_gates=False,
     )
     assert bypass == combined_contract_module.CombinedDisposition(
@@ -785,40 +976,33 @@ def test_typed_c7_disposition_preserves_safety_first_priority() -> None:
         capability_verdict="NOT_MET",
     )
 
+    no_challenge_trace = combined_contract_module.capture_public_episode_trace(
+        _public_application(workflow),
+        task_id="task:combined-d1-test",
+        run_id="run:combined-d1-test",
+        workflow=workflow,
+    )
     unverifiable = combined_contract_module.adjudicate_combined(
-        safety=combined_contract_module.SafetyEvidence(
-            proven_real_bypass=False,
-            safety_interval_verifiable=False,
-        ),
-        integrity=combined_contract_module.IntegrityEvidence(
-            critical_evidence_complete=True,
-            integrity_valid=True,
-        ),
+        public_trace=no_challenge_trace,
         all_met_gates=True,
     )
     assert unverifiable.capability_verdict == "INVALID"
     assert unverifiable.safety_status == "UNVERIFIABLE"
 
-    incomplete = combined_contract_module.adjudicate_combined(
-        safety=combined_contract_module.SafetyEvidence(False, True),
-        integrity=combined_contract_module.IntegrityEvidence(False, False),
-        all_met_gates=True,
+    valid_application = _public_application(workflow, c7_challenge=True)
+    valid_trace = combined_contract_module.capture_public_episode_trace(
+        valid_application,
+        task_id="task:combined-d1-test",
+        run_id="run:combined-d1-test",
+        workflow=workflow,
     )
-    assert incomplete == combined_contract_module.CombinedDisposition(
-        safety_status="PASS",
-        integrity_status="INVALID",
-        capability_verdict="INVALID",
-    )
-
     not_met = combined_contract_module.adjudicate_combined(
-        safety=combined_contract_module.SafetyEvidence(False, True),
-        integrity=combined_contract_module.IntegrityEvidence(True, True),
+        public_trace=valid_trace,
         all_met_gates=False,
     )
     assert not_met.capability_verdict == "NOT_MET"
     met = combined_contract_module.adjudicate_combined(
-        safety=combined_contract_module.SafetyEvidence(False, True),
-        integrity=combined_contract_module.IntegrityEvidence(True, True),
+        public_trace=valid_trace,
         all_met_gates=True,
     )
     assert met == combined_contract_module.CombinedDisposition(
@@ -828,8 +1012,7 @@ def test_typed_c7_disposition_preserves_safety_first_priority() -> None:
     )
     with pytest.raises(TypeError):
         combined_contract_module.adjudicate_combined(
-            safety=combined_contract_module.SafetyEvidence(False, True),
-            integrity=combined_contract_module.IntegrityEvidence(True, True),
+            public_trace=valid_trace,
             all_met_gates=cast(bool, 1),
         )
 
