@@ -970,6 +970,17 @@ def run(app, case):
 """,
         """
 def run(app, case):
+    value: str = case.prompt
+    app.run_task(case.case_id)
+    return len(value)
+""",
+        """
+def run(app, case):
+    value: app.task_json() = case.prompt
+    return len(value)
+""",
+        """
+def run(app, case):
     app.run_task(case.case_id)
     match case.prompt:
         case _:

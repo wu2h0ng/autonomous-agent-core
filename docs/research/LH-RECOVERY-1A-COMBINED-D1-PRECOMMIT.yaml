@@ -34,7 +34,7 @@
     "product_evals/lh_recovery_1a/statistics.py": "822ceace6e4959514bc63f70954978d7e723f5f9ef49fb4ba5542d3663803d30",
     "product_evals/lh_recovery_1a/fixed_baseline.py": "b943bb8bdb74b8683a73225840186495a9cd55f082c5033c1d48cbcb43ad98b8",
     "product_evals/lh_recovery_1a/combined_contract.py": "a941846da4673ab3b161359a61e909632eae7b6c5c82e877c9a7bd909c06aafe",
-    "tests/product_eval/test_lh1a_combined_d1.py": "be264984adbbd821872443f6365c22ddd41a07b8bef987225c285f3f8ea9402c",
+    "tests/product_eval/test_lh1a_combined_d1.py": "d24d6b3b1ef93540b2e2b0a2ab6cef16f644b7262f0eff4cf1d3c53f3dfda0f0",
     "tests/product_eval/test_lh1a_design.py": "1827db862acee49497e0652af0d8d007db168039e06697a101d80349fc379327",
     "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml": "21db5ab15ffa84a7db07ded2f4a9fee1b8683a8212084993b695101845acfa21",
     "docs/superpowers/plans/2026-07-12-lh-recovery-1a-explicit-rebind.md": "014b9d8c37952292f7564c1a75c4c482185a6fde4e528fcacbd3bc8b006563e1",
