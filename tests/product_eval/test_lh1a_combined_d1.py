@@ -892,6 +892,48 @@ def run(app, case):
 @pytest.mark.parametrize(
     "source",
     (
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return run.__globals__["__builtins__"]["__import__"]("os").listdir(".")
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return (lambda: 0)()
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return {"invoke": len}["invoke"](case.prompt)
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return helper.execute(case.prompt)
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return case.__dict__
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return app.task_json.__self__
+""",
+    ),
+)
+def test_protocol_ast_guard_rejects_reflective_and_indirect_call_chains(
+    source: str,
+) -> None:
+    with pytest.raises(combined_contract_module.PublicSurfaceValidationError):
+        combined_contract_module.validate_public_protocol_source(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
         "def run(app):\n    app.not_public()\n",
         "def run(app):\n    app._composition.run_store.get('x')\n",
         "def run(app):\n    return getattr(app, 'run_task')()\n",

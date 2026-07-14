@@ -823,11 +823,6 @@ def validate_public_protocol_source(source: str) -> tuple[str, ...]:
     ):
         raise PublicSurfaceValidationError("EXACT_APP_CASE_SIGNATURE_REQUIRED")
     violations: list[str] = []
-    parents = {
-        child: parent
-        for parent in ast.walk(function)
-        for child in ast.iter_child_nodes(parent)
-    }
     local_names = {
         target.id
         for node in ast.walk(function)
@@ -845,29 +840,43 @@ def validate_public_protocol_source(source: str) -> tuple[str, ...]:
             candidate = node.attr
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             candidate = node.value
+        if candidate is not None and "__" in candidate:
+            violations.append("DUNDER_ACCESS")
         if candidate is not None and _contains_privileged_case_token(candidate):
             violations.append("PRIVILEGED_CASE_CHANNEL")
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             value = node.value
             if isinstance(value, ast.Name) and value.id in {"app", "case"}:
                 violations.append("INPUT_ALIAS")
-        if isinstance(node, ast.Attribute) and _root_name(node) == "case":
-            if (
-                not isinstance(node.value, ast.Name)
-                or node.attr not in ARM_CASE_INPUT_FIELDS
-            ):
-                violations.append("NON_PUBLIC_ARM_INPUT")
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id == "case":
+                if node.attr not in ARM_CASE_INPUT_FIELDS:
+                    violations.append("NON_PUBLIC_ARM_INPUT")
+            elif isinstance(node.value, ast.Name) and node.value.id == "app":
+                if node.attr not in PUBLIC_API_ALLOWLIST:
+                    violations.append("NON_PUBLIC_APPLICATION_CALL")
+            else:
+                violations.append("UNBOUND_ATTRIBUTE")
         if isinstance(node, ast.Subscript) and _root_name(node.value) == "case":
             violations.append("ARM_INPUT_SUBSCRIPT")
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id not in _SAFE_PURE_CALLS:
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                if node.func.id not in _SAFE_PURE_CALLS:
+                    violations.append("UNBOUND_CALL")
+            elif isinstance(node.func, ast.Attribute):
+                direct_public_call = (
+                    isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "app"
+                    and node.func.attr in PUBLIC_API_ALLOWLIST
+                )
+                if not direct_public_call:
+                    violations.append("UNBOUND_CALL")
+            else:
                 violations.append("UNBOUND_CALL")
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             if node.id in {"app", "case"} | _SAFE_PURE_CALLS | local_names:
                 continue
-            parent = parents.get(node)
-            if not isinstance(parent, ast.Attribute):
-                violations.append("UNBOUND_DATA_SOURCE")
+            violations.append("UNBOUND_DATA_SOURCE")
     calls = validate_public_api_source(source, application_receivers=("app",))
     if violations:
         raise PublicSurfaceValidationError(",".join(sorted(set(violations))))
