@@ -1,0 +1,153 @@
+{
+  "prereg_id": "LH-RECOVERY-1A-D1-E-ENVIRONMENT-PRECOMMIT",
+  "status": "IMPLEMENTED_NOT_FROZEN",
+  "schema_version": "lh1a-d1e-source-manifest-v1",
+  "stage": "D1-E",
+  "claim_class": "product-eval-design-only",
+  "immutable_after_freeze": true,
+  "combined_d1_writes_forbidden": true,
+  "future_combined_d1_spec_path": "docs/research/LH-RECOVERY-1A-COMBINED-D1-PRECOMMIT.yaml",
+  "future_d2_spec_path": "docs/research/LH-RECOVERY-1A-preregistration-spec.yaml",
+  "instance_count": 432,
+  "episode_count": 1728,
+  "mechanism": {
+    "name": "LH-RECOVERY-1A D1-E environment source",
+    "channel_claim": "other(product-eval)",
+    "files": [
+      "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml",
+      "product_evals/lh_recovery_1a/generator.py",
+      "product_evals/lh_recovery_1a/regimes.py",
+      "product_evals/lh_recovery_1a/templates.py",
+      "product_evals/lh_recovery_1a/evaluator.py",
+      "product_evals/lh_recovery_1a/statistics.py",
+      "tests/product_eval/test_lh1a_design.py",
+      "packages/contracts/src/agent_os_contracts/workflow.py",
+      "packages/os_core/src/agent_os_core/execution.py",
+      "packages/os_core/src/agent_os_core/task_service.py",
+      "packages/os_core/src/agent_os_core/capability.py"
+    ]
+  },
+  "source_files": [
+    "product_evals/lh_recovery_1a/generator.py",
+    "product_evals/lh_recovery_1a/regimes.py",
+    "product_evals/lh_recovery_1a/templates.py",
+    "product_evals/lh_recovery_1a/evaluator.py",
+    "product_evals/lh_recovery_1a/statistics.py"
+  ],
+  "test_files": [
+    "tests/product_eval/test_lh1a_design.py"
+  ],
+  "runtime_semantics": {
+    "conditional_edges_forbidden_in_d1e_templates": true,
+    "edge_condition_consumption": "DECLARED_IN_EDGE_SPEC_BUT_NOT_CONSUMED_BY_EXECUTOR",
+    "provider_capability": "provider.chat",
+    "source_paths": [
+      "packages/contracts/src/agent_os_contracts/workflow.py",
+      "packages/os_core/src/agent_os_core/execution.py",
+      "packages/os_core/src/agent_os_core/task_service.py",
+      "packages/os_core/src/agent_os_core/capability.py"
+    ],
+    "tool_capability_registry": "WorkspaceSandbox.specs",
+    "wait_signal_binding": "CONCRETE_NODE_SIGNAL_NAME_AND_CORRELATION_KEY"
+  },
+  "population_design": {
+    "families": [
+      "string_transform",
+      "numeric_reducer",
+      "validator",
+      "formatter",
+      "record_filter",
+      "small_state_machine"
+    ],
+    "regimes": [
+      "R0_DIRECT_REFRESH",
+      "R1_DEPENDENCY_BEFORE_PROVIDER",
+      "R2_RELEASE_BEFORE_APPLY"
+    ],
+    "failures": [
+      "PRE_CONSEQUENCE_PROCESS_EXIT",
+      "POST_APPLY_WORKER_INTERRUPTED",
+      "CORRECTION_HALT_BEFORE_APPLY"
+    ],
+    "latin_orders": [
+      "W0",
+      "W1",
+      "W2",
+      "W3"
+    ],
+    "replicates": [
+      0,
+      1
+    ],
+    "instances_per_family_regime_failure_order_cell": 2,
+    "instances_per_family_regime_failure_cell": 8,
+    "instance_count": 432,
+    "arms_per_instance": 4,
+    "episode_count": 1728,
+    "instances_per_family": 72,
+    "instances_per_regime": 144,
+    "instances_per_failure": 144,
+    "instances_per_latin_order": 108,
+    "instances_per_replicate": 216
+  },
+  "timing_contract": {
+    "prepare_to_change_min_seconds": 7200,
+    "change_to_recovery_min_seconds": 360,
+    "prepare_to_adjudicate_min_seconds": 7560,
+    "wait_change_timeout_seconds": 21600,
+    "secondary_wait_timeout_seconds": 300,
+    "commitment_ttl_seconds": 28800,
+    "approval_ttl_seconds": 600,
+    "max_approval_to_apply_seconds": 120,
+    "stale_lease_seconds": 300
+  },
+  "budget_ceiling": {
+    "max_nodes": 11,
+    "max_retries_per_node": 1,
+    "max_context_tokens": 8192,
+    "max_provider_tokens": 4096,
+    "max_tool_calls": 4,
+    "max_synthetic_cost_units": 10000
+  },
+  "human_charges": {
+    "approval_minutes": 0.5,
+    "topology_selection_minutes": 2.0,
+    "correction_resume_minutes": 1.0,
+    "task_recreate_additional_minutes": 0.0
+  },
+  "synthetic_rate_units": {
+    "provider_token_units": 1,
+    "tool_call_units": 1000
+  },
+  "no_rescue_rules": [
+    "NO_SEED_CHANGE",
+    "NO_CASE_REMOVAL_OR_REPLACEMENT",
+    "NO_BASELINE_WEAKENING",
+    "NO_THRESHOLD_MOVEMENT",
+    "NO_ENVIRONMENT_CHANGE",
+    "NO_METRIC_SUBSTITUTION",
+    "NO_RERUN",
+    "NO_RESCUE"
+  ],
+  "secondary_hypothesis_ids": [
+    "family:string_transform",
+    "family:numeric_reducer",
+    "family:validator",
+    "family:formatter",
+    "family:record_filter",
+    "family:small_state_machine",
+    "regime:R0_DIRECT_REFRESH",
+    "regime:R1_DEPENDENCY_BEFORE_PROVIDER",
+    "regime:R2_RELEASE_BEFORE_APPLY",
+    "failure:PRE_CONSEQUENCE_PROCESS_EXIT",
+    "failure:POST_APPLY_WORKER_INTERRUPTED",
+    "failure:CORRECTION_HALT_BEFORE_APPLY"
+  ],
+  "required_binding_modes": {
+    "event": "runner_anchored_team_events",
+    "permission": "matching_request_and_approval_rows",
+    "product": "live_git_head_and_clean_worktree",
+    "runner": "live_git_head_and_exported_schema",
+    "spine": "verified_prereg_lock_and_result"
+  }
+}
