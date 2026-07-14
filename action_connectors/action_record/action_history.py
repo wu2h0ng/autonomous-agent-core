@@ -9,14 +9,12 @@ only ever counts generic outcome strings. Mapping (the ledger's own signals, no 
   ``UNCERTAIN_EXECUTION_OUTCOME`` — executed, but did NOT cleanly resolve to the intended outcome.
 
 Counts are read live from the ledger every time; there is no parallel counter to drift. Tenant
-scoping is delegated to the store: the durable ``SqlActionRecordStore`` exposes
-``records(*, tenant_id)`` and is tenant-isolated; the in-memory dev store exposes ``records()`` and
-is single-tenant by construction. The adapter detects which at construction and calls accordingly.
+scoping is delegated to the store: durable ``SqlActionRecordStore`` and the in-memory dev store
+both expose ``records(*, tenant_id)``; the adapter always calls with the run tenant.
 """
 
 from __future__ import annotations
 
-import inspect
 from typing import Any, Protocol
 
 from agent_os_core.consequence_preview import INTENDED_EXECUTION_OUTCOME, ActionHistoryPort
@@ -29,7 +27,7 @@ UNCERTAIN_EXECUTION_OUTCOME = "execution_uncertain"
 class _RecordsStore(Protocol):
     """The read surface the adapter needs (satisfied by both the in-memory and SQL ledgers)."""
 
-    def records(self) -> tuple[dict[str, Any], ...]: ...
+    def records(self, *, tenant_id: str = "default") -> tuple[dict[str, Any], ...]: ...
 
 
 class ActionRecordHistoryAdapter(ActionHistoryPort):
@@ -37,21 +35,9 @@ class ActionRecordHistoryAdapter(ActionHistoryPort):
 
     def __init__(self, store: _RecordsStore) -> None:
         self._store = store
-        self._tenant_scoped = self._store_accepts_tenant(store)
-
-    @staticmethod
-    def _store_accepts_tenant(store: Any) -> bool:
-        try:
-            signature = inspect.signature(store.records)
-        except (TypeError, ValueError):
-            return False
-        return "tenant_id" in signature.parameters
 
     def outcomes_for(self, *, action_type: str, tenant_id: str = "default") -> tuple[str, ...]:
-        if self._tenant_scoped:
-            records = self._store.records(tenant_id=tenant_id)
-        else:
-            records = self._store.records()
+        records = self._store.records(tenant_id=tenant_id)
         outcomes: list[str] = []
         for record in records:
             if record.get("action_type") != action_type:

@@ -11,6 +11,10 @@ from agent_os_contracts import OperationContract, StateSnapshot
 
 from agent_os_core.action_connectors.base import ActionConnector
 
+# Internal runtime metadata injected by TrustedLoop before connector calls. Stripped
+# before persisting action parameters so tenant scoping never pollutes the ledger payload.
+_CONNECTOR_TENANT_PARAMETER = "_agent_os_tenant_id"
+
 
 def _fingerprint(payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
@@ -98,9 +102,10 @@ class ActionRecordStoreLike(Protocol):
         action_type: str,
         parameters: dict[str, Any],
         idempotency_key: str | None = None,
+        tenant_id: str = "default",
     ) -> dict[str, Any]: ...
 
-    def records(self) -> tuple[dict[str, Any], ...]: ...
+    def records(self, *, tenant_id: str = "default") -> tuple[dict[str, Any], ...]: ...
 
     def mark_execution_uncertain(
         self,
@@ -112,6 +117,7 @@ class ActionRecordStoreLike(Protocol):
         parameters: dict[str, Any],
         reason_code: str,
         error_type: str,
+        tenant_id: str = "default",
     ) -> dict[str, Any]: ...
 
     def snapshot_state(self) -> dict[str, Any]: ...
@@ -146,22 +152,25 @@ class ActionRecordStore:
         action_type: str,
         parameters: dict[str, Any],
         idempotency_key: str | None = None,
+        tenant_id: str = "default",
     ) -> dict[str, Any]:
         """Append a new record and return it (including its generated id)."""
+        scoped_tenant = tenant_id or "default"
         payload = {
             "operation_id": operation_id,
             "action_type": action_type,
             "parameters": copy.deepcopy(parameters),
         }
-        if idempotency_key is not None and idempotency_key in self._idempotency:
-            original_payload, original_record = self._idempotency[idempotency_key]
+        idem_key = (scoped_tenant, idempotency_key) if idempotency_key is not None else None
+        if idem_key is not None and idem_key in self._idempotency:
+            original_payload, original_record = self._idempotency[idem_key]
             if original_payload != payload:
                 original_record["conflict_count"] = (
                     int(original_record.get("conflict_count", 0)) + 1
                 )
                 original_record["last_conflict"] = _conflict_summary(payload)
                 updated = self._replace_record(original_record)
-                self._idempotency[idempotency_key] = (original_payload, updated)
+                self._idempotency[idem_key] = (original_payload, updated)
                 raise ValueError(
                     "idempotency_key was reused with a different operation/action payload"
                 )
@@ -170,7 +179,7 @@ class ActionRecordStore:
             if int(original_record.get("uncertain_execution_count", 0)) > 0:
                 original_record["last_replay_status"] = "idempotent_replay_after_uncertain"
             original_record = self._replace_record(original_record)
-            self._idempotency[idempotency_key] = (original_payload, original_record)
+            self._idempotency[idem_key] = (original_payload, original_record)
             replay = copy.deepcopy(original_record)
             replay["status"] = "idempotent_replay"
             if int(replay.get("uncertain_execution_count", 0)) > 0:
@@ -180,6 +189,7 @@ class ActionRecordStore:
 
         record = {
             "record_id": f"record-{uuid4().hex[:12]}",
+            "tenant_id": scoped_tenant,
             "operation_id": operation_id,
             "action_type": action_type,
             "parameters": copy.deepcopy(parameters),
@@ -190,8 +200,8 @@ class ActionRecordStore:
         if idempotency_key is not None:
             record["idempotency_key"] = idempotency_key
         self._records.append(record)
-        if idempotency_key is not None:
-            self._idempotency[idempotency_key] = (payload, copy.deepcopy(record))
+        if idem_key is not None:
+            self._idempotency[idem_key] = (payload, copy.deepcopy(record))
         return copy.deepcopy(record)
 
     def mark_execution_uncertain(
@@ -204,10 +214,14 @@ class ActionRecordStore:
         parameters: dict[str, Any],
         reason_code: str,
         error_type: str,
+        tenant_id: str = "default",
     ) -> dict[str, Any]:
         """Mark a committed connector write as ACK-uncertain without raw parameters."""
+        scoped_tenant = tenant_id or "default"
         for record in self._records:
             if record["record_id"] != record_id:
+                continue
+            if record.get("tenant_id", "default") != scoped_tenant:
                 continue
             record["uncertain_execution_count"] = (
                 int(record.get("uncertain_execution_count", 0)) + 1
@@ -221,15 +235,21 @@ class ActionRecordStore:
                 error_type=error_type,
             )
             updated = self._replace_record(record)
-            if idempotency_key is not None and idempotency_key in self._idempotency:
-                original_payload, _original_record = self._idempotency[idempotency_key]
-                self._idempotency[idempotency_key] = (original_payload, updated)
+            idem_key = (scoped_tenant, idempotency_key) if idempotency_key is not None else None
+            if idem_key is not None and idem_key in self._idempotency:
+                original_payload, _original_record = self._idempotency[idem_key]
+                self._idempotency[idem_key] = (original_payload, updated)
             return updated
         raise KeyError(f"record_id '{record_id}' is not present in the store")
 
-    def records(self) -> tuple[dict[str, Any], ...]:
-        """Return the live records as a tuple (the dicts themselves are live)."""
-        return tuple(self._records)
+    def records(self, *, tenant_id: str = "default") -> tuple[dict[str, Any], ...]:
+        """Return records for ``tenant_id`` (live dict references)."""
+        scoped_tenant = tenant_id or "default"
+        return tuple(
+            record
+            for record in self._records
+            if record.get("tenant_id", "default") == scoped_tenant
+        )
 
     def snapshot_state(self) -> dict[str, Any]:
         """Capture a deep copy of the current state, restorable via ``restore``."""
@@ -256,6 +276,17 @@ class ActionRecordConnector(ActionConnector):
 
     def __init__(self, *, store: ActionRecordStoreLike) -> None:
         self._store = store
+
+    @staticmethod
+    def _split_connector_parameters(
+        parameters: dict[str, Any],
+    ) -> tuple[dict[str, Any], str]:
+        """Strip runtime tenant metadata before persisting connector parameters."""
+        tenant_id = str(parameters.get(_CONNECTOR_TENANT_PARAMETER, "default") or "default")
+        action_parameters = {
+            key: value for key, value in parameters.items() if key != _CONNECTOR_TENANT_PARAMETER
+        }
+        return action_parameters, tenant_id
 
     @property
     def store(self) -> ActionRecordStoreLike:
@@ -293,11 +324,13 @@ class ActionRecordConnector(ActionConnector):
 
     def execute(self, operation: OperationContract, parameters: dict[str, Any]) -> dict[str, Any]:
         """Perform a REAL write: append a record to the store."""
+        action_parameters, tenant_id = self._split_connector_parameters(parameters)
         record = self._store.add(
             operation_id=operation.operation_id,
             action_type=operation.action_type,
-            parameters=parameters,
+            parameters=action_parameters,
             idempotency_key=operation.idempotency_key,
+            tenant_id=tenant_id,
         )
         if record.get("status") == "idempotent_replay":
             result: dict[str, Any] = {

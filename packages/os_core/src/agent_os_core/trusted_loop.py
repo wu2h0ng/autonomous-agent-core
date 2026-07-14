@@ -87,6 +87,9 @@ _ADOPTION_CONTEXT_QUALITY_BOOST = 0.3
 _MAX_CONTEXT_QUALITY_BOOST = 0.5
 _RECORD_OUTCOME_TOOL_NAME = "trusted_loop.record_outcome"
 _ATTEST_ADOPTION_TOOL_NAME = "trusted_loop.attest_adoption"
+# Internal metadata for tenant-scoped connector ledgers (action_record). Must match
+# action_connectors/action_record/connector.py::_CONNECTOR_TENANT_PARAMETER.
+_CONNECTOR_TENANT_PARAMETER = "_agent_os_tenant_id"
 
 
 class TrustedLoopBlocked(Exception):
@@ -1766,6 +1769,15 @@ class TrustedLoopRuntime:
         return tuple(violations)
 
     @staticmethod
+    def _connector_parameters(
+        action_parameters: dict[str, Any], *, tenant_id: str
+    ) -> dict[str, Any]:
+        """Attach tenant metadata for connectors that scope durable ledger writes."""
+        scoped = dict(action_parameters)
+        scoped[_CONNECTOR_TENANT_PARAMETER] = tenant_id
+        return scoped
+
+    @staticmethod
     def _assert_grounded(safety: SQLSafetyResult, evidence: EvidenceChain) -> None:
         """The non-bypassable mediation invariant (P5.1b, ADR-0001 P5-1).
 
@@ -1803,9 +1815,10 @@ class TrustedLoopRuntime:
             proposal_id=proposal_id,
         )
         connector = self.connector_registry.get(operation.connector_name)
+        connector_parameters = self._connector_parameters(action_parameters, tenant_id=tenant_id)
 
         if operation.dry_run_required:
-            dry_run = connector.dry_run(operation, action_parameters)
+            dry_run = connector.dry_run(operation, connector_parameters)
             if trace is not None:
                 trace.record(
                     "connector_dry_run",
@@ -1874,7 +1887,7 @@ class TrustedLoopRuntime:
 
         self.state_machine.transition(current_state, OperationState.EXECUTED)
         try:
-            action_result = connector.execute(operation, action_parameters)
+            action_result = connector.execute(operation, connector_parameters)
         except Exception as exc:
             audit_event = self._connector_uncertain_audit_event(exc)
             if audit_event is not None and trace is not None:

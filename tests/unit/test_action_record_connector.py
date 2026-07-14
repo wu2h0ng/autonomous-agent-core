@@ -123,6 +123,23 @@ class ActionRecordConnectorTest(unittest.TestCase):
         self.assertEqual(store.records()[0]["replay_count"], 1)
         self.assertEqual(store.records()[0]["last_replay_status"], "idempotent_replay")
 
+    def test_execute_tags_tenant_from_runtime_metadata_without_persisting_it(self) -> None:
+        """Connector writes must land in the caller tenant partition, not a shared default bucket."""
+        store = ActionRecordStore()
+        connector = ActionRecordConnector(store=store)
+        operation_a = _operation(operation_id="operation-a")
+        operation_b = _operation(operation_id="operation-b")
+
+        connector.execute(operation_a, {"amount": 100, "_agent_os_tenant_id": "tenant-a"})
+        connector.execute(operation_b, {"amount": 200, "_agent_os_tenant_id": "tenant-b"})
+
+        records_a = store.records(tenant_id="tenant-a")
+        records_b = store.records(tenant_id="tenant-b")
+        self.assertEqual(len(records_a), 1)
+        self.assertEqual(len(records_b), 1)
+        self.assertNotIn("_agent_os_tenant_id", records_a[0]["parameters"])
+        self.assertNotIn("_agent_os_tenant_id", records_b[0]["parameters"])
+
     def test_replay_after_uncertain_execution_preserves_audit_without_raw_parameters(
         self,
     ) -> None:

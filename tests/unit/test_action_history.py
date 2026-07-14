@@ -35,7 +35,7 @@ except ImportError:  # pragma: no cover - SQLAlchemy is a CI dependency
 def _seed(
     store, *, action_type: str, clean: int, uncertain: int, tenant_id: str = "default"
 ) -> None:
-    kw = {} if isinstance(store, ActionRecordStore) else {"tenant_id": tenant_id}
+    kw = {"tenant_id": tenant_id}
     for i in range(clean):
         store.add(
             operation_id=f"c-{tenant_id}-{i}", action_type=action_type, parameters={"i": i}, **kw
