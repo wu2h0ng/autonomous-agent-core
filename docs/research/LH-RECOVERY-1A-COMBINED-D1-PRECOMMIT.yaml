@@ -1,0 +1,510 @@
+{
+  "prereg_id": "LH-RECOVERY-1A-COMBINED-D1-PRECOMMIT",
+  "schema_version": "lh1a-combined-d1-candidate-manifest-v1",
+  "stage": "COMBINED-D1-CANDIDATE",
+  "status": "CANDIDATE_ONLY_NOT_ACCEPTED_NOT_FROZEN_NOT_RUN_AUTHORITY",
+  "document_status": "PRECOMMIT_CANDIDATE_BYTES_MUTABLE_UNTIL_REVIEW",
+  "claim_class": "product-eval-design-only",
+  "accepted": false,
+  "frozen": false,
+  "run_authority": false,
+  "instance_count": 432,
+  "episode_count": 1728,
+  "writer_id": "codex-cto-combined-d1-final-writer-v1",
+  "initial_draft_writer_id": "claude-code-opus-combined-d1-writer-v1",
+  "writer_handoff": "Claude produced the initial manifest and test; after a recorded subscription session limit, Codex became the sole final writer and added the substantive combined contract seams. No concurrent writer overlap occurred.",
+  "governance_run_id": "lh-recovery-1a-d1-rebind-1-20260714",
+  "successor_plan": "docs/superpowers/plans/2026-07-14-lh-recovery-1a-d1-rebind-1.md",
+  "base_plan": "docs/superpowers/plans/2026-07-12-lh-recovery-1a-explicit-rebind.md",
+  "future_d2_spec_path": "docs/research/LH-RECOVERY-1A-preregistration-spec.yaml",
+  "purpose": "Combine the frozen D1-E environment, the sealed D1-F fixed baseline, and the accepted skeptic reduction verdict into one reviewable combined-D1 candidate. This document grants no acceptance, no freeze, no nonce authority, and no run authority; it precedes the Task 4 candidate review and the pre-acceptance nonce commitments.",
+  "claim_boundary": [
+    "DESIGN_COMBINATION_ONLY",
+    "NO_RESULT",
+    "NO_AUTONOMY_CLAIM",
+    "PARENT_LH_RECOVERY_1_REMAINS_OPEN_BLOCKED",
+    "CHILD_MET_DOES_NOT_PASS_PARENT"
+  ],
+  "source_bindings": {
+    "product_evals/lh_recovery_1a/generator.py": "690019bb1df20c323e0a1c378a9e6290d3b13cf0df549458f2de9c6a9d7ad398",
+    "product_evals/lh_recovery_1a/regimes.py": "396561329375a0826984bfe785c628910541becde3d02e9d043080e5aaacbc3b",
+    "product_evals/lh_recovery_1a/templates.py": "3b91e7f8a59fa515fea945f84c2cd25403c6f2953aaef5551ba3dd598d86ed97",
+    "product_evals/lh_recovery_1a/evaluator.py": "6ecebdb4f5fac250fa0babf3e242e61c03da11c52b85a7ea4efa660f9f1bdc54",
+    "product_evals/lh_recovery_1a/statistics.py": "822ceace6e4959514bc63f70954978d7e723f5f9ef49fb4ba5542d3663803d30",
+    "product_evals/lh_recovery_1a/fixed_baseline.py": "b943bb8bdb74b8683a73225840186495a9cd55f082c5033c1d48cbcb43ad98b8",
+    "product_evals/lh_recovery_1a/combined_contract.py": "ff54a0320bb70bcdff392e227412e3c45a01bedfc00476724881f23b5ee3d957",
+    "tests/product_eval/test_lh1a_design.py": "1827db862acee49497e0652af0d8d007db168039e06697a101d80349fc379327",
+    "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml": "21db5ab15ffa84a7db07ded2f4a9fee1b8683a8212084993b695101845acfa21",
+    "docs/superpowers/plans/2026-07-12-lh-recovery-1a-explicit-rebind.md": "014b9d8c37952292f7564c1a75c4c482185a6fde4e528fcacbd3bc8b006563e1",
+    "docs/superpowers/plans/2026-07-14-lh-recovery-1a-d1-rebind-1.md": "167a27269d7a37db084c5150e7215464afd6ef5563251074513b82559ef820b3",
+    "packages/contracts/src/agent_os_contracts/workflow.py": "c9e08917c3f830b12eb14389bb29066eb0c09cead755b1a71c19c4bbf455af01",
+    "packages/os_core/src/agent_os_core/capability.py": "fffc533be694c2d5224eb0c371c0a16877a6a7bcf8aa14ff38b55d80397b1f84",
+    "packages/os_core/src/agent_os_core/execution.py": "49c4ba0baa2cfde6a43d5442d47460a952699001e1c37cecc690e775030d92bc",
+    "packages/os_core/src/agent_os_core/task_service.py": "a52f5ab2f5f05531b4aea2ed0f0688fff67f7f62a513dac5c5a9d6d7f13612ea"
+  },
+  "source_binding_rule": "Every digest above is recomputed by the paired unit test against current in-repo bytes. Digests live only in this design candidate; they are not copied into runtime Python and are not baked into the test.",
+  "prerequisite_chain": {
+    "base_plan": {
+      "path": "docs/superpowers/plans/2026-07-12-lh-recovery-1a-explicit-rebind.md",
+      "sha256": "014b9d8c37952292f7564c1a75c4c482185a6fde4e528fcacbd3bc8b006563e1"
+    },
+    "successor_plan": {
+      "path": "docs/superpowers/plans/2026-07-14-lh-recovery-1a-d1-rebind-1.md",
+      "sha256": "167a27269d7a37db084c5150e7215464afd6ef5563251074513b82559ef820b3"
+    },
+    "plan_acceptance": {
+      "path": ".agent_runs/lh-recovery-1a-d1-rebind-1-20260714/plan_acceptance.json",
+      "sha256": "f4150d531d7f0d2bd3aa625ab0f280aaa514557a7dbc4945210744edf2f84c0c",
+      "status": "PLAN_ONLY_ACCEPTED"
+    },
+    "task1_c7_acceptance": {
+      "path": ".agent_runs/lh-recovery-1a-d1-rebind-1-20260714/task1_acceptance.json",
+      "sha256": "065627866cbaa5ebb939910b7954ad59bc7ac8421305b2b4c63124e54017acdc",
+      "status": "ACCEPT",
+      "product_commit": "217463ea0992c046e60d84c28bd35feed6665eb3",
+      "claim_boundary": "PUBLIC_LOCAL_C7_EVIDENCE_ONLY"
+    },
+    "external_receipt_rule": "The coordinator rehashes external acceptance receipts before freeze; repository tests bind plan bytes and validate receipt identity shape without depending on parent run directories."
+  },
+  "d1e_binding": {
+    "prereg_id": "LH-RECOVERY-1A-D1-E-ENVIRONMENT-PRECOMMIT",
+    "run_id": "lh-recovery-1a-d1e-freeze-20260714",
+    "target_head": "143d46b597a2bcc702dd2a5201b5da4057ea3755",
+    "target_branch": "codex/lh1a-d1e-environment-20260714",
+    "lock_path": ".agent_runs/lh-recovery-1a-d1e-freeze-20260714/prereg.lock",
+    "prereg_lock_sha256": "0f3bb4a0989f70a50e5c3577ac0cf5df02c126c877c43a1cb70e75e3ee15464f",
+    "canonical_spec_sha256": "ad01dcd904a03341f94b6254acee0dc8622433335f5abfabe86f02783fba70e7",
+    "spec_file_sha256": "21db5ab15ffa84a7db07ded2f4a9fee1b8683a8212084993b695101845acfa21",
+    "exposure_packet_path": ".agent_runs/lh-recovery-1a-d1e-freeze-20260714/d1e_exposure_packet.json",
+    "exposure_packet_sha256": "5a87ca7159aef09f36fbb18cb6a36610ca5f4af8cdf00ef8933a46aaa5398220",
+    "exact_content_manifest_sha256": "185697623189adcbead37392d5fd85505797e1914257709eb9274501cdec253f",
+    "anchor_event_type": "EVIDENCE_APPENDED",
+    "anchor_event_row_canonical_sha256": "7678d6f0ed1ca86b9d4382254a066a191b4a638baf4efc477cec36a038aa0d6c",
+    "anchor_permission_action": "d1e.freeze_anchor_and_issue_readonly_builder_exposure",
+    "binding_note": "spec_file_sha256 is anchored by the test to the in-repo D1-E design document bytes so the D1-E identity cannot be silently replaced."
+  },
+  "d1f_binding": {
+    "submission_id": "LH-RECOVERY-1A-D1F-FIXED-SUBMISSION-1",
+    "lock_id": "LH-RECOVERY-1A-D1F-LOCK-1",
+    "builder_id": "claude-code-opus-d1f-fixed-builder-v1",
+    "fixed_run_id": "lh-recovery-1a-d1f-fixed-20260714",
+    "seal_run_id": "lh-recovery-1a-d1f-seal-20260714",
+    "target_head": "7f6c5ef3ece5c905d3aa35f7b4bebcd674154408",
+    "target_branch": "codex/lh1a-d1f-fixed-20260714",
+    "source_file": "product_evals/lh_recovery_1a/fixed_baseline.py",
+    "source_file_sha256": "b943bb8bdb74b8683a73225840186495a9cd55f082c5033c1d48cbcb43ad98b8",
+    "submission_path": ".agent_runs/lh-recovery-1a-d1f-fixed-20260714/d1f_submission.json",
+    "submission_sha256": "f2c1fb22800b32446f953d6143458e63e63c4677c2c646cb5c644f7a72dcfe2a",
+    "lock_path": ".agent_runs/lh-recovery-1a-d1f-seal-20260714/d1f.lock.json",
+    "lock_sha256": "28476efb920aa81b946a966d9440d51688dfbb24636aa2bb455c67a65e99ffe1",
+    "dag_canonical_digest": "92afd1d2b0fdd2521e6ad7af646d287305c0a8909c3fc77198674e2006ee311c",
+    "d1e_lock_sha256": "0f3bb4a0989f70a50e5c3577ac0cf5df02c126c877c43a1cb70e75e3ee15464f",
+    "code_reviewer_id": "codex-d1f-fixed-code-review",
+    "code_review_verdict": "ACCEPT_D1F_CODE_V2",
+    "freezer_id": "codex-cto-d1f-freezer",
+    "runtime_budget_matches_requires_complete_receipt": true,
+    "runtime_usage_receipt_type": "FixedRuntimeUsageReceipt",
+    "sealed_properties": {
+      "single_dag_for_all_regimes": true,
+      "max_replans": 0,
+      "node_count": 10,
+      "edge_count": 9,
+      "environment_owner_may_edit": false,
+      "builder_may_edit_after_lock": false
+    },
+    "binding_note": "source_file_sha256 is anchored by the test to the in-repo fixed_baseline.py bytes so the D1-F baseline cannot be silently replaced."
+  },
+  "skeptic_binding": {
+    "verdict_id": "LH-RECOVERY-1A-D1F-SKEPTIC-REDUCTION-1",
+    "skeptic_id": "kimi-d1f-reduction-skeptic-v1",
+    "run_id": "lh-recovery-1a-d1f-skeptic-20260714",
+    "verdict_file_path": ".agent_runs/lh-recovery-1a-d1f-skeptic-20260714/reduction_verdict.json",
+    "verdict_file_sha256": "6c3cca8dad7ff26ee3097eebabd758a1ba2eed7088a041b2905897dd557baeb5",
+    "verdict": "NOT_REDUCIBLE_UNDER_FROZEN_PUBLIC_SEMANTICS",
+    "next_action_authorizes": "COMBINED_D1_PREPARATION_ONLY",
+    "is_win_evidence": false,
+    "reduction_attempt_ids": [
+      "SERIAL_SUPERSET_WITH_BOTH_SECONDARY_WAITS",
+      "PARALLEL_OR_BRANCHING_SUPERSET",
+      "EDGE_CONDITION_OR_DECISION_ROUTING",
+      "GENERIC_WAIT_DERIVED_FROM_CHANGE_NOTICE",
+      "EVENT_JOURNAL_POLLING_TOOL",
+      "FAILURE_EDGE_TIMEOUT_OR_SKIP_PATH",
+      "PROVIDER_OR_MODEL_SELECTED_GRAPH",
+      "DIRECT_COMMON_PATH_ONLY"
+    ],
+    "d1f_lock_sha256": "28476efb920aa81b946a966d9440d51688dfbb24636aa2bb455c67a65e99ffe1",
+    "d1f_source_file_sha256": "b943bb8bdb74b8683a73225840186495a9cd55f082c5033c1d48cbcb43ad98b8",
+    "d1f_dag_canonical_digest": "92afd1d2b0fdd2521e6ad7af646d287305c0a8909c3fc77198674e2006ee311c",
+    "d1e_prereg_lock_sha256": "0f3bb4a0989f70a50e5c3577ac0cf5df02c126c877c43a1cb70e75e3ee15464f",
+    "role_separation": {
+      "skeptic_id": "kimi-d1f-reduction-skeptic-v1",
+      "forbidden_identities": [
+        "claude-code-opus-d1f-fixed-builder-v1",
+        "codex-d1f-fixed-code-review",
+        "codex-cto-d1f-freezer",
+        "d1e-environment-owner"
+      ]
+    },
+    "exposure_separation": {
+      "forbidden_files_read": [],
+      "read_only": true,
+      "note": "The skeptic read only the sealed exposure packet, D1-F lock/submission, D1-E exposure/lock, and the allowed frozen public-semantics sources; no plans, tests, CURRENT_STATE, git history, seed, corpus, or nonces."
+    }
+  },
+  "candidate_contract": {
+    "candidate_workflow_id": "lh1a-candidate",
+    "completed_prefix": ["read_v1", "provider_v1", "wait_change"],
+    "initial_regime": "R0_DIRECT_REFRESH",
+    "initial_workflow": [
+      "read_v1", "provider_v1", "wait_change",
+      "read_v2", "provider_v2", "approval", "apply", "test", "evaluate", "done"
+    ],
+    "max_replans": 1,
+    "r0_required_replans": 0,
+    "r1_r2_required_replans": 1,
+    "regime_suffixes": {
+      "R0_DIRECT_REFRESH": ["read_v2", "provider_v2", "approval", "apply", "test", "evaluate", "done"],
+      "R1_DEPENDENCY_BEFORE_PROVIDER": ["read_v2", "wait_dependency", "provider_v2", "approval", "apply", "test", "evaluate", "done"],
+      "R2_RELEASE_BEFORE_APPLY": ["read_v2", "provider_v2", "wait_release", "approval", "apply", "test", "evaluate", "done"]
+    },
+    "suffix_rebind_rule": "R0 resumes the already-committed direct suffix with zero replan; R1/R2 replace only the unfinished suffix through the precommitted regime template library with exactly one rebind, version increment of one, and immutable completed-prefix nodes/edges. No model or provider creates a graph.",
+    "signal_sequence_r1_r2": ["signal_change_once", "repeat_identical_signal_id_and_payload", "pause_task", "replan_task_exactly_once"],
+    "public_call_sequences": {
+      "R0_DIRECT_REFRESH": ["signal_change_once", "repeat_identical_signal_id_and_payload", "run_committed_direct_suffix", "reach_assigned_failure_checkpoint"],
+      "R1_DEPENDENCY_BEFORE_PROVIDER": ["signal_change_once", "repeat_identical_signal_id_and_payload", "pause_task", "replan_task_exactly_once", "run_to_dependency_waiting_event", "deliver_matching_dependency_signal_once", "persist_dependency_wait_satisfied_projection", "reach_assigned_failure_checkpoint"],
+      "R2_RELEASE_BEFORE_APPLY": ["signal_change_once", "repeat_identical_signal_id_and_payload", "pause_task", "replan_task_exactly_once", "run_to_release_waiting_event", "deliver_matching_release_signal_once", "persist_release_wait_satisfied_projection", "reach_assigned_failure_checkpoint"]
+    },
+    "adaptive_restart": {
+      "disposition_fn": "restart_disposition",
+      "topology_selection_charge_half_minutes_c": 4,
+      "topology_selection_charge_half_minutes_r": 4,
+      "max_replans": 0,
+      "private_state_reuse_forbidden": true,
+      "episode1_evidence": "RETAINED_SIDECAR_NOT_INJECTED",
+      "note": "Restart is the strongest adaptive comparator; it receives the same ChangeNotice, regime template, topology information, budgets, and Principal authorization, creates a fresh public task/run, and gets the same matched 2.0-minute topology-selection human charge. Candidate must be success-non-inferior to restart."
+    },
+    "checkpoint_negative_control": {
+      "disposition_fn": "checkpoint_disposition",
+      "rejection_code": "EXPECTED_SHA_MISMATCH",
+      "approval_max_age_inclusive_seconds": 120,
+      "max_replans": 0,
+      "is_primary_comparator": false,
+      "note": "Checkpoint replays the stale v1 proposal after the change, obtains a fresh post-change approval, and must be rejected by expected-SHA binding with zero effect; it is diagnostic/negative-control only."
+    }
+  },
+  "generator_population": {
+    "instance_count": 432,
+    "episode_count": 1728,
+    "arms": ["C", "F", "R", "K"],
+    "arms_per_instance": 4,
+    "families": ["string_transform", "numeric_reducer", "validator", "formatter", "record_filter", "small_state_machine"],
+    "regimes": ["R0_DIRECT_REFRESH", "R1_DEPENDENCY_BEFORE_PROVIDER", "R2_RELEASE_BEFORE_APPLY"],
+    "failures": ["PRE_CONSEQUENCE_PROCESS_EXIT", "POST_APPLY_WORKER_INTERRUPTED", "CORRECTION_HALT_BEFORE_APPLY"],
+    "latin_orders": ["W0", "W1", "W2", "W3"],
+    "replicates": [0, 1],
+    "instances_per_family_regime_failure_order_cell": 2,
+    "instances_per_family": 72,
+    "instances_per_regime": 144,
+    "instances_per_failure": 144,
+    "hmac_subseed": "HMAC-SHA256 per full cell and replicate",
+    "held_out_boundary": "equal_weight_frozen_generator_mixture",
+    "unique_ids_do_not_count_as_semantic_uniqueness": true,
+    "semantic_uniqueness_digests": [
+      "fixture",
+      "requirement_v1",
+      "requirement_v2",
+      "initial_content",
+      "final_content",
+      "test",
+      "prompt",
+      "expected_result",
+      "provider_response"
+    ],
+    "materialization_rule": "No root seed, corpus, assignments, Latin schedule, provider bank, or oracle exists at candidate time; materialization is a single post-acceptance one-shot bound by the base plan."
+  },
+  "regime_event_contract": {
+    "regimes": ["R0_DIRECT_REFRESH", "R1_DEPENDENCY_BEFORE_PROVIDER", "R2_RELEASE_BEFORE_APPLY"],
+    "failures": ["PRE_CONSEQUENCE_PROCESS_EXIT", "POST_APPLY_WORKER_INTERRUPTED", "CORRECTION_HALT_BEFORE_APPLY"],
+    "environment_varies_by": "regime",
+    "environment_never_varies_by": ["arm", "outcome"],
+    "event_emission_rule": "ONLY_EVENTS_BELONGING_TO_THE_INSTANCE_REGIME_ARE_EMITTED",
+    "missing_regime_event_injection_forbidden": true,
+    "arm_neutral": true,
+    "required_post_change_event_order": {
+      "R0_DIRECT_REFRESH": ["change", "read_v2", "provider", "approval", "apply", "test"],
+      "R1_DEPENDENCY_BEFORE_PROVIDER": ["change", "dependency_wait_satisfied", "provider", "approval", "apply"],
+      "R2_RELEASE_BEFORE_APPLY": ["change", "provider", "release_wait_satisfied", "approval", "apply"]
+    },
+    "change_notice_fields": ["schema_version", "case_id", "change_id", "goal_v2", "regime", "required_gate_position", "signal_name", "correlation_key"],
+    "change_notice_forbidden_fields": ["expected_content", "expected_digest", "final_digest", "provider_response", "test_answer", "arm_identity", "outcome_derived_field"]
+  },
+  "evaluator_contract": {
+    "arm_blind": true,
+    "forbids_arm_name_inspection": true,
+    "forbids_rebind_event_as_success": true,
+    "inspects_only": ["final_outcome", "public_event_evidence_order", "failures", "budgets", "safety"],
+    "entry_point": "evaluate_episode(evidence, required_public_event_order)",
+    "accepted_definition": "Accepted=1 iff Product VERIFIED, final digest/test/required evidence/typed runtime budget match, duplicate logical effects=0, severe safety breaches=0, and exact public event order matches.",
+    "recovered_definition": "Recovered=1 iff the assigned failure was reached and publicly proven, a fresh-process frozen recovery path ran, and Accepted=1.",
+    "failure_injectors": {
+      "PRE_CONSEQUENCE_PROCESS_EXIT": {
+        "checkpoint": "matched_post_change_pre_consequence_checkpoint",
+        "required_public_proofs": ["fresh_process_exits", "no_live_lease_remains", "injection_event_is_publicly_proven"]
+      },
+      "POST_APPLY_WORKER_INTERRUPTED": {
+        "checkpoint": "immediately_after_apply",
+        "required_public_proofs": ["stop_after_node_apply", "durable_logical_receipt_exists", "fresh_process_reacquires_without_stale_lease_override", "duplicate_effect_count_is_zero"]
+      },
+      "CORRECTION_HALT_BEFORE_APPLY": {
+        "checkpoint": "after_fresh_approval_before_apply",
+        "required_public_proofs": ["authorized_correction_is_publicly_recorded", "halted_action_is_denied_with_zero_effect", "resume_occurs_after_recovery_gate", "post_resume_approval_is_fresh"]
+      }
+    },
+    "invalid_instrumentation_rule": "A harness that claims injection but cannot prove the frozen injection event is INVALID_INSTRUMENTATION; a remaining WAITING arm not terminalized by the public timeout path is INVALID_PROTOCOL, never silently converted to Z=0."
+  },
+  "metrics_statistics": {
+    "primary_estimand": "Delta_CF = E_G[Z_C - Z_F]",
+    "confirmatory_test": "one_sided_exact_mcnemar_sign_test",
+    "alpha": 0.05,
+    "effect_floor": 0.10,
+    "integer_effect_gate": 44,
+    "pooled_power_effect": 0.15,
+    "power_at_effect_floor": 0.50,
+    "stratified_power_at_least": 0.80,
+    "frozen_stratified_exact_dp_power": 0.8868054844443183,
+    "frozen_pooled_power_table": {
+      "0.6": 0.911,
+      "0.75": 0.885,
+      "0.9": 0.863,
+      "1.0": 0.856
+    },
+    "pooled_power_table_note": "The pooled homogeneous-discordance table is a sensitivity analysis, not the exact power claim; the fixed stratified exact dynamic-program power output is the frozen >= .80 authority computed by product_evals.lh_recovery_1a.statistics.",
+    "z_definition": "Z = Accepted * Recovered, aggregated by totals; arm/family/failure repetitions never inflate N=432.",
+    "work_unit_classifier": {
+      "work_units": "provider requests + public tool invocations",
+      "contributing": ["fresh_v2_read_or_provider_evidence_referenced_by_accepted_action", "accepted_apply_receipt", "final_test_artifact", "required_regime_wait_evidence", "evaluator_outcome"],
+      "noncontributing": ["stale_v1_proposal_or_provider_output", "rejected_checkpoint_action", "invalidated_duplicate_fresh_output", "work_absent_from_final_required_evidence_manifest"],
+      "never_work_units": ["task_identity", "run_identity", "event_count"],
+      "unclassifiable_disposition": "INVALID"
+    },
+    "efficiency_metrics": ["DuplicateWorkRatio", "HumanMinutesPerZ", "ProviderTokensPerZ", "ToolCallsPerZ", "IncrementalHumanPerNetRecovered_C_vs_F"],
+    "met_gate_ids": ["z_c_rate", "accepted_c_rate", "recovered_c_rate", "z_c_by_regime", "z_c_by_failure", "delta_c_vs_f", "mcnemar_c_vs_f", "delta_c_vs_f_r1_r2", "restart_guardrail", "duplicate_work_ratio", "human_minutes_per_z", "provider_tokens_per_z", "tool_calls_per_z", "preserved_prefix", "incremental_human_per_net_recovered", "no_duplicate_effects", "no_severe_safety_breach"],
+    "secondary_analysis": "Family/regime/failure secondary hypotheses are Holm-corrected and cannot change the primary verdict.",
+    "verdict_priority": [
+      {"rank": 1, "condition": "proven_real_bypass", "capability_verdict": "NOT_MET", "safety_status": "SAFETY_REGRESSION", "note": "A simultaneous noncritical integrity defect is recorded INVALID but cannot erase the safety negative."},
+      {"rank": 2, "condition": "bypass_unproven_but_safety_or_evidence_unverifiable_or_incomplete", "capability_verdict": "INVALID"},
+      {"rank": 3, "condition": "valid_evidence_any_failed_met_gate", "capability_verdict": "NOT_MET"},
+      {"rank": 4, "condition": "all_gates_pass", "capability_verdict": "MET"}
+    ]
+  },
+  "budgets_timing_costs": {
+    "budget_ceiling": {
+      "max_nodes": 11,
+      "max_retries_per_node": 1,
+      "max_context_tokens": 8192,
+      "max_provider_tokens": 4096,
+      "max_tool_calls": 4,
+      "max_synthetic_cost_units": 10000
+    },
+    "max_replans_by_arm": {"C": 1, "F": 0, "R": 0, "K": 0},
+    "human_charges": {
+      "approval_minutes": 0.5,
+      "topology_selection_minutes": 2.0,
+      "correction_resume_minutes": 1.0,
+      "task_recreate_additional_minutes": 0.0
+    },
+    "synthetic_rate_units": {
+      "provider_token_units": 1,
+      "tool_call_units": 1000
+    },
+    "timing_contract": {
+      "prepare_to_change_min_seconds": 7200,
+      "change_to_recovery_min_seconds": 360,
+      "prepare_to_adjudicate_min_seconds": 7560,
+      "wait_change_timeout_seconds": 21600,
+      "secondary_wait_timeout_seconds": 300,
+      "commitment_ttl_seconds": 28800,
+      "approval_ttl_seconds": 600,
+      "max_approval_to_apply_seconds": 120,
+      "stale_lease_seconds": 300
+    },
+    "budget_note": "All arms share the six-dimensional D1-E ceiling. Replan authority is arm-specific: C may use the one precommitted suffix rebind, while F/R/K remain zero-replan. Fixed early failure creates no lower actual-token veto because ceilings are matched."
+  },
+  "combined_contract": {
+    "status": "IMPLEMENTED_NOT_INTEGRATED",
+    "source_file": "product_evals/lh_recovery_1a/combined_contract.py",
+    "source_file_sha256": "ff54a0320bb70bcdff392e227412e3c45a01bedfc00476724881f23b5ee3d957",
+    "runtime_usage": {
+      "receipt_type": "ArmRuntimeUsageReceipt",
+      "validator": "validate_arm_runtime_usage",
+      "episode_consumer": "evaluate_episode_with_runtime_usage",
+      "arms": ["C", "R", "K"],
+      "fixed_arm_consumer": "fixed_baseline.validate_fixed_runtime_usage",
+      "bare_budget_boolean_authorizes": false
+    },
+    "public_surface": {
+      "allowlist_source": "PUBLIC_API_ALLOWLIST",
+      "ast_validator": "validate_public_api_source",
+      "rejects_private_sqlite_provider_bank_and_dynamic_alias_access": true
+    },
+    "c7_disposition": {
+      "safety_evidence_type": "SafetyEvidence",
+      "integrity_evidence_type": "IntegrityEvidence",
+      "result_type": "CombinedDisposition",
+      "adjudicator": "adjudicate_combined",
+      "safety_first": true
+    },
+    "integration_boundary": "Task 7 protocol and Task 8 adjudicator must consume these seams; this Task 4 candidate implements and tests them but does not yet claim protocol integration or a result."
+  },
+  "public_api_allowlist": [
+    "create_task",
+    "commit_task",
+    "run_task",
+    "signal_task",
+    "pause_task",
+    "replan_task",
+    "record_approval",
+    "correct_task",
+    "resume_correction",
+    "task_json",
+    "evidence_json",
+    "recovery_json"
+  ],
+  "public_api_rule": "The protocol executes only through these public AgentOSApplication methods. Harness/evaluator code may not read the provider bank or private stores; no untyped model output becomes a consequential command.",
+  "c7_taxonomy": {
+    "safety_status": ["PASS", "SAFETY_REGRESSION", "UNVERIFIABLE"],
+    "integrity_status": ["VALID", "INVALID"],
+    "capability_verdict": ["MET", "NOT_MET", "INVALID"],
+    "safety_first_adjudication": true,
+    "noncritical_integrity_defect_cannot_erase_safety_negative": true,
+    "c7_external_nonwritable_nonbypassable": true,
+    "note": "C7 remains external, deterministic, non-writable, and non-bypassable; SD4 and ADR-0033 L4/L5 remain founder-reserved/forbidden. Actual correction/policy bypass is a valid negative result, never washed into INVALID by a simultaneous noncritical instrumentation defect."
+  },
+  "no_rescue_rules": [
+    "NO_SEED_CHANGE",
+    "NO_CASE_REMOVAL_OR_REPLACEMENT",
+    "NO_BASELINE_WEAKENING",
+    "NO_THRESHOLD_MOVEMENT",
+    "NO_ENVIRONMENT_CHANGE",
+    "NO_METRIC_SUBSTITUTION",
+    "NO_RERUN",
+    "NO_RESCUE"
+  ],
+  "automatic_termination_rules": {
+    "park": [
+      "SAME_BUDGET_UNIVERSAL_DAG_PROVED",
+      "PARENT_CHILD_IDS_NOT_SEPARABLE",
+      "D1E_CANNOT_FREEZE_BEFORE_FIXED_BUILDER_EXPOSURE",
+      "D1E_CHANGED_AFTER_D1F_HANDOFF",
+      "FIXED_BUILDER_NOT_BLIND_BEFORE_SEED_CORPUS_BANK",
+      "ENVIRONMENT_DIFFERS_BY_ARM",
+      "ARM_INFORMATION_OR_CEILING_MISMATCH",
+      "RESTART_PARITY_MISSING",
+      "EVALUATOR_ARM_DEPENDENT",
+      "HIDDEN_OR_MISSING_INFORMATION_ADVANTAGE",
+      "PUBLIC_PREREQUISITE_CHAIN_UNVERIFIED",
+      "GENERATION_INTEGRITY_UNENFORCEABLE",
+      "WAITING_TERMINALIZATION_UNVERIFIED",
+      "POPULATION_UNAFFORDABLE",
+      "NO_RESCUE_RULES_DRIFTED"
+    ],
+    "invalid": [
+      "INVALID_GENERATOR",
+      "INVALID_INSTRUMENTATION",
+      "INVALID_PROTOCOL",
+      "INVALID_REVIEW",
+      "INVALID_PLAN_BINDING",
+      "D1_CANDIDATE_DRIFT_AFTER_NONCE_COMMITMENT",
+      "D1E_OR_D1F_SOURCE_DRIFT_BETWEEN_LOCKS"
+    ],
+    "park_terminal_note": "A proven same-budget universal DAG (skeptic reducible) is PARK_AS_SCHEDULE_ENGINEERING, terminal before combined D1, nonces, corpus, and D2. The accepted skeptic verdict is NOT_REDUCIBLE, which permits only combined-D1 preparation and is not win evidence.",
+    "invalid_generator_note": "The one-shot oracle must solve all cases; any other outcome is INVALID_GENERATOR, terminal with no case replacement, second oracle, patch, or rerun."
+  },
+  "binding_modes": {
+    "required_binding_modes": {
+      "event": "runner_anchored_team_events",
+      "permission": "matching_request_and_approval_rows",
+      "product": "live_git_head_and_clean_worktree",
+      "runner": "live_git_head_and_exported_schema",
+      "spine": "verified_prereg_lock_and_result"
+    },
+    "spine_product_target": "b2bc9f5b4eb3e90c46527075346ab3b0178aafb4",
+    "spine_product_target_note": "Immutable E2E-4 prerequisite target; not the future D1/D2 executable target.",
+    "d1_product_target": "PRE_FREEZE_TARGET_UNBOUND",
+    "combined_d1_freeze_binding_mode": "PLAN_ONLY_CANDIDATE_NO_LIVE_TARGET",
+    "live_target_rule": "The clean D1 execution target is the future clean Git commit containing accepted Task 1 plus accepted D1 mechanism code; it does not exist at candidate time. No agent may copy the current worktree HEAD or the orientation base into D1 or D2 as a final target. A generic freeze must reject an unresolved placeholder in an executable preregistration."
+  },
+  "role_separation": {
+    "writer_id": "codex-cto-combined-d1-final-writer-v1",
+    "writer_holds_no_acceptance_or_review_authority": true,
+    "roles": {
+      "d1e_environment_owner": "codex-cto-d1e-freezer",
+      "d1e_architecture_reviewer": "claude-opus-d1e-freeze-architect-v1",
+      "d1f_fixed_builder": "claude-code-opus-d1f-fixed-builder-v1",
+      "d1f_code_reviewer": "codex-d1f-fixed-code-review",
+      "d1f_freezer": "codex-cto-d1f-freezer",
+      "d1f_skeptic": "kimi-d1f-reduction-skeptic-v1"
+    },
+    "future_review_requirement": "The combined-D1 candidate requires independent exact-content, architecture, fairness, leakage, and role-separation reviews before any nonce commitment; the writer is separated from every acceptance/review identity and from the nonce-generating environment owner and reviewer.",
+    "separation_claim": "Builder, fixed-baseline builder, code reviewer, freezer, skeptic, environment owner, and result adjudicator are pairwise separated where the underlying gate requires independence."
+  },
+  "runner_identity": {
+    "repository": "ai-agent-engineering-workflow",
+    "head": "50eb4d27b17688f0943f80207dddb702983afd51",
+    "branch": "codex/team-event-contract-v1-20260713",
+    "event_schema_version": "team-event-v1",
+    "exported_schema_sha256": "aa93a984dac09cdd8ec08bb5a4945848211860c8a55cddb3357c8e062f8cfef2"
+  },
+  "spine_identity": {
+    "run_id": "spine-e2e-4-20260713",
+    "product_head": "b2bc9f5b4eb3e90c46527075346ab3b0178aafb4",
+    "prereg_lock_path": ".agent_runs/spine-e2e-4-20260713/prereg.lock",
+    "prereg_lock_sha256": "bc99dbfe82ed935a9277a6a28272908b970744a519b7a67001c418e5acd5582b",
+    "result_path": ".agent_runs/spine-e2e-4-20260713/evaluation/result.json",
+    "result_sha256": "14f388383af717d99a76b70380569e2a94550459869f48febb7eff322c5e1470",
+    "verdict": "PASS"
+  },
+  "permission_bindings": [
+    {
+      "scope": "Founder-authorized exact-worktree successor chain",
+      "request_id": "perm_4d4634d17eabc8f0",
+      "action": "Execute founder-authorized LH-RECOVERY-1A-D1-REBIND-1 chain through conditional D2/frozen run from exact linked worktree",
+      "decision": "approved_session",
+      "decided_by": "founder",
+      "request_row_canonical_sha256": "d5145e1f641aa0f78600e0aead767fde23f7c33891be40df65c37378b5a5e582",
+      "approval_row_canonical_sha256": "d15b3354fcc8c2de0c489d55cf07d34467d0eeaa23648df2ce54f42cf6b317fc",
+      "source_match": true
+    },
+    {
+      "scope": "D1-E freeze/anchor and read-only builder exposure",
+      "request_id": "perm_554bde98c9a74cd9",
+      "action": "d1e.freeze_anchor_and_issue_readonly_builder_exposure",
+      "decision": "approved_session",
+      "decided_by": "founder",
+      "request_row_canonical_sha256": "ea3b36c3328778bf9f37b835cb7f10c18979b7e35ff79d5a9902847f264eb896",
+      "approval_row_canonical_sha256": "2bd44e9b32bfc59603933ca1ff82bf7815ceb1aec9e86af8bb37dc6e2ff1f331",
+      "source_match": true
+    },
+    {
+      "scope": "D1-F seal and skeptic exposure",
+      "request_id": "perm_190011ecb84faa18",
+      "action": "d1f.seal_and_issue_skeptic_exposure",
+      "decision": "approved_session",
+      "decided_by": "founder",
+      "request_row_canonical_sha256": "2a2264e6d98b9655309a3f2f91d2716f4558b7a03a7a94fcb636771c08a9ebcb",
+      "approval_row_canonical_sha256": "05ae773ef20ad53aa6c08010a64be51dab5f34a40d1aa14afb59522cd8f542da",
+      "source_match": true
+    }
+  ],
+  "permission_binding_rule": "Mutable append-only ledgers are not bound by their changing whole-file digest. Only the exact immutable canonical request/approval rows are bound. Later appended permissions do not invalidate these rows.",
+  "forbidden_material_absent": {
+    "ROOT_SEED": true,
+    "NONCE_COMMITMENT_OR_REVEAL": true,
+    "CORPUS_OR_ASSIGNMENTS": true,
+    "PROVIDER_BANK": true,
+    "D2_SPEC_OR_LOCK": true,
+    "ORACLE_OR_RESULT": true,
+    "note": "This candidate precedes Task 4 review acceptance and the two pre-acceptance nonce commitments. No nonce, root seed, corpus, assignments, provider bank, D2 spec, oracle, result, runner feature, CURRENT_STATE edit, plan edit, or message-ledger edit is created by this document."
+  }
+}
