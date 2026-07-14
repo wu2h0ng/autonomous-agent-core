@@ -873,7 +873,7 @@ def test_arm_projection_and_protocol_gate_exclude_privileged_case_material() -> 
     accepted = """
 def run(app, case):
     app.run_task(case.case_id)
-    return case.requirement_v2
+    return len(case.requirement_v2)
 """
     assert combined_contract_module.validate_public_protocol_source(accepted) == (
         "run_task",
@@ -925,6 +925,59 @@ def run(app, case):
     ),
 )
 def test_protocol_ast_guard_rejects_reflective_and_indirect_call_chains(
+    source: str,
+) -> None:
+    with pytest.raises(combined_contract_module.PublicSurfaceValidationError):
+        combined_contract_module.validate_public_protocol_source(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        """
+def run(app, case):
+    len = lambda value: app.task_json()
+    app.run_task(case.case_id)
+    return len(case.prompt)
+""",
+        """
+def run(app, case):
+    len = app.task_json()["dynamic_callable"]
+    app.run_task(case.case_id)
+    return len(case.prompt)
+""",
+        """
+def run(app, case):
+    def len(value):
+        return value
+    app.run_task(case.case_id)
+    return len(case.prompt)
+""",
+        """
+def run(app: app.task_json(), case):
+    app.run_task(case.case_id)
+    return case.requirement_v2
+""",
+        """
+def run(app, case) -> app.task_json():
+    app.run_task(case.case_id)
+    return case.requirement_v2
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    match case.prompt:
+        case _:
+            return case.requirement_v2
+""",
+        """
+def run(app, case):
+    app.run_task(case.case_id)
+    return sorted((case.prompt,), key=lambda _: app.task_json())
+""",
+    ),
+)
+def test_protocol_ast_guard_rejects_safe_call_shadowing_and_implicit_execution(
     source: str,
 ) -> None:
     with pytest.raises(combined_contract_module.PublicSurfaceValidationError):

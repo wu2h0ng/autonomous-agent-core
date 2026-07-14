@@ -822,6 +822,10 @@ def validate_public_protocol_source(source: str) -> tuple[str, ...]:
         or arguments.kw_defaults
     ):
         raise PublicSurfaceValidationError("EXACT_APP_CASE_SIGNATURE_REQUIRED")
+    if function.returns is not None or any(
+        argument.annotation is not None for argument in arguments.args
+    ):
+        raise PublicSurfaceValidationError("ANNOTATIONS_FORBIDDEN")
     violations: list[str] = []
     local_names = {
         target.id
@@ -833,6 +837,31 @@ def validate_public_protocol_source(source: str) -> tuple[str, ...]:
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             violations.append("IMPORT_FORBIDDEN")
+        if isinstance(node, ast.Match):
+            violations.append("MATCH_FORBIDDEN")
+        if isinstance(node, ast.Lambda):
+            violations.append("DYNAMIC_CALLABLE_FORBIDDEN")
+        if node is not function and isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+        ):
+            violations.append("NESTED_DEFINITION_FORBIDDEN")
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and node.id in _SAFE_PURE_CALLS
+        ):
+            violations.append("SAFE_CALL_SHADOWED")
+        if isinstance(node, ast.arg) and node.arg in _SAFE_PURE_CALLS:
+            violations.append("SAFE_CALL_SHADOWED")
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name in _SAFE_PURE_CALLS:
+                violations.append("SAFE_CALL_SHADOWED")
+        if isinstance(node, ast.ExceptHandler):
+            if node.name in _SAFE_PURE_CALLS:
+                violations.append("SAFE_CALL_SHADOWED")
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            if set(node.names) & _SAFE_PURE_CALLS:
+                violations.append("SAFE_CALL_SHADOWED")
         candidate: str | None = None
         if isinstance(node, ast.Name):
             candidate = node.id

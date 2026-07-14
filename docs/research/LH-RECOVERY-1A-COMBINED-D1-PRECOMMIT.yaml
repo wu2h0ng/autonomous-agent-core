@@ -33,8 +33,8 @@
     "product_evals/lh_recovery_1a/evaluator.py": "6ecebdb4f5fac250fa0babf3e242e61c03da11c52b85a7ea4efa660f9f1bdc54",
     "product_evals/lh_recovery_1a/statistics.py": "822ceace6e4959514bc63f70954978d7e723f5f9ef49fb4ba5542d3663803d30",
     "product_evals/lh_recovery_1a/fixed_baseline.py": "b943bb8bdb74b8683a73225840186495a9cd55f082c5033c1d48cbcb43ad98b8",
-    "product_evals/lh_recovery_1a/combined_contract.py": "17a17abd0b65a48c3b383371c7e9d82350b0f4722187e472eb800b15bb86388b",
-    "tests/product_eval/test_lh1a_combined_d1.py": "d0102115337261fe58870c39e05104617e8bfc4c94adc8062d4a4d3378d7281f",
+    "product_evals/lh_recovery_1a/combined_contract.py": "f3b5815da5bf23dba8603d16d19970fcac4ddf87188f4b8c127e02e091da20a9",
+    "tests/product_eval/test_lh1a_combined_d1.py": "f639d61e428e3e12dab8c79726851d21175be2b369ad052b4e4468d76e144433",
     "tests/product_eval/test_lh1a_design.py": "1827db862acee49497e0652af0d8d007db168039e06697a101d80349fc379327",
     "docs/research/LH-RECOVERY-1A-DESIGN-PRECOMMIT.yaml": "21db5ab15ffa84a7db07ded2f4a9fee1b8683a8212084993b695101845acfa21",
     "docs/superpowers/plans/2026-07-12-lh-recovery-1a-explicit-rebind.md": "014b9d8c37952292f7564c1a75c4c482185a6fde4e528fcacbd3bc8b006563e1",
@@ -336,7 +336,7 @@
   "combined_contract": {
     "status": "IMPLEMENTED_NOT_INTEGRATED",
     "source_file": "product_evals/lh_recovery_1a/combined_contract.py",
-    "source_file_sha256": "17a17abd0b65a48c3b383371c7e9d82350b0f4722187e472eb800b15bb86388b",
+    "source_file_sha256": "f3b5815da5bf23dba8603d16d19970fcac4ddf87188f4b8c127e02e091da20a9",
     "runtime_usage": {
       "receipt_type": "VerifiedPublicRuntimeUsage",
       "trace_type": "VerifiedPublicEpisodeTrace",
@@ -356,7 +356,8 @@
       "arm_projection": "project_arm_case_input",
       "ast_validator": "validate_public_protocol_source",
       "forbidden_arm_channels": ["case_seed", "coordinate", "family_spec", "fixture", "final_content", "test", "expected_result", "provider_response"],
-      "rejects_imports_extra_inputs_private_sqlite_provider_bank_dynamic_alias_and_privileged_case_access": true
+      "rejects_imports_extra_inputs_private_sqlite_provider_bank_dynamic_alias_and_privileged_case_access": true,
+      "rejects_dunder_indirect_calls_safe_call_shadowing_annotations_match_and_nested_dynamic_callables": true
     },
     "c7_disposition": {
       "safety_evidence_type": "SafetyEvidence",
