@@ -86,6 +86,66 @@ frozen primary decision metric, or its apparent gain disappears under matched
 information and resource accounting, the typed-state route is `PARK`. A weaker
 summary or retrieval arm cannot rescue a tie with the full-log baseline.
 
+### Batch-2A hermetic development environment
+
+Batch-2A adds a non-result-bearing development environment under
+`experiments/r_state_credit_1/`:
+
+- `contracts.py`: closed event, hidden scenario, arm input/output, resource
+  budget, and qualification receipt contracts;
+- `scenarios.py`: one deterministic `NOT_EVIDENCE` fixture for each of the seven
+  required scenario families;
+- `arms.py`: A0 bounded full-log, A1 deterministic rolling summary, A2 frozen
+  event retrieval, and A3 visible-event-only typed-state adapter;
+- `qualifier.py`: replay, matched-information, budget, leak, interface, and
+  nonconstant-baseline checks only.
+
+The hidden referee owns expected state and hidden entity keys. Actor-visible
+events are a separate closed type and cannot contain future events, answer labels,
+hidden keys, oracle reasons, epistemic status labels, or privileged aliases. All
+four arms receive the exact same ordered observable-event tuple. A3 may derive a
+typed representation only from fields present in that tuple.
+
+Every arm returns the same resource receipt fields: input bytes, deterministic
+token proxy, consumed steps, tool calls, and charged wall-clock budget units.
+Budget accounting is deterministic; it does not measure live elapsed time. A0 is
+the strong raw-log baseline and cannot truncate, summarize, select, or silently
+drop observable events. If the common input budget cannot hold the full event
+tuple, A0 and the qualifier fail closed with `INPUT_BUDGET_EXCEEDED`. A1 has a
+hard output bound, A2 accepts only a frozen query enum, and A3 must surface
+`STATE_OVERFLOW` rather than drop protected state.
+
+Batch-2A fixtures and qualifier receipts are `NOT_EVIDENCE`. The package exposes
+no CLI, result runner, winner calculation, statistical test, seed sweep, training
+path, or result artifact command.
+
+The implemented qualifier returns only the following closed checks:
+
+1. replay determinism;
+2. matched observable-event digest and A0 byte fidelity;
+3. common resource receipt validity;
+4. hidden-referee leak absence;
+5. closed typed interfaces;
+6. nonconstant representation and nonconstant plumbing action probes.
+
+The action probe is only an anti-constant plumbing sentinel. It is not scored
+against hidden truth and cannot become a task-performance measure. Qualification
+does not inspect expected outcomes, compute correctness, rank arms, select a
+winner, estimate an effect, or perform significance testing.
+
+A1 is a real bounded rolling summary rather than a constant metadata stub: it
+keeps recent visible semantic event fields, an explicit compacted-event count,
+and a hash chain over the compacted prefix. A2 reports its explicitly omitted
+events under one frozen query enum. A3 builds aliases only from visible
+`ALIAS_OBSERVED` events, assigns `UNIDENTIFIED` rather than an unseen epistemic
+truth label, and derives lifecycle/conflict status only from the common feed.
+
+The mutation battery covers unreleased events and future-event references,
+ragged sequences, hidden-referee values in actor/A3 output, unbounded summary
+growth, non-enum oracle retrieval, weakened/truncated A0, silent A3 protected
+state loss, replay nondeterminism, unknown receipt fields, and constant action
+probes. These are development qualification guards, not Stage A observations.
+
 ## 4. Stage A to Stage B gate
 
 Stage B may study learnable latent state, representation updates, or hierarchical
@@ -213,6 +273,7 @@ identity, and run authority must be frozen in a separate preregistration.
 
 ```text
 Stage A typed-state mechanism: IMPLEMENTED_LOCAL_MECHANISM_ONLY
+Batch-2A hermetic environment: IMPLEMENTED_LOCAL_QUALIFICATION_ONLY / NOT_EVIDENCE
 Stage A comparison: NOT_PREREGISTERED / NOT_FROZEN / NOT_RUN
 Stage A winner: NONE
 Stage B: NO_STAGE_B_WINNER / NO_TRAINING / NO_RUN_AUTHORITY
