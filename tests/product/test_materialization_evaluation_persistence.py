@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,7 +92,7 @@ def _request(
 
 
 @pytest.fixture
-def store() -> SQLiteCandidateEvaluationStore:
+def store() -> Iterator[SQLiteCandidateEvaluationStore]:
     value = SQLiteCandidateEvaluationStore()
     yield value
     value.close()

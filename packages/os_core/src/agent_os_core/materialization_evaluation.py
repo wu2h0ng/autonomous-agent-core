@@ -23,7 +23,7 @@ from .errors import (
     CandidateEvaluationNotFound,
     CandidateEvaluationScopeMismatch,
 )
-from .governance import CorrectionAuthority
+from .governance import CorrectionGuard
 from .materialization_evaluation_persistence import (
     EVALUATION_CONTRACT_SCHEMA,
     CandidateEvaluationRecordRequest,
@@ -62,7 +62,7 @@ class DomainCandidateEvaluationRecorder:
     def __init__(
         self,
         tasks: TaskService,
-        correction: CorrectionAuthority,
+        correction: CorrectionGuard,
         candidates: CandidateStore,
         evaluations: CandidateEvaluationStore,
         grants: Mapping[str, CapabilityGrant],

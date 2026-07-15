@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import RLock
+from typing import Protocol
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -20,6 +21,27 @@ from agent_os_contracts import (
     PolicyVerdict,
     PrincipalIdentity,
 )
+
+
+class CorrectionGuard(Protocol):
+    """Minimal correction contract required by local effect writers."""
+
+    def snapshot(
+        self,
+        task_id: str,
+        run_id: str,
+        capability_id: str,
+    ) -> CorrectionEpochVector: ...
+
+    def halted(self, task_id: str, run_id: str, capability_id: str) -> bool: ...
+
+    def guard_unchanged(
+        self,
+        task_id: str,
+        run_id: str,
+        capability_id: str,
+        observed_epochs: CorrectionEpochVector,
+    ) -> AbstractContextManager[bool]: ...
 
 
 class CorrectionAuthority:
