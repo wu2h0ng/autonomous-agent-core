@@ -50,6 +50,7 @@ class CompensationStatus(str, Enum):
 class TaskEventType(str, Enum):
     TASK_CREATED = "TASK_CREATED"
     TASK_COMMITTED = "TASK_COMMITTED"
+    TASK_CONFIGURATION_SNAPSHOT_SEALED = "TASK_CONFIGURATION_SNAPSHOT_SEALED"
     RUN_STARTED = "RUN_STARTED"
     RUN_QUEUED = "RUN_QUEUED"
     NODE_STARTED = "NODE_STARTED"
@@ -304,3 +305,15 @@ class AgentRun(ContractModel):
     attempt: int = Field(default=1, ge=1)
     wait_condition: WaitCondition | None = None
     replan_count: int = Field(default=0, ge=0)
+    configuration_snapshot_id: NonEmptyStr | None = None
+    configuration_snapshot_digest: Sha256Digest | None = None
+
+    @model_validator(mode="after")
+    def _validate_configuration_snapshot_pair(self) -> AgentRun:
+        if (self.configuration_snapshot_id is None) != (
+            self.configuration_snapshot_digest is None
+        ):
+            raise ValueError(
+                "configuration snapshot id and digest must be provided together"
+            )
+        return self

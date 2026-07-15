@@ -24,11 +24,24 @@ from .errors import (
     SignalMismatchError,
     TaskNotFoundError,
     WaitExpiredError,
+    TaskConfigurationConflict,
+    TaskConfigurationDenied,
+    TaskConfigurationDrift,
+    TaskConfigurationError,
+    TaskConfigurationNotBound,
+    TaskConfigurationNotFound,
+    TaskConfigurationScopeMismatch,
 )
 from .event_store import InMemoryTaskEventStore, TaskEventStore
 from .persistence import SQLiteTaskEventStore
 from .postgres import PostgresTaskEventStore
-from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
+from .governance import (
+    POLICY_KERNEL_V1_DIGEST,
+    POLICY_KERNEL_V1_SPEC,
+    CorrectionAuthority,
+    PolicyInput,
+    PolicyKernel,
+)
 from .provider import (
     CredentialUnavailable,
     DeterministicProvider,
@@ -52,6 +65,12 @@ from .execution import (
 )
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService
+from .task_configuration import (
+    TASK_CONFIGURATION_CAPABILITY,
+    TASK_CONFIGURATION_CAPABILITY_VERSION,
+    TaskConfigurationRuntime,
+    TaskConfigurationSnapshotService,
+)
 from .materialization import (
     MATERIALIZATION_CAPABILITY,
     DomainCandidateSealer,
@@ -145,6 +164,19 @@ __all__ = [
     "PROMOTION_POLICY_V1_DIGEST",
     "PROMOTION_POLICY_V1_SPEC",
     "TaskNotFoundError",
+    "TaskConfigurationConflict",
+    "TaskConfigurationDenied",
+    "TaskConfigurationDrift",
+    "TaskConfigurationError",
+    "TaskConfigurationNotBound",
+    "TaskConfigurationNotFound",
+    "TaskConfigurationScopeMismatch",
+    "TaskConfigurationRuntime",
+    "TaskConfigurationSnapshotService",
+    "TASK_CONFIGURATION_CAPABILITY",
+    "TASK_CONFIGURATION_CAPABILITY_VERSION",
+    "POLICY_KERNEL_V1_DIGEST",
+    "POLICY_KERNEL_V1_SPEC",
     "WaitExpiredError",
     "CorrectionAuthority",
     "PolicyInput",

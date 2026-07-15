@@ -21,6 +21,12 @@ from agent_os_core import (
     CandidateProvenanceError,
     CandidateScopeMismatch,
     CandidateSealingDenied,
+    TaskConfigurationConflict,
+    TaskConfigurationDenied,
+    TaskConfigurationDrift,
+    TaskConfigurationNotBound,
+    TaskConfigurationNotFound,
+    TaskConfigurationScopeMismatch,
     TaskNotFoundError,
 )
 
@@ -38,6 +44,9 @@ def _uses_generic_http_idempotency(path: str) -> bool:
             "/domain-candidates:seal",
             "/evaluations:record",
             "/promotions:decide",
+            "/configuration-snapshots:seal",
+            "/start",
+            "/run",
         )
     )
 
@@ -52,14 +61,30 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             CandidateEvaluationScopeMismatch,
             CandidatePromotionDenied,
             CandidatePromotionScopeMismatch,
+            TaskConfigurationDenied,
+            TaskConfigurationScopeMismatch,
         ),
     ):
         return 403
-    if isinstance(exc, (CandidateIdempotencyConflict, CandidateConcurrentWrite)):
+    if isinstance(
+        exc,
+        (
+            CandidateIdempotencyConflict,
+            CandidateConcurrentWrite,
+            TaskConfigurationConflict,
+            TaskConfigurationDrift,
+            TaskConfigurationNotBound,
+        ),
+    ):
         return 409
     if isinstance(
         exc,
-        (TaskNotFoundError, CandidateEvaluationNotFound, CandidatePromotionNotFound),
+        (
+            TaskNotFoundError,
+            CandidateEvaluationNotFound,
+            CandidatePromotionNotFound,
+            TaskConfigurationNotFound,
+        ),
     ):
         return 404
     if isinstance(exc, (CandidateProvenanceError, ValidationError, ValueError)):
@@ -131,6 +156,32 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith(prefix):
             try:
                 parts = parsed.path.strip("/").split("/")
+                if (
+                    len(parts) in {4, 5}
+                    and parts[:2] == ["v1", "tasks"]
+                    and parts[3] == "configuration-snapshots"
+                ):
+                    if len(parts) == 4:
+                        snapshots = self.application.list_task_configurations(
+                            parts[2]
+                        )
+                        self._json(
+                            200,
+                            {
+                                "task_id": parts[2],
+                                "configuration_snapshots": [
+                                    snapshot.model_dump(mode="json")
+                                    for snapshot in snapshots
+                                ],
+                            },
+                        )
+                    else:
+                        snapshot = self.application.get_task_configuration(
+                            parts[2],
+                            parts[4],
+                        )
+                        self._json(200, snapshot.model_dump(mode="json"))
+                    return
                 if (
                     len(parts) == 6
                     and parts[:2] == ["v1", "tasks"]
@@ -319,6 +370,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(201, candidate.model_dump(mode="json"))
                 return
             if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "configuration-snapshots:seal"
+            ):
+                snapshot = self.application.seal_task_configuration(parts[2], body)
+                self._json(201, snapshot.model_dump(mode="json"))
+                return
+            if (
                 len(parts) == 3
                 and parts[:2] == ["v1", "tasks"]
                 and parts[2].endswith(":commit")
@@ -329,13 +388,53 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "run":
                 recover_stale_lease = bool(body.pop("recover_stale_lease", False))
+                configuration_snapshot_id = body.pop(
+                    "configuration_snapshot_id",
+                    None,
+                )
+                if configuration_snapshot_id is not None and (
+                    not isinstance(configuration_snapshot_id, str)
+                    or not configuration_snapshot_id.strip()
+                ):
+                    raise ValueError(
+                        "configuration_snapshot_id must be a non-empty string"
+                    )
+                forbidden_configuration_fields = {
+                    "configuration_snapshot",
+                    "configuration_snapshot_digest",
+                    "optional_prior",
+                    "prior_binding",
+                }
+                if forbidden_configuration_fields.intersection(body):
+                    raise ValueError(
+                        "run accepts configuration_snapshot_id only; authoritative "
+                        "configuration content is forbidden"
+                    )
                 task = self.application.run_task(
-                    parts[2], body, recover_stale_lease=recover_stale_lease
+                    parts[2],
+                    body,
+                    configuration_snapshot_id=configuration_snapshot_id,
+                    recover_stale_lease=recover_stale_lease,
                 )
                 self._json(200, self.application.task_json(task.task_id))
                 return
             if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "start":
-                task = self.application.start_run(parts[2])
+                if set(body) - {"configuration_snapshot_id"}:
+                    raise ValueError(
+                        "start accepts configuration_snapshot_id only"
+                    )
+                configuration_snapshot_id = body.get("configuration_snapshot_id")
+                if configuration_snapshot_id is not None and (
+                    not isinstance(configuration_snapshot_id, str)
+                    or not configuration_snapshot_id.strip()
+                ):
+                    raise ValueError(
+                        "configuration_snapshot_id must be a non-empty string"
+                    )
+                task = self.application.start_run(
+                    parts[2],
+                    configuration_snapshot_id,
+                )
                 self._json(200, self.application.task_json(task.task_id))
                 return
             if (

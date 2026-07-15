@@ -56,6 +56,7 @@ Location: `packages/contracts/src/agent_os_contracts/`
 | `resource.py` | budgets and resource constraints |
 | `domain.py` | generic domain-pack boundary contracts |
 | `materialization.py` | closed DomainCandidate, external evaluation receipt, promotion-decision and inert optional-prior contracts plus provenance, representation patches and content digests |
+| `task_configuration.py` | immutable Product-derived Task configuration, exact optional-prior lineage reference and canonical digest contracts |
 | `common.py` | shared identifiers, serialization and validation primitives |
 
 These are generic OS contracts. Metric, SQL, DataProduct and business-action semantics belong to Data Agent, not this package.
@@ -84,6 +85,7 @@ Location: `packages/os_core/src/agent_os_core/`
 | `materialization_promotion_policy.py` | digest-bound Product promotion-policy registry; production V1 deterministically returns `DEFER` for every current ADM-P2 receipt chain |
 | `materialization_promotion.py` | fifth-party Task/Run/grant/C7-bound promotion-decision and inert-prior read service; no evaluator or activation path |
 | `materialization_promotion_persistence.py` | append-only promotion/prior ledger with full-chain reload, derived idempotency, head/parent CAS, policy recomputation and atomic decision/prior persistence |
+| `task_configuration.py` | Product-owned snapshot sealing, optional-prior lineage revalidation, configuration/C7 drift checks and exact later-Run binding service |
 | `errors.py` | typed product failures |
 
 The public Product Track path must pass through these state/authority contracts. Direct model output is never a consequential command.
@@ -96,6 +98,7 @@ The public Product Track path must pass through these state/authority contracts.
 - `POST /v1/tasks/{task_id}/domain-candidates:seal` and `GET /v1/tasks/{task_id}/domain-candidates`: ADM-P1 inert candidate sealing/listing; no activation path.
 - `POST /v1/tasks/{task_id}/domain-candidates/{candidate_digest}/evaluations:record` and matching `GET .../evaluations`: ADM-P2 inert external receipt recording/listing; no evaluator execution, promotion or activation path.
 - `POST /v1/tasks/{task_id}/domain-candidates/{candidate_digest}/promotions:decide`, matching `GET .../promotions` and `GET .../domain-priors`: ADM-P3 Product-owned decision/inert-prior infrastructure. Production policy V1 always returns `DEFER`, so the production composition root creates no prior and exposes no activation path.
+- `POST /v1/tasks/{task_id}/configuration-snapshots:seal`, matching list/get and exact-ID start/run: ADM-P4 immutable Product configuration and later-Run reference binding. Optional priors remain inert and never enter execution inputs.
 - `index.html`: Task Workspace surface.
 - `preview-zh.html`: local prototype/preview; verify current status before treating it as a delivered surface.
 
@@ -127,11 +130,13 @@ The first local developer path. It is not a universal coding-agent claim or a su
 | `tests/product/test_materialization_promotion_persistence.py` | full receipt-chain validation, ledger ownership, derived idempotency, CAS and atomic test-only PROMOTE/prior rollback checks |
 | `tests/product/test_materialization_promotion_service.py` | fifth-party identity, Task/Run/grant/scope/C7 and no-mutation promotion-service checks |
 | `tests/product/test_materialization_promotion_api.py` | real HTTP DEFER/replay/restart/cache-bypass/failure/no-provider/no-workspace-effect checks |
+| `tests/product/test_task_configuration_*.py` | ADM-P4 frozen contracts, Task-event/Run binding, optional-prior lineage, configuration/C7 concurrency, application and HTTP bypass checks |
 | `tests/product/` | Product Track contracts, persistence, provider, capability, governance, API/CLI and UI-facing regressions |
 | `docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md` | bounded PM acceptance record |
 | `docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P1 |
 | `docs/product/PM-ADM-P2-EXTERNAL-EVALUATION-RECEIPTS-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P2 |
 | `docs/product/PM-ADM-P3-PROMOTION-AND-OPTIONAL-PRIOR-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P3 infrastructure; production V1 is all-DEFER and has no activation authority |
+| `docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P4 immutable configuration/reference binding; no activation authority |
 | `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md` | SPINE-0 architecture authority |
 | `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml` | migration plan/map; not execution authority |
 | `product_evals/spine_e2e_1/` through `product_evals/spine_e2e_4/` | preserved successor instruments; E2E-1/2/3 are immutable INVALID and E2E-4 is one bounded frozen local same-boot PASS |

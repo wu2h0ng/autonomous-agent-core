@@ -99,3 +99,31 @@ class CandidatePromotionDenied(CandidatePromotionError):
 
 class CandidatePromotionScopeMismatch(CandidatePromotionError):
     pass
+
+
+class TaskConfigurationError(AgentOSCoreError):
+    pass
+
+
+class TaskConfigurationNotFound(TaskConfigurationError):
+    pass
+
+
+class TaskConfigurationDenied(TaskConfigurationError):
+    pass
+
+
+class TaskConfigurationScopeMismatch(TaskConfigurationError):
+    pass
+
+
+class TaskConfigurationConflict(TaskConfigurationError):
+    pass
+
+
+class TaskConfigurationNotBound(TaskConfigurationError):
+    pass
+
+
+class TaskConfigurationDrift(TaskConfigurationError):
+    pass

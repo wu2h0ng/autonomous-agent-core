@@ -19,12 +19,14 @@ from agent_os_contracts import (
     TaskEventDraft,
     TaskEventType,
     TaskStatus,
+    TaskConfigurationSnapshot,
     WorkflowGraph,
     ObservedOutcome,
     PatchCompensationRecord,
 )
 
 from .errors import EventStreamError, InvalidTransitionError, ScopeMismatchError
+from .governance import POLICY_KERNEL_V1_DIGEST
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +38,7 @@ class TaskAggregate:
     commitment: Commitment | None = None
     workflow: WorkflowGraph | None = None
     expected_outcome: ExpectedOutcome | None = None
+    configuration_snapshot: TaskConfigurationSnapshot | None = None
     run: AgentRun | None = None
     last_event_id: str | None = None
     observed_outcome: ObservedOutcome | None = None
@@ -133,6 +136,30 @@ class TaskAggregate:
             causation_id=self.last_event_id,
         )
 
+    def seal_configuration_snapshot(
+        self,
+        snapshot: TaskConfigurationSnapshot,
+        *,
+        event_id: str,
+        occurred_at: datetime,
+    ) -> TaskEventDraft:
+        if self.status is not TaskStatus.COMMITTED or self.run is not None:
+            raise InvalidTransitionError(
+                "configuration snapshot requires a committed task before run start"
+            )
+        if self.configuration_snapshot is not None:
+            raise InvalidTransitionError("configuration snapshot is already sealed")
+        self._validate_configuration_snapshot_bindings(snapshot)
+        return TaskEventDraft.build(
+            event_id=event_id,
+            task_id=self.task_id,
+            event_type=TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED,
+            payload={"configuration_snapshot": snapshot.model_dump(mode="json")},
+            occurred_at=occurred_at,
+            correlation_id=self.task_id,
+            causation_id=self.last_event_id,
+        )
+
     def _apply(self, event: TaskEvent) -> TaskAggregate:
         payload = event.decoded_payload()
         try:
@@ -168,6 +195,27 @@ class TaskAggregate:
                     commitment=commitment,
                     workflow=workflow,
                     expected_outcome=expected_outcome,
+                    last_event_id=event.event_id,
+                )
+
+            if (
+                event.event_type
+                is TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED
+            ):
+                if self.status is not TaskStatus.COMMITTED or self.run is not None:
+                    raise EventStreamError(
+                        "configuration snapshot requires COMMITTED state before run"
+                    )
+                if self.configuration_snapshot is not None:
+                    raise EventStreamError("configuration snapshot is already sealed")
+                snapshot = TaskConfigurationSnapshot.model_validate(
+                    payload["configuration_snapshot"]
+                )
+                self._validate_configuration_snapshot_bindings(snapshot)
+                return replace(
+                    self,
+                    sequence=event.sequence,
+                    configuration_snapshot=snapshot,
                     last_event_id=event.event_id,
                 )
 
@@ -440,3 +488,61 @@ class TaskAggregate:
             raise ScopeMismatchError("run tenant scope mismatch")
         if run.workspace_id != self.commitment.workspace_id:
             raise ScopeMismatchError("run workspace scope mismatch")
+        snapshot = self.configuration_snapshot
+        if snapshot is None:
+            if (
+                run.configuration_snapshot_id is not None
+                or run.configuration_snapshot_digest is not None
+            ):
+                raise ScopeMismatchError(
+                    "run cannot bind a missing configuration snapshot"
+                )
+            return
+        if (
+            run.configuration_snapshot_id != snapshot.snapshot_id
+            or run.configuration_snapshot_digest != snapshot.snapshot_digest
+            or run.run_id != snapshot.reserved_run_id
+        ):
+            raise ScopeMismatchError("run configuration snapshot binding mismatch")
+        if run.provider_profile_id != snapshot.provider_profile.profile_id:
+            raise ScopeMismatchError("run provider profile snapshot binding mismatch")
+
+    def _validate_configuration_snapshot_bindings(
+        self,
+        snapshot: TaskConfigurationSnapshot,
+    ) -> None:
+        if (
+            self.goal is None
+            or self.commitment is None
+            or self.workflow is None
+            or self.expected_outcome is None
+        ):
+            raise InvalidTransitionError("task is missing committed contracts")
+        if snapshot.consumer_task_id != self.task_id:
+            raise ScopeMismatchError("configuration snapshot task binding mismatch")
+        if snapshot.commitment_id != self.commitment.commitment_id:
+            raise ScopeMismatchError(
+                "configuration snapshot commitment binding mismatch"
+            )
+        if (
+            snapshot.tenant_id != self.commitment.tenant_id
+            or snapshot.workspace_id != self.commitment.workspace_id
+        ):
+            raise ScopeMismatchError("configuration snapshot scope mismatch")
+        if (
+            snapshot.principal_id != self.goal.created_by
+            or snapshot.principal_id != self.commitment.accepted_by
+        ):
+            raise ScopeMismatchError("configuration snapshot principal binding mismatch")
+        if snapshot.workflow != self.workflow:
+            raise ScopeMismatchError("configuration snapshot workflow binding mismatch")
+        if (
+            snapshot.policy_version != self.workflow.policy_version
+            or snapshot.policy_version != "policy-1"
+            or snapshot.policy_digest != POLICY_KERNEL_V1_DIGEST
+        ):
+            raise ScopeMismatchError("configuration snapshot policy binding mismatch")
+        if snapshot.expected_outcome != self.expected_outcome:
+            raise ScopeMismatchError(
+                "configuration snapshot expected outcome binding mismatch"
+            )

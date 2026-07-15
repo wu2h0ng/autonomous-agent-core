@@ -17,6 +17,7 @@ from agent_os_contracts import (
     RunPlanRebound,
     RunStatus,
     TaskStatus,
+    TaskConfigurationSnapshot,
     WorkflowGraph,
     WaitCondition,
     TaskEventDraft,
@@ -97,7 +98,37 @@ class TaskService:
         )
         return self.get_task(task_id)
 
-    def start_run(self, task_id: str, *, provider_profile_id: str = "provider-profile:unbound") -> TaskAggregate:
+    def seal_configuration_snapshot(
+        self,
+        task_id: str,
+        snapshot: TaskConfigurationSnapshot,
+    ) -> TaskAggregate:
+        aggregate = self.get_task(task_id)
+        if aggregate.configuration_snapshot is not None:
+            if aggregate.configuration_snapshot == snapshot:
+                return aggregate
+            raise InvalidTransitionError(
+                "configuration snapshot is already sealed with different content"
+            )
+        draft = aggregate.seal_configuration_snapshot(
+            snapshot,
+            event_id=self._id_factory("event"),
+            occurred_at=self._clock(),
+        )
+        self._event_store.append(
+            task_id,
+            expected_sequence=aggregate.sequence,
+            drafts=(draft,),
+        )
+        return self.get_task(task_id)
+
+    def start_run(
+        self,
+        task_id: str,
+        *,
+        provider_profile_id: str = "provider-profile:unbound",
+        configuration_snapshot_id: str | None = None,
+    ) -> TaskAggregate:
         aggregate = self.get_task(task_id)
         if aggregate.status is not TaskStatus.COMMITTED:
             raise InvalidTransitionError(
@@ -113,8 +144,31 @@ class TaskService:
         if self._clock() >= aggregate.commitment.expires_at:
             raise CommitmentExpiredError("commitment expired before run start")
 
+        snapshot = aggregate.configuration_snapshot
+        if snapshot is not None:
+            if configuration_snapshot_id != snapshot.snapshot_id:
+                raise InvalidTransitionError(
+                    "exact configuration snapshot id is required before run start"
+                )
+            if (
+                provider_profile_id != "provider-profile:unbound"
+                and provider_profile_id != snapshot.provider_profile.profile_id
+            ):
+                raise InvalidTransitionError(
+                    "provider profile does not match configuration snapshot"
+                )
+            resolved_run_id = snapshot.reserved_run_id
+            resolved_provider_profile_id = snapshot.provider_profile.profile_id
+        else:
+            if configuration_snapshot_id is not None:
+                raise InvalidTransitionError(
+                    "configuration snapshot id was supplied for an unsealed task"
+                )
+            resolved_run_id = self._id_factory("run")
+            resolved_provider_profile_id = provider_profile_id
+
         run = AgentRun(
-            run_id=self._id_factory("run"),
+            run_id=resolved_run_id,
             task_id=task_id,
             commitment_id=aggregate.commitment.commitment_id,
             workflow_id=aggregate.workflow.workflow_id,
@@ -125,8 +179,14 @@ class TaskService:
             workspace_id=aggregate.commitment.workspace_id,
             status=RunStatus.QUEUED,
             created_at=self._clock(),
-            provider_profile_id=provider_profile_id,
+            provider_profile_id=resolved_provider_profile_id,
             policy_version=aggregate.workflow.policy_version,
+            configuration_snapshot_id=(
+                snapshot.snapshot_id if snapshot is not None else None
+            ),
+            configuration_snapshot_digest=(
+                snapshot.snapshot_digest if snapshot is not None else None
+            ),
         )
         draft = aggregate.start(
             run,
@@ -366,6 +426,10 @@ class TaskService:
         reason: str,
     ) -> TaskAggregate:
         aggregate = self.get_task(task_id)
+        if aggregate.configuration_snapshot is not None:
+            raise ReplanRejectedError(
+                "configuration snapshot-bound runs cannot replan in ADM-P4"
+            )
         current = aggregate.workflow
         run = aggregate.run
         if current is None or run is None or aggregate.expected_outcome is None:

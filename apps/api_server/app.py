@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -39,6 +40,8 @@ from agent_os_contracts import (
     ProviderRequest,
     ResourceBudget,
     RunStatus,
+    TaskConfigurationSnapshot,
+    TaskConfigurationSnapshotCommand,
     TaskEventType,
     WorkflowGraph,
 )
@@ -66,6 +69,11 @@ from agent_os_core import (
     build_recovery_snapshot,
     PromotionPolicyRegistry,
     PromotionPolicyV1,
+    POLICY_KERNEL_V1_DIGEST,
+    TASK_CONFIGURATION_CAPABILITY,
+    TaskConfigurationNotBound,
+    TaskConfigurationRuntime,
+    TaskConfigurationSnapshotService,
 )
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
@@ -92,6 +100,7 @@ class AgentOSApplication:
         )
         self._evaluation_grant_override = evaluation_grant
         self._promotion_grant_override = promotion_grant
+        self._configuration_lock = RLock()
         self.store = SQLiteTaskEventStore(database)
         self.tasks = TaskService(self.store)
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
@@ -131,6 +140,7 @@ class AgentOSApplication:
             created_at=now,
             expires_at=now + timedelta(days=30),
         )
+        built_in_profile_created_at = datetime(1970, 1, 1, tzinfo=timezone.utc)
         self.provider_profile = ProviderProfile(
             profile_id="provider-profile:default",
             provider_id="openai-compatible" if live_base_url else "deterministic",
@@ -140,7 +150,7 @@ class AgentOSApplication:
             capabilities=("chat",),
             max_context_tokens=16_000,
             request_timeout_seconds=60,
-            created_at=now,
+            created_at=built_in_profile_created_at,
         )
         self.provider = (
             OpenAICompatibleProvider(
@@ -155,6 +165,15 @@ class AgentOSApplication:
         )
         self.provider_configured = bool(live_base_url)
         self.grants = self._build_grants(now)
+        self.task_configurations = TaskConfigurationSnapshotService(
+            self.tasks,
+            self.correction,
+            configuration_lock=self._configuration_lock,
+            configuration_reader=self._task_configuration_runtime,
+            candidates=self.candidates,
+            evaluations=self.evaluation_receipts,
+            promotions=self.candidate_promotions,
+        )
         self.domain_candidate_evaluations = DomainCandidateEvaluationRecorder(
             self.tasks,
             self.correction,
@@ -206,7 +225,43 @@ class AgentOSApplication:
             self._promotion_grant_override or self._build_promotion_grant(issued)
         )
         grants[PROMOTION_CAPABILITY] = self.promotion_grant
+        grants[TASK_CONFIGURATION_CAPABILITY] = (
+            self._build_task_configuration_grant(issued)
+        )
         return grants
+
+    def _task_configuration_runtime(self) -> TaskConfigurationRuntime:
+        return TaskConfigurationRuntime(
+            policy_version="policy-1",
+            policy_digest=POLICY_KERNEL_V1_DIGEST,
+            provider_profile=self.provider_profile,
+            grants=dict(self.grants),
+        )
+
+    def _build_task_configuration_grant(
+        self,
+        now: datetime | None = None,
+    ) -> CapabilityGrant:
+        issued = now or datetime.now(timezone.utc)
+        return CapabilityGrant(
+            grant_id="grant:internal:task.configuration.snapshot",
+            principal_id=self.principal.principal_id,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            capability_id=TASK_CONFIGURATION_CAPABILITY,
+            capability_version="1",
+            max_risk_tier=1,
+            budget_limit=ResourceBudget(
+                max_cost_usd=Decimal("1"),
+                max_duration_seconds=300,
+                max_provider_tokens=0,
+                max_tool_calls=0,
+            ),
+            status=CapabilityGrantStatus.ACTIVE,
+            granted_by="system:composition-root",
+            granted_at=issued,
+            expires_at=issued + timedelta(days=30),
+        )
 
     def _build_evaluation_grant(
         self,
@@ -329,10 +384,11 @@ class AgentOSApplication:
             root == allowed or allowed in root.parents for allowed in allowed_roots
         ):
             raise PermissionError("workspace path is outside the local allowlist")
-        self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
-        rebuilt_grants = self._build_grants()
-        self.grants.clear()
-        self.grants.update(rebuilt_grants)
+        with self._configuration_lock:
+            self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
+            rebuilt_grants = self._build_grants()
+            self.grants.clear()
+            self.grants.update(rebuilt_grants)
         return self.workspace_status()
 
     def provider_status(self) -> dict[str, Any]:
@@ -412,9 +468,10 @@ class AgentOSApplication:
         if isinstance(smoke, ProviderFailure):
             os.environ.pop(resolver_key, None)
             raise ConnectionError(f"{smoke.code.value}: {smoke.safe_message}")
-        self.provider = provider
-        self.provider_profile = profile
-        self.provider_configured = True
+        with self._configuration_lock:
+            self.provider = provider
+            self.provider_profile = profile
+            self.provider_configured = True
         return {**self.provider_status(), "connection_test": "PASS"}
 
     def create_task(self, payload: dict[str, Any]):
@@ -434,10 +491,56 @@ class AgentOSApplication:
             "workflow_digest": workflow.canonical_digest(),
         }
 
-    def start_run(self, task_id: str):
-        return self.tasks.start_run(
-            task_id, provider_profile_id=self.provider_profile.profile_id
+    def seal_task_configuration(
+        self,
+        task_id: str,
+        payload: dict[str, Any],
+    ) -> TaskConfigurationSnapshot:
+        command = TaskConfigurationSnapshotCommand.model_validate(payload)
+        return self.task_configurations.seal(self.principal, task_id, command)
+
+    def get_task_configuration(
+        self,
+        task_id: str,
+        snapshot_id: str,
+    ) -> TaskConfigurationSnapshot:
+        return self.task_configurations.get(
+            self.principal,
+            task_id,
+            snapshot_id,
         )
+
+    def list_task_configurations(
+        self,
+        task_id: str,
+    ) -> tuple[TaskConfigurationSnapshot, ...]:
+        return self.task_configurations.list_for_task(self.principal, task_id)
+
+    def start_run(
+        self,
+        task_id: str,
+        configuration_snapshot_id: str | None = None,
+    ):
+        aggregate = self.tasks.get_task(task_id)
+        if aggregate.configuration_snapshot is not None:
+            if configuration_snapshot_id is None:
+                raise TaskConfigurationNotBound(
+                    "exact configuration snapshot id is required before Run start"
+                )
+            return self.task_configurations.start_run(
+                self.principal,
+                task_id,
+                configuration_snapshot_id,
+            )
+        if configuration_snapshot_id is not None:
+            raise TaskConfigurationNotBound(
+                "configuration snapshot id was supplied for an unsealed Task"
+            )
+        with self._configuration_lock:
+            return self.tasks.start_run(
+                task_id,
+                provider_profile_id=self.provider_profile.profile_id,
+            )
 
     def seal_domain_candidate(
         self,
@@ -557,26 +660,75 @@ class AgentOSApplication:
         task_id: str,
         inputs: dict[str, Any] | None = None,
         *,
+        configuration_snapshot_id: str | None = None,
         stop_after_node: str | None = None,
         recover_stale_lease: bool = False,
     ):
+        forbidden_configuration_inputs = {
+            "configuration_snapshot",
+            "configuration_snapshot_digest",
+            "optional_prior",
+            "prior_binding",
+            "prior_artifact_id",
+            "prior_digest",
+            "prior_provenance",
+            "promotion_digest",
+            "receipt_chain_digest",
+            "evaluation_receipt_digests",
+            "representation_patch_digest",
+            "source_activation_authority",
+            "prior_consumption_mode",
+        }
+        if inputs is not None and forbidden_configuration_inputs.intersection(inputs):
+            raise ValueError(
+                "configuration and prior content is forbidden in runtime inputs"
+            )
         if not self.provider_configured:
             raise ConnectionError(
                 "configure and verify a provider before running a task"
             )
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None:
-            aggregate = self.start_run(task_id)
-        runner = RunCoordinator(
-            self.tasks,
-            self.sandbox,
-            self.provider,
-            self.provider_profile,
-            self.policy,
-            self.correction,
-            self.grants,
-            compensation_grant=self.compensation_grant,
-        )
+            aggregate = self.start_run(task_id, configuration_snapshot_id)
+        if aggregate.configuration_snapshot is not None:
+            if configuration_snapshot_id is None:
+                raise TaskConfigurationNotBound(
+                    "exact configuration snapshot id is required before Run execution"
+                )
+            with self._configuration_lock:
+                aggregate = self.task_configurations.assert_runtime_binding(
+                    self.principal,
+                    task_id,
+                    configuration_snapshot_id,
+                )
+                snapshot = aggregate.configuration_snapshot
+                assert snapshot is not None
+                runner = RunCoordinator(
+                    self.tasks,
+                    self.sandbox,
+                    self.provider,
+                    snapshot.provider_profile,
+                    self.policy,
+                    self.correction,
+                    dict(self.grants),
+                    compensation_grant=self.compensation_grant,
+                )
+        else:
+            if configuration_snapshot_id is not None:
+                raise TaskConfigurationNotBound(
+                    "configuration snapshot id was supplied for an unsealed Task"
+                )
+            with self._configuration_lock:
+                runner = RunCoordinator(
+                    self.tasks,
+                    self.sandbox,
+                    self.provider,
+                    self.provider_profile,
+                    self.policy,
+                    self.correction,
+                    dict(self.grants),
+                    compensation_grant=self.compensation_grant,
+                )
         return runner.run(
             task_id,
             self.principal,
@@ -831,6 +983,11 @@ class AgentOSApplication:
             "run": task.run.model_dump(mode="json") if task.run else None,
             "expected_outcome": task.expected_outcome.model_dump(mode="json")
             if task.expected_outcome
+            else None,
+            "configuration_snapshot": task.configuration_snapshot.model_dump(
+                mode="json"
+            )
+            if task.configuration_snapshot
             else None,
             "observed_outcome": task.observed_outcome.model_dump(mode="json")
             if task.observed_outcome

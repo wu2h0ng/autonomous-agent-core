@@ -20,7 +20,27 @@ from agent_os_contracts import (
     PolicyDecision,
     PolicyVerdict,
     PrincipalIdentity,
+    content_digest,
 )
+
+
+POLICY_KERNEL_V1_SPEC = {
+    "schema": "AGENT-OS-POLICY-KERNEL-CONTRACT-V1",
+    "version": "policy-1",
+    "authority_source": "PRODUCT_DETERMINISTIC_RULES",
+    "model_final_authority": False,
+    "required_bindings": (
+        "principal",
+        "tenant",
+        "workspace",
+        "capability-version",
+        "risk-tier",
+        "budget",
+        "correction-epochs",
+        "approval-when-required",
+    ),
+}
+POLICY_KERNEL_V1_DIGEST = content_digest(POLICY_KERNEL_V1_SPEC)
 
 
 class CorrectionGuard(Protocol):

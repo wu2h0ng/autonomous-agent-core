@@ -3,8 +3,8 @@ updated: "2026-07-15"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/adm-p3-optional-domain-prior-20260715"
-status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained. ADR-0057 accepts Adaptive Domain Materialization and Optional Domain Priors as Product definition; ADM-P1 seals inert DomainCandidate records, ADM-P2 records immutable external evaluation receipts and ADM-P3 adds a Product-owned append-only promotion-decision seam over the complete receipt chain. Production ADM-P3 policy V1 deterministically returns DEFER for every current chain, so the production composition root creates no prior and exposes no activation authority. No slice executes an evaluator, proves evidence custody/independence, acquires a materializer or establishes adaptive competence. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; the full LH successor is PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
+branch: "codex/adm-p4-task-configuration-snapshot-20260715"
+status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained. ADR-0057 accepts Adaptive Domain Materialization and Optional Domain Priors as Product definition; ADM-P1 seals inert DomainCandidate records, ADM-P2 records immutable external evaluation receipts, ADM-P3 adds Product-owned append-only promotion decisions, and ADM-P4 adds an immutable Product-derived Task configuration snapshot plus exact later-Run reference binding. Production ADM-P3 policy V1 deterministically returns DEFER for every current chain, so the production composition root creates no prior; ADM-P4 never synthesizes or applies one and exposes no activation authority. No slice executes an evaluator, proves evidence custody/independence, acquires a materializer or establishes adaptive competence. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; the full LH successor is PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,7 +25,7 @@ identity:
 
 current_phase:
   product:
-    label: "SPINE-0 bounded developer slice, bounded local long-horizon slice, ADM-P1 inert candidate sealing, ADM-P2 external receipt recording and ADM-P3 all-DEFER promotion infrastructure; broader Agent OS alpha incomplete"
+    label: "SPINE-0 bounded developer slice, bounded local long-horizon slice, ADM-P1/P2/P3 inert adaptation infrastructure and ADM-P4 immutable Task configuration/reference binding; broader Agent OS alpha incomplete"
     status: "LOCAL_SLICES_VERIFIED / NO_PRODUCT_ALPHA_CLAIM"
   research:
     label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
@@ -114,6 +114,19 @@ verified_capabilities:
     verified: "226 combined ADM-P1/P2/P3 targeted tests passed; full Product suite 419 passed and 1 skipped; ruff clean; pyright 0 errors/0 warnings; compileall and git diff checks passed. Tests cover caller-field rejection, production V1 all-DEFER, full-chain reload, exact derived idempotency, head/parent CAS, shared-ledger ownership, fifth-party identity, exact grant/scope, C7 interleaving, HTTP cache bypass, no provider/workspace/Task mutation and atomic rollback of test-only PROMOTE plus inert prior. Kimi read-only implementation review session_a4e419b9-175c-4e85-a817-4c12638b0a09 returned TECHNICAL_APPROVE with no blockers or required fixes."
     boundary: "This is decision and optional-prior infrastructure only. The production registry contains V1 only and V1 cannot return PROMOTE, so no production prior is created. The PROMOTE/prior path is exercised only with closed deterministic policies defined in tests. No evaluator execution or correctness, evidence-byte custody, evaluator-independence proof, activation/configuration authority, prior-effectiveness evidence, adaptive competence, migration, push, merge or release is established."
     source: "docs/product/PM-ADM-P3-PROMOTION-AND-OPTIONAL-PRIOR-2026-07-15.md"
+  adm_p4_task_configuration_snapshot:
+    status: "IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REVIEW / REFERENCE_ONLY / NO_ACTIVATION"
+    evidence_level: "E3_LOCAL_CONTROLLED_PRODUCT_TEST_PENDING_INDEPENDENT_REVIEW"
+    implementation_base: "7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2; exact atomic implementation commit is the commit containing the ADM-P4 PM and is reported in the delegated handoff"
+    real_entry_points:
+      - "POST /v1/tasks/{task_id}/configuration-snapshots:seal"
+      - "GET /v1/tasks/{task_id}/configuration-snapshots"
+      - "GET /v1/tasks/{task_id}/configuration-snapshots/{snapshot_id}"
+      - "POST /v1/tasks/{task_id}/start and /run with exact configuration_snapshot_id"
+      - "AgentOSApplication, TaskConfigurationSnapshotService, TaskService and TaskAggregate"
+    verified: "50 targeted snapshot/binding/bypass tests passed; full Product suite 457 passed and 1 skipped; ruff clean; pyright 0 errors/0 warnings; compileall and git diff checks passed. Tests cover closed caller contracts, immutable event rehydration, exact reserved-Run binding, full optional-prior lineage, later receipt append, source separation, C7/config drift, same-lock non-interleaving, restart reads, runtime-input leakage and HTTP cache bypass. Exact-head Kimi implementation review remains pending at this authority snapshot."
+    boundary: "This is an immutable Product configuration and exact later-Run reference binding only. The optional prior remains inert/reference-only and never reaches provider, policy, capability or tool inputs. Production V1 creates no prior. Provider/grant configuration is point-in-time rather than a durable ledger, so restart/reconfiguration may make bound start fail closed. No prior application/effectiveness, representation mutation, evaluator execution, materializer acquisition, adaptive competence, cross-process atomicity, migration, push, merge or release is established."
+    source: "docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md"
   research_g10:
     status: "MET / NARROW / FINAL_IN_FROZEN_SYNTHETIC_FAMILY"
     statement: "P0 confidence-gated subject-side belief-to-action coupling decisively reduces regret versus named cheap arms in its preregistered family and survived recorded trap tests."
@@ -165,10 +178,10 @@ research_ledger:
 active_work:
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
-    status: "ADM_P1_P2_P3_IMPLEMENTED_LOCAL / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
-    purpose: "Keep inert DomainCandidate sealing, externally produced evaluation receipts and Product-owned deterministic promotion decisions branch-contained through the existing Product authority spine without introducing domain semantics, evaluator execution, production prior activation or a second runtime."
+    status: "ADM_P1_P2_P3_P4_IMPLEMENTED_LOCAL / ADM_P4_EXACT_HEAD_REVIEW_PENDING / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
+    purpose: "Keep inert DomainCandidate sealing, externally produced evaluation receipts, Product-owned deterministic promotion decisions and immutable later-Task/Run configuration references branch-contained through the existing Product authority spine without introducing domain semantics, evaluator execution, production prior activation or a second runtime."
     entry_gate: "Exact design f63648c8766ec42a15e25951a6cb9cfca930efc05d3d2f6631317145c96f362a has Kimi TECHNICAL_APPROVE and independent RR-0029 ACCEPT_FOR_SPEC; ADR-0057 owns only the minimal Product decision."
-    boundary: "The branch contains closed contracts, append-only persistence, deterministic validation/failures and real HTTP entry points through ADM-P3. Production policy V1 always DEFERs; only tests exercise atomic PROMOTE plus inert-prior persistence. No evaluator execution, evidence custody/independence proof, activation/configuration mutation, adaptive experiment, training, migration, push, merge or release claim."
+    boundary: "The branch contains closed contracts, append-only persistence, deterministic validation/failures and real HTTP entry points through ADM-P4. Production policy V1 always DEFERs; only tests exercise atomic PROMOTE, inert-prior persistence and reference binding. ADM-P4 freezes configuration and binds a later Run but does not apply the prior or alter execution. No evaluator execution, evidence custody/independence proof, activation/configuration mutation, adaptive experiment, training, migration, push, merge or release claim."
     source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
 
 parked_work:
@@ -225,7 +238,8 @@ recently_completed:
 blockers:
   product:
     - "No complete personal and Data Agent paths on the same Agent OS spine."
-    - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts and ADM-P3 records Product-owned decisions; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, immutable configuration snapshots, production optional priors and later-run activation are not implemented."
+    - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
+    - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
     - "Natural-language/visual WorkflowGraph authoring, mature knowledge lifecycle, broad capabilities, marketplace and general coding-agent path are incomplete."
     - "SPINE-1 migration is not executed."
@@ -237,7 +251,7 @@ blockers:
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "ADR-0057, ADM-P1 and ADM-P2 remain in the ancestry of codex/adm-p3-optional-domain-prior-20260715; ADM-P3 is contained on that isolated branch. No push, main merge or release is implied."
+    - "ADR-0057 and ADM-P1/P2/P3 remain in the ancestry of codex/adm-p4-task-configuration-snapshot-20260715; ADM-P4 is contained on that isolated branch and awaits exact-head Kimi implementation review at this authority snapshot. No push, main merge or release is implied."
     - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
 
 claim_boundaries:
@@ -246,6 +260,7 @@ claim_boundaries:
     - "ADM-P1 may be called implemented only as local inert candidate sealing/listing; it is not domain adaptation, acquisition, learning, evaluation, promotion or activation."
     - "ADM-P2 may be called implemented only as local external evaluation receipt recording/listing; it is not evaluator execution, evaluator-quality evidence, promotion, activation or adaptive competence."
     - "ADM-P3 may be called implemented only as local promotion-decision and inert optional-prior infrastructure with production policy V1 all-DEFER. It is not production promotion/prior creation, activation, prior effectiveness, domain adaptation, learning or adaptive competence."
+    - "ADM-P4 may be called implemented only as a local immutable Product-derived Task configuration and exact later-Run reference binding pending exact-head independent review. The prior is reference-only; this is not prior application, activation, adaptation, learning, transfer or adaptive competence."
     - "Do not claim Product Alpha, production readiness, Codex/Claude parity, superiority or general market validation."
     - "Do not claim Data Agent migration, shared-spine completion, release or production deployment."
   research:
@@ -259,7 +274,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep reviewed ADM-P1/ADM-P2/ADM-P3 branch-contained until explicit integration authorization; any ADM-P4 immutable configuration snapshot and new-Task-only activation design remains a separate CTO/founder-reviewed successor with no same-run activation."
+    action: "Complete the read-only Kimi exact-head technical review of the atomic ADM-P4 implementation; keep ADM-P1/P2/P3/P4 branch-contained and HOLD on any push/merge/release. Any prior application/activation remains a separately reviewed successor, with same-run activation forbidden."
   - priority: 2
     action: "Support the parent R-EVAL-INDEP-1, R-STATE-CREDIT-1 and R-ACTIVE-DISCOVERY-1 research lanes only through stable contracts or isolated Research paths; do not import their mechanisms into Product Runtime."
   - priority: 3
@@ -282,6 +297,8 @@ source_refs:
     - "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
     - "docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md"
     - "docs/product/PM-ADM-P2-EXTERNAL-EVALUATION-RECEIPTS-2026-07-15.md"
+    - "docs/product/PM-ADM-P3-PROMOTION-AND-OPTIONAL-PRIOR-2026-07-15.md"
+    - "docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md"
     - "docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md"
     - "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
     - "docs/research/SPINE-E2E-1-result.md"
@@ -309,11 +326,11 @@ source_refs:
 
 freshness:
   checked_at: "2026-07-15"
-  branch: "codex/adm-p2-evaluation-receipts-20260715"
-  clean_base_head: "e3cdacbcf1de506e0ad78c4d0618d2b78dd4d432"
-  implementation_head: "4a523bd2c8ff9a97ce6d0d25f91969839756577a"
+  branch: "codex/adm-p4-task-configuration-snapshot-20260715"
+  clean_base_head: "7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2"
+  implementation_head: "the atomic implementation commit containing docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md; exact hash is reported in the delegated handoff"
   authority_source_commit: "c1035fae33a3709dfc9d669843cb281ad6dd76e2"
   merge_base: "065ff8b57969e99835d7fe40e0641022b4ea0cf6"
-  commit_state: "ADM_P1_AND_ADM_P2_IMPLEMENTATION_AND_STATUS_DOCS_COMMITTED_LOCALLY / TECHNICALLY_APPROVED / NOT_PUSHED_NOT_MERGED"
-  merge_scope: "The branch adds ADR-0057 Product-definition updates, ADM-P1 inert candidate sealing and ADM-P2 external evaluation receipt contracts, isolated stores, services, HTTP composition and tests; it does not merge Data Agent or Research mechanisms."
-  evidence_separation: "ADM-P1/ADM-P2 are Product implementation evidence only. They do not establish evaluator performance, adaptive competence or a research result. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, D2 or general-autonomy claim."
+  commit_state: "ADM_P1_P2_P3_ANCESTRY_PLUS_ADM_P4_IMPLEMENTATION_AND_STATUS_DOCS_READY_FOR_ATOMIC_LOCAL_COMMIT / EXACT_HEAD_REVIEW_PENDING / NOT_PUSHED_NOT_MERGED"
+  merge_scope: "The branch adds ADM-P4 immutable Task configuration contracts, Task-event persistence, exact later-Run binding, Product-owned optional-prior lineage reads, application/HTTP composition and tests; it does not apply a prior, change execution semantics, merge Data Agent or import Research mechanisms."
+  evidence_separation: "ADM-P1/P2/P3/P4 are Product implementation evidence only. ADM-P4 reference binding does not establish prior value, adaptation, evaluator performance, adaptive competence or a research result. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, D2 or general-autonomy claim."

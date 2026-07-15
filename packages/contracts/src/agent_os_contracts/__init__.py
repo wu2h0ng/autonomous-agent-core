@@ -93,6 +93,18 @@ from .runtime import (
     WaitCondition,
 )
 from .task import Commitment, Goal
+from .task_configuration import (
+    DomainPriorBinding,
+    DomainPriorSelector,
+    PriorEvaluationSource,
+    TaskConfigurationSnapshot,
+    TaskConfigurationSnapshotCommand,
+    domain_prior_binding_digest,
+    domain_prior_provenance_digest,
+    task_configuration_grants_digest,
+    task_configuration_seal_request_digest,
+    task_configuration_snapshot_digest,
+)
 from .workflow import (
     EdgeSpec,
     GraphPatch,
@@ -134,6 +146,8 @@ __all__ = [
     "DomainCandidate",
     "DomainCandidateDraft",
     "DomainPriorArtifact",
+    "DomainPriorBinding",
+    "DomainPriorSelector",
     "CorrectionEpochVector",
     "CorrectionScope",
     "CorrectionSnapshot",
@@ -170,6 +184,7 @@ __all__ = [
     "ProviderResponse",
     "ProviderToolProposal",
     "ProviderUsage",
+    "PriorEvaluationSource",
     "ReceiptStatus",
     "RepresentationPatch",
     "RepresentationPatchOperation",
@@ -185,6 +200,8 @@ __all__ = [
     "TaskEventDraft",
     "TaskEventType",
     "TaskStatus",
+    "TaskConfigurationSnapshot",
+    "TaskConfigurationSnapshotCommand",
     "UtcDateTime",
     "WaitCondition",
     "WorkflowGraph",
@@ -194,4 +211,9 @@ __all__ = [
     "content_digest",
     "domain_candidate_digest",
     "domain_prior_artifact_digest",
+    "domain_prior_binding_digest",
+    "domain_prior_provenance_digest",
+    "task_configuration_grants_digest",
+    "task_configuration_seal_request_digest",
+    "task_configuration_snapshot_digest",
 ]
