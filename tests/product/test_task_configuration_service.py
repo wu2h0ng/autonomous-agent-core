@@ -421,6 +421,7 @@ def _grant(
     *,
     status: CapabilityGrantStatus = CapabilityGrantStatus.ACTIVE,
     expires_at: datetime | None = None,
+    capability_version: str = "1",
 ) -> CapabilityGrant:
     return CapabilityGrant(
         grant_id=f"grant:{capability_id}",
@@ -428,7 +429,7 @@ def _grant(
         tenant_id="tenant:1",
         workspace_id="workspace:1",
         capability_id=capability_id,
-        capability_version="1",
+        capability_version=capability_version,
         max_risk_tier=1,
         budget_limit=_budget(),
         status=status,
@@ -522,6 +523,7 @@ def _harness(
     *,
     reader=None,  # type: ignore[no-untyped-def]
     grants: dict[str, CapabilityGrant] | None = None,
+    clock=None,  # type: ignore[no-untyped-def]
     candidates=None,  # type: ignore[no-untyped-def]
     evaluations=None,  # type: ignore[no-untyped-def]
     promotions=None,  # type: ignore[no-untyped-def]
@@ -549,6 +551,10 @@ def _harness(
             policy_digest=POLICY_KERNEL_V1_DIGEST,
             provider_profile=_provider(),
             grants=live_grants,
+            capability_versions={
+                capability_id: grant.capability_version
+                for capability_id, grant in live_grants.items()
+            },
         )
     )
     service = TaskConfigurationSnapshotService(
@@ -557,7 +563,7 @@ def _harness(
         configuration_lock=RLock(),
         configuration_reader=runtime_reader,
         id_factory=next_id,
-        clock=lambda: NOW,
+        clock=clock or (lambda: NOW),
         candidates=candidates,
         evaluations=evaluations,
         promotions=promotions,
@@ -650,6 +656,10 @@ def test_seal_rederives_all_runtime_inputs_inside_guard() -> None:
             policy_digest=POLICY_KERNEL_V1_DIGEST,
             provider_profile=_provider(suffix="1" if calls == 1 else "2"),
             grants=grants,
+            capability_versions={
+                capability_id: grant.capability_version
+                for capability_id, grant in grants.items()
+            },
         )
 
     store, tasks, _, service = _harness(reader=drifting_reader)
@@ -667,6 +677,83 @@ def test_seal_rederives_all_runtime_inputs_inside_guard() -> None:
         event.event_type is not TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED
         for event in store.read(task.task_id)
     )
+
+
+def test_seal_rechecks_expiry_at_c7_guard_linearization_point() -> None:
+    ticks = iter((NOW, NOW + timedelta(hours=2)))
+    store, tasks, _, service = _harness(clock=lambda: next(ticks))
+    task = _committed_task(tasks)
+
+    with pytest.raises(TaskConfigurationDenied, match="expired"):
+        service.seal(
+            _principal(),
+            task.task_id,
+            TaskConfigurationSnapshotCommand(),
+        )
+
+    assert all(
+        event.event_type is not TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED
+        for event in store.read(task.task_id)
+    )
+
+
+def test_execution_grant_binds_runtime_capability_version_not_sealer_version() -> None:
+    grants = {
+        "workspace.read": _grant("workspace.read", capability_version="2"),
+        TASK_CONFIGURATION_CAPABILITY: _grant(TASK_CONFIGURATION_CAPABILITY),
+    }
+
+    def versioned_reader() -> TaskConfigurationRuntime:
+        return TaskConfigurationRuntime(
+            policy_version="policy-1",
+            policy_digest=POLICY_KERNEL_V1_DIGEST,
+            provider_profile=_provider(),
+            grants=grants,
+            capability_versions={
+                "workspace.read": "2",
+                TASK_CONFIGURATION_CAPABILITY: "1",
+            },
+        )
+
+    _, tasks, _, service = _harness(reader=versioned_reader)
+    task = _committed_task(tasks)
+
+    snapshot = service.seal(
+        _principal(),
+        task.task_id,
+        TaskConfigurationSnapshotCommand(),
+    )
+
+    assert snapshot.execution_grants[0].capability_version == "2"
+
+
+def test_execution_grant_rejects_version_different_from_runtime_spec() -> None:
+    grants = {
+        "workspace.read": _grant("workspace.read", capability_version="1"),
+        TASK_CONFIGURATION_CAPABILITY: _grant(TASK_CONFIGURATION_CAPABILITY),
+    }
+
+    def mismatched_reader() -> TaskConfigurationRuntime:
+        return TaskConfigurationRuntime(
+            policy_version="policy-1",
+            policy_digest=POLICY_KERNEL_V1_DIGEST,
+            provider_profile=_provider(),
+            grants=grants,
+            capability_versions={
+                "workspace.read": "2",
+                TASK_CONFIGURATION_CAPABILITY: "1",
+            },
+        )
+
+    _, tasks, _, service = _harness(reader=mismatched_reader)
+    task = _committed_task(tasks)
+
+    with pytest.raises(TaskConfigurationDenied, match="version"):
+        service.seal(
+            _principal(),
+            task.task_id,
+            TaskConfigurationSnapshotCommand(),
+        )
 
 
 def test_exact_replay_returns_event_and_changed_request_conflicts() -> None:
@@ -794,6 +881,50 @@ def test_prior_selection_fails_closed_for_missing_artifact_or_receipts() -> None
         fixture.close()
 
 
+def test_prior_lineage_digest_mutation_fails_closed_before_snapshot_append() -> None:
+    fixture = _prior_fixture()
+    try:
+        receipts = fixture.evaluations.list_for_candidate(
+            "tenant:1",
+            "workspace:1",
+            fixture.candidate.candidate_digest,
+        )
+        tampered = receipts[0].model_copy(
+            update={"evaluation_digest": "0" * 64}
+        )
+
+        class TamperedEvaluations:
+            @staticmethod
+            def list_for_candidate(
+                tenant_id: str,
+                workspace_id: str,
+                candidate_digest: str,
+            ) -> tuple[CandidateEvaluationReceipt, ...]:
+                del tenant_id, workspace_id, candidate_digest
+                return (tampered,)
+
+        store, tasks, _, service = _harness(
+            candidates=fixture.candidates,
+            evaluations=TamperedEvaluations(),
+            promotions=fixture.promotions,
+        )
+        task = _committed_task(tasks)
+
+        with pytest.raises(TaskConfigurationDrift, match="receipt digest"):
+            service.seal(
+                _principal(),
+                task.task_id,
+                TaskConfigurationSnapshotCommand(prior_selector=fixture.selector),
+            )
+
+        assert all(
+            event.event_type is not TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED
+            for event in store.read(task.task_id)
+        )
+    finally:
+        fixture.close()
+
+
 @pytest.mark.parametrize(
     ("source_task_id", "source_run_id"),
     (("task:1", "run:source"), ("task:source", "run:1")),
@@ -859,6 +990,10 @@ def test_bound_start_fails_before_append_on_config_or_c7_drift() -> None:
             policy_digest=POLICY_KERNEL_V1_DIGEST,
             provider_profile=active_provider,
             grants=grants,
+            capability_versions={
+                capability_id: grant.capability_version
+                for capability_id, grant in grants.items()
+            },
         )
 
     store, tasks, correction, service = _harness(reader=reader)
@@ -879,6 +1014,24 @@ def test_bound_start_fails_before_append_on_config_or_c7_drift() -> None:
     correction.correct("task", task.task_id, "halt before start")
     with pytest.raises(TaskConfigurationDenied, match="correction"):
         service.start_run(_principal(), task.task_id, snapshot.snapshot_id)
+    assert TaskEventType.RUN_STARTED not in {
+        event.event_type for event in store.read(task.task_id)
+    }
+
+
+def test_bound_start_rechecks_expiry_at_c7_guard_linearization_point() -> None:
+    ticks = iter((NOW, NOW, NOW, NOW + timedelta(hours=2)))
+    store, tasks, _, service = _harness(clock=lambda: next(ticks))
+    task = _committed_task(tasks)
+    snapshot = service.seal(
+        _principal(),
+        task.task_id,
+        TaskConfigurationSnapshotCommand(),
+    )
+
+    with pytest.raises(TaskConfigurationDenied, match="expired"):
+        service.start_run(_principal(), task.task_id, snapshot.snapshot_id)
+
     assert TaskEventType.RUN_STARTED not in {
         event.event_type for event in store.read(task.task_id)
     }

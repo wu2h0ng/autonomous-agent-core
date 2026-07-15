@@ -223,10 +223,26 @@ def test_snapshot_command_rejects_authoritative_and_activation_fields() -> None:
     assert TaskConfigurationSnapshotCommand(prior_selector=selector).prior_selector == selector
 
     for field, value in (
+        ("snapshot_id", "task-configuration:caller"),
+        ("consumer_task_id", "task:caller"),
+        ("reserved_run_id", "run:caller"),
+        ("workflow", {}),
         ("workflow_digest", "c" * 64),
+        ("policy_version", "policy-caller"),
         ("policy_digest", "d" * 64),
+        ("provider_profile", {}),
+        ("provider_profile_digest", "e" * 64),
+        ("execution_grants", []),
+        ("execution_grants_digest", "f" * 64),
+        ("expected_outcome", {}),
+        ("expected_outcome_digest", "1" * 64),
+        ("observed_correction_epochs", {}),
+        ("optional_prior", {}),
+        ("sealed_by", "caller"),
+        ("sealed_at", NOW.isoformat()),
+        ("snapshot_digest", "2" * 64),
         ("activation", True),
-        ("prior_digest", "e" * 64),
+        ("prior_digest", "3" * 64),
     ):
         with pytest.raises(ValidationError):
             TaskConfigurationSnapshotCommand.model_validate(
@@ -244,6 +260,31 @@ def test_snapshot_is_frozen_and_digest_bound() -> None:
     changed["workflow_digest"] = "f" * 64
     with pytest.raises(ValidationError, match="workflow digest"):
         TaskConfigurationSnapshot.model_validate(changed)
+
+
+def test_snapshot_digest_is_sensitive_to_each_authoritative_binding() -> None:
+    snapshot = _snapshot()
+    payload = snapshot.model_dump(mode="json", exclude={"snapshot_digest"})
+    assert task_configuration_snapshot_digest(payload) == snapshot.snapshot_digest
+
+    mutations = (
+        ("consumer_task_id", "task:mutated"),
+        ("reserved_run_id", "run:mutated"),
+        ("workflow_digest", "b" * 64),
+        ("policy_digest", "c" * 64),
+        ("provider_profile_digest", "d" * 64),
+        ("execution_grants_digest", "e" * 64),
+        ("expected_outcome_digest", "f" * 64),
+        (
+            "observed_correction_epochs",
+            {"task_epoch": 1, "run_epoch": 0, "capability_epoch": 0},
+        ),
+        ("sealed_at", (NOW + timedelta(seconds=1)).isoformat()),
+    )
+    for field, value in mutations:
+        changed = dict(payload)
+        changed[field] = value
+        assert task_configuration_snapshot_digest(changed) != snapshot.snapshot_digest
 
 
 def test_snapshot_rejects_inactive_execution_grant() -> None:

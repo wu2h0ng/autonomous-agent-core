@@ -2,12 +2,13 @@
 
 > Date: 2026-07-15
 > Track: Product / Translational contract slice
-> Status: **IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REVIEW / REFERENCE_ONLY / NO_ACTIVATION**
+> Status: **IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REREVIEW / REFERENCE_ONLY / NO_ACTIVATION**
 > Branch: `codex/adm-p4-task-configuration-snapshot-20260715`
 > Exact ADM-P3 base: `7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2`
 > Approved exact-plan checkpoint: `b0aeab5c40fdb784ea1efc7a5b5cc6b412f03e49`
-> Implementation commit: the single atomic implementation commit containing this
-> evidence file; its exact hash is reported in the delegated handoff
+> Initial implementation commit: `625e0a64b283581dab0dc76baa853ad2abff012a`
+> Review-remediation commit: the atomic fix commit containing the updated evidence;
+> its exact hash is reported in the delegated handoff
 
 ## Decision
 
@@ -41,7 +42,8 @@ fields.
 - Product-owned `policy-1` descriptor plus canonical digest;
 - point-in-time `ProviderProfile` plus canonical digest;
 - exactly one active, unexpired, same-principal/same-scope grant for each workflow tool
-  capability plus canonical grant-set digest;
+  capability, whose version matches the Product capability registry, plus canonical
+  grant-set digest;
 - committed `ExpectedOutcome`, including its evidence requirements, plus digest;
 - Product-reserved Run ID and C7 Task/Run/capability epoch vector.
 
@@ -93,6 +95,10 @@ The composition root owns one re-entrant configuration lock shared by seal, boun
 start/preflight, `attach_workspace` and the provider-config commit. Seal and start hold
 that lock and the same `CorrectionAuthority.guard_unchanged` through their Task-event
 append. They reload the Task and rederive Product bindings immediately before append.
+The service obtains a fresh clock value after entering the C7 guard, revalidates
+Commitment/grant expiry at that linearization point and constructs the persisted
+snapshot from that guarded derivation. An expiry that crosses the guard boundary cannot
+append `TASK_CONFIGURATION_SNAPSHOT_SEALED` or `RUN_STARTED`.
 The coordinator receives the selected provider/sandbox objects and a copied grant map
 under the same lock.
 
@@ -125,7 +131,11 @@ execution semantics.
 Explicit RED checkpoints covered missing contracts, missing aggregate seal/start
 binding, missing Product derivation service, unimplemented optional-prior resolution,
 missing exact bound start, absent application/HTTP surfaces, later-receipt invalidation,
-source/current Task/Run reuse, duplicate grants and runtime-input leakage.
+source/current Task/Run reuse, duplicate grants and runtime-input leakage. Review
+remediation added four independently red tests: seal/start expiry crossing at C7 guard
+entry, a valid workflow capability version other than the sealer version and a grant/spec
+version mismatch. It also strengthened digest sensitivity, authoritative-field rejection,
+receipt-lineage tamper and every reserved prior/runtime-input key.
 
 Final local verification on the implementation working tree:
 
@@ -137,12 +147,23 @@ PYTHONPATH=packages/contracts/src:packages/os_core/src:. python -m pytest -q \
   tests/product/test_task_configuration_application.py \
   tests/product/test_task_configuration_api.py \
   tests/product/test_task_aggregate.py \
-  tests/product/test_task_service.py
-50 passed
+  tests/product/test_task_service.py \
+  tests/product/test_materialization_promotion_contracts.py \
+  tests/product/test_materialization_promotion_service.py \
+  tests/product/test_materialization_promotion_api.py
+130 passed
 
 PYTHONPATH=packages/contracts/src:packages/os_core/src:. python -m pytest -q \
   tests/product
-457 passed, 1 skipped
+473 passed, 1 skipped, 2 failed
+
+The two failures are pre-existing time/environment drift in
+`tests/product/test_materialization_evaluation_api.py`: its fixed `NOW` makes the
+evaluation grant expired relative to the live HTTP application clock, producing 403 in
+`test_http_records_lists_and_restarts_without_mutating_product_state` and
+`test_record_endpoint_bypasses_generic_http_idempotency_cache`. Kimi independently
+observed the same two failures on the unremediated exact implementation head. They are
+outside ADM-P4 and were not modified in this fix commit.
 
 python -m ruff check packages/contracts/src packages/os_core/src apps tests/product
 All checks passed!
@@ -158,11 +179,12 @@ git diff --check
 passed
 ```
 
-The 50-test bypass set includes exact event rehydration, legacy compatibility, C7 and
+The 130-test bypass set includes exact event rehydration, legacy compatibility, C7 and
 configuration drift, full optional-prior lineage, later receipt append, source
-separation, restart reads, shared-lock exclusion, HTTP cache bypass, caller-field and
-runtime-input rejection. The full Product suite also preserves ADM-P1/P2/P3 and the
-existing Agent OS paths.
+separation, guard-entry expiry races, capability-spec version binding, restart reads,
+shared-lock exclusion, HTTP cache bypass, caller-field and runtime-input rejection. All
+ADM-P4 and adjacent ADM-P1/P2/P3 checks pass; the full Product suite is not represented
+as green because of the two named pre-existing fixed-time failures.
 
 ## Independent review gate
 
@@ -173,17 +195,20 @@ legacy start/run bypass, HTTP/idempotency ordering and execution-input leakage. 
 revised exact plan at `b0aeab5` addressed them and the same session returned
 `SPEC_APPROVE` with no open blockers.
 
-The atomic implementation commit remains `HOLD` until a read-only Kimi exact-head
-implementation review returns literal `TECHNICAL_APPROVE`. Its session/verdict and the
-exact implementation hash are reported in the delegated handoff; this pre-review
-evidence file does not predeclare approval.
+The same Kimi session began a read-only exact-head review of `625e0a64`; it completed
+four technical slices but was stopped at the 15-minute hard timeout before emitting a
+verdict. It had already confirmed one blocker: seal/start reused a pre-guard timestamp
+for guarded expiry checks. It also required real workflow capability-version binding
+instead of using the sealer's fixed version and requested stronger mutation coverage.
+This remediation closes those exact findings. The branch remains `HOLD` until the same
+reviewer identity reviews the new exact head and returns literal `TECHNICAL_APPROVE`.
 
 ## Claim boundary
 
 Authorized before independent implementation review:
 
 ```text
-ADM-P4 is IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REVIEW as an immutable Product Task
+ADM-P4 is IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REREVIEW as an immutable Product Task
 configuration and exact later-Run reference binding only; it has NO_ACTIVATION authority.
 ```
 

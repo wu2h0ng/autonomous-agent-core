@@ -71,6 +71,7 @@ from agent_os_core import (
     PromotionPolicyV1,
     POLICY_KERNEL_V1_DIGEST,
     TASK_CONFIGURATION_CAPABILITY,
+    TASK_CONFIGURATION_CAPABILITY_VERSION,
     TaskConfigurationNotBound,
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
@@ -231,11 +232,19 @@ class AgentOSApplication:
         return grants
 
     def _task_configuration_runtime(self) -> TaskConfigurationRuntime:
+        capability_versions = {
+            capability_id: spec.version
+            for capability_id, spec in self.sandbox.specs().items()
+        }
+        capability_versions[TASK_CONFIGURATION_CAPABILITY] = (
+            TASK_CONFIGURATION_CAPABILITY_VERSION
+        )
         return TaskConfigurationRuntime(
             policy_version="policy-1",
             policy_digest=POLICY_KERNEL_V1_DIGEST,
             provider_profile=self.provider_profile,
             grants=dict(self.grants),
+            capability_versions=capability_versions,
         )
 
     def _build_task_configuration_grant(

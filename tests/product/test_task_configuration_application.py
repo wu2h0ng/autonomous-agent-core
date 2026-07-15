@@ -169,7 +169,28 @@ def test_application_rejects_authoritative_snapshot_body_fields(tmp_path) -> Non
     assert command.prior_selector is None
 
 
-def test_run_rejects_snapshot_or_prior_content_before_start_or_effect(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "forbidden_field",
+    (
+        "configuration_snapshot",
+        "configuration_snapshot_digest",
+        "optional_prior",
+        "prior_binding",
+        "prior_artifact_id",
+        "prior_digest",
+        "prior_provenance",
+        "promotion_digest",
+        "receipt_chain_digest",
+        "evaluation_receipt_digests",
+        "representation_patch_digest",
+        "source_activation_authority",
+        "prior_consumption_mode",
+    ),
+)
+def test_run_rejects_snapshot_or_prior_content_before_start_or_effect(
+    tmp_path,
+    forbidden_field: str,
+) -> None:
     app = AgentOSApplication(
         database=tmp_path / "closed-runtime-input.sqlite3",
         workspace=tmp_path,
@@ -181,7 +202,7 @@ def test_run_rejects_snapshot_or_prior_content_before_start_or_effect(tmp_path) 
     with pytest.raises(ValueError, match="configuration.*forbidden"):
         app.run_task(
             task_id,
-            {"optional_prior": {"activation": True}},
+            {forbidden_field: {"activation": True}},
             configuration_snapshot_id=snapshot.snapshot_id,
         )
 

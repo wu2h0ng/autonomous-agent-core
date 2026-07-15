@@ -125,6 +125,7 @@ class TaskConfigurationRuntime:
     policy_digest: str
     provider_profile: ProviderProfile
     grants: Mapping[str, CapabilityGrant]
+    capability_versions: Mapping[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,17 +205,6 @@ class TaskConfigurationSnapshotService:
                 reserved_run_id,
                 TASK_CONFIGURATION_CAPABILITY,
             )
-            snapshot = self._build_snapshot(
-                task,
-                principal,
-                bindings,
-                snapshot_id=self._id_factory("task-configuration"),
-                request_digest=request_digest,
-                reserved_run_id=reserved_run_id,
-                observed_epochs=observed_epochs,
-                sealed_at=now,
-            )
-
             with self._correction.guard_unchanged(
                 task_id,
                 reserved_run_id,
@@ -225,13 +215,14 @@ class TaskConfigurationSnapshotService:
                     raise TaskConfigurationDenied(
                         "correction epoch changed before configuration append"
                     )
+                linearization_now = self._clock()
                 current_task = self._tasks.get_task(task_id)
                 current_runtime = self._configuration_reader()
                 current_bindings = self._derive_bindings(
                     current_task,
                     principal,
                     current_runtime,
-                    now,
+                    linearization_now,
                     prior_selector=command.prior_selector,
                     reserved_run_id=reserved_run_id,
                 )
@@ -239,6 +230,16 @@ class TaskConfigurationSnapshotService:
                     raise TaskConfigurationDrift(
                         "Product configuration changed before snapshot append"
                     )
+                snapshot = self._build_snapshot(
+                    current_task,
+                    principal,
+                    current_bindings,
+                    snapshot_id=self._id_factory("task-configuration"),
+                    request_digest=request_digest,
+                    reserved_run_id=reserved_run_id,
+                    observed_epochs=observed_epochs,
+                    sealed_at=linearization_now,
+                )
                 try:
                     sealed_task = self._tasks.seal_configuration_snapshot(
                         task_id,
@@ -315,6 +316,7 @@ class TaskConfigurationSnapshotService:
                     raise TaskConfigurationDenied(
                         "correction epoch changed before bound Run start"
                     )
+                linearization_now = self._clock()
                 current_task = self._tasks.get_task(task_id)
                 current_snapshot = self._require_snapshot(
                     current_task,
@@ -325,7 +327,7 @@ class TaskConfigurationSnapshotService:
                     current_task,
                     principal,
                     self._configuration_reader(),
-                    now,
+                    linearization_now,
                     prior_selector=self._selector_for_snapshot(current_snapshot),
                     reserved_run_id=current_snapshot.reserved_run_id,
                 )
@@ -400,6 +402,7 @@ class TaskConfigurationSnapshotService:
             TASK_CONFIGURATION_CAPABILITY,
             principal,
             now,
+            required_version=TASK_CONFIGURATION_CAPABILITY_VERSION,
         )
         required_capabilities = sorted(
             {
@@ -414,6 +417,10 @@ class TaskConfigurationSnapshotService:
                 capability_id,
                 principal,
                 now,
+                required_version=self._require_capability_version(
+                    runtime.capability_versions,
+                    capability_id,
+                ),
             )
             for capability_id in required_capabilities
         )
@@ -453,6 +460,8 @@ class TaskConfigurationSnapshotService:
         capability_id: str,
         principal: PrincipalIdentity,
         now: datetime,
+        *,
+        required_version: str,
     ) -> CapabilityGrant:
         grant = grants.get(capability_id)
         if grant is None:
@@ -463,16 +472,28 @@ class TaskConfigurationSnapshotService:
             grant.status is not CapabilityGrantStatus.ACTIVE
             or grant.expires_at <= now
             or grant.capability_id != capability_id
-            or grant.capability_version != TASK_CONFIGURATION_CAPABILITY_VERSION
+            or grant.capability_version != required_version
             or grant.principal_id != principal.principal_id
             or grant.tenant_id != principal.tenant_id
             or grant.workspace_id != principal.workspace_id
         ):
             raise TaskConfigurationDenied(
-                f"required capability grant is inactive, expired or out of scope: "
-                f"{capability_id}"
+                f"required capability grant is inactive, expired, wrong version or "
+                f"out of scope: {capability_id}"
             )
         return grant
+
+    @staticmethod
+    def _require_capability_version(
+        capability_versions: Mapping[str, str],
+        capability_id: str,
+    ) -> str:
+        version = capability_versions.get(capability_id)
+        if version is None or not version:
+            raise TaskConfigurationDenied(
+                f"required capability spec version is missing: {capability_id}"
+            )
+        return version
 
     @staticmethod
     def _validate_read_scope(

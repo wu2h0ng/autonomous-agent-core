@@ -115,16 +115,16 @@ verified_capabilities:
     boundary: "This is decision and optional-prior infrastructure only. The production registry contains V1 only and V1 cannot return PROMOTE, so no production prior is created. The PROMOTE/prior path is exercised only with closed deterministic policies defined in tests. No evaluator execution or correctness, evidence-byte custody, evaluator-independence proof, activation/configuration authority, prior-effectiveness evidence, adaptive competence, migration, push, merge or release is established."
     source: "docs/product/PM-ADM-P3-PROMOTION-AND-OPTIONAL-PRIOR-2026-07-15.md"
   adm_p4_task_configuration_snapshot:
-    status: "IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REVIEW / REFERENCE_ONLY / NO_ACTIVATION"
+    status: "IMPLEMENTED_LOCAL_PENDING_EXACT_HEAD_REREVIEW / REVIEW_FINDINGS_REMEDIATED / REFERENCE_ONLY / NO_ACTIVATION"
     evidence_level: "E3_LOCAL_CONTROLLED_PRODUCT_TEST_PENDING_INDEPENDENT_REVIEW"
-    implementation_base: "7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2; exact atomic implementation commit is the commit containing the ADM-P4 PM and is reported in the delegated handoff"
+    implementation_base: "7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2; initial implementation 625e0a64b283581dab0dc76baa853ad2abff012a; exact review-remediation commit is reported in the delegated handoff"
     real_entry_points:
       - "POST /v1/tasks/{task_id}/configuration-snapshots:seal"
       - "GET /v1/tasks/{task_id}/configuration-snapshots"
       - "GET /v1/tasks/{task_id}/configuration-snapshots/{snapshot_id}"
       - "POST /v1/tasks/{task_id}/start and /run with exact configuration_snapshot_id"
       - "AgentOSApplication, TaskConfigurationSnapshotService, TaskService and TaskAggregate"
-    verified: "50 targeted snapshot/binding/bypass tests passed; full Product suite 457 passed and 1 skipped; ruff clean; pyright 0 errors/0 warnings; compileall and git diff checks passed. Tests cover closed caller contracts, immutable event rehydration, exact reserved-Run binding, full optional-prior lineage, later receipt append, source separation, C7/config drift, same-lock non-interleaving, restart reads, runtime-input leakage and HTTP cache bypass. Exact-head Kimi implementation review remains pending at this authority snapshot."
+    verified: "130 targeted snapshot/binding/adjacent bypass tests passed; full Product suite reached 473 passed and 1 skipped with two named pre-existing fixed-NOW evaluation-API expiry failures outside ADM-P4; ruff clean; pyright 0 errors/0 warnings; compileall and git diff checks passed. Review-remediation tests cover C7 guard-entry expiry races for seal/start, real capability-spec version binding, digest sensitivity, lineage tamper, closed caller fields and every reserved prior/runtime-input key in addition to exact event rehydration, reserved-Run binding, same-lock exclusion, restart reads and HTTP cache bypass. The first exact-head Kimi run was hard-stopped at 15 minutes without verdict after confirming the stale-clock blocker; the exact remediation head requires the same reviewer identity to return literal TECHNICAL_APPROVE."
     boundary: "This is an immutable Product configuration and exact later-Run reference binding only. The optional prior remains inert/reference-only and never reaches provider, policy, capability or tool inputs. Production V1 creates no prior. Provider/grant configuration is point-in-time rather than a durable ledger, so restart/reconfiguration may make bound start fail closed. No prior application/effectiveness, representation mutation, evaluator execution, materializer acquisition, adaptive competence, cross-process atomicity, migration, push, merge or release is established."
     source: "docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md"
   research_g10:
@@ -178,7 +178,7 @@ research_ledger:
 active_work:
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
-    status: "ADM_P1_P2_P3_P4_IMPLEMENTED_LOCAL / ADM_P4_EXACT_HEAD_REVIEW_PENDING / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
+    status: "ADM_P1_P2_P3_P4_IMPLEMENTED_LOCAL / ADM_P4_REVIEW_FINDINGS_REMEDIATED_EXACT_HEAD_REREVIEW_PENDING / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
     purpose: "Keep inert DomainCandidate sealing, externally produced evaluation receipts, Product-owned deterministic promotion decisions and immutable later-Task/Run configuration references branch-contained through the existing Product authority spine without introducing domain semantics, evaluator execution, production prior activation or a second runtime."
     entry_gate: "Exact design f63648c8766ec42a15e25951a6cb9cfca930efc05d3d2f6631317145c96f362a has Kimi TECHNICAL_APPROVE and independent RR-0029 ACCEPT_FOR_SPEC; ADR-0057 owns only the minimal Product decision."
     boundary: "The branch contains closed contracts, append-only persistence, deterministic validation/failures and real HTTP entry points through ADM-P4. Production policy V1 always DEFERs; only tests exercise atomic PROMOTE, inert-prior persistence and reference binding. ADM-P4 freezes configuration and binds a later Run but does not apply the prior or alter execution. No evaluator execution, evidence custody/independence proof, activation/configuration mutation, adaptive experiment, training, migration, push, merge or release claim."
@@ -251,7 +251,7 @@ blockers:
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "ADR-0057 and ADM-P1/P2/P3 remain in the ancestry of codex/adm-p4-task-configuration-snapshot-20260715; ADM-P4 is contained on that isolated branch and awaits exact-head Kimi implementation review at this authority snapshot. No push, main merge or release is implied."
+    - "ADR-0057 and ADM-P1/P2/P3 remain in the ancestry of codex/adm-p4-task-configuration-snapshot-20260715; ADM-P4 is contained on that isolated branch. Its first exact-head Kimi review timed out without verdict after identifying a stale-clock blocker; the fix is locally verified and awaits same-reviewer exact-head rereview. No push, main merge or release is implied."
     - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
 
 claim_boundaries:
@@ -274,7 +274,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Complete the read-only Kimi exact-head technical review of the atomic ADM-P4 implementation; keep ADM-P1/P2/P3/P4 branch-contained and HOLD on any push/merge/release. Any prior application/activation remains a separately reviewed successor, with same-run activation forbidden."
+    action: "Complete the same-reviewer read-only Kimi technical rereview of the exact ADM-P4 remediation head and require literal TECHNICAL_APPROVE; keep ADM-P1/P2/P3/P4 branch-contained and HOLD on any push/merge/release. Any prior application/activation remains a separately reviewed successor, with same-run activation forbidden."
   - priority: 2
     action: "Support the parent R-EVAL-INDEP-1, R-STATE-CREDIT-1 and R-ACTIVE-DISCOVERY-1 research lanes only through stable contracts or isolated Research paths; do not import their mechanisms into Product Runtime."
   - priority: 3
@@ -328,9 +328,9 @@ freshness:
   checked_at: "2026-07-15"
   branch: "codex/adm-p4-task-configuration-snapshot-20260715"
   clean_base_head: "7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2"
-  implementation_head: "the atomic implementation commit containing docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md; exact hash is reported in the delegated handoff"
+  implementation_head: "initial implementation 625e0a64b283581dab0dc76baa853ad2abff012a; exact atomic review-remediation commit is reported in the delegated handoff"
   authority_source_commit: "c1035fae33a3709dfc9d669843cb281ad6dd76e2"
   merge_base: "065ff8b57969e99835d7fe40e0641022b4ea0cf6"
-  commit_state: "ADM_P1_P2_P3_ANCESTRY_PLUS_ADM_P4_IMPLEMENTATION_AND_STATUS_DOCS_READY_FOR_ATOMIC_LOCAL_COMMIT / EXACT_HEAD_REVIEW_PENDING / NOT_PUSHED_NOT_MERGED"
+  commit_state: "ADM_P1_P2_P3_ANCESTRY_PLUS_ADM_P4_IMPLEMENTATION_AND_ATOMIC_REVIEW_REMEDIATION / EXACT_HEAD_REREVIEW_PENDING / NOT_PUSHED_NOT_MERGED"
   merge_scope: "The branch adds ADM-P4 immutable Task configuration contracts, Task-event persistence, exact later-Run binding, Product-owned optional-prior lineage reads, application/HTTP composition and tests; it does not apply a prior, change execution semantics, merge Data Agent or import Research mechanisms."
   evidence_separation: "ADM-P1/P2/P3/P4 are Product implementation evidence only. ADM-P4 reference binding does not establish prior value, adaptation, evaluator performance, adaptive competence or a research result. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, D2 or general-autonomy claim."
