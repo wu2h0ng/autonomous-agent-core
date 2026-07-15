@@ -55,7 +55,7 @@ Location: `packages/contracts/src/agent_os_contracts/`
 | `provider.py` | provider/model/credential reference contracts |
 | `resource.py` | budgets and resource constraints |
 | `domain.py` | generic domain-pack boundary contracts |
-| `materialization.py` | closed DomainCandidate draft, provenance, representation-patch and immutable sealed-candidate contracts |
+| `materialization.py` | closed DomainCandidate and external evaluation draft/receipt contracts, provenance, representation patches and content digests |
 | `common.py` | shared identifiers, serialization and validation primitives |
 
 These are generic OS contracts. Metric, SQL, DataProduct and business-action semantics belong to Data Agent, not this package.
@@ -75,9 +75,11 @@ Location: `packages/os_core/src/agent_os_core/`
 | `recovery.py` | event-derived recovery projection; no physical exactly-once or long-horizon superiority inference |
 | `capability.py` | capability registry/broker and typed invocation |
 | `provider.py` | provider adapters and bounded model proposal path |
-| `governance.py` | policy/disposer and authority checks |
+| `governance.py` | policy/disposer, correction authority and minimal local-effect guard protocol |
 | `materialization.py` | Task/Run/scope/C7-bound DomainCandidate sealing and listing service |
 | `materialization_persistence.py` | isolated SQLite candidate store with transactional version, idempotency and parent-CAS semantics |
+| `materialization_evaluation.py` | externally produced evaluation receipt recording/listing with exact scope, grant, evaluator-separation and C7 checks |
+| `materialization_evaluation_persistence.py` | append-only SQLite evaluation receipt ledger with derived-key idempotency, versioning and parent CAS |
 | `errors.py` | typed product failures |
 
 The public Product Track path must pass through these state/authority contracts. Direct model output is never a consequential command.
@@ -88,6 +90,7 @@ The public Product Track path must pass through these state/authority contracts.
 
 - `app.py` / `server.py`: application composition and HTTP entry.
 - `POST /v1/tasks/{task_id}/domain-candidates:seal` and `GET /v1/tasks/{task_id}/domain-candidates`: ADM-P1 inert candidate sealing/listing; no activation path.
+- `POST /v1/tasks/{task_id}/domain-candidates/{candidate_digest}/evaluations:record` and matching `GET .../evaluations`: ADM-P2 inert external receipt recording/listing; no evaluator execution, promotion or activation path.
 - `index.html`: Task Workspace surface.
 - `preview-zh.html`: local prototype/preview; verify current status before treating it as a delivered surface.
 
@@ -110,9 +113,14 @@ The first local developer path. It is not a universal coding-agent claim or a su
 | `tests/product/test_materialization_contracts.py` | closed channel/outcome, provenance, digest and forbidden-authority contract checks |
 | `tests/product/test_materialization_service.py` | transactional sealing, C7/scope/CAS/idempotency/restart and no-TaskEvent checks |
 | `tests/product/test_materialization_api.py` | real HTTP composition, typed failures, generic-cache bypass and no-workspace-mutation checks |
+| `tests/product/test_materialization_evaluation_contracts.py` | closed receipt/evaluator identity, disposition-shape and mutation-sensitive digest checks |
+| `tests/product/test_materialization_evaluation_persistence.py` | append-only version/CAS/idempotency/restart receipt-ledger checks |
+| `tests/product/test_materialization_evaluation_service.py` | scope/grant/four-way identity/C7/no-TaskEvent receipt-service checks |
+| `tests/product/test_materialization_evaluation_api.py` | dual-principal SQLite, six-segment HTTP, cache-bypass and no-mutation checks |
 | `tests/product/` | Product Track contracts, persistence, provider, capability, governance, API/CLI and UI-facing regressions |
 | `docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md` | bounded PM acceptance record |
 | `docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P1 |
+| `docs/product/PM-ADM-P2-EXTERNAL-EVALUATION-RECEIPTS-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P2 |
 | `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md` | SPINE-0 architecture authority |
 | `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml` | migration plan/map; not execution authority |
 | `product_evals/spine_e2e_1/` through `product_evals/spine_e2e_4/` | preserved successor instruments; E2E-1/2/3 are immutable INVALID and E2E-4 is one bounded frozen local same-boot PASS |

@@ -3,8 +3,8 @@ updated: "2026-07-15"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/adaptive-domain-adr-20260715"
-status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained. ADR-0057 accepts Adaptive Domain Materialization and Optional Domain Priors as Product definition; ADM-P1 now provides a locally verified inert DomainCandidate seal/list slice only. No materializer, evaluation, promotion, prior, later-run activation or adaptive-competence claim exists. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; the full LH successor is PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
+branch: "codex/adm-p2-evaluation-receipts-20260715"
+status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained. ADR-0057 accepts Adaptive Domain Materialization and Optional Domain Priors as Product definition; ADM-P1 seals inert DomainCandidate records and ADM-P2 records immutable external evaluation receipts behind the same local authority spine. Neither slice executes an evaluator, promotes or activates a candidate, creates a prior, acquires a materializer or establishes adaptive competence. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; the full LH successor is PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,7 +25,7 @@ identity:
 
 current_phase:
   product:
-    label: "SPINE-0 bounded developer slice, bounded local long-horizon slice and ADM-P1 inert candidate sealing; broader Agent OS alpha incomplete"
+    label: "SPINE-0 bounded developer slice, bounded local long-horizon slice, ADM-P1 inert candidate sealing and ADM-P2 external receipt recording; broader Agent OS alpha incomplete"
     status: "LOCAL_SLICES_VERIFIED / NO_PRODUCT_ALPHA_CLAIM"
   research:
     label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
@@ -91,6 +91,17 @@ verified_capabilities:
     verified: "47 ADM-P1 targeted tests passed; full Product suite 240 passed and 1 skipped; ruff clean; pyright 0 errors; C7 recheck, same-process correction/append interleaving and HTTP-cache-bypass checks detected their bypasses; Kimi exact-range follow-up review returned TECHNICAL_APPROVE with no blockers."
     boundary: "Seals and lists inert provenance-bound candidate records only. Same-authority C7 correction/append linearization is process-local; no cross-process atomicity, acquisition/materializer, evaluation, promotion, activation, optional prior, TaskConfigurationSnapshot, training, migration or release is implemented."
     source: "docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md"
+  adm_p2_external_evaluation_receipts:
+    status: "IMPLEMENTED_LOCAL_EXTERNAL_EVALUATION_RECEIPTS_ONLY"
+    evidence_level: "E3_LOCAL_CONTROLLED_PRODUCT_TEST"
+    implementation_head: "4a523bd2c8ff9a97ce6d0d25f91969839756577a"
+    real_entry_points:
+      - "POST /v1/tasks/{candidate_task_id}/domain-candidates/{candidate_digest}/evaluations:record"
+      - "GET /v1/tasks/{candidate_task_id}/domain-candidates/{candidate_digest}/evaluations"
+      - "AgentOSApplication and DomainCandidateEvaluationRecorder composition root"
+    verified: "30 ADM-P2 targeted tests passed; full Product suite 270 passed and 1 skipped; ruff clean; pyright 0 errors across source and Product tests; append-only/CAS/idempotency, four-way identity separation, exact grant/scope, C7 recheck/interleaving, dual-instance restart, route override and HTTP-cache-bypass checks passed; Kimi exact-range third review returned TECHNICAL_APPROVE with no blockers."
+    boundary: "Records and lists inert externally produced evaluation receipts only. It does not execute an evaluator, call a provider, decide quality, mutate Task/candidate/workspace, promote or activate candidates, create optional priors or establish evaluator performance. Same-authority C7 correction/append linearization is process-local; no cross-process atomicity is claimed."
+    source: "docs/product/PM-ADM-P2-EXTERNAL-EVALUATION-RECEIPTS-2026-07-15.md"
   research_g10:
     status: "MET / NARROW / FINAL_IN_FROZEN_SYNTHETIC_FAMILY"
     statement: "P0 confidence-gated subject-side belief-to-action coupling decisively reduces regret versus named cheap arms in its preregistered family and survived recorded trap tests."
@@ -142,10 +153,10 @@ research_ledger:
 active_work:
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
-    status: "IMPLEMENTED_LOCAL_CANDIDATE_SEALING_ONLY / INDEPENDENT_TECHNICAL_REVIEW_APPROVED"
-    purpose: "Keep the smallest typed DomainCandidate seal/list slice branch-contained through the existing Product authority spine without introducing domain semantics or a second runtime."
+    status: "ADM_P1_AND_ADM_P2_IMPLEMENTED_LOCAL / INDEPENDENT_TECHNICAL_REVIEW_APPROVED / NO_PROMOTION_NO_ACTIVATION"
+    purpose: "Keep inert DomainCandidate sealing and externally produced evaluation receipts branch-contained through the existing Product authority spine without introducing domain semantics, evaluator execution or a second runtime."
     entry_gate: "Exact design f63648c8766ec42a15e25951a6cb9cfca930efc05d3d2f6631317145c96f362a has Kimi TECHNICAL_APPROVE and independent RR-0029 ACCEPT_FOR_SPEC; ADR-0057 owns only the minimal Product decision."
-    boundary: "The slice contains contracts, isolated persistence, deterministic validation/failures and real HTTP entry points; no same-run activation, evaluator, promotion service, adaptive experiment, training, migration, push, merge or release claim."
+    boundary: "The branch contains closed contracts, isolated append-only persistence, deterministic validation/failures and real HTTP entry points; no evaluator execution, quality verdict, same-run activation, promotion service, prior, adaptive experiment, training, migration, push, merge or release claim."
     source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
 
 parked_work:
@@ -202,7 +213,7 @@ recently_completed:
 blockers:
   product:
     - "No complete personal and Data Agent paths on the same Agent OS spine."
-    - "ADM-P1 seals inert candidates only; materializer acquisition, independent evaluation, promotion, immutable configuration snapshots and later-run activation are not implemented."
+    - "ADM-P1 seals inert candidates and ADM-P2 records external evaluation receipts only; evaluator execution/performance, materializer acquisition, promotion, immutable configuration snapshots, optional priors and later-run activation are not implemented."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
     - "Natural-language/visual WorkflowGraph authoring, mature knowledge lifecycle, broad capabilities, marketplace and general coding-agent path are incomplete."
     - "SPINE-1 migration is not executed."
@@ -214,13 +225,14 @@ blockers:
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "ADM-P1 and the ADR-0057 Product-definition update exist only on codex/adaptive-domain-adr-20260715; no push, main merge or release is implied."
+    - "ADR-0057 and ADM-P1 remain in the ancestry of codex/adm-p2-evaluation-receipts-20260715; ADM-P2 is committed on that isolated branch. No push, main merge or release is implied."
     - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
 
 claim_boundaries:
   product:
     - "SPINE-0 may be called PM-accepted only for the bounded local independent-developer repository path."
     - "ADM-P1 may be called implemented only as local inert candidate sealing/listing; it is not domain adaptation, acquisition, learning, evaluation, promotion or activation."
+    - "ADM-P2 may be called implemented only as local external evaluation receipt recording/listing; it is not evaluator execution, evaluator-quality evidence, promotion, activation or adaptive competence."
     - "Do not claim Product Alpha, production readiness, Codex/Claude parity, superiority or general market validation."
     - "Do not claim Data Agent migration, shared-spine completion, release or production deployment."
   research:
@@ -234,7 +246,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep reviewed ADM-P1 branch-contained until explicit integration authorization; define ADM-P2 evaluator isolation without activating or promoting candidates."
+    action: "Keep reviewed ADM-P1/ADM-P2 branch-contained until explicit integration authorization; define ADM-P3 Product-owned promotion decision and immutable prior contract without adding activation authority."
   - priority: 2
     action: "Support the parent R-EVAL-INDEP-1, R-STATE-CREDIT-1 and R-ACTIVE-DISCOVERY-1 research lanes only through stable contracts or isolated Research paths; do not import their mechanisms into Product Runtime."
   - priority: 3
@@ -249,13 +261,14 @@ test_commands:
   quality:
     - "uv run --extra product-test ruff check apps packages/os_core/src packages/contracts/src tests/product"
     - "uv run --extra product-test pyright apps packages/os_core/src packages/contracts/src tests/product"
-  caution: "ADM-P1/Product commands were rerun on 2026-07-15 as recorded in its evidence artifact. A separate Product-eval run stopped after two pre-existing baseline failures (656 passed, 2 failed); do not call the repository-wide suite green."
+  caution: "ADM-P2/Product commands were rerun on 2026-07-15 as recorded in its evidence artifact. A separate Product-eval run ended with 765 passed and two pre-existing external-artifact failures; do not call the repository-wide suite green."
 
 source_refs:
   product:
     - "docs/AGENT-OS-PRODUCT-BLUEPRINT.md"
     - "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
     - "docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md"
+    - "docs/product/PM-ADM-P2-EXTERNAL-EVALUATION-RECEIPTS-2026-07-15.md"
     - "docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md"
     - "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
     - "docs/research/SPINE-E2E-1-result.md"
@@ -283,11 +296,11 @@ source_refs:
 
 freshness:
   checked_at: "2026-07-15"
-  branch: "codex/adaptive-domain-adr-20260715"
+  branch: "codex/adm-p2-evaluation-receipts-20260715"
   clean_base_head: "e3cdacbcf1de506e0ad78c4d0618d2b78dd4d432"
-  implementation_head: "fb8593b10091953b61b6bea982953e3682215243"
+  implementation_head: "4a523bd2c8ff9a97ce6d0d25f91969839756577a"
   authority_source_commit: "c1035fae33a3709dfc9d669843cb281ad6dd76e2"
   merge_base: "065ff8b57969e99835d7fe40e0641022b4ea0cf6"
-  commit_state: "ADM_P1_IMPLEMENTATION_AND_STATUS_DOCS_COMMITTED_LOCALLY / TECHNICALLY_APPROVED / NOT_PUSHED_NOT_MERGED"
-  merge_scope: "The branch adds only ADR-0057 Product-definition updates and the ADM-P1 closed contract, isolated candidate store, seal/list service, HTTP composition and tests; it does not merge Data Agent or Research mechanisms."
-  evidence_separation: "ADM-P1 is Product implementation evidence only. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, adaptive-competence result, D2 or general-autonomy claim."
+  commit_state: "ADM_P1_AND_ADM_P2_IMPLEMENTATION_AND_STATUS_DOCS_COMMITTED_LOCALLY / TECHNICALLY_APPROVED / NOT_PUSHED_NOT_MERGED"
+  merge_scope: "The branch adds ADR-0057 Product-definition updates, ADM-P1 inert candidate sealing and ADM-P2 external evaluation receipt contracts, isolated stores, services, HTTP composition and tests; it does not merge Data Agent or Research mechanisms."
+  evidence_separation: "ADM-P1/ADM-P2 are Product implementation evidence only. They do not establish evaluator performance, adaptive competence or a research result. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, D2 or general-autonomy claim."
