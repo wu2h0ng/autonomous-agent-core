@@ -5,6 +5,7 @@ import threading
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -12,6 +13,7 @@ import pytest
 
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
+from agent_os_core.errors import CandidateEvaluationDenied, CommitmentExpiredError
 from agent_os_contracts import (
     CandidateEvaluationDisposition,
     CandidateEvaluationDraft,
@@ -29,6 +31,10 @@ from tests.product.test_materialization_evaluation_service import (
     _grant,
     _seed_candidate,
 )
+
+
+def _frozen_now() -> datetime:
+    return NOW
 
 
 @contextmanager
@@ -127,6 +133,7 @@ def applications(tmp_path: Path):
         database=database,
         workspace=workspace,
         principal=builder,
+        clock=_frozen_now,
     )
     candidate = _seed_candidate(
         builder_app.tasks,
@@ -139,6 +146,7 @@ def applications(tmp_path: Path):
         workspace=workspace,
         principal=recorder,
         evaluation_grant=evaluation_grant,
+        clock=_frozen_now,
     )
     evaluation_task_id, evaluation_run_id = _create_running_task(
         evaluator_app.tasks,
@@ -235,6 +243,7 @@ def test_http_records_lists_and_restarts_without_mutating_product_state(
         workspace=workspace,
         principal=recorder,
         evaluation_grant=grant,
+        clock=_frozen_now,
     )
     try:
         with _running_server(restarted) as base:
@@ -303,3 +312,140 @@ def test_record_endpoint_rejects_path_override_and_missing_candidate(
 
     assert override_status == 403
     assert missing_status == 404
+
+
+@pytest.mark.parametrize(
+    "frozen_now",
+    (NOW, NOW + timedelta(minutes=30)),
+)
+def test_application_shares_injected_clock_across_task_and_evaluation_authority(
+    tmp_path: Path,
+    frozen_now: datetime,
+) -> None:
+    database = tmp_path / "state" / "agent-os.sqlite3"
+    database.parent.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    def clock() -> datetime:
+        return frozen_now
+
+    builder = _principal("principal:builder")
+    recorder = _principal("principal:recorder")
+    builder_app = AgentOSApplication(
+        database=database,
+        workspace=workspace,
+        principal=builder,
+        clock=clock,
+    )
+    evaluator_app = None
+    try:
+        candidate = _seed_candidate(
+            builder_app.tasks,
+            builder_app.correction,
+            builder_app.candidates,
+        )
+        evaluator_app = AgentOSApplication(
+            database=database,
+            workspace=workspace,
+            principal=recorder,
+            evaluation_grant=_grant(recorder),
+            clock=clock,
+        )
+        evaluation_task_id, evaluation_run_id = _create_running_task(
+            evaluator_app.tasks,
+            label=f"clock-{frozen_now.minute}",
+            actor=recorder.principal_id,
+            authority_scope="domain.candidate.evaluate",
+            evaluator_type="candidate-contract",
+        )
+
+        receipt = evaluator_app.record_domain_candidate_evaluation(
+            candidate.draft.task_id,
+            candidate.candidate_digest,
+            _evaluation_body(candidate, evaluation_task_id, evaluation_run_id),
+        )
+
+        assert evaluator_app.tasks.now() == frozen_now
+        assert (
+            evaluator_app.store.read(evaluation_task_id)[0].occurred_at == frozen_now
+        )
+        assert receipt.recorded_at == frozen_now
+    finally:
+        if evaluator_app is not None:
+            evaluator_app.evaluation_receipts.close()
+            evaluator_app.candidates.close()
+            evaluator_app.store.close()
+        builder_app.evaluation_receipts.close()
+        builder_app.candidates.close()
+        builder_app.store.close()
+
+
+def test_application_injected_clock_preserves_expiry_rejection(tmp_path: Path) -> None:
+    database = tmp_path / "state" / "agent-os.sqlite3"
+    database.parent.mkdir()
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    builder = _principal("principal:builder")
+    recorder = _principal("principal:recorder")
+    builder_app = AgentOSApplication(
+        database=database,
+        workspace=workspace,
+        principal=builder,
+        clock=_frozen_now,
+    )
+    evaluator_app = None
+    expired_commitment_app = None
+    try:
+        candidate = _seed_candidate(
+            builder_app.tasks,
+            builder_app.correction,
+            builder_app.candidates,
+        )
+        evaluator_app = AgentOSApplication(
+            database=database,
+            workspace=workspace,
+            principal=recorder,
+            evaluation_grant=_grant(recorder),
+            clock=lambda: NOW + timedelta(minutes=61),
+        )
+        evaluation_task_id, evaluation_run_id = _create_running_task(
+            evaluator_app.tasks,
+            label="expired-grant",
+            actor=recorder.principal_id,
+            authority_scope="domain.candidate.evaluate",
+            evaluator_type="candidate-contract",
+        )
+        with pytest.raises(CandidateEvaluationDenied, match="expired"):
+            evaluator_app.record_domain_candidate_evaluation(
+                candidate.draft.task_id,
+                candidate.candidate_digest,
+                _evaluation_body(candidate, evaluation_task_id, evaluation_run_id),
+            )
+
+        expired_commitment_app = AgentOSApplication(
+            database=tmp_path / "expired-commitment.sqlite3",
+            workspace=workspace,
+            principal=recorder,
+            clock=lambda: NOW + timedelta(hours=2),
+        )
+        with pytest.raises(CommitmentExpiredError, match="expired"):
+            _create_running_task(
+                expired_commitment_app.tasks,
+                label="expired-commitment",
+                actor=recorder.principal_id,
+                authority_scope="domain.candidate.evaluate",
+                evaluator_type="candidate-contract",
+            )
+    finally:
+        if expired_commitment_app is not None:
+            expired_commitment_app.evaluation_receipts.close()
+            expired_commitment_app.candidates.close()
+            expired_commitment_app.store.close()
+        if evaluator_app is not None:
+            evaluator_app.evaluation_receipts.close()
+            evaluator_app.candidates.close()
+            evaluator_app.store.close()
+        builder_app.evaluation_receipts.close()
+        builder_app.candidates.close()
+        builder_app.store.close()

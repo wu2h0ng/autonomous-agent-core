@@ -49,6 +49,7 @@ from agent_os_core import (
     CandidateScopeMismatch,
     CandidateEvaluationScopeMismatch,
     CandidatePromotionScopeMismatch,
+    Clock,
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
@@ -79,6 +80,10 @@ from agent_os_core import (
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class AgentOSApplication:
     """Composition root used unchanged by the CLI, HTTP API and tests."""
 
@@ -90,8 +95,10 @@ class AgentOSApplication:
         principal: PrincipalIdentity | None = None,
         evaluation_grant: CapabilityGrant | None = None,
         promotion_grant: CapabilityGrant | None = None,
+        clock: Clock = _utc_now,
     ) -> None:
-        now = datetime.now(timezone.utc)
+        self._clock = clock
+        now = self._clock()
         self.principal = principal or PrincipalIdentity(
             principal_id="user:local",
             tenant_id="tenant:local",
@@ -103,7 +110,7 @@ class AgentOSApplication:
         self._promotion_grant_override = promotion_grant
         self._configuration_lock = RLock()
         self.store = SQLiteTaskEventStore(database)
-        self.tasks = TaskService(self.store)
+        self.tasks = TaskService(self.store, clock=self._clock)
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.correction = CorrectionAuthority(
             self.store,
@@ -122,6 +129,7 @@ class AgentOSApplication:
             self.tasks,
             self.correction,
             self.candidates,
+            clock=self._clock,
         )
         self.policy = PolicyKernel(self.correction)
         live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
@@ -174,6 +182,7 @@ class AgentOSApplication:
             candidates=self.candidates,
             evaluations=self.evaluation_receipts,
             promotions=self.candidate_promotions,
+            clock=self._clock,
         )
         self.domain_candidate_evaluations = DomainCandidateEvaluationRecorder(
             self.tasks,
@@ -181,6 +190,7 @@ class AgentOSApplication:
             self.candidates,
             self.evaluation_receipts,
             self.grants,
+            clock=self._clock,
         )
         self.domain_candidate_promotions = DomainCandidatePromotionService(
             self.tasks,
@@ -190,12 +200,13 @@ class AgentOSApplication:
             self.candidate_promotions,
             self.grants,
             self.promotion_policies,
+            clock=self._clock,
         )
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
-        issued = now or datetime.now(timezone.utc)
+        issued = now or self._clock()
         grants = {
             capability_id: CapabilityGrant(
                 grant_id=f"grant:{capability_id}",
@@ -251,7 +262,7 @@ class AgentOSApplication:
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or datetime.now(timezone.utc)
+        issued = now or self._clock()
         return CapabilityGrant(
             grant_id="grant:internal:task.configuration.snapshot",
             principal_id=self.principal.principal_id,
@@ -276,7 +287,7 @@ class AgentOSApplication:
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or datetime.now(timezone.utc)
+        issued = now or self._clock()
         return CapabilityGrant(
             grant_id="grant:internal:domain.candidate.evaluate",
             principal_id=self.principal.principal_id,
@@ -301,7 +312,7 @@ class AgentOSApplication:
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or datetime.now(timezone.utc)
+        issued = now or self._clock()
         return CapabilityGrant(
             grant_id="grant:internal:workspace.compensate_patch",
             principal_id=self.principal.principal_id,
@@ -326,7 +337,7 @@ class AgentOSApplication:
         self,
         now: datetime | None = None,
     ) -> CapabilityGrant:
-        issued = now or datetime.now(timezone.utc)
+        issued = now or self._clock()
         return CapabilityGrant(
             grant_id="grant:internal:domain.candidate.promote",
             principal_id=self.principal.principal_id,
