@@ -37,7 +37,10 @@ class OpaqueCliSemantics:
     atomic_on_error: bool
 
     def __post_init__(self) -> None:
-        if set(self.source_precedence) != _SOURCES:
+        if (
+            len(self.source_precedence) != len(_SOURCES)
+            or set(self.source_precedence) != _SOURCES
+        ):
             raise OpaqueCliError(
                 "source_precedence must be a permutation of all sources"
             )

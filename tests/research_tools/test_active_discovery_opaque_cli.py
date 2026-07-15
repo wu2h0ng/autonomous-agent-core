@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from research_tools.active_discovery.canonical import canonical_json
 from research_tools.active_discovery.contracts import ProbeRequest
 from research_tools.active_discovery.families.opaque_cli import (
@@ -10,6 +12,22 @@ from research_tools.active_discovery.families.opaque_cli import (
     RepeatMode,
     UnknownMode,
 )
+
+
+def test_source_precedence_requires_an_exact_permutation_without_duplicates() -> None:
+    with pytest.raises(ValueError, match="permutation"):
+        OpaqueCliSemantics(
+            source_precedence=(
+                "sequence",
+                "map_one",
+                "map_two",
+                "sequence",
+            ),  # type: ignore[arg-type]
+            repeat_mode=RepeatMode.LAST,
+            unknown_mode=UnknownMode.ERROR,
+            empty_is_missing=True,
+            atomic_on_error=True,
+        )
 
 
 def _probe(family: OpaqueCliFamily) -> ProbeRequest:
