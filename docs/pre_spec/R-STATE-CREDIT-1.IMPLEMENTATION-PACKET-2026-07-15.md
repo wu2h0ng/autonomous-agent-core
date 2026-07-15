@@ -115,9 +115,9 @@ tuple, A0 and the qualifier fail closed with `INPUT_BUDGET_EXCEEDED`. A1 has a
 hard output bound, A2 accepts only a frozen query enum, and A3 must surface
 `STATE_OVERFLOW` rather than drop protected state.
 
-Batch-2A fixtures and qualifier receipts are `NOT_EVIDENCE`. The package exposes
-no CLI, result runner, winner calculation, statistical test, seed sweep, training
-path, or result artifact command.
+Batch-2A fixtures and qualifier receipts are `NOT_EVIDENCE`. The Batch-2A arm
+surfaces expose no result runner, winner calculation, statistical test, seed
+sweep, training path, or result artifact command.
 
 The implemented qualifier returns only the following closed checks:
 
@@ -145,6 +145,61 @@ ragged sequences, hidden-referee values in actor/A3 output, unbounded summary
 growth, non-enum oracle retrieval, weakened/truncated A0, silent A3 protected
 state loss, replay nondeterminism, unknown receipt fields, and constant action
 probes. These are development qualification guards, not Stage A observations.
+
+Event references fail closed before A3 compilation. Assertion dependencies and
+supersession may target only earlier assertion events; refutations and commitment
+preconditions may target only earlier assertions; commitment dependencies may
+target only earlier commitments; an observed action effect must identify an
+earlier dispatch. Unsupported source kinds with non-empty reference fields and
+wrong target kinds raise `ContractViolation`, never a raw lookup error.
+
+Repeated `ACTION_DISPATCHED` records may retain the same `action_ref`; `event_id`
+remains the dispatch identity. Under this current Batch-2A contract, a later
+effect with that `action_ref` binds to the most recent preceding dispatch, while
+older unverified dispatch records remain visible. Batch-2B records this existing
+behavior in a characterization test and does not change it.
+
+### Batch-2B Stage-A preregistration candidate
+
+Batch-2B adds the canonical candidate bytes at
+`docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json` and a
+candidate-only builder/validator in
+`experiments/r_state_credit_1/prereg_candidate.py`. The candidate predeclares:
+
+- exact A0/A1/A2/A3 arm roles, including A0 as the mandatory strong cheap
+  baseline and the full-log stop rule;
+- all seven scenario families, required perturbations, a 20--60 action failure
+  delay inside a 23--72 step episode envelope, four decision checkpoints, 20
+  disjoint held-out seeds per family, and one result-bearing pass only after a
+  future exact lock;
+- matched observable/representation/step/tool/wall-clock budgets and an
+  API-only actor-binding contract that must be resolved at final freeze;
+- one safety-weighted primary endpoint against A0, exact effect/sign/family and
+  unsafe-replay gates, descriptive secondary metrics, no-imputation rules, and
+  closed `MET / NOT_MET / INVALID` grammar;
+- C7 abort authority, no score/threshold editing, no self-approval, no training,
+  no Stage-B authority, and explicit no-rescue stop rules;
+- exact source-file digests plus mandatory actor, corpus, scorer, reviewer and
+  run-authorization bindings for any later freeze lock.
+
+The validator accepts only canonical JSON bytes matching the generated protocol
+and current source manifest. It rejects result fields, status upgrades, arm,
+scenario, budget, seed, metric, missing-data, verdict, C7/authority and source
+manifest drift. Its receipt is always `VALID_CANDIDATE_ONLY` with
+`freeze_authority=false`, `run_authority=false`, and
+`training_authority=false`.
+
+The only command added by Batch-2B renders or validates candidate bytes:
+
+```bash
+PYTHONPATH=src python -m experiments.r_state_credit_1.prereg_candidate --check \
+  docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json
+```
+
+It cannot freeze, execute arms, call a provider, score outcomes, adjudicate a
+verdict, train a model, or create a result artifact. Independent review, exact
+corpus/actor/scorer bindings, an exact-content lock, C7 owner and founder/CTO run
+authorization remain absent and mandatory before any result-bearing execution.
 
 ## 4. Stage A to Stage B gate
 
@@ -251,7 +306,9 @@ separately specified contract.
 
 ## 7. Verification boundary
 
-The targeted tests live in `tests/test_persistent_task_state.py` and must cover:
+The mechanism tests live in `tests/test_persistent_task_state.py`; the hermetic
+arm and candidate guards live in `tests/test_r_state_credit_1_batch2a.py` and
+`tests/test_r_state_credit_1_prereg_candidate.py`. They cover:
 
 - closed/immutable schemas and unknown-field rejection;
 - deterministic digest, CAS, duplicate-patch rejection, and rehydration equality;
@@ -274,6 +331,7 @@ identity, and run authority must be frozen in a separate preregistration.
 ```text
 Stage A typed-state mechanism: IMPLEMENTED_LOCAL_MECHANISM_ONLY
 Batch-2A hermetic environment: IMPLEMENTED_LOCAL_QUALIFICATION_ONLY / NOT_EVIDENCE
+Batch-2B prereg candidate: GENERATED_AND_MACHINE_VALIDATED_CANDIDATE_ONLY
 Stage A comparison: NOT_PREREGISTERED / NOT_FROZEN / NOT_RUN
 Stage A winner: NONE
 Stage B: NO_STAGE_B_WINNER / NO_TRAINING / NO_RUN_AUTHORITY

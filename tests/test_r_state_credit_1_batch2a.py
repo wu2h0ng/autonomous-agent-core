@@ -197,6 +197,126 @@ def test_arm_input_rejects_effect_linked_to_non_dispatch_event() -> None:
         )
 
 
+def test_arm_input_accepts_effect_linked_to_prior_dispatch() -> None:
+    dispatch = replace(
+        _event(1),
+        kind=EventKind.ACTION_DISPATCHED,
+        action_ref="visible:deploy",
+    )
+    effect = replace(
+        _event(2),
+        kind=EventKind.ACTION_EFFECT_OBSERVED,
+        action_ref="visible:deploy",
+        receipt_ref="visible:receipt",
+    )
+
+    arm_input = ArmInput(
+        scenario_id="scenario:test",
+        observable_events=(dispatch, effect),
+        visible_through_sequence=2,
+        budget=_budget(),
+    )
+    output = A3TypedStateArm().consume(arm_input)
+
+    assert output.receipt.status is ExecutionStatus.OK
+    assert '"effect_verified":true' in output.representation
+    assert '"receipt_ref":"visible:receipt"' in output.representation
+
+
+def test_arm_input_rejects_effect_before_future_dispatch() -> None:
+    effect = replace(
+        _event(1),
+        kind=EventKind.ACTION_EFFECT_OBSERVED,
+        action_ref="visible:deploy",
+        receipt_ref="visible:receipt",
+    )
+    future_dispatch = replace(
+        _event(2),
+        kind=EventKind.ACTION_DISPATCHED,
+        action_ref="visible:deploy",
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(effect, future_dispatch),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
+def test_arm_input_rejects_refutation_targeting_non_assertion_event() -> None:
+    entity = _event(1)
+    refutation = replace(
+        _event(2),
+        kind=EventKind.ASSERTION_REFUTED,
+        target_event_ids=(entity.event_id,),
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(entity, refutation),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
+def test_arm_input_rejects_nonempty_reference_from_unlisted_source_kind() -> None:
+    entity = _event(1)
+    alias = replace(
+        _event(2),
+        kind=EventKind.ALIAS_OBSERVED,
+        related_ref="visible:client",
+        depends_on_event_ids=(entity.event_id,),
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(entity, alias),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
+def test_duplicate_dispatch_action_ref_is_allowed_and_effect_binds_latest() -> None:
+    first_dispatch = replace(
+        _event(1),
+        kind=EventKind.ACTION_DISPATCHED,
+        action_ref="visible:deploy",
+    )
+    second_dispatch = replace(
+        _event(2),
+        kind=EventKind.ACTION_DISPATCHED,
+        action_ref="visible:deploy",
+    )
+    effect = replace(
+        _event(3),
+        kind=EventKind.ACTION_EFFECT_OBSERVED,
+        action_ref="visible:deploy",
+        receipt_ref="visible:receipt",
+    )
+
+    arm_input = ArmInput(
+        scenario_id="scenario:test",
+        observable_events=(first_dispatch, second_dispatch, effect),
+        visible_through_sequence=3,
+        budget=_budget(),
+    )
+    output = A3TypedStateArm().consume(arm_input)
+    decisions = json.loads(output.representation)["projection"]["decisions"]
+
+    assert output.receipt.status is ExecutionStatus.OK
+    assert [decision["decision_id"] for decision in decisions] == [
+        "visible-decision:event:1",
+        "visible-decision:event:2",
+    ]
+    assert decisions[0]["effect_verified"] is False
+    assert decisions[1]["effect_verified"] is True
+    assert decisions[1]["receipt_ref"] == "visible:receipt"
+
+
 def test_arm_input_rejects_ragged_event_feed() -> None:
     with pytest.raises(ContractViolation, match="RAGGED_EVENT_FEED"):
         ArmInput(
