@@ -85,7 +85,7 @@ def test_family_specific_catalogues_match_distinct_public_vocabularies() -> None
     )
 
 
-@pytest.mark.parametrize("family_code", (FamilyCode.F2, FamilyCode.F3, FamilyCode.F4))
+@pytest.mark.parametrize("family_code", tuple(FamilyCode))
 def test_actor_surface_excludes_hidden_manifest_and_semantic_vocabulary(
     family_code: FamilyCode,
 ) -> None:
@@ -118,6 +118,12 @@ def test_actor_surface_excludes_hidden_manifest_and_semantic_vocabulary(
         "family_code",
         "manifest",
         "hidden_configuration",
+        "source_precedence",
+        "repeat_mode",
+        "unknown_mode",
+        "empty_is_missing",
+        "atomic_on_error",
+        "opaquecli",
         "lifetime_steps",
         "refresh_on_write",
         "expires_at_boundary",

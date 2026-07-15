@@ -1,0 +1,280 @@
+{
+  "approved_mechanism_base": "fa9314ea8cd84c1ea33615d4382c5c5da7b74651",
+  "arm_bindings": [
+    {
+      "arm_kind": "SYSTEMATIC",
+      "budget_units": 4,
+      "family_matrix_digest": "8d22c4b94634a6c8f8e81cd16b8b971a8e961e922ab068d73ad1d1060c7d107b"
+    },
+    {
+      "arm_kind": "RANDOM",
+      "budget_units": 4,
+      "family_matrix_digest": "8d22c4b94634a6c8f8e81cd16b8b971a8e961e922ab068d73ad1d1060c7d107b"
+    },
+    {
+      "arm_kind": "VOI",
+      "budget_units": 4,
+      "family_matrix_digest": "8d22c4b94634a6c8f8e81cd16b8b971a8e961e922ab068d73ad1d1060c7d107b"
+    }
+  ],
+  "authority_state": "VALIDATION_ONLY",
+  "c7_stop_policy": {
+    "clean_halt_verdict": "STOPPED_NO_VERDICT",
+    "halt_after_integrity_violation": "PRESERVE_INVALID",
+    "halt_check": "BEFORE_DYNAMIC_ADAPTER_STATE_OR_EXECUTE",
+    "partial_verdict": "FORBIDDEN",
+    "post_halt_adapter_access_limit": 0
+  },
+  "candidate_digest": "d0b7f28183d118db0a96aa83ff05dc43f39851d3e61240ce4aeee9aa21742950",
+  "candidate_state": "FREEZE_READY_CANDIDATE",
+  "evidence_state": "NOT_EVIDENCE",
+  "experiment_id": "R-ACTIVE-DISCOVERY-1-STAGE-A",
+  "family_bindings": [
+    {
+      "evaluation_manifest": {
+        "manifest": {
+          "catalogue_digest": "8c3f09b8c4fc50507a93f632c9e74eabf6ae96658dcdc44534571c4492612bb4",
+          "descriptor_digest": "2e062324e5cf0331760df702dad9995c4bcdb32def1211bbde2ea9c3e54b589c",
+          "family_code": "F1",
+          "hidden_configuration_digest": "ae77878d21415ed5fccfd508c1349e660bbadc13cb3da84203eef28155e02384",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 1009
+        },
+        "manifest_digest": "eaf0c7a3873426767edf297e3a2981c96acf500edf167611d9c5e3da230f9c22"
+      },
+      "family_code": "F1",
+      "family_role": "QUALIFICATION_FAMILY",
+      "qualification_manifest": {
+        "manifest": {
+          "catalogue_digest": "e008b3009e9e3181444b9520a6c7d0a603df1221bf33eeb0747f545946c36a54",
+          "descriptor_digest": "c45f524987f2790c49631cadabc5ef854178c927bbd38584665aad9f680290b8",
+          "family_code": "F1",
+          "hidden_configuration_digest": "ae77878d21415ed5fccfd508c1349e660bbadc13cb3da84203eef28155e02384",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 101
+        },
+        "manifest_digest": "fdf8d48dee597e1c9fa27bc34aef14041a03cad422eb273478685f14803486ca"
+      }
+    },
+    {
+      "evaluation_manifest": {
+        "manifest": {
+          "catalogue_digest": "fc13f7da5ce53197a4b26492198a10a7454f2a1ce4ba152aac0b49a735ce3d67",
+          "descriptor_digest": "1e93b4bb551f33c6860fa335d07f00256678118745aed69610d5028f215d01cc",
+          "family_code": "F2",
+          "hidden_configuration_digest": "5753524f8c3efe3e897ffe3244ac8d59ce48bce2af35c3ebe34e4c518c4349c7",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 1013
+        },
+        "manifest_digest": "5d28f73d686d6504938febc9364c7b3f76bf3f5eace60b48f9752d3146d2bb03"
+      },
+      "family_code": "F2",
+      "family_role": "QUALIFICATION_FAMILY",
+      "qualification_manifest": {
+        "manifest": {
+          "catalogue_digest": "06ab4c6ea8d4e88b6024f153214ac72fb69416cac211a4e78fa12a41388032f0",
+          "descriptor_digest": "6c8765eeaf09d2e42e29c1c158af3b7c2e1ad6fce5c327498c7e07e4343949f4",
+          "family_code": "F2",
+          "hidden_configuration_digest": "5753524f8c3efe3e897ffe3244ac8d59ce48bce2af35c3ebe34e4c518c4349c7",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 103
+        },
+        "manifest_digest": "07e06534d40966e4d9980f88d4f77e905fed44d7fbaa9c6b64103168dcc914a2"
+      }
+    },
+    {
+      "evaluation_manifest": {
+        "manifest": {
+          "catalogue_digest": "5007c1ffbff91c33e3ca88380cb56d5192af3635efc21eb7e2366da6e2e2a230",
+          "descriptor_digest": "56847fb79eeaff732d037ace9e7ed3a2ac27306bfe5934df768b2596fcf1c681",
+          "family_code": "F3",
+          "hidden_configuration_digest": "cfb3efbd4f879e43a5ad6c06cd237b7e6e837d0faab6d708ce29171a82730076",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 1019
+        },
+        "manifest_digest": "f57f48857a41e33b9a94136dac5ba0c7b7d02e38cca36e80019cc35234e54427"
+      },
+      "family_code": "F3",
+      "family_role": "QUALIFICATION_FAMILY",
+      "qualification_manifest": {
+        "manifest": {
+          "catalogue_digest": "a45e8cd735e860c435151f82b49b6ead203c8bc911c0875480060ac5e3f96257",
+          "descriptor_digest": "82cc6c5a9fc7e03ca0df5d46a509eff76bd9a06acb74efdbdd621b6f085dd035",
+          "family_code": "F3",
+          "hidden_configuration_digest": "cfb3efbd4f879e43a5ad6c06cd237b7e6e837d0faab6d708ce29171a82730076",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 107
+        },
+        "manifest_digest": "7e7fef045cb8ac115ef6a70655bd00a9142e2c9a909f2e857a069a54f52049db"
+      }
+    },
+    {
+      "evaluation_manifest": {
+        "manifest": {
+          "catalogue_digest": "99a8a0220144cd45338092d4a2a37e2a6cfa8b9c2ee1c1855b89ec01405a9b9f",
+          "descriptor_digest": "f73396e5aaefbe0aa68137c318c5357edf746444e7783bf007372e94902917c6",
+          "family_code": "F4",
+          "hidden_configuration_digest": "89913e9dbac83991ee91223900d73307935215c7f6192bc0dc578d957f218313",
+          "mode": "NOT_EVIDENCE",
+          "probe_budget_units": 4,
+          "schema_version": "active-discovery-family-manifest/v1",
+          "seed": 1021
+        },
+        "manifest_digest": "0dd6e3adc3dcbb92defd87e5ee0ad813b3aa0fcd5c88586b6558a33a9c5cd80d"
+      },
+      "family_code": "F4",
+      "family_role": "HELD_OUT_FAMILY",
+      "qualification_manifest": null
+    }
+  ],
+  "family_matrix_digest": "8d22c4b94634a6c8f8e81cd16b8b971a8e961e922ab068d73ad1d1060c7d107b",
+  "freeze_state": "NOT_FROZEN",
+  "hidden_truth_contract": {
+    "access_policy": "REFEREE_ONLY_AFTER_TRANSCRIPT_SEAL",
+    "committed_family_count": 4,
+    "seal_digest": "d52c5ca63dcaac93134baeef378aa3a410d885488c052052dcc07eb746ffd203"
+  },
+  "leakage_policy": {
+    "actor_surface_violation_verdict": "INVALID_LEAKAGE",
+    "forbidden_actor_channels": [
+      "SOURCE_IDENTITY",
+      "VERSION_LABEL",
+      "FAMILY_IDENTITY",
+      "HIDDEN_TEST",
+      "REFEREE_SCORE",
+      "ORACLE_OUTPUT",
+      "MANIFEST_OR_SEAL_PAYLOAD"
+    ],
+    "forbidden_actor_terms": [
+      "family_code",
+      "manifest",
+      "hidden_configuration",
+      "source_precedence",
+      "repeat_mode",
+      "unknown_mode",
+      "empty_is_missing",
+      "atomic_on_error",
+      "opaquecli",
+      "lifetime_steps",
+      "refresh_on_write",
+      "expires_at_boundary",
+      "opaqueexpiry",
+      "capacity_units",
+      "refill_per_step",
+      "refill_before_request",
+      "deny_consumes",
+      "opaquequota",
+      "directed",
+      "remove_missing_error",
+      "allow_self_loop",
+      "opaquegraph"
+    ],
+    "preseal_hidden_truth_verdict": "INVALID_HIDDEN_TRUTH_ACCESS"
+  },
+  "missing_data_policy": {
+    "arm_or_family_drop": "FORBIDDEN",
+    "clean_halt_missing_cell_action": "STOPPED_NO_VERDICT",
+    "duplicate_cell_action": "INVALID_MISSING_DATA",
+    "expected_cell_count": 12,
+    "extra_cell_action": "INVALID_MISSING_DATA",
+    "imputation": "FORBIDDEN",
+    "non_halt_missing_cell_action": "INVALID_MISSING_DATA"
+  },
+  "mode": "NOT_EVIDENCE",
+  "qualification_metrics": {
+    "expected_evaluation_cells": 12,
+    "maximum_c7_post_stop_adapter_accesses": 0,
+    "maximum_leakage_violations": 0,
+    "maximum_preseal_hidden_truth_accesses": 0,
+    "metric_scope": "INSTRUMENT_INTEGRITY_ONLY",
+    "required_complete_sealed_receipts": 12,
+    "required_exact_budget_receipts": 12,
+    "scientific_arm_comparison": "FORBIDDEN"
+  },
+  "random_arm_seed": 1701,
+  "run_state": "NOT_RUN",
+  "schema_version": "active-discovery-stage-a-prereg-candidate/v1",
+  "source_manifest": [
+    {
+      "path": "research_tools/active_discovery/arm_runner.py",
+      "sha256": "af1bbb940cd047406b699a84de8b1f2932b318d949a045aa11c233470ebea016"
+    },
+    {
+      "path": "research_tools/active_discovery/budget.py",
+      "sha256": "371968ed0595e1bf1aaac53167ca09d195baaa114e1db48557838ea92d1abe30"
+    },
+    {
+      "path": "research_tools/active_discovery/canonical.py",
+      "sha256": "8ff7300092056b0f040b419307fc755e79eb98e4cf136e0beda8c8ad778a3c76"
+    },
+    {
+      "path": "research_tools/active_discovery/catalogue.py",
+      "sha256": "06c9d5c4b1fe0b7a0de76407bb84efd0d84fb332e5ce14a5f2f1d83349fbcc7d"
+    },
+    {
+      "path": "research_tools/active_discovery/contracts.py",
+      "sha256": "133391303c8ffc51548f8c8b7b98c1729e2b609894a7287bf5289425ebc0d539"
+    },
+    {
+      "path": "research_tools/active_discovery/families/manifest.py",
+      "sha256": "5bbb162c52d8fe6efe2d3be19c637f3522c509ece71b3299d5f4181c996c15ff"
+    },
+    {
+      "path": "research_tools/active_discovery/families/opaque_cli.py",
+      "sha256": "c45d470faca491429cc77d349e14dc6c93e6fa5e96e2f88a8bdcdf36719dbfcd"
+    },
+    {
+      "path": "research_tools/active_discovery/families/opaque_expiry.py",
+      "sha256": "7a496e9a2941236393ebd39ee7d46d437cce7075a933b2c5b2ae8846fd672aef"
+    },
+    {
+      "path": "research_tools/active_discovery/families/opaque_graph.py",
+      "sha256": "1a2a3565035422a7ee60aac2e193a17e475307ecda08b18dc5c837f3c11cf405"
+    },
+    {
+      "path": "research_tools/active_discovery/families/opaque_quota.py",
+      "sha256": "4b5f98e661744f3a61d1abb731143822a51c6dce464e6fdb32a43aaf7b91a96b"
+    },
+    {
+      "path": "research_tools/active_discovery/families/unified.py",
+      "sha256": "c55c1b1204bcf197dd47efe77b2793adc79f47005e64c1c6aa056514c9b8ecd1"
+    },
+    {
+      "path": "research_tools/active_discovery/referee.py",
+      "sha256": "7f25d14b94f399626ff1681e8b73d82fb48804c41f282af3d10f46414b4fe925"
+    },
+    {
+      "path": "research_tools/active_discovery/selector.py",
+      "sha256": "1e497de969653eeadf7dcac62fc18cc3c97b00a58e0089355074ec8ab1e219de"
+    },
+    {
+      "path": "research_tools/active_discovery/stage_a_prereg.py",
+      "sha256": "4c887f7f2975b44f04461ac8e6b382fbf5c9e3e8e3ff1506bd7ca1f41624dc2d"
+    }
+  ],
+  "source_manifest_digest": "f9f191f06a29ba6d2becd3f817dfd406f8721dcb128f704b3db0ea3d496b7192",
+  "verdict_grammar": [
+    "QUALIFIED_FOR_NEXT_SCORING_SPEC",
+    "REVISE",
+    "INVALID_LEAKAGE",
+    "INVALID_HIDDEN_TRUTH_ACCESS",
+    "INVALID_MANIFEST_OR_SPLIT",
+    "INVALID_SOURCE_DRIFT",
+    "INVALID_BUDGET_MISMATCH",
+    "INVALID_MISSING_DATA",
+    "INVALID_C7_STOP_VIOLATION",
+    "STOPPED_NO_VERDICT"
+  ]
+}
