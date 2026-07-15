@@ -1,4 +1,4 @@
-"""Hermetic-Python development qualifier for R-EVAL-INDEP-1 Batch-2A.
+"""Hermetic-Python development qualifier for R-EVAL-INDEP-1 Batch-2B.
 
 This module is deliberately a corpus-construction tool, not a result runner.
 Candidate source is materialized as bytes and imported only by a fresh

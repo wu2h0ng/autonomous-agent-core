@@ -8,38 +8,25 @@ import unittest
 from pathlib import Path
 
 from experiments.r_eval_indep_1.contracts import CaseTruth, MutationClass
-
-try:
-    from experiments.r_eval_indep_1.corpus_registry import (
-        CaseRecipe,
-        PatchRecipe,
-        SnapshotRef,
-        build_patch_bytes,
-        compile_corpus_dev,
-    )
-    from experiments.r_eval_indep_1.qualifier import (
-        ProcessStatus,
-        QualificationStatus,
-        qualify_case_dev,
-        verify_corpus_dev,
-    )
-except ModuleNotFoundError:
-    CaseRecipe = None  # type: ignore[assignment,misc]
-    PatchRecipe = None  # type: ignore[assignment,misc]
-    SnapshotRef = None  # type: ignore[assignment,misc]
-    ProcessStatus = None  # type: ignore[assignment,misc]
-    QualificationStatus = None  # type: ignore[assignment,misc]
-    build_patch_bytes = None  # type: ignore[assignment]
-    compile_corpus_dev = None  # type: ignore[assignment]
-    qualify_case_dev = None  # type: ignore[assignment]
-    verify_corpus_dev = None  # type: ignore[assignment]
+from experiments.r_eval_indep_1.corpus_registry import (
+    CaseRecipe,
+    PatchRecipe,
+    SnapshotRef,
+    build_patch_bytes,
+    compile_corpus_dev,
+)
+from experiments.r_eval_indep_1.qualifier import (
+    ProcessStatus,
+    QualificationStatus,
+    qualify_case_dev,
+    verify_corpus_dev,
+)
 
 
 def sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-@unittest.skipIf(CaseRecipe is None, "corpus qualifier not implemented")
 class HermeticQualifierTests(unittest.TestCase):
     def make_recipe(
         self,

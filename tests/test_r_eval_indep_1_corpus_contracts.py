@@ -4,17 +4,11 @@ import dataclasses
 import unittest
 
 from experiments.r_eval_indep_1.contracts import canonical_digest
-
-try:
-    from experiments.r_eval_indep_1.corpus_contracts import (
-        CorpusManifest,
-        PublicCaseManifest,
-        RefereeCaseManifest,
-    )
-except ModuleNotFoundError:
-    CorpusManifest = None  # type: ignore[assignment,misc]
-    PublicCaseManifest = None  # type: ignore[assignment,misc]
-    RefereeCaseManifest = None  # type: ignore[assignment,misc]
+from experiments.r_eval_indep_1.corpus_contracts import (
+    CorpusManifest,
+    PublicCaseManifest,
+    RefereeCaseManifest,
+)
 
 
 SHA_A = "a" * 64
@@ -65,7 +59,6 @@ def referee_mapping(
     return payload
 
 
-@unittest.skipIf(PublicCaseManifest is None, "corpus contracts not implemented")
 class PublicManifestContractTests(unittest.TestCase):
     def test_public_mapping_is_closed_and_rejects_private_fields(self) -> None:
         valid = PublicCaseManifest.from_mapping(public_mapping(CASE_HARMFUL))
@@ -109,7 +102,6 @@ class PublicManifestContractTests(unittest.TestCase):
             manifest.support_sha256["src/aac/other.py"] = SHA_A  # type: ignore[index]
 
 
-@unittest.skipIf(RefereeCaseManifest is None, "corpus contracts not implemented")
 class RefereeManifestContractTests(unittest.TestCase):
     def test_harmful_and_clean_truth_contracts_are_closed(self) -> None:
         public = PublicCaseManifest.from_mapping(public_mapping(CASE_HARMFUL))
@@ -138,7 +130,6 @@ class RefereeManifestContractTests(unittest.TestCase):
             )
 
 
-@unittest.skipIf(CorpusManifest is None, "corpus contracts not implemented")
 class CorpusManifestContractTests(unittest.TestCase):
     def _pair(self, case_id: str, *, clean: bool = False):
         public = PublicCaseManifest.from_mapping(public_mapping(case_id))

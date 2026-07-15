@@ -1,4 +1,4 @@
-"""Closed, digest-bound corpus manifests for R-EVAL-INDEP-1 Batch-2A."""
+"""Closed, digest-bound corpus manifests for R-EVAL-INDEP-1 Batch-2A/2B."""
 
 from __future__ import annotations
 

@@ -112,10 +112,12 @@ class ScoreMetricTests(unittest.TestCase):
     def test_constant_residual_vectors_return_undefined(self) -> None:
         self.assertEqual(residual_correlation((1.0, 1.0), (0.0, 1.0)), UNDEFINED)
         self.assertEqual(residual_correlation((0.0, 1.0), (2.0, 2.0)), UNDEFINED)
-        self.assertAlmostEqual(
-            residual_correlation((-1.0, 0.0, 1.0), (-2.0, 0.0, 2.0)),
-            1.0,
+        correlation = residual_correlation(
+            (-1.0, 0.0, 1.0), (-2.0, 0.0, 2.0)
         )
+        self.assertIsInstance(correlation, float)
+        assert isinstance(correlation, float)
+        self.assertAlmostEqual(correlation, 1.0)
 
 
 if __name__ == "__main__":

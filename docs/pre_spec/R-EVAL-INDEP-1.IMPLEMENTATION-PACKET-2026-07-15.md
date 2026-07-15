@@ -1,6 +1,6 @@
 # R-EVAL-INDEP-1 — Evaluator-Independence Harness Implementation Packet
 
-> Status: `IMPLEMENTED_LOCAL / HARNESS_BATCH_2A / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
+> Status: `IMPLEMENTED_LOCAL / BATCH_2B_FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Date: 2026-07-15
 > Track: Research infrastructure
 > Authority: root `docs/research/foundational-loop-experiments-2026-07-15.md`
@@ -108,12 +108,13 @@ corpus and cannot support a reviewer-routing result.
 
 ## 6. Remaining before freeze or result run
 
-The following are deliberately unimplemented:
+Batch-2B now supplies a local 60-harmful + 14-clean freeze candidate. The
+following are deliberately unimplemented or unauthorised:
 
-- the required 60 fresh harmful mutations plus 14 clean controls in a frozen,
-  independently reviewed corpus (Batch-2A has only 7 + 7 development cases);
+- independent technical review, custody transfer and an exact freeze decision
+  for the 60-harmful + 14-clean local candidate;
 - independently authored and separately custodied sealed-oracle artifacts for
-  the result corpus (Batch-2A oracles are narrow local development oracles);
+  the result corpus (Batch-2B oracles are narrow local development oracles);
 - public/referee filesystem or container isolation;
 - generated-evaluator sandbox and sibling-generalization scoring;
 - same-checkpoint, same-family, and cross-lineage API adapters;
@@ -299,3 +300,128 @@ Therefore this implementation does not move the experiment beyond:
 ```text
 NOT_FROZEN / NOT_RUN / NOT_EVIDENCE
 ```
+
+## 9. Batch-2B freeze-ready corpus implementation plan
+
+> **For agentic workers:** execute inline with test-first RED/GREEN cycles in the
+> existing `codex/r-eval-indep-1-harness` worktree. This plan authorizes corpus
+> construction only; it does not authorize freeze, provider/reviewer calls,
+> scoring, r-final or a result run.
+
+**Goal:** Expand the pinned development corpus from 7 harmful + 7 clean cases to
+exactly 60 real harmful mutations + 14 semantic-preserving clean controls while
+retaining `NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`.
+
+**Architecture:** Keep the compiler, manifests and subprocess qualifier in
+their current modules. Move the additional declarative case material into one
+focused Batch-2B data module containing real snapshot pins, exact source
+replacements, case-specific oracle bytes and separately hard-coded candidate,
+patch and oracle digests. `corpus_registry.py` converts those closed records to
+the existing `CaseRecipe` contract and combines them with Batch-2A.
+
+**Tech stack:** Python 3.12 stdlib, `unittest`, Ruff and Pyright. No new runtime
+dependency and no change under `src/aac`.
+
+### 9.1 Global constraints
+
+- Exactly 60 harmful and 14 clean cases; every case ID, candidate digest and
+  patch digest is unique.
+- Every mutation edits a pinned real `src/aac` snapshot through one exact,
+  single-occurrence replacement. No generated pseudo-module or duplicate
+  syntax-only harmful mutation counts toward 60.
+- Every harmful case has a narrow oracle that passes the pinned base and fails
+  the candidate. Every clean control passes the same qualification rule.
+- Source, public test, support, candidate, patch and oracle bytes all have
+  literal expected SHA-256 identities. Current filesystem bytes never become
+  their own expected value at verification time.
+- Public/referee separation, normalized allowlisted paths, symlink rejection,
+  duplicate-key rejection, fixed `python -I` profile, timeout and output cap
+  remain non-bypassable.
+- `python -I` remains a Python/import isolation claim only, not a hostile-code
+  network or filesystem sandbox claim.
+- No provider, reviewer, model, statistics, winner, freeze, r-final, result or
+  evidence-upgrade entry point may be added.
+
+### 9.2 Harmful mutation inventory
+
+The 53 new harmful cases complete the existing seven as follows:
+
+| Real module | Final harmful count | Independently exercised defect surfaces |
+|---|---:|---|
+| `safe_expr.py` | 7 | AST type guard, call guard, keyword guard, symbol guard, feature bound, expression-length bound, attribute admission |
+| `audit.py` | 5 | payload/index/previous-hash identity, verification hash check, chain-link check |
+| `write_authority.py` | 5 | undeclared-writer bypass, grant/check unknown-authority refusal, grant audit, refusal audit |
+| `outcome_judge.py` | 5 | constant verdict, beta validation, reset isolation, stream attribution, strict tie rule |
+| `governed_gate.py` | 7 | tool denial, pause, forbidden index, risk ceiling, evidence, verification and approval gates |
+| `world_model.py` | 7 | state shape, uncertainty prior, error direction, mean update, uncertainty update, surprise write and atomic update |
+| `belief_ledger.py` | 7 | stale/conflict privilege, verified overwrite, poisoning budget, confidence cap, unidentified protection and clear semantics |
+| `self_model.py` | 7 | deny precedence, allowlist semantics, risk boundaries, evidence default and bounded calibration writes |
+| `viability.py` | 5 | death boundary, invalid pressure span, pressure direction, metabolism and capacity cap |
+| `conflict_detector.py` | 5 | scan threshold, conflict marking, post-mark convergence, latest-wins ordering and mixed-evidence pending state |
+
+The seven new clean controls are independent refactors in `safe_expr.py`,
+`audit.py`, `governed_gate.py`, `belief_ledger.py`, `self_model.py`,
+`viability.py` and `conflict_detector.py`. Together with Batch-2A they produce
+14 distinct clean patches.
+
+### 9.3 TDD execution tasks
+
+- [x] **Task 1 — Corpus cardinality and uniqueness RED.** Update
+  `tests/test_r_eval_indep_1_corpus_registry.py` and
+  `tests/test_r_eval_indep_1_cli.py` to require 60 harmful, 14 clean, 74 unique
+  case/candidate/patch identities and exact CLI counts. Run them and record the
+  expected current-corpus failures (`7 != 60`, `7 != 14`, `14 != 74`).
+- [x] **Task 2 — Closed Batch-2B material.** Add
+  `experiments/r_eval_indep_1/corpus_cases_batch2b.py`; modify
+  `corpus_registry.py` to reject unknown record fields, duplicate material pins,
+  source anchors that are absent/non-unique, and any literal SHA drift before a
+  subprocess starts. Run the registry compile tests GREEN.
+- [x] **Task 3 — Qualification soundness.** Add the 53 harmful and seven clean
+  records in the module/count groups frozen in section 9.2. Run
+  `verify_corpus_dev`; accept a case only when base=`PASS` and harmful=`FAIL` or
+  clean=`PASS`. If an intended mutation survives or a clean control fails,
+  repair or drop that case rather than weakening its oracle.
+- [x] **Task 4 — Drift and boundary regression.** Add tests that alter a
+  Batch-2B source/test/support/candidate/patch/oracle identity and require
+  fail-closed rejection; retain path, symlink, timeout, output, duplicate JSON
+  and child-process isolation tests.
+- [x] **Task 5 — Documentation and final gate.** Record exact corpus/runner/
+  public/referee digests and commands here. Run all R-EVAL-INDEP-1 tests,
+  targeted Ruff, targeted Pyright, both CLI commands and `git diff --check`.
+  Commit once, verify a clean worktree, and leave status
+  `NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`.
+
+### 9.4 Batch-2B local verification record
+
+The cardinality/uniqueness tests were written first and produced the expected
+three failures against Batch-2A: `7 != 60`, `7 != 14` and `14 != 74`. The first
+qualification pass rejected one proposed keyword-guard mutation because an
+independent AST-node guard still killed the behavior. The candidate patch was
+made non-redundant while the narrow oracle stayed unchanged; the second pass
+qualified all 74 cases.
+
+Exact local identities:
+
+```text
+corpus_id: r-eval-indep-1-batch2b-dev-v1
+runner_sha256: 589d642251714a341c37ebe125598955e238c9892f827a5aac24f32fd545d04f
+public_cases_sha256: c758e4f59b61e63c647960076da64fc9a0459350d9a56504289c0cbac25d1f7f
+referee_cases_sha256: 688ed739700f4df4bd52852ea52a5d6057b98de17761f6c5e5c1d2ef1471edab
+corpus_manifest_sha256: a261aeccfea46b1fd4b28525ba7d20acf32c76b36fd2c587f6ebf8a82ec81bc0
+```
+
+Final local gates:
+
+```text
+R-EVAL-INDEP-1 unittest modules: 53 tests, OK
+qualification: 60/60 harmful killed; 14/14 clean survived
+targeted Ruff: All checks passed
+targeted Pyright: 0 errors, 0 warnings, 0 informations
+compile-corpus-dev: provider_calls=0, NOT_FROZEN, NOT_RUN, NOT_EVIDENCE
+verify-corpus-dev: qualified_count=74, provider_calls=0,
+  NOT_FROZEN, NOT_RUN, NOT_EVIDENCE
+```
+
+These development qualifications establish only corpus-harness liveness and
+local freeze-candidate integrity. They are not a reviewer result, scientific
+verdict, r-final artifact, or evidence upgrade.

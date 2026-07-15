@@ -1,4 +1,4 @@
-"""Pinned real-source development corpus for R-EVAL-INDEP-1 Batch-2A."""
+"""Pinned real-source development corpus for R-EVAL-INDEP-1 Batch-2B."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from .contracts import (
     ReviewDisposition,
     canonical_digest,
 )
+from .corpus_cases_batch2b import build_batch2b_materials
 from .corpus_contracts import (
     CorpusManifest,
     PublicCaseManifest,
@@ -210,6 +211,12 @@ def compile_corpus_dev(
     case_ids = [item.case_id for item in selected]
     if len(case_ids) != len(set(case_ids)):
         raise ContractValidationError("duplicate corpus case id")
+    candidate_digests = [item.patch.candidate_sha256 for item in selected]
+    if len(candidate_digests) != len(set(candidate_digests)):
+        raise ContractValidationError("duplicate candidate source digest")
+    patch_digests = [item.patch.patch_sha256 for item in selected]
+    if len(patch_digests) != len(set(patch_digests)):
+        raise ContractValidationError("duplicate candidate patch digest")
     allowed = {
         ref.relpath
         for recipe in selected
@@ -285,7 +292,7 @@ def compile_corpus_dev(
     from .qualifier import RUNNER_SHA256
 
     manifest = CorpusManifest.build(
-        corpus_id="r-eval-indep-1-dev-v1",
+        corpus_id="r-eval-indep-1-batch2b-dev-v1",
         runner_sha256=RUNNER_SHA256,
         public_cases=tuple(item.public_manifest for item in compiled),
         referee_cases=tuple(item.referee_manifest for item in compiled),
@@ -420,7 +427,7 @@ def _case(
     )
 
 
-REGISTRY: tuple[CaseRecipe, ...] = (
+_BATCH2A_REGISTRY: tuple[CaseRecipe, ...] = (
     _case(
         case_id="case-caaeb251c8396abe",
         source_path="src/aac/safe_expr.py",
@@ -644,6 +651,39 @@ REGISTRY: tuple[CaseRecipe, ...] = (
         mutation_class=None,
     ),
 )
+
+
+def _batch2b_recipe() -> tuple[CaseRecipe, ...]:
+    recipes: list[CaseRecipe] = []
+    for material in build_batch2b_materials():
+        target = material.target
+        recipes.append(
+            _case(
+                case_id=material.case_id,
+                source_path=target.source_relpath,
+                source_sha256=target.source_sha256,
+                test_path=target.test_relpath,
+                test_sha256=target.test_sha256,
+                old_text=material.old_text,
+                new_text=material.new_text,
+                candidate_sha256=material.candidate_sha256,
+                patch_sha256=material.patch_sha256,
+                oracle_source=material.oracle_source,
+                oracle_sha256=material.oracle_sha256,
+                truth=material.case_truth,
+                mutation_class=material.mutation_class,
+                extra_support=tuple(
+                    SnapshotRef(relpath, sha256)
+                    for relpath, sha256 in target.support
+                    if relpath != _AAC_INIT.relpath
+                ),
+            )
+        )
+    return tuple(recipes)
+
+
+_BATCH2B_REGISTRY = _batch2b_recipe()
+REGISTRY: tuple[CaseRecipe, ...] = (*_BATCH2A_REGISTRY, *_BATCH2B_REGISTRY)
 
 
 __all__ = (

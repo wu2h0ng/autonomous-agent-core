@@ -1,4 +1,4 @@
-"""Development-only corpus CLI for R-EVAL-INDEP-1 Batch-2A.
+"""Development-only corpus CLI for R-EVAL-INDEP-1 Batch-2B.
 
 The closed command surface can compile or verify the pinned corpus.  It has no
 provider transport, reviewer invocation, result runner, r-final, scientific
