@@ -1,0 +1,139 @@
+{
+  "prereg_id": "R-EVAL-INDEP-1",
+  "schema_version": "r-eval-indep-1-native-prereg-v1",
+  "candidate_status": "READINESS_CANDIDATE_BLOCKED_UNBOUND",
+  "track": "Research",
+  "mechanism": {
+    "channel_claim": "other(research-evaluator-independence)",
+    "files": [
+      "experiments/r_eval_indep_1/__init__.py",
+      "experiments/r_eval_indep_1/contracts.py",
+      "experiments/r_eval_indep_1/corpus_cases_batch2b.py",
+      "experiments/r_eval_indep_1/corpus_contracts.py",
+      "experiments/r_eval_indep_1/corpus_registry.py",
+      "experiments/r_eval_indep_1/metrics.py",
+      "experiments/r_eval_indep_1/native_protocol.py",
+      "experiments/r_eval_indep_1/native_readiness.py",
+      "experiments/r_eval_indep_1/native_result.py",
+      "experiments/r_eval_indep_1/native_result_schema.json",
+      "experiments/r_eval_indep_1/native_scoring.py",
+      "experiments/r_eval_indep_1/qualifier.py",
+      "prompts/r_eval_indep_1/reviewer_system.txt",
+      "prompts/r_eval_indep_1/reviewer_task.txt",
+      "tests/test_r_eval_indep_1_contracts.py",
+      "tests/test_r_eval_indep_1_corpus_contracts.py",
+      "tests/test_r_eval_indep_1_corpus_registry.py",
+      "tests/test_r_eval_indep_1_metrics.py",
+      "tests/test_r_eval_indep_1_native_protocol.py",
+      "tests/test_r_eval_indep_1_native_readiness.py",
+      "tests/test_r_eval_indep_1_native_result.py",
+      "tests/test_r_eval_indep_1_native_scoring.py",
+      "tests/test_r_eval_indep_1_qualifier.py"
+    ]
+  },
+  "exact_manifest": {
+    "algorithm": "sha256",
+    "files": {
+      "experiments/r_eval_indep_1/__init__.py": "ec0081896521b4f0986a690642d0a10e7451dddafbafd1bbf5163e7a99174bf1",
+      "experiments/r_eval_indep_1/contracts.py": "9c2ded78e3f39a2aa5ebfa65e1a8dd751b6484da732cb82e047d63d07d845dee",
+      "experiments/r_eval_indep_1/corpus_cases_batch2b.py": "60686e34974c9b4197ee5a8a283f9d89bcae4103a5df3528fb944b0a0fa54dfd",
+      "experiments/r_eval_indep_1/corpus_contracts.py": "d7b4b551b6f520762ebcd0b2d73341cfab4a04b4dfc530408f0ea9cf1c84d613",
+      "experiments/r_eval_indep_1/corpus_registry.py": "cacf7d0d0a5c1469bc2b07d25c3658f54ba11cda5311cee02eaada97d57b2574",
+      "experiments/r_eval_indep_1/metrics.py": "287e75ecbbb72ebccd9f15715936c9250f25144ef2065c63f2ce0716390e2570",
+      "experiments/r_eval_indep_1/native_protocol.py": "535ec5577d6d887e295da11e29907a90c5423d427b28a675cd6482ae3c2a786d",
+      "experiments/r_eval_indep_1/native_readiness.py": "1bed3a5775e09d5581f5566f85250df8cbd56809bc61fde7399d8d733aefd9c3",
+      "experiments/r_eval_indep_1/native_result.py": "8cbcd1159464a493721d4e26f3f78c8312a63f4737579ee8799c3b6ffd0bce76",
+      "experiments/r_eval_indep_1/native_result_schema.json": "dbe38e86b22296acd724f3cf76f36e6be472127d7a7e97e3b19a597b83ad5dd5",
+      "experiments/r_eval_indep_1/native_scoring.py": "33a8ab2b1563b2b851cfcdd72332cbf4d89411fefba4ccbb399f3cdca6b618cf",
+      "experiments/r_eval_indep_1/qualifier.py": "be702d77ba537c2a0bba60c1f061c6373396a88be6b309b89c0390b0aacabb99",
+      "prompts/r_eval_indep_1/reviewer_system.txt": "11dea203fdbab07ce91dcd18681c7195b54a3888f35e4a3a745a770820fe3eb7",
+      "prompts/r_eval_indep_1/reviewer_task.txt": "be08161931b1b17589a1eb5acabbb855e649ed426f4dae2d1ea86d321591c113",
+      "tests/test_r_eval_indep_1_contracts.py": "52916e2b3cc88fa0f0c39488bb0c3b7fb14388b7b5bf5112bbf57b448e049978",
+      "tests/test_r_eval_indep_1_corpus_contracts.py": "e904d2225f49d115de92b27d64fd4b349cdec49d2f16f58ce5176d326b871dbc",
+      "tests/test_r_eval_indep_1_corpus_registry.py": "64b8e10ee0bc9f10be3672571bfda2fdf11bc5a6275f1d231d91ef0b681b7890",
+      "tests/test_r_eval_indep_1_metrics.py": "9ed4625da2570c7c95d2c028a6656abfbf92563bde879f1bfc8efdc80d3bfc97",
+      "tests/test_r_eval_indep_1_native_protocol.py": "db247a1c8146c91c6fa3f4355b9d0dd0d5167cc5448c513a2a4fb493c058596b",
+      "tests/test_r_eval_indep_1_native_readiness.py": "ced707b2aa168058aedb581c78d2df4af54049f7789b61568554eab3d8f6d365",
+      "tests/test_r_eval_indep_1_native_result.py": "dc1a3564e29cc6210bd2ee99acfbb267e3364f249699dd807e3775e9272bf0aa",
+      "tests/test_r_eval_indep_1_native_scoring.py": "676aeca1efda471478e8309e41c22b9295f33c3a64ec7e59b52f504390c6e954",
+      "tests/test_r_eval_indep_1_qualifier.py": "44f45eed744c7be061214732646b3152aeb8c183e4ddabcf71e5c615bb0b0d21"
+    },
+    "sha256": "8415e35b0ccf4d074702d3eae38f5ea68af4844927877cb99d29604cd130dabe"
+  },
+  "corpus": {
+    "harmful_cases": 60,
+    "clean_cases": 14,
+    "corpus_manifest_sha256": "a261aeccfea46b1fd4b28525ba7d20acf32c76b36fd2c587f6ebf8a82ec81bc0",
+    "public_cases_sha256": "c758e4f59b61e63c647960076da64fc9a0459350d9a56504289c0cbac25d1f7f",
+    "referee_cases_sha256": "688ed739700f4df4bd52852ea52a5d6057b98de17761f6c5e5c1d2ef1471edab",
+    "runner_sha256": "589d642251714a341c37ebe125598955e238c9892f827a5aac24f32fd545d04f",
+    "truth_join": "MECHANICAL_BY_OPAQUE_CASE_ID"
+  },
+  "scoring_metrics": [
+    "false_acceptance_rate",
+    "harmful_miss_rate",
+    "clean_accept_rate",
+    "abstention_rate",
+    "pairwise_class_centered_residual_correlation_with_explicit_undefined",
+    "joint_false_acceptance_rate",
+    "total_and_mean_cost_microusd",
+    "total_mean_and_nearest_rank_p95_latency_ms"
+  ],
+  "controls": {
+    "one_result_bearing_run": true,
+    "provider_transport": "API_ONLY",
+    "provider_fallback": "FORBIDDEN",
+    "rerun": "FORBIDDEN",
+    "rescue": "FORBIDDEN",
+    "rethreshold": "FORBIDDEN",
+    "rearm": "FORBIDDEN",
+    "refill": "FORBIDDEN",
+    "c7_external": true,
+    "c7_writable_by_runtime": false
+  },
+  "role_policy": {
+    "required_roles": [
+      "mutation_builder",
+      "oracle_author",
+      "oracle_custodian",
+      "collection_operator",
+      "model_reviewer",
+      "independent_code_reviewer",
+      "result_adjudicator",
+      "c7_authority",
+      "freezer",
+      "run_authority"
+    ],
+    "pairwise_distinct_sovereign_roles": true,
+    "model_reviewer_reuse_across_arms_allowed": true
+  },
+  "external_bindings": {
+    "provider_bindings": [],
+    "oracle_custody": null,
+    "c7_authority": null,
+    "independent_review": null,
+    "freezer_identity": null,
+    "run_authority": null
+  },
+  "gates": {
+    "freeze_status": "NOT_FROZEN",
+    "run_status": "NOT_RUN",
+    "evidence_status": "NOT_EVIDENCE"
+  },
+  "result_contract": {
+    "schema_path": "experiments/r_eval_indep_1/native_result_schema.json",
+    "raw_status": "RAW_NOT_ADJUDICATED",
+    "verdict_before_adjudication": null
+  },
+  "claim_boundary": {
+    "ceiling": "MEASURED_REVIEWER_ROUTING_ON_FROZEN_MUTATION_CORPUS",
+    "excluded": [
+      "general_cognitive_independence",
+      "model_superiority",
+      "scientific_discovery",
+      "autonomy",
+      "product_capability",
+      "promotion_authority"
+    ]
+  }
+}

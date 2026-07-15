@@ -1,6 +1,6 @@
 # R-EVAL-INDEP-1 — Evaluator-Independence Harness Implementation Packet
 
-> Status: `IMPLEMENTED_LOCAL / BATCH_2B_FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
+> Status: `IMPLEMENTED_LOCAL / NATIVE_READINESS_CANDIDATE_BLOCKED_UNBOUND / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Date: 2026-07-15
 > Track: Research infrastructure
 > Authority: root `docs/research/foundational-loop-experiments-2026-07-15.md`
@@ -425,3 +425,58 @@ verify-corpus-dev: qualified_count=74, provider_calls=0,
 These development qualifications establish only corpus-harness liveness and
 local freeze-candidate integrity. They are not a reviewer result, scientific
 verdict, r-final artifact, or evidence upgrade.
+
+## 10. Native readiness build
+
+> Status: `BLOCKED_UNBOUND / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
+
+This successor sidecar leaves the qualified 60-harmful + 14-clean corpus bytes
+unchanged and adds only pre-run contracts:
+
+- a provider-neutral `ReviewerClient` protocol with no concrete production
+  client, API-only endpoint binding, forbidden fallback, and exact model
+  revision/prompt/tool/context/decoding/public-bundle identity;
+- a deterministic complete case-by-arm collector contract guarded by an
+  external C7 permit;
+- mechanical truth joining plus false acceptance, harmful miss, clean accept,
+  abstention, class-centered residual correlation, joint false acceptance,
+  token, cost, mean latency, and nearest-rank p95 latency scoring;
+- a JSON-compatible native preregistration candidate with a literal exact-file
+  manifest, one-result-bearing-run rule, no-rescue/no-rerun controls, external
+  non-writable C7, and a sovereign-role separation policy;
+- a closed raw r-final Python contract and JSON Schema whose initial state is
+  `RAW_NOT_ADJUDICATED`, with `verdict=null` and no runner or writer entry point.
+
+The committed preregistration deliberately leaves these six external bindings
+empty rather than inventing identities or credentials:
+
+```text
+PROVIDER_BINDINGS_UNBOUND
+ORACLE_CUSTODY_UNBOUND
+C7_AUTHORITY_UNBOUND
+INDEPENDENT_REVIEW_UNBOUND
+FREEZER_IDENTITY_UNBOUND
+RUN_AUTHORITY_UNBOUND
+```
+
+Therefore this build cannot freeze, call a provider, execute r-final, produce a
+review acceptance, adjudicate a result, or upgrade an evidence claim. A future
+external freeze must bind the exact committed target head, prereg candidate,
+manifest, provider endpoints, sealed oracle custody, independent review,
+freezer, run authority and C7 decision without changing these mechanism bytes.
+
+Fresh local verification before the atomic commit recorded:
+
+```text
+R-EVAL-INDEP-1 targeted unittest modules: 73 tests, OK
+full Research unittest discovery: 1310 tests, OK (skipped=16)
+targeted Ruff: All checks passed
+targeted Pyright: 0 errors, 0 warnings, 0 informations
+exact manifest: intact, 23 files
+readiness: BLOCKED_UNBOUND with the six blockers listed above
+git diff --check: clean
+```
+
+Skipped tests are pre-existing dependency- or pre-spec-gated cases. None of
+these checks is a provider call, corpus freeze, r-final run, independent review,
+adjudication or evidence result.

@@ -1,0 +1,1 @@
+Review the candidate patch against the supplied pinned source identity, public requirements, and public checks. Predict whether the candidate is valid, report ACCEPT, REJECT, or ABSTAIN, list concrete blocking findings, and optionally propose one inert generated-test patch. Do not claim access to hidden truth or execute an untyped command.
