@@ -1204,24 +1204,24 @@ class TaskService:
         )
 
     def record_outcome(self, task_id: str, outcome: ObservedOutcome) -> TaskAggregate:
+        if self._correction_reader is None:
+            raise InvalidTransitionError("outcome correction authority is not bound")
         aggregate = self.get_task(task_id)
         if aggregate.run is None or aggregate.expected_outcome is None:
             raise InvalidTransitionError("outcome requires a committed active run")
-        correction_epochs = None
-        if self._correction_reader is not None:
-            correction_epochs = self._correction_reader.snapshot(
-                task_id,
-                aggregate.run.run_id,
-                "outcome.evaluate",
+        correction_epochs = self._correction_reader.snapshot(
+            task_id,
+            aggregate.run.run_id,
+            "outcome.evaluate",
+        )
+        if self._correction_reader.halted(
+            task_id,
+            aggregate.run.run_id,
+            "outcome.evaluate",
+        ):
+            raise InvalidTransitionError(
+                "outcome recording is halted by correction authority"
             )
-            if self._correction_reader.halted(
-                task_id,
-                aggregate.run.run_id,
-                "outcome.evaluate",
-            ):
-                raise InvalidTransitionError(
-                    "outcome recording is halted by correction authority"
-                )
         expected = aggregate.expected_outcome
         if (
             outcome.expected_outcome_id != expected.expected_outcome_id

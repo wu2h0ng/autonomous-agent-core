@@ -126,11 +126,13 @@ def _service(
     store: TaskEventStore,
     ids: DeterministicIdFactory,
 ) -> TaskService:
-    return TaskService(
+    service = TaskService(
         store,
         id_factory=ids,
         clock=lambda: NOW + timedelta(seconds=30),
     )
+    service.bind_correction_reader(CorrectionAuthority(store))
+    return service
 
 
 def test_service_rehydrates_across_service_instances() -> None:
@@ -222,6 +224,7 @@ def test_record_outcome_rejects_score_not_derived_from_pytest_report() -> None:
         id_factory=DeterministicIdFactory(),
         clock=lambda: current,
     )
+    service.bind_correction_reader(CorrectionAuthority(store))
     created = service.create_task(_goal())
     expected = _expected(created.task_id).model_copy(update={"threshold": 1.5})
     service.commit_task(
@@ -273,6 +276,7 @@ def test_record_outcome_rejects_backdated_verification_after_window_closed() -> 
         id_factory=DeterministicIdFactory(),
         clock=lambda: current[0],
     )
+    service.bind_correction_reader(CorrectionAuthority(store))
     created = service.create_task(_goal())
     expected = _expected(created.task_id)
     service.commit_task(
@@ -422,6 +426,46 @@ def test_record_outcome_rejects_c7_halted_task() -> None:
 
     with pytest.raises(InvalidTransitionError, match="correction authority"):
         service.record_outcome(created.task_id, outcome)
+
+
+def test_record_outcome_requires_correction_authority_binding() -> None:
+    store = InMemoryTaskEventStore()
+    ids = DeterministicIdFactory()
+    setup = _service(store, ids)
+    created = setup.create_task(_goal())
+    expected = _expected(created.task_id)
+    setup.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = setup.start_run(created.task_id)
+    assert running.run is not None
+    unbound = TaskService(
+        store,
+        id_factory=ids,
+        clock=lambda: NOW + timedelta(seconds=30),
+    )
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-unbound-c7",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.NOT_MET,
+        score=0.0,
+        confidence=1.0,
+        evidence_refs=(),
+        unresolved_gaps=("tests failed",),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="not bound"):
+        unbound.record_outcome(created.task_id, outcome)
 
 
 def test_record_outcome_and_c7_halt_are_atomic_across_sqlite_connections(

@@ -546,14 +546,8 @@ class RunCoordinator:
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None or aggregate.expected_outcome is None:
             raise RunExecutionError("outcome finalization lost its committed bindings")
-        report = self.tasks.validated_test_report(task_id, aggregate.run.run_id)
-        expected = aggregate.expected_outcome
-        if (
-            report is not None
-            and report.exit_code == 0
-            and set(report.artifact_ids).issubset(outcome.evidence_refs)
-            and expected.frozen_at <= report.completed_at <= outcome.observed_at
-        ):
+        current = self.tasks.current_outcome(task_id)
+        if current is not None and current.status is OutcomeStatus.VERIFIED:
             return outcome
         replacement = ObservedOutcome(
             observed_outcome_id=f"observed-{uuid4()}",
@@ -638,18 +632,29 @@ class RunCoordinator:
         aggregate = self.tasks.get_task(task_id)
         if aggregate.run is None:
             raise RunExecutionError("compensation requires an active run")
-        if aggregate.run.status in {RunStatus.SUCCEEDED, RunStatus.CANCELLED} or (
+        current_outcome = self.tasks.current_outcome(task_id)
+        currently_verified = (
+            current_outcome is not None
+            and current_outcome.status is OutcomeStatus.VERIFIED
+        )
+        stale_verified = (
             aggregate.observed_outcome is not None
             and aggregate.observed_outcome.status is OutcomeStatus.VERIFIED
-        ):
+            and not currently_verified
+        )
+        if aggregate.run.status is RunStatus.CANCELLED or (
+            aggregate.run.status is RunStatus.SUCCEEDED and not stale_verified
+        ) or currently_verified:
             raise RunExecutionError(
                 "compensation cannot roll back a succeeded, cancelled, or verified run"
             )
         failure_context = (
             aggregate.run.status is RunStatus.FAILED
+            or stale_verified
             or (
-                aggregate.observed_outcome is not None
-                and aggregate.observed_outcome.status is OutcomeStatus.NOT_MET
+                current_outcome is not None
+                and current_outcome.status
+                in {OutcomeStatus.NOT_MET, OutcomeStatus.UNRESOLVED}
             )
             or any(
                 record.status

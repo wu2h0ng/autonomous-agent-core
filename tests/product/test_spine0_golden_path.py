@@ -233,6 +233,9 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
     assert projected["observed_outcome"]["status"] == "UNRESOLVED"
     assert projected["historical_observed_outcome"]["status"] == "VERIFIED"
     assert projected["outcome_evidence_valid"] is False
+    compensated = reader.compensate_task(task.task_id)
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
+    assert compensated.compensations[-1].status.value == "COMPENSATED"
 
 
 def test_malformed_provider_output_has_zero_file_effects(tmp_path) -> None:
