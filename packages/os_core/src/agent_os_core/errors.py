@@ -41,6 +41,10 @@ class SituationalTrustDenied(SituationalProposalError):
     pass
 
 
+class SituationalPersistenceConflict(SituationalProposalError):
+    pass
+
+
 class TaskNotFoundError(AgentOSCoreError):
     pass
 

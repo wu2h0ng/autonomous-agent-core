@@ -22,6 +22,7 @@ from .errors import (
     ReplanRejectedError,
     ScopeMismatchError,
     SituationalProposalError,
+    SituationalPersistenceConflict,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SignalMismatchError,
@@ -78,12 +79,16 @@ from .task_configuration import (
 from .situated import (
     InMemorySituationalControlPlane,
     InMemorySituationalTrustRegistry,
-    OperationalProposalCompiler,
     OperationalProposalService,
     RelevanceAssessorPort,
     SituationalBinding,
     SituationalTrustResolver,
     situated_input_binding_digest,
+    situated_source_binding_digest,
+)
+from .situated_persistence import (
+    SQLiteSituatedAssessmentStore,
+    SituatedAssessmentStore,
 )
 from .materialization import (
     MATERIALIZATION_CAPABILITY,
@@ -166,6 +171,7 @@ __all__ = [
     "IdFactory",
     "ScopeMismatchError",
     "SituationalProposalError",
+    "SituationalPersistenceConflict",
     "SituationalScopeMismatch",
     "SituationalTrustDenied",
     "SignalMismatchError",
@@ -173,7 +179,6 @@ __all__ = [
     "TaskEventStore",
     "TaskAggregate",
     "TaskService",
-    "OperationalProposalCompiler",
     "OperationalProposalService",
     "RelevanceAssessorPort",
     "InMemorySituationalControlPlane",
@@ -181,6 +186,9 @@ __all__ = [
     "SituationalBinding",
     "SituationalTrustResolver",
     "situated_input_binding_digest",
+    "situated_source_binding_digest",
+    "SituatedAssessmentStore",
+    "SQLiteSituatedAssessmentStore",
     "ValidatedTestReport",
     "DomainCandidateSealer",
     "DomainCandidateEvaluationRecorder",

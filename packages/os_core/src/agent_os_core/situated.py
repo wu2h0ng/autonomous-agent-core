@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 from threading import RLock
-from typing import Callable, Iterable, Protocol, TypeAlias, TypeVar
+from typing import Callable, Iterable, Protocol, TypeAlias
 
 from agent_os_contracts import (
     ArtifactRef,
@@ -18,20 +18,26 @@ from agent_os_contracts import (
     RelevanceAssessment,
     RelevanceAssessorRef,
     RelevanceDisposition,
+    SituatedAssessmentRecord,
     TaskDraftProposal,
     content_digest,
 )
 
 from .errors import (
+    SituationalPersistenceConflict,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     StaleOperationalProjection,
 )
+from .situated_persistence import (
+    ProposalResult,
+    SituatedAssessmentStore,
+    proposal_result,
+    situated_assessment_record,
+)
 
 
 SituationalBinding: TypeAlias = tuple[str, str, str, str, str]
-ProposalResult: TypeAlias = TaskDraftProposal | HelpRequest | None
-_T = TypeVar("_T")
 
 
 def situated_input_binding_digest(
@@ -48,11 +54,23 @@ def situated_input_binding_digest(
             "mandate_digest": mandate.mandate_digest,
             "correction_epoch": mandate.correction_epoch,
             "environment_binding": binding.model_dump(mode="json"),
-            "event_id": event.environment_event_id,
-            "event_observation_digest": event.observation.content_digest,
-            "projection_id": projection.projection_id,
-            "projection_digest": projection.projection_artifact.content_digest,
+            "event": event.model_dump(mode="json"),
+            "projection": projection.model_dump(mode="json"),
             "assessor": assessor.model_dump(mode="json"),
+        }
+    )
+
+
+def situated_source_binding_digest(
+    event: EnvironmentEvent,
+    projection: OperationalProjectionRef,
+    assessment: RelevanceAssessment,
+) -> str:
+    return content_digest(
+        {
+            "event": event.model_dump(mode="json"),
+            "projection": projection.model_dump(mode="json"),
+            "assessment": assessment.model_dump(mode="json"),
         }
     )
 
@@ -75,10 +93,13 @@ class RelevanceAssessorPort(Protocol):
 class InMemorySituationalControlPlane:
     """V0 external-ratification and epoch guard; it grants no task authority."""
 
+    durable = False
+
     def __init__(self, mandates: Iterable[RatifiedMandateRef] = ()) -> None:
         self._lock = RLock()
         self._mandates: dict[str, RatifiedMandateRef] = {}
-        self._assessments: dict[str, RelevanceAssessment] = {}
+        self._records: dict[str, SituatedAssessmentRecord] = {}
+        self._record_ids_by_source: dict[str, str] = {}
         for mandate in mandates:
             if mandate.mandate_id in self._mandates:
                 raise ValueError("ratified mandate ids must be unique")
@@ -134,7 +155,7 @@ class InMemorySituationalControlPlane:
             raise SituationalTrustDenied("environment binding is not ratified")
         return mandate, binding
 
-    def emit_guarded(
+    def _emit_guarded(
         self,
         mandate: RatifiedMandateRef,
         binding: EnvironmentBindingAuthorization,
@@ -142,8 +163,9 @@ class InMemorySituationalControlPlane:
         *,
         principal_id: str,
         evaluated_at: datetime,
-        factory: Callable[[], _T],
-    ) -> _T:
+        source_binding_digest: str,
+        factory: Callable[[], ProposalResult],
+    ) -> ProposalResult:
         with self._lock:
             current, current_binding = self._resolve_active_unlocked(
                 mandate.mandate_id,
@@ -157,18 +179,45 @@ class InMemorySituationalControlPlane:
                 raise SituationalTrustDenied(
                     "mandate or environment binding epoch changed before emission"
                 )
-            if assessment.assessment_id in self._assessments:
-                existing = self._assessments[assessment.assessment_id]
-                if existing != assessment:
-                    raise SituationalTrustDenied("assessment identity conflict")
-                return factory()
             result = factory()
-            self._assessments[assessment.assessment_id] = assessment
+            record = situated_assessment_record(
+                assessment,
+                result,
+                source_binding_digest=source_binding_digest,
+            )
+            existing_by_id = self._records.get(assessment.assessment_id)
+            existing_id = self._record_ids_by_source.get(source_binding_digest)
+            existing_by_source = (
+                self._records.get(existing_id) if existing_id is not None else None
+            )
+            existing = existing_by_id or existing_by_source
+            if existing is not None:
+                if existing != record:
+                    raise SituationalPersistenceConflict(
+                        "assessment identity or source binding conflicts with record"
+                    )
+                return proposal_result(existing)
+            self._records[assessment.assessment_id] = record
+            self._record_ids_by_source[source_binding_digest] = assessment.assessment_id
             return result
 
     def assessment(self, assessment_id: str) -> RelevanceAssessment | None:
         with self._lock:
-            return self._assessments.get(assessment_id)
+            record = self._records.get(assessment_id)
+            return record.assessment if record is not None else None
+
+    def assessment_record(
+        self, assessment_id: str
+    ) -> SituatedAssessmentRecord | None:
+        with self._lock:
+            return self._records.get(assessment_id)
+
+    def record_by_source_binding(
+        self, source_binding_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        with self._lock:
+            assessment_id = self._record_ids_by_source.get(source_binding_digest)
+            return self._records.get(assessment_id) if assessment_id is not None else None
 
     def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
         return self._change_status(
@@ -322,7 +371,7 @@ class OperationalProposalService:
         self,
         *,
         trust: SituationalTrustResolver,
-        control: InMemorySituationalControlPlane,
+        control: SituatedAssessmentStore,
         assessor: RelevanceAssessorPort,
         principal_id: str,
     ) -> None:
@@ -330,7 +379,7 @@ class OperationalProposalService:
         self._control = control
         self._assessor = assessor
         self._principal_id = principal_id
-        self._compiler = OperationalProposalCompiler(
+        self._compiler = _OperationalProposalCompiler(
             trust,
             principal_id=principal_id,
         )
@@ -342,7 +391,7 @@ class OperationalProposalService:
         *,
         evaluated_at: datetime,
     ) -> ProposalResult:
-        evaluated_at = OperationalProposalCompiler._utc(evaluated_at)
+        evaluated_at = _OperationalProposalCompiler._utc(evaluated_at)
         event = self._trust.resolve_event(event_id)
         projection = self._trust.resolve_projection(projection_id)
         if event is None or projection is None:
@@ -373,12 +422,18 @@ class OperationalProposalService:
             event=event,
             projection=projection,
         )
-        return self._control.emit_guarded(
+        source_binding_digest = situated_source_binding_digest(
+            event,
+            projection,
+            assessment,
+        )
+        return self._control._emit_guarded(
             mandate,
             binding,
             assessment,
             principal_id=self._principal_id,
             evaluated_at=evaluated_at,
+            source_binding_digest=source_binding_digest,
             factory=lambda: self._compiler.compile(
                 event,
                 projection,
@@ -489,7 +544,7 @@ class OperationalProposalService:
                 )
 
 
-class OperationalProposalCompiler:
+class _OperationalProposalCompiler:
     """Compile a bound assessment without writing state or granting authority."""
 
     _TASK_DISPOSITIONS = {
@@ -518,12 +573,10 @@ class OperationalProposalCompiler:
         self._validate_bindings(event, projection, assessment)
         self._validate_trust(event, projection, assessment)
         self._validate_time(event, projection, assessment, evaluated_at)
-        source_binding_digest = content_digest(
-            {
-                "event": event.model_dump(mode="json"),
-                "projection": projection.model_dump(mode="json"),
-                "assessment": assessment.model_dump(mode="json"),
-            }
+        source_binding_digest = situated_source_binding_digest(
+            event,
+            projection,
+            assessment,
         )
 
         evidence_ids = tuple(

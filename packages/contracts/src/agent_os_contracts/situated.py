@@ -38,6 +38,12 @@ class MandateOperationalStatus(str, Enum):
     REVOKED = "REVOKED"
 
 
+class SituatedAssessmentOutcomeKind(str, Enum):
+    NO_PROPOSAL = "NO_PROPOSAL"
+    TASK_DRAFT = "TASK_DRAFT"
+    HELP_REQUEST = "HELP_REQUEST"
+
+
 def _normalized(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(set(values)))
 
@@ -378,3 +384,61 @@ class HelpRequest(ContractModel):
     created_at: UtcDateTime
     authority_granted: Literal[False] = False
     external_effects_authorized: Literal[False] = False
+
+
+class SituatedAssessmentRecord(ContractModel):
+    """Durable proposal-only assessment outcome; never a Task or effect authority."""
+
+    assessment_record_id: NonEmptyStr
+    source_binding_digest: Sha256Digest
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    assessment: RelevanceAssessment
+    outcome_kind: SituatedAssessmentOutcomeKind
+    task_draft: TaskDraftProposal | None = None
+    help_request: HelpRequest | None = None
+    recorded_at: UtcDateTime
+
+    @model_validator(mode="after")
+    def _validate_outcome(self) -> SituatedAssessmentRecord:
+        if self.assessment_record_id != (
+            f"situated-assessment:{self.source_binding_digest}"
+        ):
+            raise ValueError("assessment record id must be source-bound")
+        if (
+            self.tenant_id != self.assessment.tenant_id
+            or self.workspace_id != self.assessment.workspace_id
+        ):
+            raise ValueError("assessment record scope must match assessment scope")
+        if self.recorded_at < self.assessment.assessed_at:
+            raise ValueError("assessment record cannot precede assessment")
+        expected_kind = SituatedAssessmentOutcomeKind.NO_PROPOSAL
+        outcome: TaskDraftProposal | HelpRequest | None = None
+        if self.assessment.disposition in {
+            RelevanceDisposition.INVESTIGATE,
+            RelevanceDisposition.CREATE_TASK,
+        }:
+            expected_kind = SituatedAssessmentOutcomeKind.TASK_DRAFT
+            outcome = self.task_draft
+            if outcome is None or self.help_request is not None:
+                raise ValueError("task assessment must contain exactly one task draft")
+        elif self.assessment.disposition is RelevanceDisposition.HELP:
+            expected_kind = SituatedAssessmentOutcomeKind.HELP_REQUEST
+            outcome = self.help_request
+            if outcome is None or self.task_draft is not None:
+                raise ValueError("help assessment must contain exactly one help request")
+        elif self.task_draft is not None or self.help_request is not None:
+            raise ValueError("non-work assessment cannot contain a proposal")
+        if self.outcome_kind is not expected_kind:
+            raise ValueError("assessment outcome kind does not match disposition")
+        if outcome is not None:
+            if outcome.source_binding_digest != self.source_binding_digest:
+                raise ValueError("proposal source binding does not match record")
+            if outcome.relevance_assessment_id != self.assessment.assessment_id:
+                raise ValueError("proposal assessment id does not match record")
+            if (
+                outcome.tenant_id != self.tenant_id
+                or outcome.workspace_id != self.workspace_id
+            ):
+                raise ValueError("proposal scope does not match record")
+        return self

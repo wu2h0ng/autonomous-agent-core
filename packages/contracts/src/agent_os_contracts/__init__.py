@@ -90,6 +90,8 @@ from .situated import (
     RelevanceAssessorRef,
     RelevanceDisposition,
     RelevanceUrgency,
+    SituatedAssessmentOutcomeKind,
+    SituatedAssessmentRecord,
     TaskDraftProposal,
 )
 from .runtime import (
@@ -220,6 +222,8 @@ __all__ = [
     "RelevanceAssessorRef",
     "RelevanceDisposition",
     "RelevanceUrgency",
+    "SituatedAssessmentOutcomeKind",
+    "SituatedAssessmentRecord",
     "RiskTier",
     "Sha256Digest",
     "SideEffectGuarantee",

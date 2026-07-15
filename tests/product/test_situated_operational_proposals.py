@@ -26,12 +26,12 @@ from agent_os_contracts import (
 from agent_os_core import (
     InMemorySituationalControlPlane,
     InMemorySituationalTrustRegistry,
-    OperationalProposalCompiler,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     StaleOperationalProjection,
     situated_input_binding_digest,
 )
+from agent_os_core.situated import _OperationalProposalCompiler
 from apps.api_server.app import AgentOSApplication
 
 
@@ -204,8 +204,8 @@ def _compiler(
     *,
     event: EnvironmentEvent | None = None,
     projection: OperationalProjectionRef | None = None,
-) -> OperationalProposalCompiler:
-    return OperationalProposalCompiler(
+) -> _OperationalProposalCompiler:
+    return _OperationalProposalCompiler(
         _trust_registry(event=event, projection=projection),
         principal_id="user:local",
     )

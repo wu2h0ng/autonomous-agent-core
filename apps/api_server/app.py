@@ -58,7 +58,7 @@ from agent_os_core import (
     DeterministicProvider,
     PolicyKernel,
     OperationalProposalService,
-    InMemorySituationalControlPlane,
+    SituatedAssessmentStore,
     RelevanceAssessorPort,
     RunCoordinator,
     DomainCandidateSealer,
@@ -112,7 +112,7 @@ class AgentOSApplication:
         promotion_grant: CapabilityGrant | None = None,
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
-        situational_control: InMemorySituationalControlPlane | None = None,
+        situational_control: SituatedAssessmentStore | None = None,
         relevance_assessor: RelevanceAssessorPort | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
     ) -> None:
@@ -163,18 +163,20 @@ class AgentOSApplication:
             raise ValueError(
                 "situated proposal service requires a situational trust resolver"
             )
-        self.situated_proposal_service = (
-            OperationalProposalService(
-                trust=situational_trust or data_agent_reports,
+        resolved_situational_trust = situational_trust or data_agent_reports
+        if (
+            situational_control is not None
+            and relevance_assessor is not None
+            and resolved_situational_trust is not None
+        ):
+            self.situated_proposal_service = OperationalProposalService(
+                trust=resolved_situational_trust,
                 control=situational_control,
                 assessor=relevance_assessor,
                 principal_id=self.principal.principal_id,
             )
-            if situational_control is not None
-            and relevance_assessor is not None
-            and (situational_trust is not None or data_agent_reports is not None)
-            else None
-        )
+        else:
+            self.situated_proposal_service = None
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self.correction = CorrectionAuthority(
