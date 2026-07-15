@@ -1,0 +1,19 @@
+{
+  "manifest_id": "R-STATE-CREDIT-1-STAGE-A-RUNNER-PREREG-20260715",
+  "mechanism_artifact_hashes": {
+    "docs/pre_spec/R-STATE-CREDIT-1.RUNNER-PREREG-BUILD-PACKET-2026-07-15.md": "30f86a5d56881d39b67beb7824d7ef58e94da2e7b9e1fe53aa17a9536c11260e",
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json": "837659b4df17e86248a9f2f0ba284d5b8a1baf90d806b7a3a48ff12bfd9277a3",
+    "experiments/r_state_credit_1/arms.py": "c2832e3f935185e4b1a650281a1422d9c90db9fe591fac1794f1e9c3affa12ef",
+    "experiments/r_state_credit_1/contracts.py": "6d9822c0969e2972dc0b3dce8a4e37ff8403b93e2ea22cfd02047e68ca9aee00",
+    "experiments/r_state_credit_1/qualifier.py": "80be6bec4bfe7e2f0d8288a55c8c0a73fc258666d16ee1f8a0a6fa97dfd2aeab",
+    "experiments/r_state_credit_1/result_runner.py": "ed3bb3bfe2dfe28c69ccd76804061c76523e9afdbb9014dac05f7177ccc90e54",
+    "experiments/r_state_credit_1/run_contracts.py": "b2aea127ea3d940089b6f714683b66754ef7feb78cac8af0fc5eb3414a6d7244",
+    "experiments/r_state_credit_1/scenarios.py": "2c9753fcb355d1e58f2ba3ed9d818304ae156e1a62152d0eaf6772a9ed05d164",
+    "src/aac/persistent_task_state.py": "2fb4912badd7c33bea962b9f3b54410a65682ccbf2f1707095f3c16c5e4f6dc0",
+    "tests/test_persistent_task_state.py": "e3c5d2f1ab9af76caf3f7f36690078eb4233d133e7ff4752d27841a469ade335",
+    "tests/test_r_state_credit_1_batch2a.py": "918685f512736d6f35a338e284a5772ee12119c5caace56ea17b28dc319292a9",
+    "tests/test_r_state_credit_1_prereg_candidate.py": "e0a565a57bcac107d3a3e06207756c174b80990ae9636eca02887764e047fbb3",
+    "tests/test_r_state_credit_1_runner_prereg.py": "914714f3ac3da5275a088d96d67f3f0eadbebfb67ceda05b3656b03dda056f4f"
+  },
+  "supporting_artifact_hashes": {}
+}

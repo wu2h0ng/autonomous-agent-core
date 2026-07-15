@@ -1,0 +1,216 @@
+prereg_id: R-STATE-CREDIT-1-STAGE-A-20260715
+status: DRAFT_BINDINGS_REQUIRED_NOT_REVIEWED_NOT_FROZEN_NOT_RUN
+schema_version: r-state-credit-1-stage-a-prereg-v1
+claim_class: research-automation
+track: research
+experiment_id: R-STATE-CREDIT-1-STAGE-A
+run_id: r-state-credit-1-stage-a-20260715
+builder_id: codex-r-state-credit-runner
+target_repo: autonomous-agent-core
+bounded_claim: >-
+  One provider-neutral, exact-binding, one-shot runner contract can preserve the
+  reviewed Stage-A comparison grammar and emit raw non-adjudicated rows while
+  failing closed on missing bindings, native-lock drift, C7 abort, interruption,
+  overwrite, or same-lock rerun.
+claim_exclusions:
+  - no Stage-A result, winner, MET, NOT_MET, or scientific evidence
+  - no provider implementation, credential, network call, or CLI model transport
+  - no model training, update, Stage B, product capability, autonomy, or AGI claim
+  - no review acceptance, architecture acceptance, freeze, run, push, merge, or release authority
+
+mechanism:
+  name: R-STATE-CREDIT-1 Stage-A typed one-shot raw runner
+  channel_claim: X(research-automation)
+  files:
+    - docs/pre_spec/R-STATE-CREDIT-1.RUNNER-PREREG-BUILD-PACKET-2026-07-15.md
+    - docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json
+    - experiments/r_state_credit_1/arms.py
+    - experiments/r_state_credit_1/contracts.py
+    - experiments/r_state_credit_1/qualifier.py
+    - experiments/r_state_credit_1/run_contracts.py
+    - experiments/r_state_credit_1/result_runner.py
+    - experiments/r_state_credit_1/scenarios.py
+    - src/aac/persistent_task_state.py
+    - tests/test_persistent_task_state.py
+    - tests/test_r_state_credit_1_batch2a.py
+    - tests/test_r_state_credit_1_prereg_candidate.py
+    - tests/test_r_state_credit_1_runner_prereg.py
+
+candidate_binding:
+  path: docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json
+  canonical_sha256: f82ac630f5534759635109c110fbb4ee0c31d33ea03320dd682bf5e51fc0de1f
+  source_manifest_sha256: cd54a1cd1e1321d40852f728b5c1220bf31b46962228a9901618b236c711648c
+  candidate_status: VALID_CANDIDATE_ONLY
+
+binding_readiness:
+  status: DRAFT_BINDINGS_REQUIRED
+  unresolved_values_must_be_absent: true
+  unresolved_contracts:
+    - ACTOR_BINDING
+    - CORPUS_BINDING
+    - SCORER_BINDING
+    - REVIEW_AND_RUN_AUTHORITY_BINDING
+  contract_module: experiments.r_state_credit_1.run_contracts
+  preflight_function: verify_binding_artifacts
+  effect: execution must fail before atomic start until every exact artifact exists and is native-lock-bound
+
+binding_contracts:
+  ACTOR_BINDING:
+    transport: API_ONLY
+    required_fields:
+      - provider
+      - model_id
+      - model_revision_or_snapshot
+      - temperature
+      - top_p
+      - max_output_tokens
+      - system_prompt_sha256
+      - tool_schema_sha256
+    fixed_decoding:
+      temperature: 0
+      top_p: 1
+      max_output_tokens: 256
+    production_client_implementation: ABSENT
+  CORPUS_BINDING:
+    required_fields:
+      - scenario_generator_sha256
+      - public_case_manifest_sha256
+      - sealed_referee_manifest_sha256
+      - all_case_file_sha256_values
+    current_held_out_corpus: ABSENT
+  SCORER_BINDING:
+    required_fields:
+      - scorer_source_sha256
+      - metric_test_sha256
+      - verdict_grammar_test_sha256
+    current_result_scorer: ABSENT
+  REVIEW_AND_RUN_AUTHORITY_BINDING:
+    required_fields:
+      - builder_id
+      - independent_reviewer_id
+      - c7_owner_id
+      - candidate_sha256
+      - exact_content_manifest_sha256
+      - founder_or_cto_run_authorization_ref
+    current_independent_acceptance: ABSENT
+    current_c7_owner_binding: ABSENT
+    current_run_authorization: ABSENT
+
+stage_a_protocol:
+  arms:
+    - A0_FULL_LOG
+    - A1_ROLLING_SUMMARY
+    - A2_FROZEN_RETRIEVAL
+    - A3_TYPED_STATE
+  strong_baseline: A0_FULL_LOG
+  full_log_stop_rule: tie_or_loss_to_A0_parks_typed_state_route
+  scenario_families:
+    - ALIAS_OBJECT_VERSION_DRIFT
+    - VALID_TRANSACTION_TIME
+    - CONTRADICTION
+    - SUPERSESSION_REFUTATION_CASCADE
+    - COMMITMENT_BLOCKAGE
+    - DISPATCH_EFFECT_UNCERTAINTY
+    - BOUNDED_OVERFLOW_RECOVERY
+  decision_checkpoints:
+    - BEFORE_PERTURBATION
+    - AFTER_PERTURBATION
+    - AFTER_PROCESS_RESTART
+    - TERMINAL_RECOVERY_DECISION
+  held_out_seeds:
+    - 1009
+    - 1013
+    - 1019
+    - 1021
+    - 1031
+    - 1033
+    - 1039
+    - 1049
+    - 1051
+    - 1061
+    - 1063
+    - 1069
+    - 1087
+    - 1091
+    - 1093
+    - 1097
+    - 1103
+    - 1109
+    - 1117
+    - 1123
+  result_bearing_passes: 1
+  action_grammar:
+    - CONTINUE
+    - REVIEW
+    - VERIFY_EFFECT
+    - ABSTAIN
+  matched_information_required: true
+  external_side_effects: FORBIDDEN
+
+execution:
+  public_function: experiments.r_state_credit_1.result_runner.execute_r_final_once
+  cli_entrypoint: ABSENT_BY_DESIGN
+  actor_transport: API_ONLY
+  provider_call_authorized: false
+  result_bearing_execution_authorized: false
+  start_claim: atomic_O_EXCL_before_first_actor_call
+  pre_start_c7_abort: no_start_claim_no_result
+  post_start_c7_abort: INVALID_C7_ABORT_NO_SAME_LOCK_RERUN
+  interruption_after_start: INTERRUPTED_NO_SAME_LOCK_RERUN
+  any_contract_failure_after_start: INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN
+  overwrite: FORBIDDEN
+  same_lock_rerun: FORBIDDEN
+  rescue_or_threshold_edit: FORBIDDEN
+
+result_contract:
+  schema_version: r-state-credit-1-rfinal-raw-v1
+  artifact_class: R_FINAL_RAW
+  status: RAW_NOT_ADJUDICATED
+  file_name: rfinal.result.json
+  write_once: true
+  required_integrity:
+    - bindings_sha256
+    - prereg_lock_sha256
+    - spec_sha256
+    - target_head
+    - candidate_sha256
+    - exact_content_manifest_sha256
+    - content_sha256
+  row_identity:
+    - episode_id
+    - family
+    - seed
+    - checkpoint_id
+    - arm_id
+    - request_id
+  row_measurements:
+    - observable_digest
+    - action
+    - raw_output_sha256
+    - input_tokens
+    - output_tokens
+    - loss_code
+    - loss_weight
+    - unsafe_effect_replay
+  forbidden_fields:
+    - verdict
+    - winner
+    - selected_arm
+    - training_trigger
+  adjudication_owner: independent_later_lane
+
+native_gate:
+  exact_content_manifest: docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.EXACT-CONTENT-MANIFEST-2026-07-15.json
+  prereg_review_record: ABSENT
+  architecture_theory_review_record: ABSENT
+  rr0031_context_calibration_record: ABSENT
+  prereg_lock: ABSENT
+  required_sequence:
+    - resolve all real bindings and extend mechanism.files with their exact artifacts
+    - regenerate exact-content manifest
+    - independent exact-content technical review
+    - independent RR-0029 review with RR-0031 delta-review binding
+    - freeze by an identity distinct from reviewer
+    - native prereg verify
+    - explicit founder or CTO run decision
+    - at most one result-bearing pass
