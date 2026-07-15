@@ -81,8 +81,11 @@ class DeterministicOutcomeEvaluator:
         evidence_resolver: (
             Callable[[str, str], ValidatedTestReport | None] | None
         ) = None,
+        *,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._evidence_resolver = evidence_resolver
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def evaluate(
         self,
@@ -96,7 +99,7 @@ class DeterministicOutcomeEvaluator:
         test_exit_code: int | None,
         now: datetime | None = None,
     ) -> ObservedOutcome:
-        observed = now or datetime.now(timezone.utc)
+        observed = now or self._clock()
         gaps: list[str] = []
         status: OutcomeStatus
         score: float | None = None
@@ -204,7 +207,8 @@ class RunCoordinator:
         self.grant = grant
         self.compensation_grant = compensation_grant
         self.evaluator = evaluator or DeterministicOutcomeEvaluator(
-            task_service.validated_test_report
+            task_service.validated_test_report,
+            clock=task_service.now,
         )
 
     def run(
@@ -315,8 +319,13 @@ class RunCoordinator:
                 if isinstance(restored_evidence, (tuple, list))
                 else []
             )
-            test_output = context.get("workspace.run_tests")
-            test_exit_code = _strict_exit_code(test_output)
+            test_exit_codes = {
+                node.node_id: exit_code
+                for node in aggregate.workflow.nodes
+                if node.capability == "workspace.run_tests"
+                and (exit_code := _strict_exit_code(context.get(node.node_id)))
+                is not None
+            }
             observed_outcome = aggregate.observed_outcome
             envelope = CandidateGenerationEnvelope(
                 envelope_id=f"envelope-{uuid4()}", task_id=task_id, run_id=run.run_id,
@@ -397,8 +406,14 @@ class RunCoordinator:
                     evidence.extend(str(item) for item in result.receipt.output_artifact_ids)
                     context["evidence_refs"] = tuple(evidence)
                     if node.capability == "workspace.run_tests":
-                        test_exit_code = _strict_exit_code(result.output)
+                        exit_code = _strict_exit_code(result.output)
+                        if exit_code is not None:
+                            test_exit_codes[node.node_id] = exit_code
                 elif node.kind is NodeKind.EVALUATION:
+                    test_exit_code = next(
+                        (code for code in test_exit_codes.values() if code != 0),
+                        0 if test_exit_codes else None,
+                    )
                     outcome = self.evaluator.evaluate(
                         aggregate.expected_outcome, task_id=task_id, run_id=run.run_id,
                         tenant_id=run.tenant_id, workspace_id=run.workspace_id,
@@ -1183,9 +1198,6 @@ class RunCoordinator:
 
     @staticmethod
     def _tool_arguments(capability_id: str, context: dict[str, Any]) -> dict[str, Any]:
-        explicit = context.get(capability_id)
-        if isinstance(explicit, dict):
-            return dict(explicit)
         if capability_id == "workspace.read":
             path = context.get("target_path") or context.get("path")
             if not isinstance(path, str) or not path:
@@ -1194,6 +1206,9 @@ class RunCoordinator:
         if capability_id == "workspace.run_tests":
             command = context.get("test_command") or context.get("command") or "python -m pytest"
             return {"command": str(command)}
+        explicit = context.get(capability_id)
+        if isinstance(explicit, dict):
+            return dict(explicit)
         raise RunExecutionError(f"no typed arguments available for {capability_id}")
 
     def _restore_context(self, task_id: str, inputs: dict[str, Any]) -> dict[str, Any]:

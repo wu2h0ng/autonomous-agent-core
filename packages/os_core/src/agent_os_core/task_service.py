@@ -75,6 +75,7 @@ class ValidatedTestReport:
     receipt_id: str
     completed_sequence: int
     completed_at: datetime
+    node_ids: tuple[str, ...] = ()
 
 
 def expected_outcome_contract_error(expected: ExpectedOutcome) -> str | None:
@@ -290,7 +291,15 @@ class TaskService:
         payload: dict[str, object],
         *,
         correlation_id: str | None = None,
+        writer_token: object | None = None,
     ) -> TaskAggregate:
+        if (
+            event_type in PROTECTED_TRUTH_EVENTS
+            and writer_token is not self._runtime_writer_token
+        ):
+            raise InvalidTransitionError(
+                f"protected event requires a typed writer: {event_type.value}"
+            )
         aggregate = self.get_task(task_id)
         draft = TaskEventDraft.build(
             event_id=self._id_factory("event"),
@@ -377,6 +386,7 @@ class TaskService:
                 "receipt": receipt.model_dump(mode="json"),
             },
             correlation_id=run.run_id,
+            writer_token=writer_token,
         )
 
     def register_wait(self, task_id: str, node: NodeSpec) -> TaskAggregate:
@@ -1021,7 +1031,48 @@ class TaskService:
             )
         if not candidates:
             return None
-        report = max(candidates, key=lambda candidate: candidate.completed_sequence)
+        latest_by_node = {
+            node_id: max(
+                (
+                    candidate
+                    for candidate in candidates
+                    if candidate.node_id == node_id
+                ),
+                key=lambda candidate: candidate.completed_sequence,
+            )
+            for node_id in test_nodes
+            if any(candidate.node_id == node_id for candidate in candidates)
+        }
+        if set(latest_by_node) != test_nodes:
+            return None
+        required_reports = tuple(latest_by_node[node_id] for node_id in sorted(test_nodes))
+        latest_report = max(
+            required_reports,
+            key=lambda candidate: candidate.completed_sequence,
+        )
+        failed_report = next(
+            (candidate for candidate in required_reports if candidate.exit_code != 0),
+            None,
+        )
+        report = ValidatedTestReport(
+            artifact_ids=tuple(
+                sorted(
+                    {
+                        artifact_id
+                        for candidate in required_reports
+                        for artifact_id in candidate.artifact_ids
+                    }
+                )
+            ),
+            exit_code=failed_report.exit_code if failed_report is not None else 0,
+            node_id=latest_report.node_id,
+            action_id=latest_report.action_id,
+            receipt_id=latest_report.receipt_id,
+            completed_sequence=latest_report.completed_sequence,
+            completed_at=max(candidate.completed_at for candidate in required_reports),
+            node_ids=tuple(sorted(test_nodes)),
+        )
+        required_node_ids = set(report.node_ids or (report.node_id,))
         for event in events:
             if event.sequence <= report.completed_sequence:
                 continue
@@ -1033,7 +1084,7 @@ class TaskService:
                     rebound = RunPlanRebound.model_validate(payload)
                 except (TypeError, ValueError):
                     return None
-                if report.node_id not in rebound.preserved_node_ids:
+                if not required_node_ids.issubset(rebound.preserved_node_ids):
                     return None
             if (
                 event.event_type is TaskEventType.ACTION_RECEIPT_RECORDED
@@ -1046,7 +1097,28 @@ class TaskService:
                     except (TypeError, ValueError):
                         return None
                     if receipt.status is ReceiptStatus.SUCCEEDED:
-                        return None
+                        action = next(
+                            (
+                                ActionContract.model_validate(
+                                    candidate.decoded_payload().get("action")
+                                )
+                                for candidate in reversed(events)
+                                if candidate.sequence < event.sequence
+                                and candidate.event_type
+                                is TaskEventType.ACTION_PROPOSED
+                                and candidate.correlation_id == run_id
+                                and isinstance(
+                                    candidate.decoded_payload().get("action"), dict
+                                )
+                                and candidate.decoded_payload()["action"].get(
+                                    "action_id"
+                                )
+                                == receipt.action_id
+                            ),
+                            None,
+                        )
+                        if action is None or action.capability_id != "workspace.read":
+                            return None
         return report
 
     def _test_report_artifact_matches(
@@ -1141,6 +1213,7 @@ class TaskService:
             TaskEventType.OUTCOME_OBSERVED,
             {"outcome": outcome.model_dump(mode="json")},
             correlation_id=outcome.run_id,
+            writer_token=self._runtime_writer_token,
         )
 
     def record_artifact(
@@ -1172,4 +1245,5 @@ class TaskService:
                 "action_id": action_id,
             },
             correlation_id=aggregate.run.run_id,
+            writer_token=self._runtime_writer_token,
         )

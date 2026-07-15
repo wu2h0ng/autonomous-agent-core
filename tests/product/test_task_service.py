@@ -272,6 +272,46 @@ def test_append_event_rejects_protected_action_receipt_truth() -> None:
     assert len(store.read(created.task_id)) == 1
 
 
+def test_private_append_event_cannot_forge_protected_outcome_truth() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+    expected = _expected(created.task_id)
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = service.start_run(created.task_id)
+    assert running.run is not None
+    forged = ObservedOutcome(
+        observed_outcome_id="observed-forged-private-write",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("artifact:" + "f" * 64,),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="protected event"):
+        service._append_event(
+            created.task_id,
+            TaskEventType.OUTCOME_OBSERVED,
+            {"outcome": forged.model_dump(mode="json")},
+            correlation_id=running.run.run_id,
+        )
+
+    assert service.get_task(created.task_id).observed_outcome is None
+
+
 def test_record_outcome_persists_matching_invalid_evaluator_result() -> None:
     store = InMemoryTaskEventStore()
     service = _service(store, DeterministicIdFactory())

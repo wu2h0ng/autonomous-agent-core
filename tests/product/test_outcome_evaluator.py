@@ -148,3 +148,32 @@ def test_missing_runtime_exit_code_is_not_defaulted_to_failure() -> None:
 
     assert outcome.status is OutcomeStatus.UNRESOLVED
     assert "missing pytest exit code" in outcome.unresolved_gaps
+
+
+def test_evaluator_uses_injected_clock_when_caller_omits_now() -> None:
+    report = ValidatedTestReport(
+        artifact_ids=("artifact:" + "c" * 64,),
+        exit_code=0,
+        node_id="tests",
+        action_id="action-tests",
+        receipt_id="receipt-tests",
+        completed_sequence=10,
+        completed_at=FROZEN_AT + timedelta(seconds=20),
+    )
+
+    evaluator = DeterministicOutcomeEvaluator(
+        lambda _task_id, _run_id: report,
+        clock=lambda: FROZEN_AT + timedelta(seconds=30),
+    )
+    outcome = evaluator.evaluate(
+        _expected(),
+        task_id="task-1",
+        run_id="run-1",
+        tenant_id="tenant-1",
+        workspace_id="workspace-1",
+        evidence_refs=report.artifact_ids,
+        test_exit_code=0,
+    )
+
+    assert outcome.status is OutcomeStatus.VERIFIED
+    assert outcome.observed_at == FROZEN_AT + timedelta(seconds=30)

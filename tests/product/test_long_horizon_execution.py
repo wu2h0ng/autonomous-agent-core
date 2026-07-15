@@ -142,6 +142,76 @@ def _artifact_before_wait_workflow(
     )
 
 
+def _post_test_read_workflow(now: datetime) -> WorkflowGraph:
+    nodes = (
+        NodeSpec(
+            node_id="tests",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(
+            node_id="read-after-tests",
+            kind=NodeKind.TOOL,
+            capability="workspace.read",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    return WorkflowGraph(
+        workflow_id="workflow:post-test-read",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=(
+            EdgeSpec(source="tests", target="read-after-tests"),
+            EdgeSpec(source="read-after-tests", target="evaluate"),
+            EdgeSpec(source="evaluate", target="done"),
+        ),
+    )
+
+
+def _two_test_nodes_workflow(now: datetime) -> WorkflowGraph:
+    nodes = (
+        NodeSpec(
+            node_id="tests-first",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(
+            node_id="tests-second",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    return WorkflowGraph(
+        workflow_id="workflow:two-test-nodes",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=now,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=(
+            EdgeSpec(source="tests-first", target="tests-second"),
+            EdgeSpec(source="tests-second", target="evaluate"),
+            EdgeSpec(source="evaluate", target="done"),
+        ),
+    )
+
+
 def _provider_wait_workflow(now: datetime) -> WorkflowGraph:
     nodes = (
         NodeSpec(
@@ -425,6 +495,42 @@ def test_run_finalization_rejects_evidence_that_became_stale_after_evaluation(
     )
 
 
+def test_read_only_action_after_tests_does_not_stale_verified_evidence(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(tmp_path, _post_test_read_workflow(now))
+
+    result = app.run_task(task_id, _inputs())
+
+    assert result.status is TaskStatus.COMPLETED
+    assert result.observed_outcome is not None
+    assert result.observed_outcome.status is OutcomeStatus.VERIFIED
+
+
+def test_all_required_test_nodes_contribute_to_outcome(tmp_path: Path) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(tmp_path, _two_test_nodes_workflow(now))
+    marker = tmp_path / ".first-test-attempt"
+    (tmp_path / "test_fixture.py").write_text(
+        "from pathlib import Path\n"
+        "def test_first_attempt_fails():\n"
+        "    marker = Path('.first-test-attempt')\n"
+        "    first = not marker.exists()\n"
+        "    marker.write_text('seen')\n"
+        "    assert not first\n",
+        encoding="utf-8",
+    )
+
+    result = app.run_task(task_id, _inputs())
+
+    assert marker.exists()
+    assert result.run is not None
+    assert result.run.status is RunStatus.FAILED
+    assert result.observed_outcome is not None
+    assert result.observed_outcome.status is OutcomeStatus.NOT_MET
+
+
 def test_run_while_wait_is_live_is_an_event_stream_noop(tmp_path: Path) -> None:
     now = datetime.now(timezone.utc)
     app, task_id = _committed_app(tmp_path, _simple_workflow(now))
@@ -605,15 +711,16 @@ def test_rebind_clears_invalidated_action_projection_and_approval(
         task_id,
         {"disposition": "APPROVE", "reason": "approve only the original plan"},
     )
-    app.tasks._append_event(
-        task_id,
-        TaskEventType.ARTIFACT_RECORDED,
-        {
-            "artifact_id": "artifact:partial-old-plan",
-            "node_id": "apply",
-            "action_id": "action:partial-old-plan",
-        },
-    )
+    with pytest.raises(InvalidTransitionError, match="protected event"):
+        app.tasks._append_event(
+            task_id,
+            TaskEventType.ARTIFACT_RECORDED,
+            {
+                "artifact_id": "artifact:partial-old-plan",
+                "node_id": "apply",
+                "action_id": "action:partial-old-plan",
+            },
+        )
 
     rebound = app.tasks.replan_task(
         task_id,
