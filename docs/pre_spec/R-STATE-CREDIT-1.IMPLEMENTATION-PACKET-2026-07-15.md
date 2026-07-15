@@ -139,10 +139,14 @@ digests, and illegal revisions fail closed.
 
 - compare-and-swap on both snapshot version and digest;
 - deterministic ordering and SHA-256 canonical digests;
-- no duplicate patch or append-only assertion identifiers;
+- no duplicate patch, entity, assertion, commitment, or decision identifiers
+  within their applicable append-only/transaction boundary;
 - entity revision by exactly one, preserved identity keys/aliases/evidence, and
   irreversible tombstoning;
 - assertions bound to the current object version and patch transaction time;
+- deterministic valid-time reads over the selected transaction snapshot using
+  half-open intervals `[valid_from, valid_to)` and explicit timezone-aware input;
+  valid-time reads never consult wall clock or rewrite historical status;
 - contradictions represented as `CONFLICTED`, never latest-write-wins;
 - explicit `SUPERSEDED`, `REFUTED`, and `STALE` states with transitive dependency
   invalidation;
@@ -170,6 +174,21 @@ digests, and illegal revisions fail closed.
 There is no cross-repository import and no framework or model receives final
 execution, evaluation, promotion, or correction authority.
 
+Repository placement follows `codebase_index.md`: `src/aac/` is Research Track,
+while Product Track runtime lives under `packages/os_core/`, contracts under
+`packages/contracts/`, and application entry points under `apps/`. The committed
+module is imported only by its Research Track test; `apps/`, `packages/`, and
+`domain_packs/` contain no import of `aac.persistent_task_state`. Path placement
+and import absence do not authorize later Product promotion.
+
+Transaction time and valid time remain separate. The selected
+`TaskStateSnapshot` and its append-only patch/digest chain define the transaction
+snapshot being read. `assertions_valid_at(..., valid_time=...)` filters only that
+snapshot's currently `ACTIVE` or `CONFLICTED` assertions by explicit valid time.
+Advancing wall clock alone cannot mutate an assertion to `STALE`; any historical
+transaction-snapshot query or automatic temporal transition would require a new,
+separately specified contract.
+
 ## 7. Verification boundary
 
 The targeted tests live in `tests/test_persistent_task_state.py` and must cover:
@@ -177,7 +196,9 @@ The targeted tests live in `tests/test_persistent_task_state.py` and must cover:
 - closed/immutable schemas and unknown-field rejection;
 - deterministic digest, CAS, duplicate-patch rejection, and rehydration equality;
 - entity/version/time semantics;
-- conflict, supersession, refutation, tombstone, and dependency cascades;
+- duplicate-entity rejection, half-open valid-time boundaries, overlapping versus
+  non-overlapping conflict, supersession, refutation, tombstone, and dependency
+  cascades;
 - commitment contract immutability and blockage;
 - safe projection and `STATE_OVERFLOW`;
 - decision snapshot binding, monotonic execution revisions, and fail-closed

@@ -210,6 +210,8 @@ def _assertion(
     depends_on: tuple[str, ...] = (),
     supersedes: str | None = None,
     transaction_time: datetime = NOW,
+    valid_from: datetime = NOW,
+    valid_to: datetime | None = None,
 ) -> Assertion:
     return Assertion(
         assertion_id=assertion_id,
@@ -220,8 +222,8 @@ def _assertion(
         epistemic_class=EpistemicClass.FACT,
         confidence=1.0,
         status=status,
-        valid_from=NOW,
-        valid_to=None,
+        valid_from=valid_from,
+        valid_to=valid_to,
         transaction_time=transaction_time,
         transaction_version=0,
         evidence_refs=(f"artifact:{assertion_id}",),
@@ -233,18 +235,21 @@ def _assertion(
 
 def _commitment(
     *,
+    commitment_id: str = "commitment:migrate",
     status: CommitmentStatus = CommitmentStatus.PENDING,
     revision: int = 1,
     preconditions: tuple[str, ...] = (),
+    depends_on: tuple[str, ...] = (),
 ) -> CommitmentState:
     return CommitmentState(
-        commitment_id="commitment:migrate",
+        commitment_id=commitment_id,
         revision=revision,
         deliverable="migrate client",
         status=status,
         precondition_assertion_ids=preconditions,
         postconditions=("hidden tests pass",),
         evidence_requirements=("artifact:test-report",),
+        depends_on_commitment_ids=depends_on,
     )
 
 
@@ -296,6 +301,24 @@ def test_reducer_uses_cas_and_preserves_append_only_patch_history() -> None:
     )
     with pytest.raises(ConcurrentStateWrite, match="CAS"):
         TaskStateReducer.apply(current, stale)
+
+
+def test_patch_rejects_duplicate_entity_ids_without_multi_revision() -> None:
+    empty = TaskStateReducer.empty("task:state-a")
+    duplicate_entity_patch = _patch(
+        empty,
+        "patch:duplicate-entity",
+        entities=(
+            _entity(version="v1", revision=1),
+            _entity(version="v2", revision=2),
+        ),
+    )
+
+    with pytest.raises(StateValidationError, match="duplicate entity ids"):
+        TaskStateReducer.apply(empty, duplicate_entity_patch)
+
+    assert empty.version == 0
+    assert empty.entities == ()
 
 
 def test_entity_revision_keeps_identity_keys_and_rehydrates_to_same_digest() -> None:
@@ -383,6 +406,150 @@ def test_assertion_binds_transaction_time_and_current_entity_version() -> None:
             current,
             _patch(current, "patch:future", assertions=(wrong_version,)),
         )
+
+
+def test_valid_time_query_is_aware_half_open_and_non_mutating() -> None:
+    empty = TaskStateReducer.empty("task:state-a")
+    state = TaskStateReducer.apply(
+        empty, _patch(empty, "patch:entity", entities=(_entity(),))
+    )
+    boundary = NOW + timedelta(hours=1)
+    state = TaskStateReducer.apply(
+        state,
+        _patch(
+            state,
+            "patch:valid-time",
+            assertions=(
+                _assertion(
+                    "assertion:bounded",
+                    "bounded",
+                    predicate="bounded",
+                    valid_from=NOW,
+                    valid_to=boundary,
+                ),
+                _assertion(
+                    "assertion:later",
+                    "later",
+                    predicate="later",
+                    valid_from=boundary,
+                ),
+            ),
+        ),
+    )
+    before_digest = state.digest()
+
+    at_start = TaskStateReducer.assertions_valid_at(state, valid_time=NOW)
+    at_boundary = TaskStateReducer.assertions_valid_at(
+        state, valid_time=boundary
+    )
+
+    assert tuple(item.assertion_id for item in at_start) == (
+        "assertion:bounded",
+    )
+    assert tuple(item.assertion_id for item in at_boundary) == (
+        "assertion:later",
+    )
+    assert state.digest() == before_digest
+    with pytest.raises(StateValidationError, match="timezone-aware"):
+        TaskStateReducer.assertions_valid_at(
+            state,
+            valid_time=datetime(2026, 7, 15, 9, 0),
+        )
+
+
+def test_touching_valid_intervals_do_not_conflict_but_overlaps_do() -> None:
+    empty = TaskStateReducer.empty("task:state-a")
+    state = TaskStateReducer.apply(
+        empty, _patch(empty, "patch:entity", entities=(_entity(),))
+    )
+    boundary = NOW + timedelta(hours=1)
+    touching = TaskStateReducer.apply(
+        state,
+        _patch(
+            state,
+            "patch:touching",
+            assertions=(
+                _assertion(
+                    "assertion:before",
+                    "schema-v1",
+                    valid_from=NOW,
+                    valid_to=boundary,
+                ),
+                _assertion(
+                    "assertion:after",
+                    "schema-v2",
+                    valid_from=boundary,
+                    valid_to=boundary + timedelta(hours=1),
+                ),
+            ),
+        ),
+    )
+    assert {item.status for item in touching.assertions} == {
+        AssertionStatus.ACTIVE
+    }
+
+    overlapping = TaskStateReducer.apply(
+        state,
+        _patch(
+            state,
+            "patch:overlapping",
+            assertions=(
+                _assertion(
+                    "assertion:wide",
+                    "schema-v1",
+                    valid_from=NOW,
+                    valid_to=boundary + timedelta(hours=1),
+                ),
+                _assertion(
+                    "assertion:inside",
+                    "schema-v2",
+                    valid_from=boundary,
+                    valid_to=boundary + timedelta(hours=2),
+                ),
+            ),
+        ),
+    )
+    assert {item.status for item in overlapping.assertions} == {
+        AssertionStatus.CONFLICTED
+    }
+
+
+def test_valid_time_query_respects_selected_transaction_snapshot() -> None:
+    empty = TaskStateReducer.empty("task:state-a")
+    state = TaskStateReducer.apply(
+        empty, _patch(empty, "patch:entity", entities=(_entity(),))
+    )
+    old = _assertion("assertion:old", "schema-v1")
+    before_supersession = TaskStateReducer.apply(
+        state, _patch(state, "patch:old", assertions=(old,))
+    )
+    after_supersession = TaskStateReducer.apply(
+        before_supersession,
+        _patch(
+            before_supersession,
+            "patch:new",
+            assertions=(
+                _assertion(
+                    "assertion:new",
+                    "schema-v2",
+                    supersedes=old.assertion_id,
+                ),
+            ),
+        ),
+    )
+
+    assert tuple(
+        item.assertion_id
+        for item in TaskStateReducer.assertions_valid_at(
+            before_supersession, valid_time=NOW
+        )
+    ) == ("assertion:old",)
+    assert tuple(
+        item.assertion_id
+        for item in TaskStateReducer.assertions_valid_at(
+            after_supersession, valid_time=NOW
+        )
+    ) == ("assertion:new",)
 
 
 def test_contradiction_is_explicit_conflict_not_latest_write_wins() -> None:
@@ -609,6 +776,48 @@ def test_commitment_revision_can_advance_status_but_not_rewrite_contract() -> No
                 commitments=(rewritten,),
             ),
         )
+
+
+def test_commitment_dependency_blocking_cascades_transitively() -> None:
+    empty = TaskStateReducer.empty("task:state-a")
+    state = TaskStateReducer.apply(
+        empty, _patch(empty, "patch:entity", entities=(_entity(),))
+    )
+    assertion = _assertion("assertion:upstream-ready", "yes", predicate="ready")
+    upstream = _commitment(
+        commitment_id="commitment:upstream",
+        preconditions=(assertion.assertion_id,),
+    )
+    middle = _commitment(
+        commitment_id="commitment:middle",
+        depends_on=(upstream.commitment_id,),
+    )
+    downstream = _commitment(
+        commitment_id="commitment:downstream",
+        depends_on=(middle.commitment_id,),
+    )
+    state = TaskStateReducer.apply(
+        state,
+        _patch(
+            state,
+            "patch:commitment-chain",
+            assertions=(assertion,),
+            commitments=(upstream, middle, downstream),
+        ),
+    )
+
+    blocked = TaskStateReducer.apply(
+        state,
+        _patch(
+            state,
+            "patch:invalidate-upstream",
+            refute_assertion_ids=(assertion.assertion_id,),
+        ),
+    )
+
+    assert {item.status for item in blocked.commitments} == {
+        CommitmentStatus.BLOCKED
+    }
 
 
 def test_projection_evicts_only_terminal_leaf_history() -> None:

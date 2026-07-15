@@ -437,6 +437,9 @@ class TaskStateReducer:
         base_assertions = {
             assertion.assertion_id: assertion for assertion in snapshot.assertions
         }
+        incoming_entity_ids = [item.entity_id for item in patch.entities]
+        if len(incoming_entity_ids) != len(set(incoming_entity_ids)):
+            raise StateValidationError("patch contains duplicate entity ids")
         for candidate in patch.entities:
             current = entities.get(candidate.entity_id)
             if current is None:
@@ -703,6 +706,33 @@ class TaskStateReducer:
         for patch in patches:
             snapshot = cls.apply(snapshot, patch)
         return snapshot
+
+    @staticmethod
+    def assertions_valid_at(
+        snapshot: TaskStateSnapshot,
+        *,
+        valid_time: datetime,
+    ) -> tuple[Assertion, ...]:
+        """Read current epistemic assertions valid at an explicit valid time."""
+        if not isinstance(snapshot, TaskStateSnapshot):
+            raise StateValidationError(
+                "assertions_valid_at requires a typed snapshot"
+            )
+        _require_datetime("valid_time", valid_time)
+        current_statuses = {
+            AssertionStatus.ACTIVE,
+            AssertionStatus.CONFLICTED,
+        }
+        return tuple(
+            assertion
+            for assertion in snapshot.assertions
+            if assertion.status in current_statuses
+            and assertion.valid_from <= valid_time
+            and (
+                assertion.valid_to is None
+                or valid_time < assertion.valid_to
+            )
+        )
 
     @staticmethod
     def recovery_directive(snapshot: TaskStateSnapshot) -> RecoveryDirective:
