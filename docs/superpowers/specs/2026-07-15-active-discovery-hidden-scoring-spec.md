@@ -1,6 +1,6 @@
 # R-ACTIVE-DISCOVERY-1 Referee-Owned Hidden Scoring Specification
 
-> Status: `DESIGN_ONLY / NOT_IMPLEMENTED / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
+> Status: `DESIGN_ONLY / SPEC_REVISE_REMEDIATION_CANDIDATE / NOT_IMPLEMENTED / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 >
 > Date: 2026-07-15
 >
@@ -14,6 +14,34 @@
 > Scope: successor scoring design for R-ACTIVE-DISCOVERY-1 only
 
 ## 0. Decision and authority ceiling
+
+### 0.1 Exact prior review and remediation scope
+
+The exact `c64c3bee2e4b0f0ed95e19653b51d2ba9944c31d` packet received
+`SPEC_REVISE` from the requested Kimi technical reviewer:
+
+```text
+review session: session_96d94f7e-8f05-4990-94c9-de347285ea71
+review receipt: R-ADS-REV-20260715-c64c3bee
+```
+
+This revision responds only to the binding technical defects and adjacent
+readiness omissions:
+
+- **R1:** the first scoring implementation is additive-only and may create
+  `scoring_referee.py` and `scored_arm_runner.py`; it may not modify the
+  accepted Stage-A `referee.py` or `arm_runner.py` bytes;
+- **R2:** a scorer-candidate collusion trap must kill candidate-controlled
+  scorer inputs, commitment alias/echo paths, and same-origin hidden/scorer
+  generation before qualification;
+- **R3:** hidden `raw_bytes` commitments use one frozen canonical binary codec,
+  including domain separation, version, field order, length prefixes, encoding,
+  and closed decode errors;
+- the public trace-universe bound, human probability/contract interface, and
+  future custodian/run-authority binding brake are made mechanically explicit.
+
+This is remediation by the original docs writer, not independent acceptance.
+The binding state remains `SPEC_REVISE` until Kimi reviews the new exact head.
 
 The next admissible scoring design is a **referee-owned, behavior-grounded,
 content-sealed scorer**. It scores a closed final bundle against independently
@@ -32,6 +60,26 @@ particular, it does not modify:
 - any current `hidden_score` implementation;
 - a preregistration, freeze lock, model/provider call, run, score, result,
   r-final artifact, product capability, or `CURRENT_STATE` entry.
+
+The two accepted Stage-A source-manifest files are immutable inputs to the first
+scoring implementation:
+
+```text
+research_tools/active_discovery/referee.py
+raw SHA-256: 7f25d14b94f399626ff1681e8b73d82fb48804c41f282af3d10f46414b4fe925
+
+research_tools/active_discovery/arm_runner.py
+raw SHA-256: af1bbb940cd047406b699a84de8b1f2932b318d949a045aa11c233470ebea016
+
+Stage-A source_manifest_digest:
+f9f191f06a29ba6d2becd3f817dfd406f8721dcb128f704b3db0ea3d496b7192
+```
+
+Any implementation-time need to edit either file is a route stop, not an
+ordinary refactor. It requires an explicitly named successor candidate and
+lineage, a new exact source manifest, and fresh independent spec/architecture
+review before any write. No compatibility shim, import cleanup, or test-only
+edit is exempt.
 
 The current Stage-A candidate remains a historical qualification candidate. A
 future scoring implementation is a successor lineage, not a post-hoc rescue or
@@ -269,6 +317,21 @@ raw SHA-256 at design base:
 1a2a3565035422a7ee60aac2e193a17e475307ecda08b18dc5c837f3c11cf405
 ```
 
+The first implementation also treats the accepted Stage-A orchestration files
+as read-only donor interfaces:
+
+```text
+accepted referee.py       -> new scoring_referee.py sidecar
+accepted arm_runner.py    -> new scored_arm_runner.py sidecar
+```
+
+The sidecars may consume only existing public contracts and immutable receipts.
+They may not monkey-patch, subclass around private state, rewrite manifests, or
+mutate module globals in either donor. Exact-hash regression tests must assert
+that both accepted files retain the section-0.1 identities. If a sidecar cannot
+be implemented without an old-source change, the implementation returns
+`REQUIRES_SUCCESSOR_LINEAGE` and stops before writing that change.
+
 ## 6. Public challenge and final-bundle contracts
 
 ### 6.1 Public challenge catalogue
@@ -307,6 +370,40 @@ Challenge IDs are content digests for binding only. Their spelling and order do
 not enter scoring. Family code, seed, case ID, source path, implementation class,
 hidden semantic name, and opaque token spelling are unavailable to the scorer's
 numeric function.
+
+#### 6.1.1 Exhaustive trace-universe verifier and the hard maximum of 16
+
+`2-16` is a validity bound, not a sampling allowance. Every catalogue carries a
+closed `TraceUniverseCertificate/v1` generated before any actor output. A new
+independent verifier must recompute the certificate from the complete finite
+admissible semantic domain and the exact public challenge sequence:
+
+1. enumerate every admissible semantic configuration from a separately bound
+   domain manifest;
+2. execute the challenge from a clean reset for every configuration in the
+   hermetic referee fixture;
+3. canonicalize behavior-identical complete traces to one trace byte string;
+4. require each configuration to map to exactly one public trace and every
+   public trace to have at least one referee-only configuration witness;
+5. require every trace to have exactly the challenge step count, one canonical
+   atom per step, no duplicate bytes, and mutual exclusivity by exact complete
+   trace identity;
+6. require the deduplicated public trace count to be in `[2,16]`.
+
+The public certificate contains the ordered trace bytes, domain-manifest digest,
+challenge digest, configuration count, deduplicated trace count, verifier
+schema/source digest, and certificate digest. The configuration-to-trace map
+and witness configurations remain referee-only. The public trace order is the
+canonical byte order and may bind records, but neither order nor digest spelling
+may enter numeric scoring.
+
+Missing configurations, extra/unwitnessed traces, duplicate encodings, dirty
+reset state, a count of one, or a deduplicated count above 16 is
+`INVALID_TRACE_UNIVERSE`. The verifier may not truncate, sample, merge
+behavior-distinct traces, create `OTHER`, or raise the bound after seeing actor
+output. A family or future F5 with more than 16 behavior-distinct complete
+traces requires a new challenge decomposition and fresh review before hidden
+bytes exist.
 
 ### 6.2 `DiscoveryScoreBundle/v1`
 
@@ -527,6 +624,58 @@ Qualification is an instrument test only. The 16 records are permanently
 excluded from model pilots, power estimation, evaluation, and scientific
 claims.
 
+### 8.1 Scorer-candidate collusion trap and route falsifier
+
+Non-degeneracy is insufficient if a candidate can shape the scorer or share a
+generator with hidden truth. A closed `ScorerCandidateCollusionTrap/v1` is a
+mandatory qualification gate. It treats all actor bundles as untrusted data and
+records independently bound provenance for scorer code/configuration,
+challenge/universe generation, target/contrast/witness bytes, and actor output.
+
+The trap must kill at least these paths:
+
+1. **Candidate-controlled scorer:** a bundle supplies or influences a scorer
+   path, code, callback, weight, threshold, expected outcome, contrast selector,
+   trace-universe member, canonicalizer, or decoding option. Unknown control
+   fields and indirect references are rejected; scorer/config bytes come only
+   from the reviewed source manifest.
+2. **Predictable identity shortcut:** two behavior-equivalent bundles with
+   different padding, ordering attempts, object IDs, or content digests must
+   canonicalize or receive identical numeric metrics. A bundle optimized to a
+   known digest/ID pattern cannot change a score.
+3. **Predictable hidden outcome:** scorer formulas and reviewed code may be
+   public and deterministic, but a no-probe adversary given only actor-visible
+   metadata must not reconstruct exact target/contrast outcomes, expected
+   metrics, or scorer branches from ordering, commitment, manifest shape, fixed
+   generator seed, or qualification leakage. Exact pre-run score predictability
+   without a behavior prediction is `INVALID_SCORER_CANDIDATE_COLLUSION`.
+4. **Commitment alias or echo:** actor text that repeats a hidden commitment,
+   object ID, nonce-shaped value, trace digest, or bundle digest is never a
+   reveal, truth witness, prediction match, or contrast kill. The scorer joins
+   only typed records whose role/split/schema/domain-separated commitment and
+   post-seal reveal validate independently.
+5. **Cross-role alias:** the same nonce/raw payload encoded under a different
+   split, role, schema, object ID, or custodian must not share a commitment.
+   Reusing one commitment for multiple typed objects is invalid even if the raw
+   bytes happen to match.
+6. **Same-origin hidden generation:** an actor/candidate principal, prompt,
+   source generator, seed stream, or writable workspace cannot also generate or
+   select E-SCORE challenge truth, targets, contrasts, witnesses, scorer config,
+   or adjudication expectations. Provenance identity collapse is
+   `INVALID_SCORER_CANDIDATE_COLLUSION`.
+7. **Score-to-candidate feedback:** scorer calls, details, errors that reveal
+   hidden outcomes, or metric-dependent retries before every arm/human final
+   seal invalidate the qualification even if the final score is correct.
+
+Required falsifier fixtures include an intentionally injectable scorer config,
+a digest-echo bundle, a no-probe adversary that recovers an exact hidden outcome
+from actor-visible metadata, a cross-role commitment alias, and a same-generator
+target/contrast pair. Each must be rejected while a provenance-separated
+behavior-grounded control passes. The implementer-visible fixtures are
+permanently Q-SCORE and cannot become P-POWER or E-SCORE. If any collusion trap
+survives, disposition is `REJECT_SCORER`; tuning the fixture or hiding the
+failure behind a score threshold is forbidden.
+
 ## 9. Hidden evaluation bytes and custody
 
 ### 9.1 Byte sets
@@ -539,33 +688,132 @@ Three disjoint sets are mandatory:
 | `P-POWER` | independent pilot custodian; never evaluation | variance/resource estimation for the later prereg only | permanently excluded |
 | `E-SCORE` | hidden evaluation custodian only until reveal | frozen result-bearing target/challenge/contrast bytes | only set eligible for a run |
 
+Tracked Q-SCORE fixture bytes are public, implementer-visible `NOT_EVIDENCE`
+test data, not role-bearing hidden custody objects. Their codec unit tests may
+use test-local fake identities solely to exercise encode/decode and the binding
+brake. The run-before-binding prohibition below applies to any P-POWER or
+E-SCORE hidden object and to any attempt to treat Q-SCORE as pilot/evaluation
+data; no such object may be generated, committed, frozen, or run by this lane.
+
 No raw bytes, outcomes, semantic configurations, or contrast identities from
 `E-SCORE` enter this branch.
 
 ### 9.2 Commitment and reveal
 
 The existing small semantic spaces are brute-forceable from an unsalted digest.
-Every hidden byte object therefore uses a 256-bit random custodian nonce and an
-unambiguous binary encoding:
+Every hidden byte object therefore uses an independently sampled 256-bit
+custodian nonce and exactly one canonical binary codec.
+
+#### 9.2.1 `HiddenByteCommitmentEnvelope/v1` canonical codec
+
+Integer encodings are unsigned, fixed-width, network byte order. `LP16(x)` is
+`U16BE(len(x)) || x`. Field order is normative and no field may be omitted:
 
 ```text
-commitment = SHA256(
-  UTF8("active-discovery-hidden-byte/v1") || 0x00 || nonce_32
-  || U64BE(byte_length) || raw_bytes
-)
+DOMAIN = ASCII("active-discovery:hidden-byte-commitment")
+
+canonical_envelope =
+    LP16(DOMAIN)
+ || U16BE(1)                         # codec version
+ || LP16(schema_id_ascii)
+ || U8(split_code)                   # Q=1, P=2, E=3
+ || U8(role_code)                    # target=1, challenge=2,
+                                     # contrast=3, witness=4
+ || LP16(object_id_ascii)
+ || LP16(custodian_id_utf8_nfc)
+ || nonce_32
+ || U64BE(len(raw_bytes))
+ || raw_bytes
+
+commitment = SHA256(canonical_envelope)
 ```
 
-The public manifest includes commitment, byte length, schema, role, split, and
-custodian identity, but not nonce or raw bytes. The custodian seals nonce and raw
-bytes before any actor run. The runner verifies the commitment inside the
-referee environment. Nonce/raw-byte reveal occurs only after all arms are
-sealed, and only to the independent reviewer/adjudicator.
+`schema_id_ascii` is 1-128 bytes and matches
+`[a-z0-9][a-z0-9._/-]{0,127}`. `object_id_ascii` is an opaque 1-64 byte value
+matching `[a-z0-9][a-z0-9._-]{0,63}` and may bind only, never score.
+`custodian_id_utf8_nfc` is 1-255 bytes, valid UTF-8, already Unicode NFC, and
+contains no NUL or control character. The nonce is exactly 32 raw bytes and is
+unique per object. `raw_bytes` is an uninterpreted byte string: no newline,
+Unicode, JSON, archive, or text normalization occurs. A future preregistration
+must freeze a per-object maximum raw length no greater than `2^24` bytes even
+though the codec uses U64 for unambiguous framing.
+
+The decoder accepts exactly one full envelope and returns typed fields plus the
+exact raw byte slice. It rejects wrong domain/version, unknown split/role,
+zero/overlong string lengths, invalid ASCII/UTF-8/NFC, forbidden characters,
+short nonce, truncated or overlong length prefixes, raw-length mismatch,
+oversized raw bytes, trailing bytes, non-canonical re-encoding, commitment
+mismatch, duplicate nonce, or reuse of one commitment for two manifest objects.
+There is no permissive decoder, legacy mode, automatic transcoding, ignored
+trailer, or string-concatenation fallback.
+
+The following normative vector freezes byte order and framing. Inputs are
+`schema=opaque-target/v1`, `split=E`, `role=target`,
+`object=object-0001`, `custodian=custodian-test`, nonce bytes `00..1f`, and
+`raw_bytes=00 ff 41 0a`:
+
+```text
+envelope_len = 136
+envelope_hex =
+00276163746976652d646973636f766572793a68696464656e2d627974652d636f6d6d69746d656e74000100106f70617175652d7461726765742f76310301000b6f626a6563742d30303031000e637573746f6469616e2d74657374000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000000000000400ff410a
+commitment_sha256 =
+5eba14f5e5a57193a784d62c0349cc00a934f13e0df972c952c4f3361993b1c5
+```
+
+Any implementation that emits different bytes or digest for this vector is
+codec-incompatible and cannot be accepted by alias, migration, or version
+guessing.
+
+The public manifest includes commitment, raw byte length, codec version, schema,
+role, split, object ID, custodian ID, and envelope-metadata digest, but never the
+nonce, envelope, or raw bytes. Before acceptance, the verifier decodes the
+reveal, re-encodes it byte-identically, validates the typed public metadata, and
+then recomputes the commitment. This prefix-free domain-separated envelope makes
+role/split/schema/custodian aliasing mechanically detectable and prevents a
+candidate's echoed digest from being mistaken for a reveal.
+
+The custodian seals nonce and raw bytes before any actor run. The runner verifies
+the commitment inside the referee environment. Nonce/raw-byte reveal occurs only
+after all arms and human references are sealed, and only to the independent
+reviewer/adjudicator.
 
 Creating, replacing, or reordering hidden bytes after any actor output is
 `INVALID_HIDDEN_BYTES`. A missing reveal or commitment mismatch is invalid, not
 missing data.
 
-### 9.3 What “held out” means
+### 9.3 Future custodian identity and run-before-binding brake
+
+This design binds role requirements, not real future principals. Its current
+machine-readable binding state is exactly:
+
+```yaml
+binding_status: UNBOUND_DESIGN_ONLY
+q_score_custodian_id: null
+p_power_custodian_id: null
+e_score_custodian_id: null
+runner_operator_id: null
+c7_authority_id: null
+independent_adjudicator_id: null
+human_protocol_operator_id: null
+```
+
+`null` is intentional; placeholder strings such as `TBD`, inferred chat
+identities, the docs writer, or test fakes are not bindings. Before any
+role-bearing P-POWER or E-SCORE hidden byte is generated or committed, a future
+founder-authorized candidate must bind real nonempty IDs, exact role scopes,
+source/corpus workspaces, and an independent review receipt. P-POWER and
+E-SCORE custodians must differ. The E-SCORE custodian must also differ from
+scorer writer/implementer, actor, runner operator, C7 authority, human operator,
+and final adjudicator.
+
+No provider/model/human call, pilot, hidden-byte generation, commitment, freeze,
+or scientific run is allowed while any required identity is null, collapsed,
+unreviewed, or writable by the candidate. The machine disposition is
+`BLOCKED_UNBOUND`, not a request to auto-fill values. The first implementation
+may test this brake only with test-local fakes and may not create a production
+binding record or run authority.
+
+### 9.4 What “held out” means
 
 - F1-F3 evaluation configurations can be **configuration-unseen** to actors if
   committed by the custodian after scorer freeze.
@@ -608,6 +856,13 @@ opaque token spelling, arm label, model label, or bundle digest as a number
 Content digests may join and bind records, but may not contribute numeric score.
 Tests must permute every identifier while preserving behavior and require exact
 metric equality.
+
+Actor bundles also may not name, embed, choose, or indirectly configure scorer
+code/config, canonical codecs, trace-universe generation, target/contrast
+selection, witness bytes, metric weights, or adjudication expectations. All such
+inputs are resolved from the independently reviewed source/corpus manifests
+inside `scoring_referee.py`; bundle-origin references are unknown fields. Typed
+provenance and the section-8.1 collusion trap must be checked before any score.
 
 ## 11. Strong baselines and matched budget
 
@@ -659,6 +914,44 @@ predeclared wall-clock cap, then reports time and operator effort separately.
 If the human reference is absent, underpowered, or exposed to source/hidden
 bytes, the run may still test model-arm selection but may not claim superiority
 to the strongest baseline or human-level discovery.
+
+The exact interface is `HumanBundleProtocol/v1`, not an informal expert memo:
+
+- one independently recruited experienced software engineer operates alone per
+  instance through a frozen UI and receives exactly the same public descriptor,
+  probe catalogue/costs, challenge inputs, trace bytes, reset semantics, and
+  four-probe cap as model arms;
+- before probe 1 and immediately after each consumed probe, the UI seals prefix
+  bundles `k=0..4`; a human cannot backfill, reopen, or skip a prefix and still
+  count as a complete human reference;
+- for every challenge sequence, the human directly assigns each trace an
+  integer `probability_micros` value in `[0,1_000_000]`; the exact per-sequence
+  total is `1_000_000`, and the UI shows the remaining integer but performs no
+  floating conversion, renormalization, default confidence, or hidden
+  smoothing;
+- the human selects one maximum-probability trace as the exact contract, with
+  the same tie rule as `DiscoveryScoreBundle/v1`, and may author only the same
+  inert `StatefulTestIR/v2` fields and size limits;
+- the sealed human bundle is converted losslessly to
+  `DiscoveryScoreBundle/v1` and scored by the identical post-seal scorer; a
+  narrative answer, missing probability vector, invalid total, out-of-universe
+  contract, executable test, or schema adaptation is invalid rather than
+  imputed;
+- the frozen protocol binds UI bytes, instructions, eligibility screen,
+  practice task bytes, wall-clock cap, break policy, allowed local notes,
+  operator count, compensation class, and interaction/event-log schema.
+
+Source code, shell, filesystem, network/search, other people, model assistance,
+hidden outcomes, contrast identities, score feedback, and other-arm artifacts
+are forbidden. Public practice tasks are disjoint from Q-SCORE, P-POWER, and
+E-SCORE and do not reveal family semantics. Wall time, active interaction time,
+probe count, bundle-edit events, and self-reported effort are reported
+separately and never converted into model tokens. Timeout or operator dropout is
+a predeclared missing-human disposition; it cannot be replaced after seeing
+model scores. Human absence or protocol invalidity blocks only human/strongest-
+baseline language, never rescues or invalidates the separately frozen model-arm
+comparison unless a future preregistration explicitly makes HUMAN_STRONG a
+required co-gate.
 
 ## 12. Architecture-Theory Review Gate (writer-side packet)
 
@@ -761,7 +1054,9 @@ customer capability, commercial evidence, or general discovery evidence.
 ### 12.13 Decision owner and gate outcome
 
 - Writer recommendation: `ACCEPT_FOR_SPEC` after independent review.
-- Binding current outcome: `NOT_READY / NOT_INDEPENDENTLY_REVIEWED`.
+- Binding prior-review outcome: `SPEC_REVISE` on exact head `c64c3bee`.
+- Binding revised-head outcome: `NOT_REVIEWED`; this remediation cannot
+  self-upgrade the prior verdict.
 - Independent reviewer owns RR-0029 acceptance.
 - Founder owns any new preregistration/run cast and any claim expansion.
 - Runner/adjudicator owns later mechanical validity and result disposition.
@@ -807,8 +1102,16 @@ Stop before hidden evaluation bytes if any is true:
 - controlled behavior/prediction/test improvements do not change the required
   components and scalar in the specified direction;
 - any true challenge outcome falls outside its precommitted universe;
+- the trace-universe verifier samples/truncates a domain, admits more than 16
+  deduplicated traces, or cannot witness both completeness directions;
 - the scorer requires a family semantic label, case ID, seed, or digest-derived
   numeric feature;
+- a candidate controls or aliases scorer/config/codec/universe/contrast inputs,
+  echoes a commitment as truth, or shares forbidden generation provenance with
+  hidden evaluation bytes;
+- the hidden-byte codec accepts a second encoding, wrong role/split/domain,
+  malformed length, non-canonical text, trailing bytes, or cross-object
+  commitment reuse;
 - qualification receipts differ across supported processes/interpreters;
 - actor-visible data reveal target outcomes, contrasts, hidden semantics, or
   score feedback;
@@ -819,6 +1122,8 @@ Disposition: `REVISE_SCORER` or `REJECT_SCORER`; no preregistration.
 ### 13.2 Run-invalidating conditions
 
 - hidden commitment created or changed after actor output;
+- any required custodian, runner, C7, human-operator, or adjudicator identity is
+  null, placeholder, collapsed, unreviewed, or bound after hidden generation;
 - nonce/raw-byte custody or reveal mismatch;
 - scorer, actor, prompt, model, challenge, baseline, budget, contrast, or metric
   bytes drift after freeze;
@@ -879,9 +1184,19 @@ model/provider calls, or a scientific run.
 - Query efficiency uses immutable prefixes and delayed scoring.
 - Complete-trace universes are public, exhaustive, and
   configuration-independent.
+- A separate verifier proves full-domain coverage and rejects a trace universe
+  outside the hard `[2,16]` bound.
 - Tests are held out from probes and challenges and must be valid on target.
 - Hidden evaluation bytes are salted, separately custodied, and committed before
   actor output.
+- Commitment bytes have one versioned prefix-free binary codec and bind split,
+  role, schema, object, custodian, nonce, length, and raw bytes.
+- Scorer-candidate control, alias/echo, same-origin generation, and score
+  feedback are explicit qualification falsifiers.
+- HUMAN_STRONG uses the same integer probability/contract/TestIR bundle rather
+  than a narrative proxy.
+- Future custody/run identities remain honest nulls and mechanically block any
+  hidden generation, freeze, pilot, or run.
 - F4 is never called author-unseen.
 - No family or runtime code is changed by this lane.
 - C6/C7 and product/research/process boundaries remain explicit.
@@ -889,7 +1204,10 @@ model/provider calls, or a scientific run.
 
 ### 15.2 Allowed next action
 
-The only allowed successor action is an independent technical and
-architecture-theory review of both exact packet documents. A reviewer may return
-`ACCEPT_FOR_SPEC`, `REVISE_TO_SPEC`, `PARK_AS_DUE_DILIGENCE`, or rejection under
-RR-0029. No implementation, freeze, run, or result follows by implication.
+The only allowed successor action is an exact-head Kimi technical and
+architecture-theory re-review of both packet documents. The reviewer must be
+given the prior `SPEC_REVISE` receipt plus the exact remediation diff and may
+return `SPEC_APPROVE`, `SPEC_REVISE`, `PARK_AS_DUE_DILIGENCE`, or rejection under
+RR-0029. Only a literal `SPEC_APPROVE` may authorize a separately created
+implementation branch/worktree; every other verdict remains docs-only. No
+implementation, freeze, run, or result follows by implication.
