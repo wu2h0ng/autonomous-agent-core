@@ -6,6 +6,10 @@ from .errors import (
     CandidateEvaluationError,
     CandidateEvaluationNotFound,
     CandidateEvaluationScopeMismatch,
+    CandidatePromotionDenied,
+    CandidatePromotionError,
+    CandidatePromotionNotFound,
+    CandidatePromotionScopeMismatch,
     CandidateIdempotencyConflict,
     CandidateProvenanceError,
     CandidateScopeMismatch,
@@ -33,8 +37,19 @@ from .provider import (
     ProviderPort,
 )
 from .recovery import build_recovery_snapshot
-from .capability import CapabilityBroker, CapabilityDenied, CapabilityResult, WorkspaceSandbox
-from .execution import DeterministicOutcomeEvaluator, RunCoordinator, RunExecutionError, UnsupportedNodeError, WorkerInterrupted
+from .capability import (
+    CapabilityBroker,
+    CapabilityDenied,
+    CapabilityResult,
+    WorkspaceSandbox,
+)
+from .execution import (
+    DeterministicOutcomeEvaluator,
+    RunCoordinator,
+    RunExecutionError,
+    UnsupportedNodeError,
+    WorkerInterrupted,
+)
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService
 from .materialization import (
@@ -59,6 +74,27 @@ from .materialization_evaluation_persistence import (
     candidate_evaluation_idempotency_key,
     candidate_evaluation_payload_digest,
 )
+from .materialization_ledger import SQLiteAdaptationLedger
+from .materialization_promotion import (
+    PROMOTION_CAPABILITY,
+    DomainCandidatePromotionService,
+)
+from .materialization_promotion_persistence import (
+    CandidatePromotionRecordRequest,
+    CandidatePromotionStore,
+    SQLiteCandidatePromotionStore,
+    candidate_promotion_idempotency_key,
+    candidate_promotion_payload_digest,
+    candidate_receipt_chain_digest,
+)
+from .materialization_promotion_policy import (
+    PROMOTION_POLICY_V1_DIGEST,
+    PROMOTION_POLICY_V1_SPEC,
+    ProductPromotionPolicy,
+    PromotionPolicyRegistry,
+    PromotionPolicyV1,
+    PromotionReduction,
+)
 
 __all__ = [
     "AgentOSCoreError",
@@ -69,6 +105,10 @@ __all__ = [
     "CandidateEvaluationNotFound",
     "CandidateEvaluationScopeMismatch",
     "CandidateIdempotencyConflict",
+    "CandidatePromotionDenied",
+    "CandidatePromotionError",
+    "CandidatePromotionNotFound",
+    "CandidatePromotionScopeMismatch",
     "CandidateProvenanceError",
     "CandidateScopeMismatch",
     "CandidateSealingDenied",
@@ -85,6 +125,8 @@ __all__ = [
     "SQLiteTaskEventStore",
     "SQLiteCandidateStore",
     "SQLiteCandidateEvaluationStore",
+    "SQLiteAdaptationLedger",
+    "SQLiteCandidatePromotionStore",
     "PostgresTaskEventStore",
     "InvalidTransitionError",
     "ReplanRejectedError",
@@ -96,8 +138,12 @@ __all__ = [
     "TaskService",
     "DomainCandidateSealer",
     "DomainCandidateEvaluationRecorder",
+    "DomainCandidatePromotionService",
     "EVALUATION_CAPABILITY",
     "MATERIALIZATION_CAPABILITY",
+    "PROMOTION_CAPABILITY",
+    "PROMOTION_POLICY_V1_DIGEST",
+    "PROMOTION_POLICY_V1_SPEC",
     "TaskNotFoundError",
     "WaitExpiredError",
     "CorrectionAuthority",
@@ -122,4 +168,13 @@ __all__ = [
     "candidate_evaluation_idempotency_key",
     "candidate_evaluation_payload_digest",
     "evaluation_contract_digest",
+    "CandidatePromotionRecordRequest",
+    "CandidatePromotionStore",
+    "ProductPromotionPolicy",
+    "PromotionPolicyRegistry",
+    "PromotionPolicyV1",
+    "PromotionReduction",
+    "candidate_promotion_idempotency_key",
+    "candidate_promotion_payload_digest",
+    "candidate_receipt_chain_digest",
 ]

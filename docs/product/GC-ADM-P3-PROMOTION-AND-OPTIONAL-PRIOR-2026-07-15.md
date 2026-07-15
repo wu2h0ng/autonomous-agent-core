@@ -2,11 +2,12 @@
 
 > Date: 2026-07-15
 > Track: Product / Translational
-> Status: **GOAL_CARD_PROPOSED / PLAN_REVIEW_REQUIRED / NO_IMPLEMENTATION_AUTHORITY**
+> Status: **SPEC_APPROVED / LOCAL_TDD_IMPLEMENTATION_AUTHORIZED / NO_ACTIVATION_AUTHORITY**
 > Branch: `codex/adm-p3-optional-domain-prior-20260715`
 > Exact base: `9673c4bd9b5ca101c8bee51e806c20d0cb74a746`
 > Authority: ADR-0057; ADM-P1 and ADM-P2 implementation evidence
 > Claim ceiling before implementation review: `SPECIFIED_ADM_P3_ONLY`
+> Technical plan review: Kimi Code `SPEC_APPROVE`, session `session_4908b8a8-a26a-49bc-bb96-7ecf55ae2fd6`
 
 ## Goal
 
@@ -69,8 +70,10 @@ chain. The promoter must:
 
 - have role `PRINCIPAL` or `TENANT_ADMIN`;
 - own the promotion Task Goal and accept its Commitment;
-- hold an active, unexpired, exact-scope
-  `domain.candidate.promote@1` `CapabilityGrant`;
+- hold an active, unexpired, exact-scope `CapabilityGrant` with
+  `capability_id="domain.candidate.promote"` and `capability_version="1"` as separate
+  fields; its Commitment contains the raw authority scope
+  `domain.candidate.promote`, never the combined string `domain.candidate.promote@1`;
 - use a promotion Task/Run distinct from the candidate Task/Run and every evaluation
   Task/Run;
 - operate in the exact candidate tenant/workspace;
@@ -95,7 +98,8 @@ are true:
    return `DEFER` for every current ADM-P2 disposition combination.
 5. A registered closed test policy proves `PROMOTE` and prior creation are one atomic
    transaction; an injected SQLite abort leaves neither record.
-6. `REJECT` and `DEFER` never create a prior artifact.
+6. `REJECT` and `DEFER` never create a prior artifact; an empty receipt chain can never
+   produce `PROMOTE` under any registered policy and is covered by a bypass test.
 7. The promoter is mechanically separated from builder, sealer, every evaluator and
    every recorder, with exact typed capability and Task/Run scope checks.
 8. C7 correction cannot interleave after recheck and before append when the same
@@ -105,6 +109,9 @@ are true:
    provider or tool, or create activation/configuration authority.
 10. Targeted and full Product tests, ruff, pyright, compileall and independent exact-diff
     technical review pass.
+11. `SQLiteAdaptationLedger` owns its connection. A store that constructs its ledger is
+    an owner and closes it; a store that receives a shared ledger is a borrower and its
+    `close()` must not close the shared connection. Both paths are tested.
 
 ## Explicit non-goals
 
@@ -125,6 +132,7 @@ Stop and return `REVISE_TO_SPEC` if implementation requires any of the following
 - treating opaque evidence references or reviewer/model names as mechanical proof;
 - a second authority spine or promotion runtime;
 - a `PROMOTE` decision without an atomic prior, or a prior without `PROMOTE`;
+- a `PROMOTE` decision over an empty evaluation-receipt chain;
 - current Task/Run/configuration mutation;
 - model, plugin, evaluator or candidate author holding promotion authority;
 - weakening C7, CAS, append-only history or identity separation;

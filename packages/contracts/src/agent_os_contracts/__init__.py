@@ -23,7 +23,13 @@ from .capability import (
     CapabilitySpec,
     SideEffectGuarantee,
 )
-from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json, content_digest
+from .common import (
+    ContractModel,
+    NonEmptyStr,
+    UtcDateTime,
+    canonical_json,
+    content_digest,
+)
 from .domain import DomainPackManifest
 from .evidence import (
     ArtifactLocationClass,
@@ -38,16 +44,23 @@ from .materialization import (
     CandidateEvaluationReceipt,
     CandidateEvaluatorIdentity,
     CandidateEvaluatorKind,
+    CandidatePromotionCommand,
+    CandidatePromotionDecision,
+    CandidatePromotionDisposition,
+    CandidatePromotionResult,
     CandidateProvenance,
     CandidateWriteChannel,
     DomainCandidate,
     DomainCandidateDraft,
+    DomainPriorArtifact,
     MaterializationOutcome,
     RepresentationPatch,
     RepresentationPatchOperation,
     RepresentationRelationClass,
     candidate_evaluation_receipt_digest,
+    candidate_promotion_decision_digest,
     domain_candidate_digest,
+    domain_prior_artifact_digest,
 )
 from .outcome import ExpectedOutcome, ObservedOutcome, OutcomeStatus
 from .provider import (
@@ -80,7 +93,14 @@ from .runtime import (
     WaitCondition,
 )
 from .task import Commitment, Goal
-from .workflow import EdgeSpec, GraphPatch, IdempotencyMode, NodeKind, NodeSpec, WorkflowGraph
+from .workflow import (
+    EdgeSpec,
+    GraphPatch,
+    IdempotencyMode,
+    NodeKind,
+    NodeSpec,
+    WorkflowGraph,
+)
 
 __all__ = [
     "ActionContract",
@@ -96,6 +116,10 @@ __all__ = [
     "CandidateEvaluationReceipt",
     "CandidateEvaluatorIdentity",
     "CandidateEvaluatorKind",
+    "CandidatePromotionCommand",
+    "CandidatePromotionDecision",
+    "CandidatePromotionDisposition",
+    "CandidatePromotionResult",
     "CandidateGenerationEnvelope",
     "CandidateProvenance",
     "CandidateWriteChannel",
@@ -109,6 +133,7 @@ __all__ = [
     "DomainPackManifest",
     "DomainCandidate",
     "DomainCandidateDraft",
+    "DomainPriorArtifact",
     "CorrectionEpochVector",
     "CorrectionScope",
     "CorrectionSnapshot",
@@ -165,6 +190,8 @@ __all__ = [
     "WorkflowGraph",
     "canonical_json",
     "candidate_evaluation_receipt_digest",
+    "candidate_promotion_decision_digest",
     "content_digest",
     "domain_candidate_digest",
+    "domain_prior_artifact_digest",
 ]

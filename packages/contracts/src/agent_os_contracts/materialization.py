@@ -120,7 +120,9 @@ class DomainCandidateDraft(ContractModel):
             if self.outcome is not MaterializationOutcome.NOT_SUPPORTED:
                 raise ValueError("only R may produce a candidate in ADM-P1")
             if self.representation_patch is not None or self.provenance:
-                raise ValueError("B/T/P NOT_SUPPORTED must not carry patch or provenance")
+                raise ValueError(
+                    "B/T/P NOT_SUPPORTED must not carry patch or provenance"
+                )
             return self
 
         if self.outcome is MaterializationOutcome.CANDIDATE:
@@ -146,7 +148,9 @@ class DomainCandidateDraft(ContractModel):
 
 def domain_candidate_digest(payload: Mapping[str, Any]) -> str:
     if "candidate_digest" in payload:
-        raise ValueError("candidate_digest must be excluded from its own digest payload")
+        raise ValueError(
+            "candidate_digest must be excluded from its own digest payload"
+        )
     return content_digest(payload)
 
 
@@ -165,7 +169,9 @@ class DomainCandidate(ContractModel):
     def _validate_candidate_digest(self) -> DomainCandidate:
         payload = self.model_dump(mode="json", exclude={"candidate_digest"})
         if self.candidate_digest != domain_candidate_digest(payload):
-            raise ValueError("candidate_digest does not match canonical candidate payload")
+            raise ValueError(
+                "candidate_digest does not match canonical candidate payload"
+            )
         return self
 
 
@@ -254,10 +260,14 @@ class CandidateEvaluationDraft(ContractModel):
             if self.score is None:
                 raise ValueError("evaluator pass/fail dispositions require score")
             if self.unresolved_gaps or self.invalidity_reasons:
-                raise ValueError("decisive evaluator dispositions forbid gap/reason fields")
+                raise ValueError(
+                    "decisive evaluator dispositions forbid gap/reason fields"
+                )
         elif self.disposition is CandidateEvaluationDisposition.UNRESOLVED:
             if not self.unresolved_gaps or self.score is not None:
-                raise ValueError("UNRESOLVED requires gaps and forbids a decisive score")
+                raise ValueError(
+                    "UNRESOLVED requires gaps and forbids a decisive score"
+                )
             if self.invalidity_reasons:
                 raise ValueError("UNRESOLVED forbids invalidity reasons")
         elif self.disposition is CandidateEvaluationDisposition.INVALID:
@@ -270,7 +280,9 @@ class CandidateEvaluationDraft(ContractModel):
 
 def candidate_evaluation_receipt_digest(payload: Mapping[str, Any]) -> str:
     if "evaluation_digest" in payload:
-        raise ValueError("evaluation_digest must be excluded from its own digest payload")
+        raise ValueError(
+            "evaluation_digest must be excluded from its own digest payload"
+        )
     return content_digest(payload)
 
 
@@ -290,5 +302,190 @@ class CandidateEvaluationReceipt(ContractModel):
     def _validate_evaluation_digest(self) -> CandidateEvaluationReceipt:
         payload = self.model_dump(mode="json", exclude={"evaluation_digest"})
         if self.evaluation_digest != candidate_evaluation_receipt_digest(payload):
-            raise ValueError("evaluation_digest does not match canonical receipt payload")
+            raise ValueError(
+                "evaluation_digest does not match canonical receipt payload"
+            )
+        return self
+
+
+class CandidatePromotionDisposition(str, Enum):
+    REJECT = "REJECT"
+    DEFER = "DEFER"
+    PROMOTE = "PROMOTE"
+
+
+class CandidatePromotionCommand(ContractModel):
+    candidate_digest: Sha256Digest
+    candidate_task_id: NonEmptyStr
+    promotion_task_id: NonEmptyStr
+    promotion_run_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    expected_evaluation_head_digest: Sha256Digest | None = None
+    expected_parent_promotion_digest: Sha256Digest | None = None
+
+    @model_validator(mode="after")
+    def _require_distinct_tasks(self) -> CandidatePromotionCommand:
+        if self.candidate_task_id == self.promotion_task_id:
+            raise ValueError("candidate and promotion must use different tasks")
+        return self
+
+
+def candidate_promotion_decision_digest(payload: Mapping[str, Any]) -> str:
+    if "promotion_digest" in payload:
+        raise ValueError(
+            "promotion_digest must be excluded from its own digest payload"
+        )
+    return content_digest(payload)
+
+
+class CandidatePromotionDecision(ContractModel):
+    promotion_id: NonEmptyStr
+    promotion_version: int = Field(ge=1)
+    promotion_digest: Sha256Digest
+    payload_digest: Sha256Digest
+    idempotency_key: Sha256Digest
+    candidate_digest: Sha256Digest
+    candidate_task_id: NonEmptyStr
+    promotion_task_id: NonEmptyStr
+    promotion_run_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    evaluation_head_digest: Sha256Digest | None = None
+    evaluation_receipt_digests: tuple[Sha256Digest, ...] = ()
+    receipt_chain_digest: Sha256Digest
+    disposition: CandidatePromotionDisposition
+    reason_codes: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    policy_version: NonEmptyStr
+    policy_digest: Sha256Digest
+    decided_by: NonEmptyStr
+    decided_at: UtcDateTime
+    observed_correction_epochs: CorrectionEpochVector
+    parent_promotion_digest: Sha256Digest | None = None
+    prior_artifact_id: NonEmptyStr | None = None
+
+    @field_validator("reason_codes", mode="after")
+    @classmethod
+    def _normalize_reason_codes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(values) != len(set(values)):
+            raise ValueError("promotion reason codes must be unique")
+        return values
+
+    @model_validator(mode="after")
+    def _validate_chain_disposition_and_digest(self) -> CandidatePromotionDecision:
+        receipt_digests = self.evaluation_receipt_digests
+        if len(receipt_digests) != len(set(receipt_digests)):
+            raise ValueError("evaluation receipt digests must be unique")
+        if receipt_digests:
+            if self.evaluation_head_digest != receipt_digests[-1]:
+                raise ValueError("evaluation head must equal the latest receipt digest")
+        elif self.evaluation_head_digest is not None:
+            raise ValueError("empty receipt chain requires a null evaluation head")
+
+        if self.disposition is CandidatePromotionDisposition.PROMOTE:
+            if not receipt_digests or self.evaluation_head_digest is None:
+                raise ValueError("PROMOTE requires a non-empty receipt chain and head")
+            if self.prior_artifact_id is None:
+                raise ValueError("PROMOTE requires prior_artifact_id")
+        elif self.prior_artifact_id is not None:
+            raise ValueError("REJECT and DEFER forbid prior_artifact_id")
+
+        payload = self.model_dump(mode="json", exclude={"promotion_digest"})
+        if self.promotion_digest != candidate_promotion_decision_digest(payload):
+            raise ValueError(
+                "promotion_digest does not match canonical decision payload"
+            )
+        return self
+
+
+def domain_prior_artifact_digest(payload: Mapping[str, Any]) -> str:
+    if "prior_digest" in payload:
+        raise ValueError("prior_digest must be excluded from its own digest payload")
+    return content_digest(payload)
+
+
+class DomainPriorArtifact(ContractModel):
+    prior_artifact_id: NonEmptyStr
+    prior_version: int = Field(ge=1)
+    prior_digest: Sha256Digest
+    payload_digest: Sha256Digest
+    parent_prior_digest: Sha256Digest | None = None
+    candidate_digest: Sha256Digest
+    candidate_payload_digest: Sha256Digest
+    promotion_digest: Sha256Digest
+    evaluation_head_digest: Sha256Digest
+    evaluation_receipt_digests: tuple[Sha256Digest, ...] = Field(min_length=1)
+    receipt_chain_digest: Sha256Digest
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    representation_patch: RepresentationPatch
+    provenance: tuple[CandidateProvenance, ...] = Field(min_length=1)
+    policy_digest: Sha256Digest
+    published_by: NonEmptyStr
+    published_at: UtcDateTime
+    observed_correction_epochs: CorrectionEpochVector
+    state: Literal["INERT"] = "INERT"
+    activation_authority: Literal["NONE"] = "NONE"
+    uncertainty_behavior: Literal["PRESERVE"] = "PRESERVE"
+
+    @model_validator(mode="after")
+    def _validate_prior_bindings_and_digest(self) -> DomainPriorArtifact:
+        receipt_digests = self.evaluation_receipt_digests
+        if len(receipt_digests) != len(set(receipt_digests)):
+            raise ValueError("evaluation receipt digests must be unique")
+        if self.evaluation_head_digest != receipt_digests[-1]:
+            raise ValueError("evaluation head must equal the latest receipt digest")
+        patch_digest = self.representation_patch.patch_digest()
+        if any(item.output_patch_digest != patch_digest for item in self.provenance):
+            raise ValueError(
+                "provenance output_patch_digest must match representation patch"
+            )
+        payload = self.model_dump(mode="json", exclude={"prior_digest"})
+        if self.prior_digest != domain_prior_artifact_digest(payload):
+            raise ValueError("prior_digest does not match canonical prior payload")
+        return self
+
+
+class CandidatePromotionResult(ContractModel):
+    decision: CandidatePromotionDecision
+    prior: DomainPriorArtifact | None = None
+
+    @model_validator(mode="after")
+    def _validate_result_bindings(self) -> CandidatePromotionResult:
+        decision = self.decision
+        prior = self.prior
+        if decision.disposition is CandidatePromotionDisposition.PROMOTE:
+            if prior is None:
+                raise ValueError("PROMOTE result requires a prior")
+        elif prior is not None:
+            raise ValueError("REJECT or DEFER result forbids a prior")
+        else:
+            return self
+
+        assert prior is not None
+        if prior.prior_artifact_id != decision.prior_artifact_id:
+            raise ValueError("prior_artifact_id does not match decision")
+        if prior.candidate_digest != decision.candidate_digest:
+            raise ValueError("prior candidate binding does not match decision")
+        if prior.promotion_digest != decision.promotion_digest:
+            raise ValueError("prior promotion binding does not match decision")
+        if (
+            prior.evaluation_head_digest != decision.evaluation_head_digest
+            or prior.evaluation_receipt_digests != decision.evaluation_receipt_digests
+            or prior.receipt_chain_digest != decision.receipt_chain_digest
+        ):
+            raise ValueError("prior receipt chain binding does not match decision")
+        if (
+            prior.tenant_id != decision.tenant_id
+            or prior.workspace_id != decision.workspace_id
+        ):
+            raise ValueError("prior scope binding does not match decision")
+        if prior.policy_digest != decision.policy_digest:
+            raise ValueError("prior policy binding does not match decision")
+        if prior.published_by != decision.decided_by:
+            raise ValueError("prior actor binding does not match decision")
+        if prior.published_at != decision.decided_at:
+            raise ValueError("prior time binding does not match decision")
+        if prior.observed_correction_epochs != decision.observed_correction_epochs:
+            raise ValueError("prior correction binding does not match decision")
         return self

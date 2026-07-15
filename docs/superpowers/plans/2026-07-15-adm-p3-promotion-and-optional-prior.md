@@ -1,6 +1,8 @@
 # ADM-P3 Promotion Decision and Optional Prior Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Review:** Kimi Code `SPEC_APPROVE`, session `session_4908b8a8-a26a-49bc-bb96-7ecf55ae2fd6`; the three required fixes below are binding.
 
 **Goal:** Add a Product-owned, deterministic and append-only candidate-promotion decision seam that consumes only one ADM-P1 candidate and its complete ADM-P2 receipt chain, while atomically deriving an inert immutable optional prior only for a registered-policy `PROMOTE` result.
 
@@ -18,7 +20,12 @@
 - Product policy is closed, deterministic, versioned, digest-bound and registered in code.
 - Production `ADM-P3-POLICY-V1` returns `DEFER` only; opaque evidence refs or identity labels never prove custody or independence.
 - Promoter, candidate builder, candidate sealer, every evaluator and every receipt recorder are distinct identities.
-- Promotion uses exact `domain.candidate.promote@1` capability, exact tenant/workspace, a distinct promotion Task/Run and same-authority C7 guard.
+- Promotion grant uses separate `capability_id="domain.candidate.promote"` and
+  `capability_version="1"`; Commitment authority scope is the raw capability ID.
+- No policy may return `PROMOTE` for an empty receipt chain; contracts/store reject it
+  independently of policy behavior.
+- `SQLiteAdaptationLedger` is the connection owner; internally created ledgers are
+  owner-closed, injected shared ledgers are borrowed and never closed by the borrower.
 - Decision history and prior history are append-only, derived-idempotent and parent-CAS protected.
 - `PROMOTE` plus prior is one SQLite transaction; `REJECT`/`DEFER` produce no prior.
 - No evaluator execution, provider/tool call, workspace write, Task event, current Task/Run/Workflow/configuration mutation or activation.
@@ -182,7 +189,8 @@ class CandidatePromotionResult(ContractModel):
 ```
 
 Validators enforce ordered unique receipt digests; head equals last receipt (or both are
-empty); `PROMOTE` requires a prior ID and result prior; other dispositions forbid both;
+empty); `PROMOTE` requires a non-empty receipt tuple, non-null head, prior ID and result
+prior; other dispositions forbid both;
 prior/decision candidate, scope, chain, policy, actor and C7 bindings match; canonical
 digest helpers exclude only their own digest fields.
 
@@ -242,7 +250,8 @@ def test_v1_never_promotes_current_adm_p2_receipts(
 Test exact reason grammar for empty/pass/fail/invalid/unresolved observations. Every
 chain remains `DEFER`; multiple names/providers/digests and plausible `artifact:` refs
 must not change the result. Test immutable registry rejection of duplicate, unknown or
-mismatched version/digest.
+mismatched version/digest. Add a defective test policy that proposes `PROMOTE` for an
+empty chain and prove the persistence boundary rejects it.
 
 - [ ] **Step 2: Run the policy test and confirm RED**
 
@@ -379,7 +388,10 @@ class SQLiteAdaptationLedger:
 
 Change `SQLiteCandidateEvaluationStore` to accept
 `ledger: SQLiteAdaptationLedger | None = None`, create one only when absent, initialize
-its existing table on `ledger.connection`, and expose read-only `.ledger`. Existing
+its existing table on `ledger.connection`, record `_owns_ledger = ledger is None`, and
+expose read-only `.ledger`. Its `close()` closes the ledger only when `_owns_ledger` is
+true. `SQLiteCandidatePromotionStore` follows the same owner/borrower rule. A borrowed
+store close must leave the shared ledger usable by its owner and sibling store. Existing
 ADM-P2 transaction order, signatures, JSON and digests must remain unchanged.
 
 - [ ] **Step 4: Implement complete-chain digest and one atomic append**
@@ -432,10 +444,11 @@ class CandidatePromotionStore(Protocol):
 3. resolve idempotency first and return only an exact payload match;
 4. require exact latest parent-decision CAS and a changed receipt head for new decision;
 5. resolve exact registered policy and recompute reduction over the reloaded chain;
-6. assign decision version and deterministic prior ID only for `PROMOTE`, then insert;
-7. for `PROMOTE`, assign prior version/parent, derive the inert prior from candidate R
+6. reject `PROMOTE` if the reloaded chain is empty, regardless of policy output;
+7. assign decision version and deterministic prior ID only for `PROMOTE`, then insert;
+8. for `PROMOTE`, assign prior version/parent, derive the inert prior from candidate R
    patch/provenance, validate and insert;
-8. commit; roll back the entire transaction on every exception.
+9. commit; roll back the entire transaction on every exception.
 
 Tables use unique decision/prior digests, per-candidate version primary keys and unique
 derived decision idempotency keys. No update/delete method exists. Prior version/parent
@@ -527,6 +540,7 @@ Add one test for each bypass:
 - Goal creator or Commitment acceptor mismatch;
 - missing authority scope;
 - missing/revoked/expired/wrong-version/wrong-principal/wrong-scope promotion grant;
+- combined `capability_id="domain.candidate.promote@1"` or combined Commitment scope;
 - promoter equals candidate builder, fixed sealer, any evaluator or any recorder;
 - command head is not exact latest receipt head;
 - C7 halt, epoch drift and correction interleaving while store append blocks;
@@ -589,7 +603,8 @@ DomainCandidatePromotionService.list_priors(
 3. load promotion Task/Run; require running, distinct and same scope;
 4. require promoter role `PRINCIPAL`/`TENANT_ADMIN`, Goal/Commitment ownership and exact
    authority scope;
-5. validate active unexpired exact `domain.candidate.promote@1` grant;
+5. validate active unexpired exact grant with raw ID
+   `domain.candidate.promote`, separate version `1`, and raw Commitment scope;
 6. reject promoter identity against builder, fixed sealer, every evaluator/recorder;
 7. resolve production policy V1 and derive reduction/payload/idempotency;
 8. C7 halt check and epoch snapshot for promotion Task/Run/capability;

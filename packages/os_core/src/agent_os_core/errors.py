@@ -83,3 +83,19 @@ class CandidateEvaluationDenied(CandidateEvaluationError):
 
 class CandidateEvaluationScopeMismatch(CandidateEvaluationError):
     pass
+
+
+class CandidatePromotionError(CandidateError):
+    pass
+
+
+class CandidatePromotionNotFound(CandidatePromotionError):
+    pass
+
+
+class CandidatePromotionDenied(CandidatePromotionError):
+    pass
+
+
+class CandidatePromotionScopeMismatch(CandidatePromotionError):
+    pass

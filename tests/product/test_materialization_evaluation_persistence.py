@@ -222,3 +222,37 @@ def test_sqlite_restart_preserves_receipt_bytes(tmp_path: Path) -> None:
         )
     finally:
         reopened.close()
+
+
+def test_adm_p2_receipt_bytes_and_digest_are_stable() -> None:
+    store = SQLiteCandidateEvaluationStore()
+    try:
+        receipt = store.append(_request(_draft()), expected_parent_digest=None)
+    finally:
+        store.close()
+
+    assert (
+        receipt.evaluation_digest
+        == "8fa2699eddcbbb63adb350d83b890d21f113d4342a61384319468c10eb0a61c7"
+    )
+    assert receipt.model_dump_json() == (
+        '{"schema_version":"1.0","evaluation_id":"candidate-evaluation:run:evaluation",'
+        '"evaluation_version":1,"evaluation_digest":"8fa2699eddcbbb63adb350d83b890d21f113d4342a61384319468c10eb0a61c7",'
+        '"payload_digest":"84df267e0121e58ee327689bd69227662ef4269920c6af03e24146aeca666c0c",'
+        '"idempotency_key":"d98e7db534e86933f04ea2f4b96cff65016b4ec1c461c3a2bfe644e4024019fe",'
+        '"recorded_by":"principal:recorder","recorded_at":"2026-07-15T13:00:00Z",'
+        '"observed_correction_epochs":{"schema_version":"1.0","task_epoch":1,"run_epoch":2,"capability_epoch":3},'
+        '"evaluation_contract_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",'
+        '"draft":{"schema_version":"1.0","candidate_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+        '"candidate_task_id":"task:candidate","evaluation_task_id":"task:evaluation",'
+        '"evaluation_run_id":"run:evaluation","tenant_id":"tenant:1","workspace_id":"workspace:1",'
+        '"evaluator":{"schema_version":"1.0","evaluator_id":"evaluator:programmatic:1",'
+        '"evaluator_kind":"PROGRAMMATIC","evaluator_type":"contract-check","evaluator_version":"1",'
+        '"implementation_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",'
+        '"configuration_digest":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",'
+        '"provider_id":null,"model_id":null,"checkpoint_digest":null,"prompt_digest":null,'
+        '"fallback_policy":"FORBIDDEN"},"evidence_bundle_digest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",'
+        '"evidence_refs":["evidence:1"],"disposition":"EVALUATOR_PASS","score":0.8,"confidence":0.9,'
+        '"unresolved_gaps":[],"invalidity_reasons":[],"parent_evaluation_digest":null,'
+        '"submitted_at":"2026-07-15T13:00:00Z"}}'
+    )

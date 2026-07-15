@@ -18,11 +18,15 @@ from agent_os_contracts import (
     CapabilityGrantStatus,
     CandidateEvaluationDraft,
     CandidateEvaluationReceipt,
+    CandidatePromotionCommand,
+    CandidatePromotionDecision,
+    CandidatePromotionResult,
     Commitment,
     CredentialRef,
     CredentialStatus,
     DomainCandidate,
     DomainCandidateDraft,
+    DomainPriorArtifact,
     ExpectedOutcome,
     ExternalSignal,
     Goal,
@@ -41,21 +45,27 @@ from agent_os_contracts import (
 from agent_os_core import (
     CandidateScopeMismatch,
     CandidateEvaluationScopeMismatch,
+    CandidatePromotionScopeMismatch,
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
     RunCoordinator,
     DomainCandidateSealer,
     DomainCandidateEvaluationRecorder,
+    DomainCandidatePromotionService,
     EVALUATION_CAPABILITY,
+    PROMOTION_CAPABILITY,
     SQLiteCandidateStore,
     SQLiteCandidateEvaluationStore,
+    SQLiteCandidatePromotionStore,
     SQLiteTaskEventStore,
     TaskService,
     WorkspaceSandbox,
     EnvCredentialBroker,
     OpenAICompatibleProvider,
     build_recovery_snapshot,
+    PromotionPolicyRegistry,
+    PromotionPolicyV1,
 )
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
@@ -70,6 +80,7 @@ class AgentOSApplication:
         workspace: str | Path = ".",
         principal: PrincipalIdentity | None = None,
         evaluation_grant: CapabilityGrant | None = None,
+        promotion_grant: CapabilityGrant | None = None,
     ) -> None:
         now = datetime.now(timezone.utc)
         self.principal = principal or PrincipalIdentity(
@@ -80,6 +91,7 @@ class AgentOSApplication:
             authenticated_at=now,
         )
         self._evaluation_grant_override = evaluation_grant
+        self._promotion_grant_override = promotion_grant
         self.store = SQLiteTaskEventStore(database)
         self.tasks = TaskService(self.store)
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
@@ -91,6 +103,11 @@ class AgentOSApplication:
         )
         self.candidates = SQLiteCandidateStore(database)
         self.evaluation_receipts = SQLiteCandidateEvaluationStore(database)
+        self.promotion_policies = PromotionPolicyRegistry((PromotionPolicyV1(),))
+        self.candidate_promotions = SQLiteCandidatePromotionStore(
+            self.evaluation_receipts.ledger,
+            self.promotion_policies,
+        )
         self.domain_candidates = DomainCandidateSealer(
             self.tasks,
             self.correction,
@@ -145,6 +162,15 @@ class AgentOSApplication:
             self.evaluation_receipts,
             self.grants,
         )
+        self.domain_candidate_promotions = DomainCandidatePromotionService(
+            self.tasks,
+            self.correction,
+            self.candidates,
+            self.evaluation_receipts,
+            self.candidate_promotions,
+            self.grants,
+            self.promotion_policies,
+        )
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
 
@@ -173,10 +199,13 @@ class AgentOSApplication:
             for capability_id in self.sandbox.specs(issued)
         }
         self.evaluation_grant = (
-            self._evaluation_grant_override
-            or self._build_evaluation_grant(issued)
+            self._evaluation_grant_override or self._build_evaluation_grant(issued)
         )
         grants[EVALUATION_CAPABILITY] = self.evaluation_grant
+        self.promotion_grant = (
+            self._promotion_grant_override or self._build_promotion_grant(issued)
+        )
+        grants[PROMOTION_CAPABILITY] = self.promotion_grant
         return grants
 
     def _build_evaluation_grant(
@@ -225,6 +254,31 @@ class AgentOSApplication:
             ),
             status=CapabilityGrantStatus.ACTIVE,
             granted_by="system:coordinator",
+            granted_at=issued,
+            expires_at=issued + timedelta(days=30),
+        )
+
+    def _build_promotion_grant(
+        self,
+        now: datetime | None = None,
+    ) -> CapabilityGrant:
+        issued = now or datetime.now(timezone.utc)
+        return CapabilityGrant(
+            grant_id="grant:internal:domain.candidate.promote",
+            principal_id=self.principal.principal_id,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            capability_id=PROMOTION_CAPABILITY,
+            capability_version="1",
+            max_risk_tier=1,
+            budget_limit=ResourceBudget(
+                max_cost_usd=Decimal("1"),
+                max_duration_seconds=300,
+                max_provider_tokens=0,
+                max_tool_calls=0,
+            ),
+            status=CapabilityGrantStatus.ACTIVE,
+            granted_by="system:composition-root",
             granted_at=issued,
             expires_at=issued + timedelta(days=30),
         )
@@ -393,9 +447,7 @@ class AgentOSApplication:
         values = dict(payload)
         supplied_task_id = values.get("task_id")
         if supplied_task_id is not None and supplied_task_id != task_id:
-            raise CandidateScopeMismatch(
-                "path task does not match candidate task"
-            )
+            raise CandidateScopeMismatch("path task does not match candidate task")
         values["task_id"] = task_id
         values.setdefault("tenant_id", self.principal.tenant_id)
         values.setdefault("workspace_id", self.principal.workspace_id)
@@ -444,6 +496,57 @@ class AgentOSApplication:
         candidate_digest: str,
     ) -> tuple[CandidateEvaluationReceipt, ...]:
         return self.domain_candidate_evaluations.list_for_candidate(
+            self.principal,
+            candidate_task_id,
+            candidate_digest,
+        )
+
+    def decide_domain_candidate_promotion(
+        self,
+        candidate_task_id: str,
+        candidate_digest: str,
+        payload: dict[str, Any],
+    ) -> CandidatePromotionResult:
+        values = dict(payload)
+        supplied_task_id = values.get("candidate_task_id")
+        if supplied_task_id is not None and supplied_task_id != candidate_task_id:
+            raise CandidatePromotionScopeMismatch(
+                "path candidate task does not match promotion body"
+            )
+        supplied_digest = values.get("candidate_digest")
+        if supplied_digest is not None and supplied_digest != candidate_digest:
+            raise CandidatePromotionScopeMismatch(
+                "path candidate digest does not match promotion body"
+            )
+        values["candidate_task_id"] = candidate_task_id
+        values["candidate_digest"] = candidate_digest
+        values.setdefault("tenant_id", self.principal.tenant_id)
+        values.setdefault("workspace_id", self.principal.workspace_id)
+        command = CandidatePromotionCommand.model_validate(values)
+        return self.domain_candidate_promotions.decide(
+            self.principal,
+            candidate_task_id,
+            candidate_digest,
+            command,
+        )
+
+    def list_domain_candidate_promotions(
+        self,
+        candidate_task_id: str,
+        candidate_digest: str,
+    ) -> tuple[CandidatePromotionDecision, ...]:
+        return self.domain_candidate_promotions.list_decisions(
+            self.principal,
+            candidate_task_id,
+            candidate_digest,
+        )
+
+    def list_domain_candidate_priors(
+        self,
+        candidate_task_id: str,
+        candidate_digest: str,
+    ) -> tuple[DomainPriorArtifact, ...]:
+        return self.domain_candidate_promotions.list_priors(
             self.principal,
             candidate_task_id,
             candidate_digest,

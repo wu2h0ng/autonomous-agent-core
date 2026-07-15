@@ -14,6 +14,9 @@ from agent_os_core import (
     CandidateEvaluationDenied,
     CandidateEvaluationNotFound,
     CandidateEvaluationScopeMismatch,
+    CandidatePromotionDenied,
+    CandidatePromotionNotFound,
+    CandidatePromotionScopeMismatch,
     CandidateIdempotencyConflict,
     CandidateProvenanceError,
     CandidateScopeMismatch,
@@ -31,7 +34,11 @@ PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
 def _uses_generic_http_idempotency(path: str) -> bool:
     parsed_path = urlparse(path).path
     return not parsed_path.endswith(
-        ("/domain-candidates:seal", "/evaluations:record")
+        (
+            "/domain-candidates:seal",
+            "/evaluations:record",
+            "/promotions:decide",
+        )
     )
 
 
@@ -43,12 +50,17 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             CandidateSealingDenied,
             CandidateEvaluationDenied,
             CandidateEvaluationScopeMismatch,
+            CandidatePromotionDenied,
+            CandidatePromotionScopeMismatch,
         ),
     ):
         return 403
     if isinstance(exc, (CandidateIdempotencyConflict, CandidateConcurrentWrite)):
         return 409
-    if isinstance(exc, (TaskNotFoundError, CandidateEvaluationNotFound)):
+    if isinstance(
+        exc,
+        (TaskNotFoundError, CandidateEvaluationNotFound, CandidatePromotionNotFound),
+    ):
         return 404
     if isinstance(exc, (CandidateProvenanceError, ValidationError, ValueError)):
         return 400
@@ -139,6 +151,42 @@ class Handler(BaseHTTPRequestHandler):
                             ],
                         },
                     )
+                    return
+                if (
+                    len(parts) == 6
+                    and parts[:2] == ["v1", "tasks"]
+                    and parts[3] == "domain-candidates"
+                    and parts[5] in {"promotions", "domain-priors"}
+                ):
+                    if parts[5] == "promotions":
+                        decisions = self.application.list_domain_candidate_promotions(
+                            parts[2], parts[4]
+                        )
+                        self._json(
+                            200,
+                            {
+                                "candidate_task_id": parts[2],
+                                "candidate_digest": parts[4],
+                                "promotions": [
+                                    decision.model_dump(mode="json")
+                                    for decision in decisions
+                                ],
+                            },
+                        )
+                    else:
+                        priors = self.application.list_domain_candidate_priors(
+                            parts[2], parts[4]
+                        )
+                        self._json(
+                            200,
+                            {
+                                "candidate_task_id": parts[2],
+                                "candidate_digest": parts[4],
+                                "priors": [
+                                    prior.model_dump(mode="json") for prior in priors
+                                ],
+                            },
+                        )
                     return
                 task_id = parsed.path[len(prefix) :]
                 if task_id.endswith("/domain-candidates"):
@@ -250,6 +298,17 @@ class Handler(BaseHTTPRequestHandler):
                     parts[2], parts[4], body
                 )
                 self._json(201, receipt.model_dump(mode="json"))
+                return
+            if (
+                len(parts) == 6
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "domain-candidates"
+                and parts[5] == "promotions:decide"
+            ):
+                result = self.application.decide_domain_candidate_promotion(
+                    parts[2], parts[4], body
+                )
+                self._json(201, result.model_dump(mode="json"))
                 return
             if (
                 len(parts) == 4

@@ -1,11 +1,12 @@
 # T-P-CORE-ADM-P3 Architecture Brief — Promotion Decision and Optional Prior
 
 > Date: 2026-07-15
-> Status: **ARCHITECTURE_PROPOSED / REVIEW_REQUIRED / NO_RUNTIME_AUTHORIZATION**
+> Status: **SPEC_APPROVED / LOCAL_TDD_IMPLEMENTATION_AUTHORIZED / NO_ACTIVATION_AUTHORITY**
 > Track: Product / Translational
 > Base: `9673c4bd9b5ca101c8bee51e806c20d0cb74a746`
 > Goal Card: `docs/product/GC-ADM-P3-PROMOTION-AND-OPTIONAL-PRIOR-2026-07-15.md`
 > Governing ADR: `docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md`
+> Technical plan review: Kimi Code `SPEC_APPROVE`, session `session_4908b8a8-a26a-49bc-bb96-7ecf55ae2fd6`
 
 ## 1. Decision
 
@@ -99,6 +100,10 @@ representation prior only; domain-specific semantics remain outside Agent Core.
 `CandidatePromotionResult` requires a prior for `PROMOTE` and forbids one for
 `REJECT`/`DEFER`.
 
+`PROMOTE` additionally requires a non-empty receipt tuple and non-null evaluation head.
+This invariant is checked by contracts and persistence independently of the registered
+policy. No production or test-only policy may promote an empty chain.
+
 ## 4. Product policy V1
 
 The production composition root registers exactly `ADM-P3-POLICY-V1`. Its canonical
@@ -131,7 +136,8 @@ registered policy version; modifying V1 in place is forbidden.
 The store still implements and tests the `PROMOTE` atomicity invariant with a closed,
 deterministic policy defined only in the persistence test module and explicitly
 registered in that test store. `AgentOSApplication` exposes no policy injection surface
-and registers production V1 only.
+and registers production V1 only. The test policy requires a non-empty chain; the store
+rejects an empty-chain `PROMOTE` even if a defective registered policy proposes it.
 
 ## 5. Complete-chain and concurrency model
 
@@ -146,7 +152,11 @@ receipts for the exact candidate in version order and validates:
 - no receipt Task/Run equals the candidate or promotion Task/Run.
 
 `SQLiteCandidateEvaluationStore` and `SQLiteCandidatePromotionStore` share a small
-`SQLiteAdaptationLedger` connection/lock object in one process. The promotion store uses
+`SQLiteAdaptationLedger` connection/lock object in one process. The ledger explicitly
+owns the SQLite connection. A store that creates its own ledger is an owner and closes
+that ledger from `close()`; a store given an existing ledger is a borrower and its
+`close()` must not close the shared connection. Borrower close and subsequent owner use
+are regression-tested. The promotion store uses
 one `BEGIN IMMEDIATE` transaction to reload the complete receipt chain, recheck its
 head, validate parent-decision CAS, recompute the registered policy result, append the
 decision and, for `PROMOTE`, append the prior before commit.
@@ -184,8 +194,9 @@ cross-process C7 atomicity are not claimed.
 4. authenticated promoter role `PRINCIPAL` or `TENANT_ADMIN`;
 5. Goal creator and Commitment acceptor equal the promoter;
 6. Commitment authority scope `domain.candidate.promote`;
-7. active, unexpired exact principal/tenant/workspace grant for
-   `domain.candidate.promote@1`;
+7. active, unexpired exact principal/tenant/workspace grant with separate
+   `capability_id="domain.candidate.promote"` and `capability_version="1"`; the
+   Commitment authority scope is the raw ID `domain.candidate.promote`;
 8. promoter differs from candidate submitter, fixed Product sealer, every evaluator and
    every receipt recorder;
 9. C7 halt check, epoch snapshot and same-authority `guard_unchanged` held through the

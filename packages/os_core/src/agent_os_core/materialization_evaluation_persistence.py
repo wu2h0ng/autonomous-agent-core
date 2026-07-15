@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from threading import RLock
 from typing import Protocol
+
+import sqlite3
 
 from agent_os_contracts import (
     CandidateEvaluationDraft,
@@ -20,6 +20,7 @@ from .errors import (
     CandidateIdempotencyConflict,
     CandidateScopeMismatch,
 )
+from .materialization_ledger import SQLiteAdaptationLedger
 
 
 BOUND_PAYLOAD_SCHEMA = "ADM-P2-BOUND-PAYLOAD-V1"
@@ -114,13 +115,17 @@ class CandidateEvaluationStore(Protocol):
 class SQLiteCandidateEvaluationStore:
     """Append-only external evaluation receipt ledger."""
 
-    def __init__(self, path: str | Path = ":memory:") -> None:
-        self.path = str(path)
-        self._lock = RLock()
-        self._db = sqlite3.connect(self.path, check_same_thread=False)
-        self._db.row_factory = sqlite3.Row
-        self._db.execute("PRAGMA foreign_keys = ON")
-        self._db.execute("PRAGMA journal_mode = WAL")
+    def __init__(
+        self,
+        path: str | Path = ":memory:",
+        *,
+        ledger: SQLiteAdaptationLedger | None = None,
+    ) -> None:
+        self._owns_ledger = ledger is None
+        self._ledger = ledger or SQLiteAdaptationLedger(path)
+        self.path = self._ledger.path
+        self._lock = self._ledger.lock
+        self._db = self._ledger.connection
         self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS candidate_evaluations (
@@ -144,8 +149,12 @@ class SQLiteCandidateEvaluationStore:
         self._db.commit()
 
     def close(self) -> None:
-        with self._lock:
-            self._db.close()
+        if self._owns_ledger:
+            self._ledger.close()
+
+    @property
+    def ledger(self) -> SQLiteAdaptationLedger:
+        return self._ledger
 
     def get_by_idempotency(
         self,
