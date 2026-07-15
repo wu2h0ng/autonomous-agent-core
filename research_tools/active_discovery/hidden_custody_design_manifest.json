@@ -1,0 +1,10 @@
+{
+  "binding_status": "UNBOUND_DESIGN_ONLY",
+  "q_score_custodian_id": null,
+  "p_power_custodian_id": null,
+  "e_score_custodian_id": null,
+  "runner_operator_id": null,
+  "c7_authority_id": null,
+  "independent_adjudicator_id": null,
+  "human_protocol_operator_id": null
+}

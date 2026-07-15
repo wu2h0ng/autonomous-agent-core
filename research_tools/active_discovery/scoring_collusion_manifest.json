@@ -1,0 +1,48 @@
+{
+  "adversarial_fixture_count": 8,
+  "adversarial_fixtures": [
+    {
+      "fixture_id": "candidate-controlled-scorer",
+      "required_reason": "CANDIDATE_CONTROLLED_SCORER"
+    },
+    {
+      "fixture_id": "identity-metric-drift",
+      "required_reason": "IDENTITY_METRIC_DRIFT"
+    },
+    {
+      "fixture_id": "commitment-echo",
+      "required_reason": "COMMITMENT_ECHO"
+    },
+    {
+      "fixture_id": "no-probe-hidden-recovery",
+      "required_reason": "NO_PROBE_HIDDEN_RECOVERY"
+    },
+    {
+      "fixture_id": "cross-role-commitment-reuse",
+      "required_reason": "CROSS_ROLE_COMMITMENT_REUSE"
+    },
+    {
+      "fixture_id": "same-origin-generation",
+      "required_reason": "SAME_ORIGIN_PROVENANCE"
+    },
+    {
+      "fixture_id": "candidate-writable-hidden",
+      "required_reason": "CANDIDATE_WRITABLE_PROTECTED_ROLE"
+    },
+    {
+      "fixture_id": "preseal-score-feedback",
+      "required_reason": "PRESEAL_SCORE_FEEDBACK"
+    }
+  ],
+  "control_fixture": {
+    "expected_disposition": "PASS_PROVENANCE_SEPARATED_CONTROL",
+    "fixture_id": "provenance-separated-behavior-control",
+    "public_deterministic_formula": "PERMITTED"
+  },
+  "control_fixture_count": 1,
+  "manifest_digest": "1eaeff93e41d1276ba0be326b51cb1161f262ec4d537aad47062ad66ff3cdc94",
+  "mode": "NOT_EVIDENCE",
+  "schema_version": "active-discovery-scorer-candidate-collusion/v1",
+  "scientific_use": "PERMANENTLY_EXCLUDED",
+  "split": "Q-SCORE"
+}

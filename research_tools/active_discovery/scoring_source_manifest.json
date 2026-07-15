@@ -1,0 +1,139 @@
+{
+  "accepted_donor_files": [
+    {
+      "path": "research_tools/active_discovery/arm_runner.py",
+      "sha256": "af1bbb940cd047406b699a84de8b1f2932b318d949a045aa11c233470ebea016"
+    },
+    {
+      "path": "research_tools/active_discovery/referee.py",
+      "sha256": "7f25d14b94f399626ff1681e8b73d82fb48804c41f282af3d10f46414b4fe925"
+    }
+  ],
+  "authority_ceiling": [
+    "NOT_FROZEN",
+    "NOT_RUN",
+    "NOT_EVIDENCE"
+  ],
+  "manifest_digest": "95da4c84d2ec7557bfe35c03ab82fe28c3b6b669841cba712c42737d74d7ab3a",
+  "mode": "QUALIFIED_INSTRUMENT",
+  "new_data_files": [
+    {
+      "path": "research_tools/active_discovery/hidden_custody_design_manifest.json",
+      "sha256": "a85ab6f8435595e85b3ef79a840eac74e91c5f8be296e93b9f8a80a5c61784ef"
+    },
+    {
+      "path": "research_tools/active_discovery/scoring_collusion_manifest.json",
+      "sha256": "0c9c422502aba004526d335915d6cc27145b2e39734cf4e1fbd016312d695601"
+    },
+    {
+      "path": "research_tools/active_discovery/scoring_qualification_manifest.json",
+      "sha256": "487ef80065b45938c76bb25178f6fc1d8c1b53d11d3c4824c0fe5bc3a8bb9a32"
+    }
+  ],
+  "new_source_files": [
+    {
+      "path": "research_tools/active_discovery/baselines.py",
+      "sha256": "33fe91c0243a4d54a45115828de4a8934b1532997f962748e95ba148358b8f03"
+    },
+    {
+      "path": "research_tools/active_discovery/hidden_byte_codec.py",
+      "sha256": "ca4e6592874b6c9d5845ab2af2face7a2719017ffbec56d80f8e3a241fe9f787"
+    },
+    {
+      "path": "research_tools/active_discovery/hidden_corpus_contracts.py",
+      "sha256": "b6ec1e36bc96db9b965df28fa7ed094e001706b2fa793b2191d69364d0421697"
+    },
+    {
+      "path": "research_tools/active_discovery/hidden_scoring.py",
+      "sha256": "897c139933fd950ae008e64c2669737658260af9fb787826cddea8f7508a2d2c"
+    },
+    {
+      "path": "research_tools/active_discovery/scored_arm_runner.py",
+      "sha256": "f96970be5e5ef5151c8dcd7efc7c99e9ad64970ff23f951786f3b89c913cf3f5"
+    },
+    {
+      "path": "research_tools/active_discovery/scoring_collusion.py",
+      "sha256": "864a94c91854665497792533f72d74b06fe4eb541c3d8e7acbf87c282bc5e857"
+    },
+    {
+      "path": "research_tools/active_discovery/scoring_contracts.py",
+      "sha256": "0ebda45d7ddd59b5c940006378202a0478a88b64372ba335b94c6ddbd533d806"
+    },
+    {
+      "path": "research_tools/active_discovery/scoring_qualification.py",
+      "sha256": "9ce63bbd7ac83f274d32d93d48161bb076957ef9f41f271c7808cb1b6f36ae43"
+    },
+    {
+      "path": "research_tools/active_discovery/scoring_referee.py",
+      "sha256": "f86256d215f9805623c19a2d068fdf12a5a5353f014b502ea98b8469a4a975b1"
+    },
+    {
+      "path": "research_tools/active_discovery/trace_universe_verifier.py",
+      "sha256": "1f31e1837284e634f85698c39b98e07583daf6979f178c836f3d8d868a54e358"
+    }
+  ],
+  "new_test_files": [
+    {
+      "path": "tests/research_tools/test_active_discovery_baselines.py",
+      "sha256": "d9989bf4b09e25864279030fa61aa1547aa1a3b46f7b7c9f85048443fe6a8859"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_hidden_byte_codec.py",
+      "sha256": "e28f564ffdc330625bca15ede7f91f1a1666bfc7192da48b9020351c1f68491c"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_hidden_custody.py",
+      "sha256": "a1f692bc2493063bd4ab24ef7e58590b11d95ff42d270a4f64c5fb98f38e0b9d"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_hidden_scoring.py",
+      "sha256": "5d7e1405ee9f15bc18bafe03a617773cdbc71204250ea95cfa8928bf0a556db0"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_scored_arm_runner.py",
+      "sha256": "fd19f05d99c6f74ab2857c2d6b1a1c6ee8efccf9f775522cab30640a28f16018"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_scoring_collusion.py",
+      "sha256": "ccd6571e70be75c8ccd4adfec069ab3c99bd81f95ff39fb67647877a3125f98c"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_scoring_contracts.py",
+      "sha256": "856a53f0103dccca2e71ba1046405a181cd9e787f51a7177e58975f11d56899a"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_scoring_qualification.py",
+      "sha256": "2b0d645d0830672d80144593527f09b1ef3d323aba1c53d2e9f36537603de781"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_scoring_referee.py",
+      "sha256": "4c62a02512a0648f0f672a0ad0df2ea4c9dc71679fc4550050c0491b9a31ebd1"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_scoring_source_manifest.py",
+      "sha256": "070437138589e18ecc4767aa2fd82310e4a01c0770968f7819f13efa3a6686de"
+    },
+    {
+      "path": "tests/research_tools/test_active_discovery_trace_universe_verifier.py",
+      "sha256": "3ee7cb9e5900470cc88de64c45aa698eaeabbee536824b27ce40cb006dd3881e"
+    }
+  ],
+  "reviewed_spec_files": [
+    {
+      "path": "docs/superpowers/plans/2026-07-15-active-discovery-hidden-scoring-tdd-plan.md",
+      "sha256": "2387f62b5615e0ce067396f9a2425d181e0e4e50d9d696b6d60bda0a7a4f0294"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-07-15-active-discovery-hidden-scoring-spec.md",
+      "sha256": "2041ce616359679b8b9463a6de70ca17b9c147285b096d2425312728bb663cb5"
+    }
+  ],
+  "reviewed_spec_head": "e5002d784a0f43a5610d9353d7f5c84c9b6c8135",
+  "schema_version": "active-discovery-scoring-source-manifest/v1",
+  "self_exclusion": "This manifest cannot bind its own bytes; its digest binds every other field.",
+  "stage_a_lineage": {
+    "candidate_path": "research_tools/active_discovery/stage_a_prereg_candidate.json",
+    "candidate_sha256": "de05497e5058e650742550d7d2c7b5ec0a4fe0bac3ea576f1b72355a87f51c85",
+    "source_manifest_digest": "f9f191f06a29ba6d2becd3f817dfd406f8721dcb128f704b3db0ea3d496b7192"
+  }
+}
