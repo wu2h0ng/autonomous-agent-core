@@ -43,3 +43,27 @@ class WaitExpiredError(InvalidTransitionError):
 
 class ReplanRejectedError(InvalidTransitionError):
     pass
+
+
+class CandidateError(AgentOSCoreError):
+    pass
+
+
+class CandidateScopeMismatch(CandidateError):
+    pass
+
+
+class CandidateSealingDenied(CandidateError):
+    pass
+
+
+class CandidateIdempotencyConflict(CandidateError):
+    pass
+
+
+class CandidateConcurrentWrite(CandidateError):
+    pass
+
+
+class CandidateProvenanceError(CandidateError):
+    pass

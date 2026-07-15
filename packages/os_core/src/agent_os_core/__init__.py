@@ -1,5 +1,11 @@
 from .errors import (
     AgentOSCoreError,
+    CandidateConcurrentWrite,
+    CandidateError,
+    CandidateIdempotencyConflict,
+    CandidateProvenanceError,
+    CandidateScopeMismatch,
+    CandidateSealingDenied,
     CommitmentExpiredError,
     ConcurrentWriteError,
     DuplicateEventError,
@@ -27,9 +33,27 @@ from .capability import CapabilityBroker, CapabilityDenied, CapabilityResult, Wo
 from .execution import DeterministicOutcomeEvaluator, RunCoordinator, RunExecutionError, UnsupportedNodeError, WorkerInterrupted
 from .task_aggregate import TaskAggregate
 from .task_service import Clock, IdFactory, TaskService
+from .materialization import (
+    MATERIALIZATION_CAPABILITY,
+    DomainCandidateSealer,
+    candidate_source_snapshot_digest,
+)
+from .materialization_persistence import (
+    CandidateSealRequest,
+    CandidateStore,
+    SQLiteCandidateStore,
+)
 
 __all__ = [
     "AgentOSCoreError",
+    "CandidateConcurrentWrite",
+    "CandidateError",
+    "CandidateIdempotencyConflict",
+    "CandidateProvenanceError",
+    "CandidateScopeMismatch",
+    "CandidateSealingDenied",
+    "CandidateSealRequest",
+    "CandidateStore",
     "CommitmentExpiredError",
     "ConcurrentWriteError",
     "Clock",
@@ -37,6 +61,7 @@ __all__ = [
     "EventStreamError",
     "InMemoryTaskEventStore",
     "SQLiteTaskEventStore",
+    "SQLiteCandidateStore",
     "PostgresTaskEventStore",
     "InvalidTransitionError",
     "ReplanRejectedError",
@@ -46,6 +71,8 @@ __all__ = [
     "TaskEventStore",
     "TaskAggregate",
     "TaskService",
+    "DomainCandidateSealer",
+    "MATERIALIZATION_CAPABILITY",
     "TaskNotFoundError",
     "WaitExpiredError",
     "CorrectionAuthority",
@@ -66,4 +93,5 @@ __all__ = [
     "RunExecutionError",
     "WorkerInterrupted",
     "UnsupportedNodeError",
+    "candidate_source_snapshot_digest",
 ]
