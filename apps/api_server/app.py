@@ -30,10 +30,8 @@ from agent_os_contracts import (
     DomainPriorArtifact,
     ExpectedOutcome,
     ExternalSignal,
-    EnvironmentEvent,
     Goal,
     HelpRequest,
-    OperationalProjectionRef,
     OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
@@ -43,7 +41,6 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
     ResourceBudget,
-    RelevanceAssessment,
     RunStatus,
     TaskConfigurationSnapshot,
     TaskConfigurationSnapshotCommand,
@@ -60,7 +57,9 @@ from agent_os_core import (
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
-    OperationalProposalCompiler,
+    OperationalProposalService,
+    InMemorySituationalControlPlane,
+    RelevanceAssessorPort,
     RunCoordinator,
     DomainCandidateSealer,
     DomainCandidateEvaluationRecorder,
@@ -113,6 +112,8 @@ class AgentOSApplication:
         promotion_grant: CapabilityGrant | None = None,
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
+        situational_control: InMemorySituationalControlPlane | None = None,
+        relevance_assessor: RelevanceAssessorPort | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
     ) -> None:
         self._clock = clock
@@ -150,9 +151,21 @@ class AgentOSApplication:
                 "Data Agent report source requires durable first-seen state"
             )
         self.data_agent_reports = data_agent_reports
-        self.operational_proposals = OperationalProposalCompiler(
-            situational_trust or data_agent_reports,
-            principal_id=self.principal.principal_id,
+        if (situational_control is None) != (relevance_assessor is None):
+            raise ValueError(
+                "situational control and relevance assessor must be configured together"
+            )
+        self.situated_proposal_service = (
+            OperationalProposalService(
+                trust=situational_trust or data_agent_reports,
+                control=situational_control,
+                assessor=relevance_assessor,
+                principal_id=self.principal.principal_id,
+            )
+            if situational_control is not None
+            and relevance_assessor is not None
+            and (situational_trust is not None or data_agent_reports is not None)
+            else None
         )
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
@@ -282,8 +295,8 @@ class AgentOSApplication:
             self._promotion_grant_override or self._build_promotion_grant(issued)
         )
         grants[PROMOTION_CAPABILITY] = self.promotion_grant
-        grants[TASK_CONFIGURATION_CAPABILITY] = (
-            self._build_task_configuration_grant(issued)
+        grants[TASK_CONFIGURATION_CAPABILITY] = self._build_task_configuration_grant(
+            issued
         )
         return grants
 
@@ -559,27 +572,14 @@ class AgentOSApplication:
 
     def propose_situated_work(
         self,
-        event_payload: dict[str, Any],
-        projection_payload: dict[str, Any],
-        assessment_payload: dict[str, Any],
+        event_id: str,
+        projection_id: str,
     ) -> TaskDraftProposal | HelpRequest | None:
-        event = EnvironmentEvent.model_validate(event_payload)
-        projection = OperationalProjectionRef.model_validate(projection_payload)
-        assessment = RelevanceAssessment.model_validate(assessment_payload)
-        principal_scope = (self.principal.tenant_id, self.principal.workspace_id)
-        for item_scope in (
-            (event.tenant_id, event.workspace_id),
-            (projection.tenant_id, projection.workspace_id),
-            (assessment.tenant_id, assessment.workspace_id),
-        ):
-            if item_scope != principal_scope:
-                raise SituationalScopeMismatch(
-                    "situated proposal scope does not match application principal"
-                )
-        return self.operational_proposals.compile(
-            event,
-            projection,
-            assessment,
+        if self.situated_proposal_service is None:
+            raise RuntimeError("situated proposal service is not configured")
+        return self.situated_proposal_service.propose(
+            event_id,
+            projection_id,
             evaluated_at=self._clock(),
         )
 

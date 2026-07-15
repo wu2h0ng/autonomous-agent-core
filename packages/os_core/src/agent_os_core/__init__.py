@@ -76,10 +76,14 @@ from .task_configuration import (
     TaskConfigurationSnapshotService,
 )
 from .situated import (
+    InMemorySituationalControlPlane,
     InMemorySituationalTrustRegistry,
     OperationalProposalCompiler,
+    OperationalProposalService,
+    RelevanceAssessorPort,
     SituationalBinding,
     SituationalTrustResolver,
+    situated_input_binding_digest,
 )
 from .materialization import (
     MATERIALIZATION_CAPABILITY,
@@ -170,9 +174,13 @@ __all__ = [
     "TaskAggregate",
     "TaskService",
     "OperationalProposalCompiler",
+    "OperationalProposalService",
+    "RelevanceAssessorPort",
+    "InMemorySituationalControlPlane",
     "InMemorySituationalTrustRegistry",
     "SituationalBinding",
     "SituationalTrustResolver",
+    "situated_input_binding_digest",
     "ValidatedTestReport",
     "DomainCandidateSealer",
     "DomainCandidateEvaluationRecorder",

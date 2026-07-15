@@ -11,21 +11,26 @@ from agent_os_contracts import (
     ArtifactLocationClass,
     ArtifactRef,
     EnvironmentEvent,
+    EnvironmentBindingAuthorization,
     EvidenceRef,
     EvidenceSourceKind,
     HelpRequest,
     OperationalProjectionRef,
     ProposedGoal,
+    RatifiedMandateRef,
     RelevanceAssessment,
+    RelevanceAssessorRef,
     RelevanceDisposition,
     TaskDraftProposal,
 )
 from agent_os_core import (
+    InMemorySituationalControlPlane,
     InMemorySituationalTrustRegistry,
     OperationalProposalCompiler,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     StaleOperationalProjection,
+    situated_input_binding_digest,
 )
 from apps.api_server.app import AgentOSApplication
 
@@ -109,9 +114,7 @@ def _projection(**updates: Any) -> OperationalProjectionRef:
         "tenant_id": tenant_id,
         "workspace_id": "workspace:local",
         "source_event_ids": ("event:report-1",),
-        "projection_artifact": _artifact(
-            "artifact:projection", tenant_id=tenant_id
-        ),
+        "projection_artifact": _artifact("artifact:projection", tenant_id=tenant_id),
         "schema_uri": "schema://operational-projection/data-agent-report/v1",
         "version": 1,
         "scope_ref": "mission:agent-os/product",
@@ -141,6 +144,18 @@ def _assessment(**updates: Any) -> RelevanceAssessment:
         "projection_id": "projection:report-1",
         "projection_digest": PROJECTION_DIGEST,
         "mandate_id": "mandate:build-agent-os",
+        "mandate_version": 1,
+        "mandate_digest": "a" * 64,
+        "environment_binding_id": "binding:data-agent-reports",
+        "environment_binding_version": 1,
+        "environment_binding_digest": "b" * 64,
+        "correction_epoch": 0,
+        "assessor": RelevanceAssessorRef(
+            assessor_id="assessor:test",
+            version=1,
+            policy_digest="c" * 64,
+        ),
+        "input_binding_digest": "d" * 64,
         "tenant_id": "tenant:local",
         "workspace_id": "workspace:local",
         "disposition": RelevanceDisposition.CREATE_TASK,
@@ -196,11 +211,71 @@ def _compiler(
     )
 
 
+def _binding() -> EnvironmentBindingAuthorization:
+    return EnvironmentBindingAuthorization(
+        environment_binding_id="binding:data-agent-reports",
+        version=1,
+        binding_digest="b" * 64,
+    )
+
+
+def _mandate() -> RatifiedMandateRef:
+    return RatifiedMandateRef(
+        mandate_id="mandate:build-agent-os",
+        version=1,
+        mandate_digest="a" * 64,
+        ratification_receipt_id="ratification:test",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        owner_principal_id="user:local",
+        ratified_by="user:local",
+        ratified_at=NOW - timedelta(hours=1),
+        valid_from=NOW - timedelta(hours=1),
+        expires_at=NOW + timedelta(days=30),
+        correction_epoch=0,
+        authority_envelope_digest="e" * 64,
+        allowed_environment_bindings=(_binding(),),
+        relevance_assessor=RelevanceAssessorRef(
+            assessor_id="assessor:test",
+            version=1,
+            policy_digest="c" * 64,
+        ),
+    )
+
+
+class _Assessor:
+    @property
+    def ref(self) -> RelevanceAssessorRef:
+        return _mandate().relevance_assessor
+
+    def assess(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        event: EnvironmentEvent,
+        projection: OperationalProjectionRef,
+        *,
+        assessed_at: datetime,
+    ) -> RelevanceAssessment:
+        return _assessment(
+            input_binding_digest=situated_input_binding_digest(
+                mandate,
+                binding,
+                event,
+                projection,
+                self.ref,
+            ),
+            assessed_at=assessed_at,
+        )
+
+
 def _app(tmp_path, *, now: datetime = NOW) -> AgentOSApplication:
     return AgentOSApplication(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         situational_trust=_trust_registry(),
+        situational_control=InMemorySituationalControlPlane((_mandate(),)),
+        relevance_assessor=_Assessor(),
         clock=lambda: now,
     )
 
@@ -235,14 +310,10 @@ def test_help_disposition_compiles_minimum_structured_request() -> None:
         continuable_work=("Refresh independent evidence",),
     )
 
-    result = _compiler().compile(
-        _event(), _projection(), assessment, evaluated_at=NOW
-    )
+    result = _compiler().compile(_event(), _projection(), assessment, evaluated_at=NOW)
 
     assert isinstance(result, HelpRequest)
-    assert result.minimum_external_input == (
-        "Does this change require investigation?"
-    )
+    assert result.minimum_external_input == ("Does this change require investigation?")
     assert result.continuable_work == ("Refresh independent evidence",)
     assert result.authority_granted is False
 
@@ -264,9 +335,7 @@ def test_non_work_disposition_produces_no_proposal(
     )
 
     assert (
-        _compiler().compile(
-            _event(), _projection(), assessment, evaluated_at=NOW
-        )
+        _compiler().compile(_event(), _projection(), assessment, evaluated_at=NOW)
         is None
     )
 
@@ -335,9 +404,7 @@ def test_event_and_projection_evidence_must_reference_bound_artifacts() -> None:
 
     with pytest.raises(ValidationError, match="projection artifact"):
         _projection(
-            evidence=(
-                _evidence("evidence:projection", artifact_id="artifact:other"),
-            )
+            evidence=(_evidence("evidence:projection", artifact_id="artifact:other"),)
         )
 
 
@@ -348,9 +415,12 @@ def test_input_cannot_smuggle_workflow_or_authority(tmp_path) -> None:
     event_payload["authority_scopes"] = ["workspace:write"]
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        app.propose_situated_work(
-            event_payload,
-            _projection().model_dump(mode="json"),
+        EnvironmentEvent.model_validate(event_payload)
+
+    with pytest.raises(TypeError):
+        getattr(app, "propose_situated_work")(
+            "event:report-1",
+            "projection:report-1",
             _assessment().model_dump(mode="json"),
         )
 
@@ -388,34 +458,27 @@ def test_application_entry_point_is_read_only_and_principal_scoped(tmp_path) -> 
     app = _app(tmp_path)
 
     result = app.propose_situated_work(
-        _event().model_dump(mode="json"),
-        _projection().model_dump(mode="json"),
-        _assessment().model_dump(mode="json"),
+        "event:report-1",
+        "projection:report-1",
     )
 
     assert isinstance(result, TaskDraftProposal)
     assert app.store.list_task_ids() == ()
 
-    with pytest.raises(SituationalScopeMismatch, match="principal"):
+    with pytest.raises(SituationalTrustDenied, match="event"):
         app.propose_situated_work(
-            _event(tenant_id="tenant:other").model_dump(mode="json"),
-            _projection(tenant_id="tenant:other").model_dump(mode="json"),
-            _assessment(tenant_id="tenant:other").model_dump(mode="json"),
+            "event:unknown",
+            "projection:report-1",
         )
 
 
 def test_untrusted_mandate_or_self_certified_artifact_is_rejected(tmp_path) -> None:
-    app = _app(tmp_path)
-
     with pytest.raises(SituationalTrustDenied, match="mandate"):
-        app.propose_situated_work(
-            _event(mandate_id="mandate:attacker-invented").model_dump(mode="json"),
-            _projection(mandate_id="mandate:attacker-invented").model_dump(
-                mode="json"
-            ),
-            _assessment(mandate_id="mandate:attacker-invented").model_dump(
-                mode="json"
-            ),
+        _compiler().compile(
+            _event(mandate_id="mandate:attacker-invented"),
+            _projection(mandate_id="mandate:attacker-invented"),
+            _assessment(mandate_id="mandate:attacker-invented"),
+            evaluated_at=NOW,
         )
 
     forged = _artifact(
@@ -425,23 +488,23 @@ def test_untrusted_mandate_or_self_certified_artifact_is_rejected(tmp_path) -> N
     forged_evidence = _evidence("evidence:event")
     forged_event = _event(observation=forged, evidence=(forged_evidence,))
     with pytest.raises(SituationalTrustDenied, match="event"):
-        app.propose_situated_work(
-            forged_event.model_dump(mode="json"),
-            _projection().model_dump(mode="json"),
-            _assessment(
-                event_observation_digest=forged.content_digest
-            ).model_dump(mode="json"),
+        _compiler().compile(
+            forged_event,
+            _projection(),
+            _assessment(event_observation_digest=forged.content_digest),
+            evaluated_at=NOW,
         )
 
     forged_projection = _projection(fresh_until=NOW + timedelta(days=365))
     with pytest.raises(SituationalTrustDenied, match="projection"):
-        app.propose_situated_work(
-            _event().model_dump(mode="json"),
-            forged_projection.model_dump(mode="json"),
-            _assessment().model_dump(mode="json"),
+        _compiler().compile(
+            _event(),
+            forged_projection,
+            _assessment(),
+            evaluated_at=NOW,
         )
 
-    assert app.store.list_task_ids() == ()
+    assert _app(tmp_path).store.list_task_ids() == ()
 
 
 def test_application_uses_trusted_clock_not_caller_time(tmp_path) -> None:
@@ -449,16 +512,14 @@ def test_application_uses_trusted_clock_not_caller_time(tmp_path) -> None:
 
     with pytest.raises(StaleOperationalProjection):
         app.propose_situated_work(
-            _event().model_dump(mode="json"),
-            _projection().model_dump(mode="json"),
-            _assessment().model_dump(mode="json"),
+            "event:report-1",
+            "projection:report-1",
         )
 
     with pytest.raises(TypeError, match="evaluated_at"):
         getattr(app, "propose_situated_work")(
-            _event().model_dump(mode="json"),
-            _projection().model_dump(mode="json"),
-            _assessment().model_dump(mode="json"),
+            "event:report-1",
+            "projection:report-1",
             evaluated_at=NOW,
         )
 
@@ -481,10 +542,11 @@ def test_untyped_assessment_evidence_cannot_leak_into_output() -> None:
 
 def test_proposed_goal_cannot_enter_generic_task_creation(tmp_path) -> None:
     app = _app(tmp_path)
-    result = app.propose_situated_work(
-        _event().model_dump(mode="json"),
-        _projection().model_dump(mode="json"),
-        _assessment().model_dump(mode="json"),
+    result = _compiler().compile(
+        _event(),
+        _projection(),
+        _assessment(),
+        evaluated_at=NOW,
     )
 
     assert isinstance(result, TaskDraftProposal)

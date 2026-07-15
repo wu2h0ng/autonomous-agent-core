@@ -15,9 +15,14 @@ import pytest
 from agent_os_contracts import (
     CredentialRef,
     CredentialStatus,
+    EnvironmentBindingAuthorization,
+    EnvironmentEvent,
+    OperationalProjectionRef,
     PrincipalIdentity,
     PrincipalRole,
+    RatifiedMandateRef,
     RelevanceAssessment,
+    RelevanceAssessorRef,
     RelevanceDisposition,
     RelevanceUrgency,
     TaskDraftProposal,
@@ -33,7 +38,11 @@ from apps.api_server.data_agent_report_adapter import (
     DataAgentReportStateStore,
     SQLiteDataAgentReportStateStore,
 )
-from agent_os_core import SituationalScopeMismatch
+from agent_os_core import (
+    InMemorySituationalControlPlane,
+    SituationalScopeMismatch,
+    situated_input_binding_digest,
+)
 
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
@@ -258,33 +267,96 @@ def _adapter(
     return adapter, broker, transport
 
 
-def _assessment(adapter: DataAgentReportAdapter, bundle) -> RelevanceAssessment:
-    return RelevanceAssessment(
-        assessment_id="assessment:data-report-1",
-        environment_event_id=bundle.event.environment_event_id,
-        event_observation_digest=bundle.event.observation.content_digest,
-        projection_id=bundle.projection.projection_id,
-        projection_digest=bundle.projection.projection_artifact.content_digest,
+def _binding() -> EnvironmentBindingAuthorization:
+    return EnvironmentBindingAuthorization(
+        environment_binding_id="binding:data-agent-reports",
+        version=1,
+        binding_digest="b" * 64,
+    )
+
+
+def _assessor_ref() -> RelevanceAssessorRef:
+    return RelevanceAssessorRef(
+        assessor_id="assessor:data-agent-report-v0",
+        version=1,
+        policy_digest="c" * 64,
+    )
+
+
+def _mandate() -> RatifiedMandateRef:
+    return RatifiedMandateRef(
         mandate_id="mandate:build-agent-os",
+        version=1,
+        mandate_digest="a" * 64,
+        ratification_receipt_id="ratification:test",
         tenant_id="tenant:local",
         workspace_id="workspace:local",
-        disposition=RelevanceDisposition.CREATE_TASK,
-        uncertainty_summary="The external report is grounded but needs bounded review.",
-        urgency=RelevanceUrgency.MEDIUM,
-        expected_loss_of_delay="A material result may go unreviewed.",
-        attention_budget_seconds=600,
-        rationale="A new trusted external report may affect the product commitment.",
-        evidence_ids=tuple(
-            sorted(
-                {
-                    *(item.evidence_id for item in bundle.event.evidence),
-                    *(item.evidence_id for item in bundle.projection.evidence),
-                }
-            )
-        ),
-        proposed_goal_statement="Review the external report without activating work.",
-        assessed_at=NOW,
+        owner_principal_id="user:local",
+        ratified_by="user:local",
+        ratified_at=NOW - timedelta(hours=1),
+        valid_from=NOW - timedelta(hours=1),
+        expires_at=NOW + timedelta(days=30),
+        correction_epoch=0,
+        authority_envelope_digest="e" * 64,
+        allowed_environment_bindings=(_binding(),),
+        relevance_assessor=_assessor_ref(),
     )
+
+
+class _ReportAssessor:
+    @property
+    def ref(self) -> RelevanceAssessorRef:
+        return _assessor_ref()
+
+    def assess(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        event: EnvironmentEvent,
+        projection: OperationalProjectionRef,
+        *,
+        assessed_at: datetime,
+    ) -> RelevanceAssessment:
+        return RelevanceAssessment(
+            assessment_id="assessment:data-report-1",
+            environment_event_id=event.environment_event_id,
+            event_observation_digest=event.observation.content_digest,
+            projection_id=projection.projection_id,
+            projection_digest=projection.projection_artifact.content_digest,
+            mandate_id=mandate.mandate_id,
+            mandate_version=mandate.version,
+            mandate_digest=mandate.mandate_digest,
+            environment_binding_id=binding.environment_binding_id,
+            environment_binding_version=binding.version,
+            environment_binding_digest=binding.binding_digest,
+            correction_epoch=mandate.correction_epoch,
+            assessor=self.ref,
+            input_binding_digest=situated_input_binding_digest(
+                mandate,
+                binding,
+                event,
+                projection,
+                self.ref,
+            ),
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            disposition=RelevanceDisposition.CREATE_TASK,
+            uncertainty_summary="The external report is grounded but needs bounded review.",
+            urgency=RelevanceUrgency.MEDIUM,
+            expected_loss_of_delay="A material result may go unreviewed.",
+            attention_budget_seconds=600,
+            rationale="A new trusted external report may affect the product commitment.",
+            evidence_ids=tuple(
+                sorted(
+                    {
+                        *(item.evidence_id for item in event.evidence),
+                        *(item.evidence_id for item in projection.evidence),
+                    }
+                )
+            ),
+            proposed_goal_statement="Review the external report without activating work.",
+            assessed_at=assessed_at,
+        )
 
 
 def test_security_envelope_enters_application_as_trusted_proposal_without_task_write(
@@ -307,6 +379,8 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
             authenticated_at=NOW - timedelta(minutes=1),
         ),
         data_agent_reports=adapter,
+        situational_control=InMemorySituationalControlPlane((_mandate(),)),
+        relevance_assessor=_ReportAssessor(),
         clock=lambda: NOW,
     )
     bundle = app.observe_data_agent_report(TRACE_ID)
@@ -316,9 +390,8 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
     )
 
     result = app.propose_situated_work(
-        bundle.event.model_dump(mode="json"),
-        bundle.projection.model_dump(mode="json"),
-        _assessment(adapter, bundle).model_dump(mode="json"),
+        bundle.event.environment_event_id,
+        bundle.projection.projection_id,
     )
 
     assert isinstance(result, TaskDraftProposal)
@@ -371,9 +444,7 @@ def test_passive_poll_discovers_immutable_report_without_trace_id(tmp_path) -> N
         "Accept-Encoding": "identity",
         "X-API-Key": SECRET,
     }
-    assert transport.requests[0].url.endswith(
-        "/external/report-events?limit=1"
-    )
+    assert transport.requests[0].url.endswith("/external/report-events?limit=1")
 
 
 def test_passive_poll_preserves_two_immutable_revisions_of_same_trace(tmp_path) -> None:
@@ -406,7 +477,9 @@ def test_passive_poll_preserves_two_immutable_revisions_of_same_trace(tmp_path) 
     assert len(result.bundles) == 2
     assert result.bundles[0].artifact.content_digest == first["content_sha256"]
     assert result.bundles[1].artifact.content_digest == second["content_sha256"]
-    assert result.bundles[0].artifact.artifact_id != result.bundles[1].artifact.artifact_id
+    assert (
+        result.bundles[0].artifact.artifact_id != result.bundles[1].artifact.artifact_id
+    )
 
 
 def test_passive_poll_digest_failure_does_not_advance_cursor(tmp_path) -> None:
@@ -465,8 +538,7 @@ def test_passive_poll_reuses_durable_cursor_after_restart(tmp_path) -> None:
         response=_response(
             empty_feed,
             final_url=(
-                "http://127.0.0.1:8765/external/report-events"
-                f"?after={cursor}&limit=1"
+                f"http://127.0.0.1:8765/external/report-events?after={cursor}&limit=1"
             ),
         ),
         config=_config(
@@ -495,7 +567,9 @@ def test_passive_poll_rejects_non_progressing_page(tmp_path) -> None:
     cursor = "opaque-cursor-1"
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
 
-    def response_for(request: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+    def response_for(
+        request: DataAgentReportHttpRequest,
+    ) -> DataAgentReportHttpResponse:
         return _response(feed, final_url=request.url)
 
     broker = _Broker()
@@ -535,7 +609,9 @@ def test_passive_poll_rejects_cycle_to_previously_consumed_cursor(tmp_path) -> N
         "cursor-2": _feed_bytes([_feed_event("cursor-1")], next_cursor="cursor-1"),
     }
 
-    def response_for(request: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+    def response_for(
+        request: DataAgentReportHttpRequest,
+    ) -> DataAgentReportHttpResponse:
         after = None
         if "after=" in request.url:
             after = request.url.split("after=", 1)[1].split("&", 1)[0]
@@ -737,7 +813,9 @@ def test_invalid_http_response_leaves_registry_empty(
         b'{"trace_id":"trace-123","audience":"external","score":NaN,"user_result":{"trace_id":"trace-123","audience":"external","redaction":{"audience":"external","applied":true},"business_action":{"trace_id":"trace-123"}}}',
     ],
 )
-def test_malformed_internal_or_substituted_report_is_atomic_failure(body: bytes) -> None:
+def test_malformed_internal_or_substituted_report_is_atomic_failure(
+    body: bytes,
+) -> None:
     adapter, _, _ = _adapter(response=_response(body))
 
     with pytest.raises(DataAgentReportAdapterError):
@@ -1074,8 +1152,7 @@ def test_slow_response_headers_are_bounded_by_total_wall_clock_deadline() -> Non
     raw_response = (
         b"HTTP/1.1 200 OK\r\n"
         b"Content-Type: application/json\r\n"
-        b"Content-Encoding: identity\r\n\r\n"
-        + _report_bytes()
+        b"Content-Encoding: identity\r\n\r\n" + _report_bytes()
     )
 
     class SlowHeaderHandler(BaseHTTPRequestHandler):

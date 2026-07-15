@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone
-from typing import Iterable, Protocol, TypeAlias
+from threading import RLock
+from typing import Callable, Iterable, Protocol, TypeAlias, TypeVar
 
 from agent_os_contracts import (
     ArtifactRef,
+    EnvironmentBindingAuthorization,
     EnvironmentEvent,
     EvidenceRef,
     HelpRequest,
+    MandateOperationalStatus,
     OperationalProjectionRef,
     ProposedGoal,
+    RatifiedMandateRef,
     RelevanceAssessment,
+    RelevanceAssessorRef,
     RelevanceDisposition,
     TaskDraftProposal,
     content_digest,
@@ -25,12 +30,189 @@ from .errors import (
 
 
 SituationalBinding: TypeAlias = tuple[str, str, str, str, str]
+ProposalResult: TypeAlias = TaskDraftProposal | HelpRequest | None
+_T = TypeVar("_T")
+
+
+def situated_input_binding_digest(
+    mandate: RatifiedMandateRef,
+    binding: EnvironmentBindingAuthorization,
+    event: EnvironmentEvent,
+    projection: OperationalProjectionRef,
+    assessor: RelevanceAssessorRef,
+) -> str:
+    return content_digest(
+        {
+            "mandate_id": mandate.mandate_id,
+            "mandate_version": mandate.version,
+            "mandate_digest": mandate.mandate_digest,
+            "correction_epoch": mandate.correction_epoch,
+            "environment_binding": binding.model_dump(mode="json"),
+            "event_id": event.environment_event_id,
+            "event_observation_digest": event.observation.content_digest,
+            "projection_id": projection.projection_id,
+            "projection_digest": projection.projection_artifact.content_digest,
+            "assessor": assessor.model_dump(mode="json"),
+        }
+    )
+
+
+class RelevanceAssessorPort(Protocol):
+    @property
+    def ref(self) -> RelevanceAssessorRef: ...
+
+    def assess(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        event: EnvironmentEvent,
+        projection: OperationalProjectionRef,
+        *,
+        assessed_at: datetime,
+    ) -> RelevanceAssessment: ...
+
+
+class InMemorySituationalControlPlane:
+    """V0 external-ratification and epoch guard; it grants no task authority."""
+
+    def __init__(self, mandates: Iterable[RatifiedMandateRef] = ()) -> None:
+        self._lock = RLock()
+        self._mandates: dict[str, RatifiedMandateRef] = {}
+        self._assessments: dict[str, RelevanceAssessment] = {}
+        for mandate in mandates:
+            if mandate.mandate_id in self._mandates:
+                raise ValueError("ratified mandate ids must be unique")
+            self._mandates[mandate.mandate_id] = mandate
+
+    def resolve_active(
+        self,
+        mandate_id: str,
+        environment_binding_id: str,
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        evaluated_at: datetime,
+    ) -> tuple[RatifiedMandateRef, EnvironmentBindingAuthorization]:
+        with self._lock:
+            return self._resolve_active_unlocked(
+                mandate_id,
+                environment_binding_id,
+                principal_id=principal_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                evaluated_at=evaluated_at,
+            )
+
+    def _resolve_active_unlocked(
+        self,
+        mandate_id: str,
+        environment_binding_id: str,
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        evaluated_at: datetime,
+    ) -> tuple[RatifiedMandateRef, EnvironmentBindingAuthorization]:
+        mandate = self._mandates.get(mandate_id)
+        if mandate is None:
+            raise SituationalTrustDenied("ratified mandate is unavailable")
+        if (
+            mandate.owner_principal_id != principal_id
+            or mandate.tenant_id != tenant_id
+            or mandate.workspace_id != workspace_id
+        ):
+            raise SituationalTrustDenied("ratified mandate scope is not authorized")
+        if mandate.status is not MandateOperationalStatus.ACTIVE:
+            raise SituationalTrustDenied("ratified mandate is not active")
+        if evaluated_at < mandate.valid_from or evaluated_at >= mandate.expires_at:
+            raise SituationalTrustDenied(
+                "ratified mandate is not active at evaluation time"
+            )
+        binding = mandate.binding(environment_binding_id)
+        if binding is None:
+            raise SituationalTrustDenied("environment binding is not ratified")
+        return mandate, binding
+
+    def emit_guarded(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        assessment: RelevanceAssessment,
+        *,
+        principal_id: str,
+        evaluated_at: datetime,
+        factory: Callable[[], _T],
+    ) -> _T:
+        with self._lock:
+            current, current_binding = self._resolve_active_unlocked(
+                mandate.mandate_id,
+                binding.environment_binding_id,
+                principal_id=principal_id,
+                tenant_id=mandate.tenant_id,
+                workspace_id=mandate.workspace_id,
+                evaluated_at=evaluated_at,
+            )
+            if current != mandate or current_binding != binding:
+                raise SituationalTrustDenied(
+                    "mandate or environment binding epoch changed before emission"
+                )
+            if assessment.assessment_id in self._assessments:
+                existing = self._assessments[assessment.assessment_id]
+                if existing != assessment:
+                    raise SituationalTrustDenied("assessment identity conflict")
+                return factory()
+            result = factory()
+            self._assessments[assessment.assessment_id] = assessment
+            return result
+
+    def assessment(self, assessment_id: str) -> RelevanceAssessment | None:
+        with self._lock:
+            return self._assessments.get(assessment_id)
+
+    def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
+        return self._change_status(
+            mandate_id,
+            expected_epoch=expected_epoch,
+            status=MandateOperationalStatus.PAUSED,
+        )
+
+    def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
+        return self._change_status(
+            mandate_id,
+            expected_epoch=expected_epoch,
+            status=MandateOperationalStatus.REVOKED,
+        )
+
+    def _change_status(
+        self,
+        mandate_id: str,
+        *,
+        expected_epoch: int,
+        status: MandateOperationalStatus,
+    ) -> RatifiedMandateRef:
+        with self._lock:
+            current = self._mandates.get(mandate_id)
+            if current is None:
+                raise SituationalTrustDenied("ratified mandate is unavailable")
+            if current.correction_epoch != expected_epoch:
+                raise SituationalTrustDenied("mandate correction epoch changed")
+            updated = current.model_copy(
+                update={
+                    "status": status,
+                    "correction_epoch": current.correction_epoch + 1,
+                }
+            )
+            self._mandates[mandate_id] = updated
+            return updated
 
 
 class SituationalTrustResolver(Protocol):
     def binding_is_authorized(self, binding: SituationalBinding) -> bool: ...
 
-    def resolve_artifact(self, artifact_id: str) -> tuple[ArtifactRef, bytes] | None: ...
+    def resolve_artifact(
+        self, artifact_id: str
+    ) -> tuple[ArtifactRef, bytes] | None: ...
 
     def resolve_evidence(self, evidence_id: str) -> EvidenceRef | None: ...
 
@@ -54,9 +236,7 @@ class _DenyAllSituationalTrust:
     def resolve_event(self, event_id: str) -> EnvironmentEvent | None:
         return None
 
-    def resolve_projection(
-        self, projection_id: str
-    ) -> OperationalProjectionRef | None:
+    def resolve_projection(self, projection_id: str) -> OperationalProjectionRef | None:
         return None
 
 
@@ -130,11 +310,183 @@ class InMemorySituationalTrustRegistry:
         resolved = self._events.get(event_id)
         return resolved if isinstance(resolved, EnvironmentEvent) else None
 
-    def resolve_projection(
-        self, projection_id: str
-    ) -> OperationalProjectionRef | None:
+    def resolve_projection(self, projection_id: str) -> OperationalProjectionRef | None:
         resolved = self._projections.get(projection_id)
         return resolved if isinstance(resolved, OperationalProjectionRef) else None
+
+
+class OperationalProposalService:
+    """Resolve trusted inputs, invoke one ratified assessor, then emit under epoch guard."""
+
+    def __init__(
+        self,
+        *,
+        trust: SituationalTrustResolver,
+        control: InMemorySituationalControlPlane,
+        assessor: RelevanceAssessorPort,
+        principal_id: str,
+    ) -> None:
+        self._trust = trust
+        self._control = control
+        self._assessor = assessor
+        self._principal_id = principal_id
+        self._compiler = OperationalProposalCompiler(
+            trust,
+            principal_id=principal_id,
+        )
+
+    def propose(
+        self,
+        event_id: str,
+        projection_id: str,
+        *,
+        evaluated_at: datetime,
+    ) -> ProposalResult:
+        evaluated_at = OperationalProposalCompiler._utc(evaluated_at)
+        event = self._trust.resolve_event(event_id)
+        projection = self._trust.resolve_projection(projection_id)
+        if event is None or projection is None:
+            raise SituationalTrustDenied("trusted event or projection is unavailable")
+        self._validate_input_pair(event, projection)
+        mandate, binding = self._control.resolve_active(
+            event.mandate_id,
+            event.environment_binding_id,
+            principal_id=self._principal_id,
+            tenant_id=event.tenant_id,
+            workspace_id=event.workspace_id,
+            evaluated_at=evaluated_at,
+        )
+        expected_assessor = mandate.relevance_assessor
+        if self._assessor.ref != expected_assessor:
+            raise SituationalTrustDenied("relevance assessor is not ratified")
+        assessment = self._assessor.assess(
+            mandate,
+            binding,
+            event,
+            projection,
+            assessed_at=evaluated_at,
+        )
+        self._validate_assessment(
+            assessment,
+            mandate=mandate,
+            binding=binding,
+            event=event,
+            projection=projection,
+        )
+        return self._control.emit_guarded(
+            mandate,
+            binding,
+            assessment,
+            principal_id=self._principal_id,
+            evaluated_at=evaluated_at,
+            factory=lambda: self._compiler.compile(
+                event,
+                projection,
+                assessment,
+                evaluated_at=evaluated_at,
+            ),
+        )
+
+    def _validate_input_pair(
+        self,
+        event: EnvironmentEvent,
+        projection: OperationalProjectionRef,
+    ) -> None:
+        exact_values = (
+            (projection.mandate_id, event.mandate_id, "mandate"),
+            (
+                projection.environment_binding_id,
+                event.environment_binding_id,
+                "environment binding",
+            ),
+            (projection.tenant_id, event.tenant_id, "tenant"),
+            (projection.workspace_id, event.workspace_id, "workspace"),
+        )
+        for actual, expected, label in exact_values:
+            if actual != expected:
+                raise SituationalTrustDenied(
+                    f"trusted event and projection {label} do not match"
+                )
+        if event.environment_event_id not in projection.source_event_ids:
+            raise SituationalTrustDenied(
+                "trusted projection does not reference the event"
+            )
+        binding: SituationalBinding = (
+            self._principal_id,
+            event.tenant_id,
+            event.workspace_id,
+            event.mandate_id,
+            event.environment_binding_id,
+        )
+        if not self._trust.binding_is_authorized(binding):
+            raise SituationalTrustDenied("situated input binding is not authorized")
+
+    def _validate_assessment(
+        self,
+        assessment: RelevanceAssessment,
+        *,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        event: EnvironmentEvent,
+        projection: OperationalProjectionRef,
+    ) -> None:
+        expected_input_digest = situated_input_binding_digest(
+            mandate,
+            binding,
+            event,
+            projection,
+            mandate.relevance_assessor,
+        )
+        exact_values = (
+            (assessment.mandate_id, mandate.mandate_id, "mandate id"),
+            (assessment.mandate_version, mandate.version, "mandate version"),
+            (assessment.mandate_digest, mandate.mandate_digest, "mandate digest"),
+            (
+                assessment.environment_binding_id,
+                binding.environment_binding_id,
+                "environment binding id",
+            ),
+            (
+                assessment.environment_binding_version,
+                binding.version,
+                "environment binding version",
+            ),
+            (
+                assessment.environment_binding_digest,
+                binding.binding_digest,
+                "environment binding digest",
+            ),
+            (
+                assessment.correction_epoch,
+                mandate.correction_epoch,
+                "mandate correction epoch",
+            ),
+            (assessment.assessor, mandate.relevance_assessor, "assessor"),
+            (
+                assessment.input_binding_digest,
+                expected_input_digest,
+                "assessment input binding digest",
+            ),
+            (assessment.tenant_id, mandate.tenant_id, "tenant"),
+            (assessment.workspace_id, mandate.workspace_id, "workspace"),
+            (assessment.environment_event_id, event.environment_event_id, "event"),
+            (
+                assessment.event_observation_digest,
+                event.observation.content_digest,
+                "event observation digest",
+            ),
+            (assessment.projection_id, projection.projection_id, "projection"),
+            (
+                assessment.projection_digest,
+                projection.projection_artifact.content_digest,
+                "projection digest",
+            ),
+        )
+        for actual, expected, label in exact_values:
+            if actual != expected:
+                raise SituationalTrustDenied(
+                    f"trusted assessment {label} does not match ratified input"
+                )
 
 
 class OperationalProposalCompiler:
@@ -205,6 +557,13 @@ class OperationalProposalCompiler:
                 task_draft_id=f"task-draft:{source_binding_digest}",
                 source_binding_digest=source_binding_digest,
                 mandate_id=assessment.mandate_id,
+                mandate_version=assessment.mandate_version,
+                mandate_digest=assessment.mandate_digest,
+                environment_binding_id=assessment.environment_binding_id,
+                environment_binding_version=assessment.environment_binding_version,
+                environment_binding_digest=assessment.environment_binding_digest,
+                correction_epoch=assessment.correction_epoch,
+                assessor=assessment.assessor,
                 tenant_id=assessment.tenant_id,
                 workspace_id=assessment.workspace_id,
                 triggering_event_id=event.environment_event_id,
@@ -222,11 +581,19 @@ class OperationalProposalCompiler:
                 help_request_id=f"help:{source_binding_digest}",
                 source_binding_digest=source_binding_digest,
                 mandate_id=assessment.mandate_id,
+                mandate_version=assessment.mandate_version,
+                mandate_digest=assessment.mandate_digest,
+                environment_binding_id=assessment.environment_binding_id,
+                environment_binding_version=assessment.environment_binding_version,
+                environment_binding_digest=assessment.environment_binding_digest,
+                correction_epoch=assessment.correction_epoch,
+                assessor=assessment.assessor,
                 tenant_id=assessment.tenant_id,
                 workspace_id=assessment.workspace_id,
                 triggering_event_id=event.environment_event_id,
                 event_observation_digest=event.observation.content_digest,
                 projection_id=projection.projection_id,
+                projection_digest=projection.projection_artifact.content_digest,
                 relevance_assessment_id=assessment.assessment_id,
                 known_facts=assessment.known_facts,
                 unknown_facts=assessment.unknown_facts,
@@ -263,6 +630,8 @@ class OperationalProposalCompiler:
             )
         if event.environment_binding_id != projection.environment_binding_id:
             raise SituationalScopeMismatch("environment binding mismatch")
+        if assessment.environment_binding_id != event.environment_binding_id:
+            raise SituationalScopeMismatch("assessment environment binding mismatch")
         if assessment.environment_event_id != event.environment_event_id:
             raise SituationalScopeMismatch("assessment event binding mismatch")
         if assessment.event_observation_digest != event.observation.content_digest:
@@ -323,7 +692,9 @@ class OperationalProposalCompiler:
             if "situated:read" not in artifact.acl_scopes:
                 raise SituationalTrustDenied("artifact lacks situated read scope")
             if hashlib.sha256(resolved[1]).hexdigest() != artifact.content_digest:
-                raise SituationalTrustDenied("artifact bytes do not match trusted digest")
+                raise SituationalTrustDenied(
+                    "artifact bytes do not match trusted digest"
+                )
         for item in (*event.evidence, *projection.evidence):
             if self._trust.resolve_evidence(item.evidence_id) != item:
                 raise SituationalTrustDenied("evidence reference is not trusted")

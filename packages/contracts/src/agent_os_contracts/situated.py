@@ -32,6 +32,12 @@ class RelevanceUrgency(str, Enum):
     CRITICAL = "CRITICAL"
 
 
+class MandateOperationalStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    REVOKED = "REVOKED"
+
+
 def _normalized(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(set(values)))
 
@@ -45,6 +51,73 @@ def _validate_evidence_scope(
     for item in evidence:
         if item.tenant_id != tenant_id or item.workspace_id != workspace_id:
             raise ValueError("evidence scope must match contract scope")
+
+
+class RelevanceAssessorRef(ContractModel):
+    """Versioned policy identity; it grants no work or effect authority."""
+
+    assessor_id: NonEmptyStr
+    version: int = Field(ge=1)
+    policy_digest: Sha256Digest
+
+
+class EnvironmentBindingAuthorization(ContractModel):
+    """Exact externally authorized observation binding."""
+
+    environment_binding_id: NonEmptyStr
+    version: int = Field(ge=1)
+    binding_digest: Sha256Digest
+
+
+class RatifiedMandateRef(ContractModel):
+    """Minimal V0 ratification anchor, not a self-writable Mandate aggregate."""
+
+    mandate_id: NonEmptyStr
+    version: int = Field(ge=1)
+    mandate_digest: Sha256Digest
+    ratification_receipt_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    owner_principal_id: NonEmptyStr
+    ratified_by: NonEmptyStr
+    ratified_at: UtcDateTime
+    valid_from: UtcDateTime
+    expires_at: UtcDateTime
+    correction_epoch: int = Field(ge=0)
+    status: MandateOperationalStatus = MandateOperationalStatus.ACTIVE
+    authority_envelope_digest: Sha256Digest
+    allowed_environment_bindings: tuple[EnvironmentBindingAuthorization, ...] = Field(
+        min_length=1
+    )
+    relevance_assessor: RelevanceAssessorRef
+
+    @field_validator("allowed_environment_bindings", mode="after")
+    @classmethod
+    def _unique_bindings(
+        cls, values: tuple[EnvironmentBindingAuthorization, ...]
+    ) -> tuple[EnvironmentBindingAuthorization, ...]:
+        indexed = {item.environment_binding_id: item for item in values}
+        if len(indexed) != len(values):
+            raise ValueError("environment binding ids must be unique")
+        return tuple(indexed[key] for key in sorted(indexed))
+
+    @model_validator(mode="after")
+    def _validate_ratification(self) -> RatifiedMandateRef:
+        if self.valid_from < self.ratified_at:
+            raise ValueError("mandate valid_from cannot precede ratification")
+        if self.expires_at <= self.valid_from:
+            raise ValueError("mandate expires_at must follow valid_from")
+        return self
+
+    def binding(self, binding_id: str) -> EnvironmentBindingAuthorization | None:
+        return next(
+            (
+                item
+                for item in self.allowed_environment_bindings
+                if item.environment_binding_id == binding_id
+            ),
+            None,
+        )
 
 
 class EnvironmentEvent(ContractModel):
@@ -87,8 +160,7 @@ class EnvironmentEvent(ContractModel):
             workspace_id=self.workspace_id,
         )
         if not any(
-            self.observation.artifact_id in item.artifact_ids
-            for item in self.evidence
+            self.observation.artifact_id in item.artifact_ids for item in self.evidence
         ):
             raise ValueError(
                 "event evidence must reference the bound observation artifact"
@@ -167,6 +239,14 @@ class RelevanceAssessment(ContractModel):
     projection_id: NonEmptyStr
     projection_digest: Sha256Digest
     mandate_id: NonEmptyStr
+    mandate_version: int = Field(ge=1)
+    mandate_digest: Sha256Digest
+    environment_binding_id: NonEmptyStr
+    environment_binding_version: int = Field(ge=1)
+    environment_binding_digest: Sha256Digest
+    correction_epoch: int = Field(ge=0)
+    assessor: RelevanceAssessorRef
+    input_binding_digest: Sha256Digest
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
     affected_commitment_ids: tuple[NonEmptyStr, ...] = ()
@@ -248,6 +328,13 @@ class TaskDraftProposal(ContractModel):
     task_draft_id: NonEmptyStr
     source_binding_digest: Sha256Digest
     mandate_id: NonEmptyStr
+    mandate_version: int = Field(ge=1)
+    mandate_digest: Sha256Digest
+    environment_binding_id: NonEmptyStr
+    environment_binding_version: int = Field(ge=1)
+    environment_binding_digest: Sha256Digest
+    correction_epoch: int = Field(ge=0)
+    assessor: RelevanceAssessorRef
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
     triggering_event_id: NonEmptyStr
@@ -266,11 +353,19 @@ class HelpRequest(ContractModel):
     help_request_id: NonEmptyStr
     source_binding_digest: Sha256Digest
     mandate_id: NonEmptyStr
+    mandate_version: int = Field(ge=1)
+    mandate_digest: Sha256Digest
+    environment_binding_id: NonEmptyStr
+    environment_binding_version: int = Field(ge=1)
+    environment_binding_digest: Sha256Digest
+    correction_epoch: int = Field(ge=0)
+    assessor: RelevanceAssessorRef
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
     triggering_event_id: NonEmptyStr
     event_observation_digest: Sha256Digest
     projection_id: NonEmptyStr
+    projection_digest: Sha256Digest
     relevance_assessment_id: NonEmptyStr
     known_facts: tuple[NonEmptyStr, ...]
     unknown_facts: tuple[NonEmptyStr, ...]
