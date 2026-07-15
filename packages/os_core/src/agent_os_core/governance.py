@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from threading import RLock
 from uuid import uuid4
 
 from agent_os_contracts import (
@@ -24,51 +27,63 @@ class CorrectionAuthority:
 
     def __init__(self, persistence: object | None = None, *, tenant_id: str = "tenant:local", workspace_id: str = "workspace:local", written_by: str = "principal") -> None:
         self._epochs: dict[tuple[str, str], tuple[int, bool, str]] = {}
+        self._lock = RLock()
         self._persistence = persistence
         self._tenant_id = tenant_id
         self._workspace_id = workspace_id
         self._written_by = written_by
 
     def snapshot(self, task_id: str, run_id: str, capability_id: str) -> CorrectionEpochVector:
-        return CorrectionEpochVector(
-            task_epoch=self._epoch("task", task_id)[0],
-            run_epoch=self._epoch("run", run_id)[0],
-            capability_epoch=self._epoch("capability", capability_id)[0],
-        )
+        with self._lock:
+            return CorrectionEpochVector(
+                task_epoch=self._epoch("task", task_id)[0],
+                run_epoch=self._epoch("run", run_id)[0],
+                capability_epoch=self._epoch("capability", capability_id)[0],
+            )
 
     def halted(self, task_id: str, run_id: str, capability_id: str) -> bool:
-        return any(
-            self._epoch(scope, value)[1]
-            for scope, value in (
-                ("task", task_id),
-                ("run", run_id),
-                ("capability", capability_id),
+        with self._lock:
+            return any(
+                self._epoch(scope, value)[1]
+                for scope, value in (
+                    ("task", task_id),
+                    ("run", run_id),
+                    ("capability", capability_id),
+                )
             )
-        )
+
+    @contextmanager
+    def guard_unchanged(
+        self,
+        task_id: str,
+        run_id: str,
+        capability_id: str,
+        observed_epochs: CorrectionEpochVector,
+    ) -> Iterator[bool]:
+        """Linearize a local effect against correction changes on this authority."""
+        with self._lock:
+            unchanged = (
+                self.snapshot(task_id, run_id, capability_id) == observed_epochs
+                and not self.halted(task_id, run_id, capability_id)
+            )
+            yield unchanged
 
     def correct(self, scope: str, scope_id: str, reason: str) -> int:
-        if scope not in {"task", "run", "capability"}:
-            raise ValueError("unsupported correction scope")
-        advance = getattr(self._persistence, "advance_correction", None)
-        if advance is not None:
-            value = advance(
-                scope,
-                scope_id,
-                self._tenant_id,
-                self._workspace_id,
-                True,
-                reason,
-                self._written_by,
-                datetime.now(timezone.utc).isoformat(),
-            )
-            self._epochs[(scope, scope_id)] = value
-            return value[0]
-        epoch, _, _ = self._epoch(scope, scope_id)
-        self._epochs[(scope, scope_id)] = (epoch + 1, True, reason)
-        self._persist(scope, scope_id, epoch + 1, True, reason)
-        return epoch + 1
+        with self._lock:
+            return self._advance(scope, scope_id, halted=True, reason=reason)
 
     def resume(self, scope: str, scope_id: str, reason: str = "resumed") -> int:
+        with self._lock:
+            return self._advance(scope, scope_id, halted=False, reason=reason)
+
+    def _advance(
+        self,
+        scope: str,
+        scope_id: str,
+        *,
+        halted: bool,
+        reason: str,
+    ) -> int:
         if scope not in {"task", "run", "capability"}:
             raise ValueError("unsupported correction scope")
         advance = getattr(self._persistence, "advance_correction", None)
@@ -78,7 +93,7 @@ class CorrectionAuthority:
                 scope_id,
                 self._tenant_id,
                 self._workspace_id,
-                False,
+                halted,
                 reason,
                 self._written_by,
                 datetime.now(timezone.utc).isoformat(),
@@ -86,8 +101,8 @@ class CorrectionAuthority:
             self._epochs[(scope, scope_id)] = value
             return value[0]
         epoch, _, _ = self._epoch(scope, scope_id)
-        self._epochs[(scope, scope_id)] = (epoch + 1, False, reason)
-        self._persist(scope, scope_id, epoch + 1, False, reason)
+        self._epochs[(scope, scope_id)] = (epoch + 1, halted, reason)
+        self._persist(scope, scope_id, epoch + 1, halted, reason)
         return epoch + 1
 
     def _epoch(self, scope: str, scope_id: str) -> tuple[int, bool, str]:

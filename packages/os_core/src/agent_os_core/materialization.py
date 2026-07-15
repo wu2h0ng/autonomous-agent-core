@@ -124,29 +124,38 @@ class DomainCandidateSealer:
             draft.workspace_id,
             key,
         )
-        self._require_correction_unchanged(draft, observed_epochs)
-        if existing is not None:
-            if existing.payload_digest != payload_digest:
-                raise CandidateIdempotencyConflict(
-                    "same derived key has different payload"
+        with self._correction.guard_unchanged(
+            draft.task_id,
+            draft.materialization_run_id,
+            MATERIALIZATION_CAPABILITY,
+            observed_epochs,
+        ) as unchanged:
+            if not unchanged:
+                raise CandidateSealingDenied(
+                    "correction epoch changed before candidate append"
                 )
-            return existing
-        request = CandidateSealRequest(
-            candidate_id=f"domain-candidate:{payload_digest[:24]}",
-            tenant_id=draft.tenant_id,
-            workspace_id=draft.workspace_id,
-            task_id=draft.task_id,
-            payload_digest=payload_digest,
-            idempotency_key=key,
-            sealed_by=SEALER_ID,
-            sealed_at=self._clock(),
-            observed_correction_epochs=observed_epochs,
-            draft=draft,
-        )
-        return self._store.append(
-            request,
-            expected_parent_digest=draft.parent_candidate_digest,
-        )
+            if existing is not None:
+                if existing.payload_digest != payload_digest:
+                    raise CandidateIdempotencyConflict(
+                        "same derived key has different payload"
+                    )
+                return existing
+            request = CandidateSealRequest(
+                candidate_id=f"domain-candidate:{payload_digest[:24]}",
+                tenant_id=draft.tenant_id,
+                workspace_id=draft.workspace_id,
+                task_id=draft.task_id,
+                payload_digest=payload_digest,
+                idempotency_key=key,
+                sealed_by=SEALER_ID,
+                sealed_at=self._clock(),
+                observed_correction_epochs=observed_epochs,
+                draft=draft,
+            )
+            return self._store.append(
+                request,
+                expected_parent_digest=draft.parent_candidate_digest,
+            )
 
     def list_for_task(
         self,
@@ -214,23 +223,3 @@ class DomainCandidateSealer:
             raise CandidateProvenanceError(
                 "candidate outcome requires source provenance"
             )
-
-    def _require_correction_unchanged(
-        self,
-        draft: DomainCandidateDraft,
-        observed_epochs: object,
-    ) -> None:
-        current_epochs = self._correction.snapshot(
-            draft.task_id,
-            draft.materialization_run_id,
-            MATERIALIZATION_CAPABILITY,
-        )
-        if current_epochs != observed_epochs or self._correction.halted(
-            draft.task_id,
-            draft.materialization_run_id,
-            MATERIALIZATION_CAPABILITY,
-        ):
-            raise CandidateSealingDenied(
-                "correction epoch changed before candidate append"
-            )
-

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
+from threading import Event, Thread
 from typing import Any, Iterator
 
 import pytest
@@ -93,6 +95,32 @@ class ScriptedCorrectionAuthority:
     ) -> CorrectionEpochVector:
         assert task_id and run_id and capability_id == MATERIALIZATION_CAPABILITY
         return next(self._snapshots)
+
+    @contextmanager
+    def guard_unchanged(
+        self,
+        task_id: str,
+        run_id: str,
+        capability_id: str,
+        observed_epochs: CorrectionEpochVector,
+    ) -> Iterator[bool]:
+        yield self.snapshot(task_id, run_id, capability_id) == observed_epochs
+
+
+class BlockingAppendCandidateStore(SQLiteCandidateStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.append_entered = Event()
+        self.append_release = Event()
+
+    def append(self, request, *, expected_parent_digest):
+        self.append_entered.set()
+        if not self.append_release.wait(timeout=5):
+            raise TimeoutError("candidate append was not released")
+        return super().append(
+            request,
+            expected_parent_digest=expected_parent_digest,
+        )
 
 
 def _goal() -> Goal:
@@ -411,6 +439,49 @@ def test_epoch_change_before_append_fails_closed(context: RunningContext) -> Non
 
     with pytest.raises(CandidateSealingDenied, match="correction epoch changed"):
         sealer.seal(context.principal, _draft(context))
+
+
+def test_correction_cannot_interleave_after_recheck_before_append(
+    context: RunningContext,
+) -> None:
+    store = BlockingAppendCandidateStore()
+    sealer = DomainCandidateSealer(
+        context.tasks,
+        context.correction,
+        store,
+        clock=lambda: NOW,
+    )
+    candidates = []
+    errors: list[BaseException] = []
+
+    def seal_candidate() -> None:
+        try:
+            candidates.append(sealer.seal(context.principal, _draft(context)))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    correction_completed = Event()
+
+    def halt_run() -> None:
+        context.correction.correct("run", context.run_id, "concurrent halt")
+        correction_completed.set()
+
+    seal_thread = Thread(target=seal_candidate)
+    seal_thread.start()
+    assert store.append_entered.wait(timeout=5)
+    correction_thread = Thread(target=halt_run)
+    correction_thread.start()
+    correction_was_blocked = not correction_completed.wait(timeout=0.2)
+    store.append_release.set()
+    seal_thread.join(timeout=5)
+    correction_thread.join(timeout=5)
+    store.close()
+
+    assert correction_was_blocked
+    assert errors == []
+    assert len(candidates) == 1
+    assert candidates[0].observed_correction_epochs.run_epoch == 0
+    assert correction_completed.is_set()
 
 
 @pytest.mark.parametrize(

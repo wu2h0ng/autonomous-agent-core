@@ -40,6 +40,7 @@ from agent_os_core import candidate_source_snapshot_digest
 
 
 NOW = datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc)
+FAR_FUTURE = datetime(2100, 1, 1, tzinfo=timezone.utc)
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
 DIGEST_D = "d" * 64
@@ -139,7 +140,7 @@ def _running_task(app: AgentOSApplication) -> tuple[str, str]:
         ),
         risk_tier=1,
         exit_conditions=("candidate sealed or abstained",),
-        expires_at=NOW + timedelta(hours=1),
+        expires_at=FAR_FUTURE,
     )
     expected = ExpectedOutcome(
         expected_outcome_id="expected:http-materialization",
@@ -209,7 +210,7 @@ def _candidate_body(
                 custodian_verified_by="principal:reviewer",
                 derivation_input_digests=(DIGEST_A,),
                 output_patch_digest=selected_patch.patch_digest(),
-                expires_at=NOW + timedelta(days=1),
+                expires_at=FAR_FUTURE,
             ),
         )
         if outcome is MaterializationOutcome.CANDIDATE
