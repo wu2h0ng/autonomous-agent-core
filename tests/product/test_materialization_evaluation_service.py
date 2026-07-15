@@ -533,6 +533,20 @@ def test_record_rejects_evaluator_contract_mismatch(context: EvaluationContext) 
         )
 
 
+def test_record_rejects_recorder_as_evaluator(context: EvaluationContext) -> None:
+    evaluator = _evaluation_draft(context).evaluator.model_copy(
+        update={"evaluator_id": context.principal.principal_id}
+    )
+
+    with pytest.raises(CandidateEvaluationDenied, match="distinct identities"):
+        context.recorder.record(
+            context.principal,
+            context.candidate.draft.task_id,
+            context.candidate.candidate_digest,
+            _evaluation_draft(context, evaluator=evaluator),
+        )
+
+
 def test_record_is_blocked_by_c7(context: EvaluationContext) -> None:
     context.correction.correct("run", context.evaluation_run_id, "operator halt")
 

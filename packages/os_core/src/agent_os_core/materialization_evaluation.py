@@ -297,6 +297,10 @@ class DomainCandidateEvaluationRecorder:
     ) -> None:
         candidate_draft = candidate.draft
         sealed_by = candidate.sealed_by
+        if principal.principal_id == draft.evaluator.evaluator_id:
+            raise CandidateEvaluationDenied(
+                "evaluation recorder and evaluator must be distinct identities"
+            )
         forbidden_identities = {candidate_draft.submitted_by, sealed_by}
         if (
             principal.principal_id in forbidden_identities
