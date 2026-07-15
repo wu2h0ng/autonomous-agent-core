@@ -23,6 +23,8 @@ class ReportSnapshotEventPayloadsMigrationTest(unittest.TestCase):
         from alembic.config import Config
         from sqlalchemy import create_engine, inspect, text
 
+        from agent_os_persistence import SqlReportSnapshotStore
+
         with TemporaryDirectory() as tmpdir:
             database = Path(tmpdir) / "legacy-0017.sqlite3"
             engine = create_engine(f"sqlite:///{database}")
@@ -104,6 +106,17 @@ class ReportSnapshotEventPayloadsMigrationTest(unittest.TestCase):
             self.assertEqual(legacy.event_id, "legacy-event")
             self.assertIsNone(legacy.report_payload)
             self.assertEqual(revision_state, 3)
+            store = SqlReportSnapshotStore(engine)
+            with self.assertRaises(RuntimeError) as raised:
+                store.list_events(
+                    after_sequence=0,
+                    limit=10,
+                    tenant_id="tenant-a",
+                )
+            self.assertEqual(
+                str(raised.exception),
+                "legacy report event lacks an immutable payload; replay is required",
+            )
 
     def test_migration_extends_0017_without_rewriting_it(self) -> None:
         source = MIGRATION.read_text(encoding="utf-8")
