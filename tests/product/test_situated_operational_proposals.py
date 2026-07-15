@@ -24,8 +24,8 @@ from agent_os_contracts import (
     TaskDraftProposal,
 )
 from agent_os_core import (
-    InMemorySituationalControlPlane,
     InMemorySituationalTrustRegistry,
+    SQLiteSituatedAssessmentStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     StaleOperationalProjection,
@@ -274,7 +274,9 @@ def _app(tmp_path, *, now: datetime = NOW) -> AgentOSApplication:
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         situational_trust=_trust_registry(),
-        situational_control=InMemorySituationalControlPlane((_mandate(),)),
+        situational_control=SQLiteSituatedAssessmentStore(
+            tmp_path / "situated.sqlite3", mandates=(_mandate(),)
+        ),
         relevance_assessor=_Assessor(),
         clock=lambda: now,
     )

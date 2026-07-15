@@ -186,12 +186,15 @@ class SQLiteSituatedAssessmentStore:
         current: RatifiedMandateRef,
         proposed: RatifiedMandateRef,
     ) -> bool:
-        return current.model_copy(
-            update={
-                "status": proposed.status,
-                "correction_epoch": proposed.correction_epoch,
-            }
-        ) == proposed
+        return (
+            current.model_copy(
+                update={
+                    "status": proposed.status,
+                    "correction_epoch": proposed.correction_epoch,
+                }
+            )
+            == proposed
+        )
 
     def _bootstrap_mandate(self, mandate: RatifiedMandateRef) -> None:
         connection = self._connect()
@@ -370,9 +373,7 @@ class SQLiteSituatedAssessmentStore:
         finally:
             connection.close()
 
-    def assessment_record(
-        self, assessment_id: str
-    ) -> SituatedAssessmentRecord | None:
+    def assessment_record(self, assessment_id: str) -> SituatedAssessmentRecord | None:
         connection = self._connect()
         try:
             row = connection.execute(
@@ -431,6 +432,8 @@ class SQLiteSituatedAssessmentStore:
         try:
             connection.execute("BEGIN IMMEDIATE")
             current = self._read_mandate(connection, mandate_id)
+            if current.status is MandateOperationalStatus.REVOKED:
+                raise SituationalTrustDenied("revoked mandate status is terminal")
             if current.correction_epoch != expected_epoch:
                 raise SituationalTrustDenied("mandate correction epoch changed")
             updated = current.model_copy(

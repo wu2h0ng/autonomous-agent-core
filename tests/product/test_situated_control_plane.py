@@ -309,7 +309,9 @@ def test_application_entry_accepts_only_trusted_ids_and_never_writes_task(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         situational_trust=_trust(),
-        situational_control=InMemorySituationalControlPlane((_mandate(),)),
+        situational_control=SQLiteSituatedAssessmentStore(
+            tmp_path / "situated.sqlite3", mandates=(_mandate(),)
+        ),
         relevance_assessor=assessor,
         clock=lambda: NOW,
     )
@@ -458,6 +460,28 @@ def test_application_rejects_partial_situated_configuration(tmp_path) -> None:
             clock=lambda: NOW,
         )
 
+    with pytest.raises(ValueError, match="durable authority"):
+        AgentOSApplication(
+            database=tmp_path / "agent-os-memory-authority.sqlite3",
+            workspace=tmp_path,
+            situational_trust=_trust(),
+            situational_control=InMemorySituationalControlPlane((_mandate(),)),
+            relevance_assessor=_Assessor(_assessment()),
+            clock=lambda: NOW,
+        )
+
+
+def test_revoked_sqlite_mandate_is_terminal_across_instances(tmp_path) -> None:
+    database = tmp_path / "situated-terminal-revoke.sqlite3"
+    first = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
+    second = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
+
+    revoked = first.revoke("mandate:agent-os", expected_epoch=0)
+
+    assert revoked.correction_epoch == 1
+    with pytest.raises(SituationalTrustDenied, match="terminal"):
+        second.pause("mandate:agent-os", expected_epoch=1)
+
 
 def test_sqlite_store_persists_task_draft_assessment_across_restart(tmp_path) -> None:
     database = tmp_path / "situated.sqlite3"
@@ -469,9 +493,7 @@ def test_sqlite_store_persists_task_draft_assessment_across_restart(tmp_path) ->
         principal_id="user:local",
     )
 
-    result = service.propose(
-        "event:report-1", "projection:report-1", evaluated_at=NOW
-    )
+    result = service.propose("event:report-1", "projection:report-1", evaluated_at=NOW)
 
     assert isinstance(result, TaskDraftProposal)
     record = store.assessment_record("assessment:trusted-1")
@@ -494,9 +516,7 @@ def test_sqlite_store_audits_no_proposal_outcome_across_restart(tmp_path) -> Non
         principal_id="user:local",
     )
 
-    result = service.propose(
-        "event:report-1", "projection:report-1", evaluated_at=NOW
-    )
+    result = service.propose("event:report-1", "projection:report-1", evaluated_at=NOW)
 
     assert result is None
     restarted = SQLiteSituatedAssessmentStore(database)
@@ -519,9 +539,7 @@ def test_sqlite_store_persists_help_request_without_authority_across_restart(
         principal_id="user:local",
     )
 
-    result = service.propose(
-        "event:report-1", "projection:report-1", evaluated_at=NOW
-    )
+    result = service.propose("event:report-1", "projection:report-1", evaluated_at=NOW)
 
     assert isinstance(result, HelpRequest)
     assert result.authority_granted is False
@@ -607,12 +625,8 @@ def test_sqlite_source_binding_is_idempotent_and_conflicts_fail_closed(
         principal_id="user:local",
     )
 
-    first = service.propose(
-        "event:report-1", "projection:report-1", evaluated_at=NOW
-    )
-    replay = service.propose(
-        "event:report-1", "projection:report-1", evaluated_at=NOW
-    )
+    first = service.propose("event:report-1", "projection:report-1", evaluated_at=NOW)
+    replay = service.propose("event:report-1", "projection:report-1", evaluated_at=NOW)
 
     assert isinstance(first, TaskDraftProposal)
     assert replay == first

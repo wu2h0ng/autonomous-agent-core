@@ -39,7 +39,7 @@ from apps.api_server.data_agent_report_adapter import (
     SQLiteDataAgentReportStateStore,
 )
 from agent_os_core import (
-    InMemorySituationalControlPlane,
+    SQLiteSituatedAssessmentStore,
     SituationalScopeMismatch,
     situated_input_binding_digest,
 )
@@ -379,7 +379,9 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
             authenticated_at=NOW - timedelta(minutes=1),
         ),
         data_agent_reports=adapter,
-        situational_control=InMemorySituationalControlPlane((_mandate(),)),
+        situational_control=SQLiteSituatedAssessmentStore(
+            tmp_path / "situated.sqlite3", mandates=(_mandate(),)
+        ),
         relevance_assessor=_ReportAssessor(),
         clock=lambda: NOW,
     )

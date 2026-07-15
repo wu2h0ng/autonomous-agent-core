@@ -163,6 +163,10 @@ class AgentOSApplication:
             raise ValueError(
                 "situated proposal service requires a situational trust resolver"
             )
+        if situational_control is not None and not situational_control.durable:
+            raise ValueError(
+                "situated proposal service requires a durable authority store"
+            )
         resolved_situational_trust = situational_trust or data_agent_reports
         if (
             situational_control is not None
