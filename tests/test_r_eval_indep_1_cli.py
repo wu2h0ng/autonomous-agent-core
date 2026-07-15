@@ -15,23 +15,40 @@ class DevelopmentOnlyCliTests(unittest.TestCase):
             self.assertEqual(main(list(args)), 0)
         return json.loads(output.getvalue())
 
-    def test_validate_is_explicitly_not_evidence(self) -> None:
-        payload = self.invoke("validate")
+    def test_compile_corpus_dev_is_explicitly_not_evidence(self) -> None:
+        payload = self.invoke("compile-corpus-dev")
+        self.assertEqual(payload["mode"], "compile-corpus-dev")
         self.assertEqual(payload["evidence_status"], "NOT_EVIDENCE")
         self.assertEqual(payload["provider_fallback"], "FORBIDDEN")
         self.assertEqual(payload["scientific_verdict"], None)
+        self.assertEqual(payload["provider_calls"], 0)
+        self.assertEqual(payload["result_run"], False)
+        self.assertEqual(payload["freeze_status"], "NOT_FROZEN")
+        self.assertEqual(payload["run_status"], "NOT_RUN")
+        self.assertEqual(payload["case_count"], 14)
+        self.assertEqual(payload["harmful_count"], 7)
+        self.assertEqual(payload["clean_count"], 7)
+        self.assertNotEqual(
+            payload["public_cases_sha256"], payload["referee_cases_sha256"]
+        )
 
-    def test_qualify_dev_is_explicitly_not_evidence(self) -> None:
-        payload = self.invoke("qualify-dev")
+    def test_verify_corpus_dev_is_explicitly_not_evidence(self) -> None:
+        payload = self.invoke("verify-corpus-dev")
+        self.assertEqual(payload["mode"], "verify-corpus-dev")
         self.assertEqual(payload["evidence_status"], "NOT_EVIDENCE")
         self.assertEqual(payload["provider_fallback"], "FORBIDDEN")
-        self.assertGreaterEqual(payload["qualified_count"], 7)
-        self.assertEqual(payload["qualified_count"], payload["registry_count"])
+        self.assertEqual(payload["provider_calls"], 0)
+        self.assertEqual(payload["result_run"], False)
+        self.assertEqual(payload["qualified_count"], 14)
+        self.assertEqual(payload["qualified_count"], payload["case_count"])
+        self.assertEqual(len(payload["records"]), 14)
 
-    def test_no_result_or_provider_command_exists(self) -> None:
-        with contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                main(["run-rfinal"])
+    def test_only_corpus_development_commands_exist(self) -> None:
+        for command in ("validate", "qualify-dev", "run-rfinal"):
+            with self.subTest(command=command):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        main([command])
 
 
 if __name__ == "__main__":
