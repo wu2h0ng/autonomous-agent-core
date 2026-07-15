@@ -25,6 +25,22 @@ class ScopeMismatchError(AgentOSCoreError):
     pass
 
 
+class SituationalProposalError(AgentOSCoreError):
+    pass
+
+
+class SituationalScopeMismatch(SituationalProposalError):
+    pass
+
+
+class StaleOperationalProjection(SituationalProposalError):
+    pass
+
+
+class SituationalTrustDenied(SituationalProposalError):
+    pass
+
+
 class TaskNotFoundError(AgentOSCoreError):
     pass
 

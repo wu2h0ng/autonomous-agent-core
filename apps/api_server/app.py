@@ -30,7 +30,10 @@ from agent_os_contracts import (
     DomainPriorArtifact,
     ExpectedOutcome,
     ExternalSignal,
+    EnvironmentEvent,
     Goal,
+    HelpRequest,
+    OperationalProjectionRef,
     PrincipalIdentity,
     PrincipalRole,
     ProviderProfile,
@@ -39,10 +42,12 @@ from agent_os_contracts import (
     ProviderMessageRole,
     ProviderRequest,
     ResourceBudget,
+    RelevanceAssessment,
     RunStatus,
     TaskConfigurationSnapshot,
     TaskConfigurationSnapshotCommand,
     TaskEventType,
+    TaskDraftProposal,
     WorkflowGraph,
 )
 from agent_os_core import (
@@ -53,6 +58,7 @@ from agent_os_core import (
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
+    OperationalProposalCompiler,
     RunCoordinator,
     DomainCandidateSealer,
     DomainCandidateEvaluationRecorder,
@@ -63,6 +69,8 @@ from agent_os_core import (
     SQLiteCandidateEvaluationStore,
     SQLiteCandidatePromotionStore,
     SQLiteTaskEventStore,
+    SituationalScopeMismatch,
+    SituationalTrustResolver,
     TaskService,
     WorkspaceSandbox,
     EnvCredentialBroker,
@@ -96,6 +104,7 @@ class AgentOSApplication:
         evaluation_grant: CapabilityGrant | None = None,
         promotion_grant: CapabilityGrant | None = None,
         clock: Clock = _utc_now,
+        situational_trust: SituationalTrustResolver | None = None,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -111,6 +120,10 @@ class AgentOSApplication:
         self._configuration_lock = RLock()
         self.store = SQLiteTaskEventStore(database)
         self.tasks = TaskService(self.store, clock=self._clock)
+        self.operational_proposals = OperationalProposalCompiler(
+            situational_trust,
+            principal_id=self.principal.principal_id,
+        )
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.correction = CorrectionAuthority(
             self.store,
@@ -496,6 +509,32 @@ class AgentOSApplication:
 
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
+
+    def propose_situated_work(
+        self,
+        event_payload: dict[str, Any],
+        projection_payload: dict[str, Any],
+        assessment_payload: dict[str, Any],
+    ) -> TaskDraftProposal | HelpRequest | None:
+        event = EnvironmentEvent.model_validate(event_payload)
+        projection = OperationalProjectionRef.model_validate(projection_payload)
+        assessment = RelevanceAssessment.model_validate(assessment_payload)
+        principal_scope = (self.principal.tenant_id, self.principal.workspace_id)
+        for item_scope in (
+            (event.tenant_id, event.workspace_id),
+            (projection.tenant_id, projection.workspace_id),
+            (assessment.tenant_id, assessment.workspace_id),
+        ):
+            if item_scope != principal_scope:
+                raise SituationalScopeMismatch(
+                    "situated proposal scope does not match application principal"
+                )
+        return self.operational_proposals.compile(
+            event,
+            projection,
+            assessment,
+            evaluated_at=self._clock(),
+        )
 
     def commit_task(self, task_id: str, payload: dict[str, Any]):
         commitment = Commitment.model_validate(payload["commitment"])
