@@ -175,6 +175,21 @@ class WorkflowGraph(ContractModel):
         if visited != len(node_ids):
             raise ValueError("workflow graph must be acyclic")
 
+        for node in self.nodes:
+            if node.kind is not NodeKind.EVALUATION:
+                continue
+            targets = adjacency[node.node_id]
+            if not targets or any(
+                nodes_by_id[target].kind is not NodeKind.TERMINAL
+                for target in targets
+            ) or (
+                node.failure_edge is not None
+                and nodes_by_id[node.failure_edge].kind is not NodeKind.TERMINAL
+            ):
+                raise ValueError(
+                    "evaluation node may only transition directly to terminal nodes"
+                )
+
         roots = [node_id for node_id, degree in indegree.items() if degree == 0]
         reachable: set[str] = set()
         frontier = list(roots)

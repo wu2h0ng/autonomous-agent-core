@@ -14,6 +14,8 @@ from agent_os_contracts import (
     IdempotencyMode,
     NodeKind,
     NodeSpec,
+    ObservedOutcome,
+    OutcomeStatus,
     ResourceBudget,
     RunStatus,
     TaskEventType,
@@ -26,6 +28,7 @@ from agent_os_core import (
     ScopeMismatchError,
     TaskNotFoundError,
     TaskService,
+    ValidatedTestReport,
 )
 
 
@@ -166,6 +169,195 @@ def test_start_before_commit_fails_without_writing_event() -> None:
         service.start_run(created.task_id)
 
     assert len(store.read(created.task_id)) == 1
+
+
+def test_record_outcome_rejects_verified_score_below_frozen_threshold() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+    expected = _expected(created.task_id).model_copy(update={"threshold": 2.0})
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = service.start_run(created.task_id)
+    assert running.run is not None
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-forged",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("artifact:test-report",),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="threshold"):
+        service.record_outcome(created.task_id, outcome)
+
+    assert service.get_task(created.task_id).observed_outcome is None
+
+
+def test_record_outcome_rejects_scope_mismatch() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+    expected = _expected(created.task_id)
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = service.start_run(created.task_id)
+    assert running.run is not None
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-wrong-scope",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id="task-other",
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.NOT_MET,
+        score=0.0,
+        confidence=1.0,
+        evidence_refs=("artifact:test-report",),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="scope"):
+        service.record_outcome(created.task_id, outcome)
+
+    assert service.get_task(created.task_id).observed_outcome is None
+
+
+def test_record_artifact_rejects_unbound_action_receipt() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+
+    with pytest.raises(InvalidTransitionError, match="action receipt"):
+        service.record_artifact(
+            created.task_id,
+            "artifact:" + "a" * 64,
+            node_id="tests",
+            action_id="action-forged",
+        )
+
+    assert len(store.read(created.task_id)) == 1
+
+
+def test_append_event_rejects_protected_action_receipt_truth() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+
+    with pytest.raises(InvalidTransitionError, match="protected event"):
+        service.append_event(
+            created.task_id,
+            TaskEventType.ACTION_RECEIPT_RECORDED,
+            {},
+        )
+
+    assert len(store.read(created.task_id)) == 1
+
+
+def test_record_outcome_persists_matching_invalid_evaluator_result() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+    expected = _expected(created.task_id).model_copy(
+        update={"evaluator_type": "unknown"}
+    )
+    workflow = _workflow().model_copy(
+        update={"evaluator_refs": ("evaluator:unknown:1",)}
+    )
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        workflow,
+        expected,
+    )
+    running = service.start_run(created.task_id)
+    assert running.run is not None
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-unsupported",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.INVALID,
+        score=None,
+        confidence=1.0,
+        evidence_refs=(),
+        unresolved_gaps=("unsupported evaluator",),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    recorded = service.record_outcome(created.task_id, outcome)
+
+    assert recorded.observed_outcome == outcome
+
+
+def test_record_outcome_rejects_test_report_completed_before_freeze() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+    expected = _expected(created.task_id)
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = service.start_run(created.task_id)
+    assert running.run is not None
+    artifact_id = "artifact:" + "c" * 64
+    report = ValidatedTestReport(
+        artifact_ids=(artifact_id,),
+        exit_code=0,
+        node_id="tests",
+        action_id="action-tests",
+        receipt_id="receipt-tests",
+        completed_sequence=10,
+        completed_at=expected.frozen_at - timedelta(seconds=1),
+    )
+
+    def pre_freeze_report(_task_id: str, _run_id: str) -> ValidatedTestReport:
+        return report
+
+    service.validated_test_report = pre_freeze_report  # type: ignore[method-assign]
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-pre-freeze",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=(artifact_id,),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="predates frozen"):
+        service.record_outcome(created.task_id, outcome)
 
 
 def test_run_terminal_state_cannot_be_reopened() -> None:

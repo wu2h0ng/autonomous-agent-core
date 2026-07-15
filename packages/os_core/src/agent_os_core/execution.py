@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -39,7 +40,20 @@ from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
 from .errors import ConcurrentWriteError
 from .governance import CorrectionAuthority, PolicyInput, PolicyKernel
 from .provider import ProviderPort
-from .task_service import TaskService
+from .task_service import (
+    TaskService,
+    ValidatedTestReport,
+    expected_outcome_contract_error,
+)
+
+
+def _strict_exit_code(output: object) -> int | None:
+    if not isinstance(output, dict):
+        return None
+    value = output.get("exit_code")
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
 
 
 class RunExecutionError(RuntimeError):
@@ -62,6 +76,14 @@ class UnsupportedNodeError(RunExecutionError):
 class DeterministicOutcomeEvaluator:
     """Evaluator consumes tool evidence, never provider narration."""
 
+    def __init__(
+        self,
+        evidence_resolver: (
+            Callable[[str, str], ValidatedTestReport | None] | None
+        ) = None,
+    ) -> None:
+        self._evidence_resolver = evidence_resolver
+
     def evaluate(
         self,
         expected: ExpectedOutcome,
@@ -75,7 +97,68 @@ class DeterministicOutcomeEvaluator:
         now: datetime | None = None,
     ) -> ObservedOutcome:
         observed = now or datetime.now(timezone.utc)
-        passed = test_exit_code == 0 and bool(evidence_refs)
+        gaps: list[str] = []
+        status: OutcomeStatus
+        score: float | None = None
+
+        if (
+            task_id != expected.task_id
+            or tenant_id != expected.tenant_id
+            or workspace_id != expected.workspace_id
+        ):
+            status = OutcomeStatus.INVALID
+            gaps.append("expected outcome scope mismatch")
+        elif expected_outcome_contract_error(expected) == "unsupported evaluator":
+            status = OutcomeStatus.INVALID
+            gaps.append("unsupported evaluator")
+        elif (
+            expected_outcome_contract_error(expected)
+            == "unsupported evidence requirements"
+        ):
+            status = OutcomeStatus.INVALID
+            gaps.append("unsupported evidence requirements")
+        elif expected_outcome_contract_error(expected) is not None:
+            status = OutcomeStatus.INVALID
+            gaps.append("unsupported failure semantics")
+        elif observed < expected.frozen_at:
+            status = OutcomeStatus.INVALID
+            gaps.append("observation predates frozen contract")
+        elif observed > expected.frozen_at + timedelta(
+            seconds=expected.observation_window_seconds
+        ):
+            status = OutcomeStatus.UNRESOLVED
+            gaps.append("observation window expired")
+        elif not any(ref.startswith("artifact:") for ref in evidence_refs):
+            status = OutcomeStatus.UNRESOLVED
+            gaps.append("missing required evidence: test-report")
+        elif self._evidence_resolver is None:
+            status = OutcomeStatus.UNRESOLVED
+            gaps.append("test-report evidence is not bound to the durable event chain")
+        elif (
+            report := self._evidence_resolver(task_id, run_id)
+        ) is None or not set(report.artifact_ids).issubset(evidence_refs):
+            status = OutcomeStatus.UNRESOLVED
+            gaps.append("test-report evidence is not bound to the durable event chain")
+        elif report.completed_at < expected.frozen_at:
+            status = OutcomeStatus.INVALID
+            gaps.append("test report predates frozen contract")
+        elif test_exit_code is None:
+            status = OutcomeStatus.UNRESOLVED
+            gaps.append("missing pytest exit code")
+        elif test_exit_code != report.exit_code:
+            status = OutcomeStatus.INVALID
+            gaps.append("pytest exit code does not match durable test report")
+        else:
+            score = 1.0 if report.exit_code == 0 else 0.0
+            if report.exit_code != 0:
+                status = OutcomeStatus.NOT_MET
+                gaps.extend(expected.failure_semantics)
+            elif score < expected.threshold:
+                status = OutcomeStatus.NOT_MET
+                gaps.append("frozen threshold not met")
+            else:
+                status = OutcomeStatus.VERIFIED
+
         return ObservedOutcome(
             observed_outcome_id=f"observed-{uuid4()}",
             expected_outcome_id=expected.expected_outcome_id,
@@ -85,11 +168,11 @@ class DeterministicOutcomeEvaluator:
             workspace_id=workspace_id,
             evaluator_type=expected.evaluator_type,
             evaluator_version=expected.evaluator_version,
-            status=OutcomeStatus.VERIFIED if passed else OutcomeStatus.NOT_MET,
-            score=1.0 if passed else 0.0,
+            status=status,
+            score=score,
             confidence=1.0,
             evidence_refs=evidence_refs,
-            unresolved_gaps=() if passed else ("allowlisted verification did not pass",),
+            unresolved_gaps=tuple(gaps),
             observed_at=observed,
         )
 
@@ -112,6 +195,7 @@ class RunCoordinator:
     ) -> None:
         self.tasks = task_service
         self.sandbox = sandbox
+        self.tasks.bind_artifact_reader(sandbox.read_artifact_bytes)
         self.broker = CapabilityBroker(sandbox, correction)
         self.provider = provider
         self.provider_profile = provider_profile
@@ -119,7 +203,9 @@ class RunCoordinator:
         self.correction = correction
         self.grant = grant
         self.compensation_grant = compensation_grant
-        self.evaluator = evaluator or DeterministicOutcomeEvaluator()
+        self.evaluator = evaluator or DeterministicOutcomeEvaluator(
+            task_service.validated_test_report
+        )
 
     def run(
         self,
@@ -230,11 +316,7 @@ class RunCoordinator:
                 else []
             )
             test_output = context.get("workspace.run_tests")
-            test_exit_code = (
-                int(str(test_output.get("exit_code", 1)))
-                if isinstance(test_output, dict)
-                else None
-            )
+            test_exit_code = _strict_exit_code(test_output)
             observed_outcome = aggregate.observed_outcome
             envelope = CandidateGenerationEnvelope(
                 envelope_id=f"envelope-{uuid4()}", task_id=task_id, run_id=run.run_id,
@@ -315,7 +397,7 @@ class RunCoordinator:
                     evidence.extend(str(item) for item in result.receipt.output_artifact_ids)
                     context["evidence_refs"] = tuple(evidence)
                     if node.capability == "workspace.run_tests":
-                        test_exit_code = int(str(result.output.get("exit_code", 1)))
+                        test_exit_code = _strict_exit_code(result.output)
                 elif node.kind is NodeKind.EVALUATION:
                     outcome = self.evaluator.evaluate(
                         aggregate.expected_outcome, task_id=task_id, run_id=run.run_id,
@@ -345,13 +427,21 @@ class RunCoordinator:
                         }
                     )
                 elif node.kind is NodeKind.APPROVAL:
+                    proposed_actions = [
+                        value
+                        for key, value in context.items()
+                        if key.startswith("action:")
+                        and isinstance(value, ActionContract)
+                    ]
                     action = next(
                         (
-                            value
-                            for key, value in context.items()
-                            if key.startswith("action:") and isinstance(value, ActionContract)
+                            candidate
+                            for candidate in proposed_actions
+                            if aggregate.approval is not None
+                            and aggregate.approval.action_digest
+                            == candidate.action_digest()
                         ),
-                        None,
+                        proposed_actions[-1] if proposed_actions else None,
                     )
                     approved = (
                         action is not None
@@ -407,6 +497,10 @@ class RunCoordinator:
             self._release_lease(run.run_id, owner)
             raise RunExecutionError("workflow completed without an evaluation node")
         try:
+            observed_outcome = self._revalidate_outcome_before_finalization(
+                task_id,
+                observed_outcome,
+            )
             self.tasks.update_run_status(
                 task_id,
                 RunStatus.SUCCEEDED
@@ -425,6 +519,44 @@ class RunCoordinator:
         finally:
             self._release_lease(run.run_id, owner)
         return self.tasks.get_task(task_id)
+
+    def _revalidate_outcome_before_finalization(
+        self,
+        task_id: str,
+        outcome: ObservedOutcome,
+    ) -> ObservedOutcome:
+        if outcome.status is not OutcomeStatus.VERIFIED:
+            return outcome
+        aggregate = self.tasks.get_task(task_id)
+        if aggregate.run is None or aggregate.expected_outcome is None:
+            raise RunExecutionError("outcome finalization lost its committed bindings")
+        report = self.tasks.validated_test_report(task_id, aggregate.run.run_id)
+        expected = aggregate.expected_outcome
+        if (
+            report is not None
+            and report.exit_code == 0
+            and set(report.artifact_ids).issubset(outcome.evidence_refs)
+            and expected.frozen_at <= report.completed_at <= outcome.observed_at
+        ):
+            return outcome
+        replacement = ObservedOutcome(
+            observed_outcome_id=f"observed-{uuid4()}",
+            expected_outcome_id=outcome.expected_outcome_id,
+            task_id=outcome.task_id,
+            run_id=outcome.run_id,
+            tenant_id=outcome.tenant_id,
+            workspace_id=outcome.workspace_id,
+            evaluator_type=outcome.evaluator_type,
+            evaluator_version=outcome.evaluator_version,
+            status=OutcomeStatus.UNRESOLVED,
+            score=None,
+            confidence=1.0,
+            evidence_refs=outcome.evidence_refs,
+            unresolved_gaps=("verified evidence became stale before run finalization",),
+            observed_at=self.tasks.now(),
+        )
+        self.tasks.record_outcome(task_id, replacement)
+        return replacement
 
     def compensate_task(
         self,
@@ -726,6 +858,12 @@ class RunCoordinator:
                 capability = self.sandbox.specs(include_internal=True).get(
                     "workspace.compensate_patch"
                 )
+                self.tasks.append_event(
+                    task_id,
+                    TaskEventType.ACTION_PROPOSED,
+                    {"action": compensation_action.model_dump(mode="json")},
+                    correlation_id=run.run_id,
+                )
                 decision = self.policy.decide(
                     compensation_action,
                     PolicyInput(
@@ -772,11 +910,13 @@ class RunCoordinator:
                         "original capability correction halted compensation"
                     )
                 result = self.broker.invoke(compensation_action, permit)
-                self.tasks.append_event(
+                self.tasks._record_action_receipt(
                     task_id,
-                    TaskEventType.ACTION_RECEIPT_RECORDED,
-                    {"receipt": result.receipt.model_dump(mode="json")},
-                    correlation_id=run.run_id,
+                    action=compensation_action,
+                    decision=decision,
+                    permit=permit,
+                    receipt=result.receipt,
+                    writer_token=self.tasks._runtime_writer_token,
                 )
                 if result.receipt.status is not ReceiptStatus.COMPENSATED:
                     raise RunExecutionError(
@@ -927,7 +1067,8 @@ class RunCoordinator:
             args = {"value": args}
         if capability_id == "workspace.apply_patch" and not isinstance(proposed_action, ActionContract):
             raise RunExecutionError("workspace.apply_patch requires a provider-bound ActionContract")
-        action = proposed_action if isinstance(proposed_action, ActionContract) else self._build_action(
+        action_was_proposed = isinstance(proposed_action, ActionContract)
+        action = proposed_action if action_was_proposed else self._build_action(
             task_id=task_id,
             run_id=run_id,
             node_id=node_id,
@@ -944,6 +1085,13 @@ class RunCoordinator:
             or json.loads(action.arguments_json) != args
         ):
             raise RunExecutionError("proposed action does not match the executable node")
+        if not action_was_proposed:
+            self.tasks.append_event(
+                task_id,
+                TaskEventType.ACTION_PROPOSED,
+                {"action": action.model_dump(mode="json")},
+                correlation_id=run_id,
+            )
         grant = self.grant[capability_id] if isinstance(self.grant, dict) else self.grant
         bound_approval = (
             approval
@@ -969,7 +1117,14 @@ class RunCoordinator:
         if current_fence != permit.lease_fence:
             raise PermissionError("stale worker lease")
         result = self.broker.invoke(action, permit)
-        self.tasks.append_event(task_id, TaskEventType.ACTION_RECEIPT_RECORDED, {"receipt": result.receipt.model_dump(mode="json")}, correlation_id=run_id)
+        self.tasks._record_action_receipt(
+            task_id,
+            action=action,
+            decision=decision,
+            permit=permit,
+            receipt=result.receipt,
+            writer_token=self.tasks._runtime_writer_token,
+        )
         if result.receipt.status.value != "SUCCEEDED":
             raise RunExecutionError(f"tool failed: {result.receipt.error_code}")
         for artifact_id in result.receipt.output_artifact_ids:

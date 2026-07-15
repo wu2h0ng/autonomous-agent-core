@@ -64,7 +64,7 @@ from .execution import (
     WorkerInterrupted,
 )
 from .task_aggregate import TaskAggregate
-from .task_service import Clock, IdFactory, TaskService
+from .task_service import Clock, IdFactory, TaskService, ValidatedTestReport
 from .task_configuration import (
     TASK_CONFIGURATION_CAPABILITY,
     TASK_CONFIGURATION_CAPABILITY_VERSION,
@@ -155,6 +155,7 @@ __all__ = [
     "TaskEventStore",
     "TaskAggregate",
     "TaskService",
+    "ValidatedTestReport",
     "DomainCandidateSealer",
     "DomainCandidateEvaluationRecorder",
     "DomainCandidatePromotionService",

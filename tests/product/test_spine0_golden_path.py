@@ -189,6 +189,16 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
     assert result.observed_outcome.status.value == "VERIFIED"
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "after\n"
     assert len(result.artifacts) == 1
+    assert result.run is not None
+    report = restarted.tasks.validated_test_report(task.task_id, result.run.run_id)
+    assert report is not None
+    report_path = restarted.sandbox.artifacts / report.artifact_ids[0].removeprefix(
+        "artifact:"
+    )
+    report_path.unlink()
+    assert (
+        restarted.tasks.validated_test_report(task.task_id, result.run.run_id) is None
+    )
     completed_nodes = {
         event.decoded_payload()["node_id"]
         for event in restarted.store.read(task.task_id)

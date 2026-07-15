@@ -241,6 +241,21 @@ class WorkspaceSandbox:
             return {"artifact_ids": (f"artifact:{digest}",), "digest": digest}
         raise CapabilityDenied(f"capability is not registered: {capability_id}")
 
+    def read_artifact_bytes(self, artifact_id: str) -> bytes | None:
+        prefix = "artifact:"
+        if not artifact_id.startswith(prefix):
+            return None
+        digest = artifact_id.removeprefix(prefix)
+        if len(digest) != 64 or any(
+            character not in "0123456789abcdef" for character in digest
+        ):
+            return None
+        path = self.artifacts / digest
+        if not path.is_file() or path.is_symlink():
+            return None
+        content = path.read_bytes()
+        return content if _sha256(content) == digest else None
+
     def _safe_path(self, value: str) -> Path:
         if not value or value.startswith("/") or "\\" in value:
             raise CapabilityDenied("path must be a relative workspace path")
@@ -598,7 +613,15 @@ class WorkspaceSandbox:
             command.split(), cwd=self.root, capture_output=True, text=True,
             timeout=timeout, check=False, env={**os.environ, "NO_COLOR": "1"},
         )
-        output = (result.stdout + "\n" + result.stderr).encode("utf-8")
+        report = {
+            "schema_version": "test-report.v1",
+            "action_key_sha256": _sha256(action_key.encode("utf-8")),
+            "command": command,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+        output = _canonical_json_bytes(report)
         digest = _sha256(output)
         artifact = self.artifacts / digest
         if not artifact.exists():

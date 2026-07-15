@@ -12,6 +12,7 @@ from agent_os_contracts import (
     IdempotencyMode,
     NodeKind,
     NodeSpec,
+    OutcomeStatus,
     ProviderToolProposal,
     RunStatus,
     TaskEventType,
@@ -392,6 +393,38 @@ def test_run_stops_at_typed_wait_without_downstream_execution(tmp_path: Path) ->
     )
 
 
+def test_run_finalization_rejects_evidence_that_became_stale_after_evaluation(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc)
+    app, task_id = _committed_app(
+        tmp_path,
+        _artifact_before_wait_workflow(now, version=2),
+    )
+    original_resolver = app.tasks.validated_test_report
+    resolver_calls = 0
+
+    def expires_before_finalization(task_id_arg: str, run_id: str):
+        nonlocal resolver_calls
+        resolver_calls += 1
+        report = original_resolver(task_id_arg, run_id)
+        return None if resolver_calls >= 3 else report
+
+    app.tasks.validated_test_report = expires_before_finalization  # type: ignore[method-assign]
+
+    result = app.run_task(task_id, _inputs())
+
+    assert resolver_calls >= 3
+    assert result.run is not None
+    assert result.run.status is RunStatus.FAILED
+    assert result.observed_outcome is not None
+    assert result.observed_outcome.status is OutcomeStatus.UNRESOLVED
+    assert any(
+        "stale before run finalization" in gap
+        for gap in result.observed_outcome.unresolved_gaps
+    )
+
+
 def test_run_while_wait_is_live_is_an_event_stream_noop(tmp_path: Path) -> None:
     now = datetime.now(timezone.utc)
     app, task_id = _committed_app(tmp_path, _simple_workflow(now))
@@ -572,7 +605,7 @@ def test_rebind_clears_invalidated_action_projection_and_approval(
         task_id,
         {"disposition": "APPROVE", "reason": "approve only the original plan"},
     )
-    app.tasks.append_event(
+    app.tasks._append_event(
         task_id,
         TaskEventType.ARTIFACT_RECORDED,
         {

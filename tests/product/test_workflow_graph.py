@@ -130,3 +130,30 @@ def test_parallel_map_requires_concurrency_bound() -> None:
 def test_terminal_node_cannot_have_outgoing_edge() -> None:
     with pytest.raises(ValidationError, match="terminal node"):
         _graph(edges=(*_edges(), EdgeSpec(source="done", target="inspect")))
+
+
+def test_graph_rejects_executable_node_after_evaluation() -> None:
+    nodes = (
+        NodeSpec(
+            node_id="inspect",
+            kind=NodeKind.TOOL,
+            capability="workspace.read",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(node_id="verify", kind=NodeKind.EVALUATION),
+        NodeSpec(
+            node_id="patch-after-verify",
+            kind=NodeKind.TOOL,
+            capability="workspace.apply_patch",
+            idempotency=IdempotencyMode.COMPENSATABLE,
+        ),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    edges = (
+        EdgeSpec(source="inspect", target="verify"),
+        EdgeSpec(source="verify", target="patch-after-verify"),
+        EdgeSpec(source="patch-after-verify", target="done"),
+    )
+
+    with pytest.raises(ValidationError, match="evaluation.*terminal"):
+        _graph(nodes=nodes, edges=edges)
