@@ -225,6 +225,13 @@ class TrustedObservationBundle:
     projection: OperationalProjectionRef
 
 
+@dataclass(frozen=True)
+class DataAgentReportPollResult:
+    bundles: tuple[TrustedObservationBundle, ...]
+    next_cursor: str | None
+    has_more: bool
+
+
 class DataAgentReportStateStore(Protocol):
     durable: bool
 
@@ -247,6 +254,23 @@ class DataAgentReportStateStore(Protocol):
         bundle: TrustedObservationBundle,
     ) -> None: ...
 
+    def get_feed_cursor(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+    ) -> str | None: ...
+
+    def advance_feed_cursor(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+    ) -> bool: ...
+
 
 class SQLiteDataAgentReportStateStore:
     """Durable first-seen identity and exact-byte store shared across processes."""
@@ -267,6 +291,17 @@ class SQLiteDataAgentReportStateStore:
                     body BLOB NOT NULL,
                     bundle_json TEXT NOT NULL,
                     PRIMARY KEY (namespace_digest, trace_id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS data_agent_report_feed_cursors (
+                    namespace_digest TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    source_tenant_id TEXT NOT NULL,
+                    cursor TEXT,
+                    PRIMARY KEY (namespace_digest, source_id, source_tenant_id)
                 )
                 """
             )
@@ -381,6 +416,82 @@ class SQLiteDataAgentReportStateStore:
                 "durable external report state is unavailable"
             ) from None
 
+    def get_feed_cursor(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+    ) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT cursor FROM data_agent_report_feed_cursors
+                WHERE namespace_digest = ?
+                  AND source_id = ? AND source_tenant_id = ?
+                """,
+                (namespace_digest, source_id, source_tenant_id),
+            ).fetchone()
+        return str(row[0]) if row is not None and row[0] is not None else None
+
+    def advance_feed_cursor(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+    ) -> bool:
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = connection.execute(
+                    """
+                    SELECT cursor FROM data_agent_report_feed_cursors
+                    WHERE namespace_digest = ?
+                      AND source_id = ? AND source_tenant_id = ?
+                    """,
+                    (namespace_digest, source_id, source_tenant_id),
+                ).fetchone()
+                current = (
+                    str(row[0]) if row is not None and row[0] is not None else None
+                )
+                if current != expected_cursor:
+                    return False
+                if row is None:
+                    connection.execute(
+                        """
+                        INSERT INTO data_agent_report_feed_cursors (
+                            namespace_digest, source_id, source_tenant_id, cursor
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            namespace_digest,
+                            source_id,
+                            source_tenant_id,
+                            next_cursor,
+                        ),
+                    )
+                else:
+                    connection.execute(
+                        """
+                        UPDATE data_agent_report_feed_cursors SET cursor = ?
+                        WHERE namespace_digest = ?
+                          AND source_id = ? AND source_tenant_id = ?
+                        """,
+                        (
+                            next_cursor,
+                            namespace_digest,
+                            source_id,
+                            source_tenant_id,
+                        ),
+                    )
+                return True
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report cursor state is unavailable"
+            ) from None
+
 
 class _InMemoryDataAgentReportStateStore:
     durable = False
@@ -389,6 +500,7 @@ class _InMemoryDataAgentReportStateStore:
         self._rows: dict[
             tuple[str, str, str, str], tuple[str, bytes, TrustedObservationBundle]
         ] = {}
+        self._feed_cursors: dict[tuple[str, str, str], str | None] = {}
 
     def get(
         self,
@@ -417,6 +529,31 @@ class _InMemoryDataAgentReportStateStore:
         if existing is not None and existing != value:
             raise DataAgentReportConflict("external report identity conflict")
         self._rows[key] = value
+
+    def get_feed_cursor(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+    ) -> str | None:
+        return self._feed_cursors.get(
+            (namespace_digest, source_id, source_tenant_id)
+        )
+
+    def advance_feed_cursor(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        expected_cursor: str | None,
+        next_cursor: str | None,
+    ) -> bool:
+        key = (namespace_digest, source_id, source_tenant_id)
+        if self._feed_cursors.get(key) != expected_cursor:
+            return False
+        self._feed_cursors[key] = next_cursor
+        return True
 
 
 def _utc(value: datetime) -> datetime:
@@ -573,9 +710,10 @@ class DataAgentReportAdapter:
         self._evidence: dict[str, EvidenceRef] = {}
         self._events: dict[str, EnvironmentEvent] = {}
         self._projections: dict[str, OperationalProjectionRef] = {}
-        self._bundles_by_trace: dict[str, TrustedObservationBundle] = {}
-        self._digests_by_trace: dict[str, str] = {}
+        self._bundles_by_observation: dict[str, TrustedObservationBundle] = {}
+        self._digests_by_observation: dict[str, str] = {}
         self._registry_lock = RLock()
+        self._poll_lock = RLock()
 
     @property
     def registry_counts(self) -> tuple[int, int, int, int]:
@@ -598,6 +736,14 @@ class DataAgentReportAdapter:
     @property
     def has_durable_state(self) -> bool:
         return self._state_store.durable
+
+    @property
+    def feed_cursor(self) -> str | None:
+        return self._state_store.get_feed_cursor(
+            self._state_namespace,
+            self._config.source_id,
+            self._config.source_tenant_id,
+        )
 
     def _validate_credential_contract(self) -> None:
         credential = self._config.credential
@@ -671,28 +817,260 @@ class DataAgentReportAdapter:
             )
         self._validate_report_contract(payload, trace_id)
         raw_digest = hashlib.sha256(response.body).hexdigest()
+        return self._ingest_report(
+            observation_key=f"trace:{trace_id}",
+            trace_id=trace_id,
+            body=response.body,
+            raw_digest=raw_digest,
+            observed_at=now,
+        )
+
+    def poll_once(self, *, limit: int = 50) -> DataAgentReportPollResult:
+        if isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise DataAgentReportAdapterError("feed limit must be between 1 and 100")
+        if "report-events:read" not in self._config.credential.scopes:
+            raise DataAgentReportAdapterError(
+                "credential is not authorized to read report events"
+            )
+        with self._poll_lock:
+            prior_cursor = self.feed_cursor
+            query = f"limit={limit}"
+            if prior_cursor is not None:
+                query = f"after={quote(prior_cursor, safe='')}&{query}"
+            expected_url = f"{self._origin}/external/report-events?{query}"
+            now = _utc(self._clock())
+            credential = self._config.credential
+            if (
+                credential.status is not CredentialStatus.ACTIVE
+                or now < credential.created_at
+                or now >= credential.expires_at
+            ):
+                raise DataAgentReportAdapterError("credential is inactive or expired")
+            try:
+                secret = self._credentials.resolve(credential)
+            except Exception:
+                raise DataAgentReportAdapterError(
+                    "external report credential is unavailable"
+                ) from None
+            if not secret:
+                raise DataAgentReportAdapterError(
+                    "external report credential is unavailable"
+                )
+            request = DataAgentReportHttpRequest(
+                url=expected_url,
+                headers=MappingProxyType(
+                    {
+                        "Accept": "application/json",
+                        "Accept-Encoding": "identity",
+                        "X-API-Key": secret,
+                    }
+                ),
+                timeout_seconds=self._config.timeout_seconds,
+                max_response_bytes=self._config.max_response_bytes,
+            )
+            try:
+                response = self._transport.fetch(request)
+            except Exception:
+                raise DataAgentReportAdapterError(
+                    "external report transport failed"
+                ) from None
+            self._validate_http_response(response, expected_url)
+            if secret.encode("utf-8") in response.body:
+                raise DataAgentReportAdapterError(
+                    "external report feed reflected credential material"
+                )
+            payload = _strict_json_object(response.body)
+            if _contains_secret(payload, secret):
+                raise DataAgentReportAdapterError(
+                    "external report feed reflected credential material"
+                )
+            events, next_cursor, has_more = self._validate_feed_contract(
+                payload,
+                prior_cursor=prior_cursor,
+                limit=limit,
+            )
+            bundles: list[TrustedObservationBundle] = []
+            for event in events:
+                trace_id = event["trace_id"]
+                cursor = event["cursor"]
+                report = event["report"]
+                supplied_digest = event["content_sha256"]
+                body = canonical_json(report).encode("utf-8")
+                actual_digest = hashlib.sha256(body).hexdigest()
+                if actual_digest != supplied_digest:
+                    raise DataAgentReportAdapterError(
+                        "external report event digest mismatch"
+                    )
+                self._validate_report_contract(report, trace_id)
+                bundles.append(
+                    self._ingest_report(
+                        observation_key=f"feed:{cursor}",
+                        trace_id=trace_id,
+                        body=body,
+                        raw_digest=actual_digest,
+                        observed_at=now,
+                    )
+                )
+            if not self._state_store.advance_feed_cursor(
+                self._state_namespace,
+                self._config.source_id,
+                self._config.source_tenant_id,
+                expected_cursor=prior_cursor,
+                next_cursor=next_cursor,
+            ):
+                raise DataAgentReportConflict(
+                    "external report feed cursor changed concurrently"
+                )
+            return DataAgentReportPollResult(
+                bundles=tuple(bundles),
+                next_cursor=next_cursor,
+                has_more=has_more,
+            )
+
+    @staticmethod
+    def _validate_feed_contract(
+        payload: dict[str, object],
+        *,
+        prior_cursor: str | None,
+        limit: int,
+    ) -> tuple[tuple[dict[str, object], ...], str | None, bool]:
+        if set(payload) != {
+            "schema_version",
+            "audience",
+            "events",
+            "next_cursor",
+            "has_more",
+        }:
+            raise DataAgentReportAdapterError(
+                "external report feed fields are invalid"
+            )
+        if payload.get("schema_version") != "external-report-events.v1":
+            raise DataAgentReportAdapterError(
+                "external report feed schema is unsupported"
+            )
+        if payload.get("audience") != "external":
+            raise DataAgentReportAdapterError(
+                "external report feed audience is not external"
+            )
+        raw_events = payload.get("events")
+        if not isinstance(raw_events, list) or len(raw_events) > limit:
+            raise DataAgentReportAdapterError(
+                "external report feed events are invalid"
+            )
+        has_more = payload.get("has_more")
+        if not isinstance(has_more, bool):
+            raise DataAgentReportAdapterError(
+                "external report feed has_more is invalid"
+            )
+        next_cursor = payload.get("next_cursor")
+        if next_cursor is not None and (
+            not isinstance(next_cursor, str)
+            or not next_cursor
+            or len(next_cursor) > 1024
+        ):
+            raise DataAgentReportAdapterError(
+                "external report feed cursor is invalid"
+            )
+        events: list[dict[str, object]] = []
+        cursors: set[str] = set()
+        for raw_event in raw_events:
+            if not isinstance(raw_event, dict) or set(raw_event) != {
+                "cursor",
+                "trace_id",
+                "content_sha256",
+                "report",
+            }:
+                raise DataAgentReportAdapterError(
+                    "external report feed event is invalid"
+                )
+            cursor = raw_event.get("cursor")
+            trace_id = raw_event.get("trace_id")
+            digest = raw_event.get("content_sha256")
+            report = raw_event.get("report")
+            if (
+                not isinstance(cursor, str)
+                or not cursor
+                or len(cursor) > 1024
+                or cursor in cursors
+            ):
+                raise DataAgentReportAdapterError(
+                    "external report feed event cursor is invalid"
+                )
+            if (
+                not isinstance(trace_id, str)
+                or not _TRACE_ID.fullmatch(trace_id)
+                or ".." in trace_id
+            ):
+                raise DataAgentReportAdapterError(
+                    "external report feed event trace_id is invalid"
+                )
+            if (
+                not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            ):
+                raise DataAgentReportAdapterError(
+                    "external report feed event digest is invalid"
+                )
+            if not isinstance(report, dict):
+                raise DataAgentReportAdapterError(
+                    "external report feed event report is invalid"
+                )
+            cursors.add(cursor)
+            events.append(
+                {
+                    "cursor": cursor,
+                    "trace_id": trace_id,
+                    "content_sha256": digest,
+                    "report": report,
+                }
+            )
+        if events:
+            if next_cursor != events[-1]["cursor"]:
+                raise DataAgentReportAdapterError(
+                    "external report feed next cursor is not the page tail"
+                )
+        elif next_cursor != prior_cursor:
+            raise DataAgentReportAdapterError(
+                "external report empty page changed the cursor"
+            )
+        if has_more and not events:
+            raise DataAgentReportAdapterError(
+                "external report feed cannot have more after an empty page"
+            )
+        return tuple(events), next_cursor, has_more
+
+    def _ingest_report(
+        self,
+        *,
+        observation_key: str,
+        trace_id: str,
+        body: bytes,
+        raw_digest: str,
+        observed_at: datetime,
+    ) -> TrustedObservationBundle:
         with self._registry_lock:
-            previous_digest = self._digests_by_trace.get(trace_id)
+            previous_digest = self._digests_by_observation.get(observation_key)
             if previous_digest is not None:
                 if previous_digest != raw_digest:
                     raise DataAgentReportConflict(
-                        "external report changed for an already observed trace"
+                        "external report changed for an already observed identity"
                     )
-                return self._bundles_by_trace[trace_id]
+                return self._bundles_by_observation[observation_key]
 
             stored = self._state_store.get(
                 self._state_namespace,
                 self._config.source_id,
                 self._config.source_tenant_id,
-                trace_id,
+                observation_key,
             )
             if stored is not None:
                 stored_digest, stored_body, stored_bundle = stored
-                if stored_digest != raw_digest or stored_body != response.body:
+                if stored_digest != raw_digest or stored_body != body:
                     raise DataAgentReportConflict(
-                        "external report changed for an already observed trace"
+                        "external report changed for an already observed identity"
                     )
                 self._register_atomically(
+                    observation_key,
                     trace_id,
                     stored_digest,
                     stored_body,
@@ -700,32 +1078,33 @@ class DataAgentReportAdapter:
                 )
                 return stored_bundle
 
-            candidate = self._build_bundle(trace_id, response.body, raw_digest, now)
+            candidate = self._build_bundle(trace_id, body, raw_digest, observed_at)
             self._state_store.save(
                 self._state_namespace,
                 self._config.source_id,
                 self._config.source_tenant_id,
-                trace_id,
+                observation_key,
                 raw_digest,
-                response.body,
+                body,
                 candidate,
             )
             canonical = self._state_store.get(
                 self._state_namespace,
                 self._config.source_id,
                 self._config.source_tenant_id,
-                trace_id,
+                observation_key,
             )
             if canonical is None:
                 raise DataAgentReportAdapterError(
                     "durable external report state was not committed"
                 )
             canonical_digest, canonical_body, canonical_bundle = canonical
-            if canonical_digest != raw_digest or canonical_body != response.body:
+            if canonical_digest != raw_digest or canonical_body != body:
                 raise DataAgentReportConflict(
                     "external report changed during durable registration"
                 )
             self._register_atomically(
+                observation_key,
                 trace_id,
                 canonical_digest,
                 canonical_body,
@@ -949,6 +1328,7 @@ class DataAgentReportAdapter:
 
     def _register_atomically(
         self,
+        observation_key: str,
         trace_id: str,
         raw_digest: str,
         body: bytes,
@@ -982,17 +1362,18 @@ class DataAgentReportAdapter:
         for key, value in pending_evidence.items():
             if key in self._evidence and self._evidence[key] != value:
                 raise DataAgentReportConflict("trusted evidence identity conflict")
-        if (
-            bundle.event.environment_event_id in self._events
-            or bundle.projection.projection_id in self._projections
-        ):
-            raise DataAgentReportConflict("trusted event or projection identity conflict")
+        existing_event = self._events.get(bundle.event.environment_event_id)
+        if existing_event is not None and existing_event != bundle.event:
+            raise DataAgentReportConflict("trusted event identity conflict")
+        existing_projection = self._projections.get(bundle.projection.projection_id)
+        if existing_projection is not None and existing_projection != bundle.projection:
+            raise DataAgentReportConflict("trusted projection identity conflict")
         self._artifacts.update(pending_artifacts)
         self._evidence.update(pending_evidence)
         self._events[bundle.event.environment_event_id] = bundle.event
         self._projections[bundle.projection.projection_id] = bundle.projection
-        self._digests_by_trace[trace_id] = raw_digest
-        self._bundles_by_trace[trace_id] = bundle
+        self._digests_by_observation[observation_key] = raw_digest
+        self._bundles_by_observation[observation_key] = bundle
 
     def binding_is_authorized(self, binding: SituationalBinding) -> bool:
         return binding == self._binding

@@ -91,6 +91,7 @@ from domain_packs.developer_agent import manifest as developer_agent_manifest
 
 from .data_agent_report_adapter import (
     DataAgentReportAdapter,
+    DataAgentReportPollResult,
     TrustedObservationBundle,
 )
 
@@ -546,6 +547,15 @@ class AgentOSApplication:
         if self.data_agent_reports is None:
             raise RuntimeError("Data Agent external report source is not configured")
         return self.data_agent_reports.pull(trace_id)
+
+    def poll_data_agent_reports_once(
+        self,
+        *,
+        limit: int = 50,
+    ) -> DataAgentReportPollResult:
+        if self.data_agent_reports is None:
+            raise RuntimeError("Data Agent external report source is not configured")
+        return self.data_agent_reports.poll_once(limit=limit)
 
     def propose_situated_work(
         self,

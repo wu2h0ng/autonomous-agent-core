@@ -203,6 +203,42 @@ def _response(
     )
 
 
+def _feed_bytes(
+    events: list[dict[str, object]],
+    *,
+    next_cursor: str | None,
+    has_more: bool = False,
+) -> bytes:
+    return json.dumps(
+        {
+            "schema_version": "external-report-events.v1",
+            "audience": "external",
+            "events": events,
+            "next_cursor": next_cursor,
+            "has_more": has_more,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _feed_event(cursor: str, report_bytes: bytes | None = None) -> dict[str, object]:
+    report = json.loads(report_bytes or _report_bytes())
+    canonical = json.dumps(
+        report,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return {
+        "cursor": cursor,
+        "trace_id": report["trace_id"],
+        "content_sha256": hashlib.sha256(canonical).hexdigest(),
+        "report": report,
+    }
+
+
 def _adapter(
     *,
     response: DataAgentReportHttpResponse | None = None,
@@ -299,6 +335,193 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
     assert transport.requests[0].url.endswith(
         "/runs/trace-123/report?audience=external"
     )
+
+
+def test_passive_poll_discovers_immutable_report_without_trace_id(tmp_path) -> None:
+    cursor = "opaque-cursor-1"
+    feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
+    adapter, broker, transport = _adapter(
+        response=_response(
+            feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=1",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "passive.sqlite3"),
+    )
+
+    result = adapter.poll_once(limit=1)
+
+    assert len(result.bundles) == 1
+    assert result.next_cursor == cursor
+    assert result.has_more is False
+    assert adapter.feed_cursor == cursor
+    assert len(broker.resolved) == 1
+    assert len(transport.requests) == 1
+    assert transport.requests[0].headers == {
+        "Accept": "application/json",
+        "Accept-Encoding": "identity",
+        "X-API-Key": SECRET,
+    }
+    assert transport.requests[0].url.endswith(
+        "/external/report-events?limit=1"
+    )
+
+
+def test_passive_poll_preserves_two_immutable_revisions_of_same_trace(tmp_path) -> None:
+    first = _feed_event("opaque-cursor-1")
+    second = _feed_event(
+        "opaque-cursor-2",
+        _report_bytes(authority_payload=True),
+    )
+    feed = _feed_bytes([first, second], next_cursor="opaque-cursor-2")
+    adapter, _, _ = _adapter(
+        response=_response(
+            feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=2",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "revisions.sqlite3"),
+    )
+
+    result = adapter.poll_once(limit=2)
+
+    assert len(result.bundles) == 2
+    assert result.bundles[0].artifact.content_digest == first["content_sha256"]
+    assert result.bundles[1].artifact.content_digest == second["content_sha256"]
+    assert result.bundles[0].artifact.artifact_id != result.bundles[1].artifact.artifact_id
+
+
+def test_passive_poll_digest_failure_does_not_advance_cursor(tmp_path) -> None:
+    event = _feed_event("opaque-cursor-1")
+    event["content_sha256"] = "0" * 64
+    feed = _feed_bytes([event], next_cursor="opaque-cursor-1")
+    adapter, _, _ = _adapter(
+        response=_response(
+            feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=1",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "digest.sqlite3"),
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="digest"):
+        adapter.poll_once(limit=1)
+
+    assert adapter.feed_cursor is None
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_passive_poll_reuses_durable_cursor_after_restart(tmp_path) -> None:
+    database = tmp_path / "restart-cursor.sqlite3"
+    cursor = "opaque-cursor-1"
+    first_feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
+    first, _, _ = _adapter(
+        response=_response(
+            first_feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=1",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    first.poll_once(limit=1)
+    empty_feed = _feed_bytes([], next_cursor=cursor)
+    restarted, _, transport = _adapter(
+        response=_response(
+            empty_feed,
+            final_url=(
+                "http://127.0.0.1:8765/external/report-events"
+                f"?after={cursor}&limit=1"
+            ),
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+
+    result = restarted.poll_once(limit=1)
+
+    assert result.bundles == ()
+    assert restarted.feed_cursor == cursor
+    assert transport.requests[0].url.endswith(
+        f"/external/report-events?after={cursor}&limit=1"
+    )
+
+
+def test_application_passive_poll_never_creates_task(tmp_path) -> None:
+    cursor = "opaque-cursor-1"
+    feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
+    adapter, _, _ = _adapter(
+        response=_response(
+            feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=1",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "app-feed.sqlite3"),
+    )
+    app = AgentOSApplication(
+        database=tmp_path / "app.sqlite3",
+        workspace=tmp_path,
+        data_agent_reports=adapter,
+        clock=lambda: NOW,
+    )
+
+    result = app.poll_data_agent_reports_once(limit=1)
+
+    assert len(result.bundles) == 1
+    assert app.store.list_task_ids() == ()
 
 
 def test_digest_is_sha256_of_exact_stored_bytes() -> None:
