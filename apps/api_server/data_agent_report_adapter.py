@@ -305,6 +305,19 @@ class SQLiteDataAgentReportStateStore:
                 )
                 """
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS data_agent_report_feed_cursor_history (
+                    namespace_digest TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    source_tenant_id TEXT NOT NULL,
+                    cursor TEXT NOT NULL,
+                    PRIMARY KEY (
+                        namespace_digest, source_id, source_tenant_id, cursor
+                    )
+                )
+                """
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database, timeout=10)
@@ -458,6 +471,24 @@ class SQLiteDataAgentReportStateStore:
                 )
                 if current != expected_cursor:
                     return False
+                if next_cursor is not None and next_cursor != expected_cursor:
+                    seen = connection.execute(
+                        """
+                        SELECT 1 FROM data_agent_report_feed_cursor_history
+                        WHERE namespace_digest = ? AND source_id = ?
+                          AND source_tenant_id = ? AND cursor = ?
+                        """,
+                        (
+                            namespace_digest,
+                            source_id,
+                            source_tenant_id,
+                            next_cursor,
+                        ),
+                    ).fetchone()
+                    if seen is not None:
+                        raise DataAgentReportConflict(
+                            "external report feed cursor was already consumed"
+                        )
                 if row is None:
                     connection.execute(
                         """
@@ -486,7 +517,23 @@ class SQLiteDataAgentReportStateStore:
                             source_tenant_id,
                         ),
                     )
+                if next_cursor is not None and next_cursor != expected_cursor:
+                    connection.execute(
+                        """
+                        INSERT INTO data_agent_report_feed_cursor_history (
+                            namespace_digest, source_id, source_tenant_id, cursor
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            namespace_digest,
+                            source_id,
+                            source_tenant_id,
+                            next_cursor,
+                        ),
+                    )
                 return True
+        except DataAgentReportConflict:
+            raise
         except sqlite3.Error:
             raise DataAgentReportAdapterError(
                 "durable external report cursor state is unavailable"
@@ -501,6 +548,7 @@ class _InMemoryDataAgentReportStateStore:
             tuple[str, str, str, str], tuple[str, bytes, TrustedObservationBundle]
         ] = {}
         self._feed_cursors: dict[tuple[str, str, str], str | None] = {}
+        self._feed_cursor_history: set[tuple[str, str, str, str]] = set()
 
     def get(
         self,
@@ -552,7 +600,23 @@ class _InMemoryDataAgentReportStateStore:
         key = (namespace_digest, source_id, source_tenant_id)
         if self._feed_cursors.get(key) != expected_cursor:
             return False
+        history_key = (
+            namespace_digest,
+            source_id,
+            source_tenant_id,
+            next_cursor or "",
+        )
+        if (
+            next_cursor is not None
+            and next_cursor != expected_cursor
+            and history_key in self._feed_cursor_history
+        ):
+            raise DataAgentReportConflict(
+                "external report feed cursor was already consumed"
+            )
         self._feed_cursors[key] = next_cursor
+        if next_cursor is not None and next_cursor != expected_cursor:
+            self._feed_cursor_history.add(history_key)
         return True
 
 

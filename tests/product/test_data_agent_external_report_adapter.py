@@ -525,6 +525,47 @@ def test_passive_poll_rejects_non_progressing_page(tmp_path) -> None:
     assert len(transport.requests) == 2
 
 
+def test_passive_poll_rejects_cycle_to_previously_consumed_cursor(tmp_path) -> None:
+    feeds = {
+        None: _feed_bytes([_feed_event("cursor-1")], next_cursor="cursor-1"),
+        "cursor-1": _feed_bytes(
+            [_feed_event("cursor-2", _report_bytes(authority_payload=True))],
+            next_cursor="cursor-2",
+        ),
+        "cursor-2": _feed_bytes([_feed_event("cursor-1")], next_cursor="cursor-1"),
+    }
+
+    def response_for(request: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+        after = None
+        if "after=" in request.url:
+            after = request.url.split("after=", 1)[1].split("&", 1)[0]
+        return _response(feeds[after], final_url=request.url)
+
+    adapter = DataAgentReportAdapter(
+        _config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        credential_broker=_Broker(),
+        transport=_Transport(response_for),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "cycle.sqlite3"),
+        clock=lambda: NOW,
+    )
+    adapter.poll_once(limit=1)
+    adapter.poll_once(limit=1)
+
+    with pytest.raises(DataAgentReportConflict, match="consumed"):
+        adapter.poll_once(limit=1)
+
+    assert adapter.feed_cursor == "cursor-2"
+
+
 def test_application_passive_poll_never_creates_task(tmp_path) -> None:
     cursor = "opaque-cursor-1"
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
