@@ -106,6 +106,7 @@ report_snapshot_events = Table(
     Column("trace_id", String, index=True, nullable=False),
     Column("revision", Integer, nullable=False),
     Column("report_digest", String(64), nullable=False),
+    Column("report_payload", JSON, nullable=False),
     Column("recorded_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint(
         "tenant_id",

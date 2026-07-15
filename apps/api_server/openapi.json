@@ -1173,6 +1173,11 @@
             "title": "Cursor",
             "type": "string"
           },
+          "report": {
+            "additionalProperties": true,
+            "title": "Report",
+            "type": "object"
+          },
           "trace_id": {
             "title": "Trace Id",
             "type": "string"
@@ -1181,7 +1186,8 @@
         "required": [
           "cursor",
           "trace_id",
-          "content_sha256"
+          "content_sha256",
+          "report"
         ],
         "title": "ExternalReportEventResponse",
         "type": "object"

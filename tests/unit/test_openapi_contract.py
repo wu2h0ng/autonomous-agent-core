@@ -90,6 +90,16 @@ class OpenApiContractTest(unittest.TestCase):
             ],
         )
 
+    def test_external_report_event_embeds_required_immutable_report(self) -> None:
+        spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+        event = spec["components"]["schemas"]["ExternalReportEventResponse"]
+
+        self.assertIn("report", event["required"])
+        self.assertEqual(
+            event["properties"]["report"],
+            {"additionalProperties": True, "title": "Report", "type": "object"},
+        )
+
     def test_knowledge_review_queue_contract_declares_quality_triage_fields(self) -> None:
         spec = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
         queue = spec["paths"]["/knowledge/review-queue"]["get"]

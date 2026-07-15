@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
 import hashlib
 import importlib.util
@@ -3080,6 +3081,7 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
             headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
         )
         self.assertEqual(report.status_code, 200, report.text)
+        self.assertEqual(first_payload["events"][0]["report"], report.json())
         canonical_report = json.dumps(
             report.json(),
             sort_keys=True,
@@ -3141,6 +3143,55 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
                 headers={"X-API-Key": non_observer_key},
             )
             self.assertEqual(denied.status_code, 403, denied.text)
+
+    def test_report_feed_keeps_each_historical_revision_self_contained(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENT_OS_REPORT_OBSERVER_API_KEY": REPORT_OBSERVER_API_KEY,
+                "AGENT_OS_REPORT_OBSERVER_TENANT_ID": "tenant-a",
+            },
+        ):
+            client = _make_client(API_KEY)
+
+        run_resp = client.post(
+            "/runs",
+            json=RUN_BODY,
+            headers={"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-a"},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+        first = client.get(
+            f"/runs/{trace_id}/report",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        ).json()
+        changed = deepcopy(first)
+        changed["user_result"]["title"] = "immutable revision two"
+        client.app.state.report_store.save(
+            trace_id,
+            {"external": changed},
+            tenant_id="tenant-a",
+        )
+
+        feed = client.get(
+            "/external/report-events",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(feed.status_code, 200, feed.text)
+        events = feed.json()["events"]
+        self.assertEqual([event["report"] for event in events], [first, changed])
+        for event in events:
+            canonical = json.dumps(
+                event["report"],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+            self.assertEqual(
+                event["content_sha256"],
+                hashlib.sha256(canonical).hexdigest(),
+            )
 
     def test_report_event_cursor_is_bound_to_observer_tenant(self) -> None:
         with patch.dict(

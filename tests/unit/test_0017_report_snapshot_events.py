@@ -21,6 +21,7 @@ class ReportSnapshotEventsMigrationTest(unittest.TestCase):
             source,
         )
         self.assertIn('op.create_table(\n        "report_snapshot_events"', source)
+        self.assertIn('sa.Column("report_payload", sa.JSON(), nullable=False)', source)
         self.assertIn("uq_report_snapshot_events_tenant_trace_revision", source)
 
     def test_downgrade_removes_indexes_before_feed_table(self) -> None:

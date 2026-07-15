@@ -408,6 +408,7 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                                 trace_id=trace_id,
                                 revision=revision,
                                 report_digest=report_digest,
+                                report_payload=payload,
                                 recorded_at=_utc_now(),
                             )
                         )
@@ -461,6 +462,7 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                     table.c.trace_id,
                     table.c.revision,
                     table.c.report_digest,
+                    table.c.report_payload,
                     table.c.recorded_at,
                 )
                 .where(table.c.tenant_id == tenant_id)
@@ -476,6 +478,7 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                     "trace_id": str(row.trace_id),
                     "revision": int(row.revision),
                     "report_digest": str(row.report_digest),
+                    "report": copy.deepcopy(dict(row.report_payload)),
                     "recorded_at": row.recorded_at,
                 }
                 for row in rows[:limit]

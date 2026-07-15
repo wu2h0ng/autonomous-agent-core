@@ -784,6 +784,7 @@ class ExternalReportEventResponse(BaseModel):
     cursor: str
     trace_id: str
     content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    report: dict[str, Any]
 
 
 class ExternalReportEventFeedResponse(BaseModel):
@@ -2532,6 +2533,7 @@ def create_app(
                 cursor=encode_report_event_cursor(tenant_id, int(event["sequence"])),
                 trace_id=str(event["trace_id"]),
                 content_sha256=str(event["report_digest"]),
+                report=cast(dict[str, Any], event["report"]),
             )
             for event in stored_events
         ]

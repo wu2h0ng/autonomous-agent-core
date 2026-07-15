@@ -345,6 +345,7 @@ class InMemoryReportSnapshotStore:
                         "trace_id": trace_id,
                         "revision": revision,
                         "report_digest": report_digest,
+                        "report": deepcopy(external),
                         "recorded_at": datetime.now(timezone.utc),
                     }
                     self._next_event_sequence += 1

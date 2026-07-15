@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import unittest
 
 _SQLALCHEMY = importlib.util.find_spec("sqlalchemy") is not None
+
+
+def _digest(report: dict[str, object]) -> str:
+    canonical = json.dumps(
+        report,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 class InMemoryReportSnapshotEventTest(unittest.TestCase):
@@ -29,6 +42,11 @@ class InMemoryReportSnapshotEventTest(unittest.TestCase):
         self.assertFalse(has_more)
         self.assertEqual([event["trace_id"] for event in events], ["trace-a", "trace-a"])
         self.assertEqual([event["revision"] for event in events], [1, 2])
+        self.assertEqual([event["report"] for event in events], [first, changed])
+        self.assertEqual(
+            [event["report_digest"] for event in events],
+            [_digest(first), _digest(changed)],
+        )
         self.assertNotEqual(events[0]["report_digest"], events[1]["report_digest"])
         self.assertEqual(store.get("trace-a", "external", tenant_id="tenant-a"), changed)
 
@@ -82,9 +100,11 @@ class SqlReportSnapshotEventTest(unittest.TestCase):
         )
         create_all(engine)
         first_store = SqlReportSnapshotStore(engine)
-        payload = {"trace_id": "trace-a", "audience": "external", "value": 1}
-        first_store.save("trace-a", {"external": payload}, tenant_id="tenant-a")
-        first_store.save("trace-a", {"external": payload}, tenant_id="tenant-a")
+        first = {"trace_id": "trace-a", "audience": "external", "value": 1}
+        changed = {**first, "value": 2}
+        first_store.save("trace-a", {"external": first}, tenant_id="tenant-a")
+        first_store.save("trace-a", {"external": first}, tenant_id="tenant-a")
+        first_store.save("trace-a", {"external": changed}, tenant_id="tenant-a")
 
         restarted_store = SqlReportSnapshotStore(engine)
         self.assertTrue(
@@ -98,9 +118,14 @@ class SqlReportSnapshotEventTest(unittest.TestCase):
         )
 
         self.assertFalse(has_more)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["trace_id"], "trace-a")
-        self.assertEqual(events[0]["revision"], 1)
+        self.assertEqual(len(events), 2)
+        self.assertEqual([event["trace_id"] for event in events], ["trace-a", "trace-a"])
+        self.assertEqual([event["revision"] for event in events], [1, 2])
+        self.assertEqual([event["report"] for event in events], [first, changed])
+        self.assertEqual(
+            [event["report_digest"] for event in events],
+            [_digest(first), _digest(changed)],
+        )
 
 
 if __name__ == "__main__":
