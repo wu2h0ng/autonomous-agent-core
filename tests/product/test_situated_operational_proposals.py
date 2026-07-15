@@ -201,7 +201,7 @@ def _app(tmp_path, *, now: datetime = NOW) -> AgentOSApplication:
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         situational_trust=_trust_registry(),
-        situated_clock=lambda: now,
+        clock=lambda: now,
     )
 
 
