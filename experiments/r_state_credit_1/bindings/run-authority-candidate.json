@@ -1,0 +1,25 @@
+{
+  "artifact_class": "RUN_AUTHORITY_BINDING_CANDIDATE",
+  "builder_id": "codex-r-state-credit-1-real-bindings",
+  "c7_acceptance": "ABSENT",
+  "founder_portfolio_authority": {
+    "effect": "AUTHORIZES_REAL_BINDING_SUCCESSOR_BUILD_AND_INDEPENDENT_REVIEW_ONLY",
+    "path": "AI-Agent-Projects/docs/CURRENT_STATE.yaml",
+    "sha256": "f6a93b89c716bdb13b909989d6e23e86ec8568279d092cf0b94e5615fd03738e",
+    "status_anchor": "R-STATE-CREDIT-1 REAL_BINDING_CANDIDATE_BUILD_ACTIVE",
+    "warning": "PORTFOLIO_AUTHORITY_IS_NOT_A_PER_RUN_SIGNATURE"
+  },
+  "independent_reviewer_acceptance": "ABSENT",
+  "per_run": {
+    "c7_capability_token_sha256": "UNSIGNED",
+    "c7_epoch": "UNSIGNED",
+    "c7_owner_id": "UNSIGNED",
+    "founder_or_cto_run_authorization_ref": "UNSIGNED",
+    "independent_reviewer_id": "UNSIGNED",
+    "run_id": "UNSIGNED"
+  },
+  "provider_call_authorized": false,
+  "result_bearing_execution_authorized": false,
+  "schema_version": "r-state-credit-1-run-authority-candidate-v1",
+  "status": "PORTFOLIO_BUILD_AUTHORITY_CITED_PER_RUN_IDENTITIES_AND_ACCEPTANCES_UNSIGNED_NOT_RUNNABLE"
+}

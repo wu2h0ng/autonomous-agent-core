@@ -1,5 +1,5 @@
 prereg_id: R-STATE-CREDIT-1-STAGE-A-20260715
-status: DRAFT_BINDINGS_REQUIRED_NOT_REVIEWED_NOT_FROZEN_NOT_RUN
+status: REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED_NOT_FROZEN_NOT_RUN
 schema_version: r-state-credit-1-stage-a-prereg-v1
 claim_class: research-automation
 track: research
@@ -8,33 +8,59 @@ run_id: r-state-credit-1-stage-a-20260715
 builder_id: codex-r-state-credit-runner
 target_repo: autonomous-agent-core
 bounded_claim: >-
-  One provider-neutral, exact-binding, one-shot runner contract can preserve the
-  reviewed Stage-A comparison grammar and emit raw non-adjudicated rows while
-  failing closed on missing bindings, native-lock drift, C7 abort, interruption,
-  overwrite, or same-lock rerun.
+  One direct-HTTP Responses actor adapter, deterministic reversible repository
+  corpus, sealed real scorer, external C7 stop-capability adapter, and exact-binding
+  one-shot runner candidate can preserve the reviewed Stage-A comparison grammar
+  and emit raw non-adjudicated rows while failing closed on artifact drift, response
+  identity drift, C7 abort, interruption, overwrite, or same-lock rerun.
 claim_exclusions:
   - no Stage-A result, winner, MET, NOT_MET, or scientific evidence
-  - no provider implementation, credential, network call, or CLI model transport
+  - no credential bytes, provider call, connectivity canary, or CLI model transport
   - no model training, update, Stage B, product capability, autonomy, or AGI claim
   - no review acceptance, architecture acceptance, freeze, run, push, merge, or release authority
 
 mechanism:
-  name: R-STATE-CREDIT-1 Stage-A typed one-shot raw runner
+  name: R-STATE-CREDIT-1 Stage-A real-binding candidate and typed one-shot raw runner
   channel_claim: X(research-automation)
   files:
+    - docs/pre_spec/R-STATE-CREDIT-1.REAL-BINDINGS-BUILD-PACKET-2026-07-15.md
     - docs/pre_spec/R-STATE-CREDIT-1.RUNNER-PREREG-BUILD-PACKET-2026-07-15.md
     - docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json
+    - experiments/r_state_credit_1/ark_responses_actor.py
     - experiments/r_state_credit_1/arms.py
+    - experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json
+    - experiments/r_state_credit_1/bindings/c7-signal-candidate.json
+    - experiments/r_state_credit_1/bindings/run-authority-candidate.json
+    - experiments/r_state_credit_1/bindings/system-prompt.txt
+    - experiments/r_state_credit_1/bindings/tool-schema.json
     - experiments/r_state_credit_1/contracts.py
+    - experiments/r_state_credit_1/corpus/public-case-manifest.json
+    - experiments/r_state_credit_1/corpus/public/alias_object_version_drift.jsonl
+    - experiments/r_state_credit_1/corpus/public/bounded_overflow_recovery.jsonl
+    - experiments/r_state_credit_1/corpus/public/commitment_blockage.jsonl
+    - experiments/r_state_credit_1/corpus/public/contradiction.jsonl
+    - experiments/r_state_credit_1/corpus/public/dispatch_effect_uncertainty.jsonl
+    - experiments/r_state_credit_1/corpus/public/supersession_refutation_cascade.jsonl
+    - experiments/r_state_credit_1/corpus/public/valid_transaction_time.jsonl
+    - experiments/r_state_credit_1/corpus/sealed-referee-manifest.json
+    - experiments/r_state_credit_1/corpus/sealed/referee-truth.jsonl
+    - experiments/r_state_credit_1/external_c7.py
     - experiments/r_state_credit_1/qualifier.py
+    - experiments/r_state_credit_1/real_corpus.py
+    - experiments/r_state_credit_1/real_scorer.py
     - experiments/r_state_credit_1/run_contracts.py
     - experiments/r_state_credit_1/result_runner.py
     - experiments/r_state_credit_1/scenarios.py
     - src/aac/persistent_task_state.py
     - tests/test_persistent_task_state.py
     - tests/test_r_state_credit_1_batch2a.py
+    - tests/test_r_state_credit_1_ark_actor.py
+    - tests/test_r_state_credit_1_external_c7.py
     - tests/test_r_state_credit_1_prereg_candidate.py
+    - tests/test_r_state_credit_1_real_corpus.py
+    - tests/test_r_state_credit_1_real_scorer.py
     - tests/test_r_state_credit_1_runner_prereg.py
+    - tests/test_r_state_credit_1_verdict_grammar.py
 
 candidate_binding:
   path: docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json
@@ -43,13 +69,13 @@ candidate_binding:
   candidate_status: VALID_CANDIDATE_ONLY
 
 binding_readiness:
-  status: DRAFT_BINDINGS_REQUIRED
+  status: REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED
   unresolved_values_must_be_absent: true
   unresolved_contracts:
-    - ACTOR_BINDING
-    - CORPUS_BINDING
-    - SCORER_BINDING
-    - REVIEW_AND_RUN_AUTHORITY_BINDING
+    - ACTOR_CONNECTIVITY_CANARY_AND_EXACT_MODEL_REVISION
+    - INDEPENDENT_PREREG_ARCHITECTURE_ACCEPTANCE
+    - C7_PER_RUN_OWNER_EPOCH_TOKEN_ACCEPTANCE
+    - FOUNDER_OR_CTO_PER_RUN_AUTHORIZATION
   contract_module: experiments.r_state_credit_1.run_contracts
   preflight_function: verify_binding_artifacts
   effect: execution must fail before atomic start until every exact artifact exists and is native-lock-bound
@@ -57,44 +83,69 @@ binding_readiness:
 binding_contracts:
   ACTOR_BINDING:
     transport: API_ONLY
+    descriptor: experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json
     required_fields:
       - provider
+      - base_profile
+      - responses_path
+      - credential_env_ref
       - model_id
       - model_revision_or_snapshot
       - temperature
       - top_p
       - max_output_tokens
+      - request_timeout_seconds
       - system_prompt_sha256
       - tool_schema_sha256
     fixed_decoding:
       temperature: 0
       top_p: 1
       max_output_tokens: 256
-    production_client_implementation: ABSENT
+    production_client_implementation: experiments.r_state_credit_1.ark_responses_actor.ArkResponsesActorClient
+    candidate_base_profile: https://ark.cn-beijing.volces.com/api/plan/v3
+    candidate_model_alias: ark-code-latest
+    credential_env_ref: ARK_API_KEY
+    cli_transport: FORBIDDEN
+    connectivity_canary: UNRUN
+    exact_model_revision_or_snapshot: UNCONFIRMED_UNTIL_CONNECTIVITY_CANARY
+    provider_call_authorized: false
   CORPUS_BINDING:
     required_fields:
       - scenario_generator_sha256
       - public_case_manifest_sha256
       - sealed_referee_manifest_sha256
-      - all_case_file_sha256_values
-    current_held_out_corpus: ABSENT
+      - case_files
+    generator: experiments.r_state_credit_1.real_corpus.generate_corpus
+    public_case_manifest: experiments/r_state_credit_1/corpus/public-case-manifest.json
+    sealed_referee_manifest: experiments/r_state_credit_1/corpus/sealed-referee-manifest.json
+    current_held_out_corpus: MATERIALIZED_140_EPISODES_560_CHECKPOINTS
+    public_case_files: 7
+    sealed_truth_actor_access: FORBIDDEN
+    reversibility: TESTED_INITIAL_MUTATION_ROLLBACK_EXACT_TREE_DIGEST
   SCORER_BINDING:
     required_fields:
       - scorer_source_sha256
       - metric_test_sha256
       - verdict_grammar_test_sha256
-    current_result_scorer: ABSENT
+    implementation: experiments.r_state_credit_1.real_scorer.SealedRefereeScorer
+    raw_metric_function: experiments.r_state_credit_1.real_scorer.compute_stage_a_raw_metrics
+    current_result_scorer: IMPLEMENTED_RAW_METRICS_ONLY
+    verdict_authority: ABSENT_BY_DESIGN
   REVIEW_AND_RUN_AUTHORITY_BINDING:
     required_fields:
       - builder_id
       - independent_reviewer_id
       - c7_owner_id
+      - c7_epoch
+      - c7_capability_token_sha256
       - candidate_sha256
       - exact_content_manifest_sha256
       - founder_or_cto_run_authorization_ref
     current_independent_acceptance: ABSENT
-    current_c7_owner_binding: ABSENT
-    current_run_authorization: ABSENT
+    portfolio_build_authority_candidate: experiments/r_state_credit_1/bindings/run-authority-candidate.json
+    c7_adapter_candidate: experiments/r_state_credit_1/bindings/c7-signal-candidate.json
+    current_c7_owner_binding: UNSIGNED_PER_RUN
+    current_run_authorization: UNSIGNED_PER_RUN
 
 stage_a_protocol:
   arms:
@@ -156,6 +207,7 @@ execution:
   start_claim: atomic_O_EXCL_before_first_actor_call
   pre_start_c7_abort: no_start_claim_no_result
   post_start_c7_abort: INVALID_C7_ABORT_NO_SAME_LOCK_RERUN
+  c7_owner_epoch_or_token_drift: FAIL_CLOSED
   interruption_after_start: INTERRUPTED_NO_SAME_LOCK_RERUN
   any_contract_failure_after_start: INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN
   overwrite: FORBIDDEN
@@ -186,9 +238,22 @@ result_contract:
   row_measurements:
     - observable_digest
     - action
+    - response_id
+    - model_revision_or_snapshot
+    - actor_request_sha256
+    - provider_request_sha256
+    - provider_response_sha256
     - raw_output_sha256
     - input_tokens
     - output_tokens
+    - total_tokens
+    - cost_status
+    - cost_amount_microunits
+    - cost_currency
+    - latency_ms
+    - timeout_seconds
+    - error_code
+    - timed_out
     - loss_code
     - loss_weight
     - unsafe_effect_replay
@@ -206,8 +271,10 @@ native_gate:
   rr0031_context_calibration_record: ABSENT
   prereg_lock: ABSENT
   required_sequence:
-    - resolve all real bindings and extend mechanism.files with their exact artifacts
-    - regenerate exact-content manifest
+    - independently review every real-binding candidate byte and descriptor
+    - run a separately authorized non-result connectivity canary and bind exact returned model identity
+    - obtain per-run C7 owner epoch token-digest acceptance and independent prereg architecture acceptance
+    - regenerate exact-content manifest after any accepted canary binding change
     - independent exact-content technical review
     - independent RR-0029 review with RR-0031 delta-review binding
     - freeze by an identity distinct from reviewer

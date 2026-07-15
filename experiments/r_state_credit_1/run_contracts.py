@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
+import stat
 import subprocess
 from dataclasses import dataclass, fields
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Protocol, runtime_checkable
+from urllib.parse import urlsplit
 
 from experiments.r_state_credit_1.contracts import (
     ArmId,
@@ -25,6 +29,11 @@ from experiments.r_state_credit_1.contracts import (
 
 class ActorTransport(str, Enum):
     API_ONLY = "API_ONLY"
+
+
+class ActorCostStatus(str, Enum):
+    PROVIDER_REPORTED = "PROVIDER_REPORTED"
+    UNAVAILABLE_NOT_GUESSED = "UNAVAILABLE_NOT_GUESSED"
 
 
 class CheckpointId(str, Enum):
@@ -81,6 +90,10 @@ class NativeFreezeViolation(RuntimeError):
     """Raised when a native prereg lock is absent, incomplete, or drifted."""
 
 
+class ExecutionDependencyFailure(RuntimeError):
+    """Typed actor or scorer failure after an execution claim starts."""
+
+
 def _require_text(name: str, value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ContractViolation(f"{name} must be non-empty text")
@@ -124,11 +137,15 @@ def _closed_mapping(cls: type[Any], value: Mapping[str, Any]) -> dict[str, Any]:
 class ActorBinding:
     transport: ActorTransport
     provider: str
+    base_profile: str
+    responses_path: str
+    credential_env_ref: str
     model_id: str
     model_revision_or_snapshot: str
     temperature: float
     top_p: float
     max_output_tokens: int
+    request_timeout_seconds: float
     system_prompt_sha256: str
     tool_schema_sha256: str
 
@@ -136,6 +153,35 @@ class ActorBinding:
         if self.transport is not ActorTransport.API_ONLY:
             raise ContractViolation("transport must be ActorTransport.API_ONLY")
         _require_text("provider", self.provider)
+        base_profile = _require_text("base_profile", self.base_profile)
+        parsed = urlsplit(base_profile)
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or base_profile.endswith("/")
+        ):
+            raise ContractViolation(
+                "base_profile must be an HTTPS origin/path without credentials, "
+                "query, fragment, or trailing slash"
+            )
+        responses_path = _require_text("responses_path", self.responses_path)
+        if (
+            not responses_path.startswith("/")
+            or responses_path.startswith("//")
+            or "?" in responses_path
+            or "#" in responses_path
+            or ".." in PurePosixPath(responses_path).parts
+        ):
+            raise ContractViolation("responses_path must be a closed absolute URL path")
+        credential_env_ref = _require_text(
+            "credential_env_ref", self.credential_env_ref
+        )
+        if re.fullmatch(r"[A-Z][A-Z0-9_]*", credential_env_ref) is None:
+            raise ContractViolation("credential_env_ref must be an environment name")
         _require_text("model_id", self.model_id)
         _require_text("model_revision_or_snapshot", self.model_revision_or_snapshot)
         if isinstance(self.temperature, bool) or self.temperature != 0:
@@ -148,6 +194,14 @@ class ActorBinding:
             or self.max_output_tokens != 256
         ):
             raise ContractViolation("max_output_tokens must be exactly 256")
+        if (
+            isinstance(self.request_timeout_seconds, bool)
+            or not isinstance(self.request_timeout_seconds, (int, float))
+            or not 0 < float(self.request_timeout_seconds) <= 300
+        ):
+            raise ContractViolation(
+                "request_timeout_seconds must be in the interval (0, 300]"
+            )
         _require_sha256("system_prompt_sha256", self.system_prompt_sha256)
         _require_sha256("tool_schema_sha256", self.tool_schema_sha256)
 
@@ -166,11 +220,15 @@ class ActorBinding:
         return {
             "transport": self.transport.value,
             "provider": self.provider,
+            "base_profile": self.base_profile,
+            "responses_path": self.responses_path,
+            "credential_env_ref": self.credential_env_ref,
             "model_id": self.model_id,
             "model_revision_or_snapshot": self.model_revision_or_snapshot,
             "temperature": self.temperature,
             "top_p": self.top_p,
             "max_output_tokens": self.max_output_tokens,
+            "request_timeout_seconds": self.request_timeout_seconds,
             "system_prompt_sha256": self.system_prompt_sha256,
             "tool_schema_sha256": self.tool_schema_sha256,
         }
@@ -270,6 +328,8 @@ class AuthorityBinding:
     builder_id: str
     independent_reviewer_id: str
     c7_owner_id: str
+    c7_epoch: str
+    c7_capability_token_sha256: str
     candidate_sha256: str
     exact_content_manifest_sha256: str
     founder_or_cto_run_authorization_ref: str
@@ -279,11 +339,13 @@ class AuthorityBinding:
             "builder_id",
             "independent_reviewer_id",
             "c7_owner_id",
+            "c7_epoch",
             "founder_or_cto_run_authorization_ref",
         ):
             _require_text(name, getattr(self, name))
         if self.builder_id == self.independent_reviewer_id:
             raise ContractViolation("builder and reviewer must differ")
+        _require_sha256("c7_capability_token_sha256", self.c7_capability_token_sha256)
         _require_sha256("candidate_sha256", self.candidate_sha256)
         _require_sha256(
             "exact_content_manifest_sha256", self.exact_content_manifest_sha256
@@ -298,6 +360,8 @@ class AuthorityBinding:
             "builder_id": self.builder_id,
             "independent_reviewer_id": self.independent_reviewer_id,
             "c7_owner_id": self.c7_owner_id,
+            "c7_epoch": self.c7_epoch,
+            "c7_capability_token_sha256": self.c7_capability_token_sha256,
             "candidate_sha256": self.candidate_sha256,
             "exact_content_manifest_sha256": self.exact_content_manifest_sha256,
             "founder_or_cto_run_authorization_ref": (
@@ -432,7 +496,39 @@ class VerifiedBindingArtifacts:
 
 
 def _sha256_file(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise ContractViolation(f"artifact cannot be opened safely: {path}") from exc
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ContractViolation(f"artifact must be a regular file: {path}")
+        digest = hashlib.sha256()
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+        identity_before = (
+            before.st_dev,
+            before.st_ino,
+            before.st_size,
+            before.st_mtime_ns,
+        )
+        identity_after = (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        )
+        if identity_before != identity_after:
+            raise ContractViolation(f"artifact changed while hashing: {path}")
+        return digest.hexdigest()
+    finally:
+        os.close(descriptor)
 
 
 def _require_git_head(name: str, value: object) -> str:
@@ -553,7 +649,10 @@ def verify_native_freeze(
 
 def _resolve_artifact(target_root: Path, relative: Path, label: str) -> Path:
     root = target_root.resolve()
-    resolved = (root / relative).resolve()
+    unresolved = root / relative
+    if unresolved.is_symlink():
+        raise ContractViolation(f"{label} artifact must not be a symlink")
+    resolved = unresolved.resolve()
     try:
         resolved.relative_to(root)
     except ValueError as exc:
@@ -616,11 +715,16 @@ def verify_binding_artifacts(
     checked = 0
     for label, relative, expected_sha256 in expected:
         resolved = _resolve_artifact(target_root, relative, label)
-        actual = _sha256_file(resolved)
-        if actual != expected_sha256:
+        raw_sha256 = _sha256_file(resolved)
+        binding_sha256 = (
+            _canonical_json_file_digest(resolved, label)
+            if label == "tool_schema"
+            else raw_sha256
+        )
+        if binding_sha256 != expected_sha256:
             raise ContractViolation(f"{label} hash drift")
         posix_path = relative.as_posix()
-        if locked.get(posix_path) != actual:
+        if locked.get(posix_path) != raw_sha256:
             raise ContractViolation(f"{label} is not bound by native freeze")
         checked += 1
     for case_file in bindings.corpus.case_files:
@@ -684,20 +788,84 @@ class ActorRequest:
             raise ContractViolation("allowed_actions must not contain duplicates")
         _require_sha256("tool_schema_sha256", self.tool_schema_sha256)
 
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "request_id": self.request_id,
+            "run_id": self.run_id,
+            "episode_id": self.episode_id,
+            "checkpoint_id": self.checkpoint_id,
+            "arm_id": self.arm_id.value,
+            "observable_digest": self.observable_digest,
+            "representation": self.representation,
+            "allowed_actions": [item.value for item in self.allowed_actions],
+            "tool_schema_sha256": self.tool_schema_sha256,
+        }
+
+    def digest(self) -> str:
+        return hashlib.sha256(
+            canonical_json(self.to_mapping()).encode("utf-8")
+        ).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class ActorUsage:
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+    def __post_init__(self) -> None:
+        for name in ("input_tokens", "output_tokens", "total_tokens"):
+            _require_nonnegative_int(name, getattr(self, name))
+        if self.total_tokens != self.input_tokens + self.output_tokens:
+            raise ContractViolation(
+                "total_tokens must equal input_tokens + output_tokens"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class ActorCost:
+    status: ActorCostStatus
+    amount_microunits: int | None
+    currency: str | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, ActorCostStatus):
+            raise ContractViolation("cost status must be ActorCostStatus")
+        if self.status is ActorCostStatus.PROVIDER_REPORTED:
+            if self.amount_microunits is None or self.currency is None:
+                raise ContractViolation(
+                    "provider-reported cost requires amount_microunits and currency"
+                )
+            _require_nonnegative_int("amount_microunits", self.amount_microunits)
+            _require_text("currency", self.currency)
+        elif self.amount_microunits is not None or self.currency is not None:
+            raise ContractViolation(
+                "unavailable cost must not contain a guessed amount or currency"
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class ActorResponse:
+    response_id: str
     request_id: str
     provider: str
     model_id: str
     model_revision_or_snapshot: str
     action: ProbeAction
+    actor_request_sha256: str
+    provider_request_sha256: str
+    provider_response_sha256: str
     raw_output_sha256: str
-    input_tokens: int
-    output_tokens: int
+    usage: ActorUsage
+    cost: ActorCost
+    latency_ms: int
+    timeout_seconds: float
+    error_code: str | None
+    timed_out: bool
 
     def __post_init__(self) -> None:
         for name in (
+            "response_id",
             "request_id",
             "provider",
             "model_id",
@@ -706,9 +874,38 @@ class ActorResponse:
             _require_text(name, getattr(self, name))
         if not isinstance(self.action, ProbeAction):
             raise ContractViolation("action must be ProbeAction")
-        _require_sha256("raw_output_sha256", self.raw_output_sha256)
-        _require_nonnegative_int("input_tokens", self.input_tokens)
-        _require_nonnegative_int("output_tokens", self.output_tokens)
+        for name in (
+            "actor_request_sha256",
+            "provider_request_sha256",
+            "provider_response_sha256",
+            "raw_output_sha256",
+        ):
+            _require_sha256(name, getattr(self, name))
+        if not isinstance(self.usage, ActorUsage):
+            raise ContractViolation("usage must be ActorUsage")
+        if not isinstance(self.cost, ActorCost):
+            raise ContractViolation("cost must be ActorCost")
+        _require_nonnegative_int("latency_ms", self.latency_ms)
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or self.timeout_seconds <= 0
+        ):
+            raise ContractViolation("timeout_seconds must be positive")
+        if self.error_code is not None:
+            raise ContractViolation(
+                "successful ActorResponse must not contain error_code"
+            )
+        if self.timed_out is not False:
+            raise ContractViolation("successful ActorResponse must not be timed out")
+
+    @property
+    def input_tokens(self) -> int:
+        return self.usage.input_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        return self.usage.output_tokens
 
 
 @dataclass(frozen=True, slots=True)
@@ -833,5 +1030,7 @@ class ScorerClient(Protocol):
 @runtime_checkable
 class C7AbortSignal(Protocol):
     owner_id: str
+    epoch: str
+    capability_token_sha256: str
 
     def abort_requested(self) -> bool: ...

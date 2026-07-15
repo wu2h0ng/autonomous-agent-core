@@ -1,0 +1,26 @@
+{
+  "adapter": "experiments.r_state_credit_1.external_c7.AtomicStopFileC7",
+  "artifact_class": "EXTERNAL_C7_SIGNAL_BINDING_CANDIDATE",
+  "atomicity": "OWNER_WRITES_O_EXCL_AND_FSYNC_FILE_PLUS_DIRECTORY_ADAPTER_READS_STABLE_FD",
+  "authority_boundary": {
+    "actor_access": "FORBIDDEN",
+    "actor_can_mint_or_edit_signal": false,
+    "adapter_can_write_signal": false,
+    "c7_can_abort": true,
+    "c7_can_edit_scores_or_thresholds": false
+  },
+  "per_run_bindings": {
+    "capability_token_sha256": "UNBOUND_PER_RUN_SECRET_TOKEN_BYTES_NEVER_PERSISTED",
+    "epoch": "UNBOUND_PER_RUN",
+    "owner_id": "UNBOUND_PER_RUN",
+    "stop_path": "UNBOUND_PER_RUN"
+  },
+  "schema_version": "r-state-credit-1-c7-signal-candidate-v1",
+  "signal_schema": "r-state-credit-1-c7-stop-v1",
+  "status": "IMPLEMENTED_TESTED_PER_RUN_OWNER_EPOCH_TOKEN_AND_ACCEPTANCE_UNSIGNED_NOT_RUNNABLE",
+  "terminal_semantics": {
+    "identity_epoch_or_token_drift": "FAIL_CLOSED",
+    "mid_run_stop": "INVALID_C7_ABORT_NO_SAME_LOCK_RERUN",
+    "pre_start_stop": "NO_START_CLAIM_NO_RESULT"
+  }
+}

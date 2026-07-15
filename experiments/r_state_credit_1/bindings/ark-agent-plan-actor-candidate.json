@@ -1,0 +1,60 @@
+{
+  "actor_binding_candidate": {
+    "base_profile": "https://ark.cn-beijing.volces.com/api/plan/v3",
+    "credential_env_ref": "ARK_API_KEY",
+    "max_output_tokens": 256,
+    "model_id": "ark-code-latest",
+    "model_revision_or_snapshot": "UNCONFIRMED_UNTIL_CONNECTIVITY_CANARY",
+    "provider": "volcengine-ark-agent-plan",
+    "request_timeout_seconds": 30,
+    "responses_path": "/responses",
+    "system_prompt_sha256": "bfa9ca6ade430a8cdfdc247e00106f3b21b49fc5c6eca1c0b0b6ab636c0c72f7",
+    "temperature": 0,
+    "tool_schema_sha256": "4c79da68e1333c9d965679ce7d9542af7b5859177994fc9181726ebbc80d0a70",
+    "top_p": 1,
+    "transport": "API_ONLY"
+  },
+  "artifact_class": "REAL_ACTOR_BINDING_CANDIDATE",
+  "connectivity_canary": {
+    "authorization": "ABSENT",
+    "provider_call_performed": false,
+    "required_confirmation": [
+      "request endpoint and bearer authentication contract",
+      "completed response envelope and output_text contract",
+      "exact returned model revision or snapshot identity",
+      "usage fields and provider-reported cost availability"
+    ],
+    "status": "UNRUN"
+  },
+  "cost_accounting": "PROVIDER_REPORTED_OR_UNAVAILABLE_NOT_GUESSED",
+  "credential_storage": "ENV_REFERENCE_ONLY_SECRET_BYTES_FORBIDDEN",
+  "raw_artifacts": {
+    "system_prompt": {
+      "path": "experiments/r_state_credit_1/bindings/system-prompt.txt",
+      "sha256": "bfa9ca6ade430a8cdfdc247e00106f3b21b49fc5c6eca1c0b0b6ab636c0c72f7"
+    },
+    "tool_schema": {
+      "canonical_sha256": "4c79da68e1333c9d965679ce7d9542af7b5859177994fc9181726ebbc80d0a70",
+      "path": "experiments/r_state_credit_1/bindings/tool-schema.json",
+      "raw_sha256": "1b4c390b60c1a8e57c838f930d8877eb859331f374fd648504ba5496f51b82e7"
+    }
+  },
+  "response_integrity": [
+    "actor_request_sha256",
+    "provider_request_sha256",
+    "provider_response_sha256",
+    "raw_output_sha256",
+    "usage",
+    "cost_status",
+    "latency_ms",
+    "timeout_seconds"
+  ],
+  "schema_version": "r-state-credit-1-ark-actor-candidate-v1",
+  "status": "PROVIDER_NEUTRAL_RESPONSES_ADAPTER_READY_CONNECTIVITY_CANARY_UNRUN_EXACT_MODEL_UNCONFIRMED_NOT_RUNNABLE",
+  "transport_exclusions": [
+    "NO_ARKCLI_TRANSPORT",
+    "NO_PROVIDER_SDK_FALLBACK",
+    "NO_IMPORT_TIME_CREDENTIAL_READ",
+    "NO_IMPORT_TIME_NETWORK_CALL"
+  ]
+}

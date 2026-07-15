@@ -1,0 +1,17 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "enum": [
+        "CONTINUE",
+        "REVIEW",
+        "VERIFY_EFFECT",
+        "ABSTAIN"
+      ]
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "type": "object"
+}

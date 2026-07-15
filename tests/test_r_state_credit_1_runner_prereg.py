@@ -5,26 +5,37 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from experiments.r_state_credit_1.ark_responses_actor import (
+    ActorClientFailure,
+    ActorFailureCategory,
+)
 from experiments.r_state_credit_1.contracts import (
     ArmId,
     ContractViolation,
     ProbeAction,
     ScenarioFamily,
+    canonical_json,
 )
+from experiments.r_state_credit_1.external_c7 import AtomicStopFileC7
+from experiments.r_state_credit_1.real_scorer import RawMetricViolation
 from experiments.r_state_credit_1.run_contracts import (
     ArmAssessment,
     ActorBinding,
     ActorClient,
+    ActorCost,
+    ActorCostStatus,
     ActorRequest,
     ActorResponse,
     ActorTransport,
+    ActorUsage,
     ArtifactHash,
     AuthorityBinding,
     BindingArtifactPaths,
@@ -47,7 +58,9 @@ from experiments.r_state_credit_1.result_runner import (
     RFinalRunReceipt,
     RunnerViolation,
     execute_r_final_once,
+    verify_raw_result_content_digest,
 )
+from experiments.r_state_credit_1 import result_runner as result_runner_module
 
 
 SHA_A = "a" * 64
@@ -62,11 +75,15 @@ def _actor_binding() -> ActorBinding:
     return ActorBinding(
         transport=ActorTransport.API_ONLY,
         provider="provider.example",
+        base_profile="https://provider.example/api/v1",
+        responses_path="/responses",
+        credential_env_ref="TEST_PROVIDER_API_KEY",
         model_id="model-family",
         model_revision_or_snapshot="snapshot-2026-07-15",
         temperature=0.0,
         top_p=1.0,
         max_output_tokens=256,
+        request_timeout_seconds=30.0,
         system_prompt_sha256=SHA_A,
         tool_schema_sha256=SHA_B,
     )
@@ -90,6 +107,8 @@ def _run_bindings() -> RunBindings:
             builder_id="codex-r-state-credit-runner",
             independent_reviewer_id="independent-reviewer",
             c7_owner_id="founder-c7-owner",
+            c7_epoch="tests-only-epoch-1",
+            c7_capability_token_sha256=SHA_F,
             candidate_sha256=SHA_D,
             exact_content_manifest_sha256=SHA_E,
             founder_or_cto_run_authorization_ref="decision:r-state-credit-stage-a:1",
@@ -156,6 +175,8 @@ def test_authority_binding_rejects_self_review_and_missing_real_authority() -> N
             builder_id="same",
             independent_reviewer_id="same",
             c7_owner_id="founder",
+            c7_epoch="epoch-1",
+            c7_capability_token_sha256=SHA_F,
             candidate_sha256=SHA_A,
             exact_content_manifest_sha256=SHA_B,
             founder_or_cto_run_authorization_ref="decision:1",
@@ -165,6 +186,8 @@ def test_authority_binding_rejects_self_review_and_missing_real_authority() -> N
             builder_id="builder",
             independent_reviewer_id="reviewer",
             c7_owner_id="founder",
+            c7_epoch="epoch-1",
+            c7_capability_token_sha256=SHA_F,
             candidate_sha256=SHA_A,
             exact_content_manifest_sha256=SHA_B,
             founder_or_cto_run_authorization_ref="",
@@ -176,14 +199,26 @@ class _ContractOnlyActor:
 
     def complete(self, request: ActorRequest) -> ActorResponse:
         return ActorResponse(
+            response_id="tests-only-response",
             request_id=request.request_id,
             provider=self.binding.provider,
             model_id=self.binding.model_id,
             model_revision_or_snapshot=self.binding.model_revision_or_snapshot,
             action=ProbeAction.ABSTAIN,
+            actor_request_sha256=request.digest(),
+            provider_request_sha256=SHA_A,
+            provider_response_sha256=SHA_B,
             raw_output_sha256=SHA_C,
-            input_tokens=1,
-            output_tokens=1,
+            usage=ActorUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+            cost=ActorCost(
+                status=ActorCostStatus.UNAVAILABLE_NOT_GUESSED,
+                amount_microunits=None,
+                currency=None,
+            ),
+            latency_ms=1,
+            timeout_seconds=self.binding.request_timeout_seconds,
+            error_code=None,
+            timed_out=False,
         )
 
 
@@ -350,6 +385,8 @@ def _canonical_json_digest(value: object) -> str:
 
 def _execution_bindings(
     target_root: Path,
+    *,
+    c7_capability_token_sha256: str = SHA_F,
 ) -> tuple[RunBindings, BindingArtifactPaths, VerifiedNativeFreeze]:
     prompt = _write_artifact(
         target_root, "bindings/system-prompt.txt", "system prompt\n"
@@ -377,13 +414,17 @@ def _execution_bindings(
         actor=ActorBinding(
             transport=ActorTransport.API_ONLY,
             provider="tests-only-fake-provider",
+            base_profile="https://tests-only.example/api/v1",
+            responses_path="/responses",
+            credential_env_ref="TESTS_ONLY_API_KEY",
             model_id="tests-only-fake-model",
             model_revision_or_snapshot="tests-only-snapshot",
             temperature=0.0,
             top_p=1.0,
             max_output_tokens=256,
+            request_timeout_seconds=30.0,
             system_prompt_sha256=prompt.sha256,
-            tool_schema_sha256=tool.sha256,
+            tool_schema_sha256=_canonical_json_digest({}),
         ),
         corpus=CorpusBinding(
             scenario_generator_sha256=generator.sha256,
@@ -400,6 +441,8 @@ def _execution_bindings(
             builder_id="tests-only-builder",
             independent_reviewer_id="tests-only-reviewer",
             c7_owner_id="tests-only-c7-owner",
+            c7_epoch="tests-only-epoch-1",
+            c7_capability_token_sha256=c7_capability_token_sha256,
             candidate_sha256=_canonical_json_digest(candidate_payload),
             exact_content_manifest_sha256=manifest.sha256,
             founder_or_cto_run_authorization_ref="tests-only:run-authority",
@@ -526,16 +569,110 @@ class _FakeActor:
         if self.interrupt_on_call == self.calls:
             raise KeyboardInterrupt("tests-only interruption")
         return ActorResponse(
+            response_id=f"tests-only:{self.calls}",
             request_id=request.request_id,
             provider=self.binding.provider,
             model_id=self.binding.model_id,
             model_revision_or_snapshot=self.binding.model_revision_or_snapshot,
             action=ProbeAction.ABSTAIN,
+            actor_request_sha256=request.digest(),
+            provider_request_sha256=hashlib.sha256(
+                f"provider-request:{request.request_id}".encode("utf-8")
+            ).hexdigest(),
+            provider_response_sha256=hashlib.sha256(
+                f"provider-response:{request.request_id}".encode("utf-8")
+            ).hexdigest(),
             raw_output_sha256=hashlib.sha256(
                 f"tests-only:{request.request_id}".encode("utf-8")
             ).hexdigest(),
-            input_tokens=1,
-            output_tokens=1,
+            usage=ActorUsage(input_tokens=1, output_tokens=1, total_tokens=2),
+            cost=ActorCost(
+                status=ActorCostStatus.UNAVAILABLE_NOT_GUESSED,
+                amount_microunits=None,
+                currency=None,
+            ),
+            latency_ms=1,
+            timeout_seconds=self.binding.request_timeout_seconds,
+            error_code=None,
+            timed_out=False,
+        )
+
+
+def _write_external_c7_stop(
+    path: Path,
+    *,
+    owner_id: str,
+    epoch: str,
+    capability_token_sha256: str,
+) -> None:
+    payload = {
+        "abort_requested": True,
+        "capability_token_sha256": capability_token_sha256,
+        "epoch": epoch,
+        "owner_id": owner_id,
+        "reason_code": "TESTS_ONLY_EXTERNAL_STOP",
+        "schema_version": "r-state-credit-1-c7-stop-v1",
+    }
+    encoded = (canonical_json(payload) + "\n").encode("utf-8")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+    directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+class _StopAfterFirstActor(_FakeActor):
+    def __init__(
+        self,
+        binding: ActorBinding,
+        *,
+        stop_path: Path,
+        owner_id: str,
+        epoch: str,
+        capability_token_sha256: str,
+    ) -> None:
+        super().__init__(binding)
+        self._stop_path = stop_path
+        self._owner_id = owner_id
+        self._epoch = epoch
+        self._capability_token_sha256 = capability_token_sha256
+
+    def complete(self, request: ActorRequest) -> ActorResponse:
+        response = super().complete(request)
+        if self.calls == 1:
+            _write_external_c7_stop(
+                self._stop_path,
+                owner_id=self._owner_id,
+                epoch=self._epoch,
+                capability_token_sha256=self._capability_token_sha256,
+            )
+        return response
+
+
+class _RequestDigestDriftActor(_FakeActor):
+    def complete(self, request: ActorRequest) -> ActorResponse:
+        return replace(
+            super().complete(request),
+            actor_request_sha256=SHA_F,
+        )
+
+
+class _ActorContractFailure(_FakeActor):
+    def complete(self, request: ActorRequest) -> ActorResponse:
+        self.calls += 1
+        raise ActorClientFailure(
+            category=ActorFailureCategory.SCHEMA_ERROR,
+            error_code="TESTS_ONLY_SCHEMA_ERROR",
+            request_sha256=request.digest(),
+            response_sha256=None,
+            http_status=200,
+            timed_out=False,
+            timeout_seconds=self.binding.request_timeout_seconds,
         )
 
 
@@ -568,9 +705,45 @@ class _UntypedScorer:
         return (object(),) * len(case.actor_requests)
 
 
+class _WrongArmScorer:
+    def __init__(self, binding: ScorerBinding) -> None:
+        self.binding = binding
+
+    def assess(
+        self,
+        case: CheckpointCase,
+        responses: tuple[ActorResponse, ...],
+    ) -> tuple[ArmAssessment, ...]:
+        return tuple(
+            ArmAssessment(arm_id=ArmId.A0_FULL_LOG, loss=CheckpointLoss.CORRECT)
+            for _ in case.actor_requests
+        )
+
+
+class _ScorerContractFailure:
+    def __init__(self, binding: ScorerBinding) -> None:
+        self.binding = binding
+
+    def assess(
+        self,
+        case: CheckpointCase,
+        responses: tuple[ActorResponse, ...],
+    ) -> tuple[ArmAssessment, ...]:
+        raise RawMetricViolation("tests-only sealed scorer failure")
+
+
 class _FakeC7:
-    def __init__(self, owner_id: str, *, abort_on_check: int | None = None) -> None:
+    def __init__(
+        self,
+        owner_id: str,
+        *,
+        epoch: str = "tests-only-epoch-1",
+        capability_token_sha256: str = SHA_F,
+        abort_on_check: int | None = None,
+    ) -> None:
         self.owner_id = owner_id
+        self.epoch = epoch
+        self.capability_token_sha256 = capability_token_sha256
         self.abort_on_check = abort_on_check
         self.checks = 0
 
@@ -584,6 +757,95 @@ def test_fake_dependencies_satisfy_typed_protocols() -> None:
     assert isinstance(_FakeActor(bindings.actor), ActorClient)
     assert isinstance(_FakeScorer(bindings.scorer), ScorerClient)
     assert isinstance(_FakeC7(bindings.authority.c7_owner_id), C7AbortSignal)
+
+
+@pytest.mark.parametrize(
+    ("owner_id", "epoch", "message"),
+    [
+        ("wrong-owner", "tests-only-epoch-1", "C7 owner binding drift"),
+        ("tests-only-c7-owner", "wrong-epoch", "C7 epoch binding drift"),
+    ],
+)
+def test_c7_owner_and_epoch_are_bound_before_start(
+    tmp_path: Path, owner_id: str, epoch: str, message: str
+) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match=message):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-c7-drift", bindings.actor),
+            actor=_FakeActor(bindings.actor),
+            scorer=_FakeScorer(bindings.scorer),
+            c7=_FakeC7(owner_id, epoch=epoch),
+        )
+    assert not run_dir.exists()
+
+
+def test_c7_capability_token_digest_is_bound_before_start(tmp_path: Path) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match="C7 capability binding drift"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-c7-capability-drift", bindings.actor),
+            actor=_FakeActor(bindings.actor),
+            scorer=_FakeScorer(bindings.scorer),
+            c7=_FakeC7(
+                bindings.authority.c7_owner_id,
+                capability_token_sha256=SHA_A,
+            ),
+        )
+    assert not run_dir.exists()
+
+
+def test_exclusive_json_writer_fsyncs_file_and_parent_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed_modes: list[int] = []
+    real_fsync = os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        observed_modes.append(os.fstat(descriptor).st_mode)
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(result_runner_module.os, "fsync", recording_fsync)
+    result_runner_module._write_exclusive_json(  # noqa: SLF001
+        tmp_path / "durable.json", {"status": "TEST_ONLY"}
+    )
+    assert any(stat.S_ISREG(mode) for mode in observed_modes)
+    assert any(stat.S_ISDIR(mode) for mode in observed_modes)
+
+
+def test_artifact_preflight_rejects_symlink_even_when_target_bytes_match(
+    tmp_path: Path,
+) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    prompt = target_root / paths.system_prompt
+    real_prompt = prompt.with_name("system-prompt-real.txt")
+    prompt.rename(real_prompt)
+    prompt.symlink_to(real_prompt.name)
+    with pytest.raises(ContractViolation, match="symlink"):
+        verify_binding_artifacts(
+            bindings=bindings,
+            paths=paths,
+            freeze=freeze,
+            target_root=target_root,
+        )
 
 
 def test_rfinal_runner_writes_raw_once_without_verdict_and_forbids_rerun(
@@ -612,7 +874,31 @@ def test_rfinal_runner_writes_raw_once_without_verdict_and_forbids_rerun(
     payload = json.loads(receipt.result_path.read_text(encoding="utf-8"))
     assert payload["schema_version"] == "r-state-credit-1-rfinal-raw-v1"
     assert payload["status"] == "RAW_NOT_ADJUDICATED"
+    assert verify_raw_result_content_digest(receipt.result_path) is True
     assert len(payload["rows"]) == len(batch.cases) * len(ArmId)
+    first_row = payload["rows"][0]
+    for required in (
+        "response_id",
+        "actor_request_sha256",
+        "provider_request_sha256",
+        "provider_response_sha256",
+        "model_revision_or_snapshot",
+        "total_tokens",
+        "cost_status",
+        "cost_amount_microunits",
+        "cost_currency",
+        "latency_ms",
+        "timeout_seconds",
+        "error_code",
+        "timed_out",
+    ):
+        assert required in first_row
+    assert (
+        first_row["actor_request_sha256"] == batch.cases[0].actor_requests[0].digest()
+    )
+    assert first_row["cost_status"] == "UNAVAILABLE_NOT_GUESSED"
+    assert first_row["error_code"] is None
+    assert first_row["timed_out"] is False
     rendered = json.dumps(payload, sort_keys=True)
     for forbidden in ("verdict", "winner", "MET", "NOT_MET"):
         assert forbidden not in rendered
@@ -630,6 +916,111 @@ def test_rfinal_runner_writes_raw_once_without_verdict_and_forbids_rerun(
             scorer=_FakeScorer(bindings.scorer),
             c7=_FakeC7(bindings.authority.c7_owner_id),
         )
+
+
+def test_pre_start_c7_abort_creates_no_execution_claim(tmp_path: Path) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    batch = _rfinal_batch("tests-only-prestart-c7", bindings.actor)
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match="C7_ABORT_BEFORE_START"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=batch,
+            actor=_FakeActor(bindings.actor),
+            scorer=_FakeScorer(bindings.scorer),
+            c7=_FakeC7(bindings.authority.c7_owner_id, abort_on_check=1),
+        )
+    assert not (run_dir / "rfinal.start.json").exists()
+    assert not (run_dir / "rfinal.result.json").exists()
+    assert not (run_dir / "rfinal.terminal.json").exists()
+
+
+def test_real_external_c7_stop_halts_before_start(tmp_path: Path) -> None:
+    token = "tests-only-external-c7-capability"
+    token_digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(
+        target_root,
+        c7_capability_token_sha256=token_digest,
+    )
+    stop_path = tmp_path / "external-c7-stop.json"
+    _write_external_c7_stop(
+        stop_path,
+        owner_id=bindings.authority.c7_owner_id,
+        epoch=bindings.authority.c7_epoch,
+        capability_token_sha256=token_digest,
+    )
+    c7 = AtomicStopFileC7(
+        owner_id=bindings.authority.c7_owner_id,
+        epoch=bindings.authority.c7_epoch,
+        stop_path=stop_path,
+        capability_token=token,
+    )
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match="C7_ABORT_BEFORE_START"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-real-c7-prestart", bindings.actor),
+            actor=_FakeActor(bindings.actor),
+            scorer=_FakeScorer(bindings.scorer),
+            c7=c7,
+        )
+    assert not any(run_dir.glob("rfinal.*.json"))
+
+
+def test_real_external_c7_stop_halts_mid_run(tmp_path: Path) -> None:
+    token = "tests-only-external-c7-capability"
+    token_digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(
+        target_root,
+        c7_capability_token_sha256=token_digest,
+    )
+    stop_path = tmp_path / "external-c7-stop.json"
+    c7 = AtomicStopFileC7(
+        owner_id=bindings.authority.c7_owner_id,
+        epoch=bindings.authority.c7_epoch,
+        stop_path=stop_path,
+        capability_token=token,
+    )
+    actor = _StopAfterFirstActor(
+        bindings.actor,
+        stop_path=stop_path,
+        owner_id=bindings.authority.c7_owner_id,
+        epoch=bindings.authority.c7_epoch,
+        capability_token_sha256=token_digest,
+    )
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match="INVALID_C7_ABORT"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-real-c7-midrun", bindings.actor),
+            actor=actor,
+            scorer=_FakeScorer(bindings.scorer),
+            c7=c7,
+        )
+    terminal = json.loads(
+        (run_dir / "rfinal.terminal.json").read_text(encoding="utf-8")
+    )
+    assert terminal["status"] == "INVALID_C7_ABORT_NO_SAME_LOCK_RERUN"
+    assert actor.calls == 1
+    assert not (run_dir / "rfinal.result.json").exists()
 
 
 def test_post_start_c7_abort_is_terminal_and_same_lock_cannot_rerun(
@@ -711,6 +1102,57 @@ def test_interruption_after_atomic_start_is_terminal_and_cannot_rerun(
         )
 
 
+def test_actor_contract_failure_is_invalid_not_interrupted(tmp_path: Path) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    run_dir = tmp_path / "run"
+    with pytest.raises(
+        ActorClientFailure,
+        match="SCHEMA_ERROR:TESTS_ONLY_SCHEMA_ERROR",
+    ):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-actor-contract-failure", bindings.actor),
+            actor=_ActorContractFailure(bindings.actor),
+            scorer=_FakeScorer(bindings.scorer),
+            c7=_FakeC7(bindings.authority.c7_owner_id),
+        )
+    terminal = json.loads(
+        (run_dir / "rfinal.terminal.json").read_text(encoding="utf-8")
+    )
+    assert terminal["status"] == "INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN"
+    assert not (run_dir / "rfinal.result.json").exists()
+
+
+def test_scorer_contract_failure_is_invalid_not_interrupted(tmp_path: Path) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    run_dir = tmp_path / "run"
+    with pytest.raises(RawMetricViolation, match="tests-only sealed scorer failure"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-scorer-contract-failure", bindings.actor),
+            actor=_FakeActor(bindings.actor),
+            scorer=_ScorerContractFailure(bindings.scorer),
+            c7=_FakeC7(bindings.authority.c7_owner_id),
+        )
+    terminal = json.loads(
+        (run_dir / "rfinal.terminal.json").read_text(encoding="utf-8")
+    )
+    assert terminal["status"] == "INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN"
+    assert not (run_dir / "rfinal.result.json").exists()
+
+
 def test_untyped_scorer_output_invalidates_started_run_fail_closed(
     tmp_path: Path,
 ) -> None:
@@ -729,6 +1171,57 @@ def test_untyped_scorer_output_invalidates_started_run_fail_closed(
             batch=batch,
             actor=_FakeActor(bindings.actor),
             scorer=_UntypedScorer(bindings.scorer),  # type: ignore[arg-type]
+            c7=_FakeC7(bindings.authority.c7_owner_id),
+        )
+    terminal = json.loads(
+        (run_dir / "rfinal.terminal.json").read_text(encoding="utf-8")
+    )
+    assert terminal["status"] == "INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN"
+
+
+def test_wrong_arm_scorer_output_invalidates_started_run_fail_closed(
+    tmp_path: Path,
+) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    batch = _rfinal_batch("tests-only-wrong-arm-scorer", bindings.actor)
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match="exactly one assessment per arm"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=batch,
+            actor=_FakeActor(bindings.actor),
+            scorer=_WrongArmScorer(bindings.scorer),
+            c7=_FakeC7(bindings.authority.c7_owner_id),
+        )
+    terminal = json.loads(
+        (run_dir / "rfinal.terminal.json").read_text(encoding="utf-8")
+    )
+    assert terminal["status"] == "INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN"
+
+
+def test_actor_request_digest_drift_invalidates_started_run_fail_closed(
+    tmp_path: Path,
+) -> None:
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    bindings, paths, freeze = _execution_bindings(target_root)
+    run_dir = tmp_path / "run"
+    with pytest.raises(RunnerViolation, match="actor response request digest drift"):
+        execute_r_final_once(
+            run_dir=run_dir,
+            target_root=target_root,
+            bindings=bindings,
+            binding_artifact_paths=paths,
+            freeze=freeze,
+            batch=_rfinal_batch("tests-only-request-digest-drift", bindings.actor),
+            actor=_RequestDigestDriftActor(bindings.actor),
+            scorer=_FakeScorer(bindings.scorer),
             c7=_FakeC7(bindings.authority.c7_owner_id),
         )
     terminal = json.loads(
@@ -801,12 +1294,14 @@ print(json.dumps(value, sort_keys=True))
     return value
 
 
-def test_formal_prereg_is_native_schema_and_explicitly_unbound() -> None:
+def test_formal_prereg_is_real_binding_candidate_and_explicitly_unaccepted() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     spec_path = repo_root / FORMAL_PREREG
     spec = _load_formal_spec(repo_root)
     assert spec["prereg_id"] == "R-STATE-CREDIT-1-STAGE-A-20260715"
-    assert spec["status"] == "DRAFT_BINDINGS_REQUIRED_NOT_REVIEWED_NOT_FROZEN_NOT_RUN"
+    assert spec["status"] == (
+        "REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED_NOT_FROZEN_NOT_RUN"
+    )
     assert spec["claim_class"] == "research-automation"
     mechanism = spec["mechanism"]
     assert mechanism["channel_claim"] == "X(research-automation)"
@@ -815,18 +1310,46 @@ def test_formal_prereg_is_native_schema_and_explicitly_unbound() -> None:
     for required in (
         "experiments/r_state_credit_1/run_contracts.py",
         "experiments/r_state_credit_1/result_runner.py",
+        "experiments/r_state_credit_1/ark_responses_actor.py",
+        "experiments/r_state_credit_1/external_c7.py",
+        "experiments/r_state_credit_1/real_corpus.py",
+        "experiments/r_state_credit_1/real_scorer.py",
+        "experiments/r_state_credit_1/corpus/public-case-manifest.json",
+        "experiments/r_state_credit_1/corpus/sealed/referee-truth.jsonl",
+        "experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json",
+        "experiments/r_state_credit_1/bindings/c7-signal-candidate.json",
+        "experiments/r_state_credit_1/bindings/run-authority-candidate.json",
         "tests/test_r_state_credit_1_runner_prereg.py",
+        "tests/test_r_state_credit_1_ark_actor.py",
+        "tests/test_r_state_credit_1_external_c7.py",
+        "tests/test_r_state_credit_1_real_corpus.py",
+        "tests/test_r_state_credit_1_real_scorer.py",
+        "tests/test_r_state_credit_1_verdict_grammar.py",
         "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json",
     ):
         assert required in mechanism["files"]
     readiness = spec["binding_readiness"]
-    assert readiness["status"] == "DRAFT_BINDINGS_REQUIRED"
+    assert readiness["status"] == (
+        "REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED"
+    )
     assert set(readiness["unresolved_contracts"]) == {
-        "ACTOR_BINDING",
-        "CORPUS_BINDING",
-        "SCORER_BINDING",
-        "REVIEW_AND_RUN_AUTHORITY_BINDING",
+        "ACTOR_CONNECTIVITY_CANARY_AND_EXACT_MODEL_REVISION",
+        "INDEPENDENT_PREREG_ARCHITECTURE_ACCEPTANCE",
+        "C7_PER_RUN_OWNER_EPOCH_TOKEN_ACCEPTANCE",
+        "FOUNDER_OR_CTO_PER_RUN_AUTHORIZATION",
     }
+    assert spec["binding_contracts"]["CORPUS_BINDING"]["required_fields"][-1] == (
+        "case_files"
+    )
+    assert (
+        spec["binding_contracts"]["CORPUS_BINDING"]["current_held_out_corpus"]
+        == "MATERIALIZED_140_EPISODES_560_CHECKPOINTS"
+    )
+    assert (
+        spec["binding_contracts"]["SCORER_BINDING"]["current_result_scorer"]
+        == "IMPLEMENTED_RAW_METRICS_ONLY"
+    )
+    assert spec["binding_contracts"]["ACTOR_BINDING"]["connectivity_canary"] == "UNRUN"
     assert spec["execution"]["result_bearing_execution_authorized"] is False
     assert spec["execution"]["provider_call_authorized"] is False
     assert spec["execution"]["cli_entrypoint"] == "ABSENT_BY_DESIGN"

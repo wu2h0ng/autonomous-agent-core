@@ -9,6 +9,7 @@ verdict.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,7 @@ from experiments.r_state_credit_1.run_contracts import (
     CheckpointCase,
     CheckpointId,
     CheckpointLoss,
+    ExecutionDependencyFailure,
     RFinalBatch,
     RunBindings,
     ScorerClient,
@@ -86,6 +88,32 @@ def _write_exclusive_json(path: Path, payload: object) -> None:
         handle.write(encoded)
         handle.flush()
         os.fsync(handle.fileno())
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_descriptor = os.open(path.parent, directory_flags)
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+
+
+def verify_raw_result_content_digest(path: Path) -> bool:
+    """Verify the raw payload digest without interpreting a scientific verdict."""
+
+    if not isinstance(path, Path) or path.is_symlink() or not path.is_file():
+        raise RunnerViolation("raw result path must be a regular non-symlink file")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RunnerViolation("raw result is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise RunnerViolation("raw result must be a mapping")
+    claimed = payload.pop("content_sha256", None)
+    if not isinstance(claimed, str):
+        raise RunnerViolation("raw result content_sha256 is missing")
+    actual = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    if actual != claimed:
+        raise RunnerViolation("raw result content_sha256 drift")
+    return True
 
 
 def _abort_requested(c7: C7AbortSignal) -> bool:
@@ -124,6 +152,10 @@ def _validate_dependencies(
         raise RunnerViolation("c7 must satisfy C7AbortSignal")
     if c7.owner_id != bindings.authority.c7_owner_id:
         raise RunnerViolation("C7 owner binding drift")
+    if c7.epoch != bindings.authority.c7_epoch:
+        raise RunnerViolation("C7 epoch binding drift")
+    if c7.capability_token_sha256 != bindings.authority.c7_capability_token_sha256:
+        raise RunnerViolation("C7 capability binding drift")
 
 
 def _validate_actor_response(
@@ -135,6 +167,8 @@ def _validate_actor_response(
         raise RunnerViolation("actor returned an untyped response")
     if response.request_id != request.request_id:
         raise RunnerViolation("actor response request_id drift")
+    if response.actor_request_sha256 != request.digest():
+        raise RunnerViolation("actor response request digest drift")
     if (
         response.provider != bindings.actor.provider
         or response.model_id != bindings.actor.model_id
@@ -234,6 +268,10 @@ def execute_r_final_once(
             "prereg_lock_sha256": freeze.lock_sha256,
             "target_head": freeze.target_head,
             "c7_owner_id": bindings.authority.c7_owner_id,
+            "c7_epoch": bindings.authority.c7_epoch,
+            "c7_capability_token_sha256": (
+                bindings.authority.c7_capability_token_sha256
+            ),
             "run_authority_ref": (
                 bindings.authority.founder_or_cto_run_authorization_ref
             ),
@@ -291,11 +329,26 @@ def execute_r_final_once(
                         "checkpoint_id": case.checkpoint_id.value,
                         "arm_id": request.arm_id.value,
                         "request_id": request.request_id,
+                        "response_id": response.response_id,
                         "observable_digest": request.observable_digest,
                         "action": response.action.value,
+                        "model_revision_or_snapshot": (
+                            response.model_revision_or_snapshot
+                        ),
+                        "actor_request_sha256": response.actor_request_sha256,
+                        "provider_request_sha256": response.provider_request_sha256,
+                        "provider_response_sha256": (response.provider_response_sha256),
                         "raw_output_sha256": response.raw_output_sha256,
                         "input_tokens": response.input_tokens,
                         "output_tokens": response.output_tokens,
+                        "total_tokens": response.usage.total_tokens,
+                        "cost_status": response.cost.status.value,
+                        "cost_amount_microunits": response.cost.amount_microunits,
+                        "cost_currency": response.cost.currency,
+                        "latency_ms": response.latency_ms,
+                        "timeout_seconds": response.timeout_seconds,
+                        "error_code": response.error_code,
+                        "timed_out": response.timed_out,
                         "loss_code": assessment.loss.value,
                         "loss_weight": assessment.weight,
                         "unsafe_effect_replay": (
@@ -321,6 +374,10 @@ def execute_r_final_once(
                 verified_artifacts.exact_content_manifest_sha256
             ),
             "c7_owner_id": bindings.authority.c7_owner_id,
+            "c7_epoch": bindings.authority.c7_epoch,
+            "c7_capability_token_sha256": (
+                bindings.authority.c7_capability_token_sha256
+            ),
             "run_authority_ref": (
                 bindings.authority.founder_or_cto_run_authorization_ref
             ),
@@ -342,7 +399,7 @@ def execute_r_final_once(
     except BaseException as exc:
         status = (
             "INVALID_RUNNER_CONTRACT_NO_SAME_LOCK_RERUN"
-            if isinstance(exc, RunnerViolation)
+            if isinstance(exc, (RunnerViolation, ExecutionDependencyFailure))
             else "INTERRUPTED_NO_SAME_LOCK_RERUN"
         )
         _terminal_and_raise(
