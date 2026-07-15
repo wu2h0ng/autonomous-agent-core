@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from threading import Event, Thread
 from decimal import Decimal
 
 import pytest
@@ -26,11 +27,13 @@ from agent_os_core import (
     CorrectionAuthority,
     InMemoryTaskEventStore,
     InvalidTransitionError,
+    SQLiteTaskEventStore,
     ScopeMismatchError,
     TaskNotFoundError,
     TaskService,
     ValidatedTestReport,
 )
+from agent_os_core.event_store import TaskEventStore
 
 
 NOW = datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc)
@@ -120,7 +123,7 @@ def _expected(task_id: str) -> ExpectedOutcome:
 
 
 def _service(
-    store: InMemoryTaskEventStore,
+    store: TaskEventStore,
     ids: DeterministicIdFactory,
 ) -> TaskService:
     return TaskService(
@@ -419,6 +422,90 @@ def test_record_outcome_rejects_c7_halted_task() -> None:
 
     with pytest.raises(InvalidTransitionError, match="correction authority"):
         service.record_outcome(created.task_id, outcome)
+
+
+def test_record_outcome_and_c7_halt_are_atomic_across_sqlite_connections(
+    tmp_path,
+) -> None:
+    database = tmp_path / "outcome-c7.sqlite3"
+    worker_store = SQLiteTaskEventStore(database)
+    correction_store = SQLiteTaskEventStore(database)
+
+    class BlockingStore:
+        def __init__(self) -> None:
+            self.append_entered = Event()
+            self.append_release = Event()
+
+        def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+            return getattr(worker_store, name)
+
+        def read(self, task_id: str):  # type: ignore[no-untyped-def]
+            return worker_store.read(task_id)
+
+        def append(self, task_id, *, expected_sequence, drafts):  # type: ignore[no-untyped-def]
+            if any(draft.event_type is TaskEventType.OUTCOME_OBSERVED for draft in drafts):
+                self.append_entered.set()
+                assert self.append_release.wait(timeout=5)
+            return worker_store.append(
+                task_id,
+                expected_sequence=expected_sequence,
+                drafts=drafts,
+            )
+
+        def append_guarded(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            self.append_entered.set()
+            assert self.append_release.wait(timeout=5)
+            return worker_store.append_guarded(*args, **kwargs)
+
+    blocking_store = BlockingStore()
+    worker = _service(blocking_store, DeterministicIdFactory())
+    worker_correction = CorrectionAuthority(worker_store)
+    worker.bind_correction_reader(worker_correction)
+    external_correction = CorrectionAuthority(correction_store)
+    created = worker.create_task(_goal())
+    expected = _expected(created.task_id)
+    worker.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = worker.start_run(created.task_id)
+    assert running.run is not None
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-racing-halt",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.NOT_MET,
+        score=0.0,
+        confidence=1.0,
+        evidence_refs=(),
+        unresolved_gaps=("tests failed",),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+    errors: list[BaseException] = []
+
+    def record() -> None:
+        try:
+            worker.record_outcome(created.task_id, outcome)
+        except BaseException as exc:  # pragma: no cover - diagnostic capture
+            errors.append(exc)
+
+    thread = Thread(target=record)
+    thread.start()
+    assert blocking_store.append_entered.wait(timeout=2)
+    external_correction.correct("task", created.task_id, "external halt won race")
+    blocking_store.append_release.set()
+    thread.join(timeout=5)
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], InvalidTransitionError)
+    assert worker.get_task(created.task_id).observed_outcome is None
 
 
 def test_record_artifact_rejects_unbound_action_receipt() -> None:

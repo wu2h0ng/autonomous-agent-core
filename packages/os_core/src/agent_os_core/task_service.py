@@ -1292,6 +1292,33 @@ class TaskService:
                 raise InvalidTransitionError(
                     "verified outcome predates its durable test report"
                 )
+        guarded_append = getattr(self._event_store, "append_guarded", None)
+        if callable(guarded_append) and correction_epochs is not None:
+            draft = TaskEventDraft.build(
+                event_id=self._id_factory("event"),
+                task_id=task_id,
+                event_type=TaskEventType.OUTCOME_OBSERVED,
+                payload={"outcome": outcome.model_dump(mode="json")},
+                occurred_at=self._clock(),
+                correlation_id=outcome.run_id,
+                causation_id=aggregate.last_event_id,
+            )
+            try:
+                guarded_append(
+                    task_id,
+                    run_id=aggregate.run.run_id,
+                    capability_id="outcome.evaluate",
+                    expected_correction_epochs=correction_epochs,
+                    expected_sequence=aggregate.sequence,
+                    drafts=(draft,),
+                )
+            except ConcurrentWriteError as exc:
+                if "correction authority" in str(exc):
+                    raise InvalidTransitionError(
+                        "outcome recording is halted by correction authority"
+                    ) from exc
+                raise
+            return self.get_task(task_id)
         if self._correction_reader is not None and correction_epochs is not None:
             with self._correction_reader.guard_unchanged(
                 task_id,

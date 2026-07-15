@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from agent_os_contracts import TaskEvent, TaskEventDraft
+from agent_os_contracts import CorrectionEpochVector, TaskEvent, TaskEventDraft
 
 from .errors import ConcurrentWriteError, DuplicateEventError, EventStreamError
 
@@ -89,25 +89,97 @@ class PostgresTaskEventStore:
             raise EventStreamError("append requires at least one event draft")
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (task_id,))
-            cur.execute("SELECT COALESCE(MAX(sequence), 0) FROM task_events WHERE task_id=%s", (task_id,))
-            row = cur.fetchone()
-            actual = int(row[0]) if row is not None else 0
-            if actual != expected_sequence:
-                raise ConcurrentWriteError(f"expected sequence {expected_sequence}, actual {actual}")
-            events: list[TaskEvent] = []
-            for offset, draft in enumerate(drafts, start=1):
-                if draft.task_id != task_id:
-                    raise EventStreamError("event belongs to another task stream")
-                sequence = expected_sequence + offset
-                try:
-                    cur.execute(
-                        "INSERT INTO task_events(task_id, sequence, event_id, event_type, payload_json, occurred_at, correlation_id, causation_id) "
-                        "VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s)",
-                        (task_id, sequence, draft.event_id, draft.event_type.value, draft.payload_json, draft.occurred_at, draft.correlation_id, draft.causation_id),
+            return self._append_with_cursor(
+                cur,
+                task_id,
+                expected_sequence=expected_sequence,
+                drafts=drafts,
+            )
+
+    def append_guarded(
+        self,
+        task_id: str,
+        *,
+        run_id: str,
+        capability_id: str,
+        expected_correction_epochs: CorrectionEpochVector,
+        expected_sequence: int,
+        drafts: Sequence[TaskEventDraft],
+    ) -> tuple[TaskEvent, ...]:
+        if not drafts:
+            raise EventStreamError("append requires at least one event draft")
+        scopes = (
+            ("capability", capability_id, expected_correction_epochs.capability_epoch),
+            ("run", run_id, expected_correction_epochs.run_epoch),
+            ("task", task_id, expected_correction_epochs.task_epoch),
+        )
+        with self._connect() as conn, conn.cursor() as cur:
+            for scope, scope_id, _ in scopes:
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    (f"correction:{scope}:{scope_id}",),
+                )
+            observed: list[int] = []
+            expected: list[int] = []
+            for scope, scope_id, expected_epoch in scopes:
+                cur.execute(
+                    "SELECT epoch, halted FROM correction_epochs "
+                    "WHERE scope=%s AND scope_id=%s",
+                    (scope, scope_id),
+                )
+                row = cur.fetchone()
+                epoch = int(row[0]) if row is not None else 0
+                halted = bool(row[1]) if row is not None else False
+                if halted:
+                    raise ConcurrentWriteError(
+                        "correction authority halted guarded append"
                     )
-                except self._psycopg.errors.UniqueViolation as exc:
-                    raise DuplicateEventError(f"duplicate event id: {draft.event_id}") from exc
-                events.append(TaskEvent(**draft.model_dump(), sequence=sequence))
+                observed.append(epoch)
+                expected.append(expected_epoch)
+            if observed != expected:
+                raise ConcurrentWriteError(
+                    "correction authority changed before guarded append"
+                )
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (task_id,))
+            return self._append_with_cursor(
+                cur,
+                task_id,
+                expected_sequence=expected_sequence,
+                drafts=drafts,
+            )
+
+    def _append_with_cursor(
+        self,
+        cur: Any,
+        task_id: str,
+        *,
+        expected_sequence: int,
+        drafts: Sequence[TaskEventDraft],
+    ) -> tuple[TaskEvent, ...]:
+        cur.execute(
+            "SELECT COALESCE(MAX(sequence), 0) FROM task_events WHERE task_id=%s",
+            (task_id,),
+        )
+        row = cur.fetchone()
+        actual = int(row[0]) if row is not None else 0
+        if actual != expected_sequence:
+            raise ConcurrentWriteError(
+                f"expected sequence {expected_sequence}, actual {actual}"
+            )
+        events: list[TaskEvent] = []
+        for offset, draft in enumerate(drafts, start=1):
+            if draft.task_id != task_id:
+                raise EventStreamError("event belongs to another task stream")
+            sequence = expected_sequence + offset
+            try:
+                cur.execute(
+                    "INSERT INTO task_events(task_id, sequence, event_id, event_type, payload_json, occurred_at, correlation_id, causation_id) "
+                    "VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s)",
+                    (task_id, sequence, draft.event_id, draft.event_type.value, draft.payload_json, draft.occurred_at, draft.correlation_id, draft.causation_id),
+                )
+            except self._psycopg.errors.UniqueViolation as exc:
+                raise DuplicateEventError(f"duplicate event id: {draft.event_id}") from exc
+            events.append(TaskEvent(**draft.model_dump(), sequence=sequence))
         return tuple(events)
 
     def get_idempotency(self, scope: str, key: str) -> dict[str, Any] | None:
@@ -172,6 +244,10 @@ class PostgresTaskEventStore:
     def write_correction(self, scope: str, scope_id: str, tenant_id: str, workspace_id: str, epoch: int, halted: bool, reason: str, written_by: str, written_at: str) -> None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"correction:{scope}:{scope_id}",),
+            )
+            cur.execute(
                 "INSERT INTO correction_epochs(scope,scope_id,tenant_id,workspace_id,epoch,halted,reason,written_by,written_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
                 "ON CONFLICT(scope,scope_id) DO UPDATE SET epoch=EXCLUDED.epoch,halted=EXCLUDED.halted,reason=EXCLUDED.reason,written_by=EXCLUDED.written_by,written_at=EXCLUDED.written_at",
                 (scope, scope_id, tenant_id, workspace_id, epoch, halted, reason, written_by, written_at),
@@ -189,6 +265,10 @@ class PostgresTaskEventStore:
         written_at: str,
     ) -> tuple[int, bool, str]:
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"correction:{scope}:{scope_id}",),
+            )
             cur.execute(
                 "INSERT INTO correction_epochs(scope,scope_id,tenant_id,workspace_id,"
                 "epoch,halted,reason,written_by,written_at) "

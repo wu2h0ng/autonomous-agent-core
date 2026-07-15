@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from threading import RLock
 from typing import Any
 
-from agent_os_contracts import TaskEvent, TaskEventDraft
+from agent_os_contracts import CorrectionEpochVector, TaskEvent, TaskEventDraft
 
 from .errors import ConcurrentWriteError, DuplicateEventError, EventStreamError
 
@@ -103,57 +103,125 @@ class SQLiteTaskEventStore:
         with self._lock:
             try:
                 self._db.execute("BEGIN IMMEDIATE")
-                row = self._db.execute(
-                    "SELECT COALESCE(MAX(sequence), 0) AS sequence "
-                    "FROM task_events WHERE task_id = ?",
-                    (task_id,),
-                ).fetchone()
-                actual = int(row["sequence"])
-                if actual != expected_sequence:
-                    self._db.rollback()
-                    raise ConcurrentWriteError(
-                        f"expected sequence {expected_sequence}, actual {actual}"
-                    )
-                seen: set[str] = set()
-                appended: list[TaskEvent] = []
-                for offset, draft in enumerate(drafts, start=1):
-                    if draft.task_id != task_id:
-                        raise EventStreamError(
-                            f"event {draft.event_id} belongs to {draft.task_id}, not {task_id}"
-                        )
-                    if draft.event_id in seen:
-                        raise DuplicateEventError(f"duplicate event id: {draft.event_id}")
-                    seen.add(draft.event_id)
-                    try:
-                        self._db.execute(
-                            "INSERT INTO task_events "
-                            "(task_id, sequence, event_id, event_type, payload_json, "
-                            "occurred_at, correlation_id, causation_id) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                task_id,
-                                expected_sequence + offset,
-                                draft.event_id,
-                                draft.event_type.value,
-                                draft.payload_json,
-                                draft.occurred_at.isoformat(),
-                                draft.correlation_id,
-                                draft.causation_id,
-                            ),
-                        )
-                    except sqlite3.IntegrityError as exc:
-                        raise DuplicateEventError(
-                            f"duplicate event id: {draft.event_id}"
-                        ) from exc
-                    appended.append(
-                        TaskEvent(**draft.model_dump(), sequence=expected_sequence + offset)
-                    )
+                appended = self._append_in_transaction(
+                    task_id,
+                    expected_sequence=expected_sequence,
+                    drafts=drafts,
+                )
                 self._db.commit()
-                return tuple(appended)
+                return appended
             except Exception:
                 if self._db.in_transaction:
                     self._db.rollback()
                 raise
+
+    def append_guarded(
+        self,
+        task_id: str,
+        *,
+        run_id: str,
+        capability_id: str,
+        expected_correction_epochs: CorrectionEpochVector,
+        expected_sequence: int,
+        drafts: Sequence[TaskEventDraft],
+    ) -> tuple[TaskEvent, ...]:
+        """Atomically compare C7 epochs and append protected truth events."""
+
+        if not drafts:
+            raise EventStreamError("append requires at least one event draft")
+        with self._lock:
+            try:
+                self._db.execute("BEGIN IMMEDIATE")
+                observed: list[int] = []
+                for scope, scope_id in (
+                    ("task", task_id),
+                    ("run", run_id),
+                    ("capability", capability_id),
+                ):
+                    row = self._db.execute(
+                        "SELECT epoch, halted FROM correction_epochs "
+                        "WHERE scope = ? AND scope_id = ?",
+                        (scope, scope_id),
+                    ).fetchone()
+                    epoch = int(row["epoch"]) if row is not None else 0
+                    halted = bool(row["halted"]) if row is not None else False
+                    if halted:
+                        raise ConcurrentWriteError(
+                            "correction authority halted guarded append"
+                        )
+                    observed.append(epoch)
+                if tuple(observed) != (
+                    expected_correction_epochs.task_epoch,
+                    expected_correction_epochs.run_epoch,
+                    expected_correction_epochs.capability_epoch,
+                ):
+                    raise ConcurrentWriteError(
+                        "correction authority changed before guarded append"
+                    )
+                appended = self._append_in_transaction(
+                    task_id,
+                    expected_sequence=expected_sequence,
+                    drafts=drafts,
+                )
+                self._db.commit()
+                return appended
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
+
+    def _append_in_transaction(
+        self,
+        task_id: str,
+        *,
+        expected_sequence: int,
+        drafts: Sequence[TaskEventDraft],
+    ) -> tuple[TaskEvent, ...]:
+        row = self._db.execute(
+            "SELECT COALESCE(MAX(sequence), 0) AS sequence "
+            "FROM task_events WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
+        actual = int(row["sequence"])
+        if actual != expected_sequence:
+            raise ConcurrentWriteError(
+                f"expected sequence {expected_sequence}, actual {actual}"
+            )
+        seen: set[str] = set()
+        appended: list[TaskEvent] = []
+        for offset, draft in enumerate(drafts, start=1):
+            if draft.task_id != task_id:
+                raise EventStreamError(
+                    f"event {draft.event_id} belongs to {draft.task_id}, not {task_id}"
+                )
+            if draft.event_id in seen:
+                raise DuplicateEventError(f"duplicate event id: {draft.event_id}")
+            seen.add(draft.event_id)
+            try:
+                self._db.execute(
+                    "INSERT INTO task_events "
+                    "(task_id, sequence, event_id, event_type, payload_json, "
+                    "occurred_at, correlation_id, causation_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        task_id,
+                        expected_sequence + offset,
+                        draft.event_id,
+                        draft.event_type.value,
+                        draft.payload_json,
+                        draft.occurred_at.isoformat(),
+                        draft.correlation_id,
+                        draft.causation_id,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise DuplicateEventError(
+                    f"duplicate event id: {draft.event_id}"
+                ) from exc
+            appended.append(
+                TaskEvent(**draft.model_dump(), sequence=expected_sequence + offset)
+            )
+        return tuple(appended)
 
     def get_idempotency(self, scope: str, key: str) -> dict[str, Any] | None:
         with self._lock:
