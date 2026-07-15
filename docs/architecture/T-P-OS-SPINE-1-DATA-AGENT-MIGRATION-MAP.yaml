@@ -4,7 +4,7 @@ status: "DESIGN_ONLY_NOT_EXECUTED"
 task_id: "T-P-OS-SPINE-1"
 depends_on: "T-P-OS-SPINE-0_ACCEPTED"
 authority:
-  product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md"
+  product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT.md"
   architecture_packet: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
   cross_repository_adr: "docs/adr/ADR-0054-one-time-data-agent-history-migration.md"
   research_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"

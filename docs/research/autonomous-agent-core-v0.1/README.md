@@ -1,14 +1,14 @@
-> ⚠️ **Historical blueprint archive — not the current specification.** This directory contains the 2026-07 Genesis vision for a reality-grounded autonomous agent operating core. Its concepts (ontology, arbiter-only action authority, human correction supremacy, audit, evolution sandbox) have been absorbed into the current three-layer implementation where noted in `docs/research/HISTORICAL-BLUEPRINT-REPOSITIONING.md`. Do not implement directly from this blueprint without a new founder/CTO-authorized ADR. The current executable route is defined in `docs/GOAL-BLUEPRINT.md` and `docs/research/IGI-ROADMAP-ALIGNMENT.md`.
+# Historical Blueprint Archive — v0.1 Genesis
 
-# autonomous-agent-core v0.1 Genesis
+> Status: `HISTORICAL / NON-AUTHORITATIVE`
 
-A reality-grounded autonomous agent operating core.
+This directory preserves an ontology-first Agent Core vision: external correction, arbiter-only action authority, audit and an evolution sandbox.
 
-Core principles:
-- Ontology first
-- No hidden objectives
-- Human correction supremacy
-- Learning modules cannot directly control actions
-- Verified self-improvement
+It is not a current implementation specification and grants no experiment, dependency, migration or product-claim authority. Adopt individual ideas only through the current Paradigm/RR-0029/ADR gates.
 
-See `docs/TECHNICAL_SPECIFICATION.md` for the historical sketch.
+Current routing:
+
+- [Goal Blueprint](../../../../docs/GOAL-BLUEPRINT.md)
+- [Agent OS Product Blueprint](../../AGENT-OS-PRODUCT-BLUEPRINT.md)
+- [Blueprint Decision Ledger](../../../../docs/research/BLUEPRINT-DECISION-LEDGER.md)
+- [Current State](../../CURRENT_STATE.yaml)

@@ -1,12 +1,14 @@
-> ⚠️ **Historical blueprint archive / external reference — not the current specification.** This directory contains two long-horizon architectural alternatives for integrated governed intelligence: UAI (end-to-end differentiable unified agent) and NOESIS (pure symbolic cognitive architecture). They are source material for architectural alternatives and market analysis, not implementation authority. Specific concepts have been absorbed into the current three-layer implementation where noted in `docs/research/HISTORICAL-BLUEPRINT-REPOSITIONING.md`. Do not implement directly from these blueprints without a new founder/CTO-authorized ADR passing the architecture-theory review gate (`RR-0029 §5`). The current executable route is defined in `docs/GOAL-BLUEPRINT.md` and `docs/research/IGI-ROADMAP-ALIGNMENT.md`.
+# Historical External Blueprint Archive — UAI / NOESIS
 
-# Kimi_Agent 终极自主智能蓝图
+> Status: `HISTORICAL REFERENCE / NON-AUTHORITATIVE`
 
-This directory holds two radical architectural sketches produced 2026-07-02:
+This directory preserves two long-horizon alternatives: an end-to-end differentiable unified agent and a predominantly symbolic cognitive architecture.
 
-- `unified_autonomous_intelligence_blueprint.md` — UAI: a 17M-parameter end-to-end differentiable unified cognitive system.
-- `noesis_symbolic_intelligence_blueprint.md` — NOESIS: a pure symbolic cognitive architecture with explicit causal DAGs and production rules.
-- `noesis_commercial_deployment_analysis.md` — commercial deployment analysis for the NOESIS route.
-- Supporting PNG architecture/roadmap diagrams and Python prototypes (`uai_prototype.py`, `noesis_prototype.py`).
+They are research pressure inputs, not current architecture or implementation authority. Neither may bypass deterministic external authority, C7, the Paradigm/RR-0029 gate, or product promotion evidence.
 
-These sketches are retained as vision archives and reference material. They do not authorize implementation, cross-repo imports, external framework dependencies, or product claims.
+Current routing:
+
+- [Goal Blueprint](../../../../docs/GOAL-BLUEPRINT.md)
+- [Agent OS Product Blueprint](../../AGENT-OS-PRODUCT-BLUEPRINT.md)
+- [Blueprint Decision Ledger](../../../../docs/research/BLUEPRINT-DECISION-LEDGER.md)
+- [Current State](../../CURRENT_STATE.yaml)

@@ -1,19 +1,14 @@
-> ⚠️ **Historical blueprint archive — not the current specification.** This directory contains the 2026-07 service-topology sketch for a reality-grounded autonomous agent platform (API Gateway, Ontology/CWM/Causal/Arbiter/Runtime/Memory/Evolution/Audit services, REST/gRPC/event bus). It is a vision of a mature IGI stack, not the Phase-1 implementation spec. Current architecture deliberately avoids premature serviceization; see `docs/research/HISTORICAL-BLUEPRINT-REPOSITIONING.md` for the lineage mapping. Do not implement directly from this blueprint without a new founder/CTO-authorized ADR. The current executable route is defined in `docs/GOAL-BLUEPRINT.md` and `docs/research/IGI-ROADMAP-ALIGNMENT.md`.
+# Historical Blueprint Archive — v0.2 Service Topology
 
-# autonomous-agent-core v0.2 Engineering Implementation Package
+> Status: `HISTORICAL / NON-AUTHORITATIVE`
 
-Version: 0.2.0 (historical vision sketch)
+This directory preserves a service-topology sketch for ontology, CWM, causal, arbiter, runtime, memory, evolution and audit responsibilities.
 
-Purpose:
-Implementation blueprint for a reality-grounded autonomous agent platform.
+It does not authorize premature microservices, event-bus dependencies or implementation from the sketch. Package/module boundaries remain the default until measured product needs justify service extraction.
 
-v0.2 adds:
-- service architecture
-- ontology substrate
-- CWM interfaces
-- causal reasoning interfaces
-- arbiter protocol
-- runtime security
-- event driven architecture
-- frontend specification
-- coding agent execution plan
+Current routing:
+
+- [Goal Blueprint](../../../../docs/GOAL-BLUEPRINT.md)
+- [Agent OS Product Blueprint](../../AGENT-OS-PRODUCT-BLUEPRINT.md)
+- [Blueprint Decision Ledger](../../../../docs/research/BLUEPRINT-DECISION-LEDGER.md)
+- [Current State](../../CURRENT_STATE.yaml)

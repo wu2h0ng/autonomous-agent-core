@@ -2,7 +2,7 @@
 
 > **Authority notice (2026-07-10): HISTORICAL RESEARCH TRACK REFERENCE.** The complete
 > Agent OS product architecture is now governed by
-> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` and
+> `docs/AGENT-OS-PRODUCT-BLUEPRINT.md` and
 > `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`. `REF-ARCH-*` remains useful
 > evidence about the research prototype, but it does not define Product Track authority,
 > package topology, runtime security or Data Agent migration. In particular, inherited

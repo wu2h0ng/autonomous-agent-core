@@ -1,764 +1,200 @@
-# PROJECT_PLAN - autonomous-agent-core
+# Agent OS Project Plan
 
-> Last updated: 2026-07-12
-> Status: Active handoff document
-> First read: `docs/CURRENT_STATE.yaml` -> `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` -> this file -> `codebase_index.md` -> current ADRs.
+> Status: `ACTIVE / AUTHORIZED-SEQUENCE ONLY`
+> Updated: 2026-07-15
+> Product authority: `AGENT-OS-PRODUCT-BLUEPRINT.md`
+> Live truth: `CURRENT_STATE.yaml`
+> This file is not a historical changelog and does not authorize work by itself.
 
-## 1. Current Truth
+## 1. Planning rule
 
-This repository is now the complete Agent OS main monorepo by founder decision. It has a Product Track and a Research Track. The current implementation is still research-heavy; SPINE-0 is PM-accepted for the bounded local developer golden path, and `T-P-OS-LH-BOUND-1` has passed a bounded local long-horizon Product acceptance slice. Market-parity, enterprise-production runtime and long-horizon advantage remain unproved. Research verdicts keep their exact historical meaning and do not establish product delivery.
+The repository has two tracks under one architecture:
 
-Blueprint v1.1 and ADR-0055 now bind the product interaction and organ model: one Agent
-Surface, ephemeral `Ask`, durable `Work`, plural task-appropriate world models, optional
-evidence-gated CWM, and no canonical `Skill` kernel object. This is a docs-only definition
-change; the runtime router, preset compiler, WorldModelPort and LearnedProcedure promotion
-remain unimplemented.
+- **Product Track** builds the Agent OS product body.
+- **Research Track** produces falsifiable mechanism evidence and negative results.
 
-Product authority:
-
-```text
-docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md
-```
-
-Current research baseline:
-
-```text
-source: reconcile/igi-organstack-into-open-world-arc-2026-07-10
-G10: narrow synthetic MET and trap-complete
-G13: NOT_MET
-G-ECO-REOPEN-1: NOT_MET
-strong-locus Stage 4: INSUFFICIENT_DATA_HONEST_NEGATIVE
-CWM-LEARN-5e-2: r-final MET for the hard non-enumerable functional-form channel only
-product/autonomy claim from these results: NOT_AUTHORIZED
-```
-
-Do not describe the current stage as P1, P2, P3, or P4. Those are historical phases.
-
-Latest verification truth:
-
-```text
-product branch: 166 passed, 1 skipped; ruff clean; pyright 0 errors
-whole-repository historical baseline (not rerun on this branch): 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
-```
-
-The current test count is copied from `docs/CURRENT_STATE.yaml`; rerun before code submission if you change code. The full suite verifies the reconciled Product and Research tracks. It does not establish Agent OS Blueprint completion, Codex parity or superiority.
-
-## 2. Product Track Immediate Task
-
-### T-P-OS-SPINE-0 - Executable Product Spine
-
-Status:
-
-```text
-SPINE_0_PM_PRODUCT_ACCEPTED_LOCAL_DEVELOPER_SLICE
-SPINE-0 completion: MET for bounded local independent-developer golden path
-SPINE-0 donor migration dependency: NONE
-```
-
-Current authority:
-
-- `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md`
-- `docs/adr/ADR-0054-one-time-data-agent-history-migration.md`
-- `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
-- `docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md`
-- `docs/research/AGENT-OS-PRODUCT-GROUNDED-EXPERIMENT-MATRIX.yaml`
-
-Founder-selected path remains Option B, but Claude review split delivery into two bounded
-tasks. SPINE-0 proves the generic durable developer vertical without donor import. SPINE-1
-performs the ADR-0054-gated history-safe Data Agent migration and extraction. No runtime
-cross-repo import is allowed.
-
-Goal:
-
-Build the first real vertical slice through `Goal -> Commitment -> WorkflowGraph -> AgentRun -> ActionContract -> ExpectedOutcome/ObservedOutcome` with a durable Task Workspace entry point. The slice must use a real provider credential reference, one typed tool, one failure/recovery path, policy enforcement, event persistence and an acceptance evaluator.
-
-Required first architecture packet:
-
-- canonical contract ownership and versioning;
-- target package/app scaffold and dependency boundary;
-- provider/BYOK secret-broker threat model;
-- WorkflowGraph IR and natural-language/visual round-trip contract;
-- durable execution/event-store choice;
-- one developer golden-path acceptance test plus a versioned domain-capability registration
-  contract; Data Agent seam acceptance belongs to SPINE-1;
-- explicit `ResearchCandidateManifest` boundary; no raw `src/aac` experiment import.
-
-Claude first returned `APPROVE_WITH_REQUIRED_CHANGES`; the required ADR, history-safety,
-scope and connector-guarantee changes were applied. Independent remediation re-review
-closed all six findings and returned `APPROVE`.
-
-SPINE-0 implemented from the reviewed test-first packets:
-
-- strict immutable Goal, Commitment, Workflow, Run, Action, Provider, Capability,
-  Evidence and Outcome contracts;
-- SQLite WAL authority plus PostgreSQL adapter, event replay, lease fencing, idempotency
-  and explicit stale-worker recovery;
-- provider-generated `workspace.apply_patch` proposal compiled into a typed ActionContract,
-  exact-digest approval and policy/permit/broker enforcement before file effects;
-- repository attach boundary, local provider Integration Center, API, CLI and Codex-style
-  Task Workspace with task history, diff, stages, recovery and evidence;
-- real Kimi browser journey from clean workspace to pytest-backed VERIFIED outcome without
-  user-supplied final patch content;
-- malformed provider output and interrupted-worker recovery tests with zero unapproved
-  write effects.
-
-SPINE-0 evidence:
-
-```text
-current Product branch: 166 passed, 1 skipped
-SPINE-0 PM-acceptance baseline: 96 passed, 1 skipped
-ruff: All checks passed
-pyright: 0 errors, 0 warnings
-whole-repository historical baseline (not rerun in this task): 1321 passed, 14 skipped, 5 subtests passed; opt-in live-provider smoke 1 passed
-PM Product Acceptance: ACCEPT
-```
-
-Honest boundary: the accepted slice is local, single-workspace and one-file replacement
-with allowlisted pytest. Production KMS/SSO/tenancy, multi-file/general coding-agent
-execution, arbitrary shell/browser control, visual workflow editing, marketplace,
-subagent swarms, CWM/belief promotion and SPINE-1 migration remain `NOT_IMPLEMENTED`.
-
-The founder selected bounded durable-runtime hardening and `T-P-OS-LH-BOUND-1` below. Its
-local acceptance does not authorize donor migration, `LH-RECOVERY-1`, or a general autonomy
-claim. The next packet is a separate founder/CTO decision after the slice evidence is reviewed.
-
-The next horizontal product packet must also bind `InteractionDecision` before the desktop
-shell or generative UI is treated as a runtime product surface. Its minimum acceptance is:
-
-- direct/read-only `Ask` without Task/Workflow/Outcome creation or durable learning;
-- promotion to `Work` with context continuity when tools, persistence or verification become necessary;
-- deterministic escalation to governed action when an external side effect is proposed;
-- replaceable ScenePreset matching without Prompt/Skill execution authority;
-- explicit persistence and feedback policy plus negative-path tests.
-
-Independent P0A implementation review: Claude Opus initially returned
-`APPROVE_WITH_REQUIRED_CHANGES`; all required packaging, replay-integrity, boundary-test and
-claim-scope findings were remediated. Independent re-review returned `APPROVE`.
-
-Product UX preview: `/preview-zh` now demonstrates one Agent OS with a stable Shell,
-Personal/Developer/Organization workspace profiles, Ask-to-Work context continuity,
-replaceable soft scene presets and deterministic fixture `UISceneSpec` rendering through a
-registered component set. The scene includes metrics, relation hypotheses, evidence,
-Agent/environment state, event replay, concrete-action approval and canonical
-pause/correct controls. Eight browser-local locale catalogs demonstrate live presentation
-switching. This is static product-evaluation state, not evidence of persistent tenancy, a
-preset compiler, model/runtime scene generation, production catalog parity or production
-internationalization.
-
-External product/source study: `docs/product/AGENT-PRODUCT-DESIGN-SOURCE-STUDY-2026-07-10.md`
-finds the next shared bottleneck in typed Workspace/Preset compilation, durable workers,
-environment reproducibility, effect idempotency and outcome verification. Its recommended
-next packet is `P0 Workspace/Preset Contract + Durable Runtime Hardening`; this is a product
-recommendation only and does not supersede the founder/CTO choice between SPINE-0 hardening
-and ADR-0054-gated SPINE-1 readiness.
-
-This task is not complete with schemas, mocks or a UI shell. It needs a real call path, denial/failure behavior, restart recovery and verified outcome.
-
-### T-P-OS-LH-BOUND-1 - Bounded Long-Horizon Local Recovery Slice
-
-Status:
-
-```text
-LOCAL_ACCEPTANCE_VERIFIED
-phase label: LH_PRODUCT_SLICE_E2
-evidence scope: PRODUCT_LOCAL_ACCEPTANCE_ONLY
-LH-RECOVERY-1: OPEN_BLOCKED_NOT_RUN; SPINE-E2E-1/2/3 INVALID; SPINE-E2E-4 PASS; D2 NOT_CONSTRUCTED
-```
-
-Authority:
-
-- `docs/superpowers/specs/2026-07-12-agent-os-e2e-long-horizon-convergence-design.md`
-- `docs/superpowers/plans/2026-07-12-agent-os-e2e-long-horizon-implementation.md`
-- founder implementation-ownership amendment recorded in
-  `../.agent_runs/agent-os-e2e-long-horizon-20260712/`.
-
-Delivered Product Track behavior:
-
-- typed `WAIT_EVENT`, `ExternalSignal`, immutable Commitment/wait deadlines and exact signal
-  replay;
-- dependency blocking plus one explicit local-Principal suffix rebind, bounded by
-  `max_replans`, with completed-prefix and evidence protection;
-- restart reconstruction from append-only task events, lease fencing and stale-worker
-  recovery;
-- persistent C7 epochs and final connector checks for expiry, halt and epoch drift;
-- snapshot-before-write `workspace.apply_patch`, digest/state validation and restart-safe
-  automatic/manual governed compensation;
-- pure event-derived recovery projection;
-- Application, HTTP and CLI entries for signal, replan, correction resume, compensation and
-  recovery.
-
-Acceptance and negative paths:
-
-- success: wait -> process reconstruction -> signal -> one rebind -> provider -> approval ->
-  patch -> real pytest -> evaluator -> `VERIFIED`;
-- failure: bad patch -> worker interruption -> process reconstruction -> `NOT_MET` -> exactly
-  one automatic compensation restoring the original file;
-- C7: automatic and manual rollback blocked while halted; ordinary task resume does not clear
-  correction; Worker cannot resume correction; Principal resume is audited before exactly one
-  governed compensation;
-- public surfaces: real HTTP/CLI persistence, exact signal replay, wrong-scope denial, late
-  signal denial and replan-budget denial;
-- rebind regression: a physically written partial artifact is removed from authoritative
-  evidence after suffix replacement, while completed-prefix evidence and action binding remain.
-
-Evidence:
-
-```text
-implementation branch: codex/agent-os-e2e-long-horizon-20260712
-Claude Code primary LH_PRODUCT_SLICE_E2 commit integrated as: 38d91a9
-OpenCode public-surface commit integrated as: 88a8918
-Kimi rebind-regression commit integrated as: 879e286
-Product tests: 166 passed, 1 skipped
-Ruff: All checks passed
-Pyright: 0 errors, 0 warnings
-Independent coordinator/rebind review: ACCEPT
-Independent compensation/C7 review: ACCEPT
-```
-
-Honest boundary: this is a local SQLite + single-workspace + fixed local-Principal acceptance
-slice. It has no background scheduler or 7x24 worker fleet, no multi-hour/day comparison, no
-physical exactly-once guarantee, no automatic LLM replan, no general loop/parallel/subworkflow,
-no production authentication/tenancy, and no CWM, BeliefLedger, AgentSelfModel, continual
-learning or self-evolution product integration. It does not solve the general long-horizon,
-autonomous-agent-system or self-evolution problems.
-
-Three predecessor SPINE runs remain immutable INVALID instrument evidence. The fresh corrected
-`SPINE-E2E-4` successor bound the real runner contract, completed one frozen same-boot run, and
-was independently adjudicated PASS for the twelve-task bounded claim. D2 remains unconstructed
-because its D1, nonce, corpus, and oracle prerequisites are absent. Parent `LH-RECOVERY-1`
-remains OPEN/BLOCKED_NOT_RUN.
-
-Next gate: execute the already authorized D1 artifact-construction sequence for
-`LH-RECOVERY-1A`: frozen D1-E, sealed blind D1-F, combined D1, dual nonce commitments/reveals,
-corpus materialization, and a one-shot `432/432` oracle. Only then may D2 be preregistered.
-SPINE-1 remains independently ADR-0054-gated.
-
-### T-P-OS-SPINE-1 - Data Agent History-Safe Migration (Successor / Blocked)
-
-Status:
-
-```text
-DESIGN_ONLY_NOT_EXECUTED
-blocked_by: T-P-OS-SPINE-0_ACCEPTED + ADR-0054 gates G0/G1
-donor_pin/history_scan/import: NOT_STARTED
-```
-
-Authority:
-
-- `docs/adr/ADR-0054-one-time-data-agent-history-migration.md`
-- `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
-
-SPINE-1 pins and scans the donor's complete reachable history before any import. Direct
-no-squash import is eligible only after `PASS`; `REMEDIATE` requires a filtered migration
-mirror and rescan, while `ABORT` stops migration. It then extracts generic Product Track
-packages and `domain_packs/data_agent` and proves the Data Agent shared-spine seam.
-
-## 3. Research Track Current Queue and History
-
-### T-R-GECO-REOPEN-1 - G-Eco Fresh-Variant Reopen Packet (Completed NOT_MET)
-
-Authority:
-
-- `docs/CURRENT_STATE.yaml`
-- `../docs/research/founder-decision-2026-07-04-reopen-g-eco.md`
-- `../docs/research/G-ECO-REOPEN-1-foundational-problem-lock-2026-07-04.md`
-- `../docs/research/architecture-theory-review-G-ECO-REOPEN-1-2026-07-04.md`
-- `docs/adr/ADR-0039-g-eco-reopen-1-nonbijective-stake-channel.md`
-- `../docs/research/formal-model-spec-G-ECO-REOPEN-1-2026-07-04.md`
-- `../docs/research/algorithm-spec-G-ECO-REOPEN-1-2026-07-04.md`
-- `../docs/research/implementation-cast-G-ECO-REOPEN-1-2026-07-04.md`
-- `../docs/research/G-ECO-REOPEN-1.PREREG-DRAFT-2026-07-04.yaml`
-- `../docs/research/G-ECO-REOPEN-1-seed-allocation-2026-07-04.json`
-- `../docs/research/G-ECO-REOPEN-1-rfinal-report-2026-07-04.md`
-- `../docs/research/architecture-lesson-G-ECO-REOPEN-1-2026-07-04.md`
-- `../docs/research/paradigm-learning-G-ECO-REOPEN-1-2026-07-04.md`
-- `../docs/research/route-product-projection-update-G-ECO-REOPEN-1-2026-07-04.md`
-- `../docs/research/architecture-lesson-geco-vh-halt-2026-06-27.md`
-- `../docs/research/paradigm-learning-geco-vh-halt-2026-06-27.md`
-
-Goal:
-
-Preserve the completed G-ECO-REOPEN-1 result as a negative result. The fresh non-bijective / longer-horizon stake-channel variant was run through RR-0029 review, accepted ADR/spec, implementation cast, RR-0031 independent review, prereg review/freeze, and r-final. It failed against the strengthened cheap baseline: fair `MINIMAX_FAIR` consumes the same public probe path as the candidate.
-
-Final status:
-
-```text
-RR-0029 architecture-theory review: accepted by machine gate before freeze
-ADR: ADR-0039 accepted for one fresh attempt only
-RR-0031 independent review: blind calibration + controlled delta re-review, ACCEPT_FOR_FREEZE
-Prereg review/freeze: accepted and frozen at .agent_runs/geco-reopen-2026-07-04/prereg.lock
-R-final seeds: 7500..7529, count 30
-Verdict: NOT_MET
-Failure reasons: candidate_mean_loss_advantage_vs_best_non_oracle, candidate_vs_minimax_action_overlap, no_stake_retained_advantage_share
-```
-
-Non-authority:
-
-- no old VH/G-Eco rescue;
-- no reuse of old calibration/rate/threshold/r-final seed bands as fresh evidence;
-- no retune, reseed, metric swap, weakened `MINIMAX_FAIR`, or r-final rerun;
-- no Gate-2 revival, ADR-0037 movement, C6/C7 change, autonomy claim, or product claim.
-
-### T-R-D1 - Direction 1 Cheap Falsifier (Pre-ADR / Pre-Build)
-
-Authority:
-
-- `docs/CURRENT_STATE.yaml`
-- `../docs/research/route-selection-direction-1-policy-conversion-2026-06-27.md`
-- `../docs/research/r-csl-1-PARK-reduces-to-memory-2026-06-27.md`
-- `../docs/research/paradigm-learning-record-3-route-reduction-2026-06-27.md`
-
-Goal:
-
-Run or design the near-free falsifier over the existing G10/P0 substrate: sweep confidence-to-temperature coupling against non-stationarity rate. If the optimum is flat/insensitive, record and stop. Only a rate-sensitive result earns a new ADR/prereg/mechanism.
-
-Current disposition:
-
-This is no longer the immediate next task after the 2026-07-04 founder G-Eco reopen cast. Its tracked exploratory artifact remains useful negative pressure but does not authorize a new mechanism by itself.
-
-Tracked exploratory readout:
-
-```text
-Artifacts:
-  experiments/direction1_rate_sensitivity.py
-  tests/test_direction1_rate_sensitivity.py
-  experiments/direction1_rate_sensitivity.spec.json
-  experiments/direction1_rate_sensitivity.seeds.json
-  experiments/direction1_rate_sensitivity.lock.json
-  experiments/direction1_rate_sensitivity.development.json
-
-30-seed run-local exploratory artifact:
-  seeds: 2400..2429
-  verdict: NO_NEW_DIRECTION_1_MECHANISM
-  FAST:    best fixed BT_COLD 2484.4203 | best gated K025 1418.6127
-  DEFAULT: best fixed A1_O1  1249.0454 | best gated P0_FROZEN 749.5643
-  SLOW:    best fixed A1_O1   604.3839 | best gated K025 354.4753
-
-Disposition:
-  The gated family wins on mean post-shift regret area in all three cells, but
-  FAST and SLOW share the same best gated arm (K025), so the current cheap
-  falsifier does not separate a new mechanism. Record and stop at exploratory
-  status; do not open ADR/prereg/freeze/r-final from this artifact alone.
-```
-
-Non-authority:
-
-- no R-CSL-1 rescue;
-- no VH/G-Eco retune, reseed, Gate-2, r-final, or verdict;
-- no C6/C7 change;
-- no ADR-0037 decision;
-- no autonomy or product claim.
-
-### T-P6.4 - P6 Consolidation And Handoff
-
-Authority:
-
-- `docs/P6-research-synthesis.md` (P6 synthesis package, claim ledger, negative-result map, reproducibility/publication outline)
-- `docs/adr/ADR-0024-g10-subject-side-win-confirmation.md` (G10 MET)
-- `docs/adr/ADR-0026-c3-idle-productivity-de-risk.md` (C3 RED)
-- `docs/adr/ADR-0027-post-c3-route-disposition.md` (G11/C1 parked until a second independent axis exists)
-- `docs/adr/ADR-0028-survival-axis-de-risk.md` (survival RED)
-- `docs/adr/ADR-0029-risk-calibration-axis-de-risk.md` (risk RED; close the multi-axis hunt)
-- `docs/adr/ADR-0030-g10-completeness-trap-avoidance.md` (G10 trap-complete)
-- `docs/adr/ADR-0031-prediction1-residual-calibrator-vs-g10.md` (PRED1-HOLDS)
-- `docs/adr/ADR-0032-frontier-architecture-intake-and-structured-env-route.md` (frontier intake lanes)
-- `docs/adr/ADR-0033-hyperagents-dgm-assimilation-boundary.md` (self-recursive assimilation boundary)
-- `docs/adr/ADR-0034-relevance-aware-g10-theory-test.md` (B/R/K relevance-aware G10 theory test)
-- `docs/adr/ADR-0035-p7-ecological-environment-axis.md` (P7 transferable ecological-structure environment axis, G12 2x2 gate)
-- `docs/adr/ADR-0036-bounded-consequence-prior-gate.md` (G13 bounded consequence-prior scar-specific gate)
-- `docs/adr/ADR-0038-g-eco-mechanism-lower-half.md` (Route C / G-Eco lower-half mechanism only)
-- `ENGINEERING.md` section 4 items 5-6
-
-Goal:
-
-Keep the handoff state honest after the full P6 de-risk sequence. Do not freeze G11/C1 as originally scoped: after C3, survival, and stationary risk all returned RED, only the reframe/adaptation axis has a confirmed vs-cheap-baseline win. G10 is the consolidated positive result; any future system-level gate needs a new founder-level ADR and a new independent winning axis first.
-
-Deliverable status:
-
-```text
-docs/P6-research-synthesis.md published on 2026-06-15
-docs/adr/ADR-0034-relevance-aware-g10-theory-test.md accepted on 2026-06-15
-docs/adr/ADR-0035-p7-ecological-environment-axis.md accepted on 2026-06-15
-docs/adr/ADR-0036-bounded-consequence-prior-gate.md accepted on 2026-06-15
-docs/adr/ADR-0038-g-eco-mechanism-lower-half.md accepted on 2026-06-22
-```
-
-### T-P6.5 - Relevance-Aware G10 Theory Test (Completed)
-
-Authority:
-
-- `docs/adr/ADR-0034-relevance-aware-g10-theory-test.md`
-- `../docs/research/RR-0019-channel-decomposition-principle.md` section 13
-
-Goal:
-
-Test the amended B/R/K theory in the real `Agent + RelevanceField` harness. This does
-not re-open G11/C1 and does not alter the G10 result; it tests the mechanism attribution:
-how much of P0's old margin remains after a relevance-aware non-gated control (`RSTAR`)
-is calibrated on disjoint seeds.
-
-Serial slices:
-
-```text
-T-P6.5a  severity/noise environment path + default-compatibility tests
-T-P6.5b  policy diagnostics for rho/conf/tau/w_e + C6/C7 guards
-T-P6.5c  RSTAR calibration harness on seeds 1400..1419
-T-P6.5d  r-final on seeds 1500..1529 and ADR-0034 result update
-```
-
-Result:
-
-```text
-RSTAR frozen on calibration seeds 1400..1419:
-  base_temperature=0.03, inertia=0.25, surprise_gain=1.0
-
-r-final seeds 1500..1529:
-  PRED-A' severity threshold: PASS
-  PRED-B' difficulty band: FAIL
-  PRED-C' relevance-aware control share: PASS
-
-Disposition:
-  G10 empirical result preserved; trajectory account weakened.
-  Relevance-aware exploration explains a substantial part of the A1->P0 margin
-  (share_R=0.373), but P0 retains a decisive severe/default advantage over RSTAR
-  (adv=+0.235).
-```
-
-### T-P7.0 - Transferable Ecological-Structure Environment Axis (Completed, Inconclusive)
-
-Authority:
-
-- `docs/adr/ADR-0035-p7-ecological-environment-axis.md`
-
-Goal:
-
-Open P7 as an environment-axis investigation, not a mechanism retune. G12 tests a 2x2
-matrix:
-
-```text
-thin/reversible        thin/irreversible
-ecological/reversible  ecological/irreversible
-```
-
-The column factor is **transferable environmental structure** (affordance topology,
-niche/route structure, or reusable state-action relations), not resource scarcity or
-external damage. Scarcity, damage, and rollback belong to the external-reversibility axis
-and evaluator metrics.
-
-The load-bearing distinction is:
-
-```text
-internal reset = subject belief/policy reset, allowed in every cell
-external rollback = environment undoing consequences, allowed only in reversible cells
-```
-
-Status:
-
-```text
-G12 r-final completed on seeds 1700..1729.
-
-Cell wins:
-  C00 thin/reversible:        no  (adv=+0.175 < +0.20 threshold)
-  C01 thin/irreversible:      yes (adv=+0.340, damage_adv=+0.436)
-  C10 ecological/reversible:  yes (adv=+0.208)
-  C11 ecological/irreversible:yes (adv=+0.300, damage_adv=+0.340)
-
-Disposition:
-  Inconclusive. The mixed pattern does not isolate a distinct ecological-irreversible axis.
-  No retuning or G11/C1 revival follows.
-```
-
-### T-P7.1 - Bounded Consequence Prior Gate (Completed, NOT MET)
-
-Authority:
-
-- `docs/adr/ADR-0036-bounded-consequence-prior-gate.md`
-- `../docs/research/RR-0023-p7x-candidate-backlog-and-consequence-prior-admission.md`
-
-Goal:
-
-Test one narrow B-channel candidate over already-strong P0:
-
-```text
-CP = P0 confidence-gated policy + bounded consequence prior
-P0 = frozen confidence-gated policy, no consequence prior
-```
-
-ADR-0036 is explicitly not a G12 rescue. It asks whether a belief-only prior about
-external action consequences creates a scar-specific improvement in irreversible cells
-while staying near-null in reversible cells.
-
-Frozen seeds:
-
-```text
-development/calibration: 1750..1769
-r-final:                 1800..1829
-```
-
-Serial slices:
-
-```text
-T-P7.1a  scar validity screen and reversible/irreversible harness guards - complete
-T-P7.1b  consequence-prior interface, belief-only merge path, and C6/C7 tests - complete
-T-P7.1c  frozen controls: P0, RSTAR, and CAUTIOUS where applicable - complete
-T-P7.1d  G13 development harness on non-r-final seeds - complete
-T-P7.1e  one r-final on seeds 1800..1829 and ADR-0036 result update - complete
-```
-
-Development audit (not a scientific result):
-
-```text
-Result artifact: experiments/consequence_prior_g13.development.json
-Scar validity screen: PASS
-R0 reversible CP vs P0: adv=-0.274, first-window stale_prior_harm=13.094, any reversible-cell harm seeds=17/20, stale guard FAIL
-R1 irreversible CP vs P0: adv=+0.048, wins=14/20, p=0.00604, damage_adv=+0.434
-Specificity contrast: +0.264, CI lower +0.125, PASS preview
-CAUTIOUS capture: 0.470
-Gate preview: NOT MET preview because G13-1 irreversible benefit and G13-3 stale-prior guard fail.
-R-final: completed after experiments/consequence_prior_g13.freeze.json unlock.
-```
-
-R-final result:
-
-```text
-Result artifact: experiments/consequence_prior_g13.result.json
-Freeze artifact: experiments/consequence_prior_g13.freeze.json
-Scar validity screen: PASS
-G13 verdict: NOT MET
-R0 reversible CP vs P0: adv=-0.255, first-window stale_prior_harm=12.679, any reversible-cell harm seeds=21/30
-R1 irreversible CP vs P0: adv=+0.083, wins=25/30, p=0.000001895, CI=[291.66,589.94], damage_adv=+0.463
-Specificity contrast: +0.317, CI lower +0.150, PASS
-CAUTIOUS capture: 0.533
-Gate: G13-1 FAIL (net adv below +0.10), G13-2 PASS, G13-3 FAIL, G13-4 PASS by tests.
-```
-
-Interpretation:
-
-```text
-CP carries a real irreversible-damage reduction signal, but not enough net loss advantage,
-and it harms reversible cells. This is the pre-registered stale-prior failure pattern,
-not an invalid apparatus result. G10/P0 remains the dominant confirmed lever.
-```
-
-Confirmed G10 result:
-
-```text
-A0 baseline + none       = 1304.7
-A1 baseline + O1         = 1268.6
-P0 gated policy + none   = 759.8
-P0 vs A1 reduction       = 40.1%, 30/30, p<1e-6, bootstrap CI [457.0, 562.9]
-```
-
-Confirmed G10 completeness result (ADR-0030):
-
-```text
-B-temp fixed-low baseline = 1292.9 window area
-P0 gated policy           = 739.8 window area
-T1 vs B-temp              = 30/30, p<1e-6 PASS
-T3 real-stake survival    = P0 1734.8 vs A0 1245.3 and B-temp 1482.6 PASS
-T5b StalenessEnv          = P0 advantage 36.4%, GENERAL FIX not structure theft
-Verdict                   = COMPLETENESS PASS
-```
-
-Confirmed PREDICTION 1 result (ADR-0031):
-
-```text
-Calibration seeds          = 1200..1219
-Frozen params              = lambda 0.8 / eta 0.1
-Prereg hash                = f87c23a43d2e0abd0130cee1ffab34b5741018ec8376f291139c2a5928abc936
-R-final seeds              = 1300..1329
-P0 frozen G10              = 788.8
-PR gate + calibrator       = 793.3
-PR vs P0                   = margin -0.006, 13/30, p=0.550830, CI [-30.8, 19.0]
-PR-B vs A1                 = margin -0.039, CI [-67.9, -32.6]
-Verdict                    = PRED1-HOLDS
-```
-
-Confirmed C3 result:
-
-```text
-DIRECTED IdleDrives = 1.691
-RANDOM idle         = 1.676
-POLICY no drive     = 1.701
-Verdict             = RED; endogeny axis dropped
-```
-
-Confirmed survival-axis result (ADR-0028):
-
-```text
-EXPLORER regret/budget  = 1.876 / 549
-EXPLOITER regret/budget = 1.613 / 1709
-GATED regret/budget     = 1.048 / 2787
-Verdict                 = RED; validity failed, survival shadows adaptation speed
-```
-
-Confirmed stationary risk-axis result (ADR-0029):
-
-```text
-EXPLORER survival = 1814
-EXPLOITER survival = 1335
-GATED survival = 1313
-GATED vs best cheap = 2/30, p=0.97, gap CI [-570, -321]
-Verdict = RED; no independent risk-aversion
-```
-
-Do not:
-
-- Build C1 before a new ADR freezes a valid multi-axis gate.
-- Reopen IdleDrives, RAP, or G7/G8 organ tuning to rescue a gate.
-- Claim G11 is ready while it would collapse to G10 plus weak or non-independent side metrics.
-
-### T-RouteC.1 - G-Eco Lower-Half + Pre-Gate-2 Candidate Writer/Verifier (Completed, No Verdict)
-
-Authority:
-
-- `../docs/research/founder-decision-2026-06-22-route-c-reset-and-geco-freeze.md`
-- `../docs/research/G-Eco-preregistration-spec.md`
-- `../docs/research/G-Eco-codex-handoff.md`
-- `docs/adr/ADR-0038-g-eco-mechanism-lower-half.md`
-
-Goal:
-
-Implement only the G-Eco mechanism and pre-Gate-2 candidate surface that is safe before Gate-2:
-
-```text
-shared substrate observation/predictor/lookahead/H
-ecological_4cond environment
-VH + VH_noStake + 9-arm fixed-preference battery
-HOMEOSTATIC_ORACLE + WCREF calibration-only refs
-mechanism-check entrypoint
-pregate2-candidates writer for candidate JSON only
-pregate2-verify integrity/firewall verifier for candidate JSON only
-deterministic replay, reset-boundary, C6/C7, and Gate-2 refusal guards
-```
-
-Implemented files:
-
-```text
-src/aac/g_eco.py
-src/envs/ecological_4cond.py
-experiments/g_eco.py
-tests/test_g_eco.py
-docs/adr/ADR-0038-g-eco-mechanism-lower-half.md
-```
-
-Boundary:
-
-```text
-Candidate `g_eco.rates.json` / `g_eco.battery.json` / `g_eco.thresholds.json` / `g_eco.baseline_audit.json` can be written only to an operator-selected output directory.
-Candidate JSON existence or `pregate2-verify` pass is not Gate-2 unlock.
-No founder/CTO co-signed freeze.
-No Gate-2 crossing.
-No r-final run.
-No verdict row or autonomy/intelligence claim.
-```
-
-## 3. Current Research Interpretation
-
-G9 is the key pivot:
-
-- G9 is formally **NOT MET** because the preregistered candidate was `P4 = gate + O4`, and G9-2 failed.
-- The data nevertheless showed the first decisive positive signal:
-
-```text
-A0 baseline + none       = 1361.6
-A1 baseline + O1         = 1325.6
-A4 baseline + O4         = 1224.3
-P0 gated policy + none   = 746.5
-P4 gated policy + O4     = 893.4
-```
-
-Interpretation:
-
-- The real bottleneck was not belief quality; it was belief-to-action coupling inside the subject policy.
-- `P0` is subject-side and C6-preserving because it reads the agent's own `ActionOutcomeModel`.
-- O4 becomes counterproductive under the gate because it re-inflates uncertainty and delays exploitation.
-- G10 confirmed P0 on fresh seeds without HARKing.
-- C3 showed the endogeny axis has no directed signal even in the structured environment.
-- ADR-0028 showed survival-under-cost is not independent; budget and regret are both driven by adaptation speed.
-- ADR-0029 showed the gate has no stationary risk-calibration advantage; the cheap broad explorer wins.
-- ADR-0031 showed a residual belief calibrator does not beat frozen G10; RR-0019 Claim 1/3 survives this attack.
-- ADR-0032 classifies frontier systems into admissible lanes: P4.x bounded organs, external research automation, product/deployment layers, or forbidden core paths.
-- ADR-0033 specifically confines HyperAgents/DGM-style systems to external candidate generation; runtime self-modification and safety-substrate self-editing remain forbidden.
-
-## 4. Phase Ledger
-
-| Phase/Gate | Status | Meaning |
-|---|---|---|
-| P0 / G0 | Complete, NOT MET for relevance v0 | First vertical slice; v0 RelevanceField falsified |
-| P1 / G1 family | Complete, NOT MET | Attention/relevance mechanisms did not clear recovery/regret gates |
-| P1.5 / G1'/G2 | Complete, NOT MET | Contextual and causal relevance routes hard-stopped |
-| P2 / G3 | Complete, mixed | Claim 1 viability/metabolic necessity supported; IdleDrives gain not established |
-| P3 / G4 | Complete, NOT MET | RAP v0 archived; coordination did not beat strong baselines |
-| P4 / G5 | Complete, NOT MET | Learned prior O2 did not beat cheap reset O1 |
-| P4.x / G6a | MET | Structured reusable regime can make richer prior useful |
-| P4.x / G6b | de-risk only | Semantic environment exploitable offline; real LLM requires founder spend/key ADR |
-| P4.x / G7 | NOT MET | O4 beats O1 significantly but not O2 at 90% seed dominance |
-| P4.x / G8 | NOT MET | Ensemble O5 did not improve over O4 |
-| P4.x / G9 | NOT MET formally; P0 discovery positive | P0 gate-alone decisive, but not preregistered candidate |
-| P6 / G10 | MET | Fresh-seed confirmation of P0; first decisive positive gate |
-| P6 / ADR-0031 | PRED1-HOLDS | Residual calibrator failed to beat frozen G10; channel-decomposition prediction survived |
-| P6 / ADR-0032 | Accepted | Frontier architecture intake lanes accepted; structured semantic/hierarchical environment route allowed as future docs/gate work |
-| P6 / ADR-0033 | Accepted | HyperAgents/DGM assimilation boundary accepted; L0-L3 external use allowed, L4/L5 runtime self-editing forbidden |
-| P6 / ADR-0034 | Completed | Relevance-aware full-Agent theory test: PRED-A/C pass, PRED-B fail; B/R/K account stands with weakened trajectory story and decisive K residue |
-| P7 / ADR-0035 | Completed, inconclusive | G12 mixed pattern: C01/C10/C11 win, C00 does not; distinct ecological-irreversible axis not established |
-| P7.x / ADR-0036 | Completed, NOT MET | CP reduces irreversible damage but fails net R1 advantage and stale-prior guard |
-| Route C / ADR-0038 | Lower-half implemented + discipline fixes + pre-Gate-2 candidate writer/verifier, no verdict | G-Eco mechanism substrate/env/arms/refs/guards plus candidate freeze/audit writer and integrity/firewall verifier; founder/CTO co-signed freeze/Gate-2/r-final locked |
-| P6 / C3 | RED | Idle-productivity de-risk drops the endogeny axis |
-| P6 / survival axis | RED | Gated policy wins both measured metrics, but survival is a shadow of reframe/adaptation speed |
-| P6 / risk axis | RED | Stationary risk calibration not improved by the gate; cheap broad explorer wins |
-| P6 / G11 | Closed/parked | Not frozen; original C1 scope lacks a true multi-axis basis after C3/survival/risk RED |
-
-## 5. ADR Ledger
-
-Recent authoritative ADRs:
-
-- `ADR-0020-g7-latent-regime-organ.md` - G7, NOT MET.
-- `ADR-0021-p1-spectrum-ablation.md` - spectrum/ablation strengthening around O4.
-- `ADR-0022-g8-ensemble-regime-organ.md` - G8, NOT MET.
-- `ADR-0023-g9-confidence-gated-policy.md` - G9, confidence-gated policy, formal NOT MET with decisive P0 discovery.
-- `ADR-0024-g10-subject-side-win-confirmation.md` - G10 MET; P0 confirmed on fresh seeds.
-- `ADR-0025-system-level-autonomy-signature-gate.md` - route accepted; gate not frozen.
-- `ADR-0026-c3-idle-productivity-de-risk.md` - C3 RED; endogeny axis dropped.
-- `ADR-0027-post-c3-route-disposition.md` - G11/C1 parked until a second independent winning axis exists.
-- `ADR-0028-survival-axis-de-risk.md` - survival RED; not independent of reframe/adaptation speed.
-- `ADR-0029-risk-calibration-axis-de-risk.md` - risk RED; third single-lever confirmation; close the multi-axis hunt.
-- `ADR-0030-g10-completeness-trap-avoidance.md` - G10 COMPLETENESS PASS; P0 survives every flip-the-conclusion trap.
-- `ADR-0031-prediction1-residual-calibrator-vs-g10.md` - PRED1-HOLDS; residual calibrator did not open a second axis over frozen G10.
-- `ADR-0032-frontier-architecture-intake-and-structured-env-route.md` - frontier intake lanes; P4.x bounded organs and external research automation only.
-- `ADR-0033-hyperagents-dgm-assimilation-boundary.md` - HyperAgents/DGM external candidate-generation boundary; no runtime self-modification.
-- `ADR-0034-relevance-aware-g10-theory-test.md` - B/R/K relevance-aware G10 theory test completed; RSTAR explains part but not most of the margin.
-- `ADR-0035-p7-ecological-environment-axis.md` - P7 transferable ecological-structure environment axis and G12 2x2 gate; completed inconclusive.
-- `ADR-0036-bounded-consequence-prior-gate.md` - G13 bounded consequence-prior gate; r-final complete, NOT MET.
-- `ADR-0037-self-determination-depth-vs-corrigibility.md` - proposed docs-only SD0-SD4 vocabulary and SD4-separability question.
-- `ADR-0038-g-eco-mechanism-lower-half.md` - G-Eco lower-half mechanism plus pre-Gate-2 candidate writer/verifier implemented; no co-signed freeze/r-final/verdict.
-
-G10, G10 completeness, ADR-0031, ADR-0032, ADR-0033, ADR-0034, ADR-0035/G12, ADR-0036/G13 r-final, ADR-0038 lower-half, C3, survival, and risk results are written back. Handoff is unsafe if a document still says G10 is pending, C3 has not run, ADR-0028/0029/0030/0031/0032/0033/0034/0035/0036/0038 do not exist, ADR-0034 is pending, ADR-0035/G12 is pending, ADR-0036/G13 is pending/locked instead of NOT MET, ADR-0038 implies a G-Eco verdict, self-recursive systems may enter runtime, or G11/C1 is ready to freeze.
-
-## 6. Non-Negotiable Boundaries
-
-- Research Track: no LLM in the deterministic disposer/control path.
-- Product Track: an LLM/provider may propose language or typed actions, but policy, permit,
-  exact approval and C7 retain final authority; the model never self-authorizes execution.
-- No business semantics in this repository.
-- No cross-repo imports.
-- No moving preregistered gates after seeing results.
-- No claiming post-hoc winners on the same r-final seeds; fresh-seed confirmation is mandatory.
-- C6 remains intact: organs may affect belief only, not action/policy/shell.
-- C7 remains intact: pause/tighten/forbidden must dominate all action paths.
-- ADR-0032 remains intact: every frontier candidate must be classified by lane and channel before implementation.
-- ADR-0033 remains intact: HyperAgents/DGM-style systems are external candidate generators only, never runtime self-modifiers.
-
-## 7. Handoff Discipline
-
-Every material research/code change must update, in this order:
-
-1. `docs/CURRENT_STATE.yaml`
-2. `docs/PROJECT_PLAN.md`
-3. `codebase_index.md`
-4. `ROADMAP.md` if the phase/route changed
-5. relevant ADR result/status section
-6. root `../code_index.md` if the workspace-level truth changed
-7. root `../MEMORY.md` only as a concise cross-agent summary
-
-Agents should not read the whole repository by default. Start from `docs/CURRENT_STATE.yaml` and follow its `handoff_read_order`.
+Work may proceed concurrently, but evidence cannot jump tracks. A Research Track win needs a named Product Track consumer, stable contract and product-side held-out gate. A Product Track milestone does not validate autonomy theory.
+
+Every task must declare: track, claim class, authority, entry point, contract, failure path, bypass-detecting verification, C6/C7 boundary, evidence level and next gate.
+
+## 2. Current priority order
+
+### P0 — Review and integrate canonical authority convergence
+
+**Task:** `CANONICAL-CONVERGENCE-2026-07-15`
+
+**Status:** `FEATURE_BRANCH_READY_FOR_INDEPENDENT_REVIEW / DOCS_ONLY / NOT_MERGED`
+
+**Outcome:** combine the branch-contained SPINE/LH D1 ancestry at `7410a06df3182ec59da1d421916b5bf8086ea8c4` with the compact 2026-07-14 authority-document commit `4ee868d5d419a786c0f8339fffbccbcdf828a79e`.
+
+**Required truth:** E2E-1/2/3 remain `INVALID`; E2E-4 remains one bounded local same-boot `PASS`; LH v5 has accepted Combined-D1 prerequisite receipts plus one-shot 432-case materialization and oracle `432/432`, but no D2 or formal result; B1 and RTM-1 remain separate-branch evidence; SPINE-1 remains unexecuted.
+
+**Hard boundary:** no runtime/frozen-result rewrite, experiment, push, main merge, migration, release, autonomy or AGI claim.
+
+**Exit:** YAML, local links, conflict-marker scan and diff checks pass; independent reviewer accepts the exact feature commit before any separately authorized merge.
+
+### P1 — Complete LH-RECOVERY-1A Tasks 7/8 only
+
+**Task:** `LH-RECOVERY-1A-TASKS-7-8`
+
+**Status:** `SEPARATE_BRANCH_ACTIVE / IMPLEMENTATION_ONLY / NO_D2 / NO_FORMAL_RESULT`
+
+**Purpose:** implement the public four-arm protocol, frozen failure paths, real natural-time phase sequence and mechanical adjudicator required before any future child experiment.
+
+**Immutable inputs:**
+
+- Combined-D1 candidate `7410a06df3182ec59da1d421916b5bf8086ea8c4`;
+- accepted v5 binding and reveal-order amendment;
+- one-shot generation receipt for 432 cases / 1728 episodes;
+- oracle receipt `ORACLE_PASS_432_OF_432`.
+
+**Write scope:** only `product_evals/lh_recovery_1a/protocol.py`, `product_evals/lh_recovery_1a/cli.py` and `tests/product_eval/test_lh1a_protocol.py` on `codex/lh1a-task7-8-20260715`.
+
+**Stop:** any frozen D1/corpus/oracle mutation, Product contract expansion, corpus regeneration, oracle rerun, D2 construction or formal outcome run.
+
+### P2 — Keep D2 behind a new explicit gate
+
+**Task:** `LH-RECOVERY-1A-D2`
+
+**Status:** `NOT_CONSTRUCTED / NOT_AUTHORIZED_BY_THIS_PLAN / NOT_RUN`
+
+Tasks 7/8 completion does not create D2 or run authority. A future D2 packet requires exact Task 7/8 implementation and independent reviews, intact frozen prerequisite hashes, a new scoped authority decision, preregistration review and freeze. Parent `LH-RECOVERY-1` remains `OPEN/BLOCKED/NOT_RUN` and cannot pass by implication.
+
+### P3 — Preserve the completed B1 non-training harness
+
+**Task:** `B1-UNIFIED-MODEL-SANDBOX`
+
+**Status:** `SEPARATE_BRANCH_ACCEPTED / HARNESS_COMPLETE / SANDBOX_ONLY / NO_TRAINING`
+
+The cross-model accepted falsifier baseline lives on `feat/b1-sandbox-harness-20260713` at `02b904cc7ad94d8ab430e9fc789563d0dbc9a5de`. Preserve it as a necessary pre-prereg screen. Do not admit a model, training, Gate R/P result, Agent OS integration or product claim without a new founder gate and the full preregistration chain.
+
+### P4 — Preserve accepted RTM-1 resource-v4 implementation evidence
+
+**Task:** `RTM-1-R6.2-RESOURCE-V4`
+
+**Status:** `SEPARATE_BRANCH_IMPLEMENTATION_ACCEPTED / DESIGN_ONLY / NOT_BENCHMARKED / NOT_FROZEN / SEED_UNGENERATED / NOT_RUN`
+
+Exact accepted implementation head: `368f8acc1062c989be1930133087d76856bf7384` on `codex/itc1-stage0-harness-20260713`. It is implementation evidence only. Benchmarking, successor freeze, production seed access, held-out opening, a result-bearing run, G-TC/G-PV movement, Product projection and autonomy claims all require separate authority.
+
+### P5 — Keep SPINE-1 gated and unexecuted
+
+**Task:** `T-P-OS-SPINE-1`
+
+**Status:** `PARK / DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED`
+
+Allowed preparation remains donor characterization, full-history secret/PII/customer-data/binary/license scan design, provenance planning, generic/domain mapping, isolated branch design and rollback tests. No subtree import, runtime cross-import, push, merge or “migrated” claim is permitted before every ADR-0054 gate and explicit founder authorization.
+
+### P6 — Keep governed core evolution at plan-only
+
+**Program:** `GOVERNED-CORE-EVOLUTION`
+
+**Status:** `PARK / DESIGN_AND_PLAN_ONLY / NO_RUNTIME_AUTHORIZATION`
+
+GCE-O1/M1/K1 packets may be prepared only under the root founder decision. L4 active-runtime self-modification remains closed; L5 safety-substrate self-edit, self-evaluation ownership, self-approval and self-promotion remain forbidden.
+
+## 3. Product horizon after the current priorities
+
+The dependency order, not a calendar commitment:
+
+### H1 — One complete Agent OS spine
+
+- persistent Task Workspace and task/run lifecycle;
+- production-grade provider/credential plane;
+- typed capability/plugin host;
+- WorkflowGraph authoring and versioning;
+- evidence/outcome and failure-attribution plane;
+- identity, policy, C7 and operator controls.
+
+### H2 — Three complete paths
+
+- developer work with broad repository actions, review and recovery;
+- private personal work with durable context and changing constraints;
+- Data Agent on the shared spine after SPINE-1.
+
+### H3 — Operational body
+
+- tenancy, encrypted credentials, SSO/policy administration;
+- deployment, observability, SLOs, backup/restore and incident response;
+- admin and operator surfaces;
+- supported capability/domain-pack ecosystem.
+
+### H4 — Outcome compounding
+
+- product belief ledger;
+- staleness/conflict/correction and invalidation;
+- governed model/tool/workflow selection;
+- learned-procedure candidates with held-out eval and rollback;
+- long-horizon planning/recovery benchmark.
+
+### H5 — Evidence-gated research promotion
+
+- CWM only in identifiable product workflows;
+- G10-like decision policy only after product revalidation;
+- additional mechanisms only through an explicit candidate manifest and fair product comparison.
+
+## 4. Research route admission
+
+No new Research Track route starts from an interesting paper, benchmark or component. Admission requires:
+
+1. foundational problem lock;
+2. frontier/anomaly intake where external evidence is involved;
+3. paradigm thesis and null/reduction hypothesis;
+4. independent architecture designs and skeptic reduction;
+5. architecture-theory review with claim channel, product/process boundary, prior negative map, cheap baseline and C6/C7/SD4 analysis;
+6. founder route cast;
+7. formal/algorithm spec and implementation cast before mechanism files;
+8. preregistration, independent review, manifest integrity and freeze;
+9. one result-bearing run under locked rules;
+10. independent adjudication, claim review, negative-map update and paradigm learning.
+
+If a route reduces to a cheap baseline, lacks independent truth, depends on an oracle or cannot name a consumption path, use `PARK` rather than extending the ladder.
+
+## 5. Existing results that constrain planning
+
+- SPINE-E2E-1/2/3 remain immutable `INVALID`; SPINE-E2E-4 is one bounded local same-boot `PASS`, not a predecessor rewrite or general long-horizon claim.
+- LH-RECOVERY-1A v5 reached Combined-D1 acceptance, one-shot 432-case materialization and oracle `432/432`; these are prerequisite receipts, not D2 or a formal result.
+- The B1 falsifier harness is complete only on a separate sandbox branch; `SANDBOX_ONLY / NO_TRAINING` remains binding.
+- RTM-1 resource-v4 is accepted implementation only on a separate branch and remains `NOT_BENCHMARKED / NOT_RUN`.
+- SPINE-1 has not executed; Data Agent remains physically independent.
+- G10 remains a narrow positive task/regret result; Product Track must revalidate it before use.
+- G13 and G-ECO-REOPEN-1 are final `NOT_MET`; no rescue runs.
+- survival/risk/endogeny did not establish an independent axis.
+- GSE42528 Branch-M and the adaptivity-gap route are parked.
+- non-oracle real structure/mechanism discovery remains unresolved.
+- CWM hard-form evidence is narrow and does not justify universal use.
+- RR-0034/SD4 terminus is a scoped theoretical record; autonomy claims still use RR-0024.
+
+These constraints narrow work; they do not imply that all future mechanisms are impossible.
+
+## 6. Task completion gates
+
+### Product implementation
+
+Must identify the real entry point, typed contract, unsafe/invalid failure path, bypass-detecting test, integration surface, evidence/trace and deployment/authorization state.
+
+### Research implementation
+
+Must match frozen spec bytes, mechanism hashes, seed/data policy, baseline manifests and architecture/prereg reviews. Green unit tests do not authorize a run.
+
+### Documentation
+
+Must update CURRENT_STATE only for live truth, plans only for authorized next work and indexes only for routing. Historical detail belongs in ADR/RR/result/Git, not CURRENT_STATE.
+
+### Git
+
+Run `git status --short` and `git diff --check`; separate task changes from pre-existing experiment/worktree changes. Do not push, merge, migrate or release without separate authorization.
+
+## 7. Explicitly not authorized by this plan
+
+- rewriting SPINE-E2E-1/2/3 `INVALID` or widening SPINE-E2E-4 beyond its bounded result;
+- constructing LH-RECOVERY-1A D2 or running a formal outcome under the Tasks 7/8 authority;
+- benchmarking, freezing, seeding or running RTM-1 resource-v4;
+- pushing or merging the canonical-convergence branch, migrating Data Agent or releasing Agent OS;
+- Agent OS Product Alpha, production or superiority claims;
+- B1 model training or result-bearing experiment;
+- SPINE-1 import, push or merge;
+- CWM real-actuator promotion;
+- G13/G-Eco rescue, reseed or gate changes;
+- general autonomy or AGI claims;
+- L4 runtime self-modification or L5 safety-root editing;
+- product execution by Research Track or workflow tooling.

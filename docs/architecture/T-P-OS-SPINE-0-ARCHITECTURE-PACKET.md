@@ -3,7 +3,7 @@
 > Date: 2026-07-10
 > Status: DESIGN ACCEPTED / INDEPENDENT CLAUDE RE-REVIEW APPROVE / IMPLEMENTATION PLAN NEXT
 > Track: Product Track
-> Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+> Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT.md`
 > Research boundary: `docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md`
 > Successor migration: `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml`
 > Cross-repository ADR: `docs/adr/ADR-0054-one-time-data-agent-history-migration.md`
@@ -25,7 +25,7 @@ domain_packs/data_agent under ADR-0054.
 
 Authority order for Product Track implementation is:
 
-1. `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md` for product identity and non-negotiable boundaries;
+1. `docs/AGENT-OS-PRODUCT-BLUEPRINT.md` for product identity and non-negotiable boundaries;
 2. this packet for `T-P-OS-SPINE-0` architecture and acceptance;
 3. accepted Product Track ADRs, including ADR-0054 for any cross-repository migration;
 4. the reviewed implementation plan and tests for file-level execution;

@@ -3,7 +3,7 @@
 > Date: 2026-07-10
 > Status: DESIGN-APPROVED / DOCS-ONLY / NO EXPERIMENT RUN AUTHORIZED
 > Founder decision: Option B — history-preserving product migration plus modular monolith
-> Product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`
+> Current product authority: `docs/AGENT-OS-PRODUCT-BLUEPRINT.md`. This dated audit does not override live state.
 > Machine-readable queue: `docs/research/AGENT-OS-PRODUCT-GROUNDED-EXPERIMENT-MATRIX.yaml`
 
 ## 0. Decision
@@ -25,7 +25,7 @@
 本审计交叉读取：
 
 - 本仓 `docs/CURRENT_STATE.yaml` 与 2026-07-10 reconcile baseline；
-- `docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md`；
+- `docs/AGENT-OS-PRODUCT-BLUEPRINT.md`；
 - 父级 `docs/GOAL-BLUEPRINT.md`、`PROGRAM-PANORAMA-END-TO-END-2026-07-10.md`、RR-0036、RR-0047、RR-0050、RR-0051；
 - `ai-native-business-data-agent-os/docs/CURRENT_STATE.yaml` 和其真实 Agent Runtime、checkpoint、policy、approval、tenant、trace、persistence 路径；
 - 本仓实际 `governed_loop.py`、`belief_ledger.py`、`planner.py`、`execution_bridge.py`、`product_api.py` 与 `production_entry.py`。

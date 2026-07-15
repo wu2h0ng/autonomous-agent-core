@@ -2,7 +2,7 @@ version: 1
 date: "2026-07-10"
 status: "SPEC_CANDIDATE_NOT_PREREGISTERED"
 authority:
-  product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT-V1.md"
+  product_blueprint: "docs/AGENT-OS-PRODUCT-BLUEPRINT.md"
   research_audit: "docs/research/AGENT-OS-RESEARCH-GAP-AND-BOTTLENECK-AUDIT-2026-07-10.md"
   architecture_packet: "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
   data_agent_migration: "docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml"
