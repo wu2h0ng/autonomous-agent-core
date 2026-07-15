@@ -55,6 +55,7 @@ Location: `packages/contracts/src/agent_os_contracts/`
 | `provider.py` | provider/model/credential reference contracts |
 | `resource.py` | budgets and resource constraints |
 | `domain.py` | generic domain-pack boundary contracts |
+| `materialization.py` | closed DomainCandidate draft, provenance, representation-patch and immutable sealed-candidate contracts |
 | `common.py` | shared identifiers, serialization and validation primitives |
 
 These are generic OS contracts. Metric, SQL, DataProduct and business-action semantics belong to Data Agent, not this package.
@@ -75,6 +76,8 @@ Location: `packages/os_core/src/agent_os_core/`
 | `capability.py` | capability registry/broker and typed invocation |
 | `provider.py` | provider adapters and bounded model proposal path |
 | `governance.py` | policy/disposer and authority checks |
+| `materialization.py` | Task/Run/scope/C7-bound DomainCandidate sealing and listing service |
+| `materialization_persistence.py` | isolated SQLite candidate store with transactional version, idempotency and parent-CAS semantics |
 | `errors.py` | typed product failures |
 
 The public Product Track path must pass through these state/authority contracts. Direct model output is never a consequential command.
@@ -84,6 +87,7 @@ The public Product Track path must pass through these state/authority contracts.
 ### `apps/api_server/`
 
 - `app.py` / `server.py`: application composition and HTTP entry.
+- `POST /v1/tasks/{task_id}/domain-candidates:seal` and `GET /v1/tasks/{task_id}/domain-candidates`: ADM-P1 inert candidate sealing/listing; no activation path.
 - `index.html`: Task Workspace surface.
 - `preview-zh.html`: local prototype/preview; verify current status before treating it as a delivered surface.
 
@@ -103,8 +107,12 @@ The first local developer path. It is not a universal coding-agent claim or a su
 | `tests/product/test_e2_long_horizon_recovery.py` | bounded local wait/rebind/compensation/C7 composition-root acceptance |
 | `tests/product/test_public_long_horizon_negative_paths.py` | HTTP/CLI persistence, idempotency, scope, late-signal and replan-budget negative paths |
 | `tests/product/test_rebind_partial_evidence_regression.py` | authoritative evidence filtering after an authorized suffix rebind |
+| `tests/product/test_materialization_contracts.py` | closed channel/outcome, provenance, digest and forbidden-authority contract checks |
+| `tests/product/test_materialization_service.py` | transactional sealing, C7/scope/CAS/idempotency/restart and no-TaskEvent checks |
+| `tests/product/test_materialization_api.py` | real HTTP composition, typed failures, generic-cache bypass and no-workspace-mutation checks |
 | `tests/product/` | Product Track contracts, persistence, provider, capability, governance, API/CLI and UI-facing regressions |
 | `docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md` | bounded PM acceptance record |
+| `docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md` | exact local implementation evidence and claim ceiling for ADM-P1 |
 | `docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md` | SPINE-0 architecture authority |
 | `docs/architecture/T-P-OS-SPINE-1-DATA-AGENT-MIGRATION-MAP.yaml` | migration plan/map; not execution authority |
 | `product_evals/spine_e2e_1/` through `product_evals/spine_e2e_4/` | preserved successor instruments; E2E-1/2/3 are immutable INVALID and E2E-4 is one bounded frozen local same-boot PASS |
@@ -197,6 +205,7 @@ Before running anything, locate its route decision, architecture review, preregi
 | Self-determination boundary | `docs/adr/ADR-0037-self-determination-boundaries.md` |
 | Data Agent migration | `docs/adr/ADR-0054-one-time-data-agent-history-migration.md` |
 | Ask/Work, organs and skill boundary | `docs/adr/ADR-0055-agent-os-interaction-and-organ-boundaries.md` |
+| Adaptive materialization and optional-prior boundary | `docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md` |
 | Autonomy claim language | parent `docs/research/RR-0024-operational-foundations-cleanup.md` |
 
 Historical snapshots under `docs/research/autonomous-agent-core-v0.*` and `docs/research/Kimi_Agent_终极自主智能蓝图/` are evidence/reference archives, not current authority.

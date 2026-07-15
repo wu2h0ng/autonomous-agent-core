@@ -1,8 +1,8 @@
 # Agent OS Product Blueprint
 
 > Status: **FINAL / FOUNDER-RATIFIED PRODUCT AUTHORITY**
-> Version: 2.0
-> Updated: 2026-07-14
+> Version: 2.1
+> Updated: 2026-07-15
 > Product: **Agent OS**
 > Repository: `autonomous-agent-core`
 > Scope: 产品定义、用户体验、规范架构与产品完成门
@@ -30,7 +30,7 @@ The product promise is not “maximum autonomy.” It is:
 - **Agent Core** is the internal provider-neutral Runtime/Kernel.
 - **Agent Surface** is the coherent user-facing experience.
 - **Task Workspace** is the durable environment for consequential or long-running work.
-- **Data Agent** is the first enterprise domain pack and commercial vertical.
+- **Data Agent** is the standing first enterprise vertical, adaptation reference environment and manually engineered baseline.
 - **Research Track** supplies evidence-gated mechanism candidates; it is not a product capability ledger.
 - **Engineering workflow** is internal development governance and is not product Runtime.
 
@@ -51,7 +51,7 @@ Agent OS is not:
 | Developer | change a codebase safely across long tasks and interruptions | issue -> repository model -> plan -> patch/action -> tests/review -> verified outcome |
 | Enterprise team | turn governed domain data into decisions and approved action | intent -> domain contracts -> evidence -> proposal -> policy/approval -> action -> outcome |
 | Operator/admin | control providers, credentials, capabilities, policies, budgets and incidents | configure -> observe -> intervene -> audit -> rollback |
-| Domain builder | package domain semantics without forking the OS | domain contracts/adapters/evals/workflows -> reviewed DomainPack |
+| Domain builder | enter or package domain semantics without forking the OS | bounded discovery -> sealed candidate -> independent validation -> optional Domain Prior |
 
 The same core primitives must serve these jobs; a vertical cannot fork its own identity, task runtime, provider layer or authority spine.
 
@@ -104,6 +104,9 @@ The user can inspect what the system believes, what it plans to do, what authori
 | `BeliefRecord` | revisable claim, uncertainty, conflicts and provenance | uncorrectable hidden chain of thought |
 | `KnowledgeAsset` | governed reusable information | unscoped vector-store memory |
 | `LearnedProcedure` | versioned candidate derived from repeated verified work | auto-published behavior |
+| `DomainCandidate` | immutable B/R/T/P proposal for grounded domain adaptation | active capability, policy or same-run self-update |
+| `TaskConfigurationSnapshot` | immutable graph, grant, policy/evidence and prior binding for one Run | hot-reloaded mutable configuration |
+| `DomainPriorArtifact` | optional validated accelerator/cache/publication artifact | mandatory intelligence module or authority grant |
 | `AuthorityPolicy` / disposer | deterministic decision over proposed action | model-held final authority |
 | `CorrectionChannel` (C7) | external pause/correct/tighten/halt authority | writable or bypassable product setting |
 
@@ -180,6 +183,8 @@ Adaptation is allowed at different depths:
 - evaluate candidates on frozen held-out tasks;
 - promote only through independent policy/approval with canary and rollback.
 
+When new-domain `Work` has no accepted prior, Agent OS may attempt bounded read-only Adaptive Domain Materialization. It forms provenance-bound B/R/T/P candidates and may stop at `ASK`, `UNKNOWN` or `NOT_SUPPORTED`. The generation run cannot consume its own candidate; later activation uses an immutable snapshot in a new Task/Run through the existing Product authority spine.
+
 Active-runtime self-rewrite and safety-substrate self-edit remain outside the product boundary.
 
 ## 11. World models and research organs
@@ -192,9 +197,11 @@ LLMs are probabilistic language/reasoning organs. They may interpret, propose, p
 
 Research mechanisms enter Product Track only through a stable contract, a named product failure, fair baseline/ablation, held-out evidence and safety/reliability/cost non-regression. Negative or inconclusive research remains in Research Track.
 
-## 12. Domain packs
+## 12. Domain adaptation and optional priors
 
-A `DomainPack` provides domain semantics without forking the OS. It may contain:
+Adaptive Domain Materialization is the default bounded attempt when new-domain `Work` lacks an accepted prior. It discovers and grounds task-relevant sources, representations, capabilities, procedures and evaluation requirements, then emits sealed candidates rather than active behavior.
+
+An optional `DomainPriorArtifact` accelerates repeated work without forking the OS. Compatibility packaging may continue to use `DomainPack`/`DomainPackManifest`. A prior or compatibility pack may contain:
 
 - domain contracts and ontologies;
 - connectors/adapters and credential requirements;
@@ -203,11 +210,11 @@ A `DomainPack` provides domain semantics without forking the OS. It may contain:
 - policy defaults and risk classifications;
 - domain knowledge and UI extensions.
 
-It may not replace Agent Core state, provider, capability, identity, authority, evidence or correction primitives.
+It may not replace Agent Core state, provider, capability, identity, authority, evidence or correction primitives. It grants no capability or permission, cannot suppress uncertainty and cannot activate in the run that generated it.
 
 ### Data Agent
 
-Data Agent is the first official domain pack. Its loop is:
+Data Agent is the standing first enterprise implementation, adaptation reference environment and strong manually engineered baseline. Its loop is:
 
 ```text
 business intent
@@ -223,6 +230,8 @@ business intent
 Metric, SemanticObject, ProviderContract, DataProduct, SQL, query-result and business-action semantics stay in `domain_packs/data_agent`. Data Agent `EvidenceChain` projects into generic Agent OS evidence; it does not define OS core.
 
 The existing `ai-native-business-data-agent-os` repository remains physically independent until ADR-0054/SPINE-1 passes all history-safety, provenance, extraction and review gates. There is no runtime cross-import and no migration-complete claim before that event.
+
+The physical target `domain_packs/data_agent` remains the Data Agent code-ownership and compatibility boundary. ADR-0057 changes the default new-domain product model; it does not rename that target, remove `DomainPackManifest` or weaken any ADR-0054 gate.
 
 ## 13. Product evaluation
 
@@ -247,7 +256,8 @@ Primary measures:
 - evidence completeness and provenance accuracy;
 - correction, invalidation and rollback success;
 - cross-session retention without stale-memory harm;
-- domain onboarding and zero-code transfer effort.
+- domain onboarding, grounded acquisition, abstention and zero-code transfer effort;
+- automatic-materialization quality and human effort against direct-model, retrieval and strong thin-prior baselines.
 
 The mandatory baselines include direct model-plus-tools, non-durable/single-process variants, simple non-learning/non-causal arms and the previous released Agent OS version. External comparisons must pin versions, tools, provider settings, retries and evaluator rules.
 
@@ -293,7 +303,7 @@ These are dependency stages, not calendar promises or current completion claims.
 
 1. Product and Research Track evidence remain separate.
 2. No raw research mechanism becomes runtime authority by import or narrative.
-3. Domain packs cannot place domain semantics in OS core.
+3. Dynamic candidates, optional priors and compatibility domain packs cannot place domain semantics in OS core or create a parallel authority spine.
 4. Credentials and sensitive tenant data are not model-visible memory by default.
 5. Plugins, models, subagents and learned procedures act only through scoped capabilities.
 6. C7 is non-writable and non-bypassable.

@@ -3,8 +3,8 @@ updated: "2026-07-15"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/canonical-convergence-20260715"
-status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained, while SPINE-E2E-4 is a bounded PASS and E2E-1/2/3 remain INVALID. LH-RECOVERY-1A Task 7 is accepted and integrated on this feature branch, but v5/Task 8 cannot authorize D2 because the frozen semantic artifacts lack a precommitted Product execution contract; the full successor route is PARK. Agent OS alpha, general autonomy, SPINE-1 migration, production release and governed core evolution remain incomplete or gated."
+branch: "codex/adaptive-domain-adr-20260715"
+status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained. ADR-0057 accepts Adaptive Domain Materialization and Optional Domain Priors as Product definition; ADM-P1 now provides a locally verified inert DomainCandidate seal/list slice only. No materializer, evaluation, promotion, prior, later-run activation or adaptive-competence claim exists. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; the full LH successor is PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -18,14 +18,14 @@ identity:
   product: "Agent OS"
   repository_name: "autonomous-agent-core (historical name)"
   topology: "dual-track monorepo"
-  product_track: "Agent Surface, Task Workspace, Agent Core runtime, providers, capabilities, evidence/outcomes, governance, SDK and domain packs"
+  product_track: "Agent Surface, Task Workspace, Agent Core runtime, providers, capabilities, evidence/outcomes, governance, SDK, adaptive materialization and optional domain priors"
   research_track: "falsifiable mechanisms, CWM/world-model candidates, belief/action research, formal models, preregistration, results and negative maps"
   first_vertical: "Data Agent, pending ADR-0054/SPINE-1 migration"
   evidence_boundary: "Research and Product Track share a repo but not claim authority."
 
 current_phase:
   product:
-    label: "SPINE-0 bounded developer slice plus bounded local long-horizon slice; broader Agent OS alpha incomplete"
+    label: "SPINE-0 bounded developer slice, bounded local long-horizon slice and ADM-P1 inert candidate sealing; broader Agent OS alpha incomplete"
     status: "LOCAL_SLICES_VERIFIED / NO_PRODUCT_ALPHA_CLAIM"
   research:
     label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
@@ -80,6 +80,17 @@ verified_capabilities:
       - "Evidence artifacts, ExpectedOutcome and ObservedOutcome"
       - "provider-neutral adapter/credential references"
     boundary: "Contract existence does not mean every Blueprint path or production concern is implemented."
+  adm_p1_candidate_sealing:
+    status: "IMPLEMENTED_LOCAL_CANDIDATE_SEALING_ONLY"
+    evidence_level: "E3_LOCAL_CONTROLLED_PRODUCT_TEST"
+    implementation_head: "fb8593b10091953b61b6bea982953e3682215243"
+    real_entry_points:
+      - "POST /v1/tasks/{task_id}/domain-candidates:seal"
+      - "GET /v1/tasks/{task_id}/domain-candidates"
+      - "AgentOSApplication and DomainCandidateSealer composition root"
+    verified: "47 ADM-P1 targeted tests passed; full Product suite 240 passed and 1 skipped; ruff clean; pyright 0 errors; C7 recheck, same-process correction/append interleaving and HTTP-cache-bypass checks detected their bypasses; Kimi exact-range follow-up review returned TECHNICAL_APPROVE with no blockers."
+    boundary: "Seals and lists inert provenance-bound candidate records only. Same-authority C7 correction/append linearization is process-local; no cross-process atomicity, acquisition/materializer, evaluation, promotion, activation, optional prior, TaskConfigurationSnapshot, training, migration or release is implemented."
+    source: "docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md"
   research_g10:
     status: "MET / NARROW / FINAL_IN_FROZEN_SYNTHETIC_FAMILY"
     statement: "P0 confidence-gated subject-side belief-to-action coupling decisively reduces regret versus named cheap arms in its preregistered family and survived recorded trap tests."
@@ -128,7 +139,14 @@ research_ledger:
       status: "HISTORICAL_THEORY_RECORD / CONDITIONAL / ROUTE_CLOSED"
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
-active_work: []
+active_work:
+  - id: "P-CORE-ADAPT-1"
+    track: "product_and_translational"
+    status: "IMPLEMENTED_LOCAL_CANDIDATE_SEALING_ONLY / INDEPENDENT_TECHNICAL_REVIEW_APPROVED"
+    purpose: "Keep the smallest typed DomainCandidate seal/list slice branch-contained through the existing Product authority spine without introducing domain semantics or a second runtime."
+    entry_gate: "Exact design f63648c8766ec42a15e25951a6cb9cfca930efc05d3d2f6631317145c96f362a has Kimi TECHNICAL_APPROVE and independent RR-0029 ACCEPT_FOR_SPEC; ADR-0057 owns only the minimal Product decision."
+    boundary: "The slice contains contracts, isolated persistence, deterministic validation/failures and real HTTP entry points; no same-run activation, evaluator, promotion service, adaptive experiment, training, migration, push, merge or release claim."
+    source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
 
 parked_work:
   - id: "LH-RECOVERY-1A-FULL-SUCCESSOR"
@@ -184,6 +202,7 @@ recently_completed:
 blockers:
   product:
     - "No complete personal and Data Agent paths on the same Agent OS spine."
+    - "ADM-P1 seals inert candidates only; materializer acquisition, independent evaluation, promotion, immutable configuration snapshots and later-run activation are not implemented."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
     - "Natural-language/visual WorkflowGraph authoring, mature knowledge lifecycle, broad capabilities, marketplace and general coding-agent path are incomplete."
     - "SPINE-1 migration is not executed."
@@ -192,15 +211,16 @@ blockers:
     - "No non-oracle real-world structure/mechanism discovery result closes the current gap."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
-    - "B1 training/result run remains unauthorized."
+    - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "This authority convergence exists only on codex/canonical-convergence-20260715 until independent review and explicit merge; no push, main merge or release is implied."
+    - "ADM-P1 and the ADR-0057 Product-definition update exist only on codex/adaptive-domain-adr-20260715; no push, main merge or release is implied."
     - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
 
 claim_boundaries:
   product:
     - "SPINE-0 may be called PM-accepted only for the bounded local independent-developer repository path."
+    - "ADM-P1 may be called implemented only as local inert candidate sealing/listing; it is not domain adaptation, acquisition, learning, evaluation, promotion or activation."
     - "Do not claim Product Alpha, production readiness, Codex/Claude parity, superiority or general market validation."
     - "Do not claim Data Agent migration, shared-spine completion, release or production deployment."
   research:
@@ -214,11 +234,11 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep full successor LH parked. Reactivate only a narrow Product recovery discriminator after measured Customer-0 need or explicit founder recast; do not patch v5 or inherit N=432."
+    action: "Keep reviewed ADM-P1 branch-contained until explicit integration authorization; define ADM-P2 evaluator isolation without activating or promoting candidates."
   - priority: 2
-    action: "Use the portfolio's active Customer-0 human strong-baseline lane to identify real Product bottlenecks; this repository has no replacement implementation lane until that evidence or a separate founder cast arrives."
+    action: "Support the parent R-EVAL-INDEP-1, R-STATE-CREDIT-1 and R-ACTIVE-DISCOVERY-1 research lanes only through stable contracts or isolated Research paths; do not import their mechanisms into Product Runtime."
   - priority: 3
-    action: "Preserve the completed B1 falsifier baseline at SANDBOX_ONLY / NO_TRAINING and RTM-1 resource-v4 at NOT_BENCHMARKED / NOT_RUN."
+    action: "Keep full successor LH parked and preserve the completed B1 baseline and RTM-1 resource-v4 verdicts; new accelerated lanes do not rewrite them."
   - priority: 4
     action: "Keep SPINE-1 unexecuted until every ADR-0054 gate and explicit founder push/merge authorization are present."
 
@@ -229,11 +249,13 @@ test_commands:
   quality:
     - "uv run --extra product-test ruff check apps packages/os_core/src packages/contracts/src tests/product"
     - "uv run --extra product-test pyright apps packages/os_core/src packages/contracts/src tests/product"
-  caution: "Commands are reproduction entry points only. This docs-only convergence does not claim they were rerun; see each dated source artifact for actual verification."
+  caution: "ADM-P1/Product commands were rerun on 2026-07-15 as recorded in its evidence artifact. A separate Product-eval run stopped after two pre-existing baseline failures (656 passed, 2 failed); do not call the repository-wide suite green."
 
 source_refs:
   product:
     - "docs/AGENT-OS-PRODUCT-BLUEPRINT.md"
+    - "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
+    - "docs/product/PM-ADM-P1-CANDIDATE-SEALING-2026-07-15.md"
     - "docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md"
     - "docs/architecture/T-P-OS-SPINE-0-ARCHITECTURE-PACKET.md"
     - "docs/research/SPINE-E2E-1-result.md"
@@ -261,10 +283,11 @@ source_refs:
 
 freshness:
   checked_at: "2026-07-15"
-  branch: "codex/canonical-convergence-20260715"
-  clean_base_head: "6f1ed4bb0f0a698dbbdf2365d71fd2eff4665541"
+  branch: "codex/adaptive-domain-adr-20260715"
+  clean_base_head: "e3cdacbcf1de506e0ad78c4d0618d2b78dd4d432"
+  implementation_head: "fb8593b10091953b61b6bea982953e3682215243"
   authority_source_commit: "c1035fae33a3709dfc9d669843cb281ad6dd76e2"
   merge_base: "065ff8b57969e99835d7fe40e0641022b4ea0cf6"
-  commit_state: "THIS_FILE_IS_PART_OF_THE_CURRENT_TASK8_RECAST_TRUTH_SYNC"
-  merge_scope: "The no-commit merge produced conflicts only in AGENTS.md, codebase_index.md, docs/CURRENT_STATE.yaml and docs/PROJECT_PLAN.md; no runtime, test, preregistration, frozen result or research-result path conflicted."
-  evidence_separation: "SPINE/LH D1 ancestry and Task 7 are branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch candidate/accepted evidence. None is a release, migration, D2 or general-autonomy claim."
+  commit_state: "ADM_P1_IMPLEMENTATION_AND_STATUS_DOCS_COMMITTED_LOCALLY / TECHNICALLY_APPROVED / NOT_PUSHED_NOT_MERGED"
+  merge_scope: "The branch adds only ADR-0057 Product-definition updates and the ADM-P1 closed contract, isolated candidate store, seal/list service, HTTP composition and tests; it does not merge Data Agent or Research mechanisms."
+  evidence_separation: "ADM-P1 is Product implementation evidence only. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, adaptive-competence result, D2 or general-autonomy claim."
