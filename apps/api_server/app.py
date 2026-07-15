@@ -155,6 +155,14 @@ class AgentOSApplication:
             raise ValueError(
                 "situational control and relevance assessor must be configured together"
             )
+        if (
+            situational_control is not None
+            and situational_trust is None
+            and data_agent_reports is None
+        ):
+            raise ValueError(
+                "situated proposal service requires a situational trust resolver"
+            )
         self.situated_proposal_service = (
             OperationalProposalService(
                 trust=situational_trust or data_agent_reports,

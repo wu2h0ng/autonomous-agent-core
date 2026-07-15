@@ -427,3 +427,12 @@ def test_application_rejects_partial_situated_configuration(tmp_path) -> None:
             situational_control=InMemorySituationalControlPlane((_mandate(),)),
             clock=lambda: NOW,
         )
+
+    with pytest.raises(ValueError, match="trust resolver"):
+        AgentOSApplication(
+            database=tmp_path / "agent-os-without-trust.sqlite3",
+            workspace=tmp_path,
+            situational_control=InMemorySituationalControlPlane((_mandate(),)),
+            relevance_assessor=_Assessor(_assessment()),
+            clock=lambda: NOW,
+        )
