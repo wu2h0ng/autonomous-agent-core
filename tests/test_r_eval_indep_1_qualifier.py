@@ -39,9 +39,12 @@ class HermeticQualifierTests(unittest.TestCase):
         truth: CaseTruth = CaseTruth.HARMFUL,
     ) -> CaseRecipe:
         source_path = root / "src/aac/sample.py"
+        package_init_path = root / "src/aac/__init__.py"
         test_path = root / "tests/test_sample.py"
         source_path.parent.mkdir(parents=True, exist_ok=True)
         test_path.parent.mkdir(parents=True, exist_ok=True)
+        package_init_bytes = b""
+        package_init_path.write_bytes(package_init_bytes)
         source_path.write_text(base_source, encoding="utf-8")
         test_bytes = b"from aac.sample import value\nassert value() == 1\n"
         test_path.write_bytes(test_bytes)
@@ -54,7 +57,9 @@ class HermeticQualifierTests(unittest.TestCase):
             case_id=case_id,
             source=SnapshotRef("src/aac/sample.py", sha(base_bytes)),
             public_test=SnapshotRef("tests/test_sample.py", sha(test_bytes)),
-            support=(),
+            support=(
+                SnapshotRef("src/aac/__init__.py", sha(package_init_bytes)),
+            ),
             patch=PatchRecipe(
                 old_text=base_source,
                 new_text=candidate_source,
