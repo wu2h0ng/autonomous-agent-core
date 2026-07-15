@@ -21,13 +21,16 @@ reject with 503 rather than silently allowing access; a wrong/missing key return
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
+import hashlib
+import hmac
 import json
 import logging
 import os
 import secrets
 import time
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Protocol, cast
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -91,6 +94,8 @@ from . import staged_out_service
 
 API_KEY_ENV = "AGENT_OS_API_KEY"
 EXTERNAL_API_KEY_ENV = "AGENT_OS_EXTERNAL_API_KEY"
+REPORT_OBSERVER_API_KEY_ENV = "AGENT_OS_REPORT_OBSERVER_API_KEY"
+REPORT_OBSERVER_TENANT_ID_ENV = "AGENT_OS_REPORT_OBSERVER_TENANT_ID"
 OPERATOR_API_KEY_ENV = "AGENT_OS_OPERATOR_API_KEY"
 VIEWER_API_KEY_ENV = "AGENT_OS_VIEWER_API_KEY"
 API_KEY_HEADER = "X-API-Key"
@@ -126,6 +131,16 @@ KNOWLEDGE_REVIEW_QUEUE_ORDER_BY_VALUES = ["review_priority", "review_rationale_c
 KNOWLEDGE_QUALITY_SUMMARY_ORDER_BY_VALUES = ["review_priority"]
 
 API_LOGGER = logging.getLogger("agent_os.api")
+
+
+class ReportEventStore(Protocol):
+    def list_events(
+        self,
+        *,
+        after_sequence: int,
+        limit: int,
+        tenant_id: str,
+    ) -> tuple[tuple[dict[str, Any], ...], bool]: ...
 
 
 class MetricsCollector:
@@ -179,7 +194,11 @@ class StructuredAccessLogMiddleware(BaseHTTPMiddleware):
         log = {
             "event": "http_access",
             "request_id": getattr(request.state, "request_id", None),
-            "tenant_id": request.headers.get("X-Tenant-Id") or "default",
+            "tenant_id": (
+                getattr(principal, "bound_tenant_id", None)
+                or request.headers.get("X-Tenant-Id")
+                or "default"
+            ),
             "principal_kind": principal.kind if principal is not None else "anonymous",
             "method": request.method,
             "path": path,
@@ -197,6 +216,7 @@ API_SCOPE_KNOWLEDGE_SEARCH = "knowledge:search"
 API_SCOPE_KNOWLEDGE_REVIEW = "knowledge:review"
 API_SCOPE_TRACE_READ = "traces:read"
 API_SCOPE_REPORT_READ = "reports:read"
+API_SCOPE_REPORT_EVENTS_READ = "report-events:read"
 API_SCOPE_APPROVAL_EXECUTE = "approvals:execute"
 API_SCOPE_APPROVAL_READ = "approvals:read"
 API_SCOPE_APPROVAL_DECIDE = "approvals:decide"
@@ -207,9 +227,10 @@ API_SCOPE_TENANT_MANAGE = "tenants:manage"
 
 @dataclass(frozen=True)
 class ApiPrincipal:
-    kind: Literal["internal", "external_report", "operator", "viewer"]
+    kind: Literal["internal", "external_report", "report_observer", "operator", "viewer"]
     scopes: frozenset[str]
     audience_ceiling: Literal["internal", "external"] | None = None
+    bound_tenant_id: str | None = None
 
     def allows(self, scope: str) -> bool:
         return scope in self.scopes
@@ -244,6 +265,11 @@ API_PRINCIPAL_INTERNAL = ApiPrincipal(
 API_PRINCIPAL_EXTERNAL_REPORT = ApiPrincipal(
     kind="external_report",
     scopes=frozenset({API_SCOPE_RUN_EXTERNAL, API_SCOPE_REPORT_READ}),
+    audience_ceiling="external",
+)
+API_PRINCIPAL_REPORT_OBSERVER = ApiPrincipal(
+    kind="report_observer",
+    scopes=frozenset({API_SCOPE_REPORT_READ, API_SCOPE_REPORT_EVENTS_READ}),
     audience_ceiling="external",
 )
 # Operator key principal: used only on the X-Operator-Key channel for approval
@@ -286,12 +312,14 @@ def _validate_distinct_configured_keys(
     *,
     api_key: str | None,
     external_api_key: str | None,
+    report_observer_api_key: str | None,
     operator_api_key: str | None,
     viewer_api_key: str | None,
 ) -> None:
     configured = [
         ("api_key", api_key),
         ("external_api_key", external_api_key),
+        ("report_observer_api_key", report_observer_api_key),
         ("operator_api_key", operator_api_key),
         ("viewer_api_key", viewer_api_key),
     ]
@@ -750,6 +778,20 @@ class RunReportResponse(BaseModel):
     trace_id: str
     audience: Literal["internal", "external"]
     user_result: UserResultArtifact
+
+
+class ExternalReportEventResponse(BaseModel):
+    cursor: str
+    trace_id: str
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class ExternalReportEventFeedResponse(BaseModel):
+    schema_version: Literal["external-report-events.v1"] = "external-report-events.v1"
+    audience: Literal["external"] = "external"
+    events: list[ExternalReportEventResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class TenantCreateRequest(BaseModel):
@@ -1486,6 +1528,8 @@ def create_app(
     agent_checkpoint_store: Any | None = None,
     api_key: str | None = None,
     external_api_key: str | None = None,
+    report_observer_api_key: str | None = None,
+    report_observer_tenant_id: str | None = None,
     operator_api_key: str | None = None,
     viewer_api_key: str | None = None,
     adoption_ingest: Any | None = None,
@@ -1514,6 +1558,10 @@ def create_app(
         external_api_key: Optional report-only ``X-API-Key`` value for
             ``POST /runs``. Falls back to ``AGENT_OS_EXTERNAL_API_KEY``. It can
             only receive the external read-side projection.
+        report_observer_api_key: Optional read-only ``X-API-Key`` for existing
+            external reports and the report-event feed. It cannot create runs.
+        report_observer_tenant_id: Tenant bound to ``report_observer_api_key``
+            by server configuration; request headers cannot override it.
         viewer_api_key: Optional read-only ``X-API-Key`` value. Falls back to
             ``AGENT_OS_VIEWER_API_KEY``.
         usage_store: Optional ``UsageStorePort`` for quota accounting. Defaults
@@ -1563,6 +1611,18 @@ def create_app(
     configured_external_key = (
         external_api_key if external_api_key is not None else os.environ.get(EXTERNAL_API_KEY_ENV)
     )
+    configured_report_observer_key = (
+        report_observer_api_key
+        if report_observer_api_key is not None
+        else os.environ.get(REPORT_OBSERVER_API_KEY_ENV)
+    )
+    configured_report_observer_tenant = (
+        report_observer_tenant_id
+        if report_observer_tenant_id is not None
+        else os.environ.get(REPORT_OBSERVER_TENANT_ID_ENV)
+    )
+    if bool(configured_report_observer_key) != bool(configured_report_observer_tenant):
+        raise ValueError("report observer API key and tenant id must be configured together")
     configured_operator_key = (
         operator_api_key if operator_api_key is not None else os.environ.get(OPERATOR_API_KEY_ENV)
     )
@@ -1572,6 +1632,7 @@ def create_app(
     _validate_distinct_configured_keys(
         api_key=configured_key,
         external_api_key=configured_external_key,
+        report_observer_api_key=configured_report_observer_key,
         operator_api_key=configured_operator_key,
         viewer_api_key=configured_viewer_key,
     )
@@ -1593,6 +1654,8 @@ def create_app(
     app.state.retriever = shared_retriever
     app.state.api_key = configured_key
     app.state.external_api_key = configured_external_key
+    app.state.report_observer_api_key = configured_report_observer_key
+    app.state.report_observer_tenant_id = configured_report_observer_tenant
     app.state.operator_api_key = configured_operator_key
     app.state.viewer_api_key = configured_viewer_key
     app.state.adoption_ingest = shared_adoption_ingest
@@ -1649,6 +1712,15 @@ def create_app(
         if _key_matches(x_api_key, app.state.external_api_key):
             request.state.principal = API_PRINCIPAL_EXTERNAL_REPORT
             return API_PRINCIPAL_EXTERNAL_REPORT
+        if _key_matches(x_api_key, app.state.report_observer_api_key):
+            principal = ApiPrincipal(
+                kind=API_PRINCIPAL_REPORT_OBSERVER.kind,
+                scopes=API_PRINCIPAL_REPORT_OBSERVER.scopes,
+                audience_ceiling=API_PRINCIPAL_REPORT_OBSERVER.audience_ceiling,
+                bound_tenant_id=app.state.report_observer_tenant_id,
+            )
+            request.state.principal = principal
+            return principal
         if _key_matches(x_api_key, app.state.viewer_api_key):
             request.state.principal = API_PRINCIPAL_VIEWER
             return API_PRINCIPAL_VIEWER
@@ -1664,6 +1736,19 @@ def create_app(
             return principal
 
         return dependency
+
+    def require_report_observer(
+        request: Request,
+        principal: ApiPrincipal = Depends(authenticate_api_key),
+    ) -> ApiPrincipal:
+        if principal.kind != "report_observer":
+            raise HTTPException(
+                status_code=403,
+                detail="The external report-event feed requires a report observer key.",
+            )
+        authorize_principal_scope(principal, API_SCOPE_REPORT_EVENTS_READ)
+        request.state.principal = principal
+        return principal
 
     def require_operator_api_key(
         request: Request,
@@ -1700,9 +1785,83 @@ def create_app(
         return API_PRINCIPAL_OPERATOR
 
     def require_tenant_id(
+        request: Request,
         x_tenant_id: Annotated[str | None, Header(name="X-Tenant-Id")] = None,
     ) -> str:
+        principal = getattr(request.state, "principal", None)
+        bound_tenant_id = getattr(principal, "bound_tenant_id", None)
+        if bound_tenant_id is not None:
+            if x_tenant_id is not None and x_tenant_id != bound_tenant_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Report observer tenant is bound by server configuration.",
+                )
+            return str(bound_tenant_id)
         return x_tenant_id or "default"
+
+    def report_event_cursor_key() -> bytes:
+        internal_key = app.state.api_key
+        observer_key = app.state.report_observer_api_key
+        if not internal_key or not observer_key:
+            raise HTTPException(
+                status_code=503,
+                detail="Report observer cursor signing is not configured.",
+            )
+        return hashlib.sha256(
+            f"report-events.v1\x00{internal_key}\x00{observer_key}".encode("utf-8")
+        ).digest()
+
+    def encode_report_event_cursor(tenant_id: str, sequence: int) -> str:
+        payload = json.dumps(
+            {"sequence": sequence, "tenant_id": tenant_id, "version": 1},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        signature = hmac.new(report_event_cursor_key(), payload, hashlib.sha256).digest()
+        return base64.urlsafe_b64encode(payload + signature).rstrip(b"=").decode("ascii")
+
+    def decode_report_event_cursor(cursor: str | None, tenant_id: str) -> int:
+        if cursor is None:
+            return 0
+        try:
+            if not cursor or len(cursor) > 1024:
+                raise ValueError
+            padding = "=" * (-len(cursor) % 4)
+            decoded = base64.b64decode(
+                cursor + padding,
+                altchars=b"-_",
+                validate=True,
+            )
+            if len(decoded) <= hashlib.sha256().digest_size:
+                raise ValueError
+            payload = decoded[: -hashlib.sha256().digest_size]
+            supplied_signature = decoded[-hashlib.sha256().digest_size :]
+            expected_signature = hmac.new(
+                report_event_cursor_key(), payload, hashlib.sha256
+            ).digest()
+            if not hmac.compare_digest(supplied_signature, expected_signature):
+                raise ValueError
+            decoded_payload = json.loads(payload)
+            if not isinstance(decoded_payload, dict) or set(decoded_payload) != {
+                "sequence",
+                "tenant_id",
+                "version",
+            }:
+                raise ValueError
+            sequence = decoded_payload["sequence"]
+            if (
+                decoded_payload["version"] != 1
+                or decoded_payload["tenant_id"] != tenant_id
+                or isinstance(sequence, bool)
+                or not isinstance(sequence, int)
+                or sequence < 0
+            ):
+                raise ValueError
+            return sequence
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid report-event cursor.") from None
 
     def _check_quota(tenant_id: str, operation: str, trace_id: str) -> None:
         gate = app.state.quota_gate
@@ -1777,7 +1936,7 @@ def create_app(
         api_key_header = request.headers.get(API_KEY_HEADER)
         principal = authenticate_api_key(request, x_api_key=api_key_header)
         authorize_principal_scope(principal, API_SCOPE_RUN_INTERNAL)
-        require_tenant_id(request.headers.get("X-Tenant-Id"))
+        require_tenant_id(request, request.headers.get("X-Tenant-Id"))
         registry = app.state.nl_query_engine._registry
         if q:
             matches = registry.search_metrics(q, limit=1000)
@@ -2343,6 +2502,49 @@ def create_app(
         if payload is None:
             raise HTTPException(status_code=404, detail=f"No report snapshot for {trace_id!r}.")
         return payload
+
+    @app.get(
+        "/external/report-events",
+        response_model=ExternalReportEventFeedResponse,
+    )
+    def get_external_report_events(
+        after: str | None = Query(default=None, max_length=1024),
+        limit: int = Query(default=50, ge=1, le=100),
+        principal: ApiPrincipal = Depends(require_report_observer),
+        tenant_id: str = Depends(require_tenant_id),
+    ) -> ExternalReportEventFeedResponse:
+        del principal
+        after_sequence = decode_report_event_cursor(after, tenant_id)
+        list_events = getattr(app.state.report_store, "list_events", None)
+        if not callable(list_events):
+            raise HTTPException(
+                status_code=503,
+                detail="Report-event store is not configured.",
+            )
+        report_event_store = cast(ReportEventStore, app.state.report_store)
+        stored_events, has_more = report_event_store.list_events(
+            after_sequence=after_sequence,
+            limit=limit,
+            tenant_id=tenant_id,
+        )
+        events = [
+            ExternalReportEventResponse(
+                cursor=encode_report_event_cursor(tenant_id, int(event["sequence"])),
+                trace_id=str(event["trace_id"]),
+                content_sha256=str(event["report_digest"]),
+            )
+            for event in stored_events
+        ]
+        if has_more and not events:
+            raise HTTPException(
+                status_code=500,
+                detail="Report-event store returned an invalid empty page.",
+            )
+        return ExternalReportEventFeedResponse(
+            events=events,
+            next_cursor=events[-1].cursor if events else after,
+            has_more=has_more,
+        )
 
     @app.post(
         "/agent-runtime/runs/{runtime_run_id}/resume",

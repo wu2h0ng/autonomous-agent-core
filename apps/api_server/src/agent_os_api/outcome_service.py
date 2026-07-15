@@ -14,8 +14,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import asdict, replace
+from datetime import datetime, timezone
 import hashlib
+import json
 from collections.abc import Mapping
+from threading import RLock
 from typing import Any
 
 from agent_os_contracts import (
@@ -75,6 +78,39 @@ REDACTED_RESULT_FIELDS = [
     "chart_fields",
     "metric_values",
 ]
+
+
+def _report_snapshot_digest(snapshot: Mapping[str, Any]) -> str:
+    canonical = json.dumps(
+        snapshot,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _report_event_id(
+    *,
+    tenant_id: str,
+    trace_id: str,
+    revision: int,
+    report_digest: str,
+) -> str:
+    identity = json.dumps(
+        {
+            "tenant_id": tenant_id,
+            "trace_id": trace_id,
+            "revision": revision,
+            "report_digest": report_digest,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"report-event:{hashlib.sha256(identity).hexdigest()}"
+
+
 KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS = frozenset(
     {
         "knowledge_review_decision",
@@ -262,6 +298,10 @@ class InMemoryReportSnapshotStore:
 
     def __init__(self) -> None:
         self._by_tenant: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
+        self._events_by_tenant: dict[str, list[dict[str, Any]]] = {}
+        self._revision_by_trace: dict[tuple[str, str], int] = {}
+        self._next_event_sequence = 1
+        self._lock = RLock()
 
     def _tenant_map(self, tenant_id: str) -> dict[str, dict[str, dict[str, Any]]]:
         return self._by_tenant.setdefault(tenant_id, {})
@@ -273,20 +313,73 @@ class InMemoryReportSnapshotStore:
         *,
         tenant_id: str = "default",
     ) -> None:
-        self._tenant_map(tenant_id)[trace_id] = {
+        accepted = {
             audience: deepcopy(snapshot)
             for audience, snapshot in snapshots_by_audience.items()
             if audience in REPORT_AUDIENCES
         }
+        with self._lock:
+            tenant_snapshots = self._tenant_map(tenant_id)
+            previous = tenant_snapshots.get(trace_id, {})
+            external = accepted.get("external")
+            if external is not None:
+                previous_external = previous.get("external")
+                report_digest = _report_snapshot_digest(external)
+                previous_digest = (
+                    _report_snapshot_digest(previous_external)
+                    if previous_external is not None
+                    else None
+                )
+                if report_digest != previous_digest:
+                    revision_key = (tenant_id, trace_id)
+                    revision = self._revision_by_trace.get(revision_key, 0) + 1
+                    self._revision_by_trace[revision_key] = revision
+                    event = {
+                        "sequence": self._next_event_sequence,
+                        "event_id": _report_event_id(
+                            tenant_id=tenant_id,
+                            trace_id=trace_id,
+                            revision=revision,
+                            report_digest=report_digest,
+                        ),
+                        "trace_id": trace_id,
+                        "revision": revision,
+                        "report_digest": report_digest,
+                        "recorded_at": datetime.now(timezone.utc),
+                    }
+                    self._next_event_sequence += 1
+                    self._events_by_tenant.setdefault(tenant_id, []).append(event)
+            tenant_snapshots[trace_id] = accepted
 
     def get(
         self, trace_id: str, audience: str, *, tenant_id: str = "default"
     ) -> dict[str, Any] | None:
-        snapshots = self._tenant_map(tenant_id).get(trace_id)
-        if snapshots is None:
-            return None
-        snapshot = snapshots.get(audience)
-        return deepcopy(snapshot) if snapshot is not None else None
+        with self._lock:
+            snapshots = self._tenant_map(tenant_id).get(trace_id)
+            if snapshots is None:
+                return None
+            snapshot = snapshots.get(audience)
+            return deepcopy(snapshot) if snapshot is not None else None
+
+    def list_events(
+        self,
+        *,
+        after_sequence: int,
+        limit: int,
+        tenant_id: str = "default",
+    ) -> tuple[tuple[dict[str, Any], ...], bool]:
+        if after_sequence < 0:
+            raise ValueError("after_sequence cannot be negative")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        with self._lock:
+            remaining = [
+                event
+                for event in self._events_by_tenant.get(tenant_id, [])
+                if int(event["sequence"]) > after_sequence
+            ]
+            page = tuple(deepcopy(remaining[:limit]))
+            return page, len(remaining) > limit
 
 
 def _preview_rows(rows: tuple[dict[str, Any], ...], *, limit: int = 20) -> list[dict[str, Any]]:
@@ -785,6 +878,8 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
                 "widget_id": "metric_trend",
                 "type": "line_chart",
                 "title": f"{metric.display_name} trend",
+                "value": None,
+                "unit": None,
                 "row_count": evidence.query_result.row_count,
                 "columns": visible_columns,
                 "preview_rows": visible_preview,
@@ -799,6 +894,8 @@ def _build_user_result_artifact(result: Any, *, audience: str = "internal") -> d
             "widget_id": "result_rows",
             "type": "table",
             "title": "Result rows",
+            "value": None,
+            "unit": None,
             "row_count": evidence.query_result.row_count,
             "columns": visible_columns,
             "preview_rows": visible_preview,

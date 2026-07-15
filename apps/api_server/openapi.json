@@ -1121,6 +1121,71 @@
         "title": "DashboardResponse",
         "type": "object"
       },
+      "ExternalReportEventFeedResponse": {
+        "properties": {
+          "audience": {
+            "const": "external",
+            "default": "external",
+            "title": "Audience",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalReportEventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "schema_version": {
+            "const": "external-report-events.v1",
+            "default": "external-report-events.v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "title": "ExternalReportEventFeedResponse",
+        "type": "object"
+      },
+      "ExternalReportEventResponse": {
+        "properties": {
+          "content_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "cursor": {
+            "title": "Cursor",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cursor",
+          "trace_id",
+          "content_sha256"
+        ],
+        "title": "ExternalReportEventResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -5567,6 +5632,98 @@
           }
         },
         "summary": "Get Dashboard"
+      }
+    },
+    "/external/report-events": {
+      "get": {
+        "operationId": "get_external_report_events_external_report_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-tenant-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "name": "X-Tenant-Id",
+              "title": "X-Tenant-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalReportEventFeedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get External Report Events"
       }
     },
     "/health": {

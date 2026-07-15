@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
 import importlib.util
+import json
 from typing import Any
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 _HTTP_AVAILABLE = (
@@ -18,6 +21,7 @@ RUN_BODY = {
 }
 API_KEY = "secret-test-key"
 EXTERNAL_API_KEY = "secret-external-key"
+REPORT_OBSERVER_API_KEY = "secret-report-observer-key"
 OPERATOR_KEY = "secret-operator-key"
 
 
@@ -2991,6 +2995,198 @@ class HttpAppSharedRuntimeTest(unittest.TestCase):
         self.assertNotIn("order_date", rendered)
         self.assertNotIn("sha256:", rendered)
 
+    def test_report_observer_is_read_only_and_server_bound_to_one_tenant(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENT_OS_REPORT_OBSERVER_API_KEY": REPORT_OBSERVER_API_KEY,
+                "AGENT_OS_REPORT_OBSERVER_TENANT_ID": "tenant-a",
+            },
+        ):
+            client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        run_resp = client.post(
+            "/runs",
+            json=RUN_BODY,
+            headers={"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-a"},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        trace_id = run_resp.json()["trace_id"]
+
+        report_resp = client.get(
+            f"/runs/{trace_id}/report?audience=internal",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(report_resp.status_code, 200, report_resp.text)
+        self.assertEqual(report_resp.json()["audience"], "external")
+
+        with self.assertLogs("agent_os.api", level="INFO") as captured_logs:
+            tenant_override = client.get(
+                f"/runs/{trace_id}/report",
+                headers={
+                    "X-API-Key": REPORT_OBSERVER_API_KEY,
+                    "X-Tenant-Id": "tenant-b",
+                },
+            )
+        self.assertEqual(tenant_override.status_code, 403, tenant_override.text)
+        access_log = json.loads(captured_logs.output[-1].split(":", maxsplit=2)[-1])
+        self.assertEqual(access_log["tenant_id"], "tenant-a")
+
+        create_run = client.post(
+            "/runs",
+            json=RUN_BODY,
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(create_run.status_code, 403, create_run.text)
+
+    def test_report_observer_feed_discovers_new_reports_with_opaque_cursor(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENT_OS_REPORT_OBSERVER_API_KEY": REPORT_OBSERVER_API_KEY,
+                "AGENT_OS_REPORT_OBSERVER_TENANT_ID": "tenant-a",
+            },
+        ):
+            client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
+
+        trace_ids = []
+        for question in ("GMV", "GMV second report"):
+            run_resp = client.post(
+                "/runs",
+                json={**RUN_BODY, "question": question},
+                headers={"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-a"},
+            )
+            self.assertEqual(run_resp.status_code, 200, run_resp.text)
+            trace_ids.append(run_resp.json()["trace_id"])
+        other_tenant = client.post(
+            "/runs",
+            json={**RUN_BODY, "question": "GMV tenant b"},
+            headers={"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-b"},
+        )
+        self.assertEqual(other_tenant.status_code, 200, other_tenant.text)
+
+        first_page = client.get(
+            "/external/report-events?limit=1",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(first_page.status_code, 200, first_page.text)
+        first_payload = first_page.json()
+        self.assertEqual(first_payload["schema_version"], "external-report-events.v1")
+        self.assertEqual(first_payload["audience"], "external")
+        self.assertEqual([item["trace_id"] for item in first_payload["events"]], trace_ids[:1])
+        self.assertRegex(first_payload["events"][0]["content_sha256"], r"^[0-9a-f]{64}$")
+        report = client.get(
+            f"/runs/{trace_ids[0]}/report",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(report.status_code, 200, report.text)
+        canonical_report = json.dumps(
+            report.json(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        self.assertEqual(
+            first_payload["events"][0]["content_sha256"],
+            hashlib.sha256(canonical_report).hexdigest(),
+        )
+        self.assertTrue(first_payload["has_more"])
+        first_cursor = first_payload["next_cursor"]
+        self.assertEqual(first_payload["events"][0]["cursor"], first_cursor)
+        self.assertNotIn("tenant-a", first_cursor)
+
+        second_page = client.get(
+            "/external/report-events",
+            params={"after": first_cursor, "limit": 10},
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(second_page.status_code, 200, second_page.text)
+        second_payload = second_page.json()
+        self.assertEqual([item["trace_id"] for item in second_payload["events"]], trace_ids[1:])
+        self.assertFalse(second_payload["has_more"])
+
+        empty_page = client.get(
+            "/external/report-events",
+            params={"after": second_payload["next_cursor"]},
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(empty_page.status_code, 200, empty_page.text)
+        self.assertEqual(empty_page.json()["events"], [])
+        self.assertEqual(
+            empty_page.json()["next_cursor"],
+            second_payload["next_cursor"],
+        )
+
+        tampered_cursor = first_cursor[:-1] + ("A" if first_cursor[-1] != "A" else "B")
+        tampered = client.get(
+            "/external/report-events",
+            params={"after": tampered_cursor},
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(tampered.status_code, 400, tampered.text)
+
+        tenant_override = client.get(
+            "/external/report-events",
+            headers={
+                "X-API-Key": REPORT_OBSERVER_API_KEY,
+                "X-Tenant-Id": "tenant-b",
+            },
+        )
+        self.assertEqual(tenant_override.status_code, 403, tenant_override.text)
+
+        for non_observer_key in (API_KEY, EXTERNAL_API_KEY):
+            denied = client.get(
+                "/external/report-events",
+                headers={"X-API-Key": non_observer_key},
+            )
+            self.assertEqual(denied.status_code, 403, denied.text)
+
+    def test_report_event_cursor_is_bound_to_observer_tenant(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENT_OS_REPORT_OBSERVER_API_KEY": REPORT_OBSERVER_API_KEY,
+                "AGENT_OS_REPORT_OBSERVER_TENANT_ID": "tenant-a",
+            },
+        ):
+            tenant_a_client = _make_client(API_KEY)
+        run_resp = tenant_a_client.post(
+            "/runs",
+            json=RUN_BODY,
+            headers={"X-API-Key": API_KEY, "X-Tenant-Id": "tenant-a"},
+        )
+        self.assertEqual(run_resp.status_code, 200, run_resp.text)
+        tenant_a_feed = tenant_a_client.get(
+            "/external/report-events",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(tenant_a_feed.status_code, 200, tenant_a_feed.text)
+        tenant_a_cursor = tenant_a_feed.json()["next_cursor"]
+
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENT_OS_REPORT_OBSERVER_API_KEY": REPORT_OBSERVER_API_KEY,
+                "AGENT_OS_REPORT_OBSERVER_TENANT_ID": "tenant-b",
+            },
+        ):
+            tenant_b_client = _make_client(API_KEY)
+        empty = tenant_b_client.get(
+            "/external/report-events",
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual(empty.json()["events"], [])
+        self.assertIsNone(empty.json()["next_cursor"])
+
+        cross_tenant_cursor = tenant_b_client.get(
+            "/external/report-events",
+            params={"after": tenant_a_cursor},
+            headers={"X-API-Key": REPORT_OBSERVER_API_KEY},
+        )
+        self.assertEqual(cross_tenant_cursor.status_code, 400, cross_tenant_cursor.text)
+
     def test_report_read_respects_internal_access_and_external_ceiling(self) -> None:
         client = _make_client(API_KEY, external_api_key=EXTERNAL_API_KEY)
         run_resp = client.post(
@@ -3387,6 +3583,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         required_names = [
             "API_PRINCIPAL_INTERNAL",
             "API_PRINCIPAL_EXTERNAL_REPORT",
+            "API_PRINCIPAL_REPORT_OBSERVER",
             "API_PRINCIPAL_OPERATOR",
             "API_SCOPE_RUN_INTERNAL",
             "API_SCOPE_RUN_EXTERNAL",
@@ -3395,6 +3592,7 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             "API_SCOPE_KNOWLEDGE_SEARCH",
             "API_SCOPE_TRACE_READ",
             "API_SCOPE_REPORT_READ",
+            "API_SCOPE_REPORT_EVENTS_READ",
             "API_SCOPE_APPROVAL_EXECUTE",
             "API_SCOPE_RUNTIME_RESUME",
         ]
@@ -3403,13 +3601,16 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
 
         internal = http_app.API_PRINCIPAL_INTERNAL
         external = http_app.API_PRINCIPAL_EXTERNAL_REPORT
+        observer = http_app.API_PRINCIPAL_REPORT_OBSERVER
         operator = http_app.API_PRINCIPAL_OPERATOR
 
         self.assertEqual(internal.kind, "internal")
         self.assertEqual(external.kind, "external_report")
+        self.assertEqual(observer.kind, "report_observer")
         self.assertEqual(operator.kind, "operator")
         self.assertEqual(internal.audience_ceiling, "internal")
         self.assertEqual(external.audience_ceiling, "external")
+        self.assertEqual(observer.audience_ceiling, "external")
         self.assertIsNone(operator.audience_ceiling)
 
         self.assertTrue(internal.allows(http_app.API_SCOPE_RUN_INTERNAL))
@@ -3420,6 +3621,9 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
         self.assertTrue(internal.allows(http_app.API_SCOPE_TRACE_READ))
         self.assertTrue(internal.allows(http_app.API_SCOPE_REPORT_READ))
         self.assertTrue(internal.allows(http_app.API_SCOPE_RUNTIME_RESUME))
+        self.assertTrue(observer.allows(http_app.API_SCOPE_REPORT_READ))
+        self.assertTrue(observer.allows(http_app.API_SCOPE_REPORT_EVENTS_READ))
+        self.assertFalse(observer.allows(http_app.API_SCOPE_RUN_EXTERNAL))
         self.assertTrue(internal.allows(http_app.API_SCOPE_APPROVAL_EXECUTE))
 
         self.assertFalse(external.allows(http_app.API_SCOPE_RUN_INTERNAL))
@@ -3526,6 +3730,24 @@ class HttpAppAuthBoundaryTest(unittest.TestCase):
             _make_client(
                 API_KEY, operator_api_key=EXTERNAL_API_KEY, external_api_key=EXTERNAL_API_KEY
             )
+
+        with patch.dict(
+            "os.environ",
+            {
+                "AGENT_OS_REPORT_OBSERVER_API_KEY": API_KEY,
+                "AGENT_OS_REPORT_OBSERVER_TENANT_ID": "tenant-a",
+            },
+        ):
+            with self.assertRaises(ValueError):
+                _make_client(API_KEY)
+
+    def test_report_observer_key_and_tenant_must_be_configured_together(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"AGENT_OS_REPORT_OBSERVER_API_KEY": REPORT_OBSERVER_API_KEY},
+        ):
+            with self.assertRaises(ValueError):
+                _make_client(API_KEY)
 
     def test_approval_execute_route_also_guarded(self) -> None:
         client = _make_client(API_KEY)

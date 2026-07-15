@@ -55,6 +55,7 @@ class OpenApiContractTest(unittest.TestCase):
                 "/approvals/{approval_id}/execute",
                 "/dashboards",
                 "/dashboards/{dashboard_id}",
+                "/external/report-events",
                 "/health",
                 "/knowledge/assets",
                 "/knowledge/assets/quality-summary",

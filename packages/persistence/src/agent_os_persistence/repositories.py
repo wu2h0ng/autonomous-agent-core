@@ -43,7 +43,7 @@ from agent_os_core import (
 )
 from agent_os_core.policy_engine import AutoExecutionPolicyStorePort
 from agent_os_core.workflow_store import WorkflowInstanceRecord, WorkflowStorePort
-from sqlalchemy import Connection, Engine, select
+from sqlalchemy import Connection, Engine, func, select
 
 from . import mappers, schema
 
@@ -51,6 +51,34 @@ from . import mappers, schema
 def _fingerprint(payload: dict[str, object]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _report_snapshot_digest(payload: dict[str, object]) -> str:
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _report_event_id(
+    *,
+    tenant_id: str,
+    trace_id: str,
+    revision: int,
+    report_digest: str,
+) -> str:
+    return _report_snapshot_digest(
+        {
+            "tenant_id": tenant_id,
+            "trace_id": trace_id,
+            "revision": revision,
+            "report_digest": report_digest,
+        }
+    )
 
 
 def _conflict_summary(payload: dict[str, object]) -> dict[str, object]:
@@ -343,24 +371,53 @@ class SqlReportSnapshotStore(_SqlStoreBase):
         tenant_id: str = "default",
     ) -> None:
         table = schema.report_snapshots
+        events = schema.report_snapshot_events
         with self._write() as conn:
             for audience, snapshot in snapshots_by_audience.items():
                 if audience not in self._audiences:
                     continue
                 payload = copy.deepcopy(snapshot)
-                exists = conn.execute(
-                    select(table.c.trace_id)
+                existing = conn.execute(
+                    select(table.c.payload)
                     .where(table.c.tenant_id == tenant_id)
                     .where(table.c.trace_id == trace_id)
                     .where(table.c.audience == audience)
                 ).fetchone()
+                if audience == "external":
+                    report_digest = _report_snapshot_digest(payload)
+                    previous_digest = (
+                        _report_snapshot_digest(dict(existing[0])) if existing is not None else None
+                    )
+                    if report_digest != previous_digest:
+                        latest_revision = conn.execute(
+                            select(func.max(events.c.revision))
+                            .where(events.c.tenant_id == tenant_id)
+                            .where(events.c.trace_id == trace_id)
+                        ).scalar_one_or_none()
+                        revision = int(latest_revision or 0) + 1
+                        event_id = _report_event_id(
+                            tenant_id=tenant_id,
+                            trace_id=trace_id,
+                            revision=revision,
+                            report_digest=report_digest,
+                        )
+                        conn.execute(
+                            events.insert().values(
+                                tenant_id=tenant_id,
+                                event_id=f"report-event:{event_id}",
+                                trace_id=trace_id,
+                                revision=revision,
+                                report_digest=report_digest,
+                                recorded_at=_utc_now(),
+                            )
+                        )
                 values = {
                     "tenant_id": tenant_id,
                     "trace_id": trace_id,
                     "audience": audience,
                     "payload": payload,
                 }
-                if exists is None:
+                if existing is None:
                     conn.execute(table.insert().values(**values))
                 else:
                     conn.execute(
@@ -383,6 +440,48 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                 .where(table.c.audience == audience)
             ).fetchone()
         return copy.deepcopy(dict(row[0])) if row is not None else None
+
+    def list_events(
+        self,
+        *,
+        after_sequence: int,
+        limit: int,
+        tenant_id: str = "default",
+    ) -> tuple[tuple[dict[str, object], ...], bool]:
+        if after_sequence < 0:
+            raise ValueError("after_sequence cannot be negative")
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        table = schema.report_snapshot_events
+        with self._read() as conn:
+            rows = conn.execute(
+                select(
+                    table.c.sequence,
+                    table.c.event_id,
+                    table.c.trace_id,
+                    table.c.revision,
+                    table.c.report_digest,
+                    table.c.recorded_at,
+                )
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.sequence > after_sequence)
+                .order_by(table.c.sequence.asc())
+                .limit(limit + 1)
+            ).fetchall()
+        return (
+            tuple(
+                {
+                    "sequence": int(row.sequence),
+                    "event_id": str(row.event_id),
+                    "trace_id": str(row.trace_id),
+                    "revision": int(row.revision),
+                    "report_digest": str(row.report_digest),
+                    "recorded_at": row.recorded_at,
+                }
+                for row in rows[:limit]
+            ),
+            len(rows) > limit,
+        )
 
 
 class SqlActionRecordStore(_SqlStoreBase):

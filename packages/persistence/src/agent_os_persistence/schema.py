@@ -14,7 +14,17 @@ indexed filter column.
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Column, DateTime, Float, Integer, MetaData, String, Table
+from sqlalchemy import (
+    JSON,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    UniqueConstraint,
+)
 
 # Single source of truth for the embedding dimension. The pgvector column migration
 # (0004) and the runtime factory's default embedder MUST agree with this value; if a
@@ -82,6 +92,27 @@ report_snapshots = Table(
     Column("trace_id", String, primary_key=True),
     Column("audience", String, primary_key=True),
     Column("payload", JSON, nullable=False),
+)
+
+# Append-only external report revision feed. The global sequence provides stable
+# pagination while every read remains tenant filtered and the HTTP cursor binds
+# the sequence to a server-configured tenant.
+report_snapshot_events = Table(
+    "report_snapshot_events",
+    metadata,
+    Column("sequence", Integer, primary_key=True, autoincrement=True),
+    Column("tenant_id", String, index=True, nullable=False),
+    Column("event_id", String, unique=True, nullable=False),
+    Column("trace_id", String, index=True, nullable=False),
+    Column("revision", Integer, nullable=False),
+    Column("report_digest", String(64), nullable=False),
+    Column("recorded_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "tenant_id",
+        "trace_id",
+        "revision",
+        name="uq_report_snapshot_events_tenant_trace_revision",
+    ),
 )
 
 # Connector-side action records: the durable side-effect ledger for the
