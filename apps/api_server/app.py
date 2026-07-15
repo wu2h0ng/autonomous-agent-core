@@ -19,6 +19,8 @@ from agent_os_contracts import (
     Commitment,
     CredentialRef,
     CredentialStatus,
+    DomainCandidate,
+    DomainCandidateDraft,
     ExpectedOutcome,
     ExternalSignal,
     Goal,
@@ -35,10 +37,13 @@ from agent_os_contracts import (
     WorkflowGraph,
 )
 from agent_os_core import (
+    CandidateScopeMismatch,
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
     RunCoordinator,
+    DomainCandidateSealer,
+    SQLiteCandidateStore,
     SQLiteTaskEventStore,
     TaskService,
     WorkspaceSandbox,
@@ -59,6 +64,12 @@ class AgentOSApplication:
         self.tasks = TaskService(self.store)
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.correction = CorrectionAuthority(self.store)
+        self.candidates = SQLiteCandidateStore(database)
+        self.domain_candidates = DomainCandidateSealer(
+            self.tasks,
+            self.correction,
+            self.candidates,
+        )
         self.policy = PolicyKernel(self.correction)
         now = datetime.now(timezone.utc)
         self.principal = PrincipalIdentity(
@@ -315,6 +326,30 @@ class AgentOSApplication:
         return self.tasks.start_run(
             task_id, provider_profile_id=self.provider_profile.profile_id
         )
+
+    def seal_domain_candidate(
+        self,
+        task_id: str,
+        payload: dict[str, Any],
+    ) -> DomainCandidate:
+        values = dict(payload)
+        supplied_task_id = values.get("task_id")
+        if supplied_task_id is not None and supplied_task_id != task_id:
+            raise CandidateScopeMismatch(
+                "path task does not match candidate task"
+            )
+        values["task_id"] = task_id
+        values.setdefault("tenant_id", self.principal.tenant_id)
+        values.setdefault("workspace_id", self.principal.workspace_id)
+        values.setdefault("submitted_by", self.principal.principal_id)
+        draft = DomainCandidateDraft.model_validate(values)
+        return self.domain_candidates.seal(self.principal, draft)
+
+    def list_domain_candidates(
+        self,
+        task_id: str,
+    ) -> tuple[DomainCandidate, ...]:
+        return self.domain_candidates.list_for_task(self.principal, task_id)
 
     def run_task(
         self,

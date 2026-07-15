@@ -7,6 +7,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from pydantic import ValidationError
+
+from agent_os_core import (
+    CandidateConcurrentWrite,
+    CandidateIdempotencyConflict,
+    CandidateProvenanceError,
+    CandidateScopeMismatch,
+    CandidateSealingDenied,
+    TaskNotFoundError,
+)
+
 from .app import AgentOSApplication
 
 
@@ -14,11 +25,31 @@ INDEX = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
 
 
+def _uses_generic_http_idempotency(path: str) -> bool:
+    return not urlparse(path).path.endswith("/domain-candidates:seal")
+
+
+def _error_status(exc: Exception, *, default: int = 400) -> int:
+    if isinstance(exc, (CandidateScopeMismatch, CandidateSealingDenied)):
+        return 403
+    if isinstance(exc, (CandidateIdempotencyConflict, CandidateConcurrentWrite)):
+        return 409
+    if isinstance(exc, TaskNotFoundError):
+        return 404
+    if isinstance(exc, (CandidateProvenanceError, ValidationError, ValueError)):
+        return 400
+    return default
+
+
 class Handler(BaseHTTPRequestHandler):
     application: AgentOSApplication
 
     def _json(self, status: int, payload: object) -> None:
-        if self.command == "POST" and isinstance(payload, dict):
+        if (
+            self.command == "POST"
+            and isinstance(payload, dict)
+            and _uses_generic_http_idempotency(self.path)
+        ):
             key = self.headers.get("Idempotency-Key")
             if key:
                 self.application.store.put_idempotency(
@@ -74,6 +105,20 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith(prefix):
             try:
                 task_id = parsed.path[len(prefix) :]
+                if task_id.endswith("/domain-candidates"):
+                    task_id = task_id.removesuffix("/domain-candidates").rstrip("/")
+                    candidates = self.application.list_domain_candidates(task_id)
+                    self._json(
+                        200,
+                        {
+                            "task_id": task_id,
+                            "candidates": [
+                                candidate.model_dump(mode="json")
+                                for candidate in candidates
+                            ],
+                        },
+                    )
+                    return
                 if task_id.endswith("/events"):
                     task_id = task_id[:-7].rstrip("/")
                     events = self.application.store.read(task_id)
@@ -128,7 +173,10 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._json(200, self.application.task_json(task_id))
             except Exception as exc:
-                self._json(404, {"error": type(exc).__name__, "message": str(exc)})
+                self._json(
+                    _error_status(exc, default=404),
+                    {"error": type(exc).__name__, "message": str(exc)},
+                )
             return
         self._json(404, {"error": "not_found"})
 
@@ -136,7 +184,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             key = self.headers.get("Idempotency-Key")
-            if key:
+            if key and _uses_generic_http_idempotency(self.path):
                 cached = self.application.store.get_idempotency(self.path, key)
                 if cached is not None:
                     self._json(200, cached)
@@ -156,6 +204,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(201, self.application.task_json(task.task_id))
                 return
             parts = parsed.path.strip("/").split("/")
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "domain-candidates:seal"
+            ):
+                candidate = self.application.seal_domain_candidate(parts[2], body)
+                self._json(201, candidate.model_dump(mode="json"))
+                return
             if (
                 len(parts) == 3
                 and parts[:2] == ["v1", "tasks"]
@@ -242,7 +298,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(404, {"error": "not_found"})
         except Exception as exc:
-            self._json(400, {"error": type(exc).__name__, "message": str(exc)})
+            self._json(
+                _error_status(exc),
+                {"error": type(exc).__name__, "message": str(exc)},
+            )
 
     def log_message(self, format: str, *args: object) -> None:
         return
