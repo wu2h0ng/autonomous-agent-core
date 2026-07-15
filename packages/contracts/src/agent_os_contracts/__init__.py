@@ -32,6 +32,17 @@ from .evidence import (
     EvidenceSourceKind,
     Sha256Digest,
 )
+from .materialization import (
+    CandidateProvenance,
+    CandidateWriteChannel,
+    DomainCandidate,
+    DomainCandidateDraft,
+    MaterializationOutcome,
+    RepresentationPatch,
+    RepresentationPatchOperation,
+    RepresentationRelationClass,
+    domain_candidate_digest,
+)
 from .outcome import ExpectedOutcome, ObservedOutcome, OutcomeStatus
 from .provider import (
     CredentialRef,
@@ -75,6 +86,8 @@ __all__ = [
     "ArtifactRef",
     "CandidateExclusion",
     "CandidateGenerationEnvelope",
+    "CandidateProvenance",
+    "CandidateWriteChannel",
     "CapabilityGrant",
     "CapabilityGrantStatus",
     "CapabilitySpec",
@@ -83,6 +96,8 @@ __all__ = [
     "CompensationStatus",
     "ContractModel",
     "DomainPackManifest",
+    "DomainCandidate",
+    "DomainCandidateDraft",
     "CorrectionEpochVector",
     "CorrectionScope",
     "CorrectionSnapshot",
@@ -98,6 +113,7 @@ __all__ = [
     "GraphPatch",
     "Goal",
     "IdempotencyMode",
+    "MaterializationOutcome",
     "NonEmptyStr",
     "NodeKind",
     "NodeSpec",
@@ -119,6 +135,9 @@ __all__ = [
     "ProviderToolProposal",
     "ProviderUsage",
     "ReceiptStatus",
+    "RepresentationPatch",
+    "RepresentationPatchOperation",
+    "RepresentationRelationClass",
     "RunPlanRebound",
     "RunRecoverySnapshot",
     "RunStatus",
@@ -135,4 +154,5 @@ __all__ = [
     "WorkflowGraph",
     "canonical_json",
     "content_digest",
+    "domain_candidate_digest",
 ]
