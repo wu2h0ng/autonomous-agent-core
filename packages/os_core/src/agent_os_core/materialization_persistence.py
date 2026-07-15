@@ -37,6 +37,13 @@ class CandidateSealRequest:
 
 
 class CandidateStore(Protocol):
+    def get_by_digest(
+        self,
+        tenant_id: str,
+        workspace_id: str,
+        candidate_digest: str,
+    ) -> DomainCandidate | None: ...
+
     def get_by_idempotency(
         self,
         tenant_id: str,
@@ -111,6 +118,20 @@ class SQLiteCandidateStore:
                 "SELECT candidate_json FROM domain_candidates "
                 "WHERE tenant_id = ? AND workspace_id = ? AND idempotency_key = ?",
                 (tenant_id, workspace_id, key),
+            ).fetchone()
+        return self._decode(row) if row is not None else None
+
+    def get_by_digest(
+        self,
+        tenant_id: str,
+        workspace_id: str,
+        candidate_digest: str,
+    ) -> DomainCandidate | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT candidate_json FROM domain_candidates "
+                "WHERE tenant_id = ? AND workspace_id = ? AND candidate_digest = ?",
+                (tenant_id, workspace_id, candidate_digest),
             ).fetchone()
         return self._decode(row) if row is not None else None
 

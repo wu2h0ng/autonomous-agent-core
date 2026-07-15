@@ -33,6 +33,11 @@ from .evidence import (
     Sha256Digest,
 )
 from .materialization import (
+    CandidateEvaluationDisposition,
+    CandidateEvaluationDraft,
+    CandidateEvaluationReceipt,
+    CandidateEvaluatorIdentity,
+    CandidateEvaluatorKind,
     CandidateProvenance,
     CandidateWriteChannel,
     DomainCandidate,
@@ -41,6 +46,7 @@ from .materialization import (
     RepresentationPatch,
     RepresentationPatchOperation,
     RepresentationRelationClass,
+    candidate_evaluation_receipt_digest,
     domain_candidate_digest,
 )
 from .outcome import ExpectedOutcome, ObservedOutcome, OutcomeStatus
@@ -85,6 +91,11 @@ __all__ = [
     "ArtifactLocationClass",
     "ArtifactRef",
     "CandidateExclusion",
+    "CandidateEvaluationDisposition",
+    "CandidateEvaluationDraft",
+    "CandidateEvaluationReceipt",
+    "CandidateEvaluatorIdentity",
+    "CandidateEvaluatorKind",
     "CandidateGenerationEnvelope",
     "CandidateProvenance",
     "CandidateWriteChannel",
@@ -153,6 +164,7 @@ __all__ = [
     "WaitCondition",
     "WorkflowGraph",
     "canonical_json",
+    "candidate_evaluation_receipt_digest",
     "content_digest",
     "domain_candidate_digest",
 ]

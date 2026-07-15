@@ -16,6 +16,8 @@ from agent_os_contracts import (
     ApprovalDisposition,
     CapabilityGrant,
     CapabilityGrantStatus,
+    CandidateEvaluationDraft,
+    CandidateEvaluationReceipt,
     Commitment,
     CredentialRef,
     CredentialStatus,
@@ -38,12 +40,16 @@ from agent_os_contracts import (
 )
 from agent_os_core import (
     CandidateScopeMismatch,
+    CandidateEvaluationScopeMismatch,
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
     RunCoordinator,
     DomainCandidateSealer,
+    DomainCandidateEvaluationRecorder,
+    EVALUATION_CAPABILITY,
     SQLiteCandidateStore,
+    SQLiteCandidateEvaluationStore,
     SQLiteTaskEventStore,
     TaskService,
     WorkspaceSandbox,
@@ -58,27 +64,39 @@ class AgentOSApplication:
     """Composition root used unchanged by the CLI, HTTP API and tests."""
 
     def __init__(
-        self, *, database: str | Path = ":memory:", workspace: str | Path = "."
+        self,
+        *,
+        database: str | Path = ":memory:",
+        workspace: str | Path = ".",
+        principal: PrincipalIdentity | None = None,
+        evaluation_grant: CapabilityGrant | None = None,
     ) -> None:
-        self.store = SQLiteTaskEventStore(database)
-        self.tasks = TaskService(self.store)
-        self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
-        self.correction = CorrectionAuthority(self.store)
-        self.candidates = SQLiteCandidateStore(database)
-        self.domain_candidates = DomainCandidateSealer(
-            self.tasks,
-            self.correction,
-            self.candidates,
-        )
-        self.policy = PolicyKernel(self.correction)
         now = datetime.now(timezone.utc)
-        self.principal = PrincipalIdentity(
+        self.principal = principal or PrincipalIdentity(
             principal_id="user:local",
             tenant_id="tenant:local",
             workspace_id="workspace:local",
             role=PrincipalRole.PRINCIPAL,
             authenticated_at=now,
         )
+        self._evaluation_grant_override = evaluation_grant
+        self.store = SQLiteTaskEventStore(database)
+        self.tasks = TaskService(self.store)
+        self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
+        self.correction = CorrectionAuthority(
+            self.store,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            written_by=self.principal.principal_id,
+        )
+        self.candidates = SQLiteCandidateStore(database)
+        self.evaluation_receipts = SQLiteCandidateEvaluationStore(database)
+        self.domain_candidates = DomainCandidateSealer(
+            self.tasks,
+            self.correction,
+            self.candidates,
+        )
+        self.policy = PolicyKernel(self.correction)
         live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
         live_model = os.environ.get("AGENT_OS_PROVIDER_MODEL", "gpt-4o-mini")
         credential_key = os.environ.get(
@@ -120,12 +138,19 @@ class AgentOSApplication:
         )
         self.provider_configured = bool(live_base_url)
         self.grants = self._build_grants(now)
+        self.domain_candidate_evaluations = DomainCandidateEvaluationRecorder(
+            self.tasks,
+            self.correction,
+            self.candidates,
+            self.evaluation_receipts,
+            self.grants,
+        )
         self.compensation_grant = self._build_compensation_grant(now)
         self.domain_manifest = developer_agent_manifest(now)
 
     def _build_grants(self, now: datetime | None = None) -> dict[str, CapabilityGrant]:
         issued = now or datetime.now(timezone.utc)
-        return {
+        grants = {
             capability_id: CapabilityGrant(
                 grant_id=f"grant:{capability_id}",
                 principal_id=self.principal.principal_id,
@@ -147,6 +172,37 @@ class AgentOSApplication:
             )
             for capability_id in self.sandbox.specs(issued)
         }
+        self.evaluation_grant = (
+            self._evaluation_grant_override
+            or self._build_evaluation_grant(issued)
+        )
+        grants[EVALUATION_CAPABILITY] = self.evaluation_grant
+        return grants
+
+    def _build_evaluation_grant(
+        self,
+        now: datetime | None = None,
+    ) -> CapabilityGrant:
+        issued = now or datetime.now(timezone.utc)
+        return CapabilityGrant(
+            grant_id="grant:internal:domain.candidate.evaluate",
+            principal_id=self.principal.principal_id,
+            tenant_id=self.principal.tenant_id,
+            workspace_id=self.principal.workspace_id,
+            capability_id=EVALUATION_CAPABILITY,
+            capability_version="1",
+            max_risk_tier=1,
+            budget_limit=ResourceBudget(
+                max_cost_usd=Decimal("1"),
+                max_duration_seconds=300,
+                max_provider_tokens=0,
+                max_tool_calls=0,
+            ),
+            status=CapabilityGrantStatus.ACTIVE,
+            granted_by="system:composition-root",
+            granted_at=issued,
+            expires_at=issued + timedelta(days=30),
+        )
 
     def _build_compensation_grant(
         self,
@@ -220,7 +276,9 @@ class AgentOSApplication:
         ):
             raise PermissionError("workspace path is outside the local allowlist")
         self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
-        self.grants = self._build_grants()
+        rebuilt_grants = self._build_grants()
+        self.grants.clear()
+        self.grants.update(rebuilt_grants)
         return self.workspace_status()
 
     def provider_status(self) -> dict[str, Any]:
@@ -350,6 +408,46 @@ class AgentOSApplication:
         task_id: str,
     ) -> tuple[DomainCandidate, ...]:
         return self.domain_candidates.list_for_task(self.principal, task_id)
+
+    def record_domain_candidate_evaluation(
+        self,
+        candidate_task_id: str,
+        candidate_digest: str,
+        payload: dict[str, Any],
+    ) -> CandidateEvaluationReceipt:
+        values = dict(payload)
+        supplied_task_id = values.get("candidate_task_id")
+        if supplied_task_id is not None and supplied_task_id != candidate_task_id:
+            raise CandidateEvaluationScopeMismatch(
+                "path candidate task does not match evaluation body"
+            )
+        supplied_digest = values.get("candidate_digest")
+        if supplied_digest is not None and supplied_digest != candidate_digest:
+            raise CandidateEvaluationScopeMismatch(
+                "path candidate digest does not match evaluation body"
+            )
+        values["candidate_task_id"] = candidate_task_id
+        values["candidate_digest"] = candidate_digest
+        values.setdefault("tenant_id", self.principal.tenant_id)
+        values.setdefault("workspace_id", self.principal.workspace_id)
+        draft = CandidateEvaluationDraft.model_validate(values)
+        return self.domain_candidate_evaluations.record(
+            self.principal,
+            candidate_task_id,
+            candidate_digest,
+            draft,
+        )
+
+    def list_domain_candidate_evaluations(
+        self,
+        candidate_task_id: str,
+        candidate_digest: str,
+    ) -> tuple[CandidateEvaluationReceipt, ...]:
+        return self.domain_candidate_evaluations.list_for_candidate(
+            self.principal,
+            candidate_task_id,
+            candidate_digest,
+        )
 
     def run_task(
         self,

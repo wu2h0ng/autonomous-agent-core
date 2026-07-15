@@ -67,3 +67,19 @@ class CandidateConcurrentWrite(CandidateError):
 
 class CandidateProvenanceError(CandidateError):
     pass
+
+
+class CandidateEvaluationError(CandidateError):
+    pass
+
+
+class CandidateEvaluationNotFound(CandidateEvaluationError):
+    pass
+
+
+class CandidateEvaluationDenied(CandidateEvaluationError):
+    pass
+
+
+class CandidateEvaluationScopeMismatch(CandidateEvaluationError):
+    pass

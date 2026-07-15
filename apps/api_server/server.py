@@ -11,6 +11,9 @@ from pydantic import ValidationError
 
 from agent_os_core import (
     CandidateConcurrentWrite,
+    CandidateEvaluationDenied,
+    CandidateEvaluationNotFound,
+    CandidateEvaluationScopeMismatch,
     CandidateIdempotencyConflict,
     CandidateProvenanceError,
     CandidateScopeMismatch,
@@ -26,15 +29,26 @@ PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
 
 
 def _uses_generic_http_idempotency(path: str) -> bool:
-    return not urlparse(path).path.endswith("/domain-candidates:seal")
+    parsed_path = urlparse(path).path
+    return not parsed_path.endswith(
+        ("/domain-candidates:seal", "/evaluations:record")
+    )
 
 
 def _error_status(exc: Exception, *, default: int = 400) -> int:
-    if isinstance(exc, (CandidateScopeMismatch, CandidateSealingDenied)):
+    if isinstance(
+        exc,
+        (
+            CandidateScopeMismatch,
+            CandidateSealingDenied,
+            CandidateEvaluationDenied,
+            CandidateEvaluationScopeMismatch,
+        ),
+    ):
         return 403
     if isinstance(exc, (CandidateIdempotencyConflict, CandidateConcurrentWrite)):
         return 409
-    if isinstance(exc, TaskNotFoundError):
+    if isinstance(exc, (TaskNotFoundError, CandidateEvaluationNotFound)):
         return 404
     if isinstance(exc, (CandidateProvenanceError, ValidationError, ValueError)):
         return 400
@@ -104,6 +118,28 @@ class Handler(BaseHTTPRequestHandler):
         prefix = "/v1/tasks/"
         if parsed.path.startswith(prefix):
             try:
+                parts = parsed.path.strip("/").split("/")
+                if (
+                    len(parts) == 6
+                    and parts[:2] == ["v1", "tasks"]
+                    and parts[3] == "domain-candidates"
+                    and parts[5] == "evaluations"
+                ):
+                    evaluations = self.application.list_domain_candidate_evaluations(
+                        parts[2], parts[4]
+                    )
+                    self._json(
+                        200,
+                        {
+                            "candidate_task_id": parts[2],
+                            "candidate_digest": parts[4],
+                            "evaluations": [
+                                receipt.model_dump(mode="json")
+                                for receipt in evaluations
+                            ],
+                        },
+                    )
+                    return
                 task_id = parsed.path[len(prefix) :]
                 if task_id.endswith("/domain-candidates"):
                     task_id = task_id.removesuffix("/domain-candidates").rstrip("/")
@@ -204,6 +240,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(201, self.application.task_json(task.task_id))
                 return
             parts = parsed.path.strip("/").split("/")
+            if (
+                len(parts) == 6
+                and parts[:2] == ["v1", "tasks"]
+                and parts[3] == "domain-candidates"
+                and parts[5] == "evaluations:record"
+            ):
+                receipt = self.application.record_domain_candidate_evaluation(
+                    parts[2], parts[4], body
+                )
+                self._json(201, receipt.model_dump(mode="json"))
+                return
             if (
                 len(parts) == 4
                 and parts[:2] == ["v1", "tasks"]
