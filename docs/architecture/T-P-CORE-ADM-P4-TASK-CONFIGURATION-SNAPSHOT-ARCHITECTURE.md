@@ -116,6 +116,7 @@ configuration field come from Product state.
 
 ```text
 snapshot_id / snapshot_version = 1 / snapshot_digest
+seal_request_digest
 consumer_task_id / reserved_run_id / commitment_id
 tenant_id / workspace_id / principal_id
 workflow / workflow_digest
@@ -135,6 +136,12 @@ ordering is canonical by `(capability_id, capability_version, grant_id)`. Contra
 validation rejects duplicate capability-version bindings, digest mismatch, scope drift,
 workflow/expected-outcome mismatch, inactive grants and any non-inert prior binding.
 
+`snapshot_id` is a Product-generated UUID-like identifier created once for the winning
+append. `seal_request_digest` is derived only from the consumer Task route and the
+optional `DomainPriorSelector`. Because `snapshot_digest` includes `snapshot_id`,
+`sealed_at` and every binding, replay must return the already persisted event; it must
+never reconstruct a nominally equivalent snapshot.
+
 ## 4. Product policy digest
 
 `PolicyKernel` currently exposes only `policy_version`. ADM-P4 adds a Product-owned
@@ -144,7 +151,10 @@ unsupported policy version fails closed; the caller cannot register or select a 
 
 ## 5. Seal service
 
-`TaskConfigurationSnapshotService.seal(principal, task_id, command)` executes:
+`TaskConfigurationSnapshotService` receives the composition root's one re-entrant
+configuration lock and configuration-reader callback. Its `seal(...)` enters that lock
+itself; `configure_provider`, `attach_workspace`, bound start and bound-run preflight
+use the same lock. A direct service call therefore cannot omit the lock. It executes:
 
 1. Load the Task aggregate and require `COMMITTED`, no Run and no existing snapshot.
 2. Require Goal, Commitment, Workflow and ExpectedOutcome.
@@ -152,18 +162,26 @@ unsupported policy version fails closed; the caller cannot register or select a 
 4. Require raw Commitment scope `task.configuration.snapshot`.
 5. Validate the exact active/unexpired `task.configuration.snapshot@1` grant.
 6. Reserve a Product-generated Run ID.
-7. Derive workflow, policy, provider, execution-grant and expected-outcome bindings.
+7. Under the configuration lock, derive point-in-time workflow, policy, provider,
+   execution-grant and expected-outcome bindings.
 8. If a selector exists, resolve and revalidate the prior lineage from the injected
    ADM-P1/P2/P3 read ports in the same tenant/workspace.
 9. Require consumer Task/reserved Run to differ from every source Task/Run.
 10. Read C7 epochs for consumer Task/reserved Run/snapshot capability and reject halt.
 11. Construct the self-validating immutable snapshot.
-12. Enter `CorrectionAuthority.guard_unchanged(...)`, recheck Task state/identity/grant
-    and append the snapshot event with expected Task sequence.
+12. Enter `CorrectionAuthority.guard_unchanged(...)` without releasing the
+    configuration lock. Reload the Task and rederive **all** Product-owned bindings:
+    Task state/sequence, identity, authority scope, seal grant, workflow, policy
+    descriptor, provider profile, execution grants and expected outcome. Compare them
+    with the candidate snapshot and fail closed on any difference, then append the
+    snapshot event with expected Task sequence while both guards remain held.
 
-The service owns deterministic replay. Once a snapshot exists, an identical command
-returns it. A different command raises an idempotency conflict. Generic HTTP
-idempotency does not cache this route.
+The service owns deterministic replay. Once a snapshot exists, it rehydrates the exact
+event and compares `seal_request_digest`; a match returns the persisted object and a
+difference raises an idempotency conflict. If concurrent sealers race, the CAS loser
+rehydrates the winner and applies the same comparison. It never regenerates
+`snapshot_id`, `sealed_at` or `snapshot_digest`. Generic HTTP idempotency does not cache
+this route.
 
 ## 6. Prior resolution and lineage revalidation
 
@@ -224,11 +242,28 @@ Task it must:
 The aggregate rejects `RUN_STARTED` when the snapshot is absent, mismatched, stale or
 bound to another Run. If a Task already has a snapshot, legacy start without its ID
 fails closed. Tasks with no snapshot remain legacy-compatible in this bounded slice.
+This rejection is enforced inside `TaskService.start_run` and `TaskAggregate`, not only
+at HTTP/application edges; direct service calls and `run_task` auto-start cannot bypass
+the binding.
 
 Before any provider/tool call, `AgentOSApplication.run_task` repeats the immutable
 binding preflight. It compares exact workflow, policy descriptor, provider profile,
 execution grants, expected outcome and C7 epochs. The prior is not consumed by
 `RunCoordinator` and is not passed to the provider or capability broker.
+
+For a snapshot-bound Task, the preflight and construction of `RunCoordinator` occur
+under the same composition-root configuration lock. The coordinator receives the
+already selected provider/sandbox objects and a copied grant mapping, so a later
+composition-root update cannot silently change that run's objects. The following are
+strictly forbidden from `ProviderRequest`, `CandidateGenerationEnvelope`, `PolicyInput`,
+`ActionContract`, capability-broker input and tool arguments:
+
+```text
+configuration_snapshot_id
+configuration_snapshot_digest
+optional_prior
+any prior content or lineage field
+```
 
 Snapshot-bound runs cannot use the existing in-run replan path in ADM-P4. A changed
 workflow requires a future new Task/Run and new snapshot contract.
@@ -248,12 +283,23 @@ accept only the snapshot ID, never snapshot content or digests. Error mapping se
 403 authority/scope failures, 404 missing Task/prior/snapshot and 409 replay/state/CAS
 conflicts.
 
+The router must match `configuration-snapshots*` and bound start/run routes before the
+existing split-based fallback. Seal and bound start are explicitly added to the generic
+HTTP-idempotency exclusion list; Product event replay/CAS remains authoritative.
+
 ## 10. C7 and concurrency boundary
 
-Seal and bound start both use the composition root's existing `CorrectionAuthority`
-and Task store. Each holds `guard_unchanged` through its Task-event append. This proves
-same-process/same-authority non-interleaving only. It does not prove cross-process
-atomicity. SQLite Task-stream CAS independently prevents competing Task appends.
+Seal and bound start both use the composition root's existing `CorrectionAuthority`,
+Task store and shared configuration lock. Each holds the configuration lock and
+`guard_unchanged` through its Task-event append. Configuration-mutating application
+paths use the same lock. This proves same-process/same-authority non-interleaving only.
+It does not prove cross-process atomicity. SQLite Task-stream CAS independently
+prevents competing Task appends.
+
+`ProviderProfile` and the grant mapping are not durable ledgers in the current Product;
+the snapshot therefore stores explicit point-in-time copies. A later
+`configure_provider` or `attach_workspace` is allowed to update the composition root,
+but cannot update the snapshot and causes bound start/run drift checks to fail closed.
 
 ## 11. Failure semantics
 

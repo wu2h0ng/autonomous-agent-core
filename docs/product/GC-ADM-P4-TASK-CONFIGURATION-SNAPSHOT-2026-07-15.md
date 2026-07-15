@@ -7,6 +7,9 @@
 > Exact base: `7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2`
 > Authority: ADR-0057; reviewed ADM-P1/ADM-P2/ADM-P3 local evidence
 > Claim ceiling before implementation review: `SPECIFIED_ADM_P4_ONLY`
+> First technical plan review: Kimi Code `SPEC_REVISE`, session
+> `session_0b624b48-fc74-49db-9476-feb2e09827a9`; all blockers are addressed in
+> the revised exact-plan checkpoint before re-review
 
 ## Goal
 
@@ -86,10 +89,15 @@ Implementation may be called locally implemented only when all conditions hold:
 1. Frozen contracts reject every caller-injected authoritative or activation field.
 2. Snapshot identity and digest are canonical, content-sensitive and self-validating.
 3. One consumer Task can seal at most one snapshot; exact replay returns the same
-   object and a different selector conflicts.
+   event-rehydrated object and a different selector conflicts. Replay never rebuilds a
+   snapshot or changes its `snapshot_id`, `sealed_at` or digest; a CAS loser rehydrates
+   the winner and returns it only when the seal-request digest matches.
 4. Sealing is allowed only for a committed Task with no Run and no prior snapshot.
 5. Workflow, policy, provider, grants, expected outcome/evidence and C7 bindings are
-   Product-derived and exact.
+   Product-derived point-in-time copies and exact. All mutable composition-root inputs
+   are protected by one same-instance configuration lock through derivation, recheck
+   and event append; configuration changes after sealing make start/run preflight fail
+   closed rather than silently changing the binding.
 6. Optional prior resolution reads the same-scope immutable ADM stores and revalidates
    candidate, receipt-chain, promotion and prior lineage; missing or mismatched data
    fails closed.
@@ -99,11 +107,14 @@ Implementation may be called locally implemented only when all conditions hold:
    same-instance C7 guard.
 9. Run start requires the exact snapshot ID when a snapshot exists, uses its reserved
    Run ID, records its ID/digest in `AgentRun`, and fails closed on any live binding
-   drift before appending `RUN_STARTED`.
+   drift before appending `RUN_STARTED`. Neither direct `TaskService.start_run`, the
+   application start path nor `run_task` auto-start may bypass this rule.
 10. Snapshot-bound runs cannot replan in ADM-P4 because that would invalidate the
     frozen workflow binding.
 11. No snapshot or prior field is consulted to change WorkflowGraph, Capability,
-    PolicyKernel, provider/model, tool set or execution semantics.
+    PolicyKernel, provider/model, tool set or execution semantics. Snapshot/prior
+    fields are forbidden from `ProviderRequest`, `CandidateGenerationEnvelope`,
+    `PolicyInput`, `ActionContract`, capability-broker input and tool arguments.
 12. Production policy V1 creates no prior; only a closed test fixture proves prior
     binding.
 13. Seal/get/list/start surfaces bypass generic HTTP idempotency for writes and rely on

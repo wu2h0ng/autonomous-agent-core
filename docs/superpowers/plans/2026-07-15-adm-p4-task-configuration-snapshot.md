@@ -52,6 +52,8 @@ Cover:
    grants and a non-reference prior.
 4. Mutating any nested field fails because all contracts are frozen.
 5. `AgentRun` requires snapshot ID and digest as a pair.
+6. Snapshot includes a canonical `seal_request_digest`; changing the route or optional
+   selector changes it.
 
 Run:
 
@@ -137,6 +139,7 @@ PYTHONPATH=packages/contracts/src:packages/os_core/src:. \
 - Modify: `packages/os_core/src/agent_os_core/governance.py`
 - Modify: `packages/os_core/src/agent_os_core/errors.py`
 - Modify: `packages/os_core/src/agent_os_core/__init__.py`
+- Modify: `apps/api_server/app.py`
 
 **Step 1: Add closed error taxonomy**
 
@@ -157,8 +160,14 @@ Cover:
   captured from Product state rather than command;
 - unsupported policy version fails closed;
 - exact replay returns same snapshot; changed selector conflicts;
+- replay rehydrates exact persisted `snapshot_id`/`sealed_at`/digest instead of
+  rebuilding; a CAS loser returns the winner only for the same request digest;
 - C7 halt and a correction interleaving immediately before append are detected;
 - concurrent Task append is detected by CAS;
+- provider profile, grant or expected-outcome mutation between initial derivation and
+  append is detected by an in-guard full rederivation;
+- `configure_provider` and `attach_workspace` share the same composition-root
+  configuration lock and cannot interleave with seal/start append;
 - seal invokes no provider/tool and appends exactly one snapshot Task event.
 
 **Step 3: Implement Product-owned derivation**
@@ -175,6 +184,10 @@ POLICY_KERNEL_V1_DIGEST
 The policy digest is explicitly a contract descriptor digest, not code attestation.
 Implement `TaskConfigurationSnapshotService` with read ports for candidate,
 evaluation and promotion stores, but keep prior resolution separate until Task 4.
+The application owns one `RLock` shared by every mutable configuration path and injects
+it into the service with a configuration-reader callback. The service enters the lock
+itself, then enters the C7 guard, reloads the Task, rederives every Product-owned
+binding and appends the event. Direct service calls cannot omit the lock.
 
 Run:
 
@@ -252,12 +265,22 @@ Cover:
   and tool arguments;
 - snapshot-bound Task cannot be auto-started by `run_task` without snapshot ID;
 - legacy no-snapshot path remains compatible.
+- direct TaskService, application and auto-start paths all reject a snapshot-bearing
+  Task when the exact snapshot ID is absent;
+- snapshot-bound coordinator construction uses the selected provider/sandbox objects
+  and a copied grant mapping under the configuration lock;
+- `configure_provider`/`attach_workspace` after seal cannot change the snapshot and
+  makes a later start/run fail closed on drift.
 
 **Step 2: Implement application wiring**
 
 Add `seal_task_configuration`, `get_task_configuration`,
 `list_task_configurations`, and snapshot-aware `start_run`/`run_task`. The Product
 service performs preflight. Do not teach `RunCoordinator` to interpret a prior.
+
+Assert explicitly that neither snapshot identifiers nor optional-prior content/lineage
+appears in `ProviderRequest`, `CandidateGenerationEnvelope`, `PolicyInput`,
+`ActionContract`, broker input or tool arguments.
 
 Run:
 
@@ -283,6 +306,8 @@ Cover:
   activation fields;
 - start/run accepts snapshot ID only and rejects snapshot body/digest;
 - generic HTTP idempotency cache is bypassed for seal and bound start;
+- configuration-snapshot and bound-start routes are matched before the existing
+  split-based fallback;
 - 403/404/409 mapping is deterministic;
 - replay and restart return exact snapshot bytes/digest.
 
