@@ -4,7 +4,7 @@ scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715"
-status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained, while SPINE-E2E-4 is a bounded PASS and E2E-1/2/3 remain INVALID. LH-RECOVERY-1A prerequisite construction has advanced without D2 or a formal result. Agent OS alpha, general autonomy, SPINE-1 migration, production release and governed core evolution remain incomplete or gated."
+status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained, while SPINE-E2E-4 is a bounded PASS and E2E-1/2/3 remain INVALID. LH-RECOVERY-1A Task 7 is accepted and integrated on this feature branch, but v5/Task 8 cannot authorize D2 because the frozen semantic artifacts lack a precommitted Product execution contract; the full successor route is PARK. Agent OS alpha, general autonomy, SPINE-1 migration, production release and governed core evolution remain incomplete or gated."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -28,7 +28,7 @@ current_phase:
     label: "SPINE-0 bounded developer slice plus bounded local long-horizon slice; broader Agent OS alpha incomplete"
     status: "LOCAL_SLICES_VERIFIED / NO_PRODUCT_ALPHA_CLAIM"
   research:
-    label: "mixed bounded evidence; LH-RECOVERY-1A Tasks 7/8 active; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
+    label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
     status: "MIXED_EVIDENCE / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
@@ -63,7 +63,7 @@ verified_capabilities:
   bounded_long_horizon_product_slice:
     status: "BRANCH_CONTAINED_IMPLEMENTED_AND_LOCALLY_VERIFIED / SPINE_E2E4_BOUNDED_PASS"
     evidence_level: "E3_LOCAL_CONTROLLED_PRODUCT_EVAL"
-    branch_contained_ancestry: "7410a06df3182ec59da1d421916b5bf8086ea8c4"
+    branch_contained_ancestry: "Runtime/D1 ancestry 7410a06df3182ec59da1d421916b5bf8086ea8c4; canonical Task 7 integration 6f1ed4bb0f0a698dbbdf2365d71fd2eff4665541."
     implemented: "Typed wait/signal/deadline/rebind events, restart recovery, persistent C7 checks, restart-safe patch compensation, event-derived recovery projection, and matching Application/HTTP/CLI public paths."
     evaluation_chain:
       - "SPINE-E2E-1: INVALID"
@@ -128,17 +128,15 @@ research_ledger:
       status: "HISTORICAL_THEORY_RECORD / CONDITIONAL / ROUTE_CLOSED"
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
-active_work:
-  - id: "LH-RECOVERY-1A-TASKS-7-8"
-    track: "research_product_eval"
-    status: "SEPARATE_BRANCH_ACTIVE / TASKS_7_8_IMPLEMENTATION_ONLY / NO_D2 / NO_FORMAL_RESULT"
-    purpose: "Implement the public four-arm protocol, frozen failure paths, natural-time phase machinery and mechanical adjudicator required before any future child experiment."
-    immutable_inputs: "Combined-D1 candidate 7410a06, accepted v5 binding, one-shot 432-case corpus and oracle PASS 432/432."
-    write_scope: "Only protocol.py, cli.py and test_lh1a_protocol.py on codex/lh1a-task7-8-20260715."
-    forbidden: "Frozen D1/corpus/oracle mutation, corpus regeneration, oracle rerun, D2 construction, formal outcome run, CURRENT_STATE claim upgrade from that lane, merge or release."
-    source: "../.agent_runs/lh-recovery-1a-task7-8-20260715/goal_card.md"
+active_work: []
 
 parked_work:
+  - id: "LH-RECOVERY-1A-FULL-SUCCESSOR"
+    track: "research_product_eval"
+    status: "PARK_LH_ROUTE / TASK7_ACCEPTED / TASK8_REVISE / V5_SEMANTICALLY_MATERIALIZED_NON_EXECUTABLE / NO_D2 / NO_FORMAL_RESULT"
+    blocker: "v5 freezes semantic objects and one abstract final response per case, but no exact workspace/test bytes, phase-distinct Product provider contract, action-bearing trusted harness or atomic phase execution. A full successor also remains vulnerable to the same-information schedule-dispatcher reduction."
+    reactivation: "Only after measured Customer-0 evidence identifies recovery/correction as a high-value bottleneck or founder explicitly casts a narrow Product recovery falsifier; start with a 36-episode non-result discriminator, not a new 432-case run."
+    source: "../.agent_runs/lh-recovery-1a-task7-8-20260715/founder-portfolio-cast-20260715.md"
   - id: "T-P-OS-SPINE-1"
     track: "product"
     status: "PARK / DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
@@ -151,6 +149,12 @@ parked_work:
     source: "../docs/research/founder-decision-2026-07-14-governed-core-evolution.md"
 
 recently_completed:
+  - id: "LH-RECOVERY-1A-TASK7-TASK8-DISPOSITION"
+    track: "research_product_eval"
+    status: "TASK7_ACCEPTED_AND_INTEGRATED / TASK8_MECHANICAL_CANDIDATE_REVISE / D1_EXECUTION_CONTRACT_GAP_RECAST_REQUIRED / FULL_SUCCESSOR_PARK"
+    result: "Task 7 public protocol primitives were independently accepted and integrated at 6f1ed4b. Task 8 candidate 9b5d47a passed focused/adjacent/quality checks but failed phase-action atomicity review; deeper audit showed v5 has no pre-frozen Product execution codec/provider contract. No D2 or formal outcome was created."
+    boundary: "Task 8 aggregation/adjudication code and a successor executable-contract design may be reused only as reviewed candidates. v5's 432/432 semantic oracle remains historical prerequisite evidence and cannot become Product-path run authority."
+    source: "../.agent_runs/lh-recovery-1a-task7-8-20260715/cto-route-decision-execution-contract-recast.md"
   - id: "SPINE-E2E-1-THROUGH-4"
     track: "product_eval"
     status: "BRANCH_CONTAINED_EVIDENCE / E2E_1_INVALID / E2E_2_INVALID / E2E_3_INVALID / E2E_4_BOUNDED_PASS"
@@ -186,13 +190,13 @@ blockers:
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "No non-oracle real-world structure/mechanism discovery result closes the current gap."
-    - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; the 432/432 oracle is prerequisite validation only."
+    - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "B1 training/result run remains unauthorized."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
     - "This authority convergence exists only on codex/canonical-convergence-20260715 until independent review and explicit merge; no push, main merge or release is implied."
-    - "LH Tasks 7/8, the accepted B1 harness and RTM-1 resource-v4 implementation remain separate-branch evidence and are not integrated into this branch."
+    - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
 
 claim_boundaries:
   product:
@@ -210,11 +214,11 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Complete and independently review LH-RECOVERY-1A Tasks 7/8 on their isolated branch without changing frozen D1/corpus/oracle bytes and without constructing D2 or running a formal outcome."
+    action: "Keep full successor LH parked. Reactivate only a narrow Product recovery discriminator after measured Customer-0 need or explicit founder recast; do not patch v5 or inherit N=432."
   - priority: 2
-    action: "Preserve the completed B1 falsifier baseline at SANDBOX_ONLY / NO_TRAINING; admit no training or result-bearing stage without a new founder gate."
+    action: "Use the portfolio's active Customer-0 human strong-baseline lane to identify real Product bottlenecks; this repository has no replacement implementation lane until that evidence or a separate founder cast arrives."
   - priority: 3
-    action: "Preserve RTM-1 resource-v4 at separate-branch implementation acceptance; do not benchmark, freeze, generate a seed or run without separate authority."
+    action: "Preserve the completed B1 falsifier baseline at SANDBOX_ONLY / NO_TRAINING and RTM-1 resource-v4 at NOT_BENCHMARKED / NOT_RUN."
   - priority: 4
     action: "Keep SPINE-1 unexecuted until every ADR-0054 gate and explicit founder push/merge authorization are present."
 
@@ -246,6 +250,8 @@ source_refs:
   current_research:
     - "../.agent_runs/lh-recovery-1a-combined-d1-v5-20260715/messages.jsonl"
     - "../.agent_runs/lh-recovery-1a-task7-8-20260715/goal_card.md"
+    - "../.agent_runs/lh-recovery-1a-task7-8-20260715/cto-route-decision-execution-contract-recast.md"
+    - "../.agent_runs/lh-recovery-1a-task7-8-20260715/founder-portfolio-cast-20260715.md"
     - "feat/b1-sandbox-harness-20260713 at 02b904cc7ad94d8ab430e9fc789563d0dbc9a5de"
     - "codex/itc1-stage0-harness-20260713 at 9c450f5ce7929899e18c4d49f68b7a88dd406422"
     - "../docs/research/founder-decision-2026-07-13-reopen-b1-sandbox-only.md"
@@ -256,9 +262,9 @@ source_refs:
 freshness:
   checked_at: "2026-07-15"
   branch: "codex/canonical-convergence-20260715"
-  clean_base_head: "7410a06df3182ec59da1d421916b5bf8086ea8c4"
-  authority_source_commit: "4ee868d5d419a786c0f8339fffbccbcdf828a79e"
+  clean_base_head: "6f1ed4bb0f0a698dbbdf2365d71fd2eff4665541"
+  authority_source_commit: "c1035fae33a3709dfc9d669843cb281ad6dd76e2"
   merge_base: "065ff8b57969e99835d7fe40e0641022b4ea0cf6"
-  commit_state: "THIS_FILE_IS_PART_OF_THE_CANONICAL_CONVERGENCE_FEATURE_COMMIT"
+  commit_state: "THIS_FILE_IS_PART_OF_THE_CURRENT_TASK8_RECAST_TRUTH_SYNC"
   merge_scope: "The no-commit merge produced conflicts only in AGENTS.md, codebase_index.md, docs/CURRENT_STATE.yaml and docs/PROJECT_PLAN.md; no runtime, test, preregistration, frozen result or research-result path conflicted."
-  evidence_separation: "SPINE/LH D1 ancestry is branch-contained; LH v5 receipts are run-ledger evidence; B1 and RTM-1 are separate-branch accepted evidence. None is a release, migration, D2 or general-autonomy claim."
+  evidence_separation: "SPINE/LH D1 ancestry and Task 7 are branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch candidate/accepted evidence. None is a release, migration, D2 or general-autonomy claim."
