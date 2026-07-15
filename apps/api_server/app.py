@@ -87,6 +87,11 @@ from agent_os_core import (
 )
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
+from .data_agent_report_adapter import (
+    DataAgentReportAdapter,
+    TrustedObservationBundle,
+)
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -105,6 +110,7 @@ class AgentOSApplication:
         promotion_grant: CapabilityGrant | None = None,
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
+        data_agent_reports: DataAgentReportAdapter | None = None,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -120,8 +126,29 @@ class AgentOSApplication:
         self._configuration_lock = RLock()
         self.store = SQLiteTaskEventStore(database)
         self.tasks = TaskService(self.store, clock=self._clock)
+        if (
+            situational_trust is not None
+            and data_agent_reports is not None
+            and situational_trust is not data_agent_reports
+        ):
+            raise ValueError(
+                "data_agent_reports must be the configured situational trust resolver"
+            )
+        if data_agent_reports is not None and data_agent_reports.principal_scope != (
+            self.principal.principal_id,
+            self.principal.tenant_id,
+            self.principal.workspace_id,
+        ):
+            raise SituationalScopeMismatch(
+                "Data Agent report source scope does not match application principal"
+            )
+        if data_agent_reports is not None and not data_agent_reports.has_durable_state:
+            raise ValueError(
+                "Data Agent report source requires durable first-seen state"
+            )
+        self.data_agent_reports = data_agent_reports
         self.operational_proposals = OperationalProposalCompiler(
-            situational_trust,
+            situational_trust or data_agent_reports,
             principal_id=self.principal.principal_id,
         )
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
@@ -509,6 +536,11 @@ class AgentOSApplication:
 
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
+
+    def observe_data_agent_report(self, trace_id: str) -> TrustedObservationBundle:
+        if self.data_agent_reports is None:
+            raise RuntimeError("Data Agent external report source is not configured")
+        return self.data_agent_reports.pull(trace_id)
 
     def propose_situated_work(
         self,

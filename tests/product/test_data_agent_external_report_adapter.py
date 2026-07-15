@@ -1,0 +1,920 @@
+from __future__ import annotations
+
+import hashlib
+import inspect
+import json
+import threading
+import time
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, Callable
+
+import pytest
+
+from agent_os_contracts import (
+    CredentialRef,
+    CredentialStatus,
+    PrincipalIdentity,
+    PrincipalRole,
+    RelevanceAssessment,
+    RelevanceDisposition,
+    RelevanceUrgency,
+    TaskDraftProposal,
+)
+from apps.api_server.app import AgentOSApplication
+from apps.api_server.data_agent_report_adapter import (
+    DataAgentReportAdapter,
+    DataAgentReportAdapterError,
+    DataAgentReportConflict,
+    DataAgentReportHttpRequest,
+    DataAgentReportHttpResponse,
+    DataAgentReportSourceConfig,
+    DataAgentReportStateStore,
+    SQLiteDataAgentReportStateStore,
+)
+from agent_os_core import SituationalScopeMismatch
+
+
+NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+TRACE_ID = "trace-123"
+SECRET = "secret-value-that-must-not-leak"
+
+
+def _report_bytes(
+    *,
+    trace_id: str = TRACE_ID,
+    audience: str = "external",
+    authority_payload: bool = False,
+) -> bytes:
+    payload: dict[str, object] = {
+        "trace_id": trace_id,
+        "audience": audience,
+        "user_result": {
+            "artifact_id": "artifact:data-result",
+            "kind": "data_agent_result",
+            "title": "GMV analysis result",
+            "trace_id": trace_id,
+            "evidence_chain_id": "evidence:data-result",
+            "question": "What changed?",
+            "metric_name": "gmv",
+            "audience": audience,
+            "redaction": {
+                "audience": audience,
+                "applied": True,
+                "data_classification": "external",
+                "redacted_fields": ["internal_reasoning"],
+            },
+            "action_proposal_id": "data-action-proposal:1",
+            "analysis": {
+                "summary": "One governed row was returned.",
+                "confidence": 0.5,
+                "confidence_inputs": None,
+                "limitations": ["Source freshness is unknown."],
+                "row_count": 1,
+                "evidence_chain_id": "evidence:data-result",
+            },
+            "report": {
+                "title": "Evidence-backed report",
+                "evidence_cards": [],
+                "sections": [],
+            },
+            "dashboard": {"title": "GMV dashboard", "widgets": []},
+            "decision": {
+                "recommendation": "Review the result.",
+                "reason": "A governed observation exists.",
+                "expected_impact": "No automatic effect.",
+                "risk_level": "R3",
+                "action_proposal_id": "data-action-proposal:1",
+                "approval_required": True,
+                "approver_role": "Business Owner",
+                "confidence": 0.5,
+                "knowledge_context_refs": [],
+                "knowledge_context_rationale": [],
+                "alternatives": [],
+                "single_option_rationale": None,
+            },
+            "business_action": {
+                "connector_name": "action_record",
+                "action_type": "execute",
+                "risk_level": "R3",
+                "approval_required": True,
+                "approver_role": "Business Owner",
+                "trace_id": trace_id,
+                "evidence_chain_id": "evidence:data-result",
+                "approval_id": "approval:data-only",
+                "operation_id": None,
+                "status": "PROPOSED",
+                "row_count": 1,
+            },
+        },
+    }
+    if authority_payload:
+        payload["workflow"] = {"execute": True}
+        payload["capability_grant"] = {"scope": "workspace:write"}
+        payload["task"] = {"activate": True}
+    return json.dumps(payload, separators=(",", ":"), sort_keys=False).encode()
+
+
+class _Broker:
+    def __init__(self) -> None:
+        self.resolved: list[CredentialRef] = []
+
+    def resolve(self, credential: CredentialRef) -> str:
+        self.resolved.append(credential)
+        return SECRET
+
+
+class _Transport:
+    def __init__(
+        self,
+        response: DataAgentReportHttpResponse
+        | Callable[[DataAgentReportHttpRequest], DataAgentReportHttpResponse],
+    ) -> None:
+        self.response = response
+        self.requests: list[DataAgentReportHttpRequest] = []
+
+    def fetch(self, request: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+        self.requests.append(request)
+        if callable(self.response):
+            return self.response(request)
+        return self.response
+
+
+def _credential(**updates: object) -> CredentialRef:
+    values: dict[str, Any] = {
+        "credential_ref_id": "credential:data-agent-report",
+        "owner_principal_id": "user:local",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "provider_id": "data-agent-external-report",
+        "resolver_key": "DATA_AGENT_EXTERNAL_REPORT_KEY",
+        "scopes": (
+            "reports:read",
+            "data-agent-origin:http://127.0.0.1:8765",
+            "data-agent-tenant:data-tenant-1",
+        ),
+        "status": CredentialStatus.ACTIVE,
+        "created_at": NOW - timedelta(days=1),
+        "expires_at": NOW + timedelta(days=1),
+    }
+    values.update(updates)
+    return CredentialRef(**values)
+
+
+def _config(**updates: object) -> DataAgentReportSourceConfig:
+    values: dict[str, Any] = {
+        "source_id": "source:data-agent-local",
+        "base_url": "http://127.0.0.1:8765",
+        "source_tenant_id": "data-tenant-1",
+        "credential": _credential(),
+        "principal_id": "user:local",
+        "target_tenant_id": "tenant:local",
+        "target_workspace_id": "workspace:local",
+        "mandate_id": "mandate:build-agent-os",
+        "environment_binding_id": "binding:data-agent-reports",
+        "scope_ref": "mission:agent-os/product",
+        "allow_loopback_http": True,
+        "timeout_seconds": 3,
+        "max_response_bytes": 16_384,
+        "freshness_seconds": 300,
+    }
+    values.update(updates)
+    return DataAgentReportSourceConfig(**values)
+
+
+def _response(
+    body: bytes | None = None,
+    *,
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+    final_url: str | None = None,
+) -> DataAgentReportHttpResponse:
+    return DataAgentReportHttpResponse(
+        status_code=status_code,
+        headers=headers
+        or {
+            "Content-Type": "application/json; charset=utf-8",
+            "Content-Encoding": "identity",
+        },
+        body=body if body is not None else _report_bytes(),
+        final_url=final_url
+        or "http://127.0.0.1:8765/runs/trace-123/report?audience=external",
+    )
+
+
+def _adapter(
+    *,
+    response: DataAgentReportHttpResponse | None = None,
+    config: DataAgentReportSourceConfig | None = None,
+    state_store: DataAgentReportStateStore | None = None,
+    now: datetime = NOW,
+) -> tuple[DataAgentReportAdapter, _Broker, _Transport]:
+    broker = _Broker()
+    transport = _Transport(response or _response())
+    adapter = DataAgentReportAdapter(
+        config or _config(),
+        credential_broker=broker,
+        transport=transport,
+        state_store=state_store,
+        clock=lambda: now,
+    )
+    return adapter, broker, transport
+
+
+def _assessment(adapter: DataAgentReportAdapter, bundle) -> RelevanceAssessment:
+    return RelevanceAssessment(
+        assessment_id="assessment:data-report-1",
+        environment_event_id=bundle.event.environment_event_id,
+        event_observation_digest=bundle.event.observation.content_digest,
+        projection_id=bundle.projection.projection_id,
+        projection_digest=bundle.projection.projection_artifact.content_digest,
+        mandate_id="mandate:build-agent-os",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        disposition=RelevanceDisposition.CREATE_TASK,
+        uncertainty_summary="The external report is grounded but needs bounded review.",
+        urgency=RelevanceUrgency.MEDIUM,
+        expected_loss_of_delay="A material result may go unreviewed.",
+        attention_budget_seconds=600,
+        rationale="A new trusted external report may affect the product commitment.",
+        evidence_ids=tuple(
+            sorted(
+                {
+                    *(item.evidence_id for item in bundle.event.evidence),
+                    *(item.evidence_id for item in bundle.projection.evidence),
+                }
+            )
+        ),
+        proposed_goal_statement="Review the external report without activating work.",
+        assessed_at=NOW,
+    )
+
+
+def test_security_envelope_enters_application_as_trusted_proposal_without_task_write(
+    tmp_path,
+) -> None:
+    adapter, broker, transport = _adapter(
+        now=NOW - timedelta(seconds=1),
+        state_store=SQLiteDataAgentReportStateStore(
+            tmp_path / "data-agent-state.sqlite3"
+        ),
+    )
+    app = AgentOSApplication(
+        database=tmp_path / "agent-os.sqlite3",
+        workspace=tmp_path,
+        principal=PrincipalIdentity(
+            principal_id="user:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=NOW - timedelta(minutes=1),
+        ),
+        data_agent_reports=adapter,
+        clock=lambda: NOW,
+    )
+    bundle = app.observe_data_agent_report(TRACE_ID)
+    assert (bundle.event.tenant_id, bundle.event.workspace_id) == (
+        app.principal.tenant_id,
+        app.principal.workspace_id,
+    )
+
+    result = app.propose_situated_work(
+        bundle.event.model_dump(mode="json"),
+        bundle.projection.model_dump(mode="json"),
+        _assessment(adapter, bundle).model_dump(mode="json"),
+    )
+
+    assert isinstance(result, TaskDraftProposal)
+    assert result.activation_authorized is False
+    assert result.external_effects_authorized is False
+    assert app.store.list_task_ids() == ()
+    assert len(broker.resolved) == 1
+    assert transport.requests[0].headers == {
+        "Accept": "application/json",
+        "Accept-Encoding": "identity",
+        "X-API-Key": SECRET,
+        "X-Tenant-Id": "data-tenant-1",
+    }
+    assert transport.requests[0].url.endswith(
+        "/runs/trace-123/report?audience=external"
+    )
+
+
+def test_digest_is_sha256_of_exact_stored_bytes() -> None:
+    exact = b'{"trace_id":"trace-123", "audience":"external","user_result":{"trace_id":"trace-123","audience":"external","redaction":{"audience":"external","applied":true},"business_action":{"trace_id":"trace-123"}}}\n'
+    adapter, _, _ = _adapter(response=_response(exact))
+
+    bundle = adapter.pull(TRACE_ID)
+    resolved = adapter.resolve_artifact(bundle.artifact.artifact_id)
+
+    assert bundle.artifact.content_digest == hashlib.sha256(exact).hexdigest()
+    assert resolved == (bundle.artifact, exact)
+
+
+def test_pull_surface_accepts_only_trace_id_and_uses_frozen_scope() -> None:
+    signature = inspect.signature(DataAgentReportAdapter.pull)
+    assert tuple(signature.parameters) == ("self", "trace_id")
+    adapter, _, _ = _adapter()
+
+    bundle = adapter.pull(TRACE_ID)
+
+    assert bundle.event.tenant_id == "tenant:local"
+    assert bundle.event.workspace_id == "workspace:local"
+    assert bundle.event.mandate_id == "mandate:build-agent-os"
+    assert bundle.event.environment_binding_id == "binding:data-agent-reports"
+
+
+@pytest.mark.parametrize(
+    "trace_id",
+    ["../escape", "nested/path", "encoded%2fpath", " leading", "line\nbreak"],
+)
+def test_trace_id_cannot_escape_fixed_report_path(trace_id: str) -> None:
+    adapter, broker, transport = _adapter()
+
+    with pytest.raises(DataAgentReportAdapterError, match="trace_id"):
+        adapter.pull(trace_id)
+
+    assert broker.resolved == []
+    assert transport.requests == []
+
+
+def test_rejects_unapproved_or_non_https_origin_before_resolving_credential() -> None:
+    broker = _Broker()
+    with pytest.raises(DataAgentReportAdapterError, match="HTTPS"):
+        DataAgentReportAdapter(
+            replace(
+                _config(),
+                base_url="http://example.com",
+                allow_loopback_http=False,
+            ),
+            credential_broker=broker,
+            transport=_Transport(_response()),
+            clock=lambda: NOW,
+        )
+    assert broker.resolved == []
+
+
+def test_credential_ref_must_match_frozen_tenant_origin_and_external_scope() -> None:
+    bad_credentials = (
+        _credential(scopes=("reports:read",)),
+        _credential(scopes=("reports:read", "data-agent-tenant:other")),
+        _credential(provider_id="generic-api-key"),
+        _credential(tenant_id="tenant:other"),
+    )
+    for credential in bad_credentials:
+        with pytest.raises(DataAgentReportAdapterError, match="credential"):
+            DataAgentReportAdapter(
+                _config(credential=credential),
+                credential_broker=_Broker(),
+                transport=_Transport(_response()),
+                clock=lambda: NOW,
+            )
+
+    with pytest.raises(DataAgentReportAdapterError, match="tenant id"):
+        DataAgentReportAdapter(
+            _config(source_tenant_id="tenant\r\nX-Evil: injected"),
+            credential_broker=_Broker(),
+            transport=_Transport(_response()),
+            clock=lambda: NOW,
+        )
+
+
+def test_redirect_or_final_origin_change_is_rejected_without_registration() -> None:
+    adapter, _, _ = _adapter(
+        response=_response(
+            status_code=302,
+            headers={"Location": "https://attacker.example/steal"},
+        )
+    )
+    with pytest.raises(DataAgentReportAdapterError, match="status"):
+        adapter.pull(TRACE_ID)
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+    adapter, _, _ = _adapter(
+        response=_response(final_url="https://attacker.example/steal")
+    )
+    with pytest.raises(DataAgentReportAdapterError, match="destination"):
+        adapter.pull(TRACE_ID)
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("response", "message"),
+    [
+        (_response(status_code=404), "status"),
+        (_response(headers={"Content-Type": "text/html"}), "media type"),
+        (
+            _response(
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "gzip",
+                }
+            ),
+            "encoding",
+        ),
+        (_response(body=b"x" * 20_000), "size"),
+    ],
+)
+def test_invalid_http_response_leaves_registry_empty(
+    response: DataAgentReportHttpResponse, message: str
+) -> None:
+    adapter, _, _ = _adapter(response=response)
+
+    with pytest.raises(DataAgentReportAdapterError, match=message):
+        adapter.pull(TRACE_ID)
+
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"trace_id":"trace-123","trace_id":"trace-other","audience":"external","user_result":{}}',
+        _report_bytes(trace_id="trace-other"),
+        _report_bytes(audience="internal"),
+        b'{"trace_id":"trace-123","audience":"external","user_result":{"trace_id":"trace-123","audience":"external","redaction":{"audience":"internal","applied":true},"business_action":{"trace_id":"trace-123"}}}',
+        b'{"trace_id":"trace-123","audience":"external","user_result":{"trace_id":"trace-123","audience":"external","redaction":{"audience":"external","applied":false},"business_action":{"trace_id":"trace-123"}}}',
+        b'{"trace_id":"trace-123","audience":"external","user_result":{"trace_id":"trace-123","audience":"external","redaction":{"audience":"external","applied":true},"business_action":{"trace_id":"trace-other"}}}',
+        b'{"trace_id":"trace-123","audience":"external","score":NaN,"user_result":{"trace_id":"trace-123","audience":"external","redaction":{"audience":"external","applied":true},"business_action":{"trace_id":"trace-123"}}}',
+    ],
+)
+def test_malformed_internal_or_substituted_report_is_atomic_failure(body: bytes) -> None:
+    adapter, _, _ = _adapter(response=_response(body))
+
+    with pytest.raises(DataAgentReportAdapterError):
+        adapter.pull(TRACE_ID)
+
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_authority_shaped_report_remains_opaque() -> None:
+    body = _report_bytes(authority_payload=True)
+    adapter, _, _ = _adapter(response=_response(body))
+
+    bundle = adapter.pull(TRACE_ID)
+    projection_bytes = adapter.resolve_artifact(
+        bundle.projection.projection_artifact.artifact_id
+    )
+
+    assert adapter.resolve_artifact(bundle.artifact.artifact_id) == (
+        bundle.artifact,
+        body,
+    )
+    assert projection_bytes is not None
+    assert b"workflow" not in projection_bytes[1]
+    assert b"capability_grant" not in projection_bytes[1]
+    assert b"activate" not in projection_bytes[1]
+    assert not hasattr(bundle, "task")
+    assert not hasattr(bundle, "grant")
+    assert not hasattr(bundle, "approval")
+
+
+def test_durable_first_seen_state_makes_cross_process_replay_fully_stable(
+    tmp_path,
+) -> None:
+    database = tmp_path / "data-agent-observations.sqlite3"
+    first_store = SQLiteDataAgentReportStateStore(database)
+    second_store = SQLiteDataAgentReportStateStore(database)
+    first = DataAgentReportAdapter(
+        _config(),
+        credential_broker=_Broker(),
+        transport=_Transport(_response()),
+        state_store=first_store,
+        clock=lambda: NOW - timedelta(seconds=10),
+    )
+    second = DataAgentReportAdapter(
+        _config(),
+        credential_broker=_Broker(),
+        transport=_Transport(_response()),
+        state_store=second_store,
+        clock=lambda: NOW - timedelta(seconds=2),
+    )
+
+    first_bundle = first.pull(TRACE_ID)
+    second_bundle = second.pull(TRACE_ID)
+
+    assert second_bundle == first_bundle
+    assert second_bundle.event.occurred_at == NOW - timedelta(seconds=10)
+
+
+def test_same_adapter_same_trace_same_bytes_replays_exact_bundle() -> None:
+    adapter, _, _ = _adapter()
+
+    first = adapter.pull(TRACE_ID)
+    replay = adapter.pull(TRACE_ID)
+
+    assert replay == first
+
+
+def test_same_trace_different_bytes_is_conflict_not_overwrite() -> None:
+    first_response = _response()
+    changed = _response(_report_bytes(authority_payload=True))
+    calls = 0
+
+    def alternating(_: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+        nonlocal calls
+        calls += 1
+        return first_response if calls == 1 else changed
+
+    broker = _Broker()
+    transport = _Transport(alternating)
+    adapter = DataAgentReportAdapter(
+        _config(), credential_broker=broker, transport=transport, clock=lambda: NOW
+    )
+    first = adapter.pull(TRACE_ID)
+
+    with pytest.raises(DataAgentReportConflict):
+        adapter.pull(TRACE_ID)
+
+    assert adapter.resolve_artifact(first.artifact.artifact_id) == (
+        first.artifact,
+        first_response.body,
+    )
+    assert adapter.registry_counts == (2, 2, 1, 1)
+
+
+def test_secret_never_appears_in_safe_error_or_registered_contracts() -> None:
+    def leaking_transport(_: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+        raise RuntimeError(f"request failed with {SECRET}")
+
+    broker = _Broker()
+    adapter = DataAgentReportAdapter(
+        _config(),
+        credential_broker=broker,
+        transport=_Transport(leaking_transport),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(DataAgentReportAdapterError) as exc_info:
+        adapter.pull(TRACE_ID)
+
+    assert SECRET not in str(exc_info.value)
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_response_body_containing_resolved_credential_is_rejected() -> None:
+    payload = json.loads(_report_bytes())
+    payload["debug_echo"] = SECRET
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    adapter, _, _ = _adapter(response=_response(body))
+
+    with pytest.raises(DataAgentReportAdapterError, match="credential material"):
+        adapter.pull(TRACE_ID)
+
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_json_escaped_credential_echo_is_rejected_after_strict_parse() -> None:
+    escaped = "".join(f"\\u{ord(character):04x}" for character in SECRET)
+    body = _report_bytes()[:-1] + f',"debug_echo":"{escaped}"}}'.encode()
+    assert SECRET.encode() not in body
+    adapter, _, _ = _adapter(response=_response(body))
+
+    with pytest.raises(DataAgentReportAdapterError, match="credential material"):
+        adapter.pull(TRACE_ID)
+
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_application_rejects_report_adapter_bound_to_other_principal(tmp_path) -> None:
+    adapter, _, transport = _adapter()
+    other = PrincipalIdentity(
+        principal_id="user:other",
+        tenant_id="tenant:other",
+        workspace_id="workspace:other",
+        role=PrincipalRole.PRINCIPAL,
+        authenticated_at=NOW,
+    )
+
+    with pytest.raises(SituationalScopeMismatch, match="scope does not match"):
+        AgentOSApplication(
+            database=tmp_path / "other.sqlite3",
+            workspace=tmp_path,
+            principal=other,
+            data_agent_reports=adapter,
+            clock=lambda: NOW,
+        )
+
+    assert transport.requests == []
+
+
+def test_application_requires_durable_first_seen_state(tmp_path) -> None:
+    adapter, _, _ = _adapter()
+
+    with pytest.raises(ValueError, match="durable first-seen"):
+        AgentOSApplication(
+            database=tmp_path / "agent-os.sqlite3",
+            workspace=tmp_path,
+            data_agent_reports=adapter,
+            clock=lambda: NOW,
+        )
+
+
+def test_default_transport_performs_real_local_read_only_http_round_trip() -> None:
+    received: dict[str, str] = {}
+    body = _report_bytes()
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            received["path"] = self.path
+            received["api_key"] = self.headers.get("X-API-Key", "")
+            received["tenant"] = self.headers.get("X-Tenant-Id", "")
+            received["encoding"] = self.headers.get("Accept-Encoding", "")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Encoding", "identity")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}"
+    credential = _credential(
+        scopes=(
+            "reports:read",
+            f"data-agent-origin:{origin}",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    try:
+        adapter = DataAgentReportAdapter(
+            _config(base_url=origin, credential=credential),
+            credential_broker=_Broker(),
+            clock=lambda: NOW,
+        )
+        bundle = adapter.pull(TRACE_ID)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert bundle.artifact.content_digest == hashlib.sha256(body).hexdigest()
+    assert received == {
+        "path": "/runs/trace-123/report?audience=external",
+        "api_key": SECRET,
+        "tenant": "data-tenant-1",
+        "encoding": "identity",
+    }
+
+
+def test_default_transport_does_not_follow_redirect_or_forward_api_key() -> None:
+    attacker_requests: list[str] = []
+
+    class AttackerHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            attacker_requests.append(self.headers.get("X-API-Key", ""))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    attacker = ThreadingHTTPServer(("127.0.0.1", 0), AttackerHandler)
+    attacker_thread = threading.Thread(target=attacker.serve_forever, daemon=True)
+    attacker_thread.start()
+    attacker_url = f"http://127.0.0.1:{attacker.server_port}/steal"
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(302)
+            self.send_header("Location", attacker_url)
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    source = ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+    source_thread = threading.Thread(target=source.serve_forever, daemon=True)
+    source_thread.start()
+    origin = f"http://127.0.0.1:{source.server_port}"
+    credential = _credential(
+        scopes=(
+            "reports:read",
+            f"data-agent-origin:{origin}",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    try:
+        adapter = DataAgentReportAdapter(
+            _config(base_url=origin, credential=credential),
+            credential_broker=_Broker(),
+            clock=lambda: NOW,
+        )
+        with pytest.raises(DataAgentReportAdapterError, match="status"):
+            adapter.pull(TRACE_ID)
+    finally:
+        source.shutdown()
+        source.server_close()
+        source_thread.join(timeout=2)
+        attacker.shutdown()
+        attacker.server_close()
+        attacker_thread.join(timeout=2)
+
+    assert attacker_requests == []
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_slow_drip_exceeding_total_deadline_fails_without_registration() -> None:
+    body = _report_bytes()
+
+    class SlowHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Encoding", "identity")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            for chunk in (body[:10], body[10:20], body[20:]):
+                try:
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except BrokenPipeError:
+                    return
+                threading.Event().wait(0.7)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}"
+    credential = _credential(
+        scopes=(
+            "reports:read",
+            f"data-agent-origin:{origin}",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    adapter = DataAgentReportAdapter(
+        _config(
+            base_url=origin,
+            credential=credential,
+            timeout_seconds=1,
+        ),
+        credential_broker=_Broker(),
+        clock=lambda: NOW,
+    )
+    try:
+        with pytest.raises(DataAgentReportAdapterError, match="transport failed"):
+            adapter.pull(TRACE_ID)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_slow_response_headers_are_bounded_by_total_wall_clock_deadline() -> None:
+    raw_response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Encoding: identity\r\n\r\n"
+        + _report_bytes()
+    )
+
+    class SlowHeaderHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            for offset in range(0, len(raw_response), 8):
+                try:
+                    self.connection.sendall(raw_response[offset : offset + 8])
+                except OSError:
+                    return
+                threading.Event().wait(0.3)
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), SlowHeaderHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}"
+    credential = _credential(
+        scopes=(
+            "reports:read",
+            f"data-agent-origin:{origin}",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    adapter = DataAgentReportAdapter(
+        _config(base_url=origin, credential=credential, timeout_seconds=1),
+        credential_broker=_Broker(),
+        clock=lambda: NOW,
+    )
+    started = time.monotonic()
+    try:
+        with pytest.raises(DataAgentReportAdapterError, match="transport failed"):
+            adapter.pull(TRACE_ID)
+    finally:
+        elapsed = time.monotonic() - started
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert elapsed < 1.8
+    assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_changed_report_conflict_survives_adapter_restart(tmp_path) -> None:
+    database = tmp_path / "durable-conflict.sqlite3"
+    first = DataAgentReportAdapter(
+        _config(),
+        credential_broker=_Broker(),
+        transport=_Transport(_response()),
+        state_store=SQLiteDataAgentReportStateStore(database),
+        clock=lambda: NOW,
+    )
+    first.pull(TRACE_ID)
+    changed_body = _report_bytes(authority_payload=True)
+    restarted = DataAgentReportAdapter(
+        _config(),
+        credential_broker=_Broker(),
+        transport=_Transport(_response(changed_body)),
+        state_store=SQLiteDataAgentReportStateStore(database),
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+
+    with pytest.raises(DataAgentReportConflict):
+        restarted.pull(TRACE_ID)
+
+    assert restarted.registry_counts == (0, 0, 0, 0)
+
+
+def test_durable_namespace_binds_target_scope_and_mandate(tmp_path) -> None:
+    database = tmp_path / "scoped-observations.sqlite3"
+    first = DataAgentReportAdapter(
+        _config(),
+        credential_broker=_Broker(),
+        transport=_Transport(_response()),
+        state_store=SQLiteDataAgentReportStateStore(database),
+        clock=lambda: NOW,
+    )
+    first_bundle = first.pull(TRACE_ID)
+    other_credential = _credential(
+        owner_principal_id="user:other",
+        tenant_id="tenant:other",
+        workspace_id="workspace:other",
+    )
+    second = DataAgentReportAdapter(
+        _config(
+            credential=other_credential,
+            principal_id="user:other",
+            target_tenant_id="tenant:other",
+            target_workspace_id="workspace:other",
+            mandate_id="mandate:other",
+            environment_binding_id="binding:other",
+        ),
+        credential_broker=_Broker(),
+        transport=_Transport(_response()),
+        state_store=SQLiteDataAgentReportStateStore(database),
+        clock=lambda: NOW + timedelta(seconds=1),
+    )
+
+    second_bundle = second.pull(TRACE_ID)
+
+    assert second_bundle != first_bundle
+    assert second_bundle.event.tenant_id == "tenant:other"
+    assert second_bundle.event.mandate_id == "mandate:other"
+    assert second_bundle.event.environment_binding_id == "binding:other"
+
+
+def test_concurrent_resolver_cannot_observe_partial_registration() -> None:
+    adapter, _, _ = _adapter()
+    artifacts_updated = threading.Event()
+    allow_writer = threading.Event()
+    reader_finished = threading.Event()
+
+    class BlockingDict(dict):
+        def update(self, *args: object, **kwargs: object) -> None:
+            super().update(*args, **kwargs)
+            artifacts_updated.set()
+            allow_writer.wait(timeout=2)
+
+    adapter._artifacts = BlockingDict()  # type: ignore[attr-defined]
+    writer = threading.Thread(target=lambda: adapter.pull(TRACE_ID), daemon=True)
+    writer.start()
+    assert artifacts_updated.wait(timeout=2)
+
+    resolved: list[object] = []
+
+    def read_during_registration() -> None:
+        resolved.append(adapter.resolve_artifact(next(iter(adapter._artifacts))))  # type: ignore[attr-defined]
+        reader_finished.set()
+
+    reader = threading.Thread(target=read_during_registration, daemon=True)
+    reader.start()
+    assert not reader_finished.wait(timeout=0.1)
+    allow_writer.set()
+    writer.join(timeout=2)
+    reader.join(timeout=2)
+
+    assert reader_finished.is_set()
+    assert resolved[0] is not None
+    assert adapter.registry_counts == (2, 2, 1, 1)
