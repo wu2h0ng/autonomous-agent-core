@@ -106,7 +106,7 @@ report_snapshot_events = Table(
     Column("trace_id", String, index=True, nullable=False),
     Column("revision", Integer, nullable=False),
     Column("report_digest", String(64), nullable=False),
-    Column("report_payload", JSON, nullable=False),
+    Column("report_payload", JSON, nullable=True),
     Column("recorded_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint(
         "tenant_id",
@@ -114,6 +114,17 @@ report_snapshot_events = Table(
         "revision",
         name="uq_report_snapshot_events_tenant_trace_revision",
     ),
+)
+
+# Per-tenant/trace serialization row for report event revision allocation.
+# Writers lock this row before comparing the current snapshot and appending an
+# event, eliminating max(revision)+1 races and duplicate replay revisions.
+report_snapshot_event_revisions = Table(
+    "report_snapshot_event_revisions",
+    metadata,
+    Column("tenant_id", String, primary_key=True),
+    Column("trace_id", String, primary_key=True),
+    Column("last_revision", Integer, nullable=False),
 )
 
 # Connector-side action records: the durable side-effect ledger for the

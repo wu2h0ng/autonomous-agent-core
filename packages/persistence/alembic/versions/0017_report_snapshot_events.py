@@ -27,7 +27,6 @@ def upgrade() -> None:
         sa.Column("trace_id", sa.String(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("report_digest", sa.String(length=64), nullable=False),
-        sa.Column("report_payload", sa.JSON(), nullable=False),
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint(
             "tenant_id",

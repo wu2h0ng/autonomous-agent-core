@@ -98,17 +98,15 @@ def _report_event_id(
     revision: int,
     report_digest: str,
 ) -> str:
-    identity = json.dumps(
+    identity_digest = _report_snapshot_digest(
         {
             "tenant_id": tenant_id,
             "trace_id": trace_id,
             "revision": revision,
             "report_digest": report_digest,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"report-event:{hashlib.sha256(identity).hexdigest()}"
+        }
+    )
+    return f"report-event:{identity_digest}"
 
 
 KNOWLEDGE_ASSET_LIFECYCLE_TRACE_STEPS = frozenset(

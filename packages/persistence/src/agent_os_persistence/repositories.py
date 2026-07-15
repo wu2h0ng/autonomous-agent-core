@@ -43,7 +43,9 @@ from agent_os_core import (
 )
 from agent_os_core.policy_engine import AutoExecutionPolicyStorePort
 from agent_os_core.workflow_store import WorkflowInstanceRecord, WorkflowStorePort
-from sqlalchemy import Connection, Engine, func, select
+from sqlalchemy import Connection, Engine, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from . import mappers, schema
 
@@ -71,7 +73,7 @@ def _report_event_id(
     revision: int,
     report_digest: str,
 ) -> str:
-    return _report_snapshot_digest(
+    identity_digest = _report_snapshot_digest(
         {
             "tenant_id": tenant_id,
             "trace_id": trace_id,
@@ -79,6 +81,7 @@ def _report_event_id(
             "report_digest": report_digest,
         }
     )
+    return f"report-event:{identity_digest}"
 
 
 def _conflict_summary(payload: dict[str, object]) -> dict[str, object]:
@@ -363,6 +366,43 @@ class SqlReportSnapshotStore(_SqlStoreBase):
 
     _audiences = {"internal", "external"}
 
+    @staticmethod
+    def _lock_revision_state(conn: Connection, *, tenant_id: str, trace_id: str) -> int:
+        """Serialize report revision comparison/allocation for one tenant trace."""
+
+        table = schema.report_snapshot_event_revisions
+        values = {"tenant_id": tenant_id, "trace_id": trace_id, "last_revision": 0}
+        if conn.dialect.name == "postgresql":
+            statement = (
+                postgresql_insert(table)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=[table.c.tenant_id, table.c.trace_id],
+                    set_={"last_revision": table.c.last_revision},
+                )
+            )
+        elif conn.dialect.name == "sqlite":
+            statement = (
+                sqlite_insert(table)
+                .values(**values)
+                .on_conflict_do_update(
+                    index_elements=[table.c.tenant_id, table.c.trace_id],
+                    set_={"last_revision": table.c.last_revision},
+                )
+            )
+        else:
+            raise RuntimeError("report revision serialization supports only PostgreSQL and SQLite")
+        # The conflict-update path obtains a row lock on PostgreSQL. SQLite
+        # serializes this write transaction. Both locks live until commit.
+        conn.execute(statement)
+        return int(
+            conn.execute(
+                select(table.c.last_revision)
+                .where(table.c.tenant_id == tenant_id)
+                .where(table.c.trace_id == trace_id)
+            ).scalar_one()
+        )
+
     def save(
         self,
         trace_id: str,
@@ -373,6 +413,13 @@ class SqlReportSnapshotStore(_SqlStoreBase):
         table = schema.report_snapshots
         events = schema.report_snapshot_events
         with self._write() as conn:
+            last_revision = None
+            if "external" in snapshots_by_audience:
+                last_revision = self._lock_revision_state(
+                    conn,
+                    tenant_id=tenant_id,
+                    trace_id=trace_id,
+                )
             for audience, snapshot in snapshots_by_audience.items():
                 if audience not in self._audiences:
                     continue
@@ -389,12 +436,9 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                         _report_snapshot_digest(dict(existing[0])) if existing is not None else None
                     )
                     if report_digest != previous_digest:
-                        latest_revision = conn.execute(
-                            select(func.max(events.c.revision))
-                            .where(events.c.tenant_id == tenant_id)
-                            .where(events.c.trace_id == trace_id)
-                        ).scalar_one_or_none()
-                        revision = int(latest_revision or 0) + 1
+                        if last_revision is None:
+                            raise RuntimeError("report revision state was not locked")
+                        revision = last_revision + 1
                         event_id = _report_event_id(
                             tenant_id=tenant_id,
                             trace_id=trace_id,
@@ -404,7 +448,7 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                         conn.execute(
                             events.insert().values(
                                 tenant_id=tenant_id,
-                                event_id=f"report-event:{event_id}",
+                                event_id=event_id,
                                 trace_id=trace_id,
                                 revision=revision,
                                 report_digest=report_digest,
@@ -412,6 +456,13 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                                 recorded_at=_utc_now(),
                             )
                         )
+                        conn.execute(
+                            schema.report_snapshot_event_revisions.update()
+                            .where(schema.report_snapshot_event_revisions.c.tenant_id == tenant_id)
+                            .where(schema.report_snapshot_event_revisions.c.trace_id == trace_id)
+                            .values(last_revision=revision)
+                        )
+                        last_revision = revision
                 values = {
                     "tenant_id": tenant_id,
                     "trace_id": trace_id,
@@ -470,8 +521,13 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                 .order_by(table.c.sequence.asc())
                 .limit(limit + 1)
             ).fetchall()
-        return (
-            tuple(
+        page = []
+        for row in rows[:limit]:
+            if row.report_payload is None:
+                raise RuntimeError(
+                    "legacy report event lacks an immutable payload; replay is required"
+                )
+            page.append(
                 {
                     "sequence": int(row.sequence),
                     "event_id": str(row.event_id),
@@ -481,10 +537,8 @@ class SqlReportSnapshotStore(_SqlStoreBase):
                     "report": copy.deepcopy(dict(row.report_payload)),
                     "recorded_at": row.recorded_at,
                 }
-                for row in rows[:limit]
-            ),
-            len(rows) > limit,
-        )
+            )
+        return tuple(page), len(rows) > limit
 
 
 class SqlActionRecordStore(_SqlStoreBase):

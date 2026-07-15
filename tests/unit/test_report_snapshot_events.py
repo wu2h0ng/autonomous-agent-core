@@ -3,6 +3,10 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import Barrier
 import unittest
 
 _SQLALCHEMY = importlib.util.find_spec("sqlalchemy") is not None
@@ -87,6 +91,83 @@ class InMemoryReportSnapshotEventTest(unittest.TestCase):
 
 @unittest.skipUnless(_SQLALCHEMY, "sqlalchemy not installed")
 class SqlReportSnapshotEventTest(unittest.TestCase):
+    def test_non_ascii_event_identity_matches_in_memory_store(self) -> None:
+        from sqlalchemy import create_engine
+
+        from agent_os_api.outcome_service import InMemoryReportSnapshotStore
+        from agent_os_persistence import SqlReportSnapshotStore, create_all
+
+        payload = {
+            "trace_id": "追踪-一",
+            "audience": "external",
+            "title": "营收分析",
+        }
+        memory_store = InMemoryReportSnapshotStore()
+        memory_store.save("追踪-一", {"external": payload}, tenant_id="租户-甲")
+        memory_events, _ = memory_store.list_events(
+            after_sequence=0,
+            limit=10,
+            tenant_id="租户-甲",
+        )
+
+        engine = create_engine("sqlite://")
+        create_all(engine)
+        sql_store = SqlReportSnapshotStore(engine)
+        sql_store.save("追踪-一", {"external": payload}, tenant_id="租户-甲")
+        sql_events, _ = sql_store.list_events(
+            after_sequence=0,
+            limit=10,
+            tenant_id="租户-甲",
+        )
+
+        self.assertEqual(memory_events[0]["event_id"], sql_events[0]["event_id"])
+
+    def test_concurrent_same_trace_saves_allocate_unique_contiguous_revisions(self) -> None:
+        from sqlalchemy import create_engine
+
+        from agent_os_persistence import SqlReportSnapshotStore, create_all
+
+        worker_count = 8
+        barrier = Barrier(worker_count)
+        with TemporaryDirectory() as tmpdir:
+            database = Path(tmpdir) / "report-events.sqlite3"
+            engine = create_engine(
+                f"sqlite:///{database}",
+                connect_args={"check_same_thread": False, "timeout": 30},
+            )
+            create_all(engine)
+            store = SqlReportSnapshotStore(engine)
+
+            def save_revision(value: int) -> None:
+                barrier.wait()
+                store.save(
+                    "trace-race",
+                    {
+                        "external": {
+                            "trace_id": "trace-race",
+                            "audience": "external",
+                            "value": value,
+                        }
+                    },
+                    tenant_id="tenant-a",
+                )
+
+            with ThreadPoolExecutor(max_workers=worker_count) as executor:
+                list(executor.map(save_revision, range(worker_count)))
+
+            events, has_more = store.list_events(
+                after_sequence=0,
+                limit=worker_count + 1,
+                tenant_id="tenant-a",
+            )
+
+        self.assertFalse(has_more)
+        self.assertEqual([event["revision"] for event in events], list(range(1, 9)))
+        self.assertEqual(
+            {event["report"]["value"] for event in events},
+            set(range(worker_count)),
+        )
+
     def test_events_survive_fresh_store_instance_and_deduplicate_exact_replay(self) -> None:
         from sqlalchemy import create_engine
         from sqlalchemy.pool import StaticPool
