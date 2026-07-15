@@ -491,6 +491,40 @@ def test_passive_poll_reuses_durable_cursor_after_restart(tmp_path) -> None:
     )
 
 
+def test_passive_poll_rejects_non_progressing_page(tmp_path) -> None:
+    cursor = "opaque-cursor-1"
+    feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
+
+    def response_for(request: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse:
+        return _response(feed, final_url=request.url)
+
+    broker = _Broker()
+    transport = _Transport(response_for)
+    adapter = DataAgentReportAdapter(
+        _config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        credential_broker=broker,
+        transport=transport,
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "progress.sqlite3"),
+        clock=lambda: NOW,
+    )
+    adapter.poll_once(limit=1)
+
+    with pytest.raises(DataAgentReportAdapterError, match="progress"):
+        adapter.poll_once(limit=1)
+
+    assert adapter.feed_cursor == cursor
+    assert len(transport.requests) == 2
+
+
 def test_application_passive_poll_never_creates_task(tmp_path) -> None:
     cursor = "opaque-cursor-1"
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)

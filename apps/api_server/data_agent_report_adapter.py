@@ -892,7 +892,6 @@ class DataAgentReportAdapter:
             bundles: list[TrustedObservationBundle] = []
             for event in events:
                 trace_id = event["trace_id"]
-                cursor = event["cursor"]
                 report = event["report"]
                 supplied_digest = event["content_sha256"]
                 body = canonical_json(report).encode("utf-8")
@@ -904,7 +903,7 @@ class DataAgentReportAdapter:
                 self._validate_report_contract(report, trace_id)
                 bundles.append(
                     self._ingest_report(
-                        observation_key=f"feed:{cursor}",
+                        observation_key=f"feed:{trace_id}:{actual_digest}",
                         trace_id=trace_id,
                         body=body,
                         raw_digest=actual_digest,
@@ -1028,6 +1027,13 @@ class DataAgentReportAdapter:
             if next_cursor != events[-1]["cursor"]:
                 raise DataAgentReportAdapterError(
                     "external report feed next cursor is not the page tail"
+                )
+            if prior_cursor is not None and (
+                next_cursor == prior_cursor
+                or any(event["cursor"] == prior_cursor for event in events)
+            ):
+                raise DataAgentReportAdapterError(
+                    "external report feed page did not make cursor progress"
                 )
         elif next_cursor != prior_cursor:
             raise DataAgentReportAdapterError(
