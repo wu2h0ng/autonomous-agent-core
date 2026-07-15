@@ -34,15 +34,26 @@ class DeterministicMutationRegistryTests(unittest.TestCase):
             self.assertTrue(record.mutant_oracle_rejected)
             self.assertTrue(record.public_check_passed)
 
-    def test_public_bundle_never_contains_private_registry_fields(self) -> None:
+    def test_public_bundle_has_only_the_closed_public_field_set(self) -> None:
+        expected_fields = {
+            "case_id",
+            "source_language",
+            "base_snapshot_sha256",
+            "candidate_patch",
+            "public_requirements",
+            "public_checks",
+            "public_manifest_sha256",
+        }
+        private_fields = {"mutation_class", "case_truth", "oracle_id", "fixture_id"}
         for entry in REGISTRY:
             bundle = public_bundle_for_fixture(entry)
-            payload_digest = canonical_digest(bundle.to_mapping())
+            payload = bundle.to_mapping()
+            payload_digest = canonical_digest(payload)
             self.assertRegex(payload_digest, r"^[0-9a-f]{64}$")
-            serialized = str(bundle.to_mapping()).lower()
-            self.assertNotIn("hidden_oracle", serialized)
-            self.assertNotIn("gold_label", serialized)
-            self.assertNotIn(entry.mutation_class.value, serialized)
+            self.assertEqual(set(payload), expected_fields)
+            self.assertTrue(private_fields.isdisjoint(payload))
+            self.assertEqual(payload["case_id"], entry.case_id)
+            self.assertEqual(payload["public_checks"], ["python -m py_compile module.py"])
 
     def test_registry_digest_is_deterministic_and_not_constant(self) -> None:
         first = registry_digest(REGISTRY)

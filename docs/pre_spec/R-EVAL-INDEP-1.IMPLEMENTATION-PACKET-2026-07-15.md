@@ -31,6 +31,7 @@ This batch implements only:
 - exact reviewer identity records with provider fallback forbidden;
 - mutation-builder/oracle-author/reviewer/adjudicator separation guards;
 - public case-bundle rejection of hidden referee paths, labels, and oracle refs;
+- obvious separator/case variants of those private tokens as defense-in-depth;
 - complete Cartesian response-matrix validation without `zip` truncation;
 - unsafe-release, clean-accept, abstention, joint-escape, and non-constant
   residual-correlation primitives;
@@ -58,9 +59,19 @@ Different prompts, served model IDs, checkpoints, or providers are experimental
 cells, not presumed independent identities. A provider fallback changes the cell
 and is therefore forbidden.
 
+Batch-1 deliberately does not require `reviewer_id` uniqueness across arms.
+Cross-arm reuse can be intentional; its exact identity and independence semantics
+must be frozen in the later experiment specification rather than inferred here.
+
 The public bundle contains only opaque case identity, source snapshot digest,
 candidate patch, public requirements, and public checks. Mutation class, truth,
 hidden-oracle identity/path, and expected verdict remain referee-only.
+
+The public-bundle lexical/path guard is defense-in-depth only. It rejects obvious
+snake/camel/separator variants and relative `referee/` paths, but does not claim to
+detect arbitrary encoding, paraphrase, semantic leakage, or steganography. It does
+not replace the still-unimplemented public/referee filesystem isolation, sealed
+manifest review, or independent oracle custody required before a result run.
 
 ## 4. Batch-1 mutation fixtures
 
@@ -113,3 +124,27 @@ Until those exist and freeze, status remains:
 ```text
 HARNESS_IMPLEMENTED_LOCAL != CORPUS_FROZEN != RESULT_RUN != ROUTING_VALIDATED
 ```
+
+## 7. P2 hardening implementation record
+
+This bounded follow-up changed only:
+
+- `experiments/r_eval_indep_1/contracts.py`;
+- `experiments/r_eval_indep_1/metrics.py`;
+- the three directly corresponding test modules; and
+- this implementation packet.
+
+The TDD RED command produced six expected failures: five uncovered lexical/path
+variants and one open-string routing status. The first GREEN run completed 22
+contract, metric, and registry tests. The post-documentation gate recorded:
+
+```text
+targeted unittest modules: 25 tests, OK
+targeted Ruff: All checks passed
+git diff --check: clean
+development validate CLI: NOT_EVIDENCE, provider_calls=0,
+  provider_fallback=FORBIDDEN, result_run_available=false
+```
+
+These verification results do not change the
+`NOT_FROZEN / NOT_RUN / NOT_EVIDENCE` state.

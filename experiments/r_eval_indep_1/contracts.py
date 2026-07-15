@@ -27,6 +27,14 @@ _PUBLIC_LEAK_TOKENS = (
     "mutation_class",
     "case_truth",
 )
+_PUBLIC_COMPACT_LEAK_TOKENS = (
+    "hiddenoracle",
+    "goldlabel",
+    "expectedverdict",
+    "oraclepath",
+    "mutationclass",
+    "casetruth",
+)
 
 
 class ContractValidationError(ValueError):
@@ -320,10 +328,18 @@ class PublicCaseBundle:
                 *self.public_checks,
             )
         ).lower()
-        leaked = [token for token in _PUBLIC_LEAK_TOKENS if token in public_text]
+        compact_text = re.sub(r"[^a-z0-9]+", "", public_text)
+        path_text = public_text.replace("\\", "/")
+        leaked = {token for token in _PUBLIC_LEAK_TOKENS if token in public_text}
+        leaked.update(
+            token for token in _PUBLIC_COMPACT_LEAK_TOKENS if token in compact_text
+        )
+        if "referee/" in path_text:
+            leaked.add("referee/")
         if leaked:
             raise ContractValidationError(
-                f"public case bundle leaks private referee metadata: {leaked}"
+                "public case bundle leaks private referee metadata: "
+                f"{sorted(leaked)}"
             )
 
     def to_mapping(self) -> dict[str, Any]:

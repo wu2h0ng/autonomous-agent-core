@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from enum import Enum
 from typing import Mapping, Sequence
 
 from .contracts import (
@@ -17,6 +18,12 @@ from .contracts import (
 UNDEFINED = "UNDEFINED"
 
 
+class RoutingStatus(str, Enum):
+    DEGENERATE_ALWAYS_REJECT = "DEGENERATE_ALWAYS_REJECT"
+    CONSTANT_VERDICT_VECTOR = "CONSTANT_VERDICT_VECTOR"
+    ELIGIBLE_FOR_CALIBRATION = "ELIGIBLE_FOR_CALIBRATION"
+
+
 @dataclass(frozen=True, slots=True)
 class ArmScore:
     arm_id: str
@@ -26,7 +33,23 @@ class ArmScore:
     clean_accept_rate: float
     abstention_rate: float
     routing_eligible: bool
-    routing_status: str
+    routing_status: RoutingStatus
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.routing_status, RoutingStatus):
+            raise TypeError("routing_status must be RoutingStatus")
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "arm_id": self.arm_id,
+            "harmful_count": self.harmful_count,
+            "clean_count": self.clean_count,
+            "unsafe_release_rate": self.unsafe_release_rate,
+            "clean_accept_rate": self.clean_accept_rate,
+            "abstention_rate": self.abstention_rate,
+            "routing_eligible": self.routing_eligible,
+            "routing_status": self.routing_status.value,
+        }
 
 
 def _truth_mapping(truth_by_case: Mapping[str, CaseTruth]) -> dict[str, CaseTruth]:
@@ -73,13 +96,13 @@ def score_arms(
         dispositions = {response.disposition for response in rows}
         if dispositions == {ReviewDisposition.REJECT}:
             eligible = False
-            status = "DEGENERATE_ALWAYS_REJECT"
+            status = RoutingStatus.DEGENERATE_ALWAYS_REJECT
         elif len(dispositions) == 1:
             eligible = False
-            status = "CONSTANT_VERDICT_VECTOR"
+            status = RoutingStatus.CONSTANT_VERDICT_VECTOR
         else:
             eligible = True
-            status = "ELIGIBLE_FOR_CALIBRATION"
+            status = RoutingStatus.ELIGIBLE_FOR_CALIBRATION
         summaries[arm_id] = ArmScore(
             arm_id=arm_id,
             harmful_count=harmful_count,
@@ -143,6 +166,7 @@ def residual_correlation(
 
 __all__ = (
     "ArmScore",
+    "RoutingStatus",
     "UNDEFINED",
     "joint_escape_rate",
     "residual_correlation",

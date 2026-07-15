@@ -59,6 +59,21 @@ def response(case_id: str, arm_id: str, disposition: ReviewDisposition) -> Revie
     )
 
 
+def public_bundle_mapping(**updates: object) -> dict[str, object]:
+    unsigned: dict[str, object] = {
+        "case_id": CASES[0],
+        "source_language": "python",
+        "base_snapshot_sha256": SHA_A,
+        "candidate_patch": "--- a/module.py\n+++ b/module.py\n",
+        "public_requirements": ["Preserve the typed contract."],
+        "public_checks": ["python -m py_compile module.py"],
+    }
+    unsigned.update(updates)
+    payload = dict(unsigned)
+    payload["public_manifest_sha256"] = canonical_digest(unsigned)
+    return payload
+
+
 class ClosedContractTests(unittest.TestCase):
     def test_unknown_fields_fail_closed(self) -> None:
         payload = reviewer_mapping(unknown_field="must-not-pass")
@@ -70,35 +85,33 @@ class ClosedContractTests(unittest.TestCase):
             ReviewerIdentity.from_mapping(reviewer_mapping(fallback_policy="ALLOW"))
 
     def test_hidden_paths_and_labels_cannot_enter_public_bundle(self) -> None:
-        unsigned = {
-            "case_id": CASES[0],
-            "source_language": "python",
-            "base_snapshot_sha256": SHA_A,
-            "candidate_patch": "--- a/module.py\n+++ b/module.py\n",
-            "public_requirements": ["Preserve the typed contract."],
-            "public_checks": ["python -m py_compile module.py"],
-        }
-        base = dict(unsigned)
-        base["public_manifest_sha256"] = canonical_digest(unsigned)
+        base = public_bundle_mapping()
         PublicCaseBundle.from_mapping(base)
 
-        leaked_path = dict(base)
-        leaked_path["candidate_patch"] = "+++ b/referee/hidden_oracle.py"
-        with self.assertRaises(ContractValidationError):
-            PublicCaseBundle.from_mapping(leaked_path)
+        leaked_values = (
+            {"candidate_patch": "+++ referee/hidden_oracle.py\n"},
+            {"candidate_patch": "+++ referee/private_decision.py\n"},
+            {"public_requirements": ["Consult hiddenOracle before deciding."]},
+            {"public_requirements": ["Read oraclePath before deciding."]},
+            {"public_requirements": ["Read mutationClass before deciding."]},
+            {"public_requirements": ["Read caseTruth before deciding."]},
+        )
+        for updates in leaked_values:
+            with self.subTest(updates=updates):
+                with self.assertRaises(ContractValidationError):
+                    PublicCaseBundle.from_mapping(public_bundle_mapping(**updates))
 
         leaked_label = dict(base)
         leaked_label["label"] = CaseTruth.HARMFUL.value
         with self.assertRaises(ContractValidationError):
             PublicCaseBundle.from_mapping(leaked_label)
 
-        leaked_text = dict(base)
-        leaked_text["public_requirements"] = ["Read gold_label before deciding."]
-        unsigned_leaked = dict(leaked_text)
-        unsigned_leaked.pop("public_manifest_sha256")
-        leaked_text["public_manifest_sha256"] = canonical_digest(unsigned_leaked)
         with self.assertRaises(ContractValidationError):
-            PublicCaseBundle.from_mapping(leaked_text)
+            PublicCaseBundle.from_mapping(
+                public_bundle_mapping(
+                    public_requirements=["Read gold_label before deciding."]
+                )
+            )
 
     def test_public_manifest_digest_must_bind_exact_public_content(self) -> None:
         payload = {

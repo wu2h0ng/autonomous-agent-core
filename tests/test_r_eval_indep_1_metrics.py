@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from enum import Enum
 
 from experiments.r_eval_indep_1.contracts import (
     CaseTruth,
@@ -79,6 +80,25 @@ class ScoreMetricTests(unittest.TestCase):
         self.assertEqual(summary.clean_accept_rate, 0.0)
         self.assertFalse(summary.routing_eligible)
         self.assertEqual(summary.routing_status, "DEGENERATE_ALWAYS_REJECT")
+
+    def test_routing_status_is_closed_enum_with_string_serialization(self) -> None:
+        rows = tuple(
+            row(case_id, "always-reject", ReviewDisposition.REJECT, 0)
+            for case_id in CASES
+        )
+        summary = score_arms(TRUTH, ("always-reject",), rows)["always-reject"]
+        self.assertIsInstance(summary.routing_status, Enum)
+        self.assertEqual(
+            {member.value for member in type(summary.routing_status)},
+            {
+                "DEGENERATE_ALWAYS_REJECT",
+                "CONSTANT_VERDICT_VECTOR",
+                "ELIGIBLE_FOR_CALIBRATION",
+            },
+        )
+        self.assertEqual(
+            summary.to_mapping()["routing_status"], "DEGENERATE_ALWAYS_REJECT"
+        )
 
     def test_constant_verdict_vector_is_not_routing_evidence(self) -> None:
         rows = tuple(
