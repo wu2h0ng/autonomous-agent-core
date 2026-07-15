@@ -58,6 +58,8 @@ class ObservedOutcome(ContractModel):
             self.score is None or not self.evidence_refs
         ):
             raise ValueError("verified outcome requires score and evidence")
+        if self.status is OutcomeStatus.VERIFIED and self.unresolved_gaps:
+            raise ValueError("verified outcome cannot contain unresolved gaps")
         if self.status is OutcomeStatus.UNRESOLVED and not self.unresolved_gaps:
             raise ValueError("unresolved outcome requires at least one unresolved gap")
         return self

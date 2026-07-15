@@ -34,6 +34,7 @@ from agent_os_contracts import (
     Goal,
     HelpRequest,
     OperationalProjectionRef,
+    OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
     ProviderProfile,
@@ -48,6 +49,7 @@ from agent_os_contracts import (
     TaskConfigurationSnapshotCommand,
     TaskEventType,
     TaskDraftProposal,
+    TaskStatus,
     WorkflowGraph,
 )
 from agent_os_core import (
@@ -152,12 +154,14 @@ class AgentOSApplication:
             principal_id=self.principal.principal_id,
         )
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
+        self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self.correction = CorrectionAuthority(
             self.store,
             tenant_id=self.principal.tenant_id,
             workspace_id=self.principal.workspace_id,
             written_by=self.principal.principal_id,
         )
+        self.tasks.bind_correction_reader(self.correction)
         self.candidates = SQLiteCandidateStore(database)
         self.evaluation_receipts = SQLiteCandidateEvaluationStore(database)
         self.promotion_policies = PromotionPolicyRegistry((PromotionPolicyV1(),))
@@ -446,6 +450,7 @@ class AgentOSApplication:
             raise PermissionError("workspace path is outside the local allowlist")
         with self._configuration_lock:
             self.sandbox = WorkspaceSandbox(root, idempotency_store=self.store)
+            self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
             rebuilt_grants = self._build_grants()
             self.grants.clear()
             self.grants.update(rebuilt_grants)
@@ -1032,6 +1037,22 @@ class AgentOSApplication:
 
     def task_json(self, task_id: str) -> dict[str, Any]:
         task = self.tasks.get_task(task_id)
+        current_outcome = self.tasks.current_outcome(task_id)
+        historical_outcome = task.observed_outcome
+        evidence_valid = (
+            current_outcome is not None
+            and current_outcome.status is OutcomeStatus.VERIFIED
+            if historical_outcome is not None
+            and historical_outcome.status is OutcomeStatus.VERIFIED
+            else None
+        )
+        stale_verified = evidence_valid is False
+        current_status = TaskStatus.FAILED if stale_verified else task.status
+        current_run = (
+            task.run.model_copy(update={"status": RunStatus.FAILED})
+            if stale_verified and task.run is not None
+            else task.run
+        )
         events = self.store.read(task_id)
         proposed_action: dict[str, Any] | None = None
         provider_usage: dict[str, Any] | None = None
@@ -1063,7 +1084,7 @@ class AgentOSApplication:
         return {
             "task_id": task.task_id,
             "sequence": task.sequence,
-            "status": task.status.value if task.status else None,
+            "status": current_status.value if current_status else None,
             "goal": task.goal.model_dump(mode="json") if task.goal else None,
             "commitment": task.commitment.model_dump(mode="json")
             if task.commitment
@@ -1071,7 +1092,7 @@ class AgentOSApplication:
             "workflow": task.workflow.model_dump(mode="json")
             if task.workflow
             else None,
-            "run": task.run.model_dump(mode="json") if task.run else None,
+            "run": current_run.model_dump(mode="json") if current_run else None,
             "expected_outcome": task.expected_outcome.model_dump(mode="json")
             if task.expected_outcome
             else None,
@@ -1080,9 +1101,13 @@ class AgentOSApplication:
             )
             if task.configuration_snapshot
             else None,
-            "observed_outcome": task.observed_outcome.model_dump(mode="json")
-            if task.observed_outcome
+            "observed_outcome": current_outcome.model_dump(mode="json")
+            if current_outcome
             else None,
+            "historical_observed_outcome": historical_outcome.model_dump(mode="json")
+            if stale_verified and historical_outcome
+            else None,
+            "outcome_evidence_valid": evidence_valid,
             "approval": task.approval.model_dump(mode="json")
             if task.approval
             else None,

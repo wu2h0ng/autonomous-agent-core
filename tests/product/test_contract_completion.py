@@ -128,6 +128,11 @@ def test_unresolved_outcome_requires_gap() -> None:
         )
 
 
+def test_verified_outcome_rejects_unresolved_gaps() -> None:
+    with pytest.raises(ValidationError, match="verified"):
+        _observed_outcome(unresolved_gaps=("evidence is incomplete",))
+
+
 def test_verified_score_and_confidence_are_independent() -> None:
     outcome = _observed_outcome(score=1.0, confidence=0.2)
 

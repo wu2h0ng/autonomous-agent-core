@@ -190,14 +190,18 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
     assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "after\n"
     assert len(result.artifacts) == 1
     assert result.run is not None
-    report = restarted.tasks.validated_test_report(task.task_id, result.run.run_id)
+    reader = AgentOSApplication(
+        database=tmp_path / "agent-os.sqlite3", workspace=tmp_path
+    )
+    assert reader.task_json(task.task_id)["outcome_evidence_valid"] is True
+    report = reader.tasks.validated_test_report(task.task_id, result.run.run_id)
     assert report is not None
-    report_path = restarted.sandbox.artifacts / report.artifact_ids[0].removeprefix(
+    report_path = reader.sandbox.artifacts / report.artifact_ids[0].removeprefix(
         "artifact:"
     )
     report_path.unlink()
     assert (
-        restarted.tasks.validated_test_report(task.task_id, result.run.run_id) is None
+        reader.tasks.validated_test_report(task.task_id, result.run.run_id) is None
     )
     completed_nodes = {
         event.decoded_payload()["node_id"]
@@ -216,6 +220,19 @@ def test_developer_golden_path_real_read_patch_tests_and_outcome(tmp_path) -> No
     requests = app.provider.requests
     assert len(requests) == 1
     assert requests[0].allowed_capability_ids == ("workspace.apply_patch",)
+
+    historical = reader.tasks.get_task(task.task_id)
+    assert historical.observed_outcome is not None
+    assert historical.observed_outcome.status.value == "VERIFIED"
+    current = reader.tasks.current_outcome(task.task_id)
+    assert current is not None
+    assert current.status.value == "UNRESOLVED"
+    projected = reader.task_json(task.task_id)
+    assert projected["status"] == "FAILED"
+    assert projected["run"]["status"] == "FAILED"
+    assert projected["observed_outcome"]["status"] == "UNRESOLVED"
+    assert projected["historical_observed_outcome"]["status"] == "VERIFIED"
+    assert projected["outcome_evidence_valid"] is False
 
 
 def test_malformed_provider_output_has_zero_file_effects(tmp_path) -> None:

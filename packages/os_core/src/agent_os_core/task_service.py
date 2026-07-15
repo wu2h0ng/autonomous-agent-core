@@ -44,6 +44,7 @@ from .errors import (
     WaitExpiredError,
 )
 from .event_store import TaskEventStore
+from .governance import CorrectionGuard
 from .task_aggregate import TaskAggregate
 
 
@@ -116,10 +117,14 @@ class TaskService:
         self._id_factory = id_factory
         self._clock = clock
         self._artifact_reader = artifact_reader
+        self._correction_reader: CorrectionGuard | None = None
         self._runtime_writer_token = object()
 
     def bind_artifact_reader(self, artifact_reader: ArtifactReader) -> None:
         self._artifact_reader = artifact_reader
+
+    def bind_correction_reader(self, correction_reader: CorrectionGuard) -> None:
+        self._correction_reader = correction_reader
 
     def now(self) -> datetime:
         return self._clock()
@@ -264,6 +269,54 @@ class TaskService:
         if not events:
             raise TaskNotFoundError(f"task not found: {task_id}")
         return TaskAggregate.rehydrate(events)
+
+    def current_outcome(self, task_id: str) -> ObservedOutcome | None:
+        """Project current outcome truth without rewriting historical events."""
+
+        aggregate = self.get_task(task_id)
+        outcome = aggregate.observed_outcome
+        expected = aggregate.expected_outcome
+        run = aggregate.run
+        if (
+            outcome is None
+            or outcome.status is not OutcomeStatus.VERIFIED
+            or expected is None
+            or run is None
+        ):
+            return outcome
+        report = self.validated_test_report(task_id, run.run_id)
+        score = outcome.score
+        evidence_is_current = (
+            report is not None
+            and report.exit_code == 0
+            and set(report.artifact_ids).issubset(outcome.evidence_refs)
+            and score is not None
+            and score == 1.0
+            and score >= expected.threshold
+            and expected.frozen_at <= report.completed_at <= outcome.observed_at
+            and expected.frozen_at
+            <= outcome.observed_at
+            <= expected.frozen_at
+            + timedelta(seconds=expected.observation_window_seconds)
+        )
+        if evidence_is_current:
+            return outcome
+        return ObservedOutcome(
+            observed_outcome_id=f"current-{outcome.observed_outcome_id}",
+            expected_outcome_id=outcome.expected_outcome_id,
+            task_id=outcome.task_id,
+            run_id=outcome.run_id,
+            tenant_id=outcome.tenant_id,
+            workspace_id=outcome.workspace_id,
+            evaluator_type=outcome.evaluator_type,
+            evaluator_version=outcome.evaluator_version,
+            status=OutcomeStatus.UNRESOLVED,
+            score=None,
+            confidence=1.0,
+            evidence_refs=outcome.evidence_refs,
+            unresolved_gaps=("verified evidence is no longer currently valid",),
+            observed_at=self._clock(),
+        )
 
     def append_event(
         self,
@@ -1154,6 +1207,21 @@ class TaskService:
         aggregate = self.get_task(task_id)
         if aggregate.run is None or aggregate.expected_outcome is None:
             raise InvalidTransitionError("outcome requires a committed active run")
+        correction_epochs = None
+        if self._correction_reader is not None:
+            correction_epochs = self._correction_reader.snapshot(
+                task_id,
+                aggregate.run.run_id,
+                "outcome.evaluate",
+            )
+            if self._correction_reader.halted(
+                task_id,
+                aggregate.run.run_id,
+                "outcome.evaluate",
+            ):
+                raise InvalidTransitionError(
+                    "outcome recording is halted by correction authority"
+                )
         expected = aggregate.expected_outcome
         if (
             outcome.expected_outcome_id != expected.expected_outcome_id
@@ -1174,9 +1242,25 @@ class TaskService:
             ):
                 raise InvalidTransitionError(contract_error)
         if outcome.status is OutcomeStatus.VERIFIED:
-            if outcome.score is None or outcome.score < expected.threshold:
+            score = outcome.score
+            if score is None or score != 1.0:
+                raise InvalidTransitionError(
+                    "verified outcome score does not match the trusted pytest score"
+                )
+            if score < expected.threshold:
                 raise InvalidTransitionError(
                     "verified outcome score is below frozen threshold"
+                )
+            now = self._clock()
+            if outcome.observed_at > now:
+                raise InvalidTransitionError(
+                    "verified outcome cannot be observed in the future"
+                )
+            if now > expected.frozen_at + timedelta(
+                seconds=expected.observation_window_seconds
+            ):
+                raise InvalidTransitionError(
+                    "verified outcome observation window is closed"
                 )
             if not (
                 expected.frozen_at
@@ -1207,6 +1291,24 @@ class TaskService:
             if report.completed_at > outcome.observed_at:
                 raise InvalidTransitionError(
                     "verified outcome predates its durable test report"
+                )
+        if self._correction_reader is not None and correction_epochs is not None:
+            with self._correction_reader.guard_unchanged(
+                task_id,
+                aggregate.run.run_id,
+                "outcome.evaluate",
+                correction_epochs,
+            ) as unchanged:
+                if not unchanged:
+                    raise InvalidTransitionError(
+                        "outcome recording is halted by correction authority"
+                    )
+                return self._append_event(
+                    task_id,
+                    TaskEventType.OUTCOME_OBSERVED,
+                    {"outcome": outcome.model_dump(mode="json")},
+                    correlation_id=outcome.run_id,
+                    writer_token=self._runtime_writer_token,
                 )
         return self._append_event(
             task_id,

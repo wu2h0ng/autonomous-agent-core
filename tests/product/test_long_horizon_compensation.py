@@ -627,6 +627,35 @@ def test_not_met_after_worker_restart_compensates_completed_patch(
     assert records[0]["status"] == CompensationStatus.COMPENSATED.value
 
 
+def test_unresolved_after_worker_restart_compensates_completed_patch(
+    tmp_path: Path,
+) -> None:
+    database, task_id = _interrupt_after_patch(tmp_path)
+    restarted = AgentOSApplication(database=database, workspace=tmp_path)
+    restarted.provider = DeterministicProvider()
+    restarted.provider_configured = True
+    restarted.tasks.validated_test_report = (  # type: ignore[method-assign]
+        lambda _task_id, _run_id: None
+    )
+
+    result = restarted.run_task(
+        task_id,
+        {"target_path": "fixture.txt", "test_command": "python -m pytest"},
+        recover_stale_lease=True,
+    )
+
+    assert result.status is TaskStatus.FAILED
+    assert result.observed_outcome is not None
+    assert result.observed_outcome.status.value == "UNRESOLVED"
+    assert (tmp_path / "fixture.txt").read_text(encoding="utf-8") == "before\n"
+    compensated = [
+        event
+        for event in restarted.store.read(task_id)
+        if event.event_type is TaskEventType.ACTION_COMPENSATED
+    ]
+    assert len(compensated) == 1
+
+
 def test_compensation_infrastructure_error_does_not_mask_not_met(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -199,6 +199,7 @@ class RunCoordinator:
         self.tasks = task_service
         self.sandbox = sandbox
         self.tasks.bind_artifact_reader(sandbox.read_artifact_bytes)
+        self.tasks.bind_correction_reader(correction)
         self.broker = CapabilityBroker(sandbox, correction)
         self.provider = provider
         self.provider_profile = provider_profile
@@ -525,7 +526,7 @@ class RunCoordinator:
                 if observed_outcome.status is OutcomeStatus.VERIFIED
                 else TaskEventType.RUN_FAILED,
             )
-            if observed_outcome.status is OutcomeStatus.NOT_MET:
+            if observed_outcome.status is not OutcomeStatus.VERIFIED:
                 self._attempt_automatic_compensation(
                     task_id,
                     principal,
