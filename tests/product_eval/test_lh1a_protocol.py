@@ -662,7 +662,10 @@ def _event(
 
 
 def _apply_event(
-    sequence: int, *, receipt_id: str = "receipt:apply"
+    sequence: int,
+    *,
+    receipt_id: str = "receipt:apply",
+    idempotency_key: str = "idem:one-logical-effect",
 ) -> dict[str, object]:
     return _event(
         sequence,
@@ -672,7 +675,7 @@ def _apply_event(
                 "receipt_id": receipt_id,
                 "connector_id": "workspace.apply_patch",
                 "status": "SUCCEEDED",
-                "idempotency_key": "idem:one-logical-effect",
+                "idempotency_key": idempotency_key,
             }
         },
     )
@@ -746,10 +749,34 @@ def test_all_assigned_failures_require_exact_public_proofs(failure: str) -> None
     assert proof.duplicate_logical_effects == 0
 
 
-def test_post_apply_duplicate_logical_effect_is_detected() -> None:
+def test_post_apply_replayed_receipt_keeps_zero_logical_duplicates_but_is_invalid() -> (
+    None
+):
     protocol = _protocol()
     app = _failure_application("POST_APPLY_WORKER_INTERRUPTED")
-    duplicate = _apply_event(4, receipt_id="receipt:duplicate")
+    replay = _apply_event(4, receipt_id="receipt:replay")
+    app.task_snapshot["events"].append(replay)
+    app.evidence_snapshot.append(replay)
+    proof = protocol.capture_failure_proof(
+        app,
+        "task:failure",
+        "POST_APPLY_WORKER_INTERRUPTED",
+        before_process_id="process:before",
+        after_process_id="process:after",
+    )
+    assert not proof.valid
+    assert proof.duplicate_logical_effects == 0
+    assert "duplicate_effect_count_is_zero" not in proof.observed_public_proofs
+
+
+def test_post_apply_distinct_idempotency_key_is_duplicate_logical_effect() -> None:
+    protocol = _protocol()
+    app = _failure_application("POST_APPLY_WORKER_INTERRUPTED")
+    duplicate = _apply_event(
+        4,
+        receipt_id="receipt:duplicate",
+        idempotency_key="idem:second-logical-effect",
+    )
     app.task_snapshot["events"].append(duplicate)
     app.evidence_snapshot.append(duplicate)
     proof = protocol.capture_failure_proof(

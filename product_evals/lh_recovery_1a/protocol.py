@@ -809,7 +809,7 @@ def capture_failure_proof(
     receipt_keys = tuple(receipt.get("idempotency_key") for _, receipt in receipts)
     if any(type(key) is not str or not key for key in receipt_keys):
         raise ProtocolEvidenceError("apply receipt lacks a logical identity")
-    duplicate_effects = max(0, len(receipt_keys) - 1)
+    duplicate_effects = max(0, len(set(receipt_keys)) - 1)
     observed: set[str] = set()
     support: list[str] = []
 
