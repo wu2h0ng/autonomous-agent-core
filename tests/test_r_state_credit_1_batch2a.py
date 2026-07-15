@@ -121,6 +121,82 @@ def test_arm_input_rejects_future_event_reference_leak() -> None:
         )
 
 
+def test_arm_input_rejects_assertion_dependency_on_entity_event() -> None:
+    entity = _event(1)
+    assertion = replace(
+        _event(2),
+        kind=EventKind.ASSERTION_OBSERVED,
+        predicate="visible:status",
+        value="ready",
+        valid_from=NOW,
+        depends_on_event_ids=(entity.event_id,),
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(entity, assertion),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
+def test_arm_input_rejects_assertion_superseding_entity_event() -> None:
+    entity = _event(1)
+    assertion = replace(
+        _event(2),
+        kind=EventKind.ASSERTION_OBSERVED,
+        predicate="visible:status",
+        value="ready",
+        valid_from=NOW,
+        supersedes_event_id=entity.event_id,
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(entity, assertion),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
+def test_arm_input_rejects_commitment_targeting_non_assertion_event() -> None:
+    entity = _event(1)
+    commitment = replace(
+        _event(2),
+        kind=EventKind.COMMITMENT_OBSERVED,
+        value="visible:deliverable",
+        target_event_ids=(entity.event_id,),
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(entity, commitment),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
+def test_arm_input_rejects_effect_linked_to_non_dispatch_event() -> None:
+    non_dispatch = replace(_event(1), action_ref="visible:deploy")
+    effect = replace(
+        _event(2),
+        kind=EventKind.ACTION_EFFECT_OBSERVED,
+        action_ref="visible:deploy",
+        receipt_ref="visible:receipt",
+    )
+
+    with pytest.raises(ContractViolation, match="REFERENCE_KIND_MISMATCH"):
+        ArmInput(
+            scenario_id="scenario:test",
+            observable_events=(non_dispatch, effect),
+            visible_through_sequence=2,
+            budget=_budget(),
+        )
+
+
 def test_arm_input_rejects_ragged_event_feed() -> None:
     with pytest.raises(ContractViolation, match="RAGGED_EVENT_FEED"):
         ArmInput(

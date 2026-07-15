@@ -40,6 +40,21 @@ class EventKind(str, Enum):
     RECOVERY_REQUESTED = "RECOVERY_REQUESTED"
 
 
+_DEPENDS_ON_EVENT_KIND_RULES: Mapping[EventKind, frozenset[EventKind]] = {
+    EventKind.ASSERTION_OBSERVED: frozenset({EventKind.ASSERTION_OBSERVED}),
+    EventKind.COMMITMENT_OBSERVED: frozenset({EventKind.COMMITMENT_OBSERVED}),
+}
+
+_TARGET_EVENT_KIND_RULES: Mapping[EventKind, frozenset[EventKind]] = {
+    EventKind.ASSERTION_REFUTED: frozenset({EventKind.ASSERTION_OBSERVED}),
+    EventKind.COMMITMENT_OBSERVED: frozenset({EventKind.ASSERTION_OBSERVED}),
+}
+
+_SUPERSEDES_EVENT_KIND_RULES: Mapping[EventKind, frozenset[EventKind]] = {
+    EventKind.ASSERTION_OBSERVED: frozenset({EventKind.ASSERTION_OBSERVED}),
+}
+
+
 class ArmId(str, Enum):
     A0_FULL_LOG = "A0_FULL_LOG"
     A1_ROLLING_SUMMARY = "A1_ROLLING_SUMMARY"
@@ -125,6 +140,34 @@ def _require_text_tuple(name: str, value: tuple[str, ...]) -> None:
         raise ContractViolation(f"{name} must contain non-empty text")
     if len(value) != len(set(value)):
         raise ContractViolation(f"{name} must not contain duplicates")
+
+
+def _validate_reference_kinds(
+    *,
+    event: ObservableEvent,
+    field_name: str,
+    references: tuple[str, ...],
+    prior_events_by_id: Mapping[str, ObservableEvent],
+    rules: Mapping[EventKind, frozenset[EventKind]],
+) -> None:
+    targets: list[ObservableEvent] = []
+    for reference in references:
+        target = prior_events_by_id.get(reference)
+        if target is None:
+            raise ContractViolation(
+                "FUTURE_EVENT_LEAK: event references unseen event"
+            )
+        targets.append(target)
+    if not targets:
+        return
+    allowed_target_kinds = rules.get(event.kind)
+    if allowed_target_kinds is None or any(
+        target.kind not in allowed_target_kinds for target in targets
+    ):
+        raise ContractViolation(
+            "REFERENCE_KIND_MISMATCH: "
+            f"{event.kind.value}.{field_name} has an incompatible event kind"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,22 +428,48 @@ class ArmInput(ClosedContract):
         event_ids = tuple(event.event_id for event in self.observable_events)
         if len(event_ids) != len(set(event_ids)):
             raise ContractViolation("RAGGED_EVENT_FEED: duplicate event_id")
-        seen_event_ids: set[str] = set()
+        prior_events_by_id: dict[str, ObservableEvent] = {}
+        dispatched_action_refs: set[str] = set()
         for event in self.observable_events:
-            references = (
-                event.depends_on_event_ids
-                + event.target_event_ids
-                + (
+            _validate_reference_kinds(
+                event=event,
+                field_name="depends_on_event_ids",
+                references=event.depends_on_event_ids,
+                prior_events_by_id=prior_events_by_id,
+                rules=_DEPENDS_ON_EVENT_KIND_RULES,
+            )
+            _validate_reference_kinds(
+                event=event,
+                field_name="target_event_ids",
+                references=event.target_event_ids,
+                prior_events_by_id=prior_events_by_id,
+                rules=_TARGET_EVENT_KIND_RULES,
+            )
+            _validate_reference_kinds(
+                event=event,
+                field_name="supersedes_event_id",
+                references=(
                     (event.supersedes_event_id,)
                     if event.supersedes_event_id is not None
                     else ()
-                )
+                ),
+                prior_events_by_id=prior_events_by_id,
+                rules=_SUPERSEDES_EVENT_KIND_RULES,
             )
-            if any(reference not in seen_event_ids for reference in references):
+            if (
+                event.kind is EventKind.ACTION_EFFECT_OBSERVED
+                and event.action_ref not in dispatched_action_refs
+            ):
                 raise ContractViolation(
-                    "FUTURE_EVENT_LEAK: event references unseen event"
+                    "REFERENCE_KIND_MISMATCH: ACTION_EFFECT_OBSERVED.action_ref "
+                    "must identify a prior ACTION_DISPATCHED event"
                 )
-            seen_event_ids.add(event.event_id)
+            prior_events_by_id[event.event_id] = event
+            if (
+                event.kind is EventKind.ACTION_DISPATCHED
+                and event.action_ref is not None
+            ):
+                dispatched_action_refs.add(event.action_ref)
         if any(
             sequence > self.visible_through_sequence for sequence in sequences
         ):
