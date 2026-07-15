@@ -73,6 +73,21 @@ def test_score_below_frozen_threshold_is_not_verified() -> None:
     assert outcome.score == 1.0
 
 
+def test_reproduced_false_verified_attack_fails_closed() -> None:
+    outcome = _evaluate(
+        _expected(
+            threshold=999.0,
+            evidence_requirements=("test-report", "independent-review"),
+        ),
+        trusted=False,
+        evidence_refs=("artifact:" + "a" * 64,),
+    )
+
+    assert outcome.status is OutcomeStatus.INVALID
+    assert outcome.score is None
+    assert "unsupported evidence requirements" in outcome.unresolved_gaps
+
+
 def test_unknown_evaluator_identity_is_invalid() -> None:
     outcome = _evaluate(_expected(evaluator_type="unknown"))
 

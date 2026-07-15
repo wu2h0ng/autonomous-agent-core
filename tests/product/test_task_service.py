@@ -206,6 +206,41 @@ def test_record_outcome_rejects_verified_score_below_frozen_threshold() -> None:
     assert service.get_task(created.task_id).observed_outcome is None
 
 
+def test_record_outcome_rejects_forged_verified_evidence_without_durable_chain() -> None:
+    store = InMemoryTaskEventStore()
+    service = _service(store, DeterministicIdFactory())
+    created = service.create_task(_goal())
+    expected = _expected(created.task_id)
+    service.commit_task(
+        created.task_id,
+        _commitment(created.task_id),
+        _workflow(),
+        expected,
+    )
+    running = service.start_run(created.task_id)
+    assert running.run is not None
+    outcome = ObservedOutcome(
+        observed_outcome_id="observed-forged-evidence",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=created.task_id,
+        run_id=running.run.run_id,
+        tenant_id=expected.tenant_id,
+        workspace_id=expected.workspace_id,
+        evaluator_type=expected.evaluator_type,
+        evaluator_version=expected.evaluator_version,
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("artifact:" + "a" * 64,),
+        observed_at=NOW + timedelta(seconds=30),
+    )
+
+    with pytest.raises(InvalidTransitionError, match="durable test-report"):
+        service.record_outcome(created.task_id, outcome)
+
+    assert service.get_task(created.task_id).observed_outcome is None
+
+
 def test_record_outcome_rejects_scope_mismatch() -> None:
     store = InMemoryTaskEventStore()
     service = _service(store, DeterministicIdFactory())
