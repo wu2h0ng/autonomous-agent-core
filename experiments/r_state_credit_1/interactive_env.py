@@ -210,6 +210,14 @@ class InteractiveEpisode:
             PerturbationClass.DETERMINISTIC_RECOVERY,
             PerturbationClass.PENDING_COMMITMENT,
             PerturbationClass.PRECONDITION_REFUTATION,
+            PerturbationClass.DELAYED_DEPENDENT_ACTION,
+            PerturbationClass.ASSERTION_SUPERSESSION,
+            PerturbationClass.LATE_REFUTATION,
+            PerturbationClass.TRANSITIVE_INVALIDATION,
+            PerturbationClass.RECEIPT_LOSS,
+            PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION,
+            PerturbationClass.REPRESENTATION_PRESSURE,
+            PerturbationClass.PROTECTED_STATE_AT_BOUND,
         )
         low, high = 5, self.T - 2
         span = high - low
@@ -220,12 +228,18 @@ class InteractiveEpisode:
         step = span // (count - 1) if count > 1 else 0
         terminal_turns = [low + step * i for i in range(count)]
         rng = random.Random(self._episode_seed)
-        classes = list(implemented[:count])
-        rng.shuffle(classes)
+        classes = rng.sample(list(implemented), count)
         schedule: list[tuple[int, PerturbationClass, int]] = []
+        used_triggers: set[int] = set()
         for cls, terminal in zip(classes, terminal_turns):
             offset = self._terminal_offset(cls)
             trigger = max(2, terminal - offset)
+            # Co-occurring classes each release their own observation; shift a
+            # colliding trigger to the nearest earlier free turn so it stays
+            # at or before its terminal phase turn.
+            while trigger in used_triggers and trigger > 2:
+                trigger -= 1
+            used_triggers.add(trigger)
             schedule.append((trigger, cls, terminal))
         return sorted(schedule)
 
@@ -236,6 +250,13 @@ class InteractiveEpisode:
             PerturbationClass.SIMULTANEOUS_CONFLICTING_EVIDENCE,
             PerturbationClass.DETERMINISTIC_RECOVERY,
             PerturbationClass.PRECONDITION_REFUTATION,
+            PerturbationClass.DELAYED_DEPENDENT_ACTION,
+            PerturbationClass.LATE_REFUTATION,
+            PerturbationClass.TRANSITIVE_INVALIDATION,
+            PerturbationClass.RECEIPT_LOSS,
+            PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION,
+            PerturbationClass.REPRESENTATION_PRESSURE,
+            PerturbationClass.PROTECTED_STATE_AT_BOUND,
         }:
             return 0
         if cls is PerturbationClass.ACTION_DISPATCH:
@@ -376,16 +397,24 @@ class InteractiveEpisode:
             PerturbationClass.SIMULTANEOUS_CONFLICTING_EVIDENCE.value,
             PerturbationClass.PRECONDITION_REFUTATION.value,
             PerturbationClass.OUT_OF_ORDER_TRANSACTION.value,
+            PerturbationClass.DELAYED_DEPENDENT_ACTION.value,
+            PerturbationClass.ASSERTION_SUPERSESSION.value,
+            PerturbationClass.LATE_REFUTATION.value,
+            PerturbationClass.TRANSITIVE_INVALIDATION.value,
         }
         verify_classes = {
             PerturbationClass.PROCESS_RESTART.value,
             PerturbationClass.ACTION_DISPATCH.value,
             PerturbationClass.DETERMINISTIC_RECOVERY.value,
+            PerturbationClass.RECEIPT_LOSS.value,
+            PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION.value,
         }
         if observation.event_class in review_classes:
             return ProbeAction.REVIEW
         if observation.event_class in verify_classes:
             return ProbeAction.VERIFY_EFFECT
+        if observation.event_class == PerturbationClass.REPRESENTATION_PRESSURE.value:
+            return ProbeAction.ABSTAIN
         return ProbeAction.CONTINUE
 
     def _generate_observation(self, turn: int) -> Observation:
@@ -437,9 +466,23 @@ class InteractiveEpisode:
             return self._pending_commitment_observation(turn)
         if pcls is PerturbationClass.PRECONDITION_REFUTATION:
             return self._precondition_refutation_observation(turn)
-        raise NotImplementedError(
-            f"perturbation observation not implemented for {pcls.value}"
-        )
+        if pcls is PerturbationClass.DELAYED_DEPENDENT_ACTION:
+            return self._delayed_dependent_action_observation(turn)
+        if pcls is PerturbationClass.ASSERTION_SUPERSESSION:
+            return self._assertion_supersession_observation(turn)
+        if pcls is PerturbationClass.LATE_REFUTATION:
+            return self._late_refutation_observation(turn)
+        if pcls is PerturbationClass.TRANSITIVE_INVALIDATION:
+            return self._transitive_invalidation_observation(turn)
+        if pcls is PerturbationClass.RECEIPT_LOSS:
+            return self._receipt_loss_observation(turn)
+        if pcls is PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION:
+            return self._interruption_before_effect_verification_observation(turn)
+        if pcls is PerturbationClass.REPRESENTATION_PRESSURE:
+            return self._representation_pressure_observation(turn)
+        if pcls is PerturbationClass.PROTECTED_STATE_AT_BOUND:
+            return self._protected_state_at_bound_observation(turn)
+        # Dispatch is exhaustive over the frozen PerturbationClass enum.
 
     # ------------------------------------------------------------------
     # Perturbation observations
@@ -599,6 +642,124 @@ class InteractiveEpisode:
             observed_at_turn=turn,
         )
 
+    def _delayed_dependent_action_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.DELAYED_DEPENDENT_ACTION.value,
+            payload={
+                "action_ref": f"action-{turn:03d}",
+                "precondition": f"precondition-{turn:03d}",
+                "dispatch_turn": turn - 3,
+                "precondition_refuted": True,
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _assertion_supersession_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.ASSERTION_SUPERSESSION.value,
+            payload={
+                "assertion_id": f"assertion-{turn:03d}",
+                "supersedes": f"assertion-{turn - 3:03d}",
+                "predicate": "active_schema",
+                "value": f"schema-v{2 + turn % 2}",
+                "dependent_assertion_id": f"assertion-{turn:03d}-dep",
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _late_refutation_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.LATE_REFUTATION.value,
+            payload={
+                "refutation_id": f"refutation-{turn:03d}",
+                "refuted_assertion_id": f"assertion-{turn - 3:03d}",
+                "dependent_assertion_ids": [
+                    f"assertion-{turn:03d}-dep-a",
+                    f"assertion-{turn:03d}-dep-b",
+                ],
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _transitive_invalidation_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.TRANSITIVE_INVALIDATION.value,
+            payload={
+                "chain": [
+                    f"assertion-{turn:03d}-c0",
+                    f"assertion-{turn:03d}-c1",
+                    f"assertion-{turn:03d}-c2",
+                ],
+                "root_cause": f"refutation-{turn:03d}",
+                "invalidated": True,
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _receipt_loss_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.RECEIPT_LOSS.value,
+            payload={
+                "action_ref": f"action-{turn:03d}",
+                "expected_receipt_turn": turn - 1,
+                "receipt_received": False,
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _interruption_before_effect_verification_observation(
+        self, turn: int
+    ) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION.value,
+            payload={
+                "action_ref": f"action-{turn:03d}",
+                "interrupted_epoch": self._state.process_epoch,
+                "new_epoch": self._state.process_epoch + 1,
+                "retry_record": f"retry-{turn:03d}",
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _representation_pressure_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.REPRESENTATION_PRESSURE.value,
+            payload={
+                "cumulative_bytes": self._cumulative_a0_bytes(),
+                "b_a0": self.b_a0,
+                "headroom_bytes": max(0, self.b_a0 - self._cumulative_a0_bytes()),
+                "pressure": True,
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
+    def _protected_state_at_bound_observation(self, turn: int) -> Observation:
+        return Observation(
+            turn_index=turn,
+            event_class=PerturbationClass.PROTECTED_STATE_AT_BOUND.value,
+            payload={
+                "protected_records": ["manifest", "authority-artifacts"],
+                "budget_at_bound": True,
+                "silent_loss": False,
+            },
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
+
     # ------------------------------------------------------------------
     # Action resolution
     # ------------------------------------------------------------------
@@ -697,10 +858,90 @@ class InteractiveEpisode:
             for commitment in self._state.commitments:
                 if commitment.get("commitment_ref") == commitment_ref:
                     commitment["status"] = "blocked"
-        else:
-            raise NotImplementedError(
-                f"perturbation effect not implemented for {pcls.value}"
+        elif pcls is PerturbationClass.DELAYED_DEPENDENT_ACTION:
+            action_ref = str(payload.get("action_ref", "action-000"))
+            self._state.dispatched_actions[action_ref] = {
+                "status": "blocked_precondition_refuted",
+                "turn": observation.turn_index,
+            }
+        elif pcls is PerturbationClass.ASSERTION_SUPERSESSION:
+            supersedes = payload.get("supersedes")
+            for assertion in self._state.assertions:
+                if assertion.get("assertion_id") == supersedes:
+                    assertion["status"] = "superseded"
+            self._state.assertions.append(
+                {
+                    "assertion_id": payload.get("assertion_id"),
+                    "supersedes": supersedes,
+                    "predicate": payload.get("predicate"),
+                    "value": payload.get("value"),
+                }
             )
+            self._state.assertions.append(
+                {
+                    "assertion_id": payload.get("dependent_assertion_id"),
+                    "depends_on": supersedes,
+                    "status": "active",
+                }
+            )
+        elif pcls is PerturbationClass.LATE_REFUTATION:
+            refuted_assertion_id = payload.get("refuted_assertion_id")
+            for assertion in self._state.assertions:
+                if assertion.get("assertion_id") == refuted_assertion_id:
+                    assertion["status"] = "refuted"
+            dependents = payload.get("dependent_assertion_ids", [])
+            if not isinstance(dependents, (list, tuple)):
+                dependents = []
+            self._state.assertions.append(
+                {
+                    "assertion_id": payload.get("refutation_id"),
+                    "refutes": refuted_assertion_id,
+                    "dependents": list(dependents),
+                    "status": "refutation",
+                }
+            )
+        elif pcls is PerturbationClass.TRANSITIVE_INVALIDATION:
+            chain = payload.get("chain", [])
+            if not isinstance(chain, (list, tuple)):
+                chain = []
+            previous: str | None = None
+            for cid in chain:
+                self._state.assertions.append(
+                    {
+                        "assertion_id": cid,
+                        "depends_on": previous,
+                        "status": "invalidated",
+                        "root_cause": payload.get("root_cause"),
+                    }
+                )
+                previous = str(cid)
+        elif pcls is PerturbationClass.RECEIPT_LOSS:
+            action_ref = str(payload.get("action_ref", "action-000"))
+            self._state.dispatched_actions[action_ref] = {
+                "status": "receipt_lost",
+                "turn": observation.turn_index,
+            }
+            self._state.pending_effect = {
+                "action_ref": action_ref,
+                "verified": False,
+            }
+        elif pcls is PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION:
+            action_ref = str(payload.get("action_ref", "action-000"))
+            self._state.process_epoch += 1
+            self._state.dispatched_actions[action_ref] = {
+                "status": "interrupted_unverified",
+                "turn": observation.turn_index,
+            }
+            self._state.pending_effect = {
+                "action_ref": action_ref,
+                "verified": False,
+            }
+        elif pcls is PerturbationClass.REPRESENTATION_PRESSURE:
+            # Marker only: representation pressure must not inflate state.
+            pass
+        elif pcls is PerturbationClass.PROTECTED_STATE_AT_BOUND:
+            # Marker only: protected-state notification carries no mutation.
+            pass
 
     def _update_terminal_status(self, action: ProbeAction) -> None:
         """Update episode status after an action is resolved."""

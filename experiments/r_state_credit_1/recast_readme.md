@@ -11,8 +11,8 @@ replaces the static 24-event classification template from the rejected head
   serialization for byte-budget measurement.
 - `interactive_env.py` — `InteractiveEpisode`: deterministic, reversible,
   turn-based loop materializable in a temporary directory.  Supports the full
-  perturbation architecture; ten perturbation classes are implemented and the
-  remainder are stubbed via `NotImplementedError` in the dispatch layer.
+  perturbation architecture; all eighteen frozen perturbation classes are
+  implemented (observation + effect) and the dispatch layer is exhaustive.
 - `episode_generator.py` — `EpisodeGenerator`: seeded by `family_id` +
   `seed_id`, produces structurally distinct episodes per seed with a frozen
   perturbation schedule and exactly four checkpoints.

@@ -59,11 +59,10 @@ _FORBIDDEN_SUBSTRINGS = (
 )
 
 # Directive hints that must not appear in actor request bytes or arm output notes (G6).
+# These are the frozen G6 directive field names.  Environment vocabulary such as
+# "rollback" or "retry" legitimately appears inside observation payloads (e.g. a
+# recovery record or retry record) and is not a runner directive.
 _DIRECTIVE_HINTS = (
-    "rollback",
-    "rollforward",
-    "recover",
-    "retry",
     "recovery_directive",
     "action_hint",
     "recommended_action",

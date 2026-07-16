@@ -13,6 +13,7 @@ from experiments.r_state_credit_1.interactive_env import (
     B_ARM,
     O_MAX,
     InteractiveEpisode,
+    PerturbationClass,
 )
 
 
@@ -260,3 +261,29 @@ def test_temp_tree_contains_no_family_seed_metadata(tmp_path: Path) -> None:
                 )
     finally:
         episode.cleanup()
+
+
+def test_all_frozen_perturbation_classes_observable(tmp_path: Path) -> None:
+    """Every frozen perturbation class is schedulable and observable."""
+    scheduled_union: set[PerturbationClass] = set()
+    for seed_id in range(120):
+        episode = InteractiveEpisode(FAMILY, seed_id, tmp_path / f"allcls-{seed_id}")
+        try:
+            observations, _events = episode.run()
+            scheduled_union.update(
+                cls for _, cls, _ in episode._perturbation_schedule
+            )
+            observed_classes = {obs.event_class for obs in observations}
+            last_turn = observations[-1].turn_index
+            for trigger, cls, _terminal in episode._perturbation_schedule:
+                if trigger <= last_turn:
+                    assert cls.value in observed_classes, (
+                        f"seed {seed_id}: {cls.value} scheduled at turn "
+                        f"{trigger} was not observed"
+                    )
+        finally:
+            episode.cleanup()
+    missing = sorted(cls.value for cls in set(PerturbationClass) - scheduled_union)
+    assert scheduled_union == set(PerturbationClass), (
+        f"perturbation classes never scheduled across 120 seeds: {missing}"
+    )
