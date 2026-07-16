@@ -2,15 +2,17 @@
 
 These typed contracts define the public responsibility surface for the SRL
 end-to-end falsifier evaluation.  They carry no run, work, effect or training
-authority.  The public state is structurally arm-neutral: it cannot carry arm
-identity, remaining budget counters, task class, plugin, expected answers,
-source identity, HCW, transcripts or internal state, at any nesting depth.
+authority.  Each public datum (mission, event, projection, evidence) enters the
+state only through closed content-addressed cryptographic references.  No raw
+payload, free-text public value, denylist or unrestricted mapping reaches any
+state field.  Contracts bind to custody but do not self-prove the underlying
+bytes; a resolver verifies the manifest separately.
 """
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Final, Literal, Mapping
+from typing import Any, Literal, Mapping
 
 from pydantic import Field, field_validator, model_validator
 
@@ -37,85 +39,47 @@ class MissingInputKind(str, Enum):
     IRREVERSIBLE_RISK = "IRREVERSIBLE_RISK"
 
 
-FORBIDDEN_PUBLIC_STATE_KEY_TOKENS: Final[frozenset[str]] = frozenset(
-    {
-        "arm_id",
-        "arm_label",
-        "remaining",
-        "task_class",
-        "plugin",
-        "expected_answer",
-        "expected_outcome",
-        "source_identity",
-        "hcw",
-        "transcript",
-        "internal_state",
-    }
-)
-
-
-def _reject_forbidden_keys(value: object, path: str) -> None:
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise ValueError(
-                    f"public-state mapping keys must be strings at {path}"
-                )
-            normalized = key.strip().lower()
-            for token in FORBIDDEN_PUBLIC_STATE_KEY_TOKENS:
-                if token in normalized:
-                    raise ValueError(
-                        f"forbidden public-state key {key!r} at {path}"
-                    )
-            _reject_forbidden_keys(item, f"{path}.{key}")
-    elif isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            _reject_forbidden_keys(item, f"{path}[{index}]")
+class PublicContentClass(str, Enum):
+    ARM_NEUTRAL_PUBLIC = "ARM_NEUTRAL_PUBLIC"
 
 
 class PublicContentRef(ContractModel):
-    """Digest-only reference to public content bytes; never an authority."""
+    """Content-addressed reference to frozen public-content bytes."""
 
     content_digest: Sha256Digest
+    content_class: PublicContentClass = PublicContentClass.ARM_NEUTRAL_PUBLIC
     media_type: NonEmptyStr
 
 
-class PublicEventRecord(ContractModel):
-    """Public event bytes or content ref; exactly one representation."""
+class PublicEventRef(ContractModel):
+    """Closed content-addressed reference to a public event."""
 
     event_id: NonEmptyStr
-    payload: Mapping[str, Any] | None = None
-    content_ref: PublicContentRef | None = None
-
-    @model_validator(mode="after")
-    def _validate_record(self) -> PublicEventRecord:
-        if (self.payload is None) == (self.content_ref is None):
-            raise ValueError(
-                "public event requires exactly one of payload or content_ref"
-            )
-        if self.payload is not None:
-            _reject_forbidden_keys(self.payload, f"public_events[{self.event_id}]")
-        return self
+    manifest_entry_digest: Sha256Digest
+    content_ref: PublicContentRef
 
 
-class PublicProjectionRecord(ContractModel):
-    """Public projection bytes or content ref; exactly one representation."""
+class PublicProjectionRef(ContractModel):
+    """Closed content-addressed reference to a public projection."""
 
     projection_id: NonEmptyStr
-    payload: Mapping[str, Any] | None = None
-    content_ref: PublicContentRef | None = None
+    manifest_entry_digest: Sha256Digest
+    content_ref: PublicContentRef
 
-    @model_validator(mode="after")
-    def _validate_record(self) -> PublicProjectionRecord:
-        if (self.payload is None) == (self.content_ref is None):
-            raise ValueError(
-                "public projection requires exactly one of payload or content_ref"
-            )
-        if self.payload is not None:
-            _reject_forbidden_keys(
-                self.payload, f"public_projections[{self.projection_id}]"
-            )
-        return self
+
+class PublicEvidenceRef(ContractModel):
+    """Closed content-addressed reference to a public evidence entry."""
+
+    evidence_id: NonEmptyStr
+    manifest_entry_digest: Sha256Digest
+    content_ref: PublicContentRef
+
+
+class PublicMissionRef(ContractModel):
+    """Closed content-addressed reference to a public mission statement."""
+
+    manifest_entry_digest: Sha256Digest
+    content_ref: PublicContentRef
 
 
 class StaticBudgetConfiguration(ContractModel):
@@ -130,29 +94,17 @@ class StaticBudgetConfiguration(ContractModel):
 
 
 class PublicResponsibilityState(ContractModel):
-    """The exact arm-neutral public surface a controller may condition on."""
+    """Structurally arm-neutral: only content-addressed refs, no raw payload."""
 
     state_id: NonEmptyStr
     mandate_digest: Sha256Digest
-    mission_statement: NonEmptyStr
+    mission_ref: PublicMissionRef
     environment_binding_digest: Sha256Digest
     correction_epoch: int = Field(ge=0)
-    public_events: tuple[PublicEventRecord, ...] = ()
-    public_projections: tuple[PublicProjectionRecord, ...] = ()
-    public_evidence_ids: tuple[NonEmptyStr, ...] = ()
-    budget_configuration: StaticBudgetConfiguration
-
-    @field_validator("public_evidence_ids", mode="after")
-    @classmethod
-    def _normalize_evidence_ids(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(sorted(set(values)))
-
-    @model_validator(mode="after")
-    def _reject_forbidden_content(self) -> PublicResponsibilityState:
-        _reject_forbidden_keys(
-            self.model_dump(mode="json"), f"public_state[{self.state_id}]"
-        )
-        return self
+    public_events: tuple[PublicEventRef, ...] = ()
+    public_projections: tuple[PublicProjectionRef, ...] = ()
+    public_evidence: tuple[PublicEvidenceRef, ...] = ()
+    budget_configuration_digest: Sha256Digest
 
     def state_digest(self) -> str:
         return content_digest(self)
@@ -235,7 +187,7 @@ class DecisionCandidate(ContractModel):
 
 
 class ControllerBindingReceipt(ContractModel):
-    """Exact-binding evidence record; it grants no authority or effects."""
+    """Exact-binding evidence record with content digest; no authority."""
 
     receipt_id: NonEmptyStr
     public_state_digest: Sha256Digest
@@ -247,6 +199,7 @@ class ControllerBindingReceipt(ContractModel):
     trigger_digest: Sha256Digest
     candidate_digest: Sha256Digest
     bound_at: UtcDateTime
+    content_digest: Sha256Digest
     authority_granted: Literal[False] = False
     external_effects_authorized: Literal[False] = False
 
@@ -258,3 +211,20 @@ class ControllerBindingReceipt(ContractModel):
                 "binding receipt cannot grant authority or external effects"
             )
         return value
+
+    @model_validator(mode="after")
+    def _validate_receipt_integrity(self) -> ControllerBindingReceipt:
+        payload = self.model_dump(
+            mode="json", exclude={"receipt_id", "content_digest"}
+        )
+        expected_digest = content_digest(payload)
+        if self.content_digest != expected_digest:
+            raise ValueError(
+                "content_digest does not match canonical receipt payload"
+            )
+        expected_receipt_id = f"controller-binding:{expected_digest}"
+        if self.receipt_id != expected_receipt_id:
+            raise ValueError(
+                "receipt_id must be controller-binding:{content_digest}"
+            )
+        return self
