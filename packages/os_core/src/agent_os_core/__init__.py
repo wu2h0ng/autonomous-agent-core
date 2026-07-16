@@ -64,6 +64,7 @@ from .srl_event_authority import (
     PayloadAdmissionRegistryPort,
 )
 from .srl_event_admission import EnvironmentEventAdmissionService
+from .mandate_steward import MandateSteward
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
@@ -251,6 +252,7 @@ __all__ = [
     "CredentialRefReader",
     "EventOriginRegistryPort",
     "EnvironmentEventAdmissionService",
+    "MandateSteward",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",
