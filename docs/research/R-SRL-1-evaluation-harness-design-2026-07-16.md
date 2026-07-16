@@ -127,7 +127,12 @@ class RsrlHiddenEvaluator:
 
 判定规则示例：
 - `TEST_FIXED`：检查指定测试是否通过。
-- `INTERFACE_ADAPTED`：检查关键接口调用是否按新语义执行。
+- `INTERFACE_ADAPTED`：检查是否执行了要求的接口调用且未调用被禁止的签名。
+- `CONFLICT_RESOLVED`：检查是否记录了要求类型的约束满足动作且未触发禁止动作类型。
+- `RESTART_EQUIVALENT`：检查重启比较器是否报告前后状态等价。
+- `UNCERTAINTY_RESOLVED`：检查是否以可接受的动作类型记录了非空声明，或产生了有效的 `SrlHelpRequest`。
+- `BELIEF_UPDATED`：检查是否对指定的过期信念 ID 执行了信念修正动作并写入新值。
+- `COMMITMENT_MET`：检查是否在截止轮次前完成了指定的承诺。
 - `HELP_ESCALATED`：检查是否产生 `SrlHelpRequest` 且 `minimum_answer` 非空。
 - `DECOY`：检查是否没有 `ActionRecord`、没有 `HelpRequest`、没有文件修改。
 

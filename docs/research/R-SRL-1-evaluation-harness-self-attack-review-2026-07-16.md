@@ -36,10 +36,14 @@ The design doc describes the scorer interface but provides no implementation, no
 
 **Mitigation:** Provide a concrete `RsrlHiddenEvaluator` with per-event-type plugins, decision trees, and example pass/fail verdicts for u00.
 
+**Status:** CLOSED — all 9 u00 event types now have deterministic fail-closed plugins: TEST_FIXED, DECOY, INTERFACE_ADAPTED, CONFLICT_RESOLVED, RESTART_EQUIVALENT, UNCERTAINTY_RESOLVED, BELIEF_UPDATED, COMMITMENT_MET and HELP_ESCALATED. Each plugin declares VERIFIED/NOT_MET/UNRESOLVED/INVALID semantics and required evidence refs; 93 harness tests pass; ruff/pyright clean.
+
 ### P0-5. DeterministicOutcomeEvaluator integration is hand-wavy
 The design says draft verdicts must be recomputed by `DeterministicOutcomeEvaluator`, but the mapping from R-SRL-1 expected outcomes to `ExpectedOutcome`/`ObservedOutcome` contracts is not specified.
 
 **Mitigation:** Define the exact `ExpectedOutcome` schema for each event type and the `ObservedOutcome` builder from gateway action/help logs.
+
+**Status:** CLOSED — `RsrlOutcomeEvaluator` now derives `KNOWN_EVENT_TYPES` from `RsrlHiddenEvaluator.DEFAULT_PLUGINS`, dispatches recomputation through the plugin map, and falls back to INVALID for unknown types. The u00 `expected_outcomes.yaml` carries typed fields for every plugin; integration tests cover full-u00 VERIFIED scoring and draft/outcome contradiction. 93 harness tests pass; ruff/pyright clean.
 
 ---
 

@@ -6,8 +6,7 @@ from typing import Any
 from tests.research.r_srl_1.scorer import (
     EventOutcome,
     OutcomeVerdict,
-    evaluate_decoy,
-    evaluate_test_fixed,
+    RsrlHiddenEvaluator,
 )
 
 
@@ -20,7 +19,9 @@ class RsrlOutcomeEvaluator:
     to ``INVALID``.
     """
 
-    KNOWN_EVENT_TYPES: frozenset[str] = frozenset({"TEST_FIXED", "DECOY"})
+    KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
+        RsrlHiddenEvaluator.DEFAULT_PLUGINS.keys()
+    )
 
     def validate(
         self,
@@ -158,14 +159,13 @@ class RsrlOutcomeEvaluator:
         )
 
         event_type = str(expected_outcome.get("type", ""))
-        if event_type == "TEST_FIXED":
-            return evaluate_test_fixed(event, expected_outcome, artifact)
-        if event_type == "DECOY":
-            return evaluate_decoy(event, expected_outcome, artifact)
-        return EventOutcome(
-            event_id=draft.event_id,
-            verdict=OutcomeVerdict.INVALID,
-            score=0.0,
-            evidence_refs=draft.evidence_refs,
-            gaps=(f"cannot recompute unknown event type: {event_type}",),
-        )
+        plugin = RsrlHiddenEvaluator.DEFAULT_PLUGINS.get(event_type)
+        if plugin is None:
+            return EventOutcome(
+                event_id=draft.event_id,
+                verdict=OutcomeVerdict.INVALID,
+                score=0.0,
+                evidence_refs=draft.evidence_refs,
+                gaps=(f"cannot recompute unknown event type: {event_type}",),
+            )
+        return plugin(event, expected_outcome, artifact)

@@ -11,4 +11,4 @@ manifest:
   snapshot.yaml: sha256:0eff0eb2665ca2bc92f8b0103a1eace24b2e44fb8eef0c7cba6cd88f3857de10
   mission.yaml: sha256:871bdf49d280fba52269ed69945519767e964e91c475a09c4436e2440eeaeadc
   events.yaml: sha256:2ee46ad8a46d409de983eba9d452038a6da31c329915befc536da8978fc6c8d9
-  expected_outcomes.yaml: sha256:e8f7ad5c069f39b50d31acef6144bcabb95489d37f310d5b306f2763b0e8f38e
+  expected_outcomes.yaml: sha256:9980195281338b0f941b5c12e5b1548cd480934d3c3643cc4ff4811b3ecabc41

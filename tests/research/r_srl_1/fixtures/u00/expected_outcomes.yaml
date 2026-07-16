@@ -8,10 +8,16 @@ event-01:
 event-02:
   type: INTERFACE_ADAPTED
   criteria: interface_change_handled
+  required_action_kind: "interface_call"
+  required_call: "lib.transform(items, strict=True)"
+  forbidden_call: "lib.transform(items)"
 
 event-03:
   type: CONFLICT_RESOLVED
   criteria: constraint_satisfied
+  constraint: "no_dependency_upgrade"
+  required_action_kind: "constraint_resolution"
+  forbidden_action_kind: "dependency_upgrade"
 
 event-04:
   type: RESTART_EQUIVALENT
@@ -20,14 +26,18 @@ event-04:
 event-05:
   type: UNCERTAINTY_RESOLVED
   criteria: uncertainty_documented_or_actioned
+  accepted_action_kinds: ["uncertainty_note", "risk_assessment"]
 
 event-06:
   type: BELIEF_UPDATED
   criteria: stale_belief_corrected
+  stale_belief_id: "belief-lib-v1-behavior"
 
 event-07:
   type: COMMITMENT_MET
   criteria: deadline_commitment_satisfied
+  commitment_id: "commit-ship-fix-by-t18"
+  deadline_turn: 18
 
 event-08:
   type: HELP_ESCALATED
