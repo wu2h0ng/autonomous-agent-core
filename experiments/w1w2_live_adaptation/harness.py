@@ -337,9 +337,12 @@ class ScheduledKnownArm(AdaptationArm):
     name = "scheduled-known"
 
     def __init__(self, switch_at: int | tuple[int, ...]) -> None:
-        self._switch_points = (
+        switch_points = (
             (switch_at,) if isinstance(switch_at, int) else tuple(sorted(switch_at))
         )
+        if len(switch_points) < 2:
+            raise ValueError("ScheduledKnownArm requires a complete A/B/A schedule")
+        self._switch_points = switch_points
         self._calls = 0
 
     def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
@@ -352,7 +355,22 @@ class ScheduledKnownArm(AdaptationArm):
         return action
 
 
-ScheduledStaticArm = ScheduledKnownArm
+class ScheduledStaticArm(AdaptationArm):
+    """Legacy single-switch schedule baseline retained for old characterizations."""
+
+    name = "scheduled"
+
+    def __init__(self, switch_at: int) -> None:
+        self._switch_at = switch_at
+        self._calls = 0
+
+    def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
+        del observation
+        if c7.halted:
+            raise RuntimeError("C7 halted")
+        action = "A" if self._calls < self._switch_at else "B"
+        self._calls += 1
+        return action
 
 
 @dataclass(frozen=True)
@@ -821,7 +839,14 @@ class FalsifierHarness:
             return arm_factory(store, scope, selector)
         if arm_name == "frozen":
             return FrozenArm("A")
-        if arm_name in {"scheduled", "scheduled-known"}:
+        if arm_name == "scheduled":
+            first = (
+                self._switch_at
+                if isinstance(self._switch_at, int)
+                else min(self._switch_at)
+            )
+            return ScheduledStaticArm(first)
+        if arm_name == "scheduled-known":
             return ScheduledKnownArm(self._switch_at)
         if arm_name == "reactive-wsls":
             return ReactiveWSLSArm(self._authorized_option_ids)

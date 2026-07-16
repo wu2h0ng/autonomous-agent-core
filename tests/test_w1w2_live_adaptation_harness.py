@@ -239,6 +239,10 @@ class TestCheapBaselineDefinitions(unittest.TestCase):
         ]
         self.assertEqual(actions, ["A", "A", "A", "B", "B", "B", "A", "A", "A"])
 
+    def test_scheduled_known_rejects_incomplete_single_switch_schedule(self) -> None:
+        with self.assertRaisesRegex(ValueError, "A/B/A"):
+            ScheduledKnownArm(switch_at=3)
+
     def test_reactive_wsls_uses_only_delayed_public_feedback(self) -> None:
         arm = ReactiveWSLSArm(authorized_action_ids=("A", "B"))
         c7 = C7Controller("c7-1", "scope-1").snapshot
