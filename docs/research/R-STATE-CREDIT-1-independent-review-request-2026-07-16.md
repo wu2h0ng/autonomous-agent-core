@@ -86,7 +86,7 @@ SHA-256 computed from the worktree at document creation.
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `e93291c3e85ffe969d9fe0d029226fd5a279005e85743fa08cbf0f96544b7646` |
-| `docs/research/R-STATE-CREDIT-1-recast-self-attack-review-2026-07-16.md` | `b988d8e5347a5fc977f6696a1620d291d3624b9a924a7f1ad1e7eaf620817e88` |
+| `docs/research/R-STATE-CREDIT-1-recast-self-attack-review-2026-07-16.md` | `00aaff299cf003b74ac6591644634b569816e1c4c8914aa1446f5bb3a048236e` |
 
 ## 6. Verification commands
 
