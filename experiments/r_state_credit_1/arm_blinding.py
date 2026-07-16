@@ -18,7 +18,7 @@ from experiments.r_state_credit_1.contracts import ArmId
 from experiments.r_state_credit_1.observation import Observation
 
 
-NEUTRAL_LABELS: tuple[str, ...] = ("arm-a", "arm-b", "arm-c", "arm-d")
+NEUTRAL_LABELS: tuple[str, ...] = ("rep-a", "rep-b", "rep-c", "rep-d")
 _REAL_ARM_IDS: tuple[ArmId, ...] = tuple(ArmId)
 
 

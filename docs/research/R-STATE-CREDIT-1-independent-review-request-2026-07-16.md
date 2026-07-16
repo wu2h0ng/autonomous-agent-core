@@ -70,7 +70,7 @@ SHA-256 computed from the worktree at document creation.
 | `experiments/r_state_credit_1/interactive_env.py` | `fafaede2620388f446a5dc7e1a6a4b03dc3485d7800268d352f163939db16432` |
 | `experiments/r_state_credit_1/episode_generator.py` | `2685895ee5bb02b27420c68d5928fdda10613b9c53b24b67248dd68cb951fe43` |
 | `experiments/r_state_credit_1/observation.py` | `b07db0e872adcea5bf40df64889ed8f92a0fc9cddcba85f596ff8a6558ea53bf` |
-| `experiments/r_state_credit_1/arm_blinding.py` | `bab9d34352d7e48f034f11dbab258555b40f6d081fa204f7317e84d037a145ae` |
+| `experiments/r_state_credit_1/arm_blinding.py` | `b22bf1f09276da53d85d9db16834d497630b43fc6f87a2de07ebb53f936e8b69` |
 | `experiments/r_state_credit_1/actor_interface.py` | `ead674ca87964ee8893e73f9193491b9bd0770aead6f6533b6a47e1c7461d5ec` |
 | `experiments/r_state_credit_1/action_grammar.py` | `7fbf5415f0bafc596cfb40195a9e34ea88e559088ce53203a4c9a50753964a98` |
 | `experiments/r_state_credit_1/authority_artifacts.py` | `69c290c9a96ce54647f9fd50273b65dc5e3cd7dbc8838e6d243c03f5e9261d35` |

@@ -3,7 +3,7 @@
   "mechanism_artifact_hashes": {
     "docs/pre_spec/R-STATE-CREDIT-1.REAL-BINDINGS-BUILD-PACKET-2026-07-15.md": "fa5585706854d120dca71ff76989ee303e95800e0d527e10d588a3bea3b4b6b0",
     "docs/pre_spec/R-STATE-CREDIT-1.RUNNER-PREREG-BUILD-PACKET-2026-07-15.md": "30f86a5d56881d39b67beb7824d7ef58e94da2e7b9e1fe53aa17a9536c11260e",
-    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json": "a1977db8e1e520126b8af010373095da3cb6de2950e74be2a37ffdd45bf81a7a",
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json": "8106da1d9d414d7be4fb7e9bc41e2e7e74592053137af5d2c9b957d028e2dfae",
     "experiments/r_state_credit_1/ark_responses_actor.py": "b5b7f6d4740ee77bd424862b9196be92f20242108fed813f8aea3b7d7d7a1a87",
     "experiments/r_state_credit_1/arms.py": "c2832e3f935185e4b1a650281a1422d9c90db9fe591fac1794f1e9c3affa12ef",
     "experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json": "3a449c352ac37591c0daadb1d193580ece411577f1cb1524bf19384f221e5c13",
