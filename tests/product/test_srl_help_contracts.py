@@ -81,6 +81,16 @@ def test_help_request_missing_required_field() -> None:
         _help_request(unsafe_boundary="")
 
 
+def test_help_request_minimum_answer_non_empty() -> None:
+    with pytest.raises(ValidationError, match="minimum_answer"):
+        _help_request(minimum_answer="")
+
+
+def test_help_request_expires_after_requested_at() -> None:
+    with pytest.raises(ValidationError, match="expires_at"):
+        _help_request(expires_at=NOW, requested_at=NOW)
+
+
 def test_help_request_invalid_help_class() -> None:
     with pytest.raises(ValidationError, match="help_class"):
         _help_request(help_class="GUESS")  # type: ignore[arg-type]

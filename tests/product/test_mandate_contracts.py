@@ -115,6 +115,11 @@ def test_mandate_envelope_requires_nonempty_allowed_task_classes() -> None:
         _envelope(allowed_task_classes=())
 
 
+def test_mandate_envelope_requires_nonempty_allowed_effect_classes() -> None:
+    with pytest.raises(ValidationError, match="allowed_effect_classes"):
+        _envelope(allowed_effect_classes=())
+
+
 def test_mandate_envelope_requires_nonempty_capability_grant_rules() -> None:
     with pytest.raises(ValidationError, match="capability_grant_rules"):
         _envelope(capability_grant_rules=())
@@ -144,6 +149,39 @@ def test_agent_instance_ref_round_trip() -> None:
         created_at=NOW,
     )
     assert ref.instance_id == "instance-1"
+
+
+def _agent_instance_ref(**updates: Any) -> AgentInstanceRef:
+    values: dict[str, Any] = {
+        "instance_id": "instance-1",
+        "implementation_id": "agent-os-core",
+        "implementation_version": "0.1.0",
+        "tenant_id": "tenant-1",
+        "workspace_id": "workspace-1",
+        "created_at": NOW,
+    }
+    values.update(updates)
+    return AgentInstanceRef(**values)
+
+
+def test_agent_instance_ref_rejects_mission_field() -> None:
+    with pytest.raises(ValidationError, match="mission"):
+        _agent_instance_ref(mission_statement="should not be here")
+
+
+def test_agent_instance_ref_rejects_permission_field() -> None:
+    with pytest.raises(ValidationError, match="permission"):
+        _agent_instance_ref(permissions=("should-not-be-here",))
+
+
+def test_agent_instance_ref_rejects_environment_field() -> None:
+    with pytest.raises(ValidationError, match="environment"):
+        _agent_instance_ref(environment_bindings=("should-not-be-here",))
+
+
+def test_agent_instance_ref_rejects_learning_field() -> None:
+    with pytest.raises(ValidationError, match="learning"):
+        _agent_instance_ref(learning_history=("should-not-be-here",))
 
 
 def test_standing_mission_round_trip() -> None:

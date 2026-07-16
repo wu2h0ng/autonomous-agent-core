@@ -1,7 +1,7 @@
 # A-SRL-1: Situated Responsibility Loop — Threat Model and Authority Invariants
 
 > Date: 2026-07-16
-> Status: `DESIGN_CANDIDATE / IMPLEMENTATION_REVIEW_REQUIRED / NO_RUNTIME_AUTHORIZATION`
+> Status: `DESIGN_CANDIDATE / V0_V1_CONTRACT_RED_TESTS_IMPLEMENTED / RT_INVARIANTS_PENDING_RUNTIME / NO_RUNTIME_AUTHORIZATION`
 > Track: `A/E` (architecture invariant / engineering acceptance)
 > Scope: P-MANDATE-1, P-SRL-ENV-1, P-SRL-HELP-1 contracts and the minimal future SRL Runtime vertical
 > Depends on: `docs/research/situated-responsibility-loop-architecture-2026-07-16.md`, `docs/research/situated-operational-model-architecture-2026-07-16.md`

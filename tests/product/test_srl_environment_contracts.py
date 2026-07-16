@@ -145,6 +145,21 @@ def test_environment_event_requires_event_id() -> None:
         _event(event_id="")
 
 
+def test_environment_event_rejects_disposition_field() -> None:
+    with pytest.raises(ValidationError, match="disposition"):
+        _event(disposition="IGNORE")
+
+
+def test_environment_event_rejects_task_id_field() -> None:
+    with pytest.raises(ValidationError, match="task_id"):
+        _event(task_id="task-1")
+
+
+def test_environment_event_rejects_capability_grant_field() -> None:
+    with pytest.raises(ValidationError, match="capability_grant"):
+        _event(capability_grant="grant-1")
+
+
 def test_relevance_assessment_round_trip() -> None:
     assessment = _assessment()
     assert assessment.disposition is SrlRelevanceDisposition.CREATE_TASK
@@ -244,3 +259,63 @@ def test_relevance_assessment_task_requires_false_positive_recorded() -> None:
 def test_relevance_assessment_create_task_rejects_minimum_external_input() -> None:
     with pytest.raises(ValidationError, match="minimum_external_input"):
         _assessment(minimum_external_input="Should not be here")
+
+
+def _investigate_assessment(**updates: Any) -> SrlRelevanceAssessment:
+    values: dict[str, Any] = {
+        "assessment_id": "assessment-1",
+        "mandate_id": "mandate-1",
+        "standing_mission_id": "sm-1",
+        "trigger_event_id": "event-1",
+        "affected_commitment_ids": ("commitment-1",),
+        "evidence_refs": ("evidence://event-1",),
+        "uncertainty_summary": "Direct push to main",
+        "urgency": "HIGH",
+        "expected_loss_of_delay_seconds": 300,
+        "proposed_attention_budget_seconds": 600,
+        "disposition": SrlRelevanceDisposition.INVESTIGATE,
+        "confidence": 0.9,
+        "false_positive_recorded": True,
+        "assessor_version": "assessor-1.0",
+        "assessor_policy_digest": "sha256:assessor-policy",
+        "proposed_goal_statement": "Investigate direct push to main",
+        "proposed_task_class": None,
+        "assessed_at": NOW,
+    }
+    values.update(updates)
+    return SrlRelevanceAssessment(**values)
+
+
+def test_relevance_assessment_investigate_requires_proposed_goal_statement() -> None:
+    with pytest.raises(ValidationError, match="proposed_goal_statement"):
+        _investigate_assessment(proposed_goal_statement=None)
+
+
+def test_relevance_assessment_investigate_rejects_proposed_task_class() -> None:
+    with pytest.raises(ValidationError, match="proposed_task_class"):
+        _investigate_assessment(proposed_task_class="Goal")
+
+
+def test_relevance_assessment_investigate_requires_false_positive_recorded() -> None:
+    with pytest.raises(ValidationError, match="false_positive_recorded"):
+        _investigate_assessment(false_positive_recorded=False)
+
+
+def test_relevance_assessment_investigate_requires_evidence_refs() -> None:
+    with pytest.raises(ValidationError, match="evidence_refs"):
+        _investigate_assessment(evidence_refs=())
+
+
+def test_relevance_assessment_rejects_smuggled_action_permit() -> None:
+    with pytest.raises(ValidationError, match="action_permit"):
+        _assessment(action_permit="forbidden")
+
+
+def test_relevance_assessment_rejects_smuggled_capability_grant() -> None:
+    with pytest.raises(ValidationError, match="capability_grant"):
+        _assessment(capability_grant="forbidden")
+
+
+def test_relevance_assessment_rejects_smuggled_action_receipt() -> None:
+    with pytest.raises(ValidationError, match="action_receipt"):
+        _assessment(action_receipt="forbidden")

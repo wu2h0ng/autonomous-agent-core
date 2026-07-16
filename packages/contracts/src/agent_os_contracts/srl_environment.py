@@ -90,9 +90,7 @@ class SrlRelevanceAssessment(ContractModel):
         }
         if self.disposition in task_dispositions:
             if self.proposed_goal_statement is None:
-                raise ValueError(
-                    "task disposition requires proposed_goal_statement"
-                )
+                raise ValueError("task disposition requires proposed_goal_statement")
             if self.minimum_external_input is not None:
                 raise ValueError(
                     "minimum_external_input is only valid for HELP disposition"
@@ -111,11 +109,11 @@ class SrlRelevanceAssessment(ContractModel):
                 raise ValueError(
                     "task disposition requires false_positive_recorded=True"
                 )
+            if not self.evidence_refs:
+                raise ValueError("task disposition requires non-empty evidence_refs")
         elif self.disposition is SrlRelevanceDisposition.HELP:
             if self.minimum_external_input is None:
-                raise ValueError(
-                    "HELP disposition requires minimum_external_input"
-                )
+                raise ValueError("HELP disposition requires minimum_external_input")
             if self.proposed_goal_statement is not None:
                 raise ValueError(
                     "proposed_goal_statement is not valid for HELP disposition"

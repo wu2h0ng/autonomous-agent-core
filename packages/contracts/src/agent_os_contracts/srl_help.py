@@ -48,6 +48,12 @@ class SrlHelpRequest(ContractModel):
     escalation_policy: NonEmptyStr
     requested_at: UtcDateTime
 
+    @model_validator(mode="after")
+    def _validate_expiry(self) -> "SrlHelpRequest":
+        if self.expires_at <= self.requested_at:
+            raise ValueError("expires_at must be after requested_at")
+        return self
+
 
 class SrlHelpResponseKind(str, Enum):
     OPERATOR_DECISION = "OPERATOR_DECISION"
@@ -74,42 +80,30 @@ class SrlHelpResponse(ContractModel):
             if self.decision is None:
                 raise ValueError("OPERATOR_DECISION requires decision")
             if self.capability_grant_id is not None:
-                raise ValueError(
-                    "OPERATOR_DECISION cannot carry capability_grant_id"
-                )
+                raise ValueError("OPERATOR_DECISION cannot carry capability_grant_id")
             if self.revocation_request_id is not None:
-                raise ValueError(
-                    "OPERATOR_DECISION cannot carry revocation_request_id"
-                )
+                raise ValueError("OPERATOR_DECISION cannot carry revocation_request_id")
         elif self.response_kind is SrlHelpResponseKind.CAPABILITY_GRANT:
             if self.capability_grant_id is None:
                 raise ValueError("CAPABILITY_GRANT requires capability_grant_id")
             if self.decision is not None:
                 raise ValueError("CAPABILITY_GRANT cannot carry decision")
             if self.revocation_request_id is not None:
-                raise ValueError(
-                    "CAPABILITY_GRANT cannot carry revocation_request_id"
-                )
+                raise ValueError("CAPABILITY_GRANT cannot carry revocation_request_id")
         elif self.response_kind is SrlHelpResponseKind.REVOCATION_REQUEST:
             if self.revocation_request_id is None:
-                raise ValueError(
-                    "REVOCATION_REQUEST requires revocation_request_id"
-                )
+                raise ValueError("REVOCATION_REQUEST requires revocation_request_id")
             if self.decision is not None:
                 raise ValueError("REVOCATION_REQUEST cannot carry decision")
             if self.capability_grant_id is not None:
-                raise ValueError(
-                    "REVOCATION_REQUEST cannot carry capability_grant_id"
-                )
+                raise ValueError("REVOCATION_REQUEST cannot carry capability_grant_id")
         elif self.response_kind is SrlHelpResponseKind.CANCELLATION:
             if self.decision is not None:
                 raise ValueError("CANCELLATION cannot carry decision")
             if self.capability_grant_id is not None:
                 raise ValueError("CANCELLATION cannot carry capability_grant_id")
             if self.revocation_request_id is not None:
-                raise ValueError(
-                    "CANCELLATION cannot carry revocation_request_id"
-                )
+                raise ValueError("CANCELLATION cannot carry revocation_request_id")
         return self
 
 
