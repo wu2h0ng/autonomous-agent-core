@@ -2,8 +2,8 @@
 
 > Date: `2026-07-16`
 > Branch: `codex/r-state-credit-1-real-bindings-20260715`
-> Review target head: `44de1aebb8b5a16b60e11e2e51c5c68c46006913`
-> Working-tree HEAD at document creation: `0474c30` (state update after fixes at `44de1ae`)
+> Review target head: `e32f5308e23a5a971dd2e613843328a8ff3b0188`
+> Working-tree HEAD at document creation: `e32f530` (state update after fixes at `44de1ae`)
 > Status: `IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Track: `Research Track`
 > Claim class: `research-automation` — candidate-byte implementation only. Not product, not autonomy, not evidence.
@@ -80,7 +80,7 @@ SHA-256 computed from the worktree at document creation.
 | `tests/test_r_state_credit_1_interactive_env.py` | `c601745debf8d815ccc1098a5b0392d33f6bb885e694ffd39c157e5d1dbb290d` |
 | `tests/test_r_state_credit_1_arm_blinding.py` | `2a93dbee7ee5e2f30981fc6a1cc7f85e0223eadbbccf459929e723a637a06214` |
 | `tests/test_r_state_credit_1_authority_verifier.py` | `63e760c565214dfc8fd9a039c7f0819c93c62790e6231219a2c1b1b2c97b034f` |
-| `tests/test_r_state_credit_1_recast_integration.py` | `068cfe291f2e88fce5104863425d2533542be1f38c77583452aaee37bb2d6077` |
+| `tests/test_r_state_credit_1_recast_integration.py` | `b16ef13c6822efaaea124efbe2696bddd0a15c8ed94f03ba7ba7e989a2b0858d` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `a743dac0ec93aaf8b99c0ed15556623ab9df11822bc45f9b35e5d29b0c03f75e` |
@@ -130,8 +130,8 @@ sha256sum \
 
 Expected results as measured on this worktree:
 
-- Targeted Phase 1-3 tests: `29 passed, 0 failed`.
-- Full `tests/test_r_state_credit_1*.py`: `131 passed, 0 failed`.
+- Targeted Phase 1-3 tests: `36 passed, 0 failed`.
+- Full `tests/test_r_state_credit_1*.py`: `138 passed, 0 failed`.
 - Full `unittest discover`: `1237 tests` with `OK (skipped=16)`.
 - `ruff check`: `All checks passed!`
 - `pyright`: `0 errors, 0 warnings, 0 informations`.
@@ -140,12 +140,12 @@ Expected results as measured on this worktree:
 
 | Gate | Status | Evidence |
 |---|---|---|
-| G1 — Dummy classifier leakage | Partially implemented / qualification probe present | `test_full_gate_g1_dummy_classifier` shows fixed-action dummies cannot beat the majority prior. Full scikit-learn `DummyClassifier` against sealed truth on all 7 families is pending sealed-scorer integration. |
-| G2 — Instance independence | Implemented on development seeds; family-wise diagnostic pending | `test_distinct_seeds` proves 20 seeds of one family are structurally distinct. A 7-family diagnostic has not yet been run. |
+| G1 — Dummy classifier leakage | Implemented / tested | `test_full_gate_g1_dummy_classifier` trains a majority-vote dummy on `(family, checkpoint_ordinal)` and evaluates on held-out seeds across all 7 canonical families; accuracy ≤ majority prior + 0.05 and Cohen's κ ≤ 0.05. |
+| G2 — Instance independence | Implemented / tested | `test_instance_independence_across_canonical_families` verifies each canonical family produces >7 structural equivalence classes and ≥30% of checkpoints have seed-dependent correct actions. |
 | G3 — χ² arm-order uniformity | Implemented / tested | `test_call_order_chi_square_uniform` passes with p > 0.01 criterion. |
 | G4 — Arm-order independence | Implemented / tested | `test_call_order_independent_of_family_seed` passes χ² test of independence. |
 | G5 — Byte-level absence of arm names | Implemented / tested | `test_byte_level_no_arm_identity` and `test_end_to_end_no_provider` search actor-request bytes for forbidden substrings. |
-| G6 — No directive in arm output | Implemented for recast actor interface; legacy arm pending | `test_full_gate_g6_no_recovery_directive_in_arm_output` proves `StubActor` responses carry no directive hints. The legacy `arms.py::A3TypedStateArm` still contains `recovery_directive` but is not exercised by the recast qualification path. |
+| G6 — No directive in arm output | Implemented / tested | `test_full_gate_g6_no_recovery_directive_in_arm_output` scans serialized actor-request bytes and `StubActor` response notes for whole-word directive hints. The legacy `arms.py::A3TypedStateArm` still contains `recovery_directive` and is explicitly excluded from the frozen source manifest. |
 | G7 — Reversibility | Implemented / tested | `test_reversibility` and `test_reversibility_across_blinding` compare bit-identical event sequences and checkpoint/call-order state across replays. |
 | G8 — Authority builder rejection | Implemented / tested | `test_builder_minted_artifact_rejected`, `test_authority_bundle_with_builder_signer_rejected`, `test_tampered_payload_rejected`. |
 | G9 — Budget overflow fail-closed | Implemented / tested | `test_budget_overflow_fail_closed`, `test_no_overflow_on_development_seeds`, `test_observation_budget_envelope_per_turn`. |
@@ -154,8 +154,7 @@ Expected results as measured on this worktree:
 ## 8. Known limitations / deviations
 
 - **Signature backend uses HMAC-SHA256 for test harness only.** `TestHmacBackend` is deterministic and per-identity distinct, but it is not a secure signature scheme. `Ed25519BackendStub` is provided as a production placeholder. The production freeze must replace the test backend with an equivalent asymmetric signature scheme (e.g., Ed25519) and wire real key management.
-- **Legacy `arms.py` still contains the A3 `recovery_directive`.** The recast qualification path does not invoke the old A0–A3 arms; it uses the new `ActorRequest` / `StubActor` interface. Before freeze, the legacy arm envelope must either be recast to remove the directive or explicitly excluded from the frozen run contract.
-- **Sealed-truth scorer is not yet wired to the interactive environment.** G1 and G2 therefore use qualification proxies rather than the full design-review criteria. The full dummy-classifier leakage test and 7-family instance-independence diagnostic remain pending.
+- **Legacy `arms.py` still contains the A3 `recovery_directive` but is excluded from the frozen source manifest.** The recast qualification path does not invoke the old A0–A3 arms; it uses the new `ActorRequest` / `StubActor` interface. The frozen run contract binds only the recast mechanism files listed in the source manifest.
 - **Only a subset of the amendment perturbation classes is implemented.** The current environment implements the classes needed for structural variation and the four checkpoint triggers; remaining classes can be added without changing the protocol if the frozen terminal-phase table is extended before freeze.
 - **No provider/model call has been made.** All tests use deterministic stub actors and local HMAC signatures.
 
@@ -173,7 +172,7 @@ Expected results as measured on this worktree:
    - `ACCEPT_FOR_FREEZE` — no freeze-blocking issues.
    - `CONDITIONAL_APPROVE` — list exact required fixes before freeze.
    - `REVISE_BEFORE_REVIEW` — material issues remain; re-review required.
-2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `664e746`.
+2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `e32f530`.
 3. **C7 acceptance:** Obtain `c7-acceptance-<owner_id>.json` binding epoch, capability token digest, and stop path.
 4. **Founder/CTO run authorization:** Obtain `run-authorization-<founder_id>.json` referencing the freeze lock and C7 acceptance, authorizing exactly one result-bearing run.
 5. **Result-bearing run:** Execute one frozen run under the native freeze lock, with independent adjudication and claim review.
