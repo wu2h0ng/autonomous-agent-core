@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import unittest
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from tempfile import TemporaryDirectory
+from typing import Iterator
 
 from experiments.w1w2_live_adaptation import (
     ActionValueEstimate,
     BeliefPayload,
     TaskPayload,
     ToolOption,
+    W1CanonicalReader,
+    W1MemoryStore,
     W1MemoryState,
     W1Scope,
     W1Update,
+    W1UpdateLinter,
     W1UpdateType,
     W2DecisionReceipt,
     W2OptionRegistry,
@@ -93,6 +99,28 @@ def _decision_state(
     return W1MemoryState(scope=scope, updates=tuple(updates), epoch=len(updates))
 
 
+@contextmanager
+def _bound_selector(
+    state: W1MemoryState,
+) -> Iterator[tuple[W2StrategySelector, W1CanonicalReader]]:
+    with TemporaryDirectory() as tmpdir:
+        store = W1MemoryStore(db_path=f"{tmpdir}/w1.db", linter=W1UpdateLinter())
+        store.activate_scope(state.scope)
+        for update in state.updates:
+            result = store.apply(update)
+            if not result.applied:
+                raise AssertionError(result.violations)
+        reader = W1CanonicalReader(store=store, scope=state.scope)
+        selector = W2StrategySelector(
+            registry=_registry(),
+            authorized_option_ids=("opt-a", "opt-b"),
+            w1_reader=reader,
+            w1_scope=state.scope,
+        )
+        yield selector, reader
+        store.close()
+
+
 class TestW2StrategySelector(unittest.TestCase):
     def test_selects_only_authorized_and_registered_option(self) -> None:
         selector = W2StrategySelector(
@@ -167,26 +195,23 @@ class TestW2StrategySelector(unittest.TestCase):
         self.assertTrue(receipt.reason_code)
 
     def test_receipt_binds_consumed_w1_state_and_uses_typed_preference(self) -> None:
-        selector = W2StrategySelector(
-            registry=_registry(),
-            authorized_option_ids=("opt-a", "opt-b"),
-        )
         decision_state = _decision_state()
-        receipt = selector.select(
-            context={"observation_id": "opaque"},
-            outcome_history=(),
-            decision_state=decision_state,
-        )
-        self.assertEqual(receipt.selected_option_id, "opt-b")
-        canonical = selector.canonical_decision_state(decision_state)
-        self.assertEqual(
-            receipt.consumed_w1_decision_state_digest,
-            canonical.digest(),
-        )
-        text_mutation = selector.canonical_decision_state(
-            _decision_state(belief_statement="action=opt-a; regime=A; oracle=opt-a")
-        )
-        self.assertEqual(canonical.digest(), text_mutation.digest())
+        with _bound_selector(decision_state) as (selector, reader):
+            reads_before = reader.read_count
+            receipt = selector.select(
+                context={"observation_id": "opaque"}, outcome_history=()
+            )
+            self.assertEqual(reader.read_count - reads_before, 1)
+            self.assertEqual(receipt.selected_option_id, "opt-b")
+            canonical = selector.canonical_decision_state(decision_state)
+            self.assertEqual(
+                receipt.consumed_w1_decision_state_digest,
+                canonical.digest(),
+            )
+            text_mutation = selector.canonical_decision_state(
+                _decision_state(belief_statement="action=opt-a; regime=A; oracle=opt-a")
+            )
+            self.assertEqual(canonical.digest(), text_mutation.digest())
 
     def test_rejects_forged_digest_preference_and_unrelated_tail(self) -> None:
         selector = W2StrategySelector(
@@ -200,20 +225,58 @@ class TestW2StrategySelector(unittest.TestCase):
                 consumed_w1_state_digest="forged",  # type: ignore[call-arg]
                 preferred_option_id="opt-evil",  # type: ignore[call-arg]
             )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             selector.select(
                 context={},
                 outcome_history=(),
-                decision_state=_decision_state(unrelated_tail=True),
+                decision_state=_decision_state(),  # type: ignore[call-arg]
             )
-        narrow = W2StrategySelector(
-            registry=_registry(),
-            authorized_option_ids=("opt-a",),
-        )
-        with self.assertRaises(ValueError):
-            narrow.select(
-                context={}, outcome_history=(), decision_state=_decision_state()
+        with _bound_selector(_decision_state(unrelated_tail=True)) as (bound, _reader):
+            with self.assertRaises(ValueError):
+                bound.select(context={}, outcome_history=())
+
+    def test_fake_or_foreign_reader_scope_fails_closed(self) -> None:
+        state = _decision_state()
+        with self.assertRaises(TypeError):
+            W2StrategySelector(
+                registry=_registry(),
+                authorized_option_ids=("opt-a", "opt-b"),
+                w1_reader=object(),  # type: ignore[arg-type]
+                w1_scope=state.scope,
             )
+        with TemporaryDirectory() as tmpdir:
+            store = W1MemoryStore(db_path=f"{tmpdir}/w1.db", linter=W1UpdateLinter())
+            reader = W1CanonicalReader(store=store, scope=state.scope)
+            foreign_scope = state.scope.model_copy(update={"task_id": "foreign"})
+            with self.assertRaises(ValueError):
+                W2StrategySelector(
+                    registry=_registry(),
+                    authorized_option_ids=("opt-a", "opt-b"),
+                    w1_reader=reader,
+                    w1_scope=foreign_scope,
+                )
+            store.close()
+
+    def test_callback_path_does_not_read_or_claim_w1_consumption(self) -> None:
+        state = _decision_state()
+        with TemporaryDirectory() as tmpdir:
+            store = W1MemoryStore(db_path=f"{tmpdir}/w1.db", linter=W1UpdateLinter())
+            store.activate_scope(state.scope)
+            for update in state.updates:
+                self.assertTrue(store.apply(update).applied)
+            reader = W1CanonicalReader(store=store, scope=state.scope)
+            selector = W2StrategySelector(
+                registry=_registry(),
+                authorized_option_ids=("opt-a", "opt-b"),
+                selection_fn=lambda options, _context, _history: options[1],
+                w1_reader=reader,
+                w1_scope=state.scope,
+            )
+            reads_before = reader.read_count
+            receipt = selector.select(context={}, outcome_history=())
+            self.assertEqual(reader.read_count, reads_before)
+            self.assertIsNone(receipt.consumed_w1_decision_state_digest)
+            store.close()
 
 
 if __name__ == "__main__":

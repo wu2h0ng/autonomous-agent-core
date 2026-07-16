@@ -25,6 +25,7 @@ from experiments.w1w2_live_adaptation import (
     ScorerReceiptBinding,
     SealedScorerOutcome,
     ToolOption,
+    W1CanonicalReader,
     W1MemoryStore,
     W1MemoryState,
     W1OnlyArm,
@@ -281,10 +282,32 @@ class TestC7AndInformationBoundaries(unittest.TestCase):
                     }
                 ),
                 authorized_option_ids=("A",),
+                w1_reader=W1CanonicalReader(store=store, scope=scope),
+                w1_scope=scope,
             )
             arm = W1W2Arm(store=store, scope=scope, selector=selector)
             with self.assertRaises(RuntimeError):
                 arm.act(CandidateObservation(observation_id="o-1"), controller.snapshot)
+
+    def test_w1w2_arm_rejects_unbound_selector(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = W1MemoryStore(
+                db_path=os.path.join(tmpdir, "w1.db"), linter=W1UpdateLinter()
+            )
+            scope = W1Scope(
+                mandate_id="m-test",
+                task_id="t-test",
+                environment_id="env-test",
+                episode_id="ep-1",
+            )
+            selector = W2StrategySelector(
+                registry=_FakeOptionRegistry(
+                    {"A": ToolOption(option_id="A", tool_id="tool-a", tool_version="1")}
+                ),
+                authorized_option_ids=("A",),
+            )
+            with self.assertRaises(ValueError):
+                W1W2Arm(store=store, scope=scope, selector=selector)
 
     def test_c7_halt_restores_lks_and_performs_zero_subsequent_candidate_calls(
         self,
@@ -423,13 +446,16 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
                     "B": ToolOption(option_id="B", tool_id="tool-b", tool_version="1"),
                 }
             )
-            selector = W2StrategySelector(
-                registry=registry, authorized_option_ids=("A", "B")
-            )
             store = W1MemoryStore(
                 db_path=os.path.join(tmpdir, "live.db"), linter=W1UpdateLinter()
             )
             store.activate_scope(scope)
+            selector = W2StrategySelector(
+                registry=registry,
+                authorized_option_ids=("A", "B"),
+                w1_reader=W1CanonicalReader(store=store, scope=scope),
+                w1_scope=scope,
+            )
             arm = W1W2Arm(store=store, scope=scope, selector=selector)
             c7 = C7Controller("c7-1", scope.task_id).snapshot
             observation = CandidateObservation(observation_id="opaque")
@@ -448,17 +474,11 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
                 db_path=os.path.join(tmpdir, "constant.db"), linter=W1UpdateLinter()
             )
             disconnected_store.activate_scope(scope)
-            disconnected = W1W2Arm(
-                store=ConstantReader(disconnected_store, scope),  # type: ignore[arg-type]
-                scope=scope,
-                selector=selector,
-            )
-            disconnected.act(observation, c7)
-            disconnected.update(
-                CandidateFeedback(action="A", reward=0.0, source_event_digest="e-2"), c7
-            )
-            disconnected.act(observation, c7)
-            self.assertFalse(disconnected.causal_consumption_verified())
+            with self.assertRaises(TypeError):
+                W1CanonicalReader(
+                    store=ConstantReader(disconnected_store, scope),  # type: ignore[arg-type]
+                    scope=scope,
+                )
             store.close()
             disconnected_store.close()
 
@@ -534,6 +554,7 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
         ).characterize("w1+w2", 0, 20)
         self.assertEqual(attacked.status, "CHARACTERIZATION_ONLY")
         self.assertEqual(len(attacked.recovery_speeds), 2)
+        self.assertFalse(attacked.w1_causal_consumption_verified)
         self.assertFalse(attacked.falsifier_passed)
 
     def test_ab_ba_records_recovery(self) -> None:

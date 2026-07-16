@@ -20,6 +20,7 @@ from experiments.w1w2_live_adaptation.w1_state import (
     ActionValueEstimate,
     BeliefPayload,
     W1MemoryState,
+    W1MemoryStore,
     W1Scope,
     W1UpdateType,
 )
@@ -106,6 +107,32 @@ class W2DecisionReceipt(ContractModel):
 SelectionFn = Callable[..., str]
 
 
+class W1CanonicalReader:
+    """Read-only, fixed-scope view over the canonical W1 store."""
+
+    def __init__(self, store: W1MemoryStore, scope: W1Scope) -> None:
+        if type(store) is not W1MemoryStore:
+            raise TypeError("canonical W1 reader requires W1MemoryStore")
+        self._store = store
+        self._scope = scope
+        self._read_count = 0
+
+    @property
+    def scope(self) -> W1Scope:
+        return self._scope
+
+    @property
+    def read_count(self) -> int:
+        return self._read_count
+
+    def read(self) -> W1MemoryState:
+        state = self._store.get_state(self._scope)
+        if not isinstance(state, W1MemoryState) or state.scope != self._scope:
+            raise ValueError("canonical W1 reader returned a foreign state")
+        self._read_count += 1
+        return state
+
+
 class W2CanonicalDecisionState(ContractModel):
     """Selector-owned canonical projection of the W1 bytes it actually consumes."""
 
@@ -133,15 +160,32 @@ class W2StrategySelector:
         registry: W2OptionRegistry,
         authorized_option_ids: tuple[str, ...],
         selection_fn: SelectionFn | None = None,
+        w1_reader: W1CanonicalReader | None = None,
+        w1_scope: W1Scope | None = None,
     ) -> None:
+        if (w1_reader is None) != (w1_scope is None):
+            raise ValueError(
+                "canonical W1 reader and fixed scope must be bound together"
+            )
+        if w1_reader is not None:
+            if type(w1_reader) is not W1CanonicalReader:
+                raise TypeError("selector requires the canonical read-only W1 reader")
+            if w1_reader.scope != w1_scope:
+                raise ValueError("canonical W1 reader scope mismatch")
         self._registry = registry
         self._authorized_option_ids = tuple(authorized_option_ids)
         self._option_ids = frozenset(self._authorized_option_ids)
         self._selection_fn = selection_fn
+        self._w1_reader = w1_reader
+        self._w1_scope = w1_scope
 
     @property
     def authorized_option_ids(self) -> tuple[str, ...]:
         return self._authorized_option_ids
+
+    @property
+    def has_canonical_w1_reader(self) -> bool:
+        return self._w1_reader is not None and self._w1_scope is not None
 
     def authorized_set_digest(self) -> str:
         options = []
@@ -237,13 +281,13 @@ class W2StrategySelector:
         self,
         context: Mapping[str, Any],
         outcome_history: tuple[Mapping[str, Any], ...],
-        decision_state: W1MemoryState | None = None,
     ) -> W2DecisionReceipt:
-        canonical_state = (
-            self.canonical_decision_state(decision_state)
-            if decision_state is not None
-            else None
-        )
+        canonical_state = None
+        if self._selection_fn is None and self._w1_reader is not None:
+            state = self._w1_reader.read()
+            if state.scope != self._w1_scope:
+                raise ValueError("canonical W1 snapshot escaped the fixed scope")
+            canonical_state = self.canonical_decision_state(state)
         preferred_option_id = (
             self._derive_preference(canonical_state)
             if canonical_state is not None

@@ -48,6 +48,7 @@ from experiments.w1w2_live_adaptation.w1_state import (
 )
 from experiments.w1w2_live_adaptation.w2_selector import (
     SelectionFn,
+    W1CanonicalReader,
     W2DecisionReceipt,
     W2OptionRegistry,
     W2StrategySelector,
@@ -455,6 +456,8 @@ class W1W2Arm(W2OnlyArm):
     def __init__(
         self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector
     ) -> None:
+        if not selector.has_canonical_w1_reader:
+            raise ValueError("W1W2Arm requires a fixed-scope canonical W1 reader")
         super().__init__(store, scope, selector)
         self._count = len(store.get_state(scope).updates)
         self._consumption_trace: list[tuple[str, str]] = []
@@ -463,20 +466,17 @@ class W1W2Arm(W2OnlyArm):
     def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
         if c7.halted:
             raise RuntimeError("C7 halted")
-        state = self._store.get_state(self._scope)
         receipt = self._selector.select(
             context=observation.model_dump(mode="json"),
             outcome_history=tuple(
                 item.model_dump(mode="json") for item in self._history
             ),
-            decision_state=state,
         )
         self._last_decision_receipt = receipt
-        if receipt.consumed_w1_decision_state_digest is None:
-            raise RuntimeError("W1W2 decision is missing canonical W1 state binding")
-        self._consumption_trace.append(
-            (receipt.consumed_w1_decision_state_digest, receipt.selected_option_id)
-        )
+        if receipt.consumed_w1_decision_state_digest is not None:
+            self._consumption_trace.append(
+                (receipt.consumed_w1_decision_state_digest, receipt.selected_option_id)
+            )
         return receipt.selected_option_id
 
     def update(self, feedback: CandidateFeedback, c7: C7Snapshot) -> None:
@@ -573,11 +573,17 @@ class FalsifierHarness:
             episode_id=f"ep-{seed}",
         )
 
-    def _make_selector(self) -> W2StrategySelector:
+    def _make_selector(
+        self,
+        w1_reader: W1CanonicalReader | None = None,
+        w1_scope: W1Scope | None = None,
+    ) -> W2StrategySelector:
         return W2StrategySelector(
             registry=self._option_registry,
             authorized_option_ids=self._authorized_option_ids,
             selection_fn=self._selection_fn,
+            w1_reader=w1_reader,
+            w1_scope=w1_scope,
         )
 
     def expected_run_binding(
@@ -686,7 +692,6 @@ class FalsifierHarness:
         arm_factory: ArmFactory | None = None,
     ) -> CharacterizationRecord:
         scope = self._make_scope(seed)
-        selector = self._make_selector()
         scorer = self._trusted_scorer if allow_run else _CharacterizationScorer()
         if scorer is None:
             raise RuntimeError("result run requires an external trusted scorer")
@@ -699,6 +704,14 @@ class FalsifierHarness:
         )
         store = W1MemoryStore(db_path=db_path, linter=linter)
         store.activate_scope(scope)
+        selector = self._make_selector(
+            w1_reader=(
+                W1CanonicalReader(store=store, scope=scope)
+                if arm_name == "w1+w2"
+                else None
+            ),
+            w1_scope=scope if arm_name == "w1+w2" else None,
+        )
         controller = C7Controller(f"c7-{run_id}", scope.task_id)
         fixture = DeterministicRegimeFixture(seed, n_steps, self._switch_at)
         arm = self._make_arm(arm_name, store, scope, selector, arm_factory)
