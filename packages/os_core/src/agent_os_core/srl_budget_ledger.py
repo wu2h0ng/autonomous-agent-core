@@ -4,7 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from threading import RLock
-from typing import Any
+from typing import Any, Callable
 
 from agent_os_contracts import (
     EnvironmentBinding,
@@ -35,11 +35,16 @@ class InMemoryBudgetLedger(BudgetEnforcementPort):
 
     durable = False
 
-    def __init__(self, *, now: datetime | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] | None = None,
+        now: datetime | None = None,
+    ) -> None:
         self._lock = RLock()
         self._binding_budgets: dict[str, _BindingBudget] = defaultdict(_BindingBudget)
         self._help_windows: dict[str, _HelpWindow] = defaultdict(_HelpWindow)
-        self._clock = now or datetime.now(timezone.utc)
+        self._clock = clock or (lambda: now or datetime.now(timezone.utc))
 
     def set_help_budget(self, mandate_id: str, budget: HelpBudget) -> None:
         with self._lock:
@@ -48,8 +53,6 @@ class InMemoryBudgetLedger(BudgetEnforcementPort):
     def check_binding_budget(self, binding: EnvironmentBinding) -> BudgetStatus:
         with self._lock:
             budget = self._binding_budgets[binding.binding_id]
-            # M0: each check consumes one wake unit.
-            budget.wake_used += 1
             if budget.halted:
                 return BudgetStatus(
                     binding_id=binding.binding_id,
@@ -57,18 +60,25 @@ class InMemoryBudgetLedger(BudgetEnforcementPort):
                     remaining_wake=0,
                     remaining_query=0,
                 )
+            if budget.wake_used >= binding.wake_budget_per_window:
+                return BudgetStatus(
+                    binding_id=binding.binding_id,
+                    status="EXHAUSTED",
+                    remaining_wake=0,
+                    remaining_query=max(
+                        0, binding.query_budget_per_window - budget.query_used
+                    ),
+                )
+            # This entry point consumes one wake. Query budget is not consulted:
+            # M0 has no query-consuming Runtime entry point.
+            budget.wake_used += 1
             remaining_wake = max(0, binding.wake_budget_per_window - budget.wake_used)
             remaining_query = max(
                 0, binding.query_budget_per_window - budget.query_used
             )
-            status: Any = (
-                "WITHIN_BUDGET"
-                if remaining_wake > 0 and remaining_query > 0
-                else "EXHAUSTED"
-            )
             return BudgetStatus(
                 binding_id=binding.binding_id,
-                status=status,
+                status="WITHIN_BUDGET",
                 remaining_wake=remaining_wake,
                 remaining_query=remaining_query,
             )
@@ -93,8 +103,9 @@ class InMemoryBudgetLedger(BudgetEnforcementPort):
 
     def _compute_receipt(self, mandate_id: str) -> HelpBurdenReceipt:
         window = self._help_windows[mandate_id]
-        # In-memory stub uses a fixed window anchored at self._clock.
-        window_start = self._clock
+        # M0 reports a live in-memory window. It does not claim complete
+        # operator-minute, unresolved-wait, or rolling-window enforcement.
+        window_start = self._clock()
         window_end = window_start + timedelta(days=1)
         request_count = len(window.requests)
         # Repeated-question rate is computed as fraction of requests sharing the

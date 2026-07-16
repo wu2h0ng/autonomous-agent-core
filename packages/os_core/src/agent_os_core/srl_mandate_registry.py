@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from threading import RLock
+from typing import Callable
 
 from agent_os_contracts import (
+    EnvironmentBinding,
     Mandate,
     MandateRatificationReceipt,
     MandateStatus,
@@ -20,13 +22,19 @@ class InMemoryMandateRegistry(MandateRegistryPort):
 
     durable = False
 
-    def __init__(self, *, now: datetime | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] | None = None,
+        now: datetime | None = None,
+    ) -> None:
         self._lock = RLock()
         self._mandates: dict[str, Mandate] = {}
         self._receipts: dict[str, MandateRatificationReceipt] = {}
         self._missions: dict[str, StandingMission] = {}
+        self._bindings: dict[str, EnvironmentBinding] = {}
         self._assessor_policy_digests: dict[str, str] = {}
-        self._clock = now or datetime.now(timezone.utc)
+        self._clock = clock or (lambda: now or datetime.now(timezone.utc))
 
     def ratify_mandate(
         self, mandate: Mandate, receipt: MandateRatificationReceipt
@@ -57,7 +65,7 @@ class InMemoryMandateRegistry(MandateRegistryPort):
                 raise SituationalTrustDenied("mandate is unavailable")
             if mandate.status not in {MandateStatus.RATIFIED, MandateStatus.ACTIVE}:
                 raise SituationalTrustDenied("mandate is not ratified or active")
-            if mandate.expires_at <= self._clock:
+            if mandate.expires_at <= self._clock():
                 raise SituationalTrustDenied("mandate has expired")
             mission = self._missions.get(mandate_id)
             if mission is None:
@@ -65,12 +73,41 @@ class InMemoryMandateRegistry(MandateRegistryPort):
             expected_digest = content_digest(mandate)
             if mission.parent_mandate_digest != expected_digest:
                 raise SituationalTrustDenied("standing mission parent digest mismatch")
+            if mission.expires_at <= self._clock():
+                raise SituationalTrustDenied("standing mission has expired")
             return mission
 
     def register_mission(self, mission: StandingMission) -> None:
         """Register a StandingMission for testing; not part of the public port."""
         with self._lock:
             self._missions[mission.mandate_id] = mission
+
+    def register_binding(self, binding: EnvironmentBinding) -> None:
+        """Register an exact authorized M0 environment binding."""
+        with self._lock:
+            mandate = self._mandates.get(binding.mandate_id)
+            if mandate is None:
+                raise SituationalTrustDenied("binding mandate is unavailable")
+            if (
+                binding.tenant_id != mandate.tenant_id
+                or binding.workspace_id != mandate.workspace_id
+            ):
+                raise SituationalTrustDenied("binding scope mismatch")
+            existing = self._bindings.get(binding.binding_id)
+            if existing is not None:
+                if content_digest(existing) != content_digest(binding):
+                    raise SituationalTrustDenied(
+                        "binding canonical digest conflicts with existing binding_id"
+                    )
+                return
+            self._bindings[binding.binding_id] = binding
+
+    def authorized_binding(self, binding_id: str) -> EnvironmentBinding:
+        with self._lock:
+            binding = self._bindings.get(binding_id)
+            if binding is None:
+                raise SituationalTrustDenied("authorized binding is unavailable")
+            return binding
 
     def expected_assessor_policy_digest(self, mandate_id: str) -> str:
         with self._lock:

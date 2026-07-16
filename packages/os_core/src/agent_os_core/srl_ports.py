@@ -153,9 +153,14 @@ class MandateRegistryPort(Protocol):
 
     def expected_assessor_policy_digest(self, mandate_id: str) -> str: ...
 
+    def authorized_binding(self, binding_id: str) -> EnvironmentBinding: ...
+
 
 class AssessorPort(Protocol):
     """Policy-bound relevance assessment; proposal only."""
+
+    instance_id: str
+    policy_digest: str
 
     def assess(
         self, event: SrlEnvironmentEvent, mission: StandingMission

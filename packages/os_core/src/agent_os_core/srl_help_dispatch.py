@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from threading import RLock
+from typing import Callable
 
 from agent_os_contracts import SrlHelpRequest, SrlHelpResponse, SrlHelpResponseKind
 
@@ -13,11 +14,16 @@ class InMemoryHelpDispatch(HelpDispatchPort):
 
     durable = False
 
-    def __init__(self, *, now: datetime | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        clock: Callable[[], datetime] | None = None,
+        now: datetime | None = None,
+    ) -> None:
         self._lock = RLock()
         self._requests: dict[str, SrlHelpRequest] = {}
         self._resolutions: dict[str, SrlHelpResponse] = {}
-        self._clock = now or datetime.now(timezone.utc)
+        self._clock = clock or (lambda: now or datetime.now(timezone.utc))
 
     def emit(self, help_request: SrlHelpRequest) -> HelpDispatchResult:
         with self._lock:
@@ -58,7 +64,11 @@ class InMemoryHelpDispatch(HelpDispatchPort):
                     help_request_id=response.help_request_id,
                     rejection_reason="response is not a typed authority record",
                 )
-            if self._clock > request.expires_at:
+            expired = (
+                self._clock() > request.expires_at
+                or response.responded_at > request.expires_at
+            )
+            if expired:
                 # After expiry only responses that stop or suspend work are permitted;
                 # authority-carrying responses would continue non-continuable work.
                 if response.response_kind not in {
@@ -69,7 +79,7 @@ class InMemoryHelpDispatch(HelpDispatchPort):
                         emitted=False,
                         resolved=False,
                         help_request_id=response.help_request_id,
-                        rejection_reason="only continuable_work permits resolution after expiry",
+                        rejection_reason="authority response rejected after help expiry",
                     )
             self._resolutions[response.help_request_id] = response
             return HelpDispatchResult(

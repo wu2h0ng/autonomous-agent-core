@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Callable
 
 from agent_os_contracts import (
     AgentInstanceRef,
@@ -57,6 +58,7 @@ class SrlRuntime:
         outcome_acceptor: OutcomeAcceptorPort,
         audit_port: AuditPort,
         runtime_instance_ref: AgentInstanceRef,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._event_ledger = event_ledger
         self._mandate_registry = mandate_registry
@@ -68,7 +70,7 @@ class SrlRuntime:
         self._outcome = outcome_acceptor
         self._audit = audit_port
         self._runtime_instance = runtime_instance_ref
-        self._clock = datetime.now(timezone.utc)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     # ------------------------------------------------------------------
     # Public entry points
@@ -87,7 +89,125 @@ class SrlRuntime:
         """
         self._record_transition("EVENT_RECEIVED", event.event_id, "evaluating")
 
-        # 1. Deduplicate / record event.
+        # 1. Duplicate detection is idempotent and does not assess again.
+        if self._event_ledger.get(event.binding_id, event.dedupe_key) is not None:
+            self._record_transition("EVENT_DEDUPLICATED", event.event_id, "duplicate")
+            return SrlEvaluationResult(
+                result_class="IGNORE",
+                event_id=event.event_id,
+                halt_reason="duplicate dedupe_key",
+            )
+
+        # 2. Resolve binding and current mission before accepting the event.
+        try:
+            authorized_binding = self._mandate_registry.authorized_binding(
+                event.binding_id
+            )
+            mission = self._mandate_registry.current_ratified_mission(event.mandate_id)
+        except SituationalTrustDenied as exc:
+            self._record_transition("TRUST_BINDING_REJECTED", event.event_id, str(exc))
+            return SrlEvaluationResult(
+                result_class="HELP",
+                event_id=event.event_id,
+                halt_reason=f"binding or mission rejected: {exc}",
+            )
+
+        if binding is not None and content_digest(binding) != content_digest(
+            authorized_binding
+        ):
+            self._record_transition(
+                "TRUST_BINDING_REJECTED", event.event_id, "binding digest mismatch"
+            )
+            return SrlEvaluationResult(
+                result_class="HELP",
+                event_id=event.event_id,
+                halt_reason="caller binding assertion does not match authorized binding",
+            )
+
+        expected_scope = (
+            authorized_binding.mandate_id,
+            authorized_binding.tenant_id,
+            authorized_binding.workspace_id,
+        )
+        if (
+            event.mandate_id,
+            event.tenant_id,
+            event.workspace_id,
+        ) != expected_scope or (
+            mission.mandate_id,
+            mission.tenant_id,
+            mission.workspace_id,
+        ) != expected_scope:
+            self._record_transition(
+                "TRUST_BINDING_REJECTED", event.event_id, "binding scope mismatch"
+            )
+            return SrlEvaluationResult(
+                result_class="HELP",
+                event_id=event.event_id,
+                halt_reason="event, binding, and mission scope mismatch",
+            )
+
+        budget_status = self._budget.check_binding_budget(authorized_binding)
+        if budget_status.status in {"EXHAUSTED", "HALTED"}:
+            reason = f"binding budget {budget_status.status}"
+            self._record_transition("BUDGET_HALTED", event.event_id, reason)
+            return SrlEvaluationResult(
+                result_class="BUDGET_HALT",
+                event_id=event.event_id,
+                halt_reason=reason,
+            )
+
+        # 3. Produce and validate the exact relevance assessment binding.
+        try:
+            assessment = self._assessor.assess(event, mission)
+        except Exception as exc:
+            # An assessor is proposal-only and cannot crash the public Runtime
+            # entry point or poison event dedupe.  Do not echo exception text:
+            # provider/adapter failures may contain sensitive context.
+            reason = f"assessor failed: {type(exc).__name__}"
+            self._record_transition("ASSESSOR_FAILED", event.event_id, reason)
+            return SrlEvaluationResult(
+                result_class="HELP",
+                event_id=event.event_id,
+                halt_reason=reason,
+            )
+
+        expected_policy_digest = self._mandate_registry.expected_assessor_policy_digest(
+            event.mandate_id
+        )
+        assessment_mismatches = (
+            ("mandate", assessment.mandate_id, event.mandate_id),
+            (
+                "standing mission",
+                assessment.standing_mission_id,
+                mission.standing_mission_id,
+            ),
+            ("trigger event", assessment.trigger_event_id, event.event_id),
+            ("trigger gap", assessment.trigger_gap_id, None),
+            ("assessor policy digest", assessment.assessor_policy_digest, expected_policy_digest),
+            ("assessor contract policy", self._assessor.policy_digest, expected_policy_digest),
+            ("assessor identity", assessment.assessor_version, self._assessor.instance_id),
+        )
+        mismatch = next(
+            (label for label, actual, expected in assessment_mismatches if actual != expected),
+            None,
+        )
+        if mismatch is not None:
+            self._record_transition(
+                "ASSESSMENT_BINDING_MISMATCH",
+                event.event_id,
+                f"{mismatch} mismatch",
+            )
+            return SrlEvaluationResult(
+                result_class="HELP",
+                event_id=event.event_id,
+                assessment_id=assessment.assessment_id,
+                halt_reason=f"assessment {mismatch} mismatch",
+            )
+
+        # Accept only an event whose assessment was produced and exactly bound.
+        # The pre-check above avoids repeat assessment in the common duplicate
+        # case; the append receipt still closes a concurrent append race.
         receipt = self._event_ledger.append(event)
         if receipt.status == "DUPLICATE":
             self._record_transition("EVENT_DEDUPLICATED", event.event_id, "duplicate")
@@ -96,55 +216,12 @@ class SrlRuntime:
                 event_id=event.event_id,
                 halt_reason="duplicate dedupe_key",
             )
-        if receipt.status == "REJECTED":
-            self._record_transition("EVENT_REJECTED", event.event_id, "rejected")
+        if receipt.status != "APPENDED":
+            self._record_transition("EVENT_REJECTED", event.event_id, receipt.status)
             return SrlEvaluationResult(
                 result_class="HELP",
                 event_id=event.event_id,
                 halt_reason="event ledger rejected the event",
-            )
-
-        # 2. Binding budget check (I-13).
-        if binding is not None:
-            budget_status = self._budget.check_binding_budget(binding)
-            if budget_status.status in {"EXHAUSTED", "HALTED"}:
-                reason = f"binding budget {budget_status.status}"
-                self._record_transition("BUDGET_HALTED", event.event_id, reason)
-                return SrlEvaluationResult(
-                    result_class="BUDGET_HALT",
-                    event_id=event.event_id,
-                    halt_reason=reason,
-                )
-
-        # 3. Resolve current ratified mission (I-4, I-16).
-        try:
-            mission = self._mandate_registry.current_ratified_mission(event.mandate_id)
-        except SituationalTrustDenied as exc:
-            self._record_transition("MISSION_REJECTED", event.event_id, str(exc))
-            return SrlEvaluationResult(
-                result_class="HELP",
-                event_id=event.event_id,
-                halt_reason=f"mission rejected: {exc}",
-            )
-
-        # 4. Produce relevance assessment (I-8 validated below).
-        assessment = self._assessor.assess(event, mission)
-
-        # 5. Validate assessor policy digest (I-8).
-        expected_policy_digest = self._mandate_registry.expected_assessor_policy_digest(
-            event.mandate_id
-        )
-        if assessment.assessor_policy_digest != expected_policy_digest:
-            self._record_transition(
-                "ASSESSOR_POLICY_MISMATCH",
-                event.event_id,
-                "assessor_policy_digest mismatch",
-            )
-            return SrlEvaluationResult(
-                result_class="HELP",
-                event_id=event.event_id,
-                assessment_id=assessment.assessment_id,
-                halt_reason="assessor policy digest mismatch",
             )
 
         self._record_transition(
@@ -271,6 +348,20 @@ class SrlRuntime:
         """Create a typed help request and charge the separate help budget."""
         # Help burden computed by ledger, not dispatcher (I-21).
         burden_receipt = self._budget.charge_help(help_request)
+        if burden_receipt.status == "EXCEEDED":
+            result = HelpDispatchResult(
+                emitted=False,
+                resolved=False,
+                help_request_id=help_request.help_request_id,
+                burden_receipt=burden_receipt,
+                rejection_reason="help burden budget exceeded",
+            )
+            self._record_transition(
+                "HELP_REQUEST_REJECTED",
+                help_request.help_request_id,
+                burden_receipt.status,
+            )
+            return result
         result = self._help.emit(help_request)
         # HelpDispatchResult is immutable; reconstruct with the ledger receipt.
         result = HelpDispatchResult(
@@ -327,6 +418,7 @@ class SrlRuntime:
         *,
         authority_instance_id: str | None = None,
     ) -> None:
+        now = self._clock()
         transition = AuditTransition(
             transition_class=transition_class,
             from_state=from_state,
@@ -336,10 +428,10 @@ class SrlRuntime:
                     "transition_class": transition_class,
                     "from_state": from_state,
                     "to_state": to_state,
-                    "timestamp": self._clock.isoformat(),
+                    "timestamp": now.isoformat(),
                 }
             ),
-            timestamp=self._clock,
+            timestamp=now,
             authority_instance_id=authority_instance_id
             or self._runtime_instance.instance_id,
             provenance=(f"runtime:{self._runtime_instance.instance_id}",),

@@ -221,14 +221,21 @@ def make_runtime(
     mandate,
     ratification_receipt,
     standing_mission,
+    binding,
     runtime_instance,
     assessor_instance,
 ):
-    def _make(disposition=SrlRelevanceDisposition.OBSERVE, allow_activation=False):
+    def _make(
+        disposition=SrlRelevanceDisposition.OBSERVE,
+        allow_activation=False,
+        register_binding=True,
+    ):
         event_ledger = InMemoryEventLedger()
         mandate_registry = InMemoryMandateRegistry()
         mandate_registry.ratify_mandate(mandate, ratification_receipt)
         mandate_registry.register_mission(standing_mission)
+        if register_binding:
+            mandate_registry.register_binding(binding)
 
         def factory(event, mission):
             now = datetime.now(timezone.utc)
@@ -652,7 +659,7 @@ def test_i20_after_help_expiry_only_continuable_work(make_runtime, now):
     )
     result = runtime.resolve_help_request(bad_response)
     assert not result.resolved
-    assert "continuable_work" in (result.rejection_reason or "").lower()
+    assert "expiry" in (result.rejection_reason or "").lower()
 
 
 def test_i21_help_burden_computed_by_separate_ledger(make_runtime, event):
@@ -680,21 +687,10 @@ def test_i21_help_burden_computed_by_separate_ledger(make_runtime, event):
     assert runtime._help.emit(help_request).burden_receipt is None
 
 
-def test_i22_w1_w2_cannot_mutate_mandate():
-    """I-22: Runtime refuses W1/W2 update objects that mutate Mandate/Envelope/Mission/grants."""
-    # Direct mutation attempt is blocked at the contract/port layer; here we assert
-    # that no public Runtime method accepts a Mandate/StandingMission as an update.
-    public_methods = {
-        "evaluate_event",
-        "propose_goal",
-        "activate_goal",
-        "emit_help_request",
-        "resolve_help_request",
-        "accept_outcome",
-    }
-    assert not any(
-        "update_mandate" in m or "update_mission" in m for m in public_methods
-    )
+def test_m0_has_no_public_w1_w2_mutation_entry_point():
+    """M0 exposes no W1/W2 mutation entry point; future ports remain unproved."""
+    assert not hasattr(SrlRuntime, "apply_w1_update")
+    assert not hasattr(SrlRuntime, "apply_w2_update")
 
 
 def test_i23_same_instance_cannot_propose_and_accept(
@@ -725,8 +721,8 @@ def test_i23_same_instance_cannot_propose_and_accept(
     assert "I-23" in (activation.rejection_reason or "")
 
 
-def test_i25_cross_restart_replay_idempotent(make_runtime, event):
-    """I-25: Replay of an event with the same dedupe_key is idempotent."""
+def test_same_process_in_memory_duplicate_is_idempotent(make_runtime, event):
+    """M0 deduplicates replay only inside one in-memory Runtime/ledger."""
     runtime = make_runtime()
     r1 = runtime.evaluate_event(event)
     r2 = runtime.evaluate_event(event)
@@ -735,3 +731,335 @@ def test_i25_cross_restart_replay_idempotent(make_runtime, event):
     # No duplicate work should be recorded in the audit log for the second event.
     transition_classes = [t.transition_class for t in runtime._audit.transitions()]
     assert transition_classes.count("ASSESSMENT_PRODUCED") == 1
+
+
+def test_unregistered_binding_fails_before_assessment_or_ledger_acceptance(
+    make_runtime, event
+):
+    runtime = make_runtime(register_binding=False)
+
+    result = runtime.evaluate_event(event)
+
+    assert result.result_class == "HELP"
+    assert "binding" in (result.halt_reason or "").lower()
+    assert runtime._event_ledger.list_events(event.binding_id) == ()
+    assert not any(
+        transition.transition_class == "ASSESSMENT_PRODUCED"
+        for transition in runtime._audit.transitions()
+    )
+
+
+def test_registered_binding_is_authority_source_when_argument_omitted(
+    make_runtime, event, binding
+):
+    runtime = make_runtime()
+    runtime._mandate_registry.register_binding(binding)
+
+    result = runtime.evaluate_event(event)
+
+    assert result.result_class == "OBSERVE"
+
+
+@pytest.mark.parametrize(
+    "binding_update",
+    [
+        {"binding_id": "foreign-binding"},
+        {"wake_budget_per_window": 999},
+        {"source_scope": "repo://attacker"},
+    ],
+)
+def test_caller_binding_is_only_exact_digest_assertion(
+    make_runtime, event, binding, binding_update
+):
+    runtime = make_runtime()
+    runtime._mandate_registry.register_binding(binding)
+    asserted_binding = binding.model_copy(update=binding_update)
+
+    result = runtime.evaluate_event(event, binding=asserted_binding)
+
+    assert result.result_class == "HELP"
+    assert "binding" in (result.halt_reason or "").lower()
+    assert runtime._event_ledger.list_events(event.binding_id) == ()
+
+
+def test_event_scope_must_equal_registered_binding_and_current_mission(
+    make_runtime, event, binding
+):
+    runtime = make_runtime()
+    runtime._mandate_registry.register_binding(binding)
+    foreign_event = event.model_copy(update={"tenant_id": "foreign-tenant"})
+
+    result = runtime.evaluate_event(foreign_event)
+
+    assert result.result_class == "HELP"
+    assert "scope" in (result.halt_reason or "").lower()
+    assert runtime._event_ledger.list_events(event.binding_id) == ()
+
+
+@pytest.mark.parametrize(
+    "assessment_update, reason",
+    [
+        ({"mandate_id": "foreign-mandate"}, "mandate"),
+        ({"standing_mission_id": "foreign-mission"}, "mission"),
+        ({"trigger_event_id": "foreign-event"}, "trigger"),
+        ({"assessor_version": "foreign-assessor"}, "assessor"),
+    ],
+)
+def test_assessment_must_be_exactly_bound_before_routing(
+    make_runtime, event, binding, assessment_update, reason
+):
+    runtime = make_runtime()
+    runtime._mandate_registry.register_binding(binding)
+    original_assess = runtime._assessor.assess
+    runtime._assessor.assess = lambda assessed_event, mission: original_assess(
+        assessed_event, mission
+    ).model_copy(update=assessment_update)
+
+    result = runtime.evaluate_event(event)
+
+    assert result.result_class == "HELP"
+    assert reason in (result.halt_reason or "").lower()
+    assert not any(
+        transition.transition_class == "ASSESSMENT_PRODUCED"
+        for transition in runtime._audit.transitions()
+    )
+
+
+def test_event_assessment_rejects_non_null_trigger_gap_before_ledger_acceptance(
+    make_runtime, event
+):
+    runtime = make_runtime()
+    original_assess = runtime._assessor.assess
+    runtime._assessor.assess = lambda assessed_event, mission: original_assess(
+        assessed_event, mission
+    ).model_copy(update={"trigger_gap_id": "foreign-gap"})
+
+    result = runtime.evaluate_event(event)
+
+    assert result.result_class == "HELP"
+    assert "trigger gap" in (result.halt_reason or "").lower()
+    assert runtime._event_ledger.list_events(event.binding_id) == ()
+
+
+def test_mismatched_assessment_does_not_poison_valid_retry(make_runtime, event):
+    runtime = make_runtime()
+    original_assess = runtime._assessor.assess
+    calls = [0]
+
+    def mismatch_once(assessed_event, mission):
+        calls[0] += 1
+        assessment = original_assess(assessed_event, mission)
+        if calls[0] == 1:
+            return assessment.model_copy(update={"assessor_version": "foreign-assessor"})
+        return assessment
+
+    runtime._assessor.assess = mismatch_once
+
+    rejected = runtime.evaluate_event(event)
+    assert runtime._event_ledger.list_events(event.binding_id) == ()
+    accepted = runtime.evaluate_event(event)
+
+    assert rejected.result_class == "HELP"
+    assert runtime._event_ledger.list_events(event.binding_id) == (event,)
+    assert accepted.result_class == "OBSERVE"
+    assert calls[0] == 2
+
+
+def test_assessor_exception_does_not_poison_valid_retry(make_runtime, event):
+    runtime = make_runtime()
+    original_assess = runtime._assessor.assess
+    calls = [0]
+
+    def raise_once(assessed_event, mission):
+        calls[0] += 1
+        if calls[0] == 1:
+            raise RuntimeError("assessor unavailable")
+        return original_assess(assessed_event, mission)
+
+    runtime._assessor.assess = raise_once
+
+    rejected = runtime.evaluate_event(event)
+    assert rejected.result_class == "HELP"
+    assert "assessor failed" in (rejected.halt_reason or "").lower()
+    assert runtime._event_ledger.list_events(event.binding_id) == ()
+
+    accepted = runtime.evaluate_event(event)
+
+    assert accepted.result_class == "OBSERVE"
+    assert runtime._event_ledger.list_events(event.binding_id) == (event,)
+    assert calls[0] == 2
+
+
+def test_race_time_duplicate_append_is_idempotent_ignore(make_runtime, event):
+    runtime = make_runtime()
+    original_append = runtime._event_ledger.append
+
+    def lose_append_race(raced_event):
+        original_append(raced_event)
+        return original_append(raced_event)
+
+    runtime._event_ledger.append = lose_append_race
+
+    result = runtime.evaluate_event(event)
+
+    assert result.result_class == "IGNORE"
+    assert "duplicate" in (result.halt_reason or "").lower()
+    assert runtime._event_ledger.list_events(event.binding_id) == (event,)
+
+
+def test_binding_registration_is_idempotent_but_rejects_digest_change(
+    mandate, ratification_receipt, binding
+):
+    registry = InMemoryMandateRegistry()
+    registry.ratify_mandate(mandate, ratification_receipt)
+
+    registry.register_binding(binding)
+    registry.register_binding(binding.model_copy())
+
+    with pytest.raises(SituationalTrustDenied, match="digest"):
+        registry.register_binding(
+            binding.model_copy(update={"source_scope": "repo://different"})
+        )
+    assert registry.authorized_binding(binding.binding_id) == binding
+
+
+def test_help_authority_rejects_backdated_response_after_expiry(now):
+    current = [now]
+    dispatch = InMemoryHelpDispatch(clock=lambda: current[0])
+    request = SrlHelpRequest(
+        help_request_id="help-live-clock",
+        mandate_id="mandate-1",
+        standing_mission_id="mission-1",
+        tenant_id="t-1",
+        workspace_id="w-1",
+        help_class=HelpClass.INFORMATION,
+        unsafe_boundary="operator input required",
+        minimum_answer="approve?",
+        continuable_work=("wait",),
+        requested_at=now,
+        expires_at=now + timedelta(seconds=1),
+        cancellation_policy="cancel on expiry",
+        escalation_policy="escalate",
+    )
+    assert dispatch.emit(request).emitted
+    current[0] = now + timedelta(seconds=2)
+    response = SrlHelpResponse(
+        help_request_id=request.help_request_id,
+        response_kind=SrlHelpResponseKind.OPERATOR_DECISION,
+        decision="APPROVE",
+        responded_at=now,
+        responder_principal_id="operator-1",
+    )
+
+    result = dispatch.resolve(response)
+
+    assert not result.resolved
+    assert "expiry" in (result.rejection_reason or "").lower()
+
+
+def test_help_authority_rejects_response_timestamp_after_expiry(now):
+    dispatch = InMemoryHelpDispatch(clock=lambda: now)
+    request = SrlHelpRequest(
+        help_request_id="help-response-time",
+        mandate_id="mandate-1",
+        standing_mission_id="mission-1",
+        tenant_id="t-1",
+        workspace_id="w-1",
+        help_class=HelpClass.INFORMATION,
+        unsafe_boundary="operator input required",
+        minimum_answer="approve?",
+        continuable_work=("wait",),
+        requested_at=now - timedelta(seconds=2),
+        expires_at=now + timedelta(seconds=1),
+        cancellation_policy="cancel on expiry",
+        escalation_policy="escalate",
+    )
+    dispatch.emit(request)
+    response = SrlHelpResponse(
+        help_request_id=request.help_request_id,
+        response_kind=SrlHelpResponseKind.CAPABILITY_GRANT,
+        capability_grant_id="grant-1",
+        responded_at=now + timedelta(seconds=2),
+        responder_principal_id="operator-1",
+    )
+
+    result = dispatch.resolve(response)
+
+    assert not result.resolved
+    assert "expiry" in (result.rejection_reason or "").lower()
+
+
+def test_help_budget_exceeded_prevents_dispatch(make_runtime, event):
+    runtime = make_runtime(disposition=SrlRelevanceDisposition.HELP)
+    request = SrlHelpRequest(
+        help_request_id="help-first",
+        mandate_id=event.mandate_id,
+        standing_mission_id="mission-1",
+        tenant_id=event.tenant_id,
+        workspace_id=event.workspace_id,
+        help_class=HelpClass.INFORMATION,
+        unsafe_boundary="operator input required",
+        minimum_answer="first",
+        continuable_work=("wait",),
+        requested_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        cancellation_policy="cancel on expiry",
+        escalation_policy="escalate",
+    )
+    assert runtime.emit_help_request(request).emitted
+
+    result = runtime.emit_help_request(
+        request.model_copy(
+            update={"help_request_id": "help-exceeded", "minimum_answer": "second"}
+        )
+    )
+
+    assert result.burden_receipt is not None
+    assert result.burden_receipt.status == "EXCEEDED"
+    assert not result.emitted
+    assert "exceeded" in (result.rejection_reason or "").lower()
+    assert "help-exceeded" not in runtime._help._requests
+
+
+def test_wake_budget_allows_exactly_n_wakes_and_ignores_unused_zero_query(binding):
+    ledger = InMemoryBudgetLedger()
+    exact_two = binding.model_copy(
+        update={"wake_budget_per_window": 2, "query_budget_per_window": 0}
+    )
+
+    first = ledger.check_binding_budget(exact_two)
+    second = ledger.check_binding_budget(exact_two)
+    third = ledger.check_binding_budget(exact_two)
+
+    assert first.status == "WITHIN_BUDGET"
+    assert second.status == "WITHIN_BUDGET"
+    assert third.status == "EXHAUSTED"
+
+
+def test_mandate_registry_uses_live_clock_for_expiry(
+    mandate, ratification_receipt, standing_mission, now
+):
+    current = [now]
+    registry = InMemoryMandateRegistry(clock=lambda: current[0])
+    registry.ratify_mandate(mandate, ratification_receipt)
+    registry.register_mission(standing_mission)
+    assert registry.current_ratified_mission(mandate.mandate_id) == standing_mission
+
+    current[0] = mandate.expires_at
+
+    with pytest.raises(SituationalTrustDenied, match="expired"):
+        registry.current_ratified_mission(mandate.mandate_id)
+
+
+def test_runtime_audit_transition_uses_one_live_timestamp(make_runtime, event, now):
+    current = [now]
+    runtime = make_runtime()
+    runtime._clock = lambda: current[0]
+
+    runtime.evaluate_event(event)
+    first = runtime._audit.transitions()[0]
+    assert first.timestamp == now
+
+    current[0] = now + timedelta(seconds=1)
+    runtime.evaluate_event(event)
+    assert runtime._audit.transitions()[-1].timestamp == current[0]
