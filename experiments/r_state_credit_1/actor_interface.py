@@ -135,11 +135,6 @@ class StubActor:
             payload = {}
 
         if event_class == "DETERMINISTIC_RECOVERY":
-            recovery_action = payload.get("recovery_action")
-            if recovery_action == "ROLLBACK":
-                return ActorAction.RECOVER_ROLLBACK
-            if recovery_action == "ROLL_FORWARD":
-                return ActorAction.RECOVER_ROLL_FORWARD
             return ActorAction.REVIEW
 
         review_classes = {

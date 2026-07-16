@@ -8,6 +8,7 @@ authority, scorer, verdict, or result writer.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 
 from experiments.r_state_credit_1.action_grammar import ALL_ACTIONS, ActorAction
@@ -19,6 +20,12 @@ from experiments.r_state_credit_1.interactive_env import EpisodeStatus, Interact
 from experiments.r_state_credit_1.recast_arms import ArmRoster
 
 
+class TrajectoryAuthority(str, Enum):
+    """Claim ceiling for the local shared trajectory driver."""
+
+    SHARED_QUALIFICATION_TRAJECTORY_ONLY = "SHARED_QUALIFICATION_TRAJECTORY_ONLY"
+
+
 @dataclass(slots=True)
 class CheckpointRecord:
     """One local qualification checkpoint; not a scientific result row."""
@@ -26,6 +33,9 @@ class CheckpointRecord:
     checkpoint_ordinal: int
     turn_index: int
     correct_action: ActorAction
+    authority: TrajectoryAuthority = (
+        TrajectoryAuthority.SHARED_QUALIFICATION_TRAJECTORY_ONLY
+    )
     requests: dict[str, ActorRequest] = field(default_factory=dict)
     responses: dict[str, ActorResponse] = field(default_factory=dict)
     resolved_actions: dict[ArmId, ActorAction] = field(default_factory=dict)
@@ -33,6 +43,15 @@ class CheckpointRecord:
     @property
     def arm_ids(self) -> tuple[ArmId, ...]:
         return tuple(ArmId)
+
+    def to_mapping(self) -> dict[str, object]:
+        return {
+            "authority": self.authority.value,
+            "checkpoint_ordinal": self.checkpoint_ordinal,
+            "turn_index": self.turn_index,
+            "request_count": len(self.requests),
+            "response_count": len(self.responses),
+        }
 
 
 def run_checkpointed_episode(
@@ -81,4 +100,3 @@ def run_checkpointed_episode(
         episode.cleanup()
         raise
     return episode, records
-

@@ -279,7 +279,7 @@ class TypedStateArm:
             elif name == "DETERMINISTIC_RECOVERY":
                 recovery = {
                     "ref": str(payload.get("recovery_ref", "")),
-                    "recovery_action": str(payload.get("recovery_action", "")),
+                    "snapshot_digest": str(payload.get("snapshot_digest", "")),
                 }
             elif name == "REPRESENTATION_PRESSURE":
                 pressure_open += 1
