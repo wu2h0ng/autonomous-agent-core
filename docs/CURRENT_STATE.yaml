@@ -1,5 +1,5 @@
 schema_version: 2
-updated: "2026-07-16T19:50:02+08:00"
+updated: "2026-07-16T23:12:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -205,9 +205,9 @@ active_work:
     source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
   - id: "MANDATE-SRL-V0"
     track: "product_architecture"
-    status: "P_MANDATE_1_P_SRL_ENV_1_P_SRL_HELP_1_V0_V1_CONTRACTS_IMPLEMENTED_LOCAL / A_SRL_1_CONDITIONAL_APPROVE_CLOSED / V0_V1_CONTRACT_RED_TESTS_IMPLEMENTED / R_SRL_1_PREREG_FROZEN / NO_RUNTIME / NO_ACTIVATION"
+    status: "P_MANDATE_1_P_SRL_ENV_1_P_SRL_HELP_1_V0_V1_CONTRACTS_IMPLEMENTED_LOCAL / A_SRL_1_CONDITIONAL_APPROVE_CLOSED / V0_V1_CONTRACT_RED_TESTS_IMPLEMENTED / R_SRL_1_PREREG_FROZEN / M0_RUNTIME_CANDIDATE_VERIFIED_ISOLATED / NO_CANONICAL_INTEGRATION / NO_ACTIVATION"
     purpose: "Provide typed Mandate, environment/relevance and HelpRequest contracts plus a threat model so that a future SRL Runtime can be built with machine-testable authority invariants rather than ad-hoc checks."
-    boundary: "Contracts, threat model and frozen research preregistration only. V1 amendments at 955ba4a close the P0 contract-traceability gaps. V0/V1 invariants now have contract-level RED tests (742 passed, 1 skipped). P-SRL-RUNTIME-1 design candidate at 63a247d maps RT invariants to a minimal Runtime vertical but is not implemented. RT invariants remain pending SRL Runtime implementation. R-SRL-1 preregistration is frozen pending environment/scorer freeze. No Runtime, provider, help dispatch, task activation, result run or production claim. No main merge or release."
+    boundary: "Contracts and threat model are integrated on canonical-convergence. P-SRL-RUNTIME-1 M0 is a separately verified isolated implementation candidate at 6e06b4f, not integrated or activated; M1-M4 and the propose_goal accepted-assessment provenance seam remain open. R-SRL-1 preregistration is frozen pending independent methodology review and its own environment/scorer freeze. No provider-backed SRL assessment, persistent Runtime, TaskService/C7 activation, result run, production claim, main merge or release."
     source:
       - "packages/contracts/src/agent_os_contracts/mandate.py"
       - "packages/contracts/src/agent_os_contracts/srl_environment.py"
@@ -218,10 +218,10 @@ active_work:
       - "docs/architecture/A-SRL-1-threat-model-and-authority-invariants.md"
       - "docs/architecture/A-SRL-1-threat-model-review.md"
   - id: "P-SRL-RUNTIME-1"
-    track: "product_architecture"
-    status: "DESIGN_CANDIDATE / NO_IMPLEMENTATION / NO_RUNTIME_AUTHORIZATION"
+    track: "product"
+    status: "M0_IMPLEMENTED_VERIFIED_ISOLATED / INDEPENDENT_APPROVE / NOT_INTEGRATED / NO_RUNTIME_ACTIVATION / M1_M4_NOT_IMPLEMENTED"
     purpose: "Bridge the ratified Mandate/SRL contracts to the existing Task/Run/Action spine with a minimal fail-closed Runtime that enforces the RT invariants from A-SRL-1."
-    boundary: "Design candidate only. Defines public entry points (evaluate_event, propose_goal, activate_goal, emit/resolve_help_request, accept_outcome), internal ports, invariant mapping, implementation sequence and test plan. No code changes to os_core, no provider calls, no task activation, no result run, no production claim. M0-M4 implementation requires separate authorization."
+    boundary: "Design remains at 63a247d. The hardened M0 implementation is on clean isolated branch codex/p-srl-runtime-1-m0-hardening-20260716 at 6e06b4f6b8f156284745d6f39ec3a6c8b1f46087. Exact-head verification: 39 focused invariants; full Product 781 passed, 1 skipped; scoped Ruff/Pyright and diff clean; Kimi final verdict APPROVE with no P0/P1. It closes caller-minted authority, forged outcome, foreign binding/gap, frozen clock, budget bypass, ledger-poisoning and false-positive test defects within M0. propose_goal accepted-assessment provenance is an explicit P2 gap. No canonical integration, provider, persistence, TaskService/C7 activation, result run, push, release or M1-M4 claim."
     source:
       - "docs/architecture/P-SRL-RUNTIME-1-design-2026-07-16.md"
       - "docs/architecture/A-SRL-1-threat-model-and-authority-invariants.md"
@@ -496,11 +496,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-16T19:52:00+08:00"
+  checked_at: "2026-07-16T23:12:00+08:00"
   branch: "codex/canonical-convergence-20260715"
-  canonical_head: "c8f0d1bf0ff031463086fe1fa8e365c632f5755a"
-  prior_canonical_head: "e50eaac0b45c64fa38f73c0ab7070c2d9cfc6157"
+  canonical_head: "b77587fc95f1d85b0a7a83f1ff6deb8f6153ad44"
+  prior_canonical_head: "c8f0d1bf0ff031463086fe1fa8e365c632f5755a"
   merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
   commit_state: "P_SRL_RUNTIME_1_DESIGN_CANDIDATE / R_SRL_1_INDEPENDENT_REVIEW_REQUEST_UPDATED / R_SRL_1_EVAL_HARNESS_FULL_HIDDEN_SCORER_COVERAGE_COMMITTED / R_SRL_1_EVAL_HARNESS_REAL_TIME_BUDGET_ENFORCEMENT_COMMITTED / R_SRL_1_EVAL_HARNESS_RESTART_STATE_COMPARATOR_COMMITTED / R_SRL_1_EVAL_HARNESS_OPERATOR_PROTOCOLS_COMMITTED / R_SRL_1_EVAL_HARNESS_HCW_RECORDER_COMMITTED / R_SRL_1_EVAL_HARNESS_HELP_BURDEN_LEDGER_COMMITTED / R_SRL_1_EVAL_HARNESS_REAL_REPOSITORY_FIXTURE_COMMITTED / R_SRL_1_EVAL_HARNESS_BASELINE_ARM_ENVELOPE_COMMITTED / R_SRL_1_EVAL_HARNESS_TEST_BUILD_GATEWAY_AND_BUDGET_LEDGER_COMMITTED / R_SRL_1_EVAL_HARNESS_HIDDEN_SCORER_IMPLEMENTED / R_SRL_1_EVAL_HARNESS_SELF_ATTACK_REVIEW_P0_P1_CLOSED / R_SRL_1_EVAL_HARNESS_SKELETON_IMPLEMENTED / R_SRL_1_EVAL_HARNESS_DESIGN_CANDIDATE / V0_V1_CONTRACT_RED_TESTS_IMPLEMENTED / R_SRL_1_PREREG_FROZEN / A_SRL_1_CONDITIONAL_APPROVE_CLOSED / SRL_V1_AMENDMENTS_INTEGRATED / DEV-REAL-OUTCOME-1_AND_DATA_AGENT_RELEVANCE_PRESERVED / CURRENT_STATE_UPDATED / NOT_PUSHED_NOT_MERGED_TO_MAIN"
   merge_scope: "Adds SRL V1 contract amendments, frozen R-SRL-1 preregistration, contract-level RED tests for V0/V1 A-SRL-1 invariants, an R-SRL-1 evaluation harness design candidate with implemented skeleton, internal self-attack review, full 9 event-type hidden scorer plugin coverage (TEST_FIXED, DECOY, INTERFACE_ADAPTED, CONFLICT_RESOLVED, RESTART_EQUIVALENT, UNCERTAINTY_RESOLVED, BELIEF_UPDATED, COMMITMENT_MET, HELP_ESCALATED), fail-closed outcome evaluator dispatched through the plugin map, updated independent methodology review request with refreshed manifest hashes, test/build gateway with matched-arm budget ledger, and a P-SRL-RUNTIME-1 design candidate mapping RT invariants to a minimal Runtime vertical. P0-4/P0-5 now closed; P2-1/2/3 remain open. Awaiting independent methodology review and environment/scorer freeze. RT invariants remain pending SRL Runtime implementation. Preserves ADM-P1/P2/P3/P4 inert adaptation infrastructure, materialization clock-drift fix, DEV-REAL-OUTCOME-1 durable outcome truth enforcement, and Data Agent provider relevance restart/rehydration. No production activation, no SRL Runtime integration, no Data Agent migration, no Research mechanism import, no result run, no main merge or release."
-  evidence_separation: "SRL V0/V1 contracts and A-SRL-1 are local typed contracts/design candidate only; V0/V1 invariants now have contract-level RED tests and RT invariants require Runtime. P-SRL-RUNTIME-1 is a design candidate, not an implementation or runtime authorization. R-SRL-1 is a frozen research preregistration and its evaluation harness is a design candidate with implemented skeleton, hidden scorer, fail-closed outcome evaluator, test/build gateway and budget ledger, not a result or runtime authorization. ADM-P1/P2/P3/P4 remain Product implementation evidence with policy V1 all-DEFER. DEV-REAL-OUTCOME-1 closes the false-VERIFIED defect on canonical-convergence only. Data Agent relevance integration is proposal-only Product behavior. SPINE/LH, B1, RTM-1 and Research Track evidence remain on separate branches. None is a release, migration, D2 or general-autonomy claim."
+  evidence_separation: "SRL V0/V1 contracts and A-SRL-1 are integrated typed contracts and threat-model evidence. P-SRL-RUNTIME-1 M0 is separately implemented and verified at exact isolated commit 6e06b4f, but is not integrated, activated or provider-backed; M1-M4 remain unimplemented. R-SRL-1 is a frozen research preregistration whose harness is implemented but awaiting independent methodology review; it is not a result. DEVH-AOC-002 separately freezes only a real-history evaluator substrate under root .agent_runs; result-run and training authority remain DENIED. ADM-P1/P2/P3/P4 remain Product implementation evidence with policy V1 all-DEFER. DEV-REAL-OUTCOME-1 closes the false-VERIFIED defect on canonical-convergence only. Data Agent relevance integration is proposal-only Product behavior. None is a release, migration, benchmark result, D2 or general-autonomy claim."
