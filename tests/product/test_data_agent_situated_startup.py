@@ -838,6 +838,20 @@ class TestLiveCredentialBoundary:
 
 
 class TestProvisioningConstructionBoundary:
+    def test_pydantic_construction_and_copy_bypasses_are_closed(
+        self, tmp_path: Path
+    ) -> None:
+        result_type = getattr(startup, "_DataAgentSituatedStartupProvisioning")
+        with pytest.raises(DataAgentSituatedStartupConfigError):
+            result_type.model_construct(config=object())
+        with pytest.raises(DataAgentSituatedStartupConfigError):
+            result_type.model_validate({"config": object()})
+
+        path, _ = provisioning_config(tmp_path)
+        valid = load_data_agent_situated_startup_provisioning(path)
+        with pytest.raises(DataAgentSituatedStartupConfigError):
+            valid.model_copy(update={"authority_database": tmp_path / "forged.sqlite3"})
+
     def test_direct_result_construction_cannot_forge_missing_materials(
         self, tmp_path: Path
     ) -> None:

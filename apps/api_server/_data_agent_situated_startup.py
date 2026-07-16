@@ -156,6 +156,21 @@ class DataAgentSituatedStartupConfig(ContractModel):
 class _DataAgentSituatedStartupProvisioning(ContractModel):
     """Canonical startup inputs only; this object grants and resolves nothing."""
 
+    @classmethod
+    def model_construct(cls, *args: Any, **kwargs: Any) -> NoReturn:
+        _fail(_MATERIAL_BINDING_MISMATCH)
+
+    @classmethod
+    def model_validate(cls, *args: Any, **kwargs: Any) -> NoReturn:
+        _fail(_MATERIAL_BINDING_MISMATCH)
+
+    @classmethod
+    def model_validate_json(cls, *args: Any, **kwargs: Any) -> NoReturn:
+        _fail(_MATERIAL_BINDING_MISMATCH)
+
+    def model_copy(self, *args: Any, **kwargs: Any) -> NoReturn:
+        _fail(_MATERIAL_BINDING_MISMATCH)
+
     def __init__(self, *, _seal: object | None = None, **data: Any) -> None:
         if _seal is not _PROVISIONING_CONSTRUCTION_SEAL:
             _fail(_MATERIAL_BINDING_MISMATCH)
