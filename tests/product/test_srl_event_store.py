@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import importlib
 import json
 import pickle
 import sqlite3
@@ -105,10 +106,23 @@ def _terminal_trace(
 
 
 def test_public_reader_is_durable_read_only_and_rejects_memory(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="file-backed"):
-        SQLiteEventAdmissionStore(":memory:")
+    rejected = (
+        "",
+        "   ",
+        ":memory:",
+        "file::memory:",
+        "file:volatile?mode=memory&cache=shared",
+    )
+    for database in rejected:
+        with pytest.raises(ValueError, match="file-backed"):
+            SQLiteEventAdmissionStore(database)
 
-    reader = SQLiteEventAdmissionStore(tmp_path / "events.sqlite3")
+    database = tmp_path / "events.sqlite3"
+    with pytest.raises(EventAdmissionPersistenceConflict, match="existing"):
+        SQLiteEventAdmissionStore(database)
+    assert not database.exists()
+
+    reader, _ = _create_event_admission_store(database)
     assert reader.durable is True
     assert reader.by_receipt_id("missing") is None
     assert reader.by_event_id("missing") is None
@@ -120,6 +134,93 @@ def test_public_reader_is_durable_read_only_and_rejects_memory(tmp_path: Path) -
         "transition_trace",
     }
     assert forbidden.isdisjoint(dir(reader))
+
+
+def test_public_reader_construction_is_byte_and_schema_read_only(tmp_path: Path) -> None:
+    database = tmp_path / "events.sqlite3"
+    _, writer = _create_event_admission_store(database)
+    writer.persist_receipt(_receipt())
+    before_bytes = database.read_bytes()
+    before_mtime = database.stat().st_mtime_ns
+    connection = sqlite3.connect(database)
+    try:
+        before_schema = connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name"
+        ).fetchall()
+    finally:
+        connection.close()
+
+    reader = SQLiteEventAdmissionStore(database)
+    assert reader.by_event_id("environment-event-1") == _receipt()
+    assert database.read_bytes() == before_bytes
+    assert database.stat().st_mtime_ns == before_mtime
+    connection = sqlite3.connect(database)
+    try:
+        after_schema = connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY name"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert after_schema == before_schema
+
+
+def test_public_reader_rejects_corrupt_or_impostor_existing_schema(
+    tmp_path: Path,
+) -> None:
+    corrupt = tmp_path / "corrupt.sqlite3"
+    corrupt.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(EventAdmissionPersistenceConflict, match="schema"):
+        SQLiteEventAdmissionStore(corrupt)
+
+    impostor = tmp_path / "impostor.sqlite3"
+    connection = sqlite3.connect(impostor)
+    try:
+        connection.execute(
+            "CREATE TABLE srl_event_admission_receipts (receipt_id TEXT)"
+        )
+        connection.execute(
+            "CREATE TABLE srl_situated_evaluation_traces (trace_id TEXT)"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    before = impostor.read_bytes()
+    with pytest.raises(EventAdmissionPersistenceConflict, match="schema"):
+        SQLiteEventAdmissionStore(impostor)
+    assert impostor.read_bytes() == before
+
+    weak_schema = tmp_path / "weak-schema.sqlite3"
+    connection = sqlite3.connect(weak_schema)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE srl_event_admission_receipts (
+                receipt_id TEXT,
+                environment_event_id TEXT,
+                receipt_digest TEXT,
+                canonical_json BLOB
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE srl_situated_evaluation_traces (
+                trace_id TEXT,
+                admission_receipt_digest TEXT,
+                projection_id TEXT,
+                status TEXT,
+                reason TEXT,
+                result_binding_digest TEXT,
+                delegation_attempt_count INTEGER,
+                canonical_json BLOB
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    with pytest.raises(EventAdmissionPersistenceConflict, match="schema"):
+        SQLiteEventAdmissionStore(weak_schema)
 
 
 def test_receipt_restart_exact_replay_and_conflicts(tmp_path: Path) -> None:
@@ -246,24 +347,28 @@ def test_only_factory_writer_identity_has_write_authority(tmp_path: Path) -> Non
     writer_type = type(writer)
     caller_constructed_writer: Any = writer_type
     with pytest.raises(TypeError):
-        caller_constructed_writer(object(), object())
+        caller_constructed_writer()
 
     same_field = object.__new__(writer_type)
-    object.__setattr__(same_field, "_backend", writer._backend)
-    with pytest.raises(EventAdmissionPersistenceConflict, match="capability"):
+    with pytest.raises(EventAdmissionPersistenceConflict, match="unbound"):
         same_field.persist_receipt(receipt)
 
-    with pytest.raises(EventAdmissionPersistenceConflict, match="capability"):
-        writer._backend.persist_receipt(object(), receipt)
-
-    bound_token = getattr(
-        writer._backend, "_EventAdmissionBackend__bound_token"
-    )
-    round_tripped_token = pickle.loads(pickle.dumps(bound_token))
-    assert round_tripped_token is not bound_token
-    with pytest.raises(EventAdmissionPersistenceConflict, match="capability"):
-        writer._backend.persist_receipt(round_tripped_token, receipt)
+    attribute_names = dir(writer)
+    assert all("backend" not in name.lower() for name in attribute_names)
+    assert all("token" not in name.lower() for name in attribute_names)
     assert writer.persist_receipt(receipt) == receipt
+
+
+def test_module_has_no_reflectable_token_backend_or_writer_registry() -> None:
+    module = importlib.import_module("agent_os_core.srl_event_store")
+    forbidden_names = {
+        "_FACTORY_KEY",
+        "_WRITER_TOKENS",
+        "_EventAdmissionBackend",
+    }
+    assert forbidden_names.isdisjoint(vars(module))
+    assert not any("token" in name.lower() for name in vars(module))
+    assert not any("registry" in name.lower() for name in vars(module))
 
 
 def test_durable_decode_rejects_malformed_and_noncanonical_bytes(tmp_path: Path) -> None:

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn, TypeVar
-from weakref import WeakKeyDictionary
 
 from agent_os_contracts import (
     EnvironmentEventAdmissionReceipt,
@@ -21,18 +21,46 @@ class EventAdmissionPersistenceConflict(RuntimeError):
 
 
 _ContractT = TypeVar("_ContractT", bound=BaseModel)
-_FACTORY_KEY = object()
 
 
 def _database_path(database: str | Path) -> str:
     value = str(database)
-    if value == ":memory:":
+    normalized = value.strip().lower()
+    if (
+        not normalized
+        or normalized == ":memory:"
+        or normalized.startswith("file:")
+        or "mode=memory" in normalized
+    ):
         raise ValueError("SQLite event admission store requires a file-backed database")
     return value
 
 
 def _connect(database: str) -> sqlite3.Connection:
     connection = sqlite3.connect(database, timeout=10, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout = 10000")
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
+
+
+def _connect_read_only(database: str) -> sqlite3.Connection:
+    path = Path(database)
+    if not path.is_file():
+        raise EventAdmissionPersistenceConflict(
+            "existing SQLite event admission store is required"
+        )
+    try:
+        connection = sqlite3.connect(
+            f"{path.resolve().as_uri()}?mode=ro",
+            uri=True,
+            timeout=10,
+            isolation_level=None,
+        )
+    except sqlite3.Error:
+        raise EventAdmissionPersistenceConflict(
+            "existing SQLite event admission store is unavailable"
+        ) from None
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 10000")
     connection.execute("PRAGMA foreign_keys = ON")
@@ -81,7 +109,7 @@ def _canonical_bytes(contract: BaseModel) -> bytes:
 def _validated_bytes(contract: _ContractT, contract_type: type[_ContractT]) -> bytes:
     payload = _canonical_bytes(contract)
     try:
-        decoded = contract_type.model_validate_json(payload)
+        decoded = contract_type.model_validate_json(payload, strict=True)
     except Exception:
         raise EventAdmissionPersistenceConflict(
             "contract content is invalid for durable persistence"
@@ -108,7 +136,7 @@ def _decode(
             f"durable {label} state is invalid"
         )
     try:
-        decoded = contract_type.model_validate_json(payload)
+        decoded = contract_type.model_validate_json(payload, strict=True)
     except Exception:
         raise EventAdmissionPersistenceConflict(
             f"durable {label} state is invalid"
@@ -165,10 +193,101 @@ class SQLiteEventAdmissionStore:
 
     def __init__(self, database: str | Path) -> None:
         self._database = _database_path(database)
-        _initialize(self._database)
+        connection = _connect_read_only(self._database)
+        try:
+            expected_columns = {
+                "srl_event_admission_receipts": (
+                    ("receipt_id", "TEXT", 0, 1),
+                    ("environment_event_id", "TEXT", 1, 0),
+                    ("receipt_digest", "TEXT", 1, 0),
+                    ("canonical_json", "BLOB", 1, 0),
+                ),
+                "srl_situated_evaluation_traces": (
+                    ("trace_id", "TEXT", 0, 1),
+                    ("admission_receipt_digest", "TEXT", 1, 0),
+                    ("projection_id", "TEXT", 1, 0),
+                    ("status", "TEXT", 1, 0),
+                    ("reason", "TEXT", 1, 0),
+                    ("result_binding_digest", "TEXT", 0, 0),
+                    ("delegation_attempt_count", "INTEGER", 1, 0),
+                    ("canonical_json", "BLOB", 1, 0),
+                ),
+            }
+            actual_columns = {
+                table: tuple(
+                    (
+                        str(row["name"]),
+                        str(row["type"]),
+                        int(row["notnull"]),
+                        int(row["pk"]),
+                    )
+                    for row in connection.execute(
+                        f"PRAGMA table_info({table})"
+                    ).fetchall()
+                )
+                for table in expected_columns
+            }
+            if actual_columns != expected_columns:
+                raise EventAdmissionPersistenceConflict(
+                    "existing SQLite event admission store schema is invalid"
+                )
+            unique_columns: dict[str, set[tuple[str, ...]]] = {}
+            for table in expected_columns:
+                unique_columns[table] = {
+                    tuple(
+                        str(column["name"])
+                        for column in connection.execute(
+                            f"PRAGMA index_info({row['name']})"
+                        ).fetchall()
+                    )
+                    for row in connection.execute(
+                        f"PRAGMA index_list({table})"
+                    ).fetchall()
+                    if int(row["unique"]) == 1
+                }
+            if unique_columns != {
+                "srl_event_admission_receipts": {
+                    ("receipt_id",),
+                    ("environment_event_id",),
+                    ("receipt_digest",),
+                },
+                "srl_situated_evaluation_traces": {
+                    ("trace_id",),
+                    ("admission_receipt_digest", "projection_id"),
+                },
+            }:
+                raise EventAdmissionPersistenceConflict(
+                    "existing SQLite event admission store schema is invalid"
+                )
+            foreign_keys = tuple(
+                (
+                    str(row["table"]),
+                    str(row["from"]),
+                    str(row["to"]),
+                )
+                for row in connection.execute(
+                    "PRAGMA foreign_key_list(srl_situated_evaluation_traces)"
+                ).fetchall()
+            )
+            if foreign_keys != (
+                (
+                    "srl_event_admission_receipts",
+                    "admission_receipt_digest",
+                    "receipt_digest",
+                ),
+            ):
+                raise EventAdmissionPersistenceConflict(
+                    "existing SQLite event admission store schema is invalid"
+                )
+        except sqlite3.Error:
+            raise EventAdmissionPersistenceConflict(
+                "existing SQLite event admission store schema is invalid"
+            ) from None
+        finally:
+            connection.close()
 
     def _receipt(self, field: str, value: str) -> EnvironmentEventAdmissionReceipt | None:
-        connection = _connect(self._database)
+        connection = _connect_read_only(self._database)
         try:
             row = connection.execute(
                 f"SELECT * FROM srl_event_admission_receipts WHERE {field} = ?",
@@ -187,7 +306,7 @@ class SQLiteEventAdmissionStore:
         return self._receipt("environment_event_id", environment_event_id)
 
     def by_trace_id(self, trace_id: str) -> SituatedEvaluationTrace | None:
-        connection = _connect(self._database)
+        connection = _connect_read_only(self._database)
         try:
             row = connection.execute(
                 "SELECT * FROM srl_situated_evaluation_traces WHERE trace_id = ?",
@@ -198,30 +317,89 @@ class SQLiteEventAdmissionStore:
         return _decode_trace(row) if row is not None else None
 
 
-class _EventAdmissionBackend:
-    __slots__ = ("_database", "__bound_token")
+class _EventAdmissionWriter:
+    __slots__ = (
+        "__persist_receipt_call",
+        "__begin_trace_call",
+        "__increment_attempt_call",
+        "__transition_trace_call",
+    )
 
-    def __init__(self, database: str | Path, token: object, *, factory_key: object) -> None:
-        if factory_key is not _FACTORY_KEY:
-            raise TypeError("event admission backend is factory-bound")
-        self._database = _database_path(database)
-        self.__bound_token = token
-        _initialize(self._database)
+    def __init__(self) -> None:
+        raise TypeError("event admission writer is factory-bound")
 
-    def _require_token(self, token: object) -> None:
-        if token is not self.__bound_token:
+    def __copy__(self) -> None:
+        raise TypeError("event admission writer cannot be copied")
+
+    def __deepcopy__(self, memo: object) -> None:
+        del memo
+        raise TypeError("event admission writer cannot be copied")
+
+    def __reduce__(self) -> NoReturn:
+        raise TypeError("event admission writer cannot be serialized")
+
+    def _bound_call(self, attribute: str) -> Callable[..., object]:
+        try:
+            value = object.__getattribute__(self, attribute)
+        except AttributeError:
             raise EventAdmissionPersistenceConflict(
-                "event admission write capability identity is invalid"
+                "event admission writer is unbound"
+            ) from None
+        if not callable(value):
+            raise EventAdmissionPersistenceConflict(
+                "event admission writer is unbound"
             )
+        return value
 
     def persist_receipt(
+        self, receipt: EnvironmentEventAdmissionReceipt
+    ) -> EnvironmentEventAdmissionReceipt:
+        call = self._bound_call("_EventAdmissionWriter__persist_receipt_call")
+        result = call(receipt)
+        if not isinstance(result, EnvironmentEventAdmissionReceipt):
+            raise EventAdmissionPersistenceConflict("receipt write result is invalid")
+        return result
+
+    def begin_trace(self, trace: SituatedEvaluationTrace) -> SituatedEvaluationTrace:
+        call = self._bound_call("_EventAdmissionWriter__begin_trace_call")
+        result = call(trace)
+        if not isinstance(result, SituatedEvaluationTrace):
+            raise EventAdmissionPersistenceConflict("trace write result is invalid")
+        return result
+
+    def increment_delegation_attempt(
         self,
-        token: object,
+        trace_id: str,
+        *,
+        recorded_at: datetime | None = None,
+    ) -> SituatedEvaluationTrace:
+        call = self._bound_call("_EventAdmissionWriter__increment_attempt_call")
+        result = call(trace_id, recorded_at=recorded_at)
+        if not isinstance(result, SituatedEvaluationTrace):
+            raise EventAdmissionPersistenceConflict("trace write result is invalid")
+        return result
+
+    def transition_trace(
+        self, terminal: SituatedEvaluationTrace
+    ) -> SituatedEvaluationTrace:
+        call = self._bound_call("_EventAdmissionWriter__transition_trace_call")
+        result = call(terminal)
+        if not isinstance(result, SituatedEvaluationTrace):
+            raise EventAdmissionPersistenceConflict("trace write result is invalid")
+        return result
+
+
+def _create_event_admission_store(
+    database: str | Path,
+) -> tuple[SQLiteEventAdmissionStore, _EventAdmissionWriter]:
+    database_path = _database_path(database)
+    _initialize(database_path)
+
+    def persist_receipt(
         receipt: EnvironmentEventAdmissionReceipt,
     ) -> EnvironmentEventAdmissionReceipt:
-        self._require_token(token)
         payload = _validated_bytes(receipt, EnvironmentEventAdmissionReceipt)
-        connection = _connect(self._database)
+        connection = _connect(database_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
@@ -268,12 +446,7 @@ class _EventAdmissionBackend:
         finally:
             connection.close()
 
-    def begin_trace(
-        self,
-        token: object,
-        trace: SituatedEvaluationTrace,
-    ) -> SituatedEvaluationTrace:
-        self._require_token(token)
+    def begin_trace(trace: SituatedEvaluationTrace) -> SituatedEvaluationTrace:
         payload = _validated_bytes(trace, SituatedEvaluationTrace)
         if (
             trace.status is not SituatedTraceStatus.PENDING
@@ -283,7 +456,7 @@ class _EventAdmissionBackend:
             raise EventAdmissionPersistenceConflict(
                 "trace must begin as PENDING with ASSESSMENT_PENDING and no result"
             )
-        connection = _connect(self._database)
+        connection = _connect(database_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
@@ -347,14 +520,11 @@ class _EventAdmissionBackend:
             connection.close()
 
     def increment_delegation_attempt(
-        self,
-        token: object,
         trace_id: str,
         *,
         recorded_at: datetime | None = None,
     ) -> SituatedEvaluationTrace:
-        self._require_token(token)
-        connection = _connect(self._database)
+        connection = _connect(database_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -402,11 +572,8 @@ class _EventAdmissionBackend:
             connection.close()
 
     def transition_trace(
-        self,
-        token: object,
         terminal: SituatedEvaluationTrace,
     ) -> SituatedEvaluationTrace:
-        self._require_token(token)
         payload = _validated_bytes(terminal, SituatedEvaluationTrace)
         completed_reasons = {
             SituatedTraceReason.TASK_DRAFT,
@@ -432,7 +599,7 @@ class _EventAdmissionBackend:
                 "trace terminal status, reason, and result binding are illegal"
             )
 
-        connection = _connect(self._database)
+        connection = _connect(database_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -499,75 +666,25 @@ class _EventAdmissionBackend:
         finally:
             connection.close()
 
-
-class _EventAdmissionWriter:
-    __slots__ = ("_backend", "__weakref__")
-
-    def __init__(
-        self,
-        backend: _EventAdmissionBackend,
-        token: object,
-        *,
-        factory_key: object,
-    ) -> None:
-        if factory_key is not _FACTORY_KEY:
-            raise TypeError("event admission writer is factory-bound")
-        self._backend = backend
-        _WRITER_TOKENS[self] = token
-
-    def __copy__(self) -> None:
-        raise TypeError("event admission writer cannot be copied")
-
-    def __deepcopy__(self, memo: object) -> None:
-        del memo
-        raise TypeError("event admission writer cannot be copied")
-
-    def __reduce__(self) -> NoReturn:
-        raise TypeError("event admission writer cannot be serialized")
-
-    def _token(self) -> object:
-        token = _WRITER_TOKENS.get(self)
-        if token is None:
-            raise EventAdmissionPersistenceConflict(
-                "event admission write capability identity is invalid"
-            )
-        return token
-
-    def persist_receipt(
-        self, receipt: EnvironmentEventAdmissionReceipt
-    ) -> EnvironmentEventAdmissionReceipt:
-        return self._backend.persist_receipt(self._token(), receipt)
-
-    def begin_trace(self, trace: SituatedEvaluationTrace) -> SituatedEvaluationTrace:
-        return self._backend.begin_trace(self._token(), trace)
-
-    def increment_delegation_attempt(
-        self,
-        trace_id: str,
-        *,
-        recorded_at: datetime | None = None,
-    ) -> SituatedEvaluationTrace:
-        return self._backend.increment_delegation_attempt(
-            self._token(), trace_id, recorded_at=recorded_at
-        )
-
-    def transition_trace(
-        self, terminal: SituatedEvaluationTrace
-    ) -> SituatedEvaluationTrace:
-        return self._backend.transition_trace(self._token(), terminal)
-
-
-_WRITER_TOKENS: WeakKeyDictionary[_EventAdmissionWriter, object] = WeakKeyDictionary()
-
-
-def _create_event_admission_store(
-    database: str | Path,
-) -> tuple[SQLiteEventAdmissionStore, _EventAdmissionWriter]:
-    token = object()
-    backend = _EventAdmissionBackend(database, token, factory_key=_FACTORY_KEY)
-    writer = _EventAdmissionWriter(
-        backend,
-        token,
-        factory_key=_FACTORY_KEY,
+    writer = object.__new__(_EventAdmissionWriter)
+    object.__setattr__(
+        writer,
+        "_EventAdmissionWriter__persist_receipt_call",
+        persist_receipt,
     )
-    return SQLiteEventAdmissionStore(database), writer
+    object.__setattr__(
+        writer,
+        "_EventAdmissionWriter__begin_trace_call",
+        begin_trace,
+    )
+    object.__setattr__(
+        writer,
+        "_EventAdmissionWriter__increment_attempt_call",
+        increment_delegation_attempt,
+    )
+    object.__setattr__(
+        writer,
+        "_EventAdmissionWriter__transition_trace_call",
+        transition_trace,
+    )
+    return SQLiteEventAdmissionStore(database_path), writer
