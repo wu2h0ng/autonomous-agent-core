@@ -6,12 +6,18 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 
-from agent_os_contracts import SrlEnvironmentEvent, SrlHelpRequest
+from agent_os_contracts import (
+    HelpBudget,
+    HelpBurdenReceipt,
+    SrlEnvironmentEvent,
+    SrlHelpRequest,
+)
 
 
 class ArmRole(str, enum.Enum):
@@ -435,6 +441,146 @@ class BudgetLedger:
         }
 
 
+@dataclass
+class _HelpRecord:
+    """Internal mutable record pairing a help request with its resolution state."""
+
+    request: SrlHelpRequest
+    operator_minutes_estimate: int
+    resolved_at: datetime | None = None
+
+
+class HelpBurdenLedger:
+    """Tracks help request burden per arm/unit/window against a frozen budget.
+
+    The ledger records ``SrlHelpRequest`` envelopes together with an explicit
+    operator-minute estimate supplied by the arm or an external rater.  Per-window
+    burden metrics are computed on demand from the caller-supplied window bounds.
+    """
+
+    def __init__(self, budget: HelpBudget):
+        self._budget = budget
+        self._records: dict[tuple[str, str], list[_HelpRecord]] = {}
+
+    def _ensure_slot(self, arm_id: str, unit_id: str) -> list[_HelpRecord]:
+        key = (arm_id, unit_id)
+        if key not in self._records:
+            self._records[key] = []
+        return self._records[key]
+
+    def record(
+        self,
+        arm_id: str,
+        unit_id: str,
+        request: SrlHelpRequest,
+        operator_minutes_estimate: int,
+    ) -> None:
+        """Store a help request and its operator-minute estimate."""
+        records = self._ensure_slot(arm_id, unit_id)
+        records.append(
+            _HelpRecord(
+                request=request,
+                operator_minutes_estimate=operator_minutes_estimate,
+            )
+        )
+
+    def resolve(
+        self,
+        arm_id: str,
+        unit_id: str,
+        help_request_id: str,
+        resolved_at: datetime,
+    ) -> bool:
+        """Mark a previously recorded help request as resolved."""
+        records = self._records.get((arm_id, unit_id), [])
+        for record in records:
+            if record.request.help_request_id == help_request_id:
+                record.resolved_at = resolved_at
+                return True
+        return False
+
+    def get_receipt(
+        self,
+        arm_id: str,
+        unit_id: str,
+        window_index: int,
+        receipt_id: str,
+        mandate_id: str,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> HelpBurdenReceipt:
+        """Return a burden receipt for the requested window.
+
+        ``window_index`` is an opaque identifier carried on the receipt; the
+        actual window boundaries are ``window_start`` (inclusive) and
+        ``window_end`` (exclusive).
+        """
+        _ = window_index
+        records = self._records.get((arm_id, unit_id), [])
+        window_records = [
+            record
+            for record in records
+            if window_start <= record.request.requested_at < window_end
+        ]
+
+        request_count = len(window_records)
+        operator_minutes = sum(
+            record.operator_minutes_estimate for record in window_records
+        )
+
+        seen_unknowns: set[tuple[str, ...]] = set()
+        repeated_count = 0
+        for record in window_records:
+            unknowns = record.request.unknowns
+            if unknowns in seen_unknowns:
+                repeated_count += 1
+            seen_unknowns.add(unknowns)
+        repeated_question_rate = (
+            repeated_count / request_count if request_count > 0 else 0.0
+        )
+
+        longest_wait = 0
+        for record in window_records:
+            requested_at = record.request.requested_at
+            if record.resolved_at is not None:
+                wait_seconds = int((record.resolved_at - requested_at).total_seconds())
+            else:
+                wait_seconds = int((window_end - requested_at).total_seconds())
+            if wait_seconds > longest_wait:
+                longest_wait = wait_seconds
+
+        exceeded = (
+            request_count > self._budget.max_requests_per_window
+            or operator_minutes > self._budget.max_operator_minutes_per_window
+            or repeated_question_rate > self._budget.max_repeated_question_rate
+            or longest_wait > self._budget.max_unresolved_wait_seconds
+        )
+
+        if exceeded:
+            return HelpBurdenReceipt(
+                receipt_id=receipt_id,
+                mandate_id=mandate_id,
+                window_start=window_start,
+                window_end=window_end,
+                request_count=request_count,
+                operator_minutes=operator_minutes,
+                repeated_question_rate=repeated_question_rate,
+                longest_unresolved_wait_seconds=longest_wait,
+                status="EXCEEDED",
+            )
+        return HelpBurdenReceipt(
+            receipt_id=receipt_id,
+            mandate_id=mandate_id,
+            window_start=window_start,
+            window_end=window_end,
+            request_count=request_count,
+            operator_minutes=operator_minutes,
+            repeated_question_rate=repeated_question_rate,
+            longest_unresolved_wait_seconds=longest_wait,
+            status="WITHIN_BUDGET",
+        )
+
+
 class RsrlEventGateway:
     """In-memory event gateway for R-SRL-1 units.
 
@@ -449,6 +595,7 @@ class RsrlEventGateway:
         units_root: Path,
         arm_budgets: dict[str, ArmBudget] | None = None,
         arm_envelopes: dict[str, ArmEnvelope] | None = None,
+        help_budget: HelpBudget | None = None,
     ):
         self.units_root = Path(units_root)
         self._units: dict[str, FrozenUnit] = {}
@@ -460,6 +607,9 @@ class RsrlEventGateway:
         self._build_results: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._ledger = BudgetLedger(arm_budgets or {})
         self._arm_envelopes = dict(arm_envelopes or _default_arm_envelopes())
+        self._help_ledger: HelpBurdenLedger | None = (
+            HelpBurdenLedger(help_budget) if help_budget is not None else None
+        )
         self._load_units()
 
     def _load_units(self) -> None:
@@ -624,7 +774,11 @@ class RsrlEventGateway:
         )
 
     def emit_help_request(
-        self, arm_id: str, unit_id: str, request: SrlHelpRequest
+        self,
+        arm_id: str,
+        unit_id: str,
+        request: SrlHelpRequest,
+        operator_minutes_estimate: int = 1,
     ) -> None:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
@@ -632,6 +786,59 @@ class RsrlEventGateway:
         # SRL-internal type name embedded inside the payload is rejected.
         self._enforce_arm_envelope(arm_id, request)
         self._help_requests.setdefault((arm_id, unit_id), []).append(request)
+        if self._help_ledger is not None:
+            self._help_ledger.record(
+                arm_id, unit_id, request, operator_minutes_estimate
+            )
+
+    def resolve_help_request(
+        self,
+        arm_id: str,
+        unit_id: str,
+        help_request_id: str,
+        resolved_at: datetime,
+    ) -> bool:
+        """Mark a help request as resolved in the burden ledger."""
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        if self._help_ledger is None:
+            return False
+        return self._help_ledger.resolve(arm_id, unit_id, help_request_id, resolved_at)
+
+    def get_help_burden_receipt(
+        self,
+        arm_id: str,
+        unit_id: str,
+        window_index: int,
+        receipt_id: str,
+        mandate_id: str,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> HelpBurdenReceipt:
+        """Return the burden receipt for the requested window."""
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        if self._help_ledger is not None:
+            return self._help_ledger.get_receipt(
+                arm_id,
+                unit_id,
+                window_index,
+                receipt_id,
+                mandate_id,
+                window_start,
+                window_end,
+            )
+        return HelpBurdenReceipt(
+            receipt_id=receipt_id,
+            mandate_id=mandate_id,
+            window_start=window_start,
+            window_end=window_end,
+            request_count=0,
+            operator_minutes=0,
+            repeated_question_rate=0.0,
+            longest_unresolved_wait_seconds=0,
+            status="WITHIN_BUDGET",
+        )
 
     def record_action(self, arm_id: str, unit_id: str, action: dict) -> None:
         if unit_id not in self._units:

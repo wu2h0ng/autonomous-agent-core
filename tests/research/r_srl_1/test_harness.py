@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from agent_os_contracts import (
     BoundedOption,
+    HelpBudget,
     HelpClass,
     KnownFact,
     SrlHelpRequest,
@@ -329,3 +331,286 @@ def test_gateway_rejects_unconfigured_arm_envelope(
     )
     with pytest.raises(ValueError, match="no arm envelope configured"):
         custom_gateway.record_action("armY", "r-srl-1-u00", {"kind": "plain"})
+
+
+# ---------------------------------------------------------------------------
+# P1-2 help burden ledger
+# ---------------------------------------------------------------------------
+
+
+def _make_request(
+    base: SrlHelpRequest,
+    help_request_id: str,
+    requested_at: datetime,
+    unknowns: tuple[str, ...] | None = None,
+) -> SrlHelpRequest:
+    """Return a copy of ``base`` with the given identity and timestamp."""
+    updates: dict[str, Any] = {
+        "help_request_id": help_request_id,
+        "requested_at": requested_at,
+        "expires_at": requested_at + timedelta(minutes=5),
+    }
+    if unknowns is not None:
+        updates["unknowns"] = unknowns
+    return base.model_copy(update=updates)
+
+
+@pytest.fixture
+def help_gateway(gateway: RsrlEventGateway) -> RsrlEventGateway:
+    """Gateway configured with a tight help budget for burden testing."""
+    return RsrlEventGateway(
+        gateway.units_root,
+        help_budget=HelpBudget(
+            max_requests_per_window=10,
+            max_operator_minutes_per_window=10,
+            max_repeated_question_rate=1.0,
+            max_unresolved_wait_seconds=3600,
+            window_seconds=300,
+        ),
+    )
+
+
+def test_help_burden_receipt_fields(
+    help_gateway: RsrlEventGateway,
+    sample_help_request: SrlHelpRequest,
+) -> None:
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    req1 = _make_request(sample_help_request, "help-01", t0, unknowns=("question-a",))
+    req2 = _make_request(
+        sample_help_request,
+        "help-02",
+        t0 + timedelta(seconds=10),
+        unknowns=("question-b",),
+    )
+
+    help_gateway.emit_help_request("arm3", "r-srl-1-u00", req1, 2)
+    help_gateway.emit_help_request("arm3", "r-srl-1-u00", req2, 3)
+
+    receipt = help_gateway.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(seconds=60),
+    )
+
+    assert receipt.request_count == 2
+    assert receipt.operator_minutes == 5
+    assert receipt.repeated_question_rate == 0.0
+    assert receipt.longest_unresolved_wait_seconds == 60
+    assert receipt.status == "WITHIN_BUDGET"
+    assert receipt.receipt_id == "receipt-01"
+    assert receipt.mandate_id == "mandate-u00"
+
+
+def test_help_burden_exceeds_request_count(
+    gateway: RsrlEventGateway,
+    sample_help_request: SrlHelpRequest,
+) -> None:
+    tight = RsrlEventGateway(
+        gateway.units_root,
+        help_budget=HelpBudget(
+            max_requests_per_window=2,
+            max_operator_minutes_per_window=10,
+            max_repeated_question_rate=1.0,
+            max_unresolved_wait_seconds=3600,
+            window_seconds=300,
+        ),
+    )
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    for i in range(3):
+        req = _make_request(
+            sample_help_request,
+            f"help-{i}",
+            t0 + timedelta(seconds=i),
+            unknowns=(f"question-{i}",),
+        )
+        tight.emit_help_request("arm3", "r-srl-1-u00", req)
+
+    receipt = tight.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(minutes=5),
+    )
+
+    assert receipt.request_count == 3
+    assert receipt.status == "EXCEEDED"
+
+
+def test_help_burden_exceeds_operator_minutes(
+    gateway: RsrlEventGateway,
+    sample_help_request: SrlHelpRequest,
+) -> None:
+    tight = RsrlEventGateway(
+        gateway.units_root,
+        help_budget=HelpBudget(
+            max_requests_per_window=10,
+            max_operator_minutes_per_window=3,
+            max_repeated_question_rate=1.0,
+            max_unresolved_wait_seconds=3600,
+            window_seconds=300,
+        ),
+    )
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    for i, minutes in enumerate([2, 2]):
+        req = _make_request(
+            sample_help_request,
+            f"help-{i}",
+            t0 + timedelta(seconds=i),
+            unknowns=(f"question-{i}",),
+        )
+        tight.emit_help_request(
+            "arm3", "r-srl-1-u00", req, operator_minutes_estimate=minutes
+        )
+
+    receipt = tight.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(minutes=5),
+    )
+
+    assert receipt.operator_minutes == 4
+    assert receipt.status == "EXCEEDED"
+
+
+def test_help_burden_repeated_question_rate(
+    help_gateway: RsrlEventGateway,
+    sample_help_request: SrlHelpRequest,
+) -> None:
+    budget = HelpBudget(
+        max_requests_per_window=10,
+        max_operator_minutes_per_window=10,
+        max_repeated_question_rate=0.5,
+        max_unresolved_wait_seconds=3600,
+        window_seconds=300,
+    )
+    gateway = RsrlEventGateway(
+        help_gateway.units_root,
+        help_budget=budget,
+    )
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    unknowns_sequence = [
+        ("shared-question",),
+        ("shared-question",),
+        ("unique-question",),
+    ]
+    for i, unknowns in enumerate(unknowns_sequence):
+        req = _make_request(
+            sample_help_request,
+            f"help-{i}",
+            t0 + timedelta(seconds=i),
+            unknowns=unknowns,
+        )
+        gateway.emit_help_request("arm3", "r-srl-1-u00", req)
+
+    receipt = gateway.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(minutes=5),
+    )
+
+    assert receipt.request_count == 3
+    assert receipt.repeated_question_rate == pytest.approx(1 / 3)
+    assert receipt.status == "WITHIN_BUDGET"
+
+
+def test_help_burden_unresolved_wait(
+    gateway: RsrlEventGateway,
+    sample_help_request: SrlHelpRequest,
+) -> None:
+    tight = RsrlEventGateway(
+        gateway.units_root,
+        help_budget=HelpBudget(
+            max_requests_per_window=10,
+            max_operator_minutes_per_window=10,
+            max_repeated_question_rate=1.0,
+            max_unresolved_wait_seconds=30,
+            window_seconds=300,
+        ),
+    )
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    req = _make_request(sample_help_request, "help-01", t0, unknowns=("question-a",))
+    tight.emit_help_request("arm3", "r-srl-1-u00", req)
+
+    receipt = tight.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(seconds=50),
+    )
+
+    assert receipt.longest_unresolved_wait_seconds == 50
+    assert receipt.status == "EXCEEDED"
+
+
+def test_help_burden_resolution_reduces_wait(
+    help_gateway: RsrlEventGateway,
+    sample_help_request: SrlHelpRequest,
+) -> None:
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    req = _make_request(sample_help_request, "help-01", t0, unknowns=("question-a",))
+    help_gateway.emit_help_request("arm3", "r-srl-1-u00", req)
+
+    unresolved_receipt = help_gateway.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(seconds=60),
+    )
+    assert unresolved_receipt.longest_unresolved_wait_seconds == 60
+
+    help_gateway.resolve_help_request(
+        "arm3", "r-srl-1-u00", "help-01", t0 + timedelta(seconds=15)
+    )
+
+    resolved_receipt = help_gateway.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-02",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(seconds=60),
+    )
+    assert resolved_receipt.longest_unresolved_wait_seconds == 15
+
+
+def test_help_burden_no_budget_returns_minimal_receipt(
+    gateway: RsrlEventGateway,
+) -> None:
+    t0 = datetime(2026, 7, 16, 12, 0, 0, tzinfo=timezone.utc)
+    receipt = gateway.get_help_burden_receipt(
+        "arm3",
+        "r-srl-1-u00",
+        window_index=0,
+        receipt_id="receipt-01",
+        mandate_id="mandate-u00",
+        window_start=t0,
+        window_end=t0 + timedelta(minutes=5),
+    )
+
+    assert receipt.request_count == 0
+    assert receipt.operator_minutes == 0
+    assert receipt.repeated_question_rate == 0.0
+    assert receipt.longest_unresolved_wait_seconds == 0
+    assert receipt.status == "WITHIN_BUDGET"
