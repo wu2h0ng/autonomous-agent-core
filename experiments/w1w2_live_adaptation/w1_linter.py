@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Mapping
-
-from experiments.w1w2_live_adaptation.w1_state import W1MemoryState, W1Scope, W1Update, W1UpdateType
+from experiments.w1w2_live_adaptation.w1_state import W1Scope, W1Update
 
 
 class W1UpdateLinter:
@@ -15,11 +13,10 @@ class W1UpdateLinter:
     def __init__(
         self,
         allowed_scopes: set[str] | None = None,
-        allowed_payload_keys: Mapping[W1UpdateType, set[str]] | None = None,
         forbidden_keys: set[str] | None = None,
+        expected_correction_epoch: int | None = None,
     ) -> None:
         self._allowed_scopes = allowed_scopes
-        self._allowed_payload_keys = dict(allowed_payload_keys) if allowed_payload_keys else {}
         self._forbidden_keys = forbidden_keys or {
             "code",
             "model",
@@ -29,36 +26,30 @@ class W1UpdateLinter:
             "capability",
             "authority",
         }
+        self._expected_correction_epoch = expected_correction_epoch
 
     def _scope_key(self, scope: W1Scope) -> str:
         return f"{scope.mandate_id}/{scope.task_id}/{scope.environment_id}/{scope.episode_id}"
 
-    def lint(
-        self,
-        update: W1Update,
-        current_correction_epoch: int,
-        state: W1MemoryState,
-    ) -> list[str]:
+    def lint(self, update: W1Update) -> list[str]:
         violations: list[str] = []
 
         if not update.provenance or not update.source_event_digest:
             violations.append("missing provenance or source event digest")
 
-        if current_correction_epoch < state.epoch:
-            violations.append("stale correction epoch")
+        if not update.rollback_checkpoint_id:
+            violations.append("missing rollback checkpoint id")
+
+        if self._expected_correction_epoch is not None and update.correction_epoch != self._expected_correction_epoch:
+            violations.append("stale or mismatched correction epoch")
 
         scope_key = self._scope_key(update.scope)
         if self._allowed_scopes is not None and scope_key not in self._allowed_scopes:
             violations.append("cross-scope write: scope not in allowlist")
 
-        for key in update.payload:
+        payload_dict = update.payload.model_dump()
+        for key in payload_dict:
             if key in self._forbidden_keys:
                 violations.append(f"forbidden authority-mutation key: {key}")
-
-        allowed_keys = self._allowed_payload_keys.get(update.update_type)
-        if allowed_keys is not None:
-            for key in update.payload:
-                if key not in allowed_keys:
-                    violations.append(f"schema drift: unknown payload key '{key}'")
 
         return violations

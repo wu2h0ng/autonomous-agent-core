@@ -6,14 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 from uuid import uuid4
 
-
-from experiments.w1w2_live_adaptation._contracts import (
-    ContractModel,
-    NonEmptyStr,
-    UtcDateTime,
-    content_digest,
-)
-
+from experiments.w1w2_live_adaptation._contracts import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from experiments.w1w2_live_adaptation.w1_state import W1MemoryState, W1Scope
 from experiments.w1w2_live_adaptation.w2_selector import W2DecisionReceipt
 
@@ -29,9 +22,10 @@ class W1W2Checkpoint(ContractModel):
 
 
 class CheckpointStore:
-    """File-backed or in-memory checkpoint store with canonical bytes."""
+    """In-memory checkpoint store. File-backed SQLite durability in Wave B."""
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
+        self._db_path = db_path
         self._checkpoints: dict[str, W1W2Checkpoint] = {}
 
     def save(
@@ -43,8 +37,7 @@ class CheckpointStore:
         w1_payload = {
             "scope": scope.model_dump(mode="json", exclude_none=True),
             "epoch": w1_state.epoch,
-            "update_ids": [u.update_id for u in w1_state.updates],
-            "state": {},
+            "updates": [u.model_dump(mode="json", exclude_none=True) for u in w1_state.updates],
         }
         w1_state_digest = content_digest(w1_payload)
         w2_payload = {"receipts": [r.model_dump(mode="json", exclude_none=True) for r in w2_history]}

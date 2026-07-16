@@ -1,4 +1,4 @@
-"""Negative-transfer / regime-shift monitor."""
+"""Negative-transfer / regime-shift monitor using trusted scorer receipts."""
 
 from __future__ import annotations
 
@@ -7,17 +7,19 @@ from uuid import uuid4
 from pydantic import Field
 
 from experiments.w1w2_live_adaptation._contracts import ContractModel, NonEmptyStr
-
 from experiments.w1w2_live_adaptation.w1_state import W1Scope
 
 
-class TransferSignal(ContractModel):
+class ScorerReceipt(ContractModel):
+    """Trusted scorer-side outcome receipt. Candidate never observes this directly."""
+
+    receipt_id: NonEmptyStr
     scope: W1Scope
     arm_name: NonEmptyStr
     step: int = Field(ge=0)
     reward: float
     baseline_reward: float
-    frozen_reward: float
+    oracle_reward: float
 
 
 class TransferAssessment(ContractModel):
@@ -31,37 +33,46 @@ class TransferAssessment(ContractModel):
 
 
 class TransferMonitor:
-    """Detects negative transfer from frozen outcome/regret signals.
+    """Detects negative transfer from trusted scorer receipts.
 
     Recommends/executes only rollback or an already authorized W2 option.
     """
 
-    def __init__(self, regret_window: int = 5, threshold: float = 0.0) -> None:
+    def __init__(
+        self,
+        regret_window: int,
+        threshold: float,
+        gate_digest: str,
+    ) -> None:
         self._regret_window = regret_window
         self._threshold = threshold
-        self._history: dict[str, list[TransferSignal]] = {}
+        self._gate_digest = gate_digest
+        self._history: dict[str, list[ScorerReceipt]] = {}
 
     def _key(self, scope: W1Scope) -> str:
         from experiments.w1w2_live_adaptation._contracts import canonical_json
         return canonical_json(scope)
 
+    def gate_digest(self) -> str:
+        return self._gate_digest
+
     def assess(
         self,
-        signal: TransferSignal,
+        receipt: ScorerReceipt,
         current_checkpoint_id: str | None,
         authorized_option_ids: tuple[str, ...],
     ) -> TransferAssessment:
-        key = self._key(signal.scope)
+        key = self._key(receipt.scope)
         history = self._history.setdefault(key, [])
-        history.append(signal)
+        history.append(receipt)
 
         window = history[-self._regret_window :]
-        regrets = [max(0.0, s.frozen_reward - s.reward) for s in window]
+        regrets = [max(0.0, s.oracle_reward - s.reward) for s in window]
         cumulative_regret = sum(regrets)
         negative_transfer = cumulative_regret > self._threshold and len(window) >= self._regret_window
 
-        baseline_drop = sum(s.baseline_reward - s.reward for s in window) / max(len(window), 1)
-        regime_shift = negative_transfer and baseline_drop > 0.5
+        baseline_regret = sum(max(0.0, s.baseline_reward - s.reward) for s in window) / max(len(window), 1)
+        regime_shift = negative_transfer and baseline_regret > 0.5
 
         if negative_transfer and current_checkpoint_id is not None:
             recommended = "ROLLBACK"
@@ -75,8 +86,8 @@ class TransferMonitor:
 
         return TransferAssessment(
             assessment_id=f"ta-{uuid4().hex}",
-            scope=signal.scope,
-            step=signal.step,
+            scope=receipt.scope,
+            step=receipt.step,
             negative_transfer_detected=negative_transfer,
             regime_shift_detected=regime_shift,
             recommended_action=recommended,

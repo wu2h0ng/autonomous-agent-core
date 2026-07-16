@@ -9,11 +9,22 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 
+from experiments.w1w2_live_adaptation._authority import (
+    C7Snapshot,
+    FreezeAuthorization,
+    FreezeAuthorizationRegistry,
+    make_run_digest,
+)
 from experiments.w1w2_live_adaptation._contracts import ContractModel, NonEmptyStr
-
-from experiments.w1w2_live_adaptation.transfer_monitor import TransferMonitor, TransferSignal
-from experiments.w1w2_live_adaptation.w1_state import W1MemoryStore, W1Scope, W1Update, W1UpdateType
-from experiments.w1w2_live_adaptation.w2_selector import W2StrategySelector
+from experiments.w1w2_live_adaptation.transfer_monitor import ScorerReceipt
+from experiments.w1w2_live_adaptation.w1_state import (
+    BeliefPayload,
+    W1MemoryStore,
+    W1Scope,
+    W1Update,
+    W1UpdateType,
+)
+from experiments.w1w2_live_adaptation.w2_selector import W2OptionRegistry, W2StrategySelector
 
 
 class FalsifierRunRecord(ContractModel):
@@ -21,34 +32,22 @@ class FalsifierRunRecord(ContractModel):
     arm_name: NonEmptyStr
     seed: int
     n_steps: int
-    speed: float
-    quality: float
-    risk: float
+    run_status: NonEmptyStr
+
+
+class CharacterizationRecord(ContractModel):
+    run_id: NonEmptyStr
+    arm_name: NonEmptyStr
+    seed: int
+    n_steps: int
+    status: NonEmptyStr
+    speed: float | None
+    quality: float | None
+    risk: float | None
     negative_transfer_steps: int
     rollback_latency_steps: int
     c7_stops: int
     permission_violations: int
-    run_status: NonEmptyStr
-
-
-class C7Authority:
-    """External correction authority. Candidate may read but never write."""
-
-    def __init__(self) -> None:
-        self._halted = False
-        self._epoch = 0
-
-    @property
-    def halted(self) -> bool:
-        return self._halted
-
-    @property
-    def epoch(self) -> int:
-        return self._epoch
-
-    def halt(self, reason: str) -> None:
-        self._halted = True
-        self._epoch += 1
 
 
 class DeterministicRegimeFixture:
@@ -68,7 +67,7 @@ class DeterministicRegimeFixture:
         self._switch_points = (switch_at,) if isinstance(switch_at, int) else tuple(sorted(switch_at))
         self._delay = delay
         self._step = 0
-        self._pending: list[tuple[int, str, float, str]] = []
+        self._pending: list[tuple[int, str, float]] = []
 
     def _regime(self) -> str:
         switches = sum(1 for s in self._switch_points if s <= self._step)
@@ -82,27 +81,47 @@ class DeterministicRegimeFixture:
     def submit_action(self, action: str) -> None:
         regime = self._regime()
         reward = 1.0 if action == self.OPTIMAL[regime] else 0.0
-        self._pending.append((self._step, action, reward, regime))
+        self._pending.append((self._step, action, reward))
         self._step += 1
 
     def feedback(self) -> dict[str, Any] | None:
         if len(self._pending) >= self._delay:
-            step, action, reward, regime = self._pending.pop(0)
-            return {"step": step, "action": action, "reward": reward, "true_regime": regime}
+            step, action, reward = self._pending.pop(0)
+            return {"step": step, "action": action, "reward": reward}
         return None
 
-    def oracle_action(self) -> str:
-        return self.OPTIMAL[self._regime()]
+    def scorer_receipt(self, arm_name: str, scope: W1Scope) -> ScorerReceipt | None:
+        """Trusted scorer-side outcome; not visible to candidate arms."""
+        if not self._pending:
+            return None
+        step, action, reward = self._pending[0]
+        regime = self._regime_at(step)
+        oracle_reward = 1.0
+        baseline_action = "A"
+        baseline_reward = 1.0 if baseline_action == self.OPTIMAL[regime] else 0.0
+        return ScorerReceipt(
+            receipt_id=f"sr-{uuid4().hex}",
+            scope=scope,
+            arm_name=arm_name,
+            step=step,
+            reward=reward,
+            baseline_reward=baseline_reward,
+            oracle_reward=oracle_reward,
+        )
+
+    def _regime_at(self, step: int) -> str:
+        switches = sum(1 for s in self._switch_points if s <= step)
+        return "A" if switches % 2 == 0 else "B"
 
 
 class AdaptationArm(ABC):
     name: str = ""
 
     @abstractmethod
-    def act(self, observation: Mapping[str, Any]) -> str:
+    def act(self, observation: Mapping[str, Any], c7: C7Snapshot) -> str:
         raise NotImplementedError
 
-    def update(self, feedback: Mapping[str, Any]) -> None:
+    def update(self, feedback: Mapping[str, Any], c7: C7Snapshot) -> None:
         pass
 
 
@@ -112,7 +131,7 @@ class FrozenArm(AdaptationArm):
     def __init__(self, action: str = "A") -> None:
         self._action = action
 
-    def act(self, observation: Mapping[str, Any]) -> str:
+    def act(self, observation: Mapping[str, Any], c7: C7Snapshot) -> str:
         return self._action
 
 
@@ -124,7 +143,7 @@ class ScheduledStaticArm(AdaptationArm):
         self._before = before
         self._after = after
 
-    def act(self, observation: Mapping[str, Any]) -> str:
+    def act(self, observation: Mapping[str, Any], c7: C7Snapshot) -> str:
         return self._before if observation["step"] < self._switch_at else self._after
 
 
@@ -136,24 +155,32 @@ class W1OnlyArm(AdaptationArm):
         self._scope = scope
         self._action = action
         self._count = 0
+        self._last_observation: Mapping[str, Any] | None = None
 
-    def act(self, observation: Mapping[str, Any]) -> str:
+    def act(self, observation: Mapping[str, Any], c7: C7Snapshot) -> str:
+        self._last_observation = observation
         return self._action
 
-    def update(self, feedback: Mapping[str, Any]) -> None:
+    def update(self, feedback: Mapping[str, Any], c7: C7Snapshot) -> None:
+        if c7.halted:
+            return
         self._count += 1
+        hint = self._last_observation["hint"] if self._last_observation else "unknown"
         update = W1Update(
             update_id=f"u-w1-{self._count}",
             scope=self._scope,
             update_type=W1UpdateType.BELIEF,
-            payload={"belief": feedback["true_regime"]},
+            payload=BeliefPayload(
+                belief_statement=f"hint={hint}",
+                confidence=0.9,
+            ),
             provenance="fixture_feedback",
             source_event_digest=f"fb-{self._count}",
+            correction_epoch=0,
+            rollback_checkpoint_id="cp-0",
             version="1",
             valid_time=datetime.now(timezone.utc),
             transaction_time=datetime.now(timezone.utc),
-            confidence=0.9,
-            rollback_checkpoint_id="cp-0",
         )
         self._store.apply(update)
 
@@ -161,224 +188,181 @@ class W1OnlyArm(AdaptationArm):
 class W2OnlyArm(AdaptationArm):
     name = "w2-only"
 
-    def __init__(self, selector: W2StrategySelector, task_id: str) -> None:
+    def __init__(self, selector: W2StrategySelector) -> None:
         self._selector = selector
-        self._task_id = task_id
         self._history: list[dict[str, Any]] = []
 
-    def act(self, observation: Mapping[str, Any]) -> str:
+    def act(self, observation: Mapping[str, Any], c7: C7Snapshot) -> str:
+        if c7.halted:
+            return self._selector.authorized_option_ids[0]
         receipt = self._selector.select(
-            task_id=self._task_id,
             context=observation,
             outcome_history=tuple(self._history),
         )
         return receipt.selected_option_id
 
-    def update(self, feedback: Mapping[str, Any]) -> None:
+    def update(self, feedback: Mapping[str, Any], c7: C7Snapshot) -> None:
         self._history.append(dict(feedback))
 
 
 class W1W2Arm(AdaptationArm):
     name = "w1+w2"
 
-    def __init__(self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector, task_id: str) -> None:
+    def __init__(self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector) -> None:
         self._store = store
         self._scope = scope
         self._selector = selector
-        self._task_id = task_id
         self._history: list[dict[str, Any]] = []
         self._count = 0
+        self._last_observation: Mapping[str, Any] | None = None
 
-    def act(self, observation: Mapping[str, Any]) -> str:
+    def act(self, observation: Mapping[str, Any], c7: C7Snapshot) -> str:
+        if c7.halted:
+            return self._selector.authorized_option_ids[0]
+        self._last_observation = observation
         state = self._store.get_state(self._scope)
         context = dict(observation)
         if state.updates:
-            context["last_belief"] = state.updates[-1].payload.get("belief")
+            last = state.updates[-1].payload
+            if isinstance(last, BeliefPayload):
+                context["last_belief"] = last.belief_statement
         receipt = self._selector.select(
-            task_id=self._task_id,
             context=context,
             outcome_history=tuple(self._history),
         )
         return receipt.selected_option_id
 
-    def update(self, feedback: Mapping[str, Any]) -> None:
+    def update(self, feedback: Mapping[str, Any], c7: C7Snapshot) -> None:
+        if c7.halted:
+            return
         self._count += 1
         self._history.append(dict(feedback))
+        hint = self._last_observation["hint"] if self._last_observation else "unknown"
         update = W1Update(
             update_id=f"u-w1w2-{self._count}",
             scope=self._scope,
             update_type=W1UpdateType.BELIEF,
-            payload={"belief": feedback["true_regime"]},
+            payload=BeliefPayload(
+                belief_statement=f"hint={hint}",
+                confidence=0.9,
+            ),
             provenance="fixture_feedback",
             source_event_digest=f"fb-{self._count}",
+            correction_epoch=0,
+            rollback_checkpoint_id="cp-0",
             version="1",
             valid_time=datetime.now(timezone.utc),
             transaction_time=datetime.now(timezone.utc),
-            confidence=0.9,
-            rollback_checkpoint_id="cp-0",
         )
         self._store.apply(update)
-
-
-class OfflineOracleArm(AdaptationArm):
-    name = "offline_oracle"
-
-    def __init__(self, fixture: DeterministicRegimeFixture) -> None:
-        self._fixture = fixture
-
-    def act(self, observation: Mapping[str, Any]) -> str:
-        return self._fixture.oracle_action()
 
 
 class FalsifierHarness:
     """Deterministic, model-free falsifier harness.
 
-    Default status is RUN_DENIED until units, baselines and gates are frozen.
+    Public run() requires an externally issued FreezeAuthorization receipt.
+    Without one it returns typed RUN_DENIED. Characterization uses a separate API
+    and returns only CHARACTERIZATION_ONLY.
     """
 
     def __init__(
         self,
-        store: W1MemoryStore,
-        selector: W2StrategySelector,
-        monitor: TransferMonitor,
-        c7: C7Authority,
-        arms: Mapping[str, AdaptationArm],
-        baseline_arm: AdaptationArm,
-        oracle_arm: AdaptationArm | None,
-        n_steps: int = 20,
+        freeze_registry: FreezeAuthorizationRegistry,
+        option_registry: W2OptionRegistry,
+        authorized_option_ids: tuple[str, ...],
         switch_at: int | tuple[int, ...] = 10,
     ) -> None:
-        self._store = store
-        self._selector = selector
-        self._monitor = monitor
-        self._c7 = c7
-        self._arms = dict(arms)
-        self._baseline_arm = baseline_arm
-        self._oracle_arm = oracle_arm
-        self._n_steps = n_steps
+        self._freeze_registry = freeze_registry
+        self._option_registry = option_registry
+        self._authorized_option_ids = tuple(authorized_option_ids)
         self._switch_at = switch_at
-        self._frozen = False
 
-    def freeze(self, units_frozen: bool, baselines_frozen: bool, gates_frozen: bool) -> None:
-        self._frozen = units_frozen and baselines_frozen and gates_frozen
-
-    def run(self, arm_name: str, seed: int, n_steps: int) -> FalsifierRunRecord:
-        run_id = f"run-{uuid4().hex}"
-        if not self._frozen:
-            return FalsifierRunRecord(
-                run_id=run_id,
-                arm_name=arm_name,
-                seed=seed,
-                n_steps=n_steps,
-                speed=0.0,
-                quality=0.0,
-                risk=0.0,
-                negative_transfer_steps=0,
-                rollback_latency_steps=0,
-                c7_stops=0,
-                permission_violations=0,
-                run_status="RUN_DENIED",
-            )
-
-        arm = self._arms.get(arm_name)
-        if arm is None:
-            return FalsifierRunRecord(
-                run_id=run_id,
-                arm_name=arm_name,
-                seed=seed,
-                n_steps=n_steps,
-                speed=0.0,
-                quality=0.0,
-                risk=0.0,
-                negative_transfer_steps=0,
-                rollback_latency_steps=0,
-                c7_stops=0,
-                permission_violations=0,
-                run_status="ARM_NOT_FOUND",
-            )
-
-        self._c7._halted = False  # reset per-run authority state
-        fixture = DeterministicRegimeFixture(seed=seed, n_steps=n_steps, switch_at=self._switch_at)
-        oracle_fixture = DeterministicRegimeFixture(seed=seed, n_steps=n_steps, switch_at=self._switch_at)
-        scope = W1Scope(
+    def _make_scope(self, seed: int) -> W1Scope:
+        return W1Scope(
             mandate_id="m-test",
             task_id="t-test",
             environment_id="env-test",
             episode_id=f"ep-{seed}",
         )
 
-        cumulative_reward = 0.0
-        cumulative_oracle_reward = 0.0
-        negative_transfer_steps = 0
-        rollback_latency_steps = 0
-        c7_stops = 0
-        permission_violations = 0
-        recovered = False
-        speed = float(n_steps)
+    def _make_run_digest(self, arm_name: str, seed: int, n_steps: int) -> str:
+        selector = self._make_selector()
+        authorized_sets_digest = selector.authorized_set_digest()
+        return make_run_digest(arm_name, seed, n_steps, authorized_sets_digest)
 
-        for step in range(n_steps):
-            obs = fixture.observation()
-            action = arm.act(obs)
-            fixture.submit_action(action)
+    def _make_selector(self) -> W2StrategySelector:
+        return W2StrategySelector(
+            registry=self._option_registry,
+            authorized_option_ids=self._authorized_option_ids,
+        )
 
-            oracle_action = oracle_fixture.oracle_action()
-            oracle_fixture.submit_action(oracle_action)
+    def _verify_freeze_auth(
+        self,
+        arm_name: str,
+        seed: int,
+        n_steps: int,
+        freeze_auth: FreezeAuthorization | None,
+    ) -> bool:
+        if freeze_auth is None:
+            return False
+        resolved = self._freeze_registry.resolve(freeze_auth.receipt_id)
+        if resolved is None:
+            return False
+        if resolved.receipt_id != freeze_auth.receipt_id:
+            return False
+        if resolved.is_expired:
+            return False
+        expected_run_digest = self._make_run_digest(arm_name, seed, n_steps)
+        if resolved.run_digest != expected_run_digest:
+            return False
+        return True
 
-            feedback = fixture.feedback()
-            oracle_feedback = oracle_fixture.feedback()
-
-            if feedback is not None:
-                reward = feedback["reward"]
-                cumulative_reward += reward
-                arm.update(feedback)
-
-                oracle_reward = oracle_feedback["reward"] if oracle_feedback else 1.0
-                cumulative_oracle_reward += oracle_reward
-
-                baseline_action = self._baseline_arm.act(obs)
-                baseline_reward_val = 1.0 if baseline_action == fixture.OPTIMAL[feedback["true_regime"]] else 0.0
-
-                signal = TransferSignal(
-                    scope=scope,
-                    arm_name=arm_name,
-                    step=feedback["step"],
-                    reward=reward,
-                    baseline_reward=baseline_reward_val,
-                    frozen_reward=oracle_reward,
-                )
-                assessment = self._monitor.assess(
-                    signal,
-                    current_checkpoint_id=None,
-                    authorized_option_ids=tuple(o.option_id for o in self._selector.authorized_options),
-                )
-                if assessment.negative_transfer_detected:
-                    negative_transfer_steps += 1
-                    if arm_name in {"w1-only", "w2-only", "w1+w2"} and not self._c7.halted:
-                        self._c7.halt(reason=assessment.reason)
-                        c7_stops += 1
-                        rollback_latency_steps += 1
-
-            first_switch = self._switch_at if isinstance(self._switch_at, int) else min(self._switch_at)
-            if step >= first_switch and not recovered and feedback is not None and feedback["reward"] > 0.5:
-                recovered = True
-                speed = step - first_switch
-
-        quality = cumulative_reward / max(n_steps, 1)
-        risk = c7_stops + permission_violations
-
+    def run(
+        self,
+        arm_name: str,
+        seed: int,
+        n_steps: int,
+        freeze_auth: FreezeAuthorization | None,
+    ) -> FalsifierRunRecord:
+        run_id = f"run-{uuid4().hex}"
+        if not self._verify_freeze_auth(arm_name, seed, n_steps, freeze_auth):
+            return FalsifierRunRecord(
+                run_id=run_id,
+                arm_name=arm_name,
+                seed=seed,
+                n_steps=n_steps,
+                run_status="RUN_DENIED",
+            )
+        # Wave B: actual run with durable ledger and scorer receipts.
         return FalsifierRunRecord(
             run_id=run_id,
             arm_name=arm_name,
             seed=seed,
             n_steps=n_steps,
-            speed=speed,
-            quality=quality,
-            risk=risk,
-            negative_transfer_steps=negative_transfer_steps,
-            rollback_latency_steps=rollback_latency_steps,
-            c7_stops=c7_stops,
-            permission_violations=permission_violations,
-            run_status="COMPLETED",
+            run_status="RUN_DENIED",
+        )
+
+    def characterize(
+        self,
+        arm_name: str,
+        seed: int,
+        n_steps: int,
+        arm_factory: Any,
+    ) -> CharacterizationRecord:
+        run_id = f"char-{uuid4().hex}"
+        return CharacterizationRecord(
+            run_id=run_id,
+            arm_name=arm_name,
+            seed=seed,
+            n_steps=n_steps,
+            status="CHARACTERIZATION_ONLY",
+            speed=None,
+            quality=None,
+            risk=None,
+            negative_transfer_steps=0,
+            rollback_latency_steps=0,
+            c7_stops=0,
+            permission_violations=0,
         )
 
     @staticmethod

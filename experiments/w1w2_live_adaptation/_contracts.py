@@ -1,8 +1,4 @@
-"""Minimal self-contained contract primitives for W1/W2 falsifier.
-
-This module avoids a hard dependency on packages/contracts/src so the package
-remains runnable under the Research Track base gate (PYTHONPATH=src).
-"""
+"""Minimal self-contained contract primitives for the W1/W2 falsifier."""
 
 from __future__ import annotations
 
@@ -29,7 +25,6 @@ UtcDateTime: TypeAlias = Annotated[datetime, AfterValidator(_require_aware_utc)]
 
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-
     schema_version: Literal["1.0"] = "1.0"
 
 

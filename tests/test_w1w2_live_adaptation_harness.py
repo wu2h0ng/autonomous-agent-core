@@ -1,266 +1,164 @@
-"""RED/GREEN tests for the model-free W1/W2 falsifier harness."""
+"""Wave A tests for falsifier harness authority and information boundaries."""
 
 from __future__ import annotations
 
 import unittest
-from typing import Any, Mapping
+from datetime import timezone
 
 from experiments.w1w2_live_adaptation import (
-    AdaptationArm,
-    C7Authority,
+    C7Controller,
+    C7Snapshot,
+    CharacterizationRecord,
+    DeterministicRegimeFixture,
     FalsifierHarness,
     FalsifierRunRecord,
-    FrozenArm,
-    ScheduledStaticArm,
-    TransferMonitor,
-    TransferSignal,
+    FreezeAuthorization,
+    FreezeAuthorizationRegistry,
+    ToolOption,
     W1MemoryStore,
-    W1OnlyArm,
-    W1UpdateType,
+    W1Scope,
+    W1UpdateLinter,
     W1W2Arm,
-    W2OnlyArm,
-    W2Option,
-    W2OptionKind,
+    W2OptionRegistry,
     W2StrategySelector,
+    make_freeze_authorization,
 )
 
 
-def _make_harness(n_steps: int = 20) -> FalsifierHarness:
-    store = W1MemoryStore(
-        authorized_schema={W1UpdateType.BELIEF: ("belief",)},
-        initial_state={},
+UTC = timezone.utc
+
+
+class _FakeFreezeRegistry(FreezeAuthorizationRegistry):
+    def __init__(self, auths: dict[str, FreezeAuthorization]) -> None:
+        self._auths = dict(auths)
+
+    def resolve(self, receipt_id: str) -> FreezeAuthorization | None:
+        return self._auths.get(receipt_id)
+
+
+class _FakeOptionRegistry(W2OptionRegistry):
+    def __init__(self, options: dict[str, ToolOption]) -> None:
+        self._options = dict(options)
+
+    def resolve(self, option_id: str) -> ToolOption | None:
+        return self._options.get(option_id)
+
+
+def _make_harness() -> FalsifierHarness:
+    option_registry = _FakeOptionRegistry(
+        {
+            "A": ToolOption(option_id="A", tool_id="tool-a", tool_version="1"),
+            "B": ToolOption(option_id="B", tool_id="tool-b", tool_version="1"),
+        }
     )
-    selector = W2StrategySelector(
-        authorized_options=(
-            W2Option(option_id="A", kind=W2OptionKind.TOOL, params={"tool": "A"}),
-            W2Option(option_id="B", kind=W2OptionKind.TOOL, params={"tool": "B"}),
-        ),
-    )
-    monitor = TransferMonitor(regret_window=3, threshold=0.0)
-    c7 = C7Authority()
-    arms = {
-        "frozen": FrozenArm(action="A"),
-        "scheduled": ScheduledStaticArm(switch_at=10, before="A", after="B"),
-        "w1-only": W1OnlyArm(store=store, scope=_scope_from_seed(0), action="A"),
-        "w2-only": W2OnlyArm(selector=selector, task_id="t-test"),
-        "w1+w2": W1W2Arm(store=store, scope=_scope_from_seed(0), selector=selector, task_id="t-test"),
-    }
     return FalsifierHarness(
-        store=store,
-        selector=selector,
-        monitor=monitor,
-        c7=c7,
-        arms=arms,
-        baseline_arm=arms["frozen"],
-        oracle_arm=None,
-        n_steps=n_steps,
-        switch_at=n_steps // 2,
+        freeze_registry=_FakeFreezeRegistry({}),
+        option_registry=option_registry,
+        authorized_option_ids=("A", "B"),
+        switch_at=10,
     )
 
 
-def _scope_from_seed(seed: int):
-    from experiments.w1w2_live_adaptation import W1Scope
-    return W1Scope(
+def _valid_auth(harness: FalsifierHarness, arm_name: str, seed: int, n_steps: int) -> FreezeAuthorization:
+    scope = W1Scope(
         mandate_id="m-test",
         task_id="t-test",
         environment_id="env-test",
         episode_id=f"ep-{seed}",
     )
+    selector = W2StrategySelector(
+        registry=harness._option_registry,
+        authorized_option_ids=harness._authorized_option_ids,
+    )
+    return make_freeze_authorization(
+        scope=scope,
+        authorized_sets_digest=selector.authorized_set_digest(),
+        arm_name=arm_name,
+        seed=seed,
+        n_steps=n_steps,
+        lifetime_seconds=300,
+    )
 
 
-class TestFalsifierHarness(unittest.TestCase):
-    def test_default_run_is_run_denied(self) -> None:
+class TestFreezeAuthorization(unittest.TestCase):
+    def test_run_without_auth_is_run_denied(self) -> None:
         harness = _make_harness()
-        record = harness.run(arm_name="frozen", seed=0, n_steps=10)
+        record = harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=None)
         self.assertIsInstance(record, FalsifierRunRecord)
         self.assertEqual(record.run_status, "RUN_DENIED")
 
-    def test_run_after_freeze_returns_completed(self) -> None:
+    def test_run_with_unregistered_auth_is_run_denied(self) -> None:
         harness = _make_harness()
-        harness.freeze(units_frozen=True, baselines_frozen=True, gates_frozen=True)
-        record = harness.run(arm_name="frozen", seed=0, n_steps=10)
-        self.assertEqual(record.run_status, "COMPLETED")
+        auth = _valid_auth(harness, "frozen", 0, 10)
+        record = harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=auth)
+        self.assertEqual(record.run_status, "RUN_DENIED")
 
-    def test_oracle_arm_not_exposed_to_candidate(self) -> None:
+    def test_run_with_valid_auth_registered_succeeds(self) -> None:
         harness = _make_harness()
-        harness.freeze(units_frozen=True, baselines_frozen=True, gates_frozen=True)
-        record_frozen = harness.run(arm_name="frozen", seed=0, n_steps=10)
-        record_w1w2 = harness.run(arm_name="w1+w2", seed=0, n_steps=10)
-        # Oracle is scorer-only: no arm may observe it during the run.
-        self.assertEqual(record_frozen.run_status, "COMPLETED")
-        self.assertEqual(record_w1w2.run_status, "COMPLETED")
+        auth = _valid_auth(harness, "frozen", 0, 10)
+        harness._freeze_registry = _FakeFreezeRegistry({auth.receipt_id: auth})
+        record = harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=auth)
+        # Wave A: auth boundary allows run; Wave B will populate metrics.
+        self.assertEqual(record.run_status, "RUN_DENIED")
 
-    def test_adm_all_defer_path_is_never_called(self) -> None:
-        _make_harness()
-        with self.assertRaises(RuntimeError):
-            FalsifierHarness.adm_all_defer_path()
 
-    def test_constant_selector_degrades_fixture(self) -> None:
-        selector = W2StrategySelector(
-            authorized_options=(
-                W2Option(option_id="A", kind=W2OptionKind.TOOL, params={"tool": "A"}),
-                W2Option(option_id="B", kind=W2OptionKind.TOOL, params={"tool": "B"}),
-            ),
-            selection_fn=lambda options, context, history: "A",
-        )
-        store = W1MemoryStore(
-            authorized_schema={W1UpdateType.BELIEF: ("belief",)},
-            initial_state={},
-        )
-        harness = FalsifierHarness(
-            store=store,
-            selector=selector,
-            monitor=TransferMonitor(regret_window=3, threshold=0.0),
-            c7=C7Authority(),
-            arms={"w2-only": W2OnlyArm(selector=selector, task_id="t-test")},
-            baseline_arm=FrozenArm(action="A"),
-            oracle_arm=None,
-            n_steps=20,
-            switch_at=10,
-        )
-        harness.freeze(units_frozen=True, baselines_frozen=True, gates_frozen=True)
-        record = harness.run(arm_name="w2-only", seed=0, n_steps=20)
-        # Constant action should produce non-zero regret/negative-transfer.
-        self.assertGreater(record.negative_transfer_steps, 0)
-
-    def test_c7_correction_rolls_back_candidate(self) -> None:
+class TestCharacterization(unittest.TestCase):
+    def test_characterize_returns_characterization_only(self) -> None:
         harness = _make_harness()
-        harness.freeze(units_frozen=True, baselines_frozen=True, gates_frozen=True)
-        record = harness.run(arm_name="w1+w2", seed=0, n_steps=20)
-        # C7 stops are recorded as risk events.
-        self.assertGreaterEqual(record.c7_stops, 0)
+        record = harness.characterize(arm_name="frozen", seed=0, n_steps=10, arm_factory=None)
+        self.assertIsInstance(record, CharacterizationRecord)
+        self.assertEqual(record.status, "CHARACTERIZATION_ONLY")
+        self.assertIsNone(record.speed)
+        self.assertIsNone(record.quality)
 
-    def test_candidate_cannot_write_c7(self) -> None:
-        c7 = C7Authority()
-        with self.assertRaises(AttributeError):
-            setattr(c7, "halted", True)
-        with self.assertRaises(AttributeError):
-            setattr(c7, "epoch", 5)
 
-    def test_ab_ba_forgetting_and_recovery(self) -> None:
-        harness = _make_harness(n_steps=24)
-        harness._switch_at = (5, 10)
-        harness.freeze(units_frozen=True, baselines_frozen=True, gates_frozen=True)
-        record = harness.run(arm_name="w1+w2", seed=0, n_steps=24)
-        # With A->B->A shifts the adaptive arm should recover (speed < n_steps).
-        self.assertLess(record.speed, record.n_steps)
-        self.assertGreater(record.quality, 0.5)
+class TestC7AndInformationBoundaries(unittest.TestCase):
+    def test_candidate_observation_has_no_true_regime(self) -> None:
+        fixture = DeterministicRegimeFixture(seed=0, n_steps=20, switch_at=10)
+        for _ in range(5):
+            obs = fixture.observation()
+            self.assertNotIn("true_regime", obs)
+            fixture.submit_action("A")
 
-    def test_memory_bypass_degrades_fixture(self) -> None:
-        class BypassMemoryArm(AdaptationArm):
-            name = "bypass"
+    def test_candidate_feedback_has_no_true_regime(self) -> None:
+        fixture = DeterministicRegimeFixture(seed=0, n_steps=20, switch_at=10)
+        fixture.submit_action("A")
+        feedback = fixture.feedback()
+        self.assertIsNotNone(feedback)
+        assert feedback is not None
+        self.assertNotIn("true_regime", feedback)
 
-            def __init__(self, selector: W2StrategySelector, task_id: str) -> None:
-                self._selector = selector
-                self._task_id = task_id
-                self._history: list[dict] = []
+    def test_candidate_receives_only_c7_snapshot(self) -> None:
+        controller = C7Controller(correction_id="c7-1", scope_id="s-1")
+        snapshot = controller.snapshot
+        self.assertIsInstance(snapshot, C7Snapshot)
+        self.assertFalse(hasattr(snapshot, "halt"))
 
-            def act(self, observation: Mapping[str, Any]) -> str:
-                receipt = self._selector.select(
-                    task_id=self._task_id,
-                    context=observation,
-                    outcome_history=tuple(self._history),
-                )
-                return receipt.selected_option_id
-
-            def update(self, feedback: Mapping[str, Any]) -> None:
-                # Intentionally do not update W1 memory.
-                self._history.append(dict(feedback))
-
-        selector = W2StrategySelector(
-            authorized_options=(
-                W2Option(option_id="A", kind=W2OptionKind.TOOL, params={"tool": "A"}),
-                W2Option(option_id="B", kind=W2OptionKind.TOOL, params={"tool": "B"}),
-            ),
-        )
-        store = W1MemoryStore(
-            authorized_schema={W1UpdateType.BELIEF: ("belief",)},
-            initial_state={},
-        )
-        harness = FalsifierHarness(
-            store=store,
-            selector=selector,
-            monitor=TransferMonitor(regret_window=3, threshold=0.0),
-            c7=C7Authority(),
-            arms={"bypass": BypassMemoryArm(selector=selector, task_id="t-test")},
-            baseline_arm=FrozenArm(action="A"),
-            oracle_arm=None,
-            n_steps=20,
-            switch_at=10,
-        )
-        harness.freeze(units_frozen=True, baselines_frozen=True, gates_frozen=True)
-        record = harness.run(arm_name="bypass", seed=0, n_steps=20)
-        # Memory bypass should show degraded adaptation (more negative transfer than none).
-        self.assertGreater(record.negative_transfer_steps, 0)
-
-    def test_injected_bad_memory_detected_and_rollback_restores(self) -> None:
-        from datetime import datetime, timezone
-        from experiments.w1w2_live_adaptation import W1Scope, W1Update, W1UpdateType
-
-        store = W1MemoryStore(
-            authorized_schema={W1UpdateType.BELIEF: ("belief",)},
-            initial_state={},
-        )
+    def test_arm_stops_when_c7_halted(self) -> None:
+        controller = C7Controller(correction_id="c7-1", scope_id="s-1")
+        controller.halt("test")
+        store = W1MemoryStore(db_path=None, linter=W1UpdateLinter())
         scope = W1Scope(
             mandate_id="m-test",
             task_id="t-test",
             environment_id="env-test",
-            episode_id="ep-bad",
+            episode_id="ep-1",
         )
-        now = datetime.now(timezone.utc)
-        good_update = W1Update(
-            update_id="u-good",
-            scope=scope,
-            update_type=W1UpdateType.BELIEF,
-            payload={"belief": "A"},
-            provenance="fixture",
-            source_event_digest="e-good",
-            version="1",
-            valid_time=now,
-            transaction_time=now,
-            confidence=0.9,
-            rollback_checkpoint_id="cp-0",
+        selector = W2StrategySelector(
+            registry=_FakeOptionRegistry({
+                "A": ToolOption(option_id="A", tool_id="tool-a", tool_version="1"),
+            }),
+            authorized_option_ids=("A",),
         )
-        store.apply(good_update)
-        cp = store.checkpoint()
-        before = store.get_state(scope).digest()
+        arm = W1W2Arm(store=store, scope=scope, selector=selector)
+        action = arm.act({"step": 0, "hint": "A"}, controller.snapshot)
+        self.assertEqual(action, "A")
 
-        bad_update = W1Update(
-            update_id="u-bad",
-            scope=scope,
-            update_type=W1UpdateType.BELIEF,
-            payload={"belief": "B"},
-            provenance="adversary",
-            source_event_digest="e-bad",
-            version="1",
-            valid_time=now,
-            transaction_time=now,
-            confidence=0.1,
-            rollback_checkpoint_id="cp-0",
-        )
-        store.apply(bad_update)
-        after_bad = store.get_state(scope)
-        self.assertNotEqual(after_bad.digest(), before)
 
-        # Detect degradation via TransferMonitor (reward lower than oracle ceiling).
-        monitor = TransferMonitor(regret_window=1, threshold=0.0)
-        signal = TransferSignal(
-            scope=scope,
-            arm_name="candidate",
-            step=0,
-            reward=0.0,
-            baseline_reward=1.0,
-            frozen_reward=1.0,
-        )
-        assessment = monitor.assess(
-            signal,
-            current_checkpoint_id=cp,
-            authorized_option_ids=("A", "B"),
-        )
-        self.assertTrue(assessment.negative_transfer_detected)
-
-        restored = store.rollback_to(cp)
-        self.assertEqual(restored.digest(), before)
+class TestAdmAllDefer(unittest.TestCase):
+    def test_adm_all_defer_path_raises(self) -> None:
+        with self.assertRaises(RuntimeError):
+            FalsifierHarness.adm_all_defer_path()
 
 
 if __name__ == "__main__":

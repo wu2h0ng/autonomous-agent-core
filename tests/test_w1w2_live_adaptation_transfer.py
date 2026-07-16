@@ -1,19 +1,17 @@
-"""RED/GREEN tests for TransferMonitor, rollback and C7 authority boundaries."""
+"""Wave A tests for TransferMonitor and C7 boundaries."""
 
 from __future__ import annotations
 
 import unittest
-from datetime import timezone
 
 from experiments.w1w2_live_adaptation import (
+    C7Controller,
+    C7Snapshot,
+    ScorerReceipt,
     TransferAssessment,
     TransferMonitor,
-    TransferSignal,
     W1Scope,
 )
-
-
-UTC = timezone.utc
 
 
 def _scope() -> W1Scope:
@@ -25,25 +23,46 @@ def _scope() -> W1Scope:
     )
 
 
-def _signal(step: int, reward: float, baseline: float, frozen: float) -> TransferSignal:
-    return TransferSignal(
+def _receipt(step: int, reward: float, baseline: float, oracle: float) -> ScorerReceipt:
+    return ScorerReceipt(
+        receipt_id=f"sr-{step}",
         scope=_scope(),
         arm_name="candidate",
         step=step,
         reward=reward,
         baseline_reward=baseline,
-        frozen_reward=frozen,
+        oracle_reward=oracle,
     )
 
 
+class TestC7Controller(unittest.TestCase):
+    def test_candidate_snapshot_is_immutable(self) -> None:
+        controller = C7Controller(correction_id="c7-1", scope_id="s-1")
+        snapshot = controller.snapshot
+        self.assertIsInstance(snapshot, C7Snapshot)
+        with self.assertRaises(Exception):
+            snapshot.halted = True  # type: ignore[misc]
+
+    def test_candidate_cannot_call_halt(self) -> None:
+        snapshot = C7Controller(correction_id="c7-1", scope_id="s-1").snapshot
+        self.assertFalse(hasattr(snapshot, "halt"))
+
+    def test_halt_advances_epoch(self) -> None:
+        controller = C7Controller(correction_id="c7-1", scope_id="s-1")
+        self.assertEqual(controller.snapshot.epoch, 0)
+        controller.halt("test")
+        self.assertTrue(controller.snapshot.halted)
+        self.assertEqual(controller.snapshot.epoch, 1)
+
+
 class TestTransferMonitor(unittest.TestCase):
-    def test_detects_negative_transfer(self) -> None:
-        monitor = TransferMonitor(regret_window=3, threshold=0.0)
+    def test_detects_negative_transfer_from_scorer_receipts(self) -> None:
+        monitor = TransferMonitor(regret_window=3, threshold=0.0, gate_digest="gd-1")
         assessment: TransferAssessment | None = None
         for step in range(5):
-            signal = _signal(step=step, reward=0.0, baseline=1.0, frozen=1.0)
+            receipt = _receipt(step=step, reward=0.0, baseline=1.0, oracle=1.0)
             assessment = monitor.assess(
-                signal,
+                receipt,
                 current_checkpoint_id="cp-0",
                 authorized_option_ids=("opt-a", "opt-b"),
             )
@@ -52,28 +71,29 @@ class TestTransferMonitor(unittest.TestCase):
         self.assertTrue(assessment.negative_transfer_detected)
 
     def test_recommends_only_rollback_or_authorized_option(self) -> None:
-        monitor = TransferMonitor(regret_window=2, threshold=0.0)
+        monitor = TransferMonitor(regret_window=2, threshold=0.0, gate_digest="gd-1")
         assessment: TransferAssessment | None = None
         for step in range(4):
-            signal = _signal(step=step, reward=-1.0, baseline=1.0, frozen=1.0)
+            receipt = _receipt(step=step, reward=-1.0, baseline=1.0, oracle=1.0)
             assessment = monitor.assess(
-                signal,
+                receipt,
                 current_checkpoint_id="cp-0",
                 authorized_option_ids=("opt-a",),
             )
         self.assertIsNotNone(assessment)
         assert assessment is not None
-        self.assertTrue(
-            assessment.recommended_action in ("ROLLBACK", "W2_OPTION:opt-a", "CONTINUE")
+        self.assertIn(
+            assessment.recommended_action,
+            ("ROLLBACK", "W2_OPTION:opt-a", "CONTINUE"),
         )
 
     def test_cannot_recommend_unknown_option(self) -> None:
-        monitor = TransferMonitor(regret_window=2, threshold=0.0)
+        monitor = TransferMonitor(regret_window=2, threshold=0.0, gate_digest="gd-1")
         assessment: TransferAssessment | None = None
         for step in range(4):
-            signal = _signal(step=step, reward=-1.0, baseline=1.0, frozen=1.0)
+            receipt = _receipt(step=step, reward=-1.0, baseline=1.0, oracle=1.0)
             assessment = monitor.assess(
-                signal,
+                receipt,
                 current_checkpoint_id="cp-0",
                 authorized_option_ids=("opt-a",),
             )

@@ -1,19 +1,15 @@
-"""W2 strategy selector with immutable authorized option set."""
+"""W2 strategy selector with immutable authorized option contracts."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Mapping
+from typing import Annotated, Any, Callable, Mapping, Protocol
 from uuid import uuid4
 
+from pydantic import Discriminator, Field
 
-from experiments.w1w2_live_adaptation._contracts import (
-    ContractModel,
-    NonEmptyStr,
-    UtcDateTime,
-    content_digest,
-)
+from experiments.w1w2_live_adaptation._contracts import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 
 
 class W2OptionKind(str, Enum):
@@ -25,15 +21,62 @@ class W2OptionKind(str, Enum):
     BUDGET = "BUDGET"
 
 
-class W2Option(ContractModel):
+class BaseW2Option(ContractModel):
     option_id: NonEmptyStr
     kind: W2OptionKind
-    params: Mapping[str, Any]
+
+
+class ToolOption(BaseW2Option):
+    kind: W2OptionKind = W2OptionKind.TOOL
+    tool_id: NonEmptyStr
+    tool_version: NonEmptyStr
+
+
+class ModelOption(BaseW2Option):
+    kind: W2OptionKind = W2OptionKind.MODEL
+    model_id: NonEmptyStr
+    model_version: NonEmptyStr
+
+
+class WorkflowOption(BaseW2Option):
+    kind: W2OptionKind = W2OptionKind.WORKFLOW
+    workflow_id: NonEmptyStr
+    workflow_version: NonEmptyStr
+
+
+class RetryOption(BaseW2Option):
+    kind: W2OptionKind = W2OptionKind.RETRY
+    max_retries: int = Field(ge=0)
+    backoff_seconds: float = Field(ge=0.0)
+
+
+class ThresholdOption(BaseW2Option):
+    kind: W2OptionKind = W2OptionKind.THRESHOLD
+    threshold_name: NonEmptyStr
+    threshold_value: float
+
+
+class BudgetOption(BaseW2Option):
+    kind: W2OptionKind = W2OptionKind.BUDGET
+    budget_unit: NonEmptyStr
+    budget_limit: float = Field(ge=0.0)
+
+
+W2Option = Annotated[
+    ToolOption | ModelOption | WorkflowOption | RetryOption | ThresholdOption | BudgetOption,
+    Discriminator("kind"),
+]
+
+
+class W2OptionRegistry(Protocol):
+    """Read-only authority registry for canonical W2 option contracts."""
+
+    def resolve(self, option_id: str) -> W2Option | None:
+        ...
 
 
 class W2DecisionReceipt(ContractModel):
     receipt_id: NonEmptyStr
-    task_id: NonEmptyStr
     inputs_digest: NonEmptyStr
     authorized_set_digest: NonEmptyStr
     selected_option_id: NonEmptyStr
@@ -46,58 +89,57 @@ SelectionFn = Callable[..., str]
 
 
 class W2StrategySelector:
-    """Selects only from an immutable authorized set of W2 options.
+    """Selects only from an immutable authorized set of W2 option ids/digests.
 
     Cannot create a new option, expand permissions, or bypass C7/policy.
     """
 
     def __init__(
         self,
-        authorized_options: tuple[W2Option, ...],
+        registry: W2OptionRegistry,
+        authorized_option_ids: tuple[str, ...],
         selection_fn: SelectionFn | None = None,
     ) -> None:
-        self._authorized_options = tuple(authorized_options)
-        self._option_ids = frozenset(o.option_id for o in self._authorized_options)
+        self._registry = registry
+        self._authorized_option_ids = tuple(authorized_option_ids)
+        self._option_ids = frozenset(self._authorized_option_ids)
         self._selection_fn = selection_fn
 
     @property
-    def authorized_options(self) -> tuple[W2Option, ...]:
-        return self._authorized_options
+    def authorized_option_ids(self) -> tuple[str, ...]:
+        return self._authorized_option_ids
+
+    def authorized_set_digest(self) -> str:
+        payload = {"option_ids": sorted(self._authorized_option_ids)}
+        return content_digest(payload)
 
     def _default_selection(self, outcome_history: tuple[Mapping[str, Any], ...]) -> str:
         if not outcome_history:
-            return self._authorized_options[0].option_id
+            return self._authorized_option_ids[0]
         rewards: dict[str, float] = {}
         counts: dict[str, int] = {}
         for h in outcome_history:
             action = h.get("action")
-            if action is None:
+            if action is None or action not in self._option_ids:
                 continue
             rewards[action] = rewards.get(action, 0.0) + float(h.get("reward", 0.0))
             counts[action] = counts.get(action, 0) + 1
         if not counts:
-            return self._authorized_options[0].option_id
+            return self._authorized_option_ids[0]
         best_action = max(
             ((rewards[a] / counts[a], a) for a in counts),
             key=lambda x: x[0],
         )[1]
-        if best_action not in self._option_ids:
-            return self._authorized_options[0].option_id
         return best_action
-
-    def authorized_set_digest(self) -> str:
-        payload = {"options": [o.model_dump(mode="json", exclude_none=True) for o in self._authorized_options]}
-        return content_digest(payload)
 
     def select(
         self,
-        task_id: str,
         context: Mapping[str, Any],
         outcome_history: tuple[Mapping[str, Any], ...],
     ) -> W2DecisionReceipt:
         if self._selection_fn is not None:
             selected = self._selection_fn(
-                self._authorized_options,
+                self._authorized_option_ids,
                 dict(context),
                 tuple(outcome_history),
             )
@@ -107,15 +149,17 @@ class W2StrategySelector:
         if selected not in self._option_ids:
             raise ValueError(f"selected option '{selected}' is not in authorized set")
 
+        resolved = self._registry.resolve(selected)
+        if resolved is None:
+            raise ValueError(f"selected option '{selected}' is not in authority registry")
+
         inputs = {
-            "task_id": task_id,
             "context": dict(context),
             "outcome_history": [dict(h) for h in outcome_history],
         }
         now = datetime.now(timezone.utc)
         return W2DecisionReceipt(
             receipt_id=f"w2r-{uuid4().hex}",
-            task_id=task_id,
             inputs_digest=content_digest(inputs),
             authorized_set_digest=self.authorized_set_digest(),
             selected_option_id=selected,
