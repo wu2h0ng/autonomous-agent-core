@@ -7,7 +7,7 @@ authority, scorer, verdict, or result writer.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -26,31 +26,79 @@ class TrajectoryAuthority(str, Enum):
     SHARED_QUALIFICATION_TRAJECTORY_ONLY = "SHARED_QUALIFICATION_TRAJECTORY_ONLY"
 
 
-@dataclass(slots=True)
 class CheckpointRecord:
-    """One local qualification checkpoint; not a scientific result row."""
+    """Runner-internal truth record with no generic persistence protocol.
 
-    checkpoint_ordinal: int
-    turn_index: int
-    correct_action: ActorAction
-    authority: TrajectoryAuthority = (
-        TrajectoryAuthority.SHARED_QUALIFICATION_TRAJECTORY_ONLY
+    This is intentionally not a dataclass and has no ``__dict__``.  Truth,
+    actor responses, and resolved arm identities can only be consumed inside
+    qualification code.  Persistence must cross the explicit projection
+    boundary below.
+    """
+
+    __slots__ = (
+        "checkpoint_ordinal",
+        "turn_index",
+        "correct_action",
+        "authority",
+        "requests",
+        "responses",
+        "resolved_actions",
     )
-    requests: dict[str, ActorRequest] = field(default_factory=dict)
-    responses: dict[str, ActorResponse] = field(default_factory=dict)
-    resolved_actions: dict[ArmId, ActorAction] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        *,
+        checkpoint_ordinal: int,
+        turn_index: int,
+        correct_action: ActorAction,
+    ) -> None:
+        self.checkpoint_ordinal = checkpoint_ordinal
+        self.turn_index = turn_index
+        self.correct_action = correct_action
+        self.authority = TrajectoryAuthority.SHARED_QUALIFICATION_TRAJECTORY_ONLY
+        self.requests: dict[str, ActorRequest] = {}
+        self.responses: dict[str, ActorResponse] = {}
+        self.resolved_actions: dict[ArmId, ActorAction] = {}
 
     @property
     def arm_ids(self) -> tuple[ArmId, ...]:
         return tuple(ArmId)
 
     def to_mapping(self) -> dict[str, object]:
+        return QualificationCheckpointProjection.from_truth(self).to_mapping()
+
+
+@dataclass(frozen=True, slots=True)
+class QualificationCheckpointProjection:
+    """Closed persistable projection; contains no referee or actor outputs."""
+
+    authority: str
+    checkpoint_ordinal: int
+    turn_index: int
+    request_count: int
+    response_count: int
+
+    @classmethod
+    def from_truth(
+        cls, record: CheckpointRecord
+    ) -> QualificationCheckpointProjection:
+        if type(record) is not CheckpointRecord:
+            raise TypeError("record must be an exact CheckpointRecord")
+        return cls(
+            authority=record.authority.value,
+            checkpoint_ordinal=record.checkpoint_ordinal,
+            turn_index=record.turn_index,
+            request_count=len(record.requests),
+            response_count=len(record.responses),
+        )
+
+    def to_mapping(self) -> dict[str, object]:
         return {
-            "authority": self.authority.value,
+            "authority": self.authority,
             "checkpoint_ordinal": self.checkpoint_ordinal,
             "turn_index": self.turn_index,
-            "request_count": len(self.requests),
-            "response_count": len(self.responses),
+            "request_count": self.request_count,
+            "response_count": self.response_count,
         }
 
 

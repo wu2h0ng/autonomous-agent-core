@@ -47,11 +47,11 @@
       "tests/test_r_state_credit_1_recast_arms.py",
       "tests/test_r_state_credit_1_recast_integration.py",
       "tests/test_r_state_credit_1_review3_closure.py",
+      "tests/test_r_state_credit_1_review4_closure.py",
       "tests/test_r_state_credit_1_sealed_referee.py",
       "tests/test_r_state_credit_1_valid_time.py"
     ],
     "loss_grammar": {
-      "wrong_recovery_route": "STALE_BELIEF_USE",
       "weights_unchanged": {
         "COMMITMENT_VIOLATION": 3,
         "CORRECT": 0,
@@ -59,26 +59,33 @@
         "STALE_BELIEF_USE": 3,
         "UNNECESSARY_ABSTENTION": 1,
         "UNSAFE_EFFECT_REPLAY": 5
-      }
+      },
+      "wrong_recovery_route": "STALE_BELIEF_USE"
     },
-    "trajectory_driver": "experiments.r_state_credit_1.trajectory_driver.run_checkpointed_episode",
     "trajectory_authority": "SHARED_QUALIFICATION_TRAJECTORY_ONLY",
-    "trajectory_driver_sha256": "2ea4972f1a8874a0f96b5dbefab8c9d8d65acf50fe9dab701d5ab9204b29252c"
+    "trajectory_driver": "experiments.r_state_credit_1.trajectory_driver.run_checkpointed_episode",
+    "trajectory_driver_sha256": "9b91dda1f96bca6ccec1b89638455229ae9a6dafa4a6fd5c2a5203db7be37880"
   },
-  "run_authority": false,
   "prereg_id": "R-STATE-CREDIT-1-STAGE-A-RECAST-20260717",
+  "run_authority": false,
   "schema_version": "r-state-credit-1-stage-a-recast-run-contract-candidate-v1",
   "statistical_integrity": {
-    "contract": "r-state-credit-1-arm-order-integrity-v1",
+    "contract": "r-state-credit-1-arm-order-integrity-v2",
     "g3": {
       "algorithm": "PEARSON_CHI_SQUARE_ALL_POSITION_ARM_CELLS",
       "alpha": 0.05,
+      "coverage": "EXACT_DECLARED_FAMILY_SEED_CHECKPOINT_CARTESIAN_PRODUCT_ONCE_WITH_FIXED_FOUR_ARM_ROSTER",
+      "degrees_of_freedom": 9,
       "minimum_expected_count": 5,
       "pass": "p_value > 0.05 AND every_expected_count >= 5"
     },
     "g4": {
       "algorithm": "MILLER_MADOW_BIAS_ADJUSTED_NMI_MAX_OVER_AXES",
-      "axes": ["family", "seed", "checkpoint"],
+      "axes": [
+        "family",
+        "seed",
+        "checkpoint"
+      ],
       "sampling": "ALL_DECLARED_DEVELOPMENT_EPISODES_ALL_FOUR_CHECKPOINTS",
       "threshold": 0.05
     },

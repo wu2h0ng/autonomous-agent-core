@@ -192,6 +192,47 @@ class EpisodeOverflow(InvalidEpisode):
 EpisodePolicy = Callable[[Observation, "InteractiveEpisode"], ProbeAction]
 
 
+def recovery_route_for_visible_history(
+    observations: tuple[Observation, ...],
+) -> ActorAction:
+    """Derive bounded recovery from the released history, never current bytes.
+
+    The visible state machine asks whether an external effect remains
+    unresolved.  It deliberately ignores opaque references, digests, parity,
+    timestamps, and the current recovery observation.  A restart or verified
+    effect closes the pending-effect interval.
+    """
+
+    if not isinstance(observations, tuple) or any(
+        not isinstance(item, Observation) for item in observations
+    ):
+        raise ValueError("observations must be a tuple of Observation values")
+    unresolved_effect = False
+    reviewed_state_transitions = 0
+    for observation in observations:
+        if observation.event_class in {
+            PerturbationClass.ACTION_DISPATCH.value,
+            PerturbationClass.RECEIPT_LOSS.value,
+            PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION.value,
+        }:
+            unresolved_effect = True
+        elif observation.event_class in {
+            PerturbationClass.PROCESS_RESTART.value,
+            "EFFECT_VERIFIED",
+        }:
+            unresolved_effect = False
+        if observation.event_class == "STATE_REVIEWED":
+            reviewed_state_transitions += 1
+    return (
+        ActorAction.RECOVER_ROLL_FORWARD
+        # Preserve multiple already-reviewed visible corrections rather than
+        # discarding them through rollback.  This is reconstructed from the
+        # released transition history, not encoded in the recovery event.
+        if unresolved_effect or reviewed_state_transitions >= 2
+        else ActorAction.RECOVER_ROLLBACK
+    )
+
+
 def _episode_seed(family_id: str, seed_id: int) -> bytes:
     """Derive a 32-byte deterministic episode seed."""
     return hashlib.sha256(
@@ -775,20 +816,20 @@ class InteractiveEpisode:
         )
 
     def _deterministic_recovery_observation(self, turn: int) -> Observation:
-        # The route is derived from cross-turn process state, never from an
-        # oracle label embedded in the current observation.  Actors must infer
-        # it from the released restart/interruption history.
-        state_digest = self._state_digest()
-        required_action = (
-            "ROLL_FORWARD" if int(state_digest[:2], 16) % 2 == 0 else "ROLLBACK"
+        # The route is derived from the complete released history.  The
+        # current observation carries no digest, parity, route, or equivalent
+        # one-to-one proxy.
+        action = recovery_route_for_visible_history(tuple(self._observations))
+        self._pending_recovery_route = (
+            "ROLL_FORWARD"
+            if action is ActorAction.RECOVER_ROLL_FORWARD
+            else "ROLLBACK"
         )
-        self._pending_recovery_route = required_action
         return Observation(
             turn_index=turn,
             event_class=PerturbationClass.DETERMINISTIC_RECOVERY.value,
             payload={
                 "recovery_ref": self._opaque_ref("recovery", turn),
-                "snapshot_digest": state_digest,
             },
             valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,

@@ -7,12 +7,14 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Hashable, Sequence
 
+from experiments.r_state_credit_1.contracts import ArmId, ScenarioFamily
+
 
 @dataclass(frozen=True, slots=True)
 class ArmOrderIntegrityContract:
     """Frozen algorithms and thresholds; not a result or run authority."""
 
-    schema_version: str = "r-state-credit-1-arm-order-integrity-v1"
+    schema_version: str = "r-state-credit-1-arm-order-integrity-v2"
     g3_algorithm: str = "PEARSON_CHI_SQUARE_ALL_POSITION_ARM_CELLS"
     g3_alpha: float = 0.05
     g3_min_expected_count: float = 5.0
@@ -20,6 +22,12 @@ class ArmOrderIntegrityContract:
     g4_axes: tuple[str, ...] = ("family", "seed", "checkpoint")
     g4_threshold: float = 0.05
     sampling: str = "ALL_DECLARED_DEVELOPMENT_EPISODES_ALL_FOUR_CHECKPOINTS"
+    declared_arm_roster: tuple[str, ...] = tuple(arm.value for arm in ArmId)
+    declared_families: tuple[str, ...] = tuple(
+        family.value for family in ScenarioFamily
+    )
+    declared_seeds: tuple[int, ...] = tuple(range(1009, 1124))
+    declared_checkpoints: tuple[int, ...] = (0, 1, 2, 3)
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,10 +117,28 @@ def evaluate_arm_order_integrity(
         raise ValueError("rows must not be empty")
     if any(len(row) != 4 for row in rows):
         raise ValueError("each row must bind permutation/family/seed/checkpoint")
+    expected_metadata = {
+        (family, seed, checkpoint)
+        for family in contract.declared_families
+        for seed in contract.declared_seeds
+        for checkpoint in contract.declared_checkpoints
+    }
+    actual_metadata = [(row[1], row[2], row[3]) for row in rows]
+    if len(actual_metadata) != len(expected_metadata) or set(actual_metadata) != (
+        expected_metadata
+    ):
+        raise ValueError(
+            "rows must cover the declared development Cartesian product exactly once"
+        )
     permutations = [row[0] for row in rows]
     decoded = [tuple(value.split(",")) for value in permutations]
     if any(len(order) != 4 or len(set(order)) != 4 for order in decoded):
         raise ValueError("permutation row is not a four-arm permutation")
+    declared_roster = set(contract.declared_arm_roster)
+    if len(declared_roster) != 4 or any(
+        set(order) != declared_roster for order in decoded
+    ):
+        raise ValueError("permutation row must contain the declared four-arm roster")
     expected = len(rows) / 4
     counts = Counter((position, arm) for order in decoded for position, arm in enumerate(order))
     chi_square = sum(
@@ -120,7 +146,9 @@ def evaluate_arm_order_integrity(
         for position in range(4)
         for arm in sorted(set(decoded[0]))
     )
-    degrees = 12
+    # Pearson independence for a 4-position x 4-arm contingency table.  Both
+    # margins are fixed by complete permutations, so df=(4-1)*(4-1)=9.
+    degrees = 9
     p_value = _regularized_gamma_q(degrees / 2, chi_square / 2)
     axes: dict[str, Sequence[Hashable]] = {
         "family": [row[1] for row in rows],
