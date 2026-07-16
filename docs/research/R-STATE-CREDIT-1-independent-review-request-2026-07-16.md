@@ -2,8 +2,8 @@
 
 > Date: `2026-07-16`
 > Branch: `codex/r-state-credit-1-real-bindings-20260715`
-> Review target head: `e3592c3d1d37d37b3d3b1bba004aa439503a0711`
-> Working-tree HEAD at document creation: `e3592c3d1d37d37b3d3b1bba004aa439503a0711` (F4 checkpoint algorithm fix)
+> Review target head: `022b769c683e541ff89e12c72e3cb0fa19e3cc1a`
+> Working-tree HEAD at document creation: `022b769c683e541ff89e12c72e3cb0fa19e3cc1a` (P2 F16 run-authorization replay prevention)
 > Status: `IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Track: `Research Track`
 > Claim class: `research-automation` — candidate-byte implementation only. Not product, not autonomy, not evidence.
@@ -73,17 +73,18 @@ SHA-256 computed from the worktree at document creation.
 | `experiments/r_state_credit_1/arm_blinding.py` | `b22bf1f09276da53d85d9db16834d497630b43fc6f87a2de07ebb53f936e8b69` |
 | `experiments/r_state_credit_1/actor_interface.py` | `ead674ca87964ee8893e73f9193491b9bd0770aead6f6533b6a47e1c7461d5ec` |
 | `experiments/r_state_credit_1/action_grammar.py` | `7fbf5415f0bafc596cfb40195a9e34ea88e559088ce53203a4c9a50753964a98` |
-| `experiments/r_state_credit_1/authority_artifacts.py` | `69c290c9a96ce54647f9fd50273b65dc5e3cd7dbc8838e6d243c03f5e9261d35` |
+| `experiments/r_state_credit_1/authority_artifacts.py` | `f72ad2a36c314637b1a3a7ac88dc57f0d6fc3d4b7fec899d0260c01c3abee0b0` |
 | `experiments/r_state_credit_1/signature_backend.py` | `066757e3a58c4b439b8e3058d2a0bc220be46e36488603e9a23c92f9c9d00e76` |
-| `experiments/r_state_credit_1/authority_verifier.py` | `1be843d40592c522ab5cbfee1bc087f6ebdada80bc6c9eb63a1564b78f139111` |
+| `experiments/r_state_credit_1/authority_verifier.py` | `55dafe560f754af6dcdc2580573fa67034e965abc2ea61fa9db7621d6e7ac635` |
 | `experiments/r_state_credit_1/recast_readme.md` | `8dfebafe64a83158c0af67593f8836a0772e412b8523d171f0a3f41004ec2004` |
 | `tests/test_r_state_credit_1_interactive_env.py` | `623f39be50a70d0284fbb866d84478b106ae74baa79c3460829a29ec6fb5e709` |
 | `tests/test_r_state_credit_1_arm_blinding.py` | `2a93dbee7ee5e2f30981fc6a1cc7f85e0223eadbbccf459929e723a637a06214` |
-| `tests/test_r_state_credit_1_authority_verifier.py` | `a6d477e0109b8edf3c4b57c78734255c41d078b0a5351de63d35f43139c3000a` |
-| `tests/test_r_state_credit_1_recast_integration.py` | `842c38b142a73bb4aa767378f600505ddaef27c1ffc3ca43607618e47ab5b7bc` |
+| `tests/test_r_state_credit_1_authority_verifier.py` | `992966670fb544ce2d98a1d4641ae18e150ac1939e0835a7cf20255a9103a1fb` |
+| `tests/test_r_state_credit_1_recast_integration.py` | `e544041aa834a9010d956d084dc84fdefaa41ff5631be555b3127f6669f328c4` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
-| `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `4a9610f1dc4c66ac549e8480d7fdaa493c5d3e77d66e0121b8bcc6299f40b111` |
+| `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `e93291c3e85ffe969d9fe0d029226fd5a279005e85743fa08cbf0f96544b7646` |
+| `docs/research/R-STATE-CREDIT-1-recast-self-attack-review-2026-07-16.md` | `cf9b7d26389430ad3babcebc3e006f7c7f0cbd2ccd4fef8a468da86ebee6ac0b` |
 
 ## 6. Verification commands
 
@@ -130,8 +131,8 @@ sha256sum \
 
 Expected results as measured on this worktree:
 
-- Targeted Phase 1-3 tests: `36 passed, 0 failed`.
-- Full `tests/test_r_state_credit_1*.py`: `140 passed, 0 failed`.
+- Targeted Phase 1-3 tests: `37 passed, 0 failed`.
+- Full `tests/test_r_state_credit_1*.py`: `141 passed, 0 failed`.
 - Full `unittest discover`: `1237 tests` with `OK (skipped=16)`.
 - `ruff check`: `All checks passed!`
 - `pyright`: `0 errors, 0 warnings, 0 informations`.
@@ -172,7 +173,7 @@ Expected results as measured on this worktree:
    - `ACCEPT_FOR_FREEZE` — no freeze-blocking issues.
    - `CONDITIONAL_APPROVE` — list exact required fixes before freeze.
    - `REVISE_BEFORE_REVIEW` — material issues remain; re-review required.
-2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `e3592c3d1d37d37b3d3b1bba004aa439503a0711`.
+2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `022b769c683e541ff89e12c72e3cb0fa19e3cc1a`.
 3. **C7 acceptance:** Obtain `c7-acceptance-<owner_id>.json` binding epoch, capability token digest, and stop path.
 4. **Founder/CTO run authorization:** Obtain `run-authorization-<founder_id>.json` referencing the freeze lock and C7 acceptance, authorizing exactly one result-bearing run.
 5. **Result-bearing run:** Execute one frozen run under the native freeze lock, with independent adjudication and claim review.
