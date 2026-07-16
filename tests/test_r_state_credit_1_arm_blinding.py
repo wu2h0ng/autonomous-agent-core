@@ -28,9 +28,9 @@ FORBIDDEN_SUBSTRINGS = (
     "typed state",
 )
 
-# Chi-square critical values at p = 0.01.
-_CHISQ_3_DF = 11.3449
-_CHISQ_18_DF = 34.805
+# Frozen chi-square critical values at p = 0.05.
+_CHISQ_3_DF = 7.815
+_CHISQ_18_DF = 28.869
 
 
 def _run_episode(

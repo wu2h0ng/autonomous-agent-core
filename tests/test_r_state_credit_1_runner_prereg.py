@@ -1236,6 +1236,12 @@ FORMAL_PREREG = Path(
 EXACT_CONTENT_MANIFEST = Path(
     "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.EXACT-CONTENT-MANIFEST-2026-07-15.json"
 )
+RECAST_FORMAL_PREREG = Path(
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.RECAST-RUN-CONTRACT-CANDIDATE-2026-07-17.json"
+)
+RECAST_EXACT_CONTENT_MANIFEST = Path(
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.RECAST-EXACT-CONTENT-MANIFEST-2026-07-17.json"
+)
 
 
 def _workflow_root(repo_root: Path) -> Path:
@@ -1294,89 +1300,33 @@ print(json.dumps(value, sort_keys=True))
     return value
 
 
-def test_formal_prereg_is_real_binding_candidate_and_explicitly_unaccepted() -> None:
+def test_legacy_formal_prereg_is_retired_history_only() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    spec_path = repo_root / FORMAL_PREREG
     spec = _load_formal_spec(repo_root)
     assert spec["prereg_id"] == "R-STATE-CREDIT-1-STAGE-A-20260715"
-    assert spec["status"] == (
-        "REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED_NOT_FROZEN_NOT_RUN"
+    assert spec["status"] == "RETIRED_HISTORY_ONLY"
+    assert spec["retirement"]["active_freeze_input"] is False
+    assert spec["retirement"]["successor"].endswith(
+        "RECAST-RUN-CONTRACT-CANDIDATE-2026-07-17.json"
     )
-    assert spec["claim_class"] == "research-automation"
-    mechanism = spec["mechanism"]
-    assert mechanism["channel_claim"] == "X(research-automation)"
-    assert mechanism["files"]
-    assert len(mechanism["files"]) == len(set(mechanism["files"]))
-    for required in (
-        "experiments/r_state_credit_1/run_contracts.py",
-        "experiments/r_state_credit_1/result_runner.py",
-        "experiments/r_state_credit_1/ark_responses_actor.py",
-        "experiments/r_state_credit_1/external_c7.py",
-        "experiments/r_state_credit_1/real_corpus.py",
-        "experiments/r_state_credit_1/real_scorer.py",
-        "experiments/r_state_credit_1/corpus/public-case-manifest.json",
-        "experiments/r_state_credit_1/corpus/sealed/referee-truth.jsonl",
-        "experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json",
-        "experiments/r_state_credit_1/bindings/c7-signal-candidate.json",
-        "experiments/r_state_credit_1/bindings/run-authority-candidate.json",
-        "tests/test_r_state_credit_1_runner_prereg.py",
-        "tests/test_r_state_credit_1_ark_actor.py",
-        "tests/test_r_state_credit_1_external_c7.py",
-        "tests/test_r_state_credit_1_real_corpus.py",
-        "tests/test_r_state_credit_1_real_scorer.py",
-        "tests/test_r_state_credit_1_verdict_grammar.py",
-        "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json",
-    ):
-        assert required in mechanism["files"]
-    readiness = spec["binding_readiness"]
-    assert readiness["status"] == (
-        "REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED"
-    )
-    assert set(readiness["unresolved_contracts"]) == {
-        "ACTOR_CONNECTIVITY_CANARY_AND_EXACT_MODEL_REVISION",
-        "INDEPENDENT_PREREG_ARCHITECTURE_ACCEPTANCE",
-        "C7_PER_RUN_OWNER_EPOCH_TOKEN_ACCEPTANCE",
-        "FOUNDER_OR_CTO_PER_RUN_AUTHORIZATION",
-    }
-    assert spec["binding_contracts"]["CORPUS_BINDING"]["required_fields"][-1] == (
-        "case_files"
-    )
-    assert (
-        spec["binding_contracts"]["CORPUS_BINDING"]["current_held_out_corpus"]
-        == "MATERIALIZED_140_EPISODES_560_CHECKPOINTS"
-    )
-    assert (
-        spec["binding_contracts"]["SCORER_BINDING"]["current_result_scorer"]
-        == "IMPLEMENTED_RAW_METRICS_ONLY"
-    )
-    assert spec["binding_contracts"]["ACTOR_BINDING"]["connectivity_canary"] == "UNRUN"
-    assert spec["execution"]["result_bearing_execution_authorized"] is False
-    assert spec["execution"]["provider_call_authorized"] is False
-    assert spec["execution"]["cli_entrypoint"] == "ABSENT_BY_DESIGN"
-    rendered = spec_path.read_text(encoding="utf-8")
-    for forbidden in ("TBD", "TODO", "PLACEHOLDER", "0" * 64):
-        assert forbidden not in rendered
 
 
-def test_exact_content_manifest_covers_formal_mechanism_bytes() -> None:
+def test_legacy_exact_content_manifest_is_not_an_active_freeze_input() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    spec = _load_formal_spec(repo_root)
     manifest = json.loads(
         (repo_root / EXACT_CONTENT_MANIFEST).read_text(encoding="utf-8")
     )
-    mechanism_hashes = manifest["mechanism_artifact_hashes"]
-    assert set(mechanism_hashes) == set(spec["mechanism"]["files"])
-    for relative, expected in mechanism_hashes.items():
-        assert _sha256_file(repo_root / relative) == expected
-    supporting = manifest["supporting_artifact_hashes"]
-    assert supporting == {}, (
-        "the native lock binds raw/canonical spec bytes; hashing the spec from the "
-        "manifest would create a cycle once the spec binds the manifest digest"
-    )
-    assert EXACT_CONTENT_MANIFEST.as_posix() not in mechanism_hashes
+    assert manifest["status"] == "RETIRED_HISTORY_ONLY"
+    assert manifest["active_freeze_input"] is False
 
 
-def test_native_workflow_runner_computes_same_freeze_digest_without_writes() -> None:
+def test_legacy_prereg_is_never_routed_to_native_freezer() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    spec = _load_formal_spec(repo_root)
+    assert spec["retirement"]["active_freeze_input"] is False
+
+
+def test_native_workflow_runner_computes_recast_candidate_digest_without_writes() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     workflow = _workflow_root(repo_root)
     script = """
@@ -1394,7 +1344,7 @@ print(json.dumps(compute_freeze_digest(workspace_root=root, spec_path=spec, targ
             "-c",
             script,
             str(repo_root),
-            str(repo_root / FORMAL_PREREG),
+            str(repo_root / RECAST_FORMAL_PREREG),
         ],
         cwd=workflow,
         env=_workflow_env(workflow),
@@ -1403,70 +1353,41 @@ print(json.dumps(compute_freeze_digest(workspace_root=root, spec_path=spec, targ
         text=True,
     )
     digest = json.loads(completed.stdout)
-    spec = _load_formal_spec(repo_root)
     manifest = json.loads(
-        (repo_root / EXACT_CONTENT_MANIFEST).read_text(encoding="utf-8")
+        (repo_root / RECAST_EXACT_CONTENT_MANIFEST).read_text(encoding="utf-8")
     )
-    assert digest["prereg_id"] == spec["prereg_id"]
-    assert digest["mechanism_file_hashes"] == manifest["mechanism_artifact_hashes"]
+    contract_relative = RECAST_FORMAL_PREREG.as_posix()
+    expected = dict(manifest["mechanism_artifact_hashes"])
+    expected.pop(contract_relative)
+    assert digest["prereg_id"] == "R-STATE-CREDIT-1-STAGE-A-RECAST-20260717"
+    assert digest["mechanism_file_hashes"] == expected
 
 
-def test_native_manifest_verify_passes_and_freeze_still_refuses_without_reviews(
-    tmp_path: Path,
-) -> None:
+def test_native_manifest_verifier_accepts_recast_candidate_exact_bytes() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     workflow = _workflow_root(repo_root)
-    env = _workflow_env(workflow)
-    manifest_check = subprocess.run(
+    script = """
+import json
+import sys
+from pathlib import Path
+from agent_workflow_runner.prereg_review import verify_exact_content_manifest
+root = Path(sys.argv[1])
+manifest = Path(sys.argv[2])
+print(json.dumps(verify_exact_content_manifest(workspace_root=root, manifest_path=manifest), sort_keys=True))
+"""
+    completed = subprocess.run(
         [
             _workflow_python(workflow),
-            "-m",
-            "agent_workflow_runner.cli",
-            "prereg",
-            "manifest-verify",
-            "--workspace-root",
+            "-c",
+            script,
             str(repo_root),
-            "--manifest",
-            str(repo_root / EXACT_CONTENT_MANIFEST),
+            str(repo_root / RECAST_EXACT_CONTENT_MANIFEST),
         ],
         cwd=workflow,
-        env=env,
+        env=_workflow_env(workflow),
         check=True,
         capture_output=True,
         text=True,
     )
-    manifest_receipt = json.loads(manifest_check.stdout)
-    assert manifest_receipt["intact"] is True
-    run_id = "tests-only-native-freeze-refusal"
-    run_dir = tmp_path / ".agent_runs" / run_id
-    run_dir.mkdir(parents=True)
-    freeze = subprocess.run(
-        [
-            _workflow_python(workflow),
-            "-m",
-            "agent_workflow_runner.cli",
-            "prereg",
-            "freeze",
-            "--workspace-root",
-            str(tmp_path),
-            "--run-id",
-            run_id,
-            "--spec",
-            str(repo_root / FORMAL_PREREG),
-            "--target",
-            str(repo_root),
-            "--frozen-by",
-            "tests-only-freezer",
-        ],
-        cwd=workflow,
-        env=env,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert freeze.returncode == 1
-    refusal = json.loads(freeze.stdout)
-    assert refusal["status"] == "denied"
-    assert "no review acceptance found" in refusal["reason"]
-    assert not (run_dir / "prereg.lock").exists()
-    assert not (run_dir / "prereg.json").exists()
+    receipt = json.loads(completed.stdout)
+    assert receipt["intact"] is True

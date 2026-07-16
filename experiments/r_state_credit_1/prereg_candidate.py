@@ -15,6 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from experiments.r_state_credit_1.action_grammar import ALL_ACTIONS
 from experiments.r_state_credit_1.contracts import ArmId, ScenarioFamily
 
 
@@ -43,15 +44,12 @@ _SOURCE_PATHS = (
     "experiments/r_state_credit_1/interactive_env.py",
     "experiments/r_state_credit_1/observation.py",
     "experiments/r_state_credit_1/prereg_candidate.py",
-    "experiments/r_state_credit_1/qualifier.py",
     "experiments/r_state_credit_1/recast_arms.py",
-    "experiments/r_state_credit_1/scenarios.py",
     "experiments/r_state_credit_1/signature_backend.py",
-    "src/aac/persistent_task_state.py",
-    "tests/test_persistent_task_state.py",
+    "experiments/r_state_credit_1/trajectory_driver.py",
     "tests/test_r_state_credit_1_arm_blinding.py",
     "tests/test_r_state_credit_1_authority_verifier.py",
-    "tests/test_r_state_credit_1_batch2a.py",
+    "tests/test_r_state_credit_1_freeze_candidate_closure.py",
     "tests/test_r_state_credit_1_interactive_env.py",
     "tests/test_r_state_credit_1_prereg_candidate.py",
     "tests/test_r_state_credit_1_recast_arms.py",
@@ -367,7 +365,7 @@ def build_stage_a_prereg_candidate(
             "same_actor_binding": True,
             "same_decoding_policy": True,
             "same_tool_schema_and_responses": True,
-            "same_action_set": ["CONTINUE", "REVIEW", "VERIFY_EFFECT", "ABSTAIN"],
+            "same_action_set": [action.value for action in ALL_ACTIONS],
             "human_correction_during_episode": "FORBIDDEN",
             "oracle_or_future_event_actor_access": "FORBIDDEN",
             "actor_binding_protocol": {

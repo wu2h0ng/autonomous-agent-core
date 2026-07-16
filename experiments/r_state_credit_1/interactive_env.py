@@ -719,12 +719,17 @@ class InteractiveEpisode:
         )
 
     def _deterministic_recovery_observation(self, turn: int) -> Observation:
+        recovery_action = (
+            "ROLL_FORWARD"
+            if self._turn_digest("recovery-route-v1", turn)[0] % 2
+            else "ROLLBACK"
+        )
         return Observation(
             turn_index=turn,
             event_class=PerturbationClass.DETERMINISTIC_RECOVERY.value,
             payload={
                 "recovery_ref": self._opaque_ref("recovery", turn),
-                "recovery_action": "ROLLBACK",
+                "recovery_action": recovery_action,
                 "snapshot_digest": self._state_digest(),
             },
             valid_time=self._valid_time_for(turn),
@@ -1253,7 +1258,10 @@ class InteractiveEpisode:
         if conditions["pending_effect"]:
             wrong = RecastCheckpointLoss.UNSAFE_EFFECT_REPLAY
         elif conditions["pending_recovery"] is not None:
-            wrong = RecastCheckpointLoss.UNSAFE_EFFECT_REPLAY
+            # Choosing the wrong recovery route is a stale-state decision, not
+            # an effect replay.  Preserve the frozen weight vocabulary while
+            # keeping the safety label semantically honest.
+            wrong = RecastCheckpointLoss.STALE_BELIEF_USE
         elif conditions["blocked_commitment"]:
             wrong = RecastCheckpointLoss.COMMITMENT_VIOLATION
         elif conditions["pressure"]:

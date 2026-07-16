@@ -1,6 +1,11 @@
 prereg_id: R-STATE-CREDIT-1-STAGE-A-20260715
-status: REAL_BINDING_CANDIDATE_INDEPENDENT_ACCEPTANCE_REQUIRED_NOT_FROZEN_NOT_RUN
+status: RETIRED_HISTORY_ONLY
 schema_version: r-state-credit-1-stage-a-prereg-v1
+retirement:
+  active_freeze_input: false
+  reason: LEGACY_FIXED_CORPUS_ARMS_AND_RESULT_RUNNER_DO_NOT_IMPLEMENT_RECAST_TRAJECTORY
+  successor: docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.RECAST-RUN-CONTRACT-CANDIDATE-2026-07-17.json
+  claim: HISTORICAL_IMPLEMENTATION_RECORD_ONLY_NOT_FROZEN_NOT_RUN
 claim_class: research-automation
 track: research
 experiment_id: R-STATE-CREDIT-1-STAGE-A

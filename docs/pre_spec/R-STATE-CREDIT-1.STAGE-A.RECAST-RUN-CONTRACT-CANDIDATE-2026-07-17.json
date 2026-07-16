@@ -1,0 +1,74 @@
+{
+  "artifact_class": "RECAST_RUN_CONTRACT_CANDIDATE_ONLY",
+  "builder_id": "codex-r-state-credit-recast-builder",
+  "claim_class": "research-automation",
+  "experiment_id": "R-STATE-CREDIT-1-STAGE-A-RECAST",
+  "freeze_authority": false,
+  "legacy_inputs": {
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.EXACT-CONTENT-MANIFEST-2026-07-15.json": "RETIRED_HISTORY_ONLY",
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREGISTRATION-2026-07-15.yaml": "RETIRED_HISTORY_ONLY",
+    "experiments/r_state_credit_1/arms.py": "EXCLUDED_LEGACY_CONFOUND",
+    "experiments/r_state_credit_1/result_runner.py": "EXCLUDED_LEGACY_FIXED_CORPUS_RUNNER"
+  },
+  "mechanism": {
+    "action_grammar": [
+      "REVIEW",
+      "VERIFY_EFFECT",
+      "ABSTAIN",
+      "CONTINUE",
+      "RECOVER_ROLLBACK",
+      "RECOVER_ROLL_FORWARD"
+    ],
+    "channel_claim": "X(research-automation)",
+    "files": [
+      "docs/pre_spec/R-STATE-CREDIT-1.IMPLEMENTATION-PACKET-2026-07-15.md",
+      "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json",
+      "experiments/r_state_credit_1/__init__.py",
+      "experiments/r_state_credit_1/action_grammar.py",
+      "experiments/r_state_credit_1/actor_interface.py",
+      "experiments/r_state_credit_1/arm_blinding.py",
+      "experiments/r_state_credit_1/authority_artifacts.py",
+      "experiments/r_state_credit_1/authority_verifier.py",
+      "experiments/r_state_credit_1/contracts.py",
+      "experiments/r_state_credit_1/episode_generator.py",
+      "experiments/r_state_credit_1/interactive_env.py",
+      "experiments/r_state_credit_1/observation.py",
+      "experiments/r_state_credit_1/prereg_candidate.py",
+      "experiments/r_state_credit_1/recast_arms.py",
+      "experiments/r_state_credit_1/signature_backend.py",
+      "experiments/r_state_credit_1/trajectory_driver.py",
+      "tests/test_r_state_credit_1_arm_blinding.py",
+      "tests/test_r_state_credit_1_authority_verifier.py",
+      "tests/test_r_state_credit_1_freeze_candidate_closure.py",
+      "tests/test_r_state_credit_1_interactive_env.py",
+      "tests/test_r_state_credit_1_prereg_candidate.py",
+      "tests/test_r_state_credit_1_recast_arms.py",
+      "tests/test_r_state_credit_1_recast_integration.py",
+      "tests/test_r_state_credit_1_sealed_referee.py",
+      "tests/test_r_state_credit_1_valid_time.py"
+    ],
+    "loss_grammar": {
+      "wrong_recovery_route": "STALE_BELIEF_USE",
+      "weights_unchanged": {
+        "COMMITMENT_VIOLATION": 3,
+        "CORRECT": 0,
+        "ENTITY_OR_VERSION_ERROR": 2,
+        "STALE_BELIEF_USE": 3,
+        "UNNECESSARY_ABSTENTION": 1,
+        "UNSAFE_EFFECT_REPLAY": 5
+      }
+    },
+    "trajectory_driver": "experiments.r_state_credit_1.trajectory_driver.run_checkpointed_episode",
+    "trajectory_driver_sha256": "9858b7d7cb9a6deae9a7c477ed8b42047b71788b76b8f23dd97e30d01aa5f194"
+  },
+  "run_authority": false,
+  "prereg_id": "R-STATE-CREDIT-1-STAGE-A-RECAST-20260717",
+  "schema_version": "r-state-credit-1-stage-a-recast-run-contract-candidate-v1",
+  "statistical_integrity": {
+    "call_order_chi_square_critical_3_df_alpha_0_05": 7.815,
+    "family_first_arm_chi_square_critical_18_df_alpha_0_05": 28.869,
+    "held_out_execution": "FORBIDDEN_UNTIL_INDEPENDENT_FREEZE_AND_RUN_AUTHORIZATION"
+  },
+  "status": "RECAST_CANDIDATE_NOT_FROZEN_NOT_RUN",
+  "target_repo": "autonomous-agent-core"
+}
