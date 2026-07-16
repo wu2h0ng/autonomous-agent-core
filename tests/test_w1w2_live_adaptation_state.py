@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 from datetime import datetime, timezone
 
@@ -25,6 +27,18 @@ def _scope() -> W1Scope:
         environment_id="env-1",
         episode_id="ep-1",
     )
+
+
+def _store(linter: W1UpdateLinter | None = None) -> W1MemoryStore:
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    return W1MemoryStore(db_path=tmp.name, linter=linter)
+
+
+def _cleanup(store: W1MemoryStore) -> None:
+    store.close()
+    if store._db_path and os.path.exists(store._db_path):
+        os.unlink(store._db_path)
 
 
 def _update(
@@ -85,48 +99,106 @@ class TestW1TypedPayloads(unittest.TestCase):
 class TestW1MemoryStore(unittest.TestCase):
     def test_apply_invokes_linter_transactionally(self) -> None:
         linter = W1UpdateLinter(forbidden_keys={"belief_statement"})
-        store = W1MemoryStore(db_path=None, linter=linter)
-        update = _update()
-        result = store.apply(update)
-        self.assertFalse(result.applied)
-        self.assertTrue(any("forbidden" in v for v in result.violations))
+        store = _store(linter=linter)
+        try:
+            update = _update()
+            result = store.apply(update)
+            self.assertFalse(result.applied)
+            self.assertTrue(any("forbidden" in v for v in result.violations))
+        finally:
+            _cleanup(store)
 
     def test_apply_valid_update_increments_state(self) -> None:
-        linter = W1UpdateLinter()
-        store = W1MemoryStore(db_path=None, linter=linter)
-        update = _update()
-        result = store.apply(update)
-        self.assertTrue(result.applied)
-        self.assertEqual(result.violations, ())
-        state = store.get_state(_scope())
-        self.assertEqual(len(state.updates), 1)
+        store = _store()
+        try:
+            update = _update()
+            result = store.apply(update)
+            self.assertTrue(result.applied)
+            self.assertEqual(result.violations, ())
+            state = store.get_state(_scope())
+            self.assertEqual(len(state.updates), 1)
+        finally:
+            _cleanup(store)
 
     def test_apply_rejects_cross_scope_write(self) -> None:
-        linter = W1UpdateLinter()
-        store = W1MemoryStore(db_path=None, linter=linter)
-        update = _update()
-        store.apply(update)
-        other_scope = W1Scope(
-            mandate_id="m-1",
-            task_id="t-2",
-            environment_id="env-1",
-            episode_id="ep-1",
-        )
-        cross_update = _update(update_id="u-2").model_copy(update={"scope": other_scope})
-        result = store.apply(cross_update)
-        self.assertFalse(result.applied)
-        self.assertIn("cross-scope", " ".join(result.violations))
+        store = _store()
+        try:
+            update = _update()
+            store.apply(update)
+            other_scope = W1Scope(
+                mandate_id="m-1",
+                task_id="t-2",
+                environment_id="env-1",
+                episode_id="ep-1",
+            )
+            cross_update = _update(update_id="u-2").model_copy(update={"scope": other_scope})
+            result = store.apply(cross_update)
+            self.assertFalse(result.applied)
+            self.assertIn("cross-scope", " ".join(result.violations))
+        finally:
+            _cleanup(store)
 
     def test_state_digest_covers_payloads_not_caller_ids(self) -> None:
-        linter = W1UpdateLinter()
-        store = W1MemoryStore(db_path=None, linter=linter)
-        u1 = _update(update_id="u-1", payload=BeliefPayload(belief_statement="a", confidence=0.5))
-        u2 = _update(update_id="u-2", payload=BeliefPayload(belief_statement="b", confidence=0.5))
-        store.apply(u1)
-        d1 = store.get_state(_scope()).digest()
-        store.apply(u2)
-        d2 = store.get_state(_scope()).digest()
-        self.assertNotEqual(d1, d2)
+        store = _store()
+        try:
+            u1 = _update(update_id="u-1", payload=BeliefPayload(belief_statement="a", confidence=0.5))
+            u2 = _update(update_id="u-2", payload=BeliefPayload(belief_statement="b", confidence=0.5))
+            store.apply(u1)
+            d1 = store.get_state(_scope()).digest()
+            store.apply(u2)
+            d2 = store.get_state(_scope()).digest()
+            self.assertNotEqual(d1, d2)
+        finally:
+            _cleanup(store)
+
+    def test_restart_reloads_exact_state(self) -> None:
+        store = _store()
+        try:
+            update = _update()
+            store.apply(update)
+            path = store._db_path
+            # Reopen store from same db path.
+            store2 = W1MemoryStore(db_path=path, linter=W1UpdateLinter())
+            state = store2.get_state(_scope())
+            self.assertEqual(len(state.updates), 1)
+            self.assertEqual(state.updates[0].update_id, update.update_id)
+            store2.close()
+        finally:
+            _cleanup(store)
+
+    def test_rollback_restores_exact_state(self) -> None:
+        store = _store()
+        try:
+            u1 = _update(update_id="u-1", payload=BeliefPayload(belief_statement="a", confidence=0.5))
+            store.apply(u1)
+            cp = store.checkpoint()
+            before = store.get_state(_scope()).digest()
+            u2 = _update(update_id="u-2", payload=BeliefPayload(belief_statement="b", confidence=0.5))
+            store.apply(u2)
+            restored = store.rollback_to(cp)
+            self.assertEqual(restored.digest(), before)
+        finally:
+            _cleanup(store)
+
+
+class TestCheckpointStore(unittest.TestCase):
+    def test_checkpoint_id_is_deterministic(self) -> None:
+        import tempfile
+        from experiments.w1w2_live_adaptation import CheckpointStore
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cp_store = CheckpointStore(db_path=os.path.join(tmpdir, "cp.db"))
+            store = W1MemoryStore(db_path=os.path.join(tmpdir, "w1.db"), linter=W1UpdateLinter())
+            update = _update()
+            store.apply(update)
+            state = store.get_state(_scope())
+            cp1 = cp_store.save(scope=_scope(), w1_state=state, w2_history=())
+            cp2 = cp_store.save(scope=_scope(), w1_state=state, w2_history=())
+            self.assertEqual(cp1.checkpoint_id, cp2.checkpoint_id)
+            loaded = cp_store.load(cp1.checkpoint_id)
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.checkpoint_id, cp1.checkpoint_id)
 
 
 class TestW1UpdateLinter(unittest.TestCase):
