@@ -1,6 +1,10 @@
-# Placeholder repository snapshot for R-SRL-1 sample unit u00.
-# Real units will contain a tar.gz snapshot of the starting repository.
+# Starting repository snapshot for R-SRL-1 sample unit u00.
 lineage: canonical-python-lib-00
 files:
-  - src/lib.py
+  - .gitignore
+  - README.md
+  - pyproject.toml
+  - src/canonical_lib/__init__.py
+  - src/canonical_lib/core.py
+  - tests/test_core.py
   - tests/test_lib.py
