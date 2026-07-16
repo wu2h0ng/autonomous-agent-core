@@ -1,54 +1,76 @@
 # P-SRL Event Admission 1 Design
 
-> Status: `FOUNDER_DIRECTION_CONTINUED / DESIGN_FROZEN_FOR_LOCAL_IMPLEMENTATION`
+> Status: `REVISION_2 / DESIGN_FROZEN_FOR_LOCAL_IMPLEMENTATION`
 > Primary requirement: `A/P`
 > Product claim ceiling: `IMPLEMENTED_LOCAL / LOCAL_CONTROLLED`
 > Base: `codex/p-srl-event-admission-1-20260717@8d5820c75a397a299bec898e783ee8113fd3d542`
+> Supersedes: design revision 1 at `f904aa10a3bbc100a8982f7769aaa9ae73ef117f`
 
-## 1. Goal
+## 1. Goal and correction
 
-Close the smallest real gap between an external observation adapter and the existing situated product spine: prove that an event came from a registered source under an exact credential, binding, scope, payload-safety policy and correction epoch before the existing `OperationalProposalService` may assess or persist it.
+Close the smallest real gap between an external observation adapter and the existing situated product spine: prove that an event has an adapter-owned origin registration, a current canonical credential lease, a policy-bound payload-admission attestation and a live Mandate/binding epoch before the existing `OperationalProposalService` may assess or persist it.
 
-This is an admission and convergence slice, not a third event architecture and not a new Runtime.
+Revision 2 closes four independent-review defects:
+
+1. the existing public proposal entry cannot bypass admission;
+2. caller-supplied source, lease and attestation objects are never authority inputs;
+3. the steward rechecks current Mandate/binding/epoch from the authority store;
+4. trace is a durable `PENDING -> COMPLETED | DENIED` outbox, not a false cross-store atomic claim.
+
+This is an admission and convergence slice. It is not a third event architecture and not a new Runtime.
 
 ## 2. Existing product spine to reuse
 
-The implementation must reuse, not duplicate:
+The implementation must reuse:
 
 - `EnvironmentEvent`, `OperationalProjectionRef`, `RatifiedMandateRef`, `EnvironmentBindingAuthorization`;
 - `SituationalTrustResolver`, `OperationalProposalService`, `ProviderRelevanceAssessor`;
-- `SituatedAssessmentRecord`, `TaskDraftProposal`, `HelpRequest`;
-- `SQLiteSituatedAssessmentStore` replay, pause, revoke and epoch behavior;
-- `CredentialRef` and the existing credential broker boundary;
-- the Data Agent report adapter as the first concrete source adapter.
+- `SituatedAssessmentStore`, `SituatedAssessmentRecord`, `TaskDraftProposal`, `HelpRequest`;
+- SQLite assessment replay, pause, revoke and correction-epoch CAS;
+- `CredentialRef` and the credential-broker boundary;
+- the Data Agent report adapter as the first concrete ingress adapter.
 
-`SrlEnvironmentEvent` remains an internal transport/invariant DTO. It does not become a second product event authority and it is not sufficient for admission by itself.
+`SrlEnvironmentEvent` remains an internal transport/invariant DTO. It is not a product event authority and cannot be admitted directly.
 
-## 3. Selected design
+## 3. Contracts
 
-### 3.1 Contracts
+Create `agent_os_contracts.srl_event_admission`.
 
-Create `agent_os_contracts.srl_event_admission` with these objects:
+### 3.1 Adapter-owned event origin
 
 ```python
-class EventSourceRef(ContractModel):
+class EventOriginRegistration(ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
+    registration_id: NonEmptyStr
+    environment_event_id: NonEmptyStr
     source_id: NonEmptyStr
-    source_contract_digest: Sha256Digest
+    source_config_digest: Sha256Digest
+    credential_ref_id: NonEmptyStr
     credential_ref_digest: Sha256Digest
     principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
     mandate_id: NonEmptyStr
     environment_binding_id: NonEmptyStr
-    environment_binding_version: int
-    environment_binding_digest: Sha256Digest
-    schema_digest: Sha256Digest
-    payload_safety_policy_digest: Sha256Digest
-    read_capability_id: NonEmptyStr
+    event_digest: Sha256Digest
+    observation_digest: Sha256Digest
+    event_schema_digest: Sha256Digest
+    payload_policy_digest: Sha256Digest
+    registered_at: UtcDateTime
+    registration_digest: Sha256Digest
+```
 
+The caller never chooses a source id. `EventOriginRegistryPort.resolve_event(event_id)` returns the exact adapter-owned registration. The registration is derived from the immutable adapter/source configuration plus the exact admitted event and `CredentialRef`; it cannot independently alter principal, scope, mandate or binding.
 
+`registration_id == f"event-origin:{registration_digest}"`. The digest covers every field except `registration_id` and `registration_digest`.
+
+### 3.2 Canonical credential lease
+
+```python
 class CredentialLeaseRef(ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
     lease_id: NonEmptyStr
+    credential_ref_id: NonEmptyStr
     credential_ref_digest: Sha256Digest
     source_id: NonEmptyStr
     principal_id: NonEmptyStr
@@ -57,42 +79,84 @@ class CredentialLeaseRef(ContractModel):
     mandate_id: NonEmptyStr
     environment_binding_id: NonEmptyStr
     correction_epoch: int
+    issued_at: UtcDateTime
     valid_from: UtcDateTime
     expires_at: UtcDateTime
-    issued_by: NonEmptyStr
+    issuer_id: NonEmptyStr
     lease_digest: Sha256Digest
+```
 
+`CredentialLeaseRegistryPort.resolve(lease_id)` returns a canonical lease. `CredentialRefReader.resolve(credential_ref_id)` returns the current `CredentialRef`. Admission verifies exact digest, `ACTIVE`, principal/tenant/workspace, required read/source scopes, time, and `lease.expires_at <= credential.expires_at`. A boolean verifier over a caller-supplied lease is forbidden.
 
-class PayloadSafetyAttestation(ContractModel):
+`lease_id == f"credential-lease:{lease_digest}"`; the digest covers every other field.
+
+### 3.3 Policy-bound payload admission
+
+```python
+class PayloadAdmissionAttestation(ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
     attestation_id: NonEmptyStr
+    environment_event_id: NonEmptyStr
     source_id: NonEmptyStr
     observation_artifact_id: NonEmptyStr
     observation_digest: Sha256Digest
     policy_digest: Sha256Digest
     schema_digest: Sha256Digest
-    issued_by: NonEmptyStr
+    issuer_id: NonEmptyStr
     assessed_at: UtcDateTime
-    safe_for_model: Literal[True]
-    contains_credentials: Literal[False]
+    disposition: Literal["ADMITTED_UNDER_POLICY"]
+    credential_reflected: Literal[False] = False
     attestation_digest: Sha256Digest
+```
 
+`PayloadAdmissionRegistryPort.resolve_event(event_id)` returns the canonical attestation. The caller cannot provide an attestation object or select an issuer. This attests only that the frozen adapter policy admitted the exact bytes; it is not a general PII/DLP or universal “safe for model” claim.
 
+`attestation_id == f"payload-admission:{attestation_digest}"`; the digest covers every other field.
+
+### 3.4 Admission receipt and durable outbox trace
+
+```python
 class EnvironmentEventAdmissionReceipt(ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
     receipt_id: NonEmptyStr
-    source: EventSourceRef
-    credential_lease: CredentialLeaseRef
-    payload_safety: PayloadSafetyAttestation
     environment_event_id: NonEmptyStr
     event_digest: Sha256Digest
-    observation_digest: Sha256Digest
+    event_origin_digest: Sha256Digest
+    credential_lease_digest: Sha256Digest
+    payload_attestation_digest: Sha256Digest
+    mandate_id: NonEmptyStr
+    environment_binding_id: NonEmptyStr
+    environment_binding_version: int
+    environment_binding_digest: Sha256Digest
     correction_epoch: int
+    principal_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
     admitted_at: UtcDateTime
+    issued_by: Literal["event-admission-service/v1"]
     receipt_digest: Sha256Digest
     grants_authority: Literal[False] = False
     authorizes_effects: Literal[False] = False
 
 
+class SituatedTraceStatus(str, Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    DENIED = "DENIED"
+
+
+class SituatedTraceReason(str, Enum):
+    ASSESSMENT_PENDING = "ASSESSMENT_PENDING"
+    TASK_DRAFT = "TASK_DRAFT"
+    HELP_REQUEST = "HELP_REQUEST"
+    NO_PROPOSAL = "NO_PROPOSAL"
+    ADMISSION_DENIED = "ADMISSION_DENIED"
+    AUTHORITY_CHANGED = "AUTHORITY_CHANGED"
+    PROVIDER_FAILED = "PROVIDER_FAILED"
+
+
 class SituatedEvaluationTrace(ContractModel):
+    schema_version: Literal["1.0"] = "1.0"
     trace_id: NonEmptyStr
     admission_receipt_digest: Sha256Digest
     event_id: NonEmptyStr
@@ -100,133 +164,167 @@ class SituatedEvaluationTrace(ContractModel):
     mandate_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
-    result_kind: Literal["TASK_DRAFT", "HELP_REQUEST", "NO_PROPOSAL", "DENIED"]
-    reason_code: NonEmptyStr
-    provider_call_count: int
-    input_tokens: int | None
-    output_tokens: int | None
-    duration_ms: int
+    status: SituatedTraceStatus
+    reason: SituatedTraceReason
+    result_binding_digest: Sha256Digest | None
+    provider_call_count: int = Field(ge=0, le=1)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    duration_ms: int = Field(ge=0)
     measurement_scope: Literal["LOCAL_CONTROLLED"] = "LOCAL_CONTROLLED"
     recorded_at: UtcDateTime
 ```
 
-All digest fields are raw lowercase SHA-256. Receipts are content addressed: their id is derived from their digest, and construction verifies the digest over every field except the digest/id pair.
+`receipt_id == f"event-admission:{receipt_digest}"`. `trace_id` is deterministic from the admission receipt and projection. Reason fields are closed enums; no provider, caller or exception text can enter the trace.
 
-### 3.2 Trusted registries and ports
-
-Create narrow ports rather than a parallel security framework:
+## 4. Authority and storage ports
 
 ```python
-class EventSourceRegistryPort(Protocol):
-    def source(self, source_id: str) -> EventSourceRef | None: ...
+class EventOriginRegistryPort(Protocol):
+    def resolve_event(self, event_id: str) -> EventOriginRegistration | None: ...
 
-class CredentialLeaseVerifierPort(Protocol):
-    def verify(self, lease: CredentialLeaseRef, *, at: datetime) -> bool: ...
+class CredentialLeaseRegistryPort(Protocol):
+    def resolve(self, lease_id: str) -> CredentialLeaseRef | None: ...
 
-class PayloadSafetyRegistryPort(Protocol):
-    def attestation(self, attestation_id: str) -> PayloadSafetyAttestation | None: ...
+class CredentialRefReader(Protocol):
+    def resolve(self, credential_ref_id: str) -> CredentialRef | None: ...
+
+class PayloadAdmissionRegistryPort(Protocol):
+    def resolve_event(self, event_id: str) -> PayloadAdmissionAttestation | None: ...
 
 class EventAdmissionStorePort(Protocol):
-    def put(self, receipt: EnvironmentEventAdmissionReceipt) -> EnvironmentEventAdmissionReceipt: ...
+    def by_receipt_id(self, receipt_id: str) -> EnvironmentEventAdmissionReceipt | None: ...
     def by_event_id(self, event_id: str) -> EnvironmentEventAdmissionReceipt | None: ...
 
-class SituatedTraceStorePort(Protocol):
-    def append(self, trace: SituatedEvaluationTrace) -> None: ...
+class SituatedTraceOutboxPort(Protocol):
+    def begin(self, trace: SituatedEvaluationTrace) -> SituatedEvaluationTrace: ...
+    def complete(self, trace: SituatedEvaluationTrace) -> SituatedEvaluationTrace: ...
+    def by_trace_id(self, trace_id: str) -> SituatedEvaluationTrace | None: ...
 ```
 
-V0 provides deterministic in-memory implementations. They are real product code for a local controlled slice, but not a production identity/KMS plane.
+Only `EnvironmentEventAdmissionService` owns the admission-store write capability. The write method consumes a package-private verified-admission value that public contracts cannot construct. The application exposes neither the store writer nor mutable origin/lease/attestation registries.
 
-### 3.3 Event admission service
+V0 supplies deterministic composition-owned registries plus SQLite-backed admission and trace outbox stores. In-memory stores may exist for unit tests but cannot close restart/persistence gates.
 
-`EnvironmentEventAdmissionService.admit(...)` consumes only an existing trusted `EnvironmentEvent`, an exact source id, lease ref and safety attestation id. It resolves trusted objects from injected registries and enforces:
+## 5. Event admission service
 
-1. source equality with the registered source;
-2. exact principal/tenant/workspace/mandate/binding id/version/digest scope;
-3. binding exists in the active ratified mandate;
-4. current mandate status and correction epoch;
-5. lease is exact, current and source/binding/scope/epoch bound;
-6. event observation digest equals the safety attestation digest;
-7. safety policy/schema digests equal the source contract;
-8. trusted event and artifact bytes resolve through the existing `SituationalTrustResolver` and match exact SHA-256;
-9. duplicate event id with identical receipt returns the original receipt;
-10. duplicate event id with changed source, payload or scope raises a typed conflict.
+Public entry:
 
-No provider is called and no assessment is written during admission.
+```python
+EnvironmentEventAdmissionService.admit(
+    event_id: str,
+    lease_id: str,
+    *,
+    admitted_at: datetime,
+) -> EnvironmentEventAdmissionReceipt
+```
 
-### 3.4 MandateSteward convergence facade
+The service resolves every authority input itself and enforces:
 
-`MandateSteward.observe_event(event_id, projection_id, admission_receipt_id)` is a thin facade over one existing `OperationalProposalService`.
+1. canonical event, origin, lease, current credential ref and payload attestation exist;
+2. origin event id/event digest/observation digest equal the trusted event;
+3. origin source config, credential ref and binding data match the adapter registration;
+4. lease equals the registry object and current credential digest, status, scopes and expiry;
+5. origin, lease, attestation, event and active mandate share principal/tenant/workspace/mandate/binding;
+6. current `EnvironmentBindingAuthorization` version/digest match the origin and receipt;
+7. current correction epoch equals the lease and receipt epoch;
+8. attestation event/source/artifact/digest/schema/policy match the origin and event;
+9. trusted artifact bytes resolve through `SituationalTrustResolver`, have `situated:read`, and match exact SHA-256;
+10. exact replay returns the durable original receipt;
+11. same event id with changed origin, payload, lease, scope or epoch raises typed conflict.
 
-It:
+Admission calls no provider and writes no assessment.
 
-1. resolves the admission receipt;
-2. rechecks active mandate/binding/epoch before assessment;
-3. delegates exactly once to `OperationalProposalService.propose(...)`;
-4. emits one safe `SituatedEvaluationTrace`;
-5. returns the existing `TaskDraftProposal | HelpRequest | None`.
+## 6. MandateSteward convergence facade
 
-It never constructs a second assessor, event ledger, assessment store or proposal compiler. `TaskDraftProposal.activation_authorized` and `external_effects_authorized` remain false. It cannot call `TaskService`, `CapabilityBroker`, a connector or an effect path.
+```python
+MandateSteward.observe_event(
+    event_id: str,
+    projection_id: str,
+    admission_receipt_id: str,
+) -> TaskDraftProposal | HelpRequest | None
+```
 
-Trace persistence is part of the atomic acceptance boundary. If the required trace cannot be appended for a new result, the facade must fail closed and must not claim a completed M1-plus result. Exact replay may return the existing persisted result and trace without a second provider call.
+The steward receives the same `SituatedAssessmentStore` authority reader used by `OperationalProposalService`. Before provider invocation it resolves current Mandate/binding and requires exact receipt mandate, binding id/version/digest, principal scope and correction epoch.
 
-## 4. Security boundary
+It then:
 
-This slice guarantees:
+1. creates or reuses a durable `PENDING` trace outbox entry;
+2. delegates to the one existing `OperationalProposalService.propose(...)`;
+3. derives `COMPLETED` trace state from the persisted result;
+4. returns only after the trace is durable.
 
-- no raw observation bytes, prompt, provider response, exception text, resolver key, credential or secret enters `SituatedEvaluationTrace`;
-- no credential secret is serialized by any new contract;
-- caller-created source/lease/safety objects have no authority unless they exactly equal trusted registry entries;
-- source, principal, tenant, workspace, mandate, binding and correction epoch are checked before provider invocation;
-- model narration cannot mint source identity, payload safety, evidence, activation or capability authority;
-- provider output remains subject to existing strict parsing, authority-shaped-output rejection and trusted evidence binding.
+If completion fails after assessment persistence, no result is returned. A retry uses the existing persisted assessment replay, performs no second provider call, and reconciles the trace to `COMPLETED`.
 
-This slice requires trusted upstream payload-safety attestation. It does not claim a general PII/DLP classifier. Production KMS/Vault, mTLS/webhook signing, tenant-specific encryption and distributed credential fencing remain controlled-pilot/release gates.
+The exact guarantee is limited to sequential and restart replay of an already committed assessment. V0 adds a process-local single-flight lock per receipt/projection to prevent concurrent duplicate provider calls in one process. It does not claim provider exactly-once across a crash before assessment commit or across multiple processes; those require provider idempotency/durable invocation claims.
 
-## 5. Failure behavior
+`AgentOSApplication.propose_situated_work` becomes admission-required and routes only through `MandateSteward`. Calling the legacy public entry without a receipt fails closed before provider and persistence. The raw `OperationalProposalService` remains an internal dependency, not a public bypass.
 
-| Failure | Result |
-|---|---|
-| unknown/forged source, lease or safety attestation | typed denial; provider 0; assessment writes 0 |
-| cross-scope or binding drift | typed denial; provider 0; assessment writes 0 |
-| expired/revoked/epoch-changed mandate or lease | typed denial; provider 0 |
-| event/artifact/payload digest mismatch | typed denial; provider 0 |
-| same event id with different receipt identity | typed conflict |
-| provider malformed/failure | existing safe ABSTAIN/HELP behavior; no raw exception text |
-| trace append failure | fail closed; no success claim |
-| exact replay | same persisted result and trace; provider not called again |
+The facade never constructs another provider assessor, assessment store, event ledger or proposal compiler. It cannot import or call `TaskService`, `CapabilityBroker`, connectors or effect APIs. Existing `TaskDraftProposal` fixed-false authority fields remain unchanged.
 
-## 6. Testing and falsification
+## 7. Data Agent composition
 
-Every new behavior starts RED. Required delta tests:
+The Data Agent adapter remains the existing exact-byte, credential-bound ingress. The implementation adds only derived immutable read methods/material:
 
-- exact source/lease/safety/binding admission;
-- forged or caller-minted registry objects rejected;
-- cross-tenant/principal/workspace/binding/epoch rejection before provider;
-- non-SHA payload/digest and invalid chronology contract rejection;
-- same event id/different payload conflict;
-- exact receipt replay idempotency;
-- `MandateSteward` uses one existing provider assessor and one existing assessment store;
-- non-executing draft and zero Task/connector/capability effects;
-- revoke/epoch change dominates between admission and assessment emission;
-- safe trace allowlist and forbidden-content checks;
-- jailbreak/model narration cannot satisfy admission or activation fields.
+- origin registration for an already ingested event;
+- payload-admission attestation for the exact external-redacted observation;
+- source configuration digest and current credential-ref identity.
 
-Existing situated, provider relevance, Data Agent ingress, replay/revoke and M0 invariant suites remain regression gates.
+Application composition registers those derived objects and a canonical lease, admits the event, then calls the admission-required steward entry. It does not rewrite report fetching, strict JSON, HTTPS/origin checks, redaction checks, cursor/restart state or provider relevance.
 
-## 7. Parallel research gate
+## 8. Security and failure semantics
 
-`P-SRL-E2E-FALSIFIER-1` is specified and frozen in parallel, not executed in this slice. It blocks product-value, Founder-cognitive-load, pilot and Dispatch claims; it does not block implementing admission/facade/trace infrastructure.
+- Unknown or forged origin/lease/attestation/receipt: provider 0, assessment 0.
+- Cross-scope, stale binding, revoked credential, expired lease or epoch change: provider 0.
+- Raw observation, prompt, response, exception, resolver key and credential secret never enter the new receipt/outbox trace.
+- Caller/model text cannot satisfy origin, attestation, lease, evidence, activation or capability fields.
+- Provider malformed/failure uses existing fail-closed relevance behavior.
+- PENDING outbox recovery is deterministic; a completed result is never returned without a durable COMPLETED trace.
+- Positive Task activation remains out of scope.
 
-## 8. Non-goals and claims
+The slice does not implement general PII/DLP, production KMS, mTLS/source signing, distributed fencing or cross-process provider exactly-once.
 
-- no canonical merge, push, release or production activation;
-- no positive `TaskActivationGate` implementation;
-- no automatic external effect;
-- no new Runtime or replacement of `OperationalProposalService`;
-- no general autonomy, domain adaptation, learning, training or multimodal claim;
-- no production p99, distributed throughput or enterprise tenant-isolation claim;
-- no claim that the system reduces Founder cognitive load until the E2E falsifier runs.
+## 9. Required RED matrix
 
-## 9. Acceptance
+Contract/digest:
 
-The slice is locally complete only when the public admission and steward facade have real code paths, all bypass tests and full Product/static gates pass, an independent reviewer approves the exact diff, and live state records `IMPLEMENTED_LOCAL_NOT_INTEGRATED`. Green tests do not authorize canonical integration.
+- content-addressed ids and mutation sensitivity for every field;
+- raw lowercase SHA only; chronology and numeric bounds;
+- fixed-false authority/effect fields and closed trace reason enum.
+
+Authority/admission:
+
+- caller-minted source/lease/attestation/receipt rejected;
+- boolean “verified” lease without registry object rejected;
+- event origin source cannot be selected by caller;
+- current `CredentialRef` revoked/expired/scope drift after lease issue rejects;
+- lease expiry beyond credential expiry rejects;
+- binding version/digest or correction epoch drift rejects;
+- same event id/different payload/source conflict; exact durable replay returns same receipt.
+
+Steward/bypass:
+
+- legacy public entry without receipt yields provider 0/assessment 0;
+- stale receipt after epoch change rejects before provider;
+- TaskDraft/Help/None/ABSTAIN result matrix equals the existing persisted record;
+- constant `None`, constant digest and bypass persistence implementations fail tests;
+- Task, Task event, connector and capability spies remain zero;
+- forbidden-import AST gate;
+- concurrent same-receipt requests call provider at most once in one process;
+- committed assessment plus failed trace completion reconciles after restart without another provider call.
+
+Data Agent:
+
+- derived origin/attestation exactly bind source config, credential, event and payload;
+- foreign namespace, credential drift and raw secret reflection reject before provider;
+- existing ingestion/restart/relevance suites remain green.
+
+## 10. Parallel falsifier and non-claims
+
+`P-SRL-E2E-FALSIFIER-1` is specified/frozen in parallel and blocks value, Founder-load, pilot and Dispatch claims, but not this infrastructure implementation.
+
+No canonical merge, push, release, production activation, positive Task activation, autonomy, learning, training, multimodal, distributed-runtime or generic-domain claim follows. Local latency and token fields are `LOCAL_CONTROLLED` only.
+
+## 11. Acceptance
+
+Local completion requires real public admission and steward paths, SQLite restart evidence, RED/GREEN bypass proof, full Product/static gates and independent exact-diff approval. State may advance only to `IMPLEMENTED_LOCAL_NOT_INTEGRATED`; canonical integration remains a separate authorization.
