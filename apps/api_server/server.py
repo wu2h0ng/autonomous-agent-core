@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
-from agent_os_contracts.situated import HelpRequest, TaskDraftProposal
+from agent_os_contracts import HelpRequest, TaskDraftProposal
 from agent_os_core import (
     CandidateConcurrentWrite,
     CandidateEvaluationDenied,
@@ -38,18 +38,31 @@ INDEX = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
 
 
-def _is_situated_proposal_route(path: str) -> bool:
-    parsed_path = urlparse(path).path
-    parts = parsed_path.strip("/").split("/")
-    return (
-        len(parts) == 5
-        and parts[:3] == ["api", "situated", "data-agent-reports"]
-        and parts[4] == "proposal"
-    )
+def _match_situated_proposal(path: str) -> str | None:
+    """Return trace_id on exact match, None otherwise.
+
+    Rejects trailing slash, leading extra slash, empty trace, extra segments,
+    nonempty query/fragment, and any percent-encoded trace segment at the HTTP
+    boundary.
+    """
+    parsed = urlparse(path)
+    if parsed.query or parsed.fragment:
+        return None
+    raw_path = parsed.path
+    prefix = "/api/situated/data-agent-reports/"
+    suffix = "/proposal"
+    if not raw_path.startswith(prefix) or not raw_path.endswith(suffix):
+        return None
+    middle = raw_path[len(prefix) : -len(suffix)]
+    if not middle or "/" in middle:
+        return None
+    if "%" in middle:
+        return None
+    return middle
 
 
 def _uses_generic_http_idempotency(path: str) -> bool:
-    if _is_situated_proposal_route(path):
+    if _match_situated_proposal(path) is not None:
         return False
     parsed_path = urlparse(path).path
     return not parsed_path.endswith(
@@ -510,34 +523,27 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 self._json(200, self.application.task_json(task.task_id))
                 return
-            if _is_situated_proposal_route(self.path):
-                parts = parsed.path.strip("/").split("/")
-                trace_id = parts[3]
-                if not trace_id:
-                    raise ValueError("invalid trace_id")
-                if "/" in trace_id:
-                    raise ValueError("invalid trace_id")
-                if trace_id == "0":
-                    raise ValueError("unsafe trace zero")
+            trace_id = _match_situated_proposal(self.path)
+            if trace_id is not None:
                 if body != {}:
                     raise ValueError("proposal body must be an empty object")
-                if self.application._data_agent_situated_runtime is None:
-                    raise RuntimeError("Data Agent situated runtime is not configured")
                 result = self.application.observe_admit_and_propose_data_agent_report(
                     trace_id
                 )
                 if isinstance(result, TaskDraftProposal):
                     serialized = {
                         "outcome_kind": "TASK_DRAFT",
-                        **result.model_dump(mode="json"),
+                        "task_draft": result.model_dump(mode="json"),
                     }
                 elif isinstance(result, HelpRequest):
                     serialized = {
                         "outcome_kind": "HELP_REQUEST",
-                        **result.model_dump(mode="json"),
+                        "help_request": result.model_dump(mode="json"),
                     }
-                else:
+                elif result is None:
                     serialized = {"outcome_kind": "NO_PROPOSAL"}
+                else:
+                    raise RuntimeError("unexpected proposal result type")
                 self._json(200, serialized)
                 return
             self._json(404, {"error": "not_found"})

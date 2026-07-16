@@ -223,11 +223,15 @@ class TestSituatedProposalRoute:
             )
             assert status == 200
             assert result["outcome_kind"] == "TASK_DRAFT"
-            assert result["task_draft_id"].startswith("task-draft:")
-            assert result["activation_authorized"] is False
-            assert result["external_effects_authorized"] is False
-            assert "evidence_ids" in result
-            assert len(result["evidence_ids"]) >= 1
+            assert isinstance(result.get("task_draft"), dict)
+            draft = result["task_draft"]
+            assert draft["task_draft_id"].startswith("task-draft:")
+            assert draft["activation_authorized"] is False
+            assert draft["external_effects_authorized"] is False
+            assert "evidence_ids" in draft
+            assert len(draft["evidence_ids"]) >= 1
+            assert "task_draft_id" not in result
+            assert "activation_authorized" not in result
         finally:
             server.shutdown()
             server.server_close()
@@ -244,11 +248,15 @@ class TestSituatedProposalRoute:
             )
             assert status == 200
             assert result["outcome_kind"] == "HELP_REQUEST"
-            assert result["help_request_id"].startswith("help:")
-            assert result["authority_granted"] is False
-            assert result["external_effects_authorized"] is False
-            assert "evidence_ids" in result
-            assert len(result["evidence_ids"]) >= 1
+            assert isinstance(result.get("help_request"), dict)
+            hr = result["help_request"]
+            assert hr["help_request_id"].startswith("help:")
+            assert hr["authority_granted"] is False
+            assert hr["external_effects_authorized"] is False
+            assert "evidence_ids" in hr
+            assert len(hr["evidence_ids"]) >= 1
+            assert "help_request_id" not in result
+            assert "authority_granted" not in result
         finally:
             server.shutdown()
             server.server_close()
@@ -385,8 +393,15 @@ class TestSituatedProposalRoute:
             server.shutdown()
             server.server_close()
 
-    def test_unsafe_trace_zero_rejected(self, tmp_path: Path) -> None:
-        app = _situated_app(tmp_path, RelevanceDisposition.CREATE_TASK)
+    def test_valid_trace_zero_forwarded(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.ABSTAIN)
+        called_with: list[str] = []
+
+        def _record_call(trace_id: str):
+            called_with.append(trace_id)
+            return None
+
+        app.observe_admit_and_propose_data_agent_report = _record_call  # type: ignore[method-assign]
         server, thread, base = _http_server(app)
         try:
             status, result = _post(
@@ -394,8 +409,9 @@ class TestSituatedProposalRoute:
                 "/api/situated/data-agent-reports/0/proposal",
                 body={},
             )
-            assert status == 400
-            assert "unsafe" in result["message"].lower()
+            assert status == 200
+            assert result == {"outcome_kind": "NO_PROPOSAL"}
+            assert called_with == ["0"]
         finally:
             server.shutdown()
             server.server_close()
@@ -409,8 +425,7 @@ class TestSituatedProposalRoute:
                 "/api/situated/data-agent-reports//proposal",
                 body={},
             )
-            assert status == 400
-            assert "trace_id" in result["message"].lower()
+            assert status == 404
         finally:
             server.shutdown()
             server.server_close()
@@ -429,7 +444,9 @@ class TestSituatedProposalRoute:
             server.shutdown()
             server.server_close()
 
-    def test_encoded_slash_in_trace_rejected(self, tmp_path: Path) -> None:
+    def test_encoded_slash_in_trace_rejected_before_application_call(
+        self, tmp_path: Path
+    ) -> None:
         app = _situated_app(tmp_path, RelevanceDisposition.CREATE_TASK)
         server, thread, base = _http_server(app)
         try:
@@ -438,8 +455,7 @@ class TestSituatedProposalRoute:
                 "/api/situated/data-agent-reports/trace%2Fevil/proposal",
                 body={},
             )
-            assert status == 400
-            assert "trace_id" in result["message"].lower()
+            assert status == 404
         finally:
             server.shutdown()
             server.server_close()
@@ -501,6 +517,108 @@ class TestSituatedProposalRoute:
                 body={},
             )
             assert status == 404
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_trailing_slash_rejected(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.CREATE_TASK)
+        server, thread, base = _http_server(app)
+        try:
+            status, result = _post(
+                base,
+                f"/api/situated/data-agent-reports/{TRACE_ID}/proposal/",
+                body={},
+            )
+            assert status == 404
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_query_rejected(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.CREATE_TASK)
+        server, thread, base = _http_server(app)
+        try:
+            status, result = _post(
+                base,
+                f"/api/situated/data-agent-reports/{TRACE_ID}/proposal?foo=bar",
+                body={},
+            )
+            assert status == 404
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_unknown_return_type_fails(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.CREATE_TASK)
+        app.observe_admit_and_propose_data_agent_report = (  # type: ignore[method-assign]
+            lambda trace_id: "not_a_proposal"
+        )
+        server, thread, base = _http_server(app)
+        try:
+            status, result = _post(
+                base,
+                f"/api/situated/data-agent-reports/{TRACE_ID}/proposal",
+                body={},
+            )
+            assert status == 400
+            assert "unexpected" in result["message"].lower()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_exact_nested_keys_for_task_draft(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.CREATE_TASK)
+        server, thread, base = _http_server(app)
+        try:
+            status, result = _post(
+                base,
+                f"/api/situated/data-agent-reports/{TRACE_ID}/proposal",
+                body={},
+                idempotency_key="nested-keys-draft",
+            )
+            assert status == 200
+            assert set(result.keys()) == {"outcome_kind", "task_draft"}
+            assert result["outcome_kind"] == "TASK_DRAFT"
+            assert isinstance(result["task_draft"], dict)
+            assert "task_draft_id" in result["task_draft"]
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_exact_nested_keys_for_help_request(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.HELP)
+        server, thread, base = _http_server(app)
+        try:
+            status, result = _post(
+                base,
+                f"/api/situated/data-agent-reports/{TRACE_ID}/proposal",
+                body={},
+                idempotency_key="nested-keys-help",
+            )
+            assert status == 200
+            assert set(result.keys()) == {"outcome_kind", "help_request"}
+            assert result["outcome_kind"] == "HELP_REQUEST"
+            assert isinstance(result["help_request"], dict)
+            assert "help_request_id" in result["help_request"]
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_constant_serializer_cannot_pass(self, tmp_path: Path) -> None:
+        app = _situated_app(tmp_path, RelevanceDisposition.ABSTAIN)
+        app.observe_admit_and_propose_data_agent_report = (  # type: ignore[method-assign]
+            lambda trace_id: 42
+        )
+        server, thread, base = _http_server(app)
+        try:
+            status, result = _post(
+                base,
+                f"/api/situated/data-agent-reports/{TRACE_ID}/proposal",
+                body={},
+            )
+            assert status == 400
+            assert "unexpected" in result["message"].lower()
         finally:
             server.shutdown()
             server.server_close()
