@@ -21,7 +21,7 @@ class ScorerReceiptBinding(ContractModel):
 
 class SealedScorerOutcome(ContractModel):
     reward: float
-    baseline_reward: float
+    frozen_reference_reward: float
     oracle_reward: float
 
 
@@ -36,15 +36,15 @@ class ScorerReceipt(ContractModel):
 class TrustedScorerPort(Protocol):
     """External scorer plus atomic, one-time receipt resolver."""
 
-    def score(self, binding: ScorerReceiptBinding, outcome: SealedScorerOutcome) -> str:
-        ...
+    def score(
+        self, binding: ScorerReceiptBinding, outcome: SealedScorerOutcome
+    ) -> str: ...
 
     def consume(
         self,
         receipt_id: str,
         expected: ScorerReceiptBinding,
-    ) -> ScorerReceipt | None:
-        ...
+    ) -> ScorerReceipt | None: ...
 
 
 class TransferAssessment(ContractModel):
@@ -97,27 +97,40 @@ class TransferMonitor:
             gate_digest=self._gate_digest,
         )
         receipt = self._scorer_resolver.consume(receipt_id, expected)
-        if receipt is None or receipt.receipt_id != receipt_id or receipt.binding != expected:
+        if (
+            receipt is None
+            or receipt.receipt_id != receipt_id
+            or receipt.binding != expected
+        ):
             raise ValueError("invalid, mismatched or replayed scorer receipt")
         self._history.append(receipt)
 
         window = self._history[-self._regret_window :]
-        regrets = [max(0.0, item.outcome.oracle_reward - item.outcome.reward) for item in window]
+        regrets = [
+            max(0.0, item.outcome.oracle_reward - item.outcome.reward)
+            for item in window
+        ]
         cumulative_regret = sum(regrets)
         negative_transfer = (
             cumulative_regret > self._threshold and len(window) >= self._regret_window
         )
-        baseline_regret = sum(
-            max(0.0, item.outcome.baseline_reward - item.outcome.reward) for item in window
+        frozen_reference_regret = sum(
+            max(
+                0.0,
+                item.outcome.frozen_reference_reward - item.outcome.reward,
+            )
+            for item in window
         ) / max(len(window), 1)
-        regime_shift = negative_transfer and baseline_regret > 0.5
+        regime_shift = negative_transfer and frozen_reference_regret > 0.5
 
         if negative_transfer and current_checkpoint_id is not None:
             recommended = "ROLLBACK"
             reason = f"negative transfer (regret={cumulative_regret:.2f}); rollback"
         elif negative_transfer and authorized_option_ids:
             recommended = f"W2_OPTION:{authorized_option_ids[0]}"
-            reason = f"negative transfer (regret={cumulative_regret:.2f}); authorized switch"
+            reason = (
+                f"negative transfer (regret={cumulative_regret:.2f}); authorized switch"
+            )
         else:
             recommended = "CONTINUE"
             reason = "no significant negative transfer"

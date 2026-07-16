@@ -10,6 +10,8 @@ from typing import Any
 
 from experiments.w1w2_live_adaptation import (
     AdaptationArm,
+    ArmInformationAccess,
+    ArmRole,
     C7Controller,
     C7Snapshot,
     CharacterizationRecord,
@@ -19,8 +21,10 @@ from experiments.w1w2_live_adaptation import (
     CanonicalRunAuthorization,
     CandidateFeedback,
     CandidateObservation,
+    ReactiveWSLSArm,
     RunAuthorizationBinding,
     RunAuthorizationResolver,
+    ScheduledKnownArm,
     ScorerReceipt,
     ScorerReceiptBinding,
     SealedScorerOutcome,
@@ -223,6 +227,103 @@ class TestCharacterization(unittest.TestCase):
         self.assertEqual(record.status, "CHARACTERIZATION_ONLY")
         self.assertIsNotNone(record.speed)
         self.assertIsNotNone(record.quality)
+
+
+class TestCheapBaselineDefinitions(unittest.TestCase):
+    def test_scheduled_known_covers_complete_a_b_a_schedule(self) -> None:
+        arm = ScheduledKnownArm(switch_at=(3, 6))
+        c7 = C7Controller("c7-1", "scope-1").snapshot
+        actions = [
+            arm.act(CandidateObservation(observation_id=f"opaque-{step}"), c7)
+            for step in range(9)
+        ]
+        self.assertEqual(actions, ["A", "A", "A", "B", "B", "B", "A", "A", "A"])
+
+    def test_reactive_wsls_uses_only_delayed_public_feedback(self) -> None:
+        arm = ReactiveWSLSArm(authorized_action_ids=("A", "B"))
+        c7 = C7Controller("c7-1", "scope-1").snapshot
+        observation = CandidateObservation(observation_id="opaque")
+        self.assertEqual(arm.act(observation, c7), "A")
+        arm.update(
+            CandidateFeedback(action="A", reward=0.0, source_event_digest="event-1"),
+            c7,
+        )
+        self.assertEqual(arm.act(observation, c7), "B")
+        arm.update(
+            CandidateFeedback(action="B", reward=1.0, source_event_digest="event-2"),
+            c7,
+        )
+        self.assertEqual(arm.act(observation, c7), "B")
+
+    def test_arm_specs_type_role_and_information_access(self) -> None:
+        harness = _make_harness(switch_at=(5, 10))
+        scheduled = harness.arm_spec("scheduled-known")
+        self.assertEqual(scheduled.role, ArmRole.CHEAP_BASELINE)
+        self.assertEqual(
+            scheduled.information_access, ArmInformationAccess.KNOWN_SCHEDULE
+        )
+        self.assertTrue(scheduled.online_executable)
+
+        reactive = harness.arm_spec("reactive-wsls")
+        self.assertEqual(reactive.role, ArmRole.CHEAP_BASELINE)
+        self.assertEqual(
+            reactive.information_access,
+            ArmInformationAccess.DELAYED_PUBLIC_FEEDBACK,
+        )
+
+        ceiling = harness.arm_spec("offline-optimal")
+        self.assertEqual(ceiling.role, ArmRole.SCORER_CEILING)
+        self.assertEqual(
+            ceiling.information_access,
+            ArmInformationAccess.POST_EPISODE_SEALED_OUTCOME,
+        )
+        self.assertFalse(ceiling.online_executable)
+
+    def test_offline_optimal_cannot_be_instantiated_as_online_arm(self) -> None:
+        with self.assertRaisesRegex(ValueError, "scorer-only"):
+            _make_harness().characterize("offline-optimal", 0, 10)
+
+    def test_offline_optimal_is_run_denied_even_with_authorization(self) -> None:
+        harness = _make_harness()
+        auth = _externally_issued_auth(
+            harness, "offline-auth", "offline-optimal", 0, 10
+        )
+        harness._run_authorization_resolver = _FakeRunAuthorizationResolver(
+            {auth.receipt_id: auth}
+        )
+        record = harness.run("offline-optimal", 0, 10, auth.receipt_id)
+        self.assertEqual(record.run_status, "RUN_DENIED")
+
+    def test_quality_uses_authorized_step_denominator_and_reports_coverage(
+        self,
+    ) -> None:
+        class OneActionThenViolation(AdaptationArm):
+            name = "one-action-then-violation"
+
+            def __init__(self) -> None:
+                self._calls = 0
+
+            def act(self, observation, c7):
+                del observation, c7
+                self._calls += 1
+                if self._calls > 1:
+                    raise ValueError("authorized action violation")
+                return "A"
+
+        record = _make_harness(switch_at=(2, 4)).characterize(
+            "frozen",
+            0,
+            10,
+            arm_factory=lambda _store, _scope, _selector: OneActionThenViolation(),
+        )
+        self.assertEqual(record.quality, 0.1)
+        self.assertEqual(record.coverage, 0.1)
+        self.assertEqual(record.phase_qualities, (0.5, 0.0, 0.0))
+        self.assertEqual(record.offline_optimal_quality, 1.0)
+
+    def test_every_switch_has_explicit_recovery_or_none(self) -> None:
+        record = _make_harness(switch_at=(2, 4)).characterize("frozen", 0, 6)
+        self.assertEqual(record.recovery_speeds, (None, 0))
 
 
 class TestC7AndInformationBoundaries(unittest.TestCase):
@@ -529,7 +630,7 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
         self.assertLess(constant.quality, scheduled.quality)
         self.assertGreater(constant.negative_transfer_steps, 0)
         # With no recovery after the switch, the second regime is ignored.
-        self.assertEqual(len(constant.recovery_speeds), 0)
+        self.assertEqual(constant.recovery_speeds, (None,))
         self.assertFalse(constant.falsifier_passed)
 
     def test_constant_b_also_cannot_pass_ab_a_falsifier(self) -> None:
@@ -568,7 +669,10 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
         # Both regime switches (A->B at 5, B->A at 10) must be recorded.
         self.assertLess(record.speed, record.n_steps)
         self.assertEqual(len(record.recovery_speeds), 2)
-        self.assertLess(record.recovery_speeds[1], record.n_steps)
+        second_recovery = record.recovery_speeds[1]
+        self.assertIsNotNone(second_recovery)
+        assert second_recovery is not None
+        self.assertLess(second_recovery, record.n_steps)
         self.assertTrue(record.w1_causal_consumption_verified)
         self.assertTrue(record.falsifier_passed)
 

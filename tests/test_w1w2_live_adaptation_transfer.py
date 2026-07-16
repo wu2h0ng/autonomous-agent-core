@@ -40,7 +40,11 @@ class _TrustedScorer(TrustedScorerPort):
 
     def consume(self, receipt_id, expected):
         receipt = self._receipts.get(receipt_id)
-        if receipt_id in self._consumed or receipt is None or receipt.binding != expected:
+        if (
+            receipt_id in self._consumed
+            or receipt is None
+            or receipt.binding != expected
+        ):
             return None
         self._consumed.add(receipt_id)
         return receipt
@@ -66,12 +70,18 @@ def _issue(
     scorer: _TrustedScorer, step: int, reward: float, baseline: float, oracle: float
 ) -> str:
     binding = ScorerReceiptBinding(
-        run_id="run-1", scope=_scope(), arm_name="candidate", step=step, gate_digest="gd-1"
+        run_id="run-1",
+        scope=_scope(),
+        arm_name="candidate",
+        step=step,
+        gate_digest="gd-1",
     )
     return scorer.score(
         binding,
         SealedScorerOutcome(
-            reward=reward, baseline_reward=baseline, oracle_reward=oracle
+            reward=reward,
+            frozen_reference_reward=baseline,
+            oracle_reward=oracle,
         ),
     )
 
@@ -97,6 +107,14 @@ class TestC7Controller(unittest.TestCase):
 
 
 class TestTransferMonitor(unittest.TestCase):
+    def test_sealed_outcome_rejects_ambiguous_baseline_reward_field(self) -> None:
+        with self.assertRaises(Exception):
+            SealedScorerOutcome(
+                reward=1.0,
+                baseline_reward=1.0,  # type: ignore[call-arg]
+                oracle_reward=1.0,
+            )
+
     def test_detects_negative_transfer_from_scorer_receipts(self) -> None:
         monitor, scorer = _monitor(3, 0.0)
         assessment: TransferAssessment | None = None
@@ -116,7 +134,9 @@ class TestTransferMonitor(unittest.TestCase):
         monitor, scorer = _monitor(2, 0.0)
         assessment: TransferAssessment | None = None
         for step in range(4):
-            receipt_id = _issue(scorer, step=step, reward=-1.0, baseline=1.0, oracle=1.0)
+            receipt_id = _issue(
+                scorer, step=step, reward=-1.0, baseline=1.0, oracle=1.0
+            )
             assessment = monitor.assess(
                 receipt_id,
                 step,
@@ -134,7 +154,9 @@ class TestTransferMonitor(unittest.TestCase):
         monitor, scorer = _monitor(2, 0.0)
         assessment: TransferAssessment | None = None
         for step in range(4):
-            receipt_id = _issue(scorer, step=step, reward=-1.0, baseline=1.0, oracle=1.0)
+            receipt_id = _issue(
+                scorer, step=step, reward=-1.0, baseline=1.0, oracle=1.0
+            )
             assessment = monitor.assess(
                 receipt_id,
                 step,

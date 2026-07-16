@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import random
 import tempfile
+from enum import Enum
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -71,12 +72,14 @@ class CharacterizationRecord(ContractModel):
     status: NonEmptyStr
     speed: float | None
     quality: float | None
+    coverage: float
+    offline_optimal_quality: float
     risk: float | None
     negative_transfer_steps: int
     rollback_latency_steps: int
     c7_stops: int
     permission_violations: int
-    recovery_speeds: tuple[float, ...] = ()
+    recovery_speeds: tuple[int | None, ...] = ()
     phase_qualities: tuple[float, ...] = ()
     w1_causal_consumption_verified: bool = False
     falsifier_passed: bool = False
@@ -87,6 +90,85 @@ class _ScoredOutcome:
     step: int
     action: str
     reward: float
+
+
+class ArmRole(str, Enum):
+    CHEAP_BASELINE = "CHEAP_BASELINE"
+    ADAPTIVE_CANDIDATE = "ADAPTIVE_CANDIDATE"
+    SCORER_CEILING = "SCORER_CEILING"
+
+
+class ArmInformationAccess(str, Enum):
+    FIXED_CONFIG = "FIXED_CONFIG"
+    KNOWN_SCHEDULE = "KNOWN_SCHEDULE"
+    DELAYED_PUBLIC_FEEDBACK = "DELAYED_PUBLIC_FEEDBACK"
+    W1_CANONICAL_AND_DELAYED_PUBLIC_FEEDBACK = (
+        "W1_CANONICAL_AND_DELAYED_PUBLIC_FEEDBACK"
+    )
+    POST_EPISODE_SEALED_OUTCOME = "POST_EPISODE_SEALED_OUTCOME"
+
+
+class ArmSpec(ContractModel):
+    arm_name: NonEmptyStr
+    role: ArmRole
+    information_access: ArmInformationAccess
+    online_executable: bool
+
+
+_ARM_SPECS = {
+    "frozen": ArmSpec(
+        arm_name="frozen",
+        role=ArmRole.CHEAP_BASELINE,
+        information_access=ArmInformationAccess.FIXED_CONFIG,
+        online_executable=True,
+    ),
+    "scheduled": ArmSpec(
+        arm_name="scheduled",
+        role=ArmRole.CHEAP_BASELINE,
+        information_access=ArmInformationAccess.KNOWN_SCHEDULE,
+        online_executable=True,
+    ),
+    "scheduled-known": ArmSpec(
+        arm_name="scheduled-known",
+        role=ArmRole.CHEAP_BASELINE,
+        information_access=ArmInformationAccess.KNOWN_SCHEDULE,
+        online_executable=True,
+    ),
+    "reactive-wsls": ArmSpec(
+        arm_name="reactive-wsls",
+        role=ArmRole.CHEAP_BASELINE,
+        information_access=ArmInformationAccess.DELAYED_PUBLIC_FEEDBACK,
+        online_executable=True,
+    ),
+    "w1-only": ArmSpec(
+        arm_name="w1-only",
+        role=ArmRole.ADAPTIVE_CANDIDATE,
+        information_access=(
+            ArmInformationAccess.W1_CANONICAL_AND_DELAYED_PUBLIC_FEEDBACK
+        ),
+        online_executable=True,
+    ),
+    "w2-only": ArmSpec(
+        arm_name="w2-only",
+        role=ArmRole.ADAPTIVE_CANDIDATE,
+        information_access=ArmInformationAccess.DELAYED_PUBLIC_FEEDBACK,
+        online_executable=True,
+    ),
+    "w1+w2": ArmSpec(
+        arm_name="w1+w2",
+        role=ArmRole.ADAPTIVE_CANDIDATE,
+        information_access=(
+            ArmInformationAccess.W1_CANONICAL_AND_DELAYED_PUBLIC_FEEDBACK
+        ),
+        online_executable=True,
+    ),
+    "offline-optimal": ArmSpec(
+        arm_name="offline-optimal",
+        role=ArmRole.SCORER_CEILING,
+        information_access=ArmInformationAccess.POST_EPISODE_SEALED_OUTCOME,
+        online_executable=False,
+    ),
+}
 
 
 class DeterministicRegimeFixture:
@@ -164,9 +246,23 @@ class DeterministicRegimeFixture:
         regime = self._regime_at(scored.step)
         return SealedScorerOutcome(
             reward=scored.reward,
-            baseline_reward=1.0 if self.OPTIMAL[regime] == "A" else 0.0,
+            frozen_reference_reward=(1.0 if self.OPTIMAL[regime] == "A" else 0.0),
             oracle_reward=1.0,
         )
+
+    def post_episode_offline_optimal_quality(self) -> float:
+        """Evaluator-only ceiling over the authorized horizon; never an online arm."""
+
+        if self._n_steps <= 0:
+            raise ValueError("authorized n_steps must be positive")
+        total = sum(
+            max(
+                1.0 if action == self.OPTIMAL[self._regime_at(step)] else 0.0
+                for action in self.OPTIMAL.values()
+            )
+            for step in range(self._n_steps)
+        )
+        return total / self._n_steps
 
 
 class _CharacterizationScorer(TrustedScorerPort):
@@ -235,24 +331,72 @@ class FrozenArm(AdaptationArm):
         return self._action
 
 
-class ScheduledStaticArm(AdaptationArm):
-    """Strong baseline receives evaluator schedule; never used as a candidate arm."""
+class ScheduledKnownArm(AdaptationArm):
+    """Cheap baseline with evaluator-known switch points, including full A/B/A."""
 
-    name = "scheduled"
+    name = "scheduled-known"
 
-    def __init__(self, switch_at: int, before: str = "A", after: str = "B") -> None:
-        self._switch_at = switch_at
-        self._before = before
-        self._after = after
+    def __init__(self, switch_at: int | tuple[int, ...]) -> None:
+        self._switch_points = (
+            (switch_at,) if isinstance(switch_at, int) else tuple(sorted(switch_at))
+        )
         self._calls = 0
 
     def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
         del observation
         if c7.halted:
             raise RuntimeError("C7 halted")
-        action = self._before if self._calls < self._switch_at else self._after
+        switches = sum(1 for point in self._switch_points if point <= self._calls)
+        action = "A" if switches % 2 == 0 else "B"
         self._calls += 1
         return action
+
+
+ScheduledStaticArm = ScheduledKnownArm
+
+
+@dataclass(frozen=True)
+class _ReactiveSnapshot:
+    current_action: str
+
+
+class ReactiveWSLSArm(AdaptationArm):
+    """Win-stay/lose-shift using delayed public feedback and no schedule oracle."""
+
+    name = "reactive-wsls"
+
+    def __init__(self, authorized_action_ids: tuple[str, ...] = ("A", "B")) -> None:
+        if not authorized_action_ids:
+            raise ValueError("ReactiveWSLSArm requires an authorized action")
+        self._authorized_action_ids = tuple(authorized_action_ids)
+        self._current_action = self._authorized_action_ids[0]
+
+    def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
+        del observation
+        if c7.halted:
+            raise RuntimeError("C7 halted")
+        return self._current_action
+
+    def update(self, feedback: CandidateFeedback, c7: C7Snapshot) -> None:
+        if c7.halted:
+            raise RuntimeError("C7 halted")
+        if feedback.action not in self._authorized_action_ids:
+            raise ValueError(f"feedback action '{feedback.action}' is not authorized")
+        if feedback.reward > 0.0:
+            self._current_action = feedback.action
+            return
+        index = self._authorized_action_ids.index(feedback.action)
+        self._current_action = self._authorized_action_ids[
+            (index + 1) % len(self._authorized_action_ids)
+        ]
+
+    def capture(self) -> _ReactiveSnapshot:
+        return _ReactiveSnapshot(current_action=self._current_action)
+
+    def restore(self, snapshot: object) -> None:
+        if not isinstance(snapshot, _ReactiveSnapshot):
+            raise RuntimeError("invalid reactive baseline snapshot")
+        self._current_action = snapshot.current_action
 
 
 def _action_values_from_state(state: W1MemoryState) -> dict[str, ActionValueEstimate]:
@@ -573,6 +717,13 @@ class FalsifierHarness:
             episode_id=f"ep-{seed}",
         )
 
+    @staticmethod
+    def arm_spec(arm_name: str) -> ArmSpec:
+        try:
+            return _ARM_SPECS[arm_name]
+        except KeyError as exc:
+            raise ValueError(f"unknown arm: {arm_name}") from exc
+
     def _make_selector(
         self,
         w1_reader: W1CanonicalReader | None = None,
@@ -663,24 +814,24 @@ class FalsifierHarness:
         selector: W2StrategySelector,
         arm_factory: ArmFactory | None,
     ) -> AdaptationArm:
+        spec = self.arm_spec(arm_name)
+        if not spec.online_executable:
+            raise ValueError(f"{arm_name} is a scorer-only ceiling")
         if arm_factory is not None:
             return arm_factory(store, scope, selector)
         if arm_name == "frozen":
             return FrozenArm("A")
-        if arm_name == "scheduled":
-            first = (
-                self._switch_at
-                if isinstance(self._switch_at, int)
-                else min(self._switch_at)
-            )
-            return ScheduledStaticArm(first)
+        if arm_name in {"scheduled", "scheduled-known"}:
+            return ScheduledKnownArm(self._switch_at)
+        if arm_name == "reactive-wsls":
+            return ReactiveWSLSArm(self._authorized_option_ids)
         if arm_name == "w1-only":
             return W1OnlyArm(store, scope)
         if arm_name == "w2-only":
             return W2OnlyArm(store, scope, selector)
         if arm_name == "w1+w2":
             return W1W2Arm(store, scope, selector)
-        raise ValueError(f"unknown arm: {arm_name}")
+        raise AssertionError(f"unhandled online arm: {arm_name}")
 
     def _execute(
         self,
@@ -779,8 +930,11 @@ class FalsifierHarness:
         phase_qualities: list[float] = []
         for start, end in zip(bounds, bounds[1:]):
             phase = [item.reward for item in outcomes if start <= item.step < end]
-            phase_qualities.append(sum(phase) / len(phase) if phase else 0.0)
-        recoveries: list[float] = []
+            authorized_phase_steps = max(0, min(end, n_steps) - min(start, n_steps))
+            phase_qualities.append(
+                sum(phase) / authorized_phase_steps if authorized_phase_steps else 0.0
+            )
+        recoveries: list[int | None] = []
         for index, switch in enumerate(switch_points):
             end = (
                 switch_points[index + 1] if index + 1 < len(switch_points) else n_steps
@@ -793,10 +947,10 @@ class FalsifierHarness:
                 ),
                 None,
             )
-            if recovered is not None:
-                recoveries.append(float(recovered))
+            recoveries.append(recovered)
 
-        quality = sum(item.reward for item in outcomes) / max(len(outcomes), 1)
+        quality = sum(item.reward for item in outcomes) / n_steps
+        coverage = len(outcomes) / n_steps
         adaptive_candidate = (
             arm_name == "w1+w2" and arm_factory is None and self._selection_fn is None
         )
@@ -805,7 +959,7 @@ class FalsifierHarness:
             adaptive_candidate
             and w1_causal_consumption
             and len(switch_points) >= 2
-            and len(recoveries) == len(switch_points)
+            and all(recovery is not None for recovery in recoveries)
             and len(phase_qualities) >= 3
             and all(value >= 0.5 for value in phase_qualities[:3])
             and c7_stops == 0
@@ -818,8 +972,14 @@ class FalsifierHarness:
             seed=seed,
             n_steps=n_steps,
             status="COMPLETED" if allow_run else "CHARACTERIZATION_ONLY",
-            speed=recoveries[0] if recoveries else float(n_steps),
+            speed=(
+                float(recoveries[0])
+                if recoveries and recoveries[0] is not None
+                else float(n_steps)
+            ),
             quality=quality,
+            coverage=coverage,
+            offline_optimal_quality=fixture.post_episode_offline_optimal_quality(),
             risk=float(c7_stops + permission_violations),
             negative_transfer_steps=negative_transfer_steps,
             rollback_latency_steps=rollback_latency_steps,
@@ -839,7 +999,12 @@ class FalsifierHarness:
         authorization_receipt_id: str | None,
     ) -> FalsifierRunRecord:
         run_id = f"run-{uuid4().hex}"
-        if self._selection_fn is not None or self._trusted_scorer is None:
+        spec = self.arm_spec(arm_name)
+        if (
+            not spec.online_executable
+            or self._selection_fn is not None
+            or self._trusted_scorer is None
+        ):
             return FalsifierRunRecord(
                 run_id=run_id,
                 arm_name=arm_name,
