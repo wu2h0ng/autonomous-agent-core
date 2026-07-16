@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Mapping
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from .evidence import Sha256Digest
@@ -137,6 +137,13 @@ class PayloadAdmissionAttestation(ContractModel):
     credential_reflected: Literal[False] = False
     attestation_digest: Sha256Digest
 
+    @field_validator("credential_reflected", mode="before")
+    @classmethod
+    def _require_exact_false(cls, value: Any) -> Literal[False]:
+        if value is not False:
+            raise ValueError("credential_reflected must be exactly boolean False")
+        return False
+
     @model_validator(mode="after")
     def _validate_content_address(self) -> PayloadAdmissionAttestation:
         payload = self.model_dump(
@@ -173,6 +180,13 @@ class EnvironmentEventAdmissionReceipt(ContractModel):
     receipt_digest: Sha256Digest
     grants_authority: Literal[False] = False
     authorizes_effects: Literal[False] = False
+
+    @field_validator("grants_authority", "authorizes_effects", mode="before")
+    @classmethod
+    def _require_exact_false(cls, value: Any) -> Literal[False]:
+        if value is not False:
+            raise ValueError("authority fields must be exactly boolean False")
+        return False
 
     @model_validator(mode="after")
     def _validate_content_address(self) -> EnvironmentEventAdmissionReceipt:

@@ -360,6 +360,41 @@ def test_old_content_address_is_rejected_after_every_field_mutation(
         type(original).model_validate({**original_values, digest_field: DIGEST_9})
 
 
+def _raw_mutation(value: Any) -> Any:
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, datetime):
+        return value + timedelta(microseconds=1)
+    if isinstance(value, str):
+        return f"{value}-mutated"
+    raise AssertionError(f"unsupported digest test value: {value!r}")
+
+
+@pytest.mark.parametrize(
+    ("helper", "payload_factory"),
+    [
+        (event_origin_registration_digest, _registration_payload),
+        (credential_lease_digest, _lease_payload),
+        (payload_admission_attestation_digest, _attestation_payload),
+        (environment_event_admission_receipt_digest, _receipt_payload),
+    ],
+)
+def test_digest_helpers_change_for_every_raw_payload_field_mutation(
+    helper: Any,
+    payload_factory: Any,
+) -> None:
+    payload = payload_factory()
+    original_digest = helper(payload)
+    for field_name, original_value in payload.items():
+        mutated_payload = {
+            **payload,
+            field_name: _raw_mutation(original_value),
+        }
+        assert helper(mutated_payload) != original_digest, field_name
+
+
 @pytest.mark.parametrize(
     ("helper", "payload", "forbidden_fields"),
     [
@@ -446,6 +481,30 @@ def test_fixed_false_and_closed_literal_fields_reject_authority_smuggling() -> N
         _receipt(issued_by="other-service/v1")
     with pytest.raises(ValidationError, match="measurement_scope"):
         _trace(measurement_scope="PRODUCTION")
+
+
+@pytest.mark.parametrize("raw_value", [0, 0.0, "false", True])
+def test_attestation_rejects_non_exact_false_with_old_content_address(
+    raw_value: Any,
+) -> None:
+    attestation = _attestation()
+    with pytest.raises(ValidationError, match="credential_reflected"):
+        PayloadAdmissionAttestation.model_validate(
+            {**attestation.model_dump(), "credential_reflected": raw_value}
+        )
+
+
+@pytest.mark.parametrize("field_name", ["grants_authority", "authorizes_effects"])
+@pytest.mark.parametrize("raw_value", [0, 0.0, "false", True])
+def test_receipt_rejects_non_exact_false_with_old_content_address(
+    field_name: str,
+    raw_value: Any,
+) -> None:
+    receipt = _receipt()
+    with pytest.raises(ValidationError, match=field_name):
+        EnvironmentEventAdmissionReceipt.model_validate(
+            {**receipt.model_dump(), field_name: raw_value}
+        )
 
 
 def test_situated_trace_enums_are_exactly_closed() -> None:
