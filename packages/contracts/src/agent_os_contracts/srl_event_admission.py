@@ -167,6 +167,7 @@ class EnvironmentEventAdmissionReceipt(ContractModel):
     event_origin_digest: Sha256Digest
     credential_lease_digest: Sha256Digest
     payload_attestation_digest: Sha256Digest
+    admission_policy_digest: Sha256Digest
     mandate_id: NonEmptyStr
     environment_binding_id: NonEmptyStr
     environment_binding_version: int = Field(ge=0)

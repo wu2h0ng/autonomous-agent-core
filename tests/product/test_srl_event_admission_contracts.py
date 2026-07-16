@@ -137,6 +137,7 @@ def _receipt_payload() -> dict[str, Any]:
         "event_origin_digest": DIGEST_B,
         "credential_lease_digest": DIGEST_C,
         "payload_attestation_digest": DIGEST_D,
+        "admission_policy_digest": DIGEST_F,
         "mandate_id": "mandate-1",
         "environment_binding_id": "binding-1",
         "environment_binding_version": 4,
@@ -161,6 +162,30 @@ def _receipt(**updates: Any) -> EnvironmentEventAdmissionReceipt:
         receipt_digest=digest,
         **payload,
     )
+
+
+def test_receipt_requires_admission_policy_digest_in_its_content_address() -> None:
+    payload = _receipt_payload()
+    payload["admission_policy_digest"] = DIGEST_F
+    digest = environment_event_admission_receipt_digest(payload)
+
+    receipt = EnvironmentEventAdmissionReceipt(
+        receipt_id=f"event-admission:{digest}",
+        receipt_digest=digest,
+        **payload,
+    )
+
+    assert receipt.admission_policy_digest == DIGEST_F
+
+    missing = _receipt_payload()
+    del missing["admission_policy_digest"]
+    missing_digest = environment_event_admission_receipt_digest(missing)
+    with pytest.raises(ValidationError, match="admission_policy_digest"):
+        EnvironmentEventAdmissionReceipt(
+            receipt_id=f"event-admission:{missing_digest}",
+            receipt_digest=missing_digest,
+            **missing,
+        )
 
 
 def _trace(**updates: Any) -> SituatedEvaluationTrace:
@@ -208,7 +233,7 @@ def _trace(**updates: Any) -> SituatedEvaluationTrace:
         (
             environment_event_admission_receipt_digest,
             _receipt_payload(),
-            "518b92b35c8a3e58c1855f65b53cb2d84c8ee0adc7fdeaaa842edde55e818f29",
+            "ab912bc32bb968ec2afc86c601d7ee3e43b06e45c8463cdffbf1ed73f996d5e5",
         ),
     ],
 )
@@ -239,7 +264,7 @@ def test_content_addressed_ids_are_exact() -> None:
     )
     assert receipt.receipt_id == (
         "event-admission:"
-        "518b92b35c8a3e58c1855f65b53cb2d84c8ee0adc7fdeaaa842edde55e818f29"
+        "ab912bc32bb968ec2afc86c601d7ee3e43b06e45c8463cdffbf1ed73f996d5e5"
     )
 
 
@@ -323,6 +348,7 @@ def test_content_addressed_ids_are_exact() -> None:
                 "event_origin_digest": DIGEST_1,
                 "credential_lease_digest": DIGEST_2,
                 "payload_attestation_digest": DIGEST_3,
+                "admission_policy_digest": DIGEST_5,
                 "mandate_id": "mandate-2",
                 "environment_binding_id": "binding-2",
                 "environment_binding_version": 5,

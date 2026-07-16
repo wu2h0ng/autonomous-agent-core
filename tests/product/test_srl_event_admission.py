@@ -6,11 +6,13 @@ import inspect
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from pathlib import Path
 from threading import Barrier
 from typing import Any, Mapping, cast
 
 import pytest
+from pydantic import BaseModel
 
 from agent_os_contracts import (
     ArtifactLocationClass,
@@ -56,6 +58,10 @@ EVENT_SCHEMA_DIGEST = "b" * 64
 PAYLOAD_POLICY_DIGEST = "c" * 64
 BINDING_DIGEST = "d" * 64
 MANDATE_DIGEST = "e" * 64
+
+
+def _admission_policy_digest(scopes: frozenset[str]) -> str:
+    return content_digest({"required_credential_scopes": tuple(sorted(scopes))})
 
 
 class _Lookup:
@@ -310,6 +316,48 @@ def _rebuilt_attestation(
     )
 
 
+def _field_mutation(value: Any) -> Any:
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, datetime):
+        return value + timedelta(microseconds=1)
+    if isinstance(value, int):
+        return value + 1
+    if isinstance(value, Enum):
+        return next(member for member in type(value) if member is not value)
+    if isinstance(value, str):
+        return f"{value}-mutated"
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={"__mutation_probe__": True})
+    if isinstance(value, tuple):
+        if value and isinstance(value[0], BaseModel):
+            first = value[0]
+            field_name = next(
+                name
+                for name in type(first).model_fields
+                if isinstance(getattr(first, name), str) and name != "schema_version"
+            )
+            changed = first.model_copy(
+                update={field_name: f"{getattr(first, field_name)}-mutated"}
+            )
+            return (changed, *value[1:])
+        return (*value, "mutation-probe")
+    raise AssertionError(f"unsupported admission field mutation: {value!r}")
+
+
+_ADMISSION_FIELD_CASES = tuple(
+    (target, field_name)
+    for target, model_type in (
+        ("event", EnvironmentEvent),
+        ("origin", EventOriginRegistration),
+        ("credential", CredentialRef),
+        ("lease", CredentialLeaseRef),
+        ("attestation", PayloadAdmissionAttestation),
+    )
+    for field_name in model_type.model_fields
+)
+
+
 def _build_service(
     tmp_path: Path,
     *,
@@ -416,12 +464,16 @@ def test_admits_canonical_event_with_current_authority_and_exact_bytes(
     assert receipt.event_origin_digest == origin.registration_digest
     assert receipt.credential_lease_digest == lease.lease_digest
     assert receipt.payload_attestation_digest == attestation.attestation_digest
+    assert receipt.admission_policy_digest == _admission_policy_digest(
+        frozenset({"events:read"})
+    )
     assert receipt.environment_binding_version == 4
     assert receipt.environment_binding_digest == BINDING_DIGEST
     assert receipt.correction_epoch == 3
     assert receipt.admitted_at == ADMITTED_AT
     assert receipt.grants_authority is False
     assert receipt.authorizes_effects is False
+    assert "opaque-key-ref" not in receipt.model_dump_json()
 
 
 @pytest.mark.parametrize(
@@ -598,6 +650,175 @@ def test_forged_content_addressed_authority_root_denies_before_write(
     assert writer.calls == 0
 
 
+@pytest.mark.parametrize(("target", "field_name"), _ADMISSION_FIELD_CASES)
+def test_every_canonical_admission_field_mutation_denies_before_write(
+    tmp_path: Path, target: str, field_name: str
+) -> None:
+    event = _event()
+    credential = _credential()
+    lease = _lease(credential)
+    origin = _origin(event, credential)
+    attestation = _attestation(event)
+    values: dict[str, BaseModel] = {
+        "event": event,
+        "origin": origin,
+        "credential": credential,
+        "lease": lease,
+        "attestation": attestation,
+    }
+    current = values[target]
+    values[target] = current.model_copy(
+        update={field_name: _field_mutation(getattr(current, field_name))}
+    )
+    mutated_event = cast(EnvironmentEvent, values["event"])
+    mutated_credential = cast(CredentialRef, values["credential"])
+    mutated_lease = cast(CredentialLeaseRef, values["lease"])
+    service, reader, writer = _build_service(
+        tmp_path,
+        event=mutated_event,
+        credential=mutated_credential,
+        lease=mutated_lease,
+        origin=cast(EventOriginRegistration, values["origin"]),
+        attestation=cast(PayloadAdmissionAttestation, values["attestation"]),
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(SituationalTrustDenied):
+        service.admit("event-1", mutated_lease.lease_id, admitted_at=ADMITTED_AT)
+
+    assert writer.calls == 0
+    assert reader.by_event_id("event-1") is None
+
+
+def test_every_field_matrix_covers_exact_model_fields() -> None:
+    expected = {
+        "event": set(EnvironmentEvent.model_fields),
+        "origin": set(EventOriginRegistration.model_fields),
+        "credential": set(CredentialRef.model_fields),
+        "lease": set(CredentialLeaseRef.model_fields),
+        "attestation": set(PayloadAdmissionAttestation.model_fields),
+    }
+    actual = {
+        target: {
+            field_name
+            for case_target, field_name in _ADMISSION_FIELD_CASES
+            if case_target == target
+        }
+        for target in expected
+    }
+    assert actual == expected
+
+
+@pytest.mark.parametrize("field_name", tuple(EnvironmentBindingAuthorization.model_fields))
+def test_every_current_binding_field_mutation_denies_or_conflicts_before_write(
+    tmp_path: Path, field_name: str
+) -> None:
+    first, _, _ = _build_service(
+        tmp_path,
+        authority=InMemorySituationalControlPlane((_mandate(),)),
+        database_name="shared.sqlite3",
+    )
+    lease = _lease(_credential())
+    first.admit("event-1", lease.lease_id, admitted_at=ADMITTED_AT)
+    mandate = _mandate()
+    binding = mandate.allowed_environment_bindings[0]
+    mutated_binding = binding.model_copy(
+        update={field_name: _field_mutation(getattr(binding, field_name))}
+    )
+    changed_authority = InMemorySituationalControlPlane(
+        (mandate.model_copy(update={"allowed_environment_bindings": (mutated_binding,)}),)
+    )
+    restarted, reader, writer = _build_service(
+        tmp_path,
+        authority=changed_authority,
+        database_name="shared.sqlite3",
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises((SituationalTrustDenied, EventAdmissionPersistenceConflict)):
+        restarted.admit(
+            "event-1", lease.lease_id, admitted_at=ADMITTED_AT + timedelta(seconds=1)
+        )
+
+    assert writer.calls == 0
+    assert reader.by_event_id("event-1") is not None
+
+
+@pytest.mark.parametrize(
+    "injected_key",
+    [
+        "registrationId",
+        "registration_id_alias",
+        "eventDigest",
+        "registration_id\u200b",
+        "ｒｅｇｉｓｔｒａｔｉｏｎ＿ｉｄ",
+    ],
+)
+def test_origin_raw_shape_alias_and_unicode_injection_denies_before_write(
+    tmp_path: Path, injected_key: str
+) -> None:
+    event = _event()
+    credential = _credential()
+    origin = _origin(event, credential).model_copy(
+        update={injected_key: "attacker-controlled"}
+    )
+    service, _, writer = _build_service(
+        tmp_path,
+        event=event,
+        credential=credential,
+        origin=origin,
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(SituationalTrustDenied, match="canonical"):
+        service.admit("event-1", _lease(credential).lease_id, admitted_at=ADMITTED_AT)
+
+    assert writer.calls == 0
+
+
+def test_nested_artifact_raw_shape_injection_denies_before_write(
+    tmp_path: Path,
+) -> None:
+    canonical = _event()
+    forged_artifact = canonical.observation.model_copy(
+        update={"contentDigest": canonical.observation.content_digest}
+    )
+    event = canonical.model_copy(update={"observation": forged_artifact})
+    credential = _credential()
+    service, _, writer = _build_service(
+        tmp_path,
+        event=event,
+        origin=_origin(event, credential),
+        attestation=_attestation(event),
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(SituationalTrustDenied, match="canonical"):
+        service.admit("event-1", _lease(credential).lease_id, admitted_at=ADMITTED_AT)
+
+    assert writer.calls == 0
+
+
+def test_resolved_artifact_unknown_field_denies_without_pydantic_equality(
+    tmp_path: Path,
+) -> None:
+    event = _event()
+    forged_resolved_ref = event.observation.model_copy(
+        update={"contentDigest": event.observation.content_digest}
+    )
+    service, _, writer = _build_service(
+        tmp_path,
+        event=event,
+        trusted_artifact=forged_resolved_ref,
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(SituationalTrustDenied, match="canonical"):
+        service.admit("event-1", _lease(_credential()).lease_id, admitted_at=ADMITTED_AT)
+
+    assert writer.calls == 0
+
+
 @pytest.mark.parametrize("status", ["paused", "revoked", "expired"])
 def test_non_active_current_mandate_denies_before_writer_call(
     tmp_path: Path, status: str
@@ -639,6 +860,31 @@ def test_restart_revalidates_current_authority_then_returns_original_bytes(
     assert replay.receipt_id == original.receipt_id
     assert replay.receipt_digest == original.receipt_digest
     assert restarted_reader.by_event_id("event-1") == original
+
+
+def test_restart_with_different_constructor_scope_policy_conflicts(
+    tmp_path: Path,
+) -> None:
+    first, _, _ = _build_service(
+        tmp_path,
+        required_scopes=frozenset({"events:read"}),
+        database_name="shared.sqlite3",
+    )
+    lease = _lease(_credential())
+    first.admit("event-1", lease.lease_id, admitted_at=ADMITTED_AT)
+    restarted, _, writer = _build_service(
+        tmp_path,
+        required_scopes=frozenset({"situated:read"}),
+        database_name="shared.sqlite3",
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(EventAdmissionPersistenceConflict):
+        restarted.admit(
+            "event-1", lease.lease_id, admitted_at=ADMITTED_AT + timedelta(minutes=1)
+        )
+
+    assert writer.calls == 0
 
 
 @pytest.mark.parametrize(
@@ -817,10 +1063,66 @@ def test_concurrent_changed_material_has_one_success_and_one_conflict(
 
 
 def test_service_api_binds_principal_and_scopes_at_construction() -> None:
+    constructor = inspect.signature(EnvironmentEventAdmissionService.__init__)
+    assert tuple(constructor.parameters) == (
+        "self",
+        "trust",
+        "authority",
+        "origins",
+        "leases",
+        "credentials",
+        "attestations",
+        "admission_reader",
+        "admission_writer",
+        "principal_id",
+        "required_credential_scopes",
+    )
     signature = inspect.signature(EnvironmentEventAdmissionService.admit)
     assert tuple(signature.parameters) == ("self", "event_id", "lease_id", "admitted_at")
     assert "principal_id" not in signature.parameters
     assert "required_credential_scopes" not in signature.parameters
+
+
+@pytest.mark.parametrize(
+    "required_scopes", [frozenset(), frozenset({""}), frozenset({"   "})]
+)
+def test_constructor_rejects_empty_required_credential_scopes(
+    tmp_path: Path, required_scopes: frozenset[str]
+) -> None:
+    with pytest.raises(ValueError, match="required credential scopes"):
+        _build_service(tmp_path, required_scopes=required_scopes)
+
+
+@pytest.mark.parametrize(
+    ("created_at", "denied"),
+    [
+        (ADMITTED_AT, False),
+        (ADMITTED_AT + timedelta(microseconds=1), True),
+    ],
+)
+def test_credential_creation_time_boundary_is_enforced_before_write(
+    tmp_path: Path, created_at: datetime, denied: bool
+) -> None:
+    credential = _credential().model_copy(update={"created_at": created_at})
+    event = _event()
+    lease = _lease(credential)
+    service, reader, writer = _build_service(
+        tmp_path,
+        event=event,
+        credential=credential,
+        lease=lease,
+        origin=_origin(event, credential),
+        writer_wrapper=_WriterSpy,
+    )
+
+    if denied:
+        with pytest.raises(SituationalTrustDenied, match="created"):
+            service.admit("event-1", lease.lease_id, admitted_at=ADMITTED_AT)
+        assert writer.calls == 0
+        assert reader.by_event_id("event-1") is None
+    else:
+        receipt = service.admit("event-1", lease.lease_id, admitted_at=ADMITTED_AT)
+        assert reader.by_event_id("event-1") == receipt
 
 
 def test_source_has_no_provider_assessor_task_or_effect_dependency() -> None:
@@ -838,6 +1140,13 @@ def test_source_has_no_provider_assessor_task_or_effect_dependency() -> None:
         for alias in node.names
     }
     forbidden_modules = {
+        "app",
+        "apps",
+        "application",
+        "connector",
+        "connectors",
+        "data_agent",
+        "dataagent",
         "provider",
         "relevance",
         "task_service",
@@ -851,7 +1160,25 @@ def test_source_has_no_provider_assessor_task_or_effect_dependency() -> None:
         "Task",
         "TaskService",
         "CapabilityBroker",
+        "ConnectorPort",
+        "DataAgent",
+        "Effect",
+        "EffectPort",
+        "AgentOSApplication",
         "RunCoordinator",
     }
-    assert not any(module.rsplit(".", 1)[-1] in forbidden_modules for module in imported_modules)
+    referenced_names = {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+    } | {
+        node.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+    }
+    assert not any(
+        forbidden_modules.intersection(module.split("."))
+        for module in imported_modules
+    )
     assert imported_names.isdisjoint(forbidden_names)
+    assert referenced_names.isdisjoint(forbidden_names)

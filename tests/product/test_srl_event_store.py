@@ -39,6 +39,7 @@ def _receipt(**updates: Any) -> EnvironmentEventAdmissionReceipt:
         "event_origin_digest": DIGESTS[1],
         "credential_lease_digest": DIGESTS[2],
         "payload_attestation_digest": DIGESTS[3],
+        "admission_policy_digest": DIGESTS[5],
         "mandate_id": "mandate-1",
         "environment_binding_id": "binding-1",
         "environment_binding_version": 4,

@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import NoReturn, Protocol
 
 from agent_os_contracts import (
+    ArtifactRef,
     CredentialLeaseRef,
     CredentialRef,
     CredentialStatus,
+    EnvironmentBindingAuthorization,
     EnvironmentEvent,
     EnvironmentEventAdmissionReceipt,
     EventOriginRegistration,
     PayloadAdmissionAttestation,
+    RatifiedMandateRef,
     canonical_json,
     content_digest,
     environment_event_admission_receipt_digest,
@@ -64,13 +68,37 @@ def _require_canonical_contract(
     value: BaseModel,
     model_type: type[BaseModel],
 ) -> None:
-    payload = canonical_json(value)
+    if type(value) is not model_type or not _has_exact_model_shape(value):
+        _deny("resolved admission authority is not canonical")
+    payload = canonical_json(value).encode("utf-8")
     try:
         decoded = model_type.model_validate_json(payload, strict=True)
     except (TypeError, ValueError):
         _deny("resolved admission authority is not canonical")
-    if decoded != value or canonical_json(decoded) != payload:
+    if (
+        not _has_exact_model_shape(decoded)
+        or canonical_json(decoded).encode("utf-8") != payload
+    ):
         _deny("resolved admission authority is not canonical")
+
+
+def _has_exact_model_shape(value: object) -> bool:
+    if isinstance(value, BaseModel):
+        expected_fields = set(type(value).model_fields)
+        if set(value.__dict__) != expected_fields:
+            return False
+        extras = getattr(value, "__pydantic_extra__", None)
+        if extras not in (None, {}):
+            return False
+        return all(_has_exact_model_shape(item) for item in value.__dict__.values())
+    if isinstance(value, Mapping):
+        return all(
+            _has_exact_model_shape(key) and _has_exact_model_shape(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return all(_has_exact_model_shape(item) for item in value)
+    return True
 
 
 class EnvironmentEventAdmissionService:
@@ -100,6 +128,17 @@ class EnvironmentEventAdmissionService:
         self._admission_writer = admission_writer
         self._principal_id = principal_id
         self._required_credential_scopes = frozenset(required_credential_scopes)
+        if not self._required_credential_scopes or any(
+            not scope.strip() for scope in self._required_credential_scopes
+        ):
+            raise ValueError("required credential scopes must be nonempty")
+        self._admission_policy_digest = content_digest(
+            {
+                "required_credential_scopes": tuple(
+                    sorted(self._required_credential_scopes)
+                )
+            }
+        )
 
     def admit(
         self,
@@ -146,6 +185,8 @@ class EnvironmentEventAdmissionService:
             _deny("current credential does not match canonical admission material")
         if credential.status is not CredentialStatus.ACTIVE:
             _deny("current credential is not active")
+        if credential.created_at > evaluated_at:
+            _deny("current credential was created after admission time")
         if (
             origin.principal_id != self._principal_id
             or lease.principal_id != self._principal_id
@@ -189,6 +230,8 @@ class EnvironmentEventAdmissionService:
             workspace_id=event.workspace_id,
             evaluated_at=evaluated_at,
         )
+        _require_canonical_contract(mandate, RatifiedMandateRef)
+        _require_canonical_contract(binding, EnvironmentBindingAuthorization)
         if (
             mandate.mandate_id != event.mandate_id
             or mandate.tenant_id != event.tenant_id
@@ -210,9 +253,15 @@ class EnvironmentEventAdmissionService:
             _deny("payload attestation does not bind the canonical event")
 
         resolved_artifact = self._trust.resolve_artifact(event.observation.artifact_id)
-        if resolved_artifact is None or resolved_artifact[0] != event.observation:
+        if resolved_artifact is None:
             _deny("exact observation artifact is unavailable")
-        if "situated:read" not in resolved_artifact[0].acl_scopes:
+        resolved_ref = resolved_artifact[0]
+        _require_canonical_contract(resolved_ref, ArtifactRef)
+        if canonical_json(resolved_ref).encode("utf-8") != canonical_json(
+            event.observation
+        ).encode("utf-8"):
+            _deny("exact observation artifact is unavailable")
+        if "situated:read" not in resolved_ref.acl_scopes:
             _deny("observation artifact lacks situated read scope")
         if hashlib.sha256(resolved_artifact[1]).hexdigest() != event.observation.content_digest:
             _deny("observation artifact bytes do not match canonical digest")
@@ -224,6 +273,7 @@ class EnvironmentEventAdmissionService:
             "event_origin_digest": origin.registration_digest,
             "credential_lease_digest": lease.lease_digest,
             "payload_attestation_digest": attestation.attestation_digest,
+            "admission_policy_digest": self._admission_policy_digest,
             "mandate_id": mandate.mandate_id,
             "environment_binding_id": binding.environment_binding_id,
             "environment_binding_version": binding.version,
