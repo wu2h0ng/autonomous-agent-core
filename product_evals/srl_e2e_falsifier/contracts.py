@@ -151,6 +151,21 @@ def public_responsibility_state_digest(payload: Mapping[str, Any]) -> str:
     return content_digest(_with_schema_version(payload))
 
 
+def _require_unique_public_entry_references(
+    *,
+    event_entry_digests: tuple[str, ...],
+    projection_entry_digests: tuple[str, ...],
+    evidence_entry_digests: tuple[str, ...],
+) -> None:
+    for entry_digests in (
+        event_entry_digests,
+        projection_entry_digests,
+        evidence_entry_digests,
+    ):
+        if len(entry_digests) != len(set(entry_digests)):
+            raise ValueError("public entry references must be unique within each role")
+
+
 class PublicResponsibilityState(ContractModel):
     """Digest-only syntax; custody requires PublicResponsibilityStateVerifier."""
 
@@ -167,6 +182,11 @@ class PublicResponsibilityState(ContractModel):
 
     @model_validator(mode="after")
     def _validate_state_digest(self) -> PublicResponsibilityState:
+        _require_unique_public_entry_references(
+            event_entry_digests=self.event_entry_digests,
+            projection_entry_digests=self.projection_entry_digests,
+            evidence_entry_digests=self.evidence_entry_digests,
+        )
         payload = self.model_dump(mode="json", exclude={"state_digest"})
         if self.state_digest != public_responsibility_state_digest(payload):
             raise ValueError("state_digest does not match canonical state fields")
@@ -223,6 +243,11 @@ class PublicResponsibilityStateVerifier:
         evidence_entry_digests: tuple[Sha256Digest, ...],
         static_budget_entry_digest: Sha256Digest,
     ) -> PublicResponsibilityState:
+        _require_unique_public_entry_references(
+            event_entry_digests=event_entry_digests,
+            projection_entry_digests=projection_entry_digests,
+            evidence_entry_digests=evidence_entry_digests,
+        )
         entries = cls._verify_manifest_bytes(manifest, content_by_entry_digest)
         cls._require_role(entries, mission_entry_digest, PublicContentRole.MISSION)
         for digest in event_entry_digests:

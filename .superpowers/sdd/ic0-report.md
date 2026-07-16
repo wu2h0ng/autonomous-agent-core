@@ -6,6 +6,7 @@
 - Initial implementation: `6db6f0d`
 - First leakage repair: `f4a9aef`
 - Custody repair: recorded by the commit containing this report
+- Duplicate-reference repair: recorded by the commit containing this report
 
 ## Current implementation
 
@@ -22,7 +23,9 @@
 - a digest-only `PublicResponsibilityState`: manifest root, mandate/binding
   digests, correction epoch, one mission entry digest, ordered event,
   projection and evidence entry digests, one static-budget entry digest, and
-  its derived state digest;
+  its derived state digest. Event, projection and evidence references are
+  duplicate-free within their respective role, closing tuple multiplicity as
+  an arm-visible covert channel;
 - `PublicResponsibilityStateVerifier`, the required trusted construction and
   verification seam. It checks every manifest entry against supplied canonical
   bytes, exact roles, referenced-entry presence, state/manifest root equality,
@@ -50,6 +53,13 @@ focused suite covers:
 - required closed media type rather than a silent content-class default;
 - identical canonical state bytes for identical public inputs, with no arm
   metadata accepted by the builder;
+- duplicate event, projection and evidence entry references rejected by raw
+  model validation, trusted construction and verification even when model
+  construction validation is deliberately bypassed;
+- every IC-0 digest helper and integrity validator passing a normalized
+  mapping payload to `content_digest`, locking the local path against the
+  known upstream BaseModel/mapping canonicalization asymmetry without changing
+  shared `common.py`;
 - candidate-kind digest sensitivity isolated through the canonical digest
   helper;
 - the pre-existing proposal shape, no-effect and binding-receipt attack cases.
@@ -58,7 +68,7 @@ focused suite covers:
 
 | Gate | Result |
 | --- | --- |
-| Focused `tests/product_eval/test_srl_e2e_contracts.py` | `83 passed` |
+| Focused `tests/product_eval/test_srl_e2e_contracts.py` | `93 passed` |
 | Product `tests/product` | `742 passed, 1 skipped` |
 | Scoped/project Ruff command | `All checks passed` |
 | Project Pyright | `0 errors, 0 warnings` |

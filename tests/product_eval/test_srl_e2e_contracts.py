@@ -17,7 +17,7 @@ import json
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agent_os_contracts import canonical_json, content_digest
 from product_evals.srl_e2e_falsifier.contracts import (
@@ -40,6 +40,7 @@ from product_evals.srl_e2e_falsifier.contracts import (
     static_budget_configuration_bytes,
     static_budget_configuration_digest,
 )
+from product_evals.srl_e2e_falsifier import contracts as srl_e2e_contracts
 
 
 def _digest_of(text: str) -> str:
@@ -646,6 +647,112 @@ class TestPublicResponsibilityState:
             PublicResponsibilityState.model_validate(
                 {**state.model_dump(mode="json"), "state_digest": _digest_of("fake")}
             )
+
+    @pytest.mark.parametrize(
+        "field_name",
+        (
+            "event_entry_digests",
+            "projection_entry_digests",
+            "evidence_entry_digests",
+        ),
+    )
+    def test_raw_state_rejects_duplicate_public_entry_references(
+        self, field_name: str
+    ) -> None:
+        state = _verified_state()
+        payload = state.model_dump(mode="json", exclude={"state_digest"})
+        entry_digest = payload[field_name][0]
+        payload[field_name] = (entry_digest, entry_digest)
+        payload["state_digest"] = public_responsibility_state_digest(payload)
+
+        with pytest.raises(ValidationError, match="unique"):
+            PublicResponsibilityState.model_validate(payload)
+
+    @pytest.mark.parametrize(
+        ("field_name", "builder_argument"),
+        (
+            ("event_entry_digests", "event_entry_digests"),
+            ("projection_entry_digests", "projection_entry_digests"),
+            ("evidence_entry_digests", "evidence_entry_digests"),
+        ),
+    )
+    def test_trusted_builder_rejects_duplicate_public_entry_references(
+        self, field_name: str, builder_argument: str
+    ) -> None:
+        manifest, contents, budget = _manifest_fixture()
+        indexes = {
+            "event_entry_digests": 1,
+            "projection_entry_digests": 2,
+            "evidence_entry_digests": 3,
+        }
+        duplicate = manifest.entries[indexes[field_name]].entry_digest
+        arguments: dict[str, Any] = {
+            "manifest": manifest,
+            "content_by_entry_digest": contents,
+            "static_budget_configuration": budget,
+            "mandate_digest": MANDATE_DIGEST,
+            "environment_binding_digest": BINDING_DIGEST,
+            "correction_epoch": 0,
+            "mission_entry_digest": manifest.entries[0].entry_digest,
+            "event_entry_digests": (manifest.entries[1].entry_digest,),
+            "projection_entry_digests": (manifest.entries[2].entry_digest,),
+            "evidence_entry_digests": (manifest.entries[3].entry_digest,),
+            "static_budget_entry_digest": manifest.entries[4].entry_digest,
+        }
+        arguments[builder_argument] = (duplicate, duplicate)
+
+        with pytest.raises(ValueError, match="unique"):
+            PublicResponsibilityStateVerifier.build(**arguments)
+
+    @pytest.mark.parametrize(
+        "field_name",
+        (
+            "event_entry_digests",
+            "projection_entry_digests",
+            "evidence_entry_digests",
+        ),
+    )
+    def test_verifier_rejects_bypassed_duplicate_public_entry_references(
+        self, field_name: str
+    ) -> None:
+        state = _verified_state()
+        payload = state.model_dump(mode="json", exclude={"state_digest"})
+        entry_digest = payload[field_name][0]
+        payload[field_name] = (entry_digest, entry_digest)
+        payload["state_digest"] = public_responsibility_state_digest(payload)
+        bypassed = PublicResponsibilityState.model_construct(**payload)
+        manifest, contents, budget = _manifest_fixture()
+
+        with pytest.raises(ValueError, match="unique"):
+            PublicResponsibilityStateVerifier.verify(
+                state=bypassed,
+                manifest=manifest,
+                content_by_entry_digest=contents,
+                static_budget_configuration=budget,
+            )
+
+    def test_ic0_digest_helpers_use_mapping_payloads_consistently(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        observed_payloads: list[object] = []
+        real_content_digest = content_digest
+
+        def recording_content_digest(value: object) -> str:
+            observed_payloads.append(value)
+            assert isinstance(value, dict)
+            assert not isinstance(value, BaseModel)
+            return real_content_digest(value)
+
+        monkeypatch.setattr(
+            srl_e2e_contracts, "content_digest", recording_content_digest
+        )
+
+        _manifest_fixture()
+        _verified_state()
+        _sealed(_work_payload())
+        ControllerBindingReceipt.model_validate(_receipt_payload())
+
+        assert observed_payloads
 
 
 class TestBudgetFeedback:
