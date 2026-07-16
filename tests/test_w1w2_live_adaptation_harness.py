@@ -310,6 +310,29 @@ class TestCheapBaselineDefinitions(unittest.TestCase):
         record = harness.run("offline-optimal", 0, 10, auth.receipt_id)
         self.assertEqual(record.run_status, "RUN_DENIED")
 
+    def test_non_positive_horizon_is_denied_before_authorization_consumption(
+        self,
+    ) -> None:
+        class CountingResolver(RunAuthorizationResolver):
+            def __init__(self) -> None:
+                self.consume_calls = 0
+
+            def consume(self, receipt_id, expected):
+                del receipt_id, expected
+                self.consume_calls += 1
+                return None
+
+        harness = _make_harness()
+        resolver = CountingResolver()
+        harness._run_authorization_resolver = resolver
+        record = harness.run("frozen", 0, 0, "zero-auth")
+        self.assertEqual(record.run_status, "RUN_DENIED")
+        self.assertEqual(resolver.consume_calls, 0)
+
+    def test_characterization_rejects_non_positive_horizon(self) -> None:
+        with self.assertRaisesRegex(ValueError, "positive"):
+            _make_harness().characterize("frozen", 0, 0)
+
     def test_quality_uses_authorized_step_denominator_and_reports_coverage(
         self,
     ) -> None:

@@ -871,6 +871,8 @@ class FalsifierHarness:
         allow_run: bool,
         arm_factory: ArmFactory | None = None,
     ) -> CharacterizationRecord:
+        if n_steps <= 0:
+            raise ValueError("authorized n_steps must be positive")
         if arm_name == "scheduled-known":
             switch_points = (
                 (self._switch_at,)
@@ -1038,6 +1040,14 @@ class FalsifierHarness:
         authorization_receipt_id: str | None,
     ) -> FalsifierRunRecord:
         run_id = f"run-{uuid4().hex}"
+        if n_steps <= 0:
+            return FalsifierRunRecord(
+                run_id=run_id,
+                arm_name=arm_name,
+                seed=seed,
+                n_steps=n_steps,
+                run_status="RUN_DENIED",
+            )
         spec = self.arm_spec(arm_name)
         if (
             not spec.online_executable
