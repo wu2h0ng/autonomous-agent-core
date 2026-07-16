@@ -1,0 +1,181 @@
+"""Neutral actor interface for R-STATE-CREDIT-1 Phase 2.
+
+The interface is provider-neutral: a stub actor is included for local
+qualification, and the same interface can be implemented by a provider-backed
+actor later.  No provider call, model inference, or external side effect occurs
+in this module.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from experiments.r_state_credit_1.action_grammar import ActorAction
+from experiments.r_state_credit_1.contracts import canonical_json
+from experiments.r_state_credit_1.observation import Observation
+
+
+@dataclass(frozen=True, slots=True)
+class ActorRequest:
+    """Neutral request delivered to an actor at a checkpoint.
+
+    Contains only the observable prefix released so far, a neutral session
+    label, the turn index, and the frozen valid action grammar.  No arm
+    identity, family identifier, checkpoint ordinal, sealed label, or future
+    events are present.
+    """
+
+    observations: tuple[Observation, ...]
+    turn_index: int
+    valid_actions: tuple[ActorAction, ...]
+    session_label: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.observations, tuple):
+            raise ValueError("observations must be a tuple")
+        if any(not isinstance(obs, Observation) for obs in self.observations):
+            raise ValueError("observations must contain Observation values")
+        if (
+            not isinstance(self.turn_index, int)
+            or isinstance(self.turn_index, bool)
+            or self.turn_index < 0
+        ):
+            raise ValueError("turn_index must be a non-negative integer")
+        if not isinstance(self.valid_actions, tuple) or not self.valid_actions:
+            raise ValueError("valid_actions must be a non-empty tuple")
+        if any(
+            not isinstance(action, ActorAction) for action in self.valid_actions
+        ):
+            raise ValueError("valid_actions must contain ActorAction values")
+        if len(self.valid_actions) != len(
+            {action.value for action in self.valid_actions}
+        ):
+            raise ValueError("valid_actions must not contain duplicates")
+        if not isinstance(self.session_label, str) or not self.session_label:
+            raise ValueError("session_label must be non-empty text")
+
+    def to_mapping(self) -> dict[str, object]:
+        """Return a closed mapping for canonical serialization."""
+        return {
+            "observations": tuple(
+                obs.canonical_json() for obs in self.observations
+            ),
+            "turn_index": self.turn_index,
+            "valid_actions": tuple(action.value for action in self.valid_actions),
+            "session_label": self.session_label,
+        }
+
+    def to_canonical_json(self) -> str:
+        """Return deterministic compact JSON for byte-budget measurement."""
+        return canonical_json(self.to_mapping())
+
+
+@dataclass(frozen=True, slots=True)
+class ActorResponse:
+    """Neutral response from an actor.
+
+    Contains only the chosen action and optional free-text notes.
+    """
+
+    action: ActorAction
+    notes: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.action, ActorAction):
+            raise ValueError("action must be ActorAction")
+        if self.notes is not None and (
+            not isinstance(self.notes, str) or not self.notes.strip()
+        ):
+            raise ValueError("notes must be non-empty text when provided")
+
+    def to_mapping(self) -> dict[str, object]:
+        """Return a closed mapping for canonical serialization."""
+        result: dict[str, object] = {"action": self.action.value}
+        if self.notes is not None:
+            result["notes"] = self.notes
+        return result
+
+
+class Actor(Protocol):
+    """Provider-neutral actor protocol."""
+
+    def act(self, request: ActorRequest) -> ActorResponse: ...
+
+
+class StubActor:
+    """Deterministic rule-based actor for local qualification.
+
+    Chooses from the frozen action grammar based on the most recent
+    observation.  No provider call or model inference occurs.
+    """
+
+    # Priority order used when the rule-based choice is not in valid_actions.
+    _PRIORITY: tuple[ActorAction, ...] = (
+        ActorAction.RECOVER_ROLLBACK,
+        ActorAction.RECOVER_ROLL_FORWARD,
+        ActorAction.REVIEW,
+        ActorAction.VERIFY_EFFECT,
+        ActorAction.ABSTAIN,
+        ActorAction.CONTINUE,
+    )
+
+    def act(self, request: ActorRequest) -> ActorResponse:
+        """Return a deterministic action from ``request.valid_actions``."""
+        chosen = self._choose(request)
+        if chosen not in request.valid_actions:
+            chosen = next(
+                action for action in self._PRIORITY
+                if action in request.valid_actions
+            )
+        return ActorResponse(action=chosen)
+
+    def _choose(self, request: ActorRequest) -> ActorAction:
+        """Rule-based action selection from the observable prefix."""
+        if not request.observations:
+            return ActorAction.ABSTAIN
+        last = request.observations[-1]
+        event_class = last.event_class
+        payload = last.payload
+
+        if event_class == "DETERMINISTIC_RECOVERY":
+            recovery_action = payload.get("recovery_action")
+            if recovery_action == "ROLLBACK":
+                return ActorAction.RECOVER_ROLLBACK
+            if recovery_action == "ROLL_FORWARD":
+                return ActorAction.RECOVER_ROLL_FORWARD
+            return ActorAction.REVIEW
+
+        review_classes = {
+            "ALIAS_REBIND",
+            "OBJECT_VERSION_CHANGE",
+            "SIMULTANEOUS_CONFLICTING_EVIDENCE",
+            "PRECONDITION_REFUTATION",
+            "OUT_OF_ORDER_TRANSACTION",
+            "HALF_OPEN_VALID_TIME_BOUNDARY",
+            "LATE_REFUTATION",
+            "TRANSITIVE_INVALIDATION",
+            "ASSERTION_SUPERSESSION",
+            "DELAYED_DEPENDENT_ACTION",
+        }
+        if event_class in review_classes:
+            return ActorAction.REVIEW
+
+        verify_classes = {
+            "PROCESS_RESTART",
+            "ACTION_DISPATCH",
+            "INTERRUPTION_BEFORE_EFFECT_VERIFICATION",
+            "RECEIPT_LOSS",
+        }
+        if event_class in verify_classes:
+            return ActorAction.VERIFY_EFFECT
+
+        abstain_classes = {
+            "PENDING_COMMITMENT",
+            "PROTECTED_STATE_AT_BOUND",
+            "REPRESENTATION_PRESSURE",
+        }
+        if event_class in abstain_classes:
+            return ActorAction.ABSTAIN
+
+        return ActorAction.CONTINUE

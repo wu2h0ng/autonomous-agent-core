@@ -46,7 +46,56 @@ ruff check experiments/r_state_credit_1/interactive_env.py experiments/r_state_c
 - `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` §3–4
 - `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` §2–4
 
+## Phase 2 — Arm blinding and neutral actor interface
+
+Phase 2 adds the experimental controls needed to compare representation arms
+without confounding by arm identity, call order, or embedded action policy.
+
+### New modules
+
+- `action_grammar.py` — Frozen `ActorAction` grammar: `REVIEW`, `VERIFY_EFFECT`,
+  `ABSTAIN`, `CONTINUE`, `RECOVER_ROLLBACK`, `RECOVER_ROLL_FORWARD`.  Validation
+  helpers enforce the closed set.
+- `actor_interface.py` — `ActorRequest` and `ActorResponse` contracts.  The
+  request contains only the observable prefix released so far, `turn_index`,
+  `valid_actions`, and a neutral `session_label`.  No `arm_id`, family,
+  checkpoint ordinal, sealed label, or future events are present.  Includes a
+  deterministic `StubActor` that can be replaced by a provider-backed actor
+  later.
+- `arm_blinding.py` — `ArmBlinding`: maps real arm identities to the neutral
+  labels `arm-a`, `arm-b`, `arm-c`, `arm-d` per episode and checkpoint.  Call
+  order is a uniform random permutation derived from the episode seed and
+  checkpoint ordinal; reverse mapping is runner-only.
+- `tests/test_r_state_credit_1_arm_blinding.py` — Phase 2 qualification tests:
+  byte-level absence of real arm names and role hints, χ² call-order uniformity,
+  independence of call order from family/seed, neutral-label enforcement, and
+  runner-only reverse mapping.
+
+### Running Phase 2 tests
+
+```bash
+.venv/bin/python -m pytest tests/test_r_state_credit_1_arm_blinding.py -v
+```
+
+To verify that Phase 1 and the existing corpus/scorer tests still pass:
+
+```bash
+.venv/bin/python -m pytest tests/test_r_state_credit_1_interactive_env.py tests/test_r_state_credit_1_real_corpus.py tests/test_r_state_credit_1_real_scorer.py -q
+```
+
+Lint and type-check the new files:
+
+```bash
+ruff check experiments/r_state_credit_1/arm_blinding.py experiments/r_state_credit_1/actor_interface.py experiments/r_state_credit_1/action_grammar.py tests/test_r_state_credit_1_arm_blinding.py
+.venv/bin/python -m pyright experiments/r_state_credit_1/arm_blinding.py experiments/r_state_credit_1/actor_interface.py experiments/r_state_credit_1/action_grammar.py tests/test_r_state_credit_1_arm_blinding.py
+```
+
+### Design anchors
+
+- `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` §5
+- `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` §6 G3–G5
+
 ## Status
 
-Phase 1 implementation only.  No provider calls, no model inference, no
+Phases 1–2 implementation only.  No provider calls, no model inference, no
 result-bearing run, and no freeze are created by this code.
