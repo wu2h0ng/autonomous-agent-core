@@ -2,8 +2,8 @@
 
 > Date: `2026-07-16`
 > Branch: `codex/r-state-credit-1-real-bindings-20260715`
-> Review target head: `664e746e8ca0170fd33922c67b994cf944d985a7`
-> Working-tree HEAD at document creation: `1aa242a3b9deae4a1f8cc9ebb6fc55c01a4ba700` (only `docs/CURRENT_STATE.yaml` updated after `664e746`)
+> Review target head: `44de1aebb8b5a16b60e11e2e51c5c68c46006913`
+> Working-tree HEAD at document creation: `0474c30` (state update after fixes at `44de1ae`)
 > Status: `IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Track: `Research Track`
 > Claim class: `research-automation` — candidate-byte implementation only. Not product, not autonomy, not evidence.
@@ -67,20 +67,20 @@ SHA-256 computed from the worktree at document creation.
 
 | Path | SHA-256 |
 |---|---|
-| `experiments/r_state_credit_1/interactive_env.py` | `798fa2097c9fdcecc1e026f980e4ef902c78c96e7c414bebdc83da038011f229` |
+| `experiments/r_state_credit_1/interactive_env.py` | `1ee65dc38df612409c250cdd5790c781b20c785b34524e5130e7e90e84a07f02` |
 | `experiments/r_state_credit_1/episode_generator.py` | `2685895ee5bb02b27420c68d5928fdda10613b9c53b24b67248dd68cb951fe43` |
-| `experiments/r_state_credit_1/observation.py` | `850d8514547ebeb4ce07bfca04e0da7d5f35b71a5b364b26306697f2fbb30ca9` |
-| `experiments/r_state_credit_1/arm_blinding.py` | `60d1214c7959a2a31cca5a0f00c8d3fee280ea6b7a5bfbab3f4c8677934ebe76` |
-| `experiments/r_state_credit_1/actor_interface.py` | `96ef425491ac20fb90865fa9a1a1a73e8aa04d6e681d77f305f472177bf5e06a` |
+| `experiments/r_state_credit_1/observation.py` | `b07db0e872adcea5bf40df64889ed8f92a0fc9cddcba85f596ff8a6558ea53bf` |
+| `experiments/r_state_credit_1/arm_blinding.py` | `bab9d34352d7e48f034f11dbab258555b40f6d081fa204f7317e84d037a145ae` |
+| `experiments/r_state_credit_1/actor_interface.py` | `ead674ca87964ee8893e73f9193491b9bd0770aead6f6533b6a47e1c7461d5ec` |
 | `experiments/r_state_credit_1/action_grammar.py` | `7fbf5415f0bafc596cfb40195a9e34ea88e559088ce53203a4c9a50753964a98` |
 | `experiments/r_state_credit_1/authority_artifacts.py` | `69c290c9a96ce54647f9fd50273b65dc5e3cd7dbc8838e6d243c03f5e9261d35` |
 | `experiments/r_state_credit_1/signature_backend.py` | `066757e3a58c4b439b8e3058d2a0bc220be46e36488603e9a23c92f9c9d00e76` |
-| `experiments/r_state_credit_1/authority_verifier.py` | `ef1d14507774607f06b8440d73e5d9ec5fac29dc3050ca8f0a61e40eaa443024` |
+| `experiments/r_state_credit_1/authority_verifier.py` | `3afdae0a32d367cbc7be65109bb0a4db510aea31ef1607f3b506c3952e588f7b` |
 | `experiments/r_state_credit_1/recast_readme.md` | `8dfebafe64a83158c0af67593f8836a0772e412b8523d171f0a3f41004ec2004` |
-| `tests/test_r_state_credit_1_interactive_env.py` | `cc8806241ff123a66db52091353b6fde5e071770f79a25ae1843277f0b5c53c8` |
-| `tests/test_r_state_credit_1_arm_blinding.py` | `2cb1fe74e68d94dfb02de72345ab097ac75e6cb8928293c86848c8f7a46b9b39` |
-| `tests/test_r_state_credit_1_authority_verifier.py` | `a8ab171f8de54b221406306b78d899961414603db6aa9a81e4620515f12c833f` |
-| `tests/test_r_state_credit_1_recast_integration.py` | `71fa21f0111600878e3ca9956f5968fbc92554721fb0a690d67832e0f72021bf` |
+| `tests/test_r_state_credit_1_interactive_env.py` | `c601745debf8d815ccc1098a5b0392d33f6bb885e694ffd39c157e5d1dbb290d` |
+| `tests/test_r_state_credit_1_arm_blinding.py` | `2a93dbee7ee5e2f30981fc6a1cc7f85e0223eadbbccf459929e723a637a06214` |
+| `tests/test_r_state_credit_1_authority_verifier.py` | `63e760c565214dfc8fd9a039c7f0819c93c62790e6231219a2c1b1b2c97b034f` |
+| `tests/test_r_state_credit_1_recast_integration.py` | `068cfe291f2e88fce5104863425d2533542be1f38c77583452aaee37bb2d6077` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `a743dac0ec93aaf8b99c0ed15556623ab9df11822bc45f9b35e5d29b0c03f75e` |
