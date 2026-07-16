@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -20,6 +23,88 @@ class FrozenUnit:
     mission_path: Path
     events_path: Path
     expected_outcomes_path: Path
+
+
+@dataclass(frozen=True)
+class ArmBudget:
+    max_llm_calls: int
+    max_input_tokens: int
+    max_output_tokens: int
+    max_retries: int
+    max_tool_invocations: int
+    max_wall_seconds: float
+
+
+@dataclass(frozen=True)
+class BudgetEntry:
+    """Immutable charge entry for the arm/unit budget ledger.
+
+    ``kind`` is one of the canonical budget dimensions; ``amount`` is the
+    quantity to add (calls, tokens, retries, tool invocations, or elapsed
+    wall seconds).
+    """
+
+    kind: Literal[
+        "llm_call",
+        "input_tokens",
+        "output_tokens",
+        "retry",
+        "tool_invocation",
+        "wall_seconds",
+    ]
+    amount: int | float
+
+    @classmethod
+    def llm_call(cls, calls: int = 1) -> BudgetEntry:
+        return cls(kind="llm_call", amount=calls)
+
+    @classmethod
+    def input_tokens(cls, tokens: int) -> BudgetEntry:
+        return cls(kind="input_tokens", amount=tokens)
+
+    @classmethod
+    def output_tokens(cls, tokens: int) -> BudgetEntry:
+        return cls(kind="output_tokens", amount=tokens)
+
+    @classmethod
+    def retry(cls, retries: int = 1) -> BudgetEntry:
+        return cls(kind="retry", amount=retries)
+
+    @classmethod
+    def tool_invocation(cls, invocations: int = 1) -> BudgetEntry:
+        return cls(kind="tool_invocation", amount=invocations)
+
+    @classmethod
+    def wall_seconds(cls, seconds: float) -> BudgetEntry:
+        return cls(kind="wall_seconds", amount=seconds)
+
+
+class BudgetExceeded(Exception):
+    """Raised when an arm/unit exceeds its frozen budget."""
+
+
+@dataclass(frozen=True)
+class TestReport:
+    test_path: str
+    passed: bool
+    artifact_ref: str
+    stdout: str
+    stderr: str
+
+
+@dataclass(frozen=True)
+class TestResult:
+    exit_code: int
+    stdout: str
+    stderr: str
+    reports: tuple[TestReport, ...]
+
+
+@dataclass(frozen=True)
+class BuildResult:
+    exit_code: int
+    stdout: str
+    stderr: str
 
 
 def _parse_digest(value: str) -> tuple[str, str]:
@@ -85,12 +170,18 @@ def verify_manifest(unit: FrozenUnit) -> bool:
     for filename, expected_raw in unit.manifest.items():
         algorithm, expected_digest = _parse_digest(expected_raw)
         if algorithm != "sha256":
-            raise ValueError(f"unsupported digest algorithm '{algorithm}' for {filename}")
+            raise ValueError(
+                f"unsupported digest algorithm '{algorithm}' for {filename}"
+            )
         path = unit.snapshot_path if filename == unit.snapshot_path.name else None
-        path = path or (unit.mission_path if filename == unit.mission_path.name else None)
+        path = path or (
+            unit.mission_path if filename == unit.mission_path.name else None
+        )
         path = path or (unit.events_path if filename == unit.events_path.name else None)
         path = path or (
-            unit.expected_outcomes_path if filename == unit.expected_outcomes_path.name else None
+            unit.expected_outcomes_path
+            if filename == unit.expected_outcomes_path.name
+            else None
         )
         if path is None:
             # Allow manifest entries for files not tracked by FrozenUnit (e.g. per-file sha256 sidecars).
@@ -125,6 +216,123 @@ def _is_dangerous_path(path: str) -> bool:
     return False
 
 
+class BudgetLedger:
+    """Matched-arm budget ledger for R-SRL-1.
+
+    Tracks LLM calls, tokens, retries, tool invocations and wall time per
+    arm/unit.  Charges are cumulative; crossing any frozen budget dimension
+    raises ``BudgetExceeded`` so the caller can mark the unit ``INVALID``.
+    """
+
+    def __init__(self, budgets: dict[str, ArmBudget]):
+        self._budgets = dict(budgets)
+        # Per (arm_id, unit_id) usage counters.
+        self._usage: dict[tuple[str, str], dict[str, int | float]] = {}
+        # Per (arm_id, unit_id) first-charge timestamp for wall-time accounting.
+        self._start_times: dict[tuple[str, str], float] = {}
+
+    def _ensure_slot(self, arm_id: str, unit_id: str) -> None:
+        key = (arm_id, unit_id)
+        if key not in self._usage:
+            self._usage[key] = {
+                "llm_calls": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "retries": 0,
+                "tool_invocations": 0,
+                "wall_seconds": 0.0,
+            }
+        self._start_times.setdefault(key, time.monotonic())
+
+    def _budget_for(self, arm_id: str) -> ArmBudget:
+        if arm_id not in self._budgets:
+            raise ValueError(f"no budget configured for arm_id: {arm_id}")
+        return self._budgets[arm_id]
+
+    def _check_budget(
+        self,
+        arm_id: str,
+        unit_id: str,
+        key: str,
+        limit: int | float,
+        used: int | float,
+        amount: int | float,
+    ) -> None:
+        if used + amount > limit:
+            raise BudgetExceeded(
+                f"arm {arm_id} unit {unit_id} would exceed {key} budget: "
+                f"{used} + {amount} > {limit}"
+            )
+
+    def charge(self, arm_id: str, unit_id: str, entry: BudgetEntry) -> None:
+        """Apply a budget charge and hard-stop on any exceeded dimension."""
+        self._ensure_slot(arm_id, unit_id)
+        budget = self._budget_for(arm_id)
+        usage = self._usage[(arm_id, unit_id)]
+
+        mapping: dict[str, tuple[str, str, int | float]] = {
+            "llm_call": ("llm_calls", "max_llm_calls", budget.max_llm_calls),
+            "input_tokens": (
+                "input_tokens",
+                "max_input_tokens",
+                budget.max_input_tokens,
+            ),
+            "output_tokens": (
+                "output_tokens",
+                "max_output_tokens",
+                budget.max_output_tokens,
+            ),
+            "retry": ("retries", "max_retries", budget.max_retries),
+            "tool_invocation": (
+                "tool_invocations",
+                "max_tool_invocations",
+                budget.max_tool_invocations,
+            ),
+            "wall_seconds": (
+                "wall_seconds",
+                "max_wall_seconds",
+                budget.max_wall_seconds,
+            ),
+        }
+        usage_key, _budget_key, limit = mapping[entry.kind]
+        self._check_budget(
+            arm_id, unit_id, usage_key, limit, usage[usage_key], entry.amount
+        )
+        usage[usage_key] = usage[usage_key] + entry.amount  # type: ignore[assignment]
+
+    def remaining_wall_seconds(self, arm_id: str, unit_id: str) -> float:
+        """Return remaining wall-time budget for the arm/unit."""
+        self._ensure_slot(arm_id, unit_id)
+        budget = self._budget_for(arm_id)
+        return budget.max_wall_seconds - self._usage[(arm_id, unit_id)]["wall_seconds"]
+
+    def get_budget_summary(self, arm_id: str, unit_id: str) -> dict[str, Any]:
+        """Return budget limits, current usage and remaining per dimension."""
+        self._ensure_slot(arm_id, unit_id)
+        budget = self._budget_for(arm_id)
+        usage = self._usage[(arm_id, unit_id)]
+        return {
+            "budget": {
+                "max_llm_calls": budget.max_llm_calls,
+                "max_input_tokens": budget.max_input_tokens,
+                "max_output_tokens": budget.max_output_tokens,
+                "max_retries": budget.max_retries,
+                "max_tool_invocations": budget.max_tool_invocations,
+                "max_wall_seconds": budget.max_wall_seconds,
+            },
+            "used": dict(usage),
+            "remaining": {
+                "llm_calls": budget.max_llm_calls - usage["llm_calls"],
+                "input_tokens": budget.max_input_tokens - usage["input_tokens"],
+                "output_tokens": budget.max_output_tokens - usage["output_tokens"],
+                "retries": budget.max_retries - usage["retries"],
+                "tool_invocations": budget.max_tool_invocations
+                - usage["tool_invocations"],
+                "wall_seconds": budget.max_wall_seconds - usage["wall_seconds"],
+            },
+        }
+
+
 class RsrlEventGateway:
     """In-memory event gateway for R-SRL-1 units.
 
@@ -133,13 +341,20 @@ class RsrlEventGateway:
     another arm's runtime logs.
     """
 
-    def __init__(self, units_root: Path):
+    def __init__(
+        self,
+        units_root: Path,
+        arm_budgets: dict[str, ArmBudget] | None = None,
+    ):
         self.units_root = Path(units_root)
         self._units: dict[str, FrozenUnit] = {}
         self._events: dict[str, tuple[SrlEnvironmentEvent, ...]] = {}
         self._repo_files: dict[str, dict[str, bytes]] = {}
         self._actions: dict[tuple[str, str], list[dict]] = {}
         self._help_requests: dict[tuple[str, str], list[SrlHelpRequest]] = {}
+        self._test_reports: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._build_results: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._ledger = BudgetLedger(arm_budgets or {})
         self._load_units()
 
     def _load_units(self) -> None:
@@ -166,6 +381,12 @@ class RsrlEventGateway:
             raise ValueError(f"unknown unit_id: {unit_id}")
         return self._events.get(unit_id, ())
 
+    def _repo_dir(self, unit_id: str) -> Path:
+        unit = self._units.get(unit_id)
+        if unit is None:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        return unit.snapshot_path.parent / "repo"
+
     def read_repository(self, arm_id: str, unit_id: str, path: str) -> bytes:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
@@ -174,9 +395,111 @@ class RsrlEventGateway:
         files = self._repo_files.get(unit_id, {})
         if path not in files:
             raise FileNotFoundError(f"repository path not found: {path}")
+        # Small fixed charge for repository reads (tokens + tool invocation).
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(10))
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
         return files[path]
 
-    def emit_help_request(self, arm_id: str, unit_id: str, request: SrlHelpRequest) -> None:
+    def run_tests(self, arm_id: str, unit_id: str, selector: str) -> TestResult:
+        """Run pytest against ``selector`` in the unit repository snapshot.
+
+        Records the structured result and a durable test report in the arm run
+        artifact.  Counts as one tool invocation plus small token overhead.
+        """
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        repo_dir = self._repo_dir(unit_id)
+        if not repo_dir.is_dir():
+            raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
+
+        # Charge before executing so a depleted budget aborts before work.
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
+
+        cmd = [sys.executable, "-m", "pytest", "-q", selector]
+        completed = subprocess.run(
+            cmd,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=self._ledger.remaining_wall_seconds(arm_id, unit_id),
+        )
+
+        artifact_ref = f"report:{selector}"
+        passed = completed.returncode == 0
+        report = TestReport(
+            test_path=selector,
+            passed=passed,
+            artifact_ref=artifact_ref,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+        self._test_reports.setdefault((arm_id, unit_id), []).append(
+            {
+                "test_path": selector,
+                "passed": passed,
+                "artifact_ref": artifact_ref,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+            }
+        )
+        return TestResult(
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+            reports=(report,),
+        )
+
+    def run_build(
+        self,
+        arm_id: str,
+        unit_id: str,
+        build_command: list[str] | None = None,
+    ) -> BuildResult:
+        """Run the configured build command in the unit repository snapshot.
+
+        Defaults to ``python -m compileall .``.  Records the result under the
+        arm run artifact and counts as one tool invocation.
+        """
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        repo_dir = self._repo_dir(unit_id)
+        if not repo_dir.is_dir():
+            raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
+
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
+
+        cmd = (
+            list(build_command)
+            if build_command
+            else [sys.executable, "-m", "compileall", "."]
+        )
+        completed = subprocess.run(
+            cmd,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=self._ledger.remaining_wall_seconds(arm_id, unit_id),
+        )
+        artifact_ref = f"build:{cmd[0]}"
+        self._build_results.setdefault((arm_id, unit_id), []).append(
+            {
+                "exit_code": completed.returncode,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+                "artifact_ref": artifact_ref,
+            }
+        )
+        return BuildResult(
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+
+    def emit_help_request(
+        self, arm_id: str, unit_id: str, request: SrlHelpRequest
+    ) -> None:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
         self._help_requests.setdefault((arm_id, unit_id), []).append(request)
@@ -188,6 +511,18 @@ class RsrlEventGateway:
             raise TypeError("action must be a dict")
         self._actions.setdefault((arm_id, unit_id), []).append(action)
 
+    def charge(self, arm_id: str, unit_id: str, entry: BudgetEntry) -> None:
+        """Apply a budget charge to the arm/unit ledger."""
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        self._ledger.charge(arm_id, unit_id, entry)
+
+    def get_budget_summary(self, arm_id: str, unit_id: str) -> dict[str, Any]:
+        """Return budget limits, usage and remaining per dimension."""
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        return self._ledger.get_budget_summary(arm_id, unit_id)
+
     def finalize_unit(self, arm_id: str, unit_id: str) -> dict:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
@@ -198,4 +533,6 @@ class RsrlEventGateway:
             "action_count": len(self._actions.get((arm_id, unit_id), [])),
             "help_request_count": len(self._help_requests.get((arm_id, unit_id), [])),
             "repository_files": sorted(self._repo_files.get(unit_id, {}).keys()),
+            "test_reports": list(self._test_reports.get((arm_id, unit_id), [])),
+            "build_results": list(self._build_results.get((arm_id, unit_id), [])),
         }
