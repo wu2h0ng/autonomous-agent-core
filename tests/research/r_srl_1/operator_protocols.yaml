@@ -1,0 +1,160 @@
+# R-SRL-1 operator protocols
+#
+# Standardized instructions and prohibited coaching for the four-arm evaluation.
+# These scripts are read by tests/research/r_srl_1/operator_protocols.py and
+# validated to ensure no prohibited coaching phrase appears in any instruction
+# text that an operator would read aloud or follow during a unit run.
+#
+# frozen_at: PREREGISTRATION_FROZEN / PENDING_ENVIRONMENT_AND_SCORER_FREEZE
+
+common_preamble: |
+  You are operating one arm of the R-SRL-1 evaluation. You know which arm you
+  are running, but you do not know the expected result direction for this unit,
+  and you do not know the identity of the hidden scorer or the exact criteria
+  that will be used to judge outcomes. Adjudicators who later rate operator
+  hidden cognitive work will be blind to arm labels; do not mention arm labels,
+  expected scores, or scorer identity in any recording or transcript.
+
+  Follow only the script below for your assigned arm. Do not improvise task
+  framing, add hints, coach the system toward a particular answer, or reveal
+  information that is not in the shared public state. If a situation is not
+  covered by the script, record a deviation note and continue with the closest
+  matching instruction.
+
+arm1_baseline_scheduled_setup:
+  title: "Arm 1 — strongest scheduled model workflow"
+  role: baseline_scheduled
+  setup_steps:
+    - |
+      Load the frozen unit manifest, starting snapshot, mission text and event
+      sequence. Confirm that provider, model revision, tool bindings and budget
+      match the frozen arm manifest for this unit. If any digest or budget field
+      differs, halt the unit and record a manifest mismatch.
+    - |
+      Initialize the scheduled workflow with the shared mission and public state.
+      Do not add extra prompts, examples, or task framing that are not in the
+      frozen workflow definition. Do not expose SRL-internal structures to the
+      workflow.
+    - |
+      Start the workflow and allow it to run without operator intervention until
+      it terminates, exceeds the wall-clock budget, or emits a final summary. Do
+      not correct intermediate outputs, choose branches, or supply missing
+      context during the run.
+    - |
+      When the workflow finishes, collect the final output, action log and any
+      artifacts. Interpret the final output for the rater transcript, but do not
+      re-run steps, edit outputs, or add explanations not present in the
+      workflow's own summary.
+  operator_may:
+    - "Set up the scheduled workflow from the frozen manifest."
+    - "Verify manifest digests and budget constraints before start."
+    - "Read and restate the final output for the transcript."
+  operator_may_not:
+    - "Intervene while the workflow is running."
+    - "Add prompts, examples, or task framing beyond the frozen definition."
+    - "Access SRL-internal structures such as relevance scores, commitments, or proposed goals."
+    - "Discuss expected outcomes or scorer identity with anyone during the unit."
+
+arm2_user_driven_driving:
+  title: "Arm 2 — user-driven frontier model"
+  role: baseline_user_driven
+  preamble: |
+    You are the operator for the user-driven frontier-model arm. All decisions
+    about state management, next steps and stopping are yours and will be
+    recorded. Use only the scripted prompts below; do not rephrase them to
+    suggest a strategy, expected answer, or preferred direction.
+  driving_script:
+    - step: "start"
+      prompt: |
+        Read the mission text and the current public state. State briefly what
+        the mission asks and what you observe in the public state. Do not
+        interpret what the mission "means to do"; describe only what is written.
+    - step: "event_digest"
+      prompt: |
+        Review the latest event in the public ledger. State the raw facts of the
+        event. Do not label the event type, infer intent, or say what should be
+        done about it.
+    - step: "decide_next"
+      prompt: |
+        Decide what action to take next or whether to stop. You may choose any
+        tool or action available in the shared capability envelope. Record your
+        decision and the reason in one sentence. The reason must refer only to
+        the public state, not to expected scoring, hidden tests, or arm
+        comparison.
+    - step: "execute"
+      prompt: |
+        Execute the decided action using the shared tools. Record the exact
+        invocation and the raw output. Do not edit, summarize, or interpret the
+        output beyond quoting it.
+    - step: "stop_check"
+      prompt: |
+        Decide whether the mission is satisfied or no further useful action is
+        possible. State "continue" or "stop" and give a one-sentence reason
+        based only on observed public-state facts.
+  stop_conditions:
+    - "The mission text is satisfied by the actions taken so far."
+    - "A tool returns an error and no alternative action is available within the shared envelope."
+    - "The wall-clock or token budget for the arm is exhausted."
+  operator_may:
+    - "Choose the next action from the shared capability envelope."
+    - "Maintain a flat scratch pad of equal capacity to the other arms."
+    - "Decide when to stop the unit."
+  operator_may_not:
+    - "Rephrase prompts to suggest expected content or direction."
+    - "Use SRL-internal structures or vocabulary."
+    - "Discuss expected outcomes, scorer identity, or arm labels in the transcript."
+
+arm3_srl_help_response:
+  title: "Arm 3 — SRL help-response operator"
+  role: srl
+  preamble: |
+    You are the external operator who answers HelpRequests emitted by the SRL
+    arm. Your only job is to provide the minimum external judgment needed for
+    safe continuation. Do not coach the SRL toward a particular plan, do not
+    confirm whether its current direction is correct, and do not supply
+    information that is not requested.
+  response_rules:
+    - |
+      Read the HelpRequest payload exactly as emitted. Answer only the specific
+      question or permission request it contains. If the request is ambiguous,
+      ask for clarification rather than guessing.
+    - |
+      Give the smallest factual or permission answer that allows the SRL to
+      continue. Do not expand the scope of the request, suggest next steps, or
+      offer background that was not explicitly asked for.
+    - |
+      If the HelpRequest concerns a value judgment or permission that is
+      irreducible to automated rules, state your decision and the boundary it
+      establishes. Do not justify the decision by reference to expected scores,
+      hidden tests, or mission success.
+    - |
+      If the HelpRequest is a decoy or requests action outside the SRL's
+      authority envelope, decline it and note that no external judgment is
+      required.
+    - |
+      After responding, record the request text, your response, and the elapsed
+      operator time. Do not add commentary about whether the SRL is doing well
+      or poorly.
+  operator_may:
+    - "Provide factual answers to explicit HelpRequest questions."
+    - "Grant or deny irreducible permission or value judgments."
+    - "Ask for clarification when a request is ambiguous."
+  operator_may_not:
+    - "Suggest what the SRL should do next."
+    - "Confirm or deny whether the SRL's current plan matches expected outcomes."
+    - "Reveal hidden scorer identity, expected direction, or arm labels."
+    - "Answer questions that were not actually asked in the HelpRequest."
+
+prohibited_coaching:
+  - "you should use the SRL structure"
+  - "the expected answer is"
+  - "try looking at"
+  - "the hidden scorer wants"
+  - "this event requires you to"
+  - "you are doing better than"
+  - "you are doing worse than"
+  - "remember that the mission says"
+  - "focus on the failing test"
+  - "ask for help now"
+  - "stop here"
+  - "the correct direction is"
