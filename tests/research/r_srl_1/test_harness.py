@@ -21,6 +21,7 @@ from tests.research.r_srl_1.harness import (
     BudgetEntry,
     BudgetExceeded,
     FrozenUnit,
+    RestartState,
     RsrlEventGateway,
     SRL_INTERNAL_TYPE_NAMES,
     load_frozen_unit,
@@ -614,3 +615,146 @@ def test_help_burden_no_budget_returns_minimal_receipt(
     assert receipt.repeated_question_rate == 0.0
     assert receipt.longest_unresolved_wait_seconds == 0
     assert receipt.status == "WITHIN_BUDGET"
+
+
+# ---------------------------------------------------------------------------
+# P1-5 restart state comparator
+# ---------------------------------------------------------------------------
+
+
+def test_export_state_consistent(gateway: RsrlEventGateway) -> None:
+    state1 = gateway.export_state("arm3", "r-srl-1-u00")
+    state2 = gateway.export_state("arm3", "r-srl-1-u00")
+    assert state1 == state2
+
+
+def test_export_state_reflects_actions_and_help_requests(
+    gateway: RsrlEventGateway, sample_help_request: SrlHelpRequest
+) -> None:
+    pre_state = gateway.export_state("arm3", "r-srl-1-u00")
+    gateway.record_action(
+        "arm3",
+        "r-srl-1-u00",
+        {"kind": "goal", "goal": "fix-event-01", "event_id": "event-01"},
+    )
+    gateway.emit_help_request("arm3", "r-srl-1-u00", sample_help_request)
+    post_state = gateway.export_state("arm3", "r-srl-1-u00")
+
+    assert pre_state != post_state
+    assert pre_state.active_goals == ()
+    assert post_state.active_goals == ("fix-event-01",)
+    assert post_state.pending_help_request_ids == (sample_help_request.help_request_id,)
+    assert len(post_state.pending_help_request_expiry) == 1
+    assert post_state.pending_help_request_expiry[0].endswith("+00:00")
+    assert len(post_state.belief_checksums) == 1
+
+
+def test_compare_state_equivalent(gateway: RsrlEventGateway) -> None:
+    state = RestartState(
+        commitment_portfolio_digest="d1",
+        active_goals=("g1",),
+        pending_help_request_ids=("h1",),
+        pending_help_request_expiry=("2026-07-16T12:05:00+00:00",),
+        belief_checksums=("b1",),
+    )
+    result = gateway.compare_state(state, state)
+    assert result["equivalent"] is True
+    assert result["differences"] == []
+
+
+def test_compare_state_detects_goal_difference(gateway: RsrlEventGateway) -> None:
+    pre = RestartState(
+        commitment_portfolio_digest="d1",
+        active_goals=("g1",),
+        pending_help_request_ids=(),
+        pending_help_request_expiry=(),
+        belief_checksums=(),
+    )
+    post = RestartState(
+        commitment_portfolio_digest="d1",
+        active_goals=("g2",),
+        pending_help_request_ids=(),
+        pending_help_request_expiry=(),
+        belief_checksums=(),
+    )
+    result = gateway.compare_state(pre, post)
+    assert result["equivalent"] is False
+    assert any("active_goals" in diff for diff in result["differences"])
+
+
+def test_compare_state_expected_delta(gateway: RsrlEventGateway) -> None:
+    pre = RestartState(
+        commitment_portfolio_digest="d1",
+        active_goals=("g1",),
+        pending_help_request_ids=("h1",),
+        pending_help_request_expiry=("2026-07-16T12:05:00+00:00",),
+        belief_checksums=("b1",),
+    )
+    post = RestartState(
+        commitment_portfolio_digest="d1",
+        active_goals=("g1",),
+        pending_help_request_ids=("h1", "h2"),
+        pending_help_request_expiry=(
+            "2026-07-16T12:05:00+00:00",
+            "2026-07-16T12:10:00+00:00",
+        ),
+        belief_checksums=("b1", "b2"),
+    )
+    delta = {
+        "pending_help_request_ids": ("h2",),
+        "pending_help_request_expiry": ("2026-07-16T12:10:00+00:00",),
+        "belief_checksums": ("b2",),
+    }
+    result = gateway.compare_state(pre, post, delta)
+    assert result["equivalent"] is True
+    assert result["differences"] == []
+
+
+# ---------------------------------------------------------------------------
+# P1-6 real-time wall-clock budget enforcement
+# ---------------------------------------------------------------------------
+
+
+def _tight_wall_clock_gateway(
+    units_root: Path, max_wall_seconds: float
+) -> RsrlEventGateway:
+    budget = ArmBudget(
+        max_llm_calls=100,
+        max_input_tokens=1_000_000,
+        max_output_tokens=500_000,
+        max_retries=50,
+        max_tool_invocations=1_000,
+        max_wall_seconds=max_wall_seconds,
+    )
+    return RsrlEventGateway(units_root, arm_budgets={"arm1": budget})
+
+
+def test_wall_clock_budget_exceeded_on_charge(
+    monkeypatch: pytest.MonkeyPatch, u00_dir: Path
+) -> None:
+    gateway = _tight_wall_clock_gateway(u00_dir.parent, max_wall_seconds=10.0)
+    monkeypatch.setattr("tests.research.r_srl_1.harness.time.monotonic", lambda: 1000.0)
+    gateway.charge("arm1", "r-srl-1-u00", BudgetEntry.wall_seconds(1.0))
+    monkeypatch.setattr("tests.research.r_srl_1.harness.time.monotonic", lambda: 1011.0)
+    with pytest.raises(BudgetExceeded):
+        gateway.charge("arm1", "r-srl-1-u00", BudgetEntry.llm_call())
+
+
+def test_wall_clock_budget_checked_at_method_start(
+    monkeypatch: pytest.MonkeyPatch, u00_dir: Path
+) -> None:
+    gateway = _tight_wall_clock_gateway(u00_dir.parent, max_wall_seconds=10.0)
+    monkeypatch.setattr("tests.research.r_srl_1.harness.time.monotonic", lambda: 1000.0)
+    gateway.charge("arm1", "r-srl-1-u00", BudgetEntry.wall_seconds(1.0))
+    monkeypatch.setattr("tests.research.r_srl_1.harness.time.monotonic", lambda: 1011.0)
+    with pytest.raises(BudgetExceeded):
+        gateway.list_events("arm1", "r-srl-1-u00")
+
+
+def test_methods_work_within_wall_clock_budget(
+    monkeypatch: pytest.MonkeyPatch, u00_dir: Path
+) -> None:
+    gateway = _tight_wall_clock_gateway(u00_dir.parent, max_wall_seconds=100.0)
+    monkeypatch.setattr("tests.research.r_srl_1.harness.time.monotonic", lambda: 1000.0)
+    events = gateway.list_events("arm1", "r-srl-1-u00")
+    assert len(events) == 9

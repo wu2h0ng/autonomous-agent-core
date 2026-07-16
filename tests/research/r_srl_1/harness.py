@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import hashlib
+import json
 import subprocess
 import sys
 import time
@@ -215,6 +216,21 @@ class BuildResult:
     stderr: str
 
 
+@dataclass(frozen=True)
+class RestartState:
+    """Serializable snapshot of SRL runtime state used for restart equivalence.
+
+    Fields are intentionally primitive (digests, tuples, ISO strings) so the
+    comparator can be deterministic across export/import cycles.
+    """
+
+    commitment_portfolio_digest: str
+    active_goals: tuple[str, ...]
+    pending_help_request_ids: tuple[str, ...]
+    pending_help_request_expiry: tuple[str, ...]
+    belief_checksums: tuple[str, ...]
+
+
 def _parse_digest(value: str) -> tuple[str, str]:
     """Return (algorithm, hex_digest) from manifest entries.
 
@@ -352,6 +368,25 @@ class BudgetLedger:
             }
         self._start_times.setdefault(key, time.monotonic())
 
+    def _effective_wall_seconds(self, arm_id: str, unit_id: str) -> float:
+        """Return max of charged wall seconds and real elapsed wall time."""
+        key = (arm_id, unit_id)
+        elapsed = time.monotonic() - self._start_times[key]
+        return max(self._usage[key]["wall_seconds"], elapsed)
+
+    def check_wall_time(self, arm_id: str, unit_id: str) -> None:
+        """Raise BudgetExceeded if elapsed wall time has reached the budget."""
+        self._ensure_slot(arm_id, unit_id)
+        if arm_id not in self._budgets:
+            return
+        budget = self._budget_for(arm_id)
+        effective = self._effective_wall_seconds(arm_id, unit_id)
+        if effective >= budget.max_wall_seconds:
+            raise BudgetExceeded(
+                f"arm {arm_id} unit {unit_id} wall-clock budget exceeded: "
+                f"{effective} >= {budget.max_wall_seconds}"
+            )
+
     def _budget_for(self, arm_id: str) -> ArmBudget:
         if arm_id not in self._budgets:
             raise ValueError(f"no budget configured for arm_id: {arm_id}")
@@ -377,6 +412,12 @@ class BudgetLedger:
         self._ensure_slot(arm_id, unit_id)
         budget = self._budget_for(arm_id)
         usage = self._usage[(arm_id, unit_id)]
+        effective_wall = self._effective_wall_seconds(arm_id, unit_id)
+        if effective_wall >= budget.max_wall_seconds:
+            raise BudgetExceeded(
+                f"arm {arm_id} unit {unit_id} wall-clock budget exceeded: "
+                f"{effective_wall} >= {budget.max_wall_seconds}"
+            )
 
         mapping: dict[str, tuple[str, str, int | float]] = {
             "llm_call": ("llm_calls", "max_llm_calls", budget.max_llm_calls),
@@ -403,22 +444,25 @@ class BudgetLedger:
             ),
         }
         usage_key, _budget_key, limit = mapping[entry.kind]
-        self._check_budget(
-            arm_id, unit_id, usage_key, limit, usage[usage_key], entry.amount
-        )
+        used = effective_wall if entry.kind == "wall_seconds" else usage[usage_key]
+        self._check_budget(arm_id, unit_id, usage_key, limit, used, entry.amount)
         usage[usage_key] = usage[usage_key] + entry.amount  # type: ignore[assignment]
 
     def remaining_wall_seconds(self, arm_id: str, unit_id: str) -> float:
         """Return remaining wall-time budget for the arm/unit."""
         self._ensure_slot(arm_id, unit_id)
         budget = self._budget_for(arm_id)
-        return budget.max_wall_seconds - self._usage[(arm_id, unit_id)]["wall_seconds"]
+        return max(
+            0.0,
+            budget.max_wall_seconds - self._effective_wall_seconds(arm_id, unit_id),
+        )
 
     def get_budget_summary(self, arm_id: str, unit_id: str) -> dict[str, Any]:
         """Return budget limits, current usage and remaining per dimension."""
         self._ensure_slot(arm_id, unit_id)
         budget = self._budget_for(arm_id)
         usage = self._usage[(arm_id, unit_id)]
+        effective_wall = self._effective_wall_seconds(arm_id, unit_id)
         return {
             "budget": {
                 "max_llm_calls": budget.max_llm_calls,
@@ -436,7 +480,7 @@ class BudgetLedger:
                 "retries": budget.max_retries - usage["retries"],
                 "tool_invocations": budget.max_tool_invocations
                 - usage["tool_invocations"],
-                "wall_seconds": budget.max_wall_seconds - usage["wall_seconds"],
+                "wall_seconds": max(0.0, budget.max_wall_seconds - effective_wall),
             },
         }
 
@@ -655,6 +699,7 @@ class RsrlEventGateway:
     def list_events(self, arm_id: str, unit_id: str) -> tuple[SrlEnvironmentEvent, ...]:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
+        self._ledger.check_wall_time(arm_id, unit_id)
         return self._events.get(unit_id, ())
 
     def _repo_dir(self, unit_id: str) -> Path:
@@ -668,6 +713,7 @@ class RsrlEventGateway:
             raise ValueError(f"unknown unit_id: {unit_id}")
         if _is_dangerous_path(path):
             raise PermissionError(f"access denied to path: {path}")
+        self._ledger.check_wall_time(arm_id, unit_id)
         files = self._repo_files.get(unit_id, {})
         if path not in files:
             raise FileNotFoundError(f"repository path not found: {path}")
@@ -688,6 +734,7 @@ class RsrlEventGateway:
         if not repo_dir.is_dir():
             raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
 
+        self._ledger.check_wall_time(arm_id, unit_id)
         # Charge before executing so a depleted budget aborts before work.
         self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
         self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
@@ -743,6 +790,7 @@ class RsrlEventGateway:
         if not repo_dir.is_dir():
             raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
 
+        self._ledger.check_wall_time(arm_id, unit_id)
         self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
         self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
 
@@ -782,6 +830,7 @@ class RsrlEventGateway:
     ) -> None:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
+        self._ledger.check_wall_time(arm_id, unit_id)
         # Baseline arms may emit a plain SrlHelpRequest envelope, but any
         # SRL-internal type name embedded inside the payload is rejected.
         self._enforce_arm_envelope(arm_id, request)
@@ -845,6 +894,7 @@ class RsrlEventGateway:
             raise ValueError(f"unknown unit_id: {unit_id}")
         if not isinstance(action, dict):
             raise TypeError("action must be a dict")
+        self._ledger.check_wall_time(arm_id, unit_id)
         self._enforce_arm_envelope(arm_id, action)
         self._actions.setdefault((arm_id, unit_id), []).append(action)
 
@@ -852,6 +902,7 @@ class RsrlEventGateway:
         """Apply a budget charge to the arm/unit ledger."""
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
+        self._ledger.check_wall_time(arm_id, unit_id)
         self._ledger.charge(arm_id, unit_id, entry)
 
     def get_budget_summary(self, arm_id: str, unit_id: str) -> dict[str, Any]:
@@ -859,6 +910,104 @@ class RsrlEventGateway:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
         return self._ledger.get_budget_summary(arm_id, unit_id)
+
+    def export_state(self, arm_id: str, unit_id: str) -> RestartState:
+        """Export a deterministic RestartState for the arm/unit.
+
+        Since the harness does not yet embed a real SRL Runtime, the state is
+        derived from recorded actions and help requests.
+        """
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        self._ledger.check_wall_time(arm_id, unit_id)
+        actions = self._actions.get((arm_id, unit_id), [])
+        help_requests = self._help_requests.get((arm_id, unit_id), [])
+
+        resolved_ids: set[str] = set()
+        if self._help_ledger is not None:
+            for record in self._help_ledger._records.get((arm_id, unit_id), []):
+                if record.resolved_at is not None:
+                    resolved_ids.add(record.request.help_request_id)
+
+        pending = [
+            req for req in help_requests if req.help_request_id not in resolved_ids
+        ]
+
+        canonical_actions = json.dumps(actions, sort_keys=True, default=str)
+        commitment_portfolio_digest = hashlib.sha256(
+            canonical_actions.encode("utf-8")
+        ).hexdigest()
+
+        active_goals = tuple(
+            str(action["goal"]) for action in actions if "goal" in action
+        )
+
+        pending_help_request_ids = tuple(req.help_request_id for req in pending)
+        pending_help_request_expiry = tuple(
+            req.expires_at.isoformat() for req in pending
+        )
+
+        last_checkpoint_index = -1
+        for index, action in enumerate(actions):
+            if action.get("kind") == "checkpoint":
+                last_checkpoint_index = index
+        belief_actions = (
+            actions
+            if last_checkpoint_index == -1
+            else actions[last_checkpoint_index + 1 :]
+        )
+        belief_checksums = tuple(
+            hashlib.sha256(
+                json.dumps(action, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+            for action in belief_actions
+        )
+
+        return RestartState(
+            commitment_portfolio_digest=commitment_portfolio_digest,
+            active_goals=active_goals,
+            pending_help_request_ids=pending_help_request_ids,
+            pending_help_request_expiry=pending_help_request_expiry,
+            belief_checksums=belief_checksums,
+        )
+
+    def compare_state(
+        self,
+        pre_state: RestartState,
+        post_state: RestartState,
+        expected_delta: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Compare pre- and post-restart states with a ground-truth delta.
+
+        ``expected_delta`` may append pending help-request ids/expiry tuples or
+        belief checksums to ``pre_state`` before comparison.
+        """
+        delta = dict(expected_delta or {})
+        adjusted = RestartState(
+            commitment_portfolio_digest=pre_state.commitment_portfolio_digest,
+            active_goals=pre_state.active_goals,
+            pending_help_request_ids=pre_state.pending_help_request_ids
+            + tuple(delta.get("pending_help_request_ids", ())),
+            pending_help_request_expiry=pre_state.pending_help_request_expiry
+            + tuple(delta.get("pending_help_request_expiry", ())),
+            belief_checksums=pre_state.belief_checksums
+            + tuple(delta.get("belief_checksums", ())),
+        )
+
+        differences: list[str] = []
+        for field_name in (
+            "commitment_portfolio_digest",
+            "active_goals",
+            "pending_help_request_ids",
+            "pending_help_request_expiry",
+            "belief_checksums",
+        ):
+            left = getattr(adjusted, field_name)
+            right = getattr(post_state, field_name)
+            if left != right:
+                differences.append(f"{field_name}: expected {left!r}, got {right!r}")
+
+        return {"equivalent": not differences, "differences": differences}
 
     def finalize_unit(self, arm_id: str, unit_id: str) -> dict:
         if unit_id not in self._units:
