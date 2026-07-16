@@ -63,6 +63,7 @@ from .srl_event_authority import (
     EventOriginRegistryPort,
     PayloadAdmissionRegistryPort,
 )
+from .srl_event_admission import EnvironmentEventAdmissionService
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
@@ -249,6 +250,7 @@ __all__ = [
     "CredentialLeaseRegistryPort",
     "CredentialRefReader",
     "EventOriginRegistryPort",
+    "EnvironmentEventAdmissionService",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",
