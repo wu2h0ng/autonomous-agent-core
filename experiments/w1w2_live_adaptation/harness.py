@@ -746,6 +746,21 @@ class FalsifierHarness:
         except KeyError as exc:
             raise ValueError(f"unknown arm: {arm_name}") from exc
 
+    def _validate_horizon(self, arm_name: str, n_steps: int) -> None:
+        if n_steps <= 0:
+            raise ValueError("authorized n_steps must be positive")
+        if arm_name != "scheduled-known":
+            return
+        switch_points = (
+            (self._switch_at,)
+            if isinstance(self._switch_at, int)
+            else tuple(sorted(self._switch_at))
+        )
+        if len(switch_points) != 2 or switch_points[1] >= n_steps:
+            raise ValueError(
+                "scheduled-known must return to A inside the authorized horizon"
+            )
+
     def _make_selector(
         self,
         w1_reader: W1CanonicalReader | None = None,
@@ -762,6 +777,7 @@ class FalsifierHarness:
     def expected_run_binding(
         self, arm_name: str, seed: int, n_steps: int
     ) -> RunAuthorizationBinding:
+        self._validate_horizon(arm_name, n_steps)
         selector = self._make_selector()
         option_digest = selector.authorized_set_digest()
         gate_digest = content_digest(self._EVALUATOR_GATE)
@@ -871,18 +887,7 @@ class FalsifierHarness:
         allow_run: bool,
         arm_factory: ArmFactory | None = None,
     ) -> CharacterizationRecord:
-        if n_steps <= 0:
-            raise ValueError("authorized n_steps must be positive")
-        if arm_name == "scheduled-known":
-            switch_points = (
-                (self._switch_at,)
-                if isinstance(self._switch_at, int)
-                else tuple(sorted(self._switch_at))
-            )
-            if len(switch_points) != 2 or switch_points[1] >= n_steps:
-                raise ValueError(
-                    "scheduled-known must return to A inside the authorized horizon"
-                )
+        self._validate_horizon(arm_name, n_steps)
         scope = self._make_scope(seed)
         scorer = self._trusted_scorer if allow_run else _CharacterizationScorer()
         if scorer is None:
@@ -1040,7 +1045,9 @@ class FalsifierHarness:
         authorization_receipt_id: str | None,
     ) -> FalsifierRunRecord:
         run_id = f"run-{uuid4().hex}"
-        if n_steps <= 0:
+        try:
+            self._validate_horizon(arm_name, n_steps)
+        except ValueError:
             return FalsifierRunRecord(
                 run_id=run_id,
                 arm_name=arm_name,

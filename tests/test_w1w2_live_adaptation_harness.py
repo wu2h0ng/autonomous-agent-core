@@ -255,6 +255,25 @@ class TestCheapBaselineDefinitions(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "authorized horizon"):
             _make_harness(switch_at=(3, 10)).characterize("scheduled-known", 0, 10)
 
+    def test_invalid_scheduled_known_horizon_is_denied_before_auth_consumption(
+        self,
+    ) -> None:
+        class CountingResolver(RunAuthorizationResolver):
+            def __init__(self) -> None:
+                self.consume_calls = 0
+
+            def consume(self, receipt_id, expected):
+                del receipt_id, expected
+                self.consume_calls += 1
+                return None
+
+        harness = _make_harness(switch_at=(3, 10))
+        resolver = CountingResolver()
+        harness._run_authorization_resolver = resolver
+        record = harness.run("scheduled-known", 0, 10, "invalid-schedule-auth")
+        self.assertEqual(record.run_status, "RUN_DENIED")
+        self.assertEqual(resolver.consume_calls, 0)
+
     def test_reactive_wsls_uses_only_delayed_public_feedback(self) -> None:
         arm = ReactiveWSLSArm(authorized_action_ids=("A", "B"))
         c7 = C7Controller("c7-1", "scope-1").snapshot
