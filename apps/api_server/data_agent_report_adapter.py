@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Queue
 from types import MappingProxyType
 from threading import RLock, Thread
-from typing import Callable, Mapping, Protocol
+from typing import Callable, Mapping, Protocol, TypedDict
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 from agent_os_contracts import (
@@ -38,6 +38,13 @@ _ADAPTER_VERSION = "data-agent-external-report-adapter:v1"
 _PROJECTION_SCHEMA = "schema://operational-projection/data-agent-report-metadata/v1"
 _SOURCE_ENVELOPE_CONTRACT = "data-agent.external-report.security-envelope.v1"
 _CREDENTIAL_PROVIDER = "data-agent-external-report"
+
+
+class _DataAgentReportFeedEvent(TypedDict):
+    cursor: str
+    trace_id: str
+    content_sha256: str
+    report: dict[str, object]
 
 
 class DataAgentReportAdapterError(RuntimeError):
@@ -1627,7 +1634,7 @@ class DataAgentReportAdapter:
         *,
         prior_cursor: str | None,
         limit: int,
-    ) -> tuple[tuple[dict[str, object], ...], str | None, bool]:
+    ) -> tuple[tuple[_DataAgentReportFeedEvent, ...], str | None, bool]:
         if set(payload) != {
             "schema_version",
             "audience",
@@ -1665,7 +1672,7 @@ class DataAgentReportAdapter:
             raise DataAgentReportAdapterError(
                 "external report feed cursor is invalid"
             )
-        events: list[dict[str, object]] = []
+        events: list[_DataAgentReportFeedEvent] = []
         cursors: set[str] = set()
         for raw_event in raw_events:
             if not isinstance(raw_event, dict) or set(raw_event) != {

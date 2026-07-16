@@ -9,7 +9,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable
+from typing import Any, Callable, assert_type
 
 import pytest
 
@@ -862,6 +862,23 @@ def test_application_passive_poll_never_creates_task(tmp_path) -> None:
 
     assert len(result.bundles) == 1
     assert app.store.list_task_ids() == ()
+
+
+def test_feed_validation_returns_narrowed_trace_and_report_types() -> None:
+    cursor = "opaque-cursor-1"
+    payload = json.loads(_feed_bytes([_feed_event(cursor)], next_cursor=cursor))
+
+    events, next_cursor, has_more = DataAgentReportAdapter._validate_feed_contract(
+        payload,
+        prior_cursor=None,
+        limit=1,
+    )
+
+    event = events[0]
+    assert_type(event["trace_id"], str)
+    assert_type(event["report"], dict[str, object])
+    assert next_cursor == cursor
+    assert has_more is False
 
 
 def test_digest_is_sha256_of_exact_stored_bytes() -> None:
