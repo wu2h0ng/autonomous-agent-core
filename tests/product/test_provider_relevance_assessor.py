@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -601,6 +602,81 @@ def test_durable_exact_replay_reuses_input_bound_outcome_without_provider_call(
     assert (
         record.assessment.provider_invocation_receipt_digest == _invocation().digest()
     )
+
+
+def test_sqlite_restart_decodes_and_replays_legacy_v1_assessment_record(
+    tmp_path,
+) -> None:
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
+    source_database = tmp_path / "provider-v1-source.sqlite3"
+    source_store = SQLiteSituatedAssessmentStore(
+        source_database, mandates=(_mandate(),)
+    )
+    source_service = OperationalProposalService(
+        trust=_trust(),
+        control=source_store,
+        assessor=_assessor(provider),
+        principal_id="user:local",
+    )
+    source_service.propose("event:report-1", "projection:report-1", evaluated_at=NOW)
+    input_digest = situated_input_binding_digest(
+        _mandate(), _binding(), _event(), _projection(), _policy().assessor_ref()
+    )
+    current_record = source_store.record_by_input_binding(input_digest)
+    assert current_record is not None
+
+    legacy_invocation_digest = _invocation().digest()
+    legacy_payload = current_record.model_dump(mode="json")
+    legacy_assessment = legacy_payload["assessment"]
+    assert isinstance(legacy_assessment, dict)
+    legacy_assessment["schema_version"] = "1.0"
+    legacy_assessment["provider_invocation_binding_digest"] = legacy_invocation_digest
+    legacy_assessment.pop("expected_provider_invocation_binding_digest")
+    legacy_assessment.pop("provider_call_attempted")
+    legacy_assessment.pop("provider_invocation_receipt_digest")
+
+    database = tmp_path / "provider-v1-restart.sqlite3"
+    SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            INSERT INTO situated_assessment_records (
+                assessment_id, assessment_record_id, source_binding_digest,
+                tenant_id, workspace_id, record_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                current_record.assessment.assessment_id,
+                current_record.assessment_record_id,
+                current_record.source_binding_digest,
+                current_record.tenant_id,
+                current_record.workspace_id,
+                json.dumps(legacy_payload, sort_keys=True, separators=(",", ":")),
+            ),
+        )
+
+    restarted = SQLiteSituatedAssessmentStore(database)
+    decoded = restarted.assessment_record(current_record.assessment.assessment_id)
+    replayed = restarted.replay_if_active(
+        _mandate(),
+        _binding(),
+        input_digest,
+        principal_id="user:local",
+        evaluated_at=NOW,
+    )
+
+    assert decoded is not None
+    assert replayed == decoded
+    assert decoded.assessment.schema_version == "1.0"
+    assert (
+        decoded.assessment.provider_invocation_binding_digest
+        == legacy_invocation_digest
+    )
+    assert decoded.assessment.expected_provider_invocation_binding_digest is None
+    assert decoded.assessment.provider_call_attempted is False
+    assert decoded.assessment.provider_invocation_receipt_digest is None
 
 
 def test_application_composes_provider_assessor_on_real_product_entry(tmp_path) -> None:
