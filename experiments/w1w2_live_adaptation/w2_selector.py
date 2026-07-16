@@ -16,6 +16,13 @@ from experiments.w1w2_live_adaptation._contracts import (
     UtcDateTime,
     content_digest,
 )
+from experiments.w1w2_live_adaptation.w1_state import (
+    ActionValueEstimate,
+    BeliefPayload,
+    W1MemoryState,
+    W1Scope,
+    W1UpdateType,
+)
 
 
 class W2OptionKind(str, Enum):
@@ -90,13 +97,29 @@ class W2DecisionReceipt(ContractModel):
     inputs_digest: NonEmptyStr
     authorized_set_digest: NonEmptyStr
     selected_option_id: NonEmptyStr
-    consumed_w1_state_digest: NonEmptyStr | None = None
+    consumed_w1_decision_state_digest: NonEmptyStr | None = None
     outcome_feedback_ref: NonEmptyStr
     reason_code: NonEmptyStr
     created_at: UtcDateTime
 
 
 SelectionFn = Callable[..., str]
+
+
+class W2CanonicalDecisionState(ContractModel):
+    """Selector-owned canonical projection of the W1 bytes it actually consumes."""
+
+    scope: W1Scope
+    source_update_id: NonEmptyStr | None = None
+    source_event_digest: NonEmptyStr | None = None
+    correction_epoch: int | None = Field(default=None, ge=0)
+    version: NonEmptyStr | None = None
+    action_values: tuple[ActionValueEstimate, ...] = ()
+    last_observed_action_id: NonEmptyStr | None = None
+    last_observed_reward: float | None = None
+
+    def digest(self) -> str:
+        return content_digest(self.model_dump(mode="json", exclude_none=True))
 
 
 class W2StrategySelector:
@@ -155,20 +178,77 @@ class W2StrategySelector:
         )[1]
         return best_action
 
+    def canonical_decision_state(
+        self, state: W1MemoryState
+    ) -> W2CanonicalDecisionState:
+        if not state.updates:
+            return W2CanonicalDecisionState(scope=state.scope)
+        latest = state.updates[-1]
+        if latest.scope != state.scope:
+            raise ValueError("W1 decision state scope mismatch")
+        if latest.update_type != W1UpdateType.BELIEF or not isinstance(
+            latest.payload, BeliefPayload
+        ):
+            raise ValueError("latest W1 update is unrelated to W2 decision state")
+        action_ids = {item.action_id for item in latest.payload.action_values}
+        if not action_ids.issubset(self._option_ids):
+            raise ValueError("W1 decision state contains an unauthorized option")
+        return W2CanonicalDecisionState(
+            scope=state.scope,
+            source_update_id=latest.update_id,
+            source_event_digest=latest.source_event_digest,
+            correction_epoch=latest.correction_epoch,
+            version=latest.version,
+            action_values=latest.payload.action_values,
+            last_observed_action_id=latest.payload.last_observed_action_id,
+            last_observed_reward=latest.payload.last_observed_reward,
+        )
+
+    def _derive_preference(self, state: W2CanonicalDecisionState) -> str:
+        if state.source_update_id is None:
+            return self._authorized_option_ids[0]
+        values = {item.action_id: item for item in state.action_values}
+        if (
+            state.last_observed_action_id in self._option_ids
+            and state.last_observed_reward is not None
+        ):
+            if state.last_observed_reward > 0.0:
+                return state.last_observed_action_id
+            return next(
+                (
+                    option_id
+                    for option_id in self._authorized_option_ids
+                    if option_id != state.last_observed_action_id
+                ),
+                state.last_observed_action_id,
+            )
+        for option_id in self._authorized_option_ids:
+            if option_id not in values:
+                return option_id
+        return max(
+            self._authorized_option_ids,
+            key=lambda option_id: (
+                values[option_id].last_reward,
+                -self._authorized_option_ids.index(option_id),
+            ),
+        )
+
     def select(
         self,
         context: Mapping[str, Any],
         outcome_history: tuple[Mapping[str, Any], ...],
-        consumed_w1_state_digest: str | None = None,
-        preferred_option_id: str | None = None,
+        decision_state: W1MemoryState | None = None,
     ) -> W2DecisionReceipt:
-        if preferred_option_id is not None:
-            if consumed_w1_state_digest is None:
-                raise ValueError("W1 preference requires a consumed state digest")
-            if preferred_option_id not in self._option_ids:
-                raise ValueError(
-                    f"preferred option '{preferred_option_id}' is not in authorized set"
-                )
+        canonical_state = (
+            self.canonical_decision_state(decision_state)
+            if decision_state is not None
+            else None
+        )
+        preferred_option_id = (
+            self._derive_preference(canonical_state)
+            if canonical_state is not None
+            else None
+        )
         if self._selection_fn is not None:
             selected = self._selection_fn(
                 self._authorized_option_ids,
@@ -192,8 +272,11 @@ class W2StrategySelector:
         inputs = {
             "context": dict(context),
             "outcome_history": [dict(h) for h in outcome_history],
-            "consumed_w1_state_digest": consumed_w1_state_digest,
-            "preferred_option_id": preferred_option_id,
+            "canonical_w1_decision_state": (
+                canonical_state.model_dump(mode="json", exclude_none=True)
+                if canonical_state is not None
+                else None
+            ),
         }
         now = datetime.now(timezone.utc)
         return W2DecisionReceipt(
@@ -201,7 +284,9 @@ class W2StrategySelector:
             inputs_digest=content_digest(inputs),
             authorized_set_digest=self.authorized_set_digest(),
             selected_option_id=selected,
-            consumed_w1_state_digest=consumed_w1_state_digest,
+            consumed_w1_decision_state_digest=(
+                canonical_state.digest() if canonical_state is not None else None
+            ),
             outcome_feedback_ref=f"fb-{uuid4().hex}",
             reason_code="authorized_selection",
             created_at=now,

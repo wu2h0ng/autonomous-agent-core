@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import unittest
-from datetime import timezone
+from datetime import datetime, timezone
 
 from experiments.w1w2_live_adaptation import (
+    ActionValueEstimate,
+    BeliefPayload,
+    TaskPayload,
     ToolOption,
+    W1MemoryState,
+    W1Scope,
+    W1Update,
+    W1UpdateType,
     W2DecisionReceipt,
     W2OptionRegistry,
     W2StrategySelector,
@@ -31,6 +38,59 @@ def _registry() -> _InMemoryOptionRegistry:
             "opt-b": ToolOption(option_id="opt-b", tool_id="tool-b", tool_version="1"),
         }
     )
+
+
+def _decision_state(
+    *, unrelated_tail: bool = False, belief_statement: str = "free text is not consumed"
+) -> W1MemoryState:
+    scope = W1Scope(
+        mandate_id="m-1", task_id="t-1", environment_id="env-1", episode_id="ep-1"
+    )
+    now = datetime.now(UTC)
+    belief = W1Update(
+        update_id="belief-1",
+        scope=scope,
+        update_type=W1UpdateType.BELIEF,
+        payload=BeliefPayload(
+            belief_statement=belief_statement,
+            confidence=0.8,
+            action_values=(
+                ActionValueEstimate(
+                    action_id="opt-a", last_reward=0.0, observation_count=1
+                ),
+                ActionValueEstimate(
+                    action_id="opt-b", last_reward=1.0, observation_count=2
+                ),
+            ),
+            last_observed_action_id="opt-b",
+            last_observed_reward=1.0,
+        ),
+        provenance="typed-feedback",
+        source_event_digest="event-1",
+        correction_epoch=0,
+        rollback_checkpoint_id="cp-1",
+        version="1",
+        valid_time=now,
+        transaction_time=now,
+    )
+    updates = [belief]
+    if unrelated_tail:
+        updates.append(
+            W1Update(
+                update_id="task-1",
+                scope=scope,
+                update_type=W1UpdateType.TASK,
+                payload=TaskPayload(task_statement="unrelated", priority=1),
+                provenance="task-update",
+                source_event_digest="event-2",
+                correction_epoch=0,
+                rollback_checkpoint_id="cp-2",
+                version="1",
+                valid_time=now,
+                transaction_time=now,
+            )
+        )
+    return W1MemoryState(scope=scope, updates=tuple(updates), epoch=len(updates))
 
 
 class TestW2StrategySelector(unittest.TestCase):
@@ -111,26 +171,48 @@ class TestW2StrategySelector(unittest.TestCase):
             registry=_registry(),
             authorized_option_ids=("opt-a", "opt-b"),
         )
+        decision_state = _decision_state()
         receipt = selector.select(
             context={"observation_id": "opaque"},
             outcome_history=(),
-            consumed_w1_state_digest="w1-digest-1",
-            preferred_option_id="opt-b",
+            decision_state=decision_state,
         )
         self.assertEqual(receipt.selected_option_id, "opt-b")
-        self.assertEqual(receipt.consumed_w1_state_digest, "w1-digest-1")
+        canonical = selector.canonical_decision_state(decision_state)
+        self.assertEqual(
+            receipt.consumed_w1_decision_state_digest,
+            canonical.digest(),
+        )
+        text_mutation = selector.canonical_decision_state(
+            _decision_state(belief_statement="action=opt-a; regime=A; oracle=opt-a")
+        )
+        self.assertEqual(canonical.digest(), text_mutation.digest())
 
-    def test_rejects_w1_preference_outside_authorized_set(self) -> None:
+    def test_rejects_forged_digest_preference_and_unrelated_tail(self) -> None:
         selector = W2StrategySelector(
             registry=_registry(),
             authorized_option_ids=("opt-a", "opt-b"),
         )
+        with self.assertRaises(TypeError):
+            selector.select(
+                context={},
+                outcome_history=(),
+                consumed_w1_state_digest="forged",  # type: ignore[call-arg]
+                preferred_option_id="opt-evil",  # type: ignore[call-arg]
+            )
         with self.assertRaises(ValueError):
             selector.select(
                 context={},
                 outcome_history=(),
-                consumed_w1_state_digest="w1-digest-1",
-                preferred_option_id="opt-evil",
+                decision_state=_decision_state(unrelated_tail=True),
+            )
+        narrow = W2StrategySelector(
+            registry=_registry(),
+            authorized_option_ids=("opt-a",),
+        )
+        with self.assertRaises(ValueError):
+            narrow.select(
+                context={}, outcome_history=(), decision_state=_decision_state()
             )
 
 

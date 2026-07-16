@@ -464,18 +464,19 @@ class W1W2Arm(W2OnlyArm):
         if c7.halted:
             raise RuntimeError("C7 halted")
         state = self._store.get_state(self._scope)
-        state_digest = state.digest()
-        preference = _preferred_action(state, self._selector.authorized_option_ids)
         receipt = self._selector.select(
             context=observation.model_dump(mode="json"),
             outcome_history=tuple(
                 item.model_dump(mode="json") for item in self._history
             ),
-            consumed_w1_state_digest=state_digest,
-            preferred_option_id=preference,
+            decision_state=state,
         )
         self._last_decision_receipt = receipt
-        self._consumption_trace.append((state_digest, receipt.selected_option_id))
+        if receipt.consumed_w1_decision_state_digest is None:
+            raise RuntimeError("W1W2 decision is missing canonical W1 state binding")
+        self._consumption_trace.append(
+            (receipt.consumed_w1_decision_state_digest, receipt.selected_option_id)
+        )
         return receipt.selected_option_id
 
     def update(self, feedback: CandidateFeedback, c7: C7Snapshot) -> None:
@@ -783,7 +784,9 @@ class FalsifierHarness:
                 recoveries.append(float(recovered))
 
         quality = sum(item.reward for item in outcomes) / max(len(outcomes), 1)
-        adaptive_candidate = arm_name == "w1+w2" and arm_factory is None
+        adaptive_candidate = (
+            arm_name == "w1+w2" and arm_factory is None and self._selection_fn is None
+        )
         w1_causal_consumption = arm.causal_consumption_verified()
         falsifier_passed = bool(
             adaptive_candidate

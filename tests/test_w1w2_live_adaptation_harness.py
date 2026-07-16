@@ -439,8 +439,8 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
             )
             self.assertEqual(arm.act(observation, c7), "B")
             self.assertEqual(
-                arm.last_decision_receipt.consumed_w1_state_digest,
-                store.get_state(scope).digest(),
+                arm.last_decision_receipt.consumed_w1_decision_state_digest,
+                selector.canonical_decision_state(store.get_state(scope)).digest(),
             )
             self.assertTrue(arm.causal_consumption_verified())
 
@@ -517,6 +517,24 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
             switch_at=(5, 10), selection_fn=lambda _opts, _ctx, _hist: "B"
         ).characterize("w1+w2", 0, 20)
         self.assertFalse(constant.falsifier_passed)
+
+    def test_hidden_callback_can_characterize_but_cannot_pass_candidate_gate(
+        self,
+    ) -> None:
+        def hidden_callback(options, _context, history):
+            if not history:
+                return options[0]
+            last = history[-1]
+            if float(last["reward"]) > 0.0:
+                return str(last["action"])
+            return options[1] if last["action"] == options[0] else options[0]
+
+        attacked = _make_harness(
+            switch_at=(5, 10), selection_fn=hidden_callback
+        ).characterize("w1+w2", 0, 20)
+        self.assertEqual(attacked.status, "CHARACTERIZATION_ONLY")
+        self.assertEqual(len(attacked.recovery_speeds), 2)
+        self.assertFalse(attacked.falsifier_passed)
 
     def test_ab_ba_records_recovery(self) -> None:
         harness = _make_harness(switch_at=(5, 10))
