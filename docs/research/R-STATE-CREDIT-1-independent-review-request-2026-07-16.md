@@ -2,8 +2,8 @@
 
 > Date: `2026-07-16`
 > Branch: `codex/r-state-credit-1-real-bindings-20260715`
-> Review target head: `61d26fce5715a8804faefc6a3f5f2f11a43f02bd`
-> Working-tree HEAD at document creation: `61d26fce5715a8804faefc6a3f5f2f11a43f02bd` (P2 F15 prereg candidate recast protocol update)
+> Review target head: `c063b37fd22d0583f27f21ae5c5e1a7128fed2d6`
+> Working-tree HEAD at document creation: `c063b37fd22d0583f27f21ae5c5e1a7128fed2d6` (P2 F12/F17: all 18 frozen perturbation classes implemented)
 > Status: `IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Track: `Research Track`
 > Claim class: `research-automation` — candidate-byte implementation only. Not product, not autonomy, not evidence.
@@ -67,7 +67,7 @@ SHA-256 computed from the worktree at document creation.
 
 | Path | SHA-256 |
 |---|---|
-| `experiments/r_state_credit_1/interactive_env.py` | `fafaede2620388f446a5dc7e1a6a4b03dc3485d7800268d352f163939db16432` |
+| `experiments/r_state_credit_1/interactive_env.py` | `4b6fa981076afb9c7fd753bb04f680792294d39831a807ed73d7f3c4ca8901e4` |
 | `experiments/r_state_credit_1/episode_generator.py` | `2685895ee5bb02b27420c68d5928fdda10613b9c53b24b67248dd68cb951fe43` |
 | `experiments/r_state_credit_1/observation.py` | `b07db0e872adcea5bf40df64889ed8f92a0fc9cddcba85f596ff8a6558ea53bf` |
 | `experiments/r_state_credit_1/arm_blinding.py` | `b22bf1f09276da53d85d9db16834d497630b43fc6f87a2de07ebb53f936e8b69` |
@@ -76,17 +76,17 @@ SHA-256 computed from the worktree at document creation.
 | `experiments/r_state_credit_1/authority_artifacts.py` | `f72ad2a36c314637b1a3a7ac88dc57f0d6fc3d4b7fec899d0260c01c3abee0b0` |
 | `experiments/r_state_credit_1/signature_backend.py` | `066757e3a58c4b439b8e3058d2a0bc220be46e36488603e9a23c92f9c9d00e76` |
 | `experiments/r_state_credit_1/authority_verifier.py` | `55dafe560f754af6dcdc2580573fa67034e965abc2ea61fa9db7621d6e7ac635` |
-| `experiments/r_state_credit_1/recast_readme.md` | `8dfebafe64a83158c0af67593f8836a0772e412b8523d171f0a3f41004ec2004` |
+| `experiments/r_state_credit_1/recast_readme.md` | `08f40e9dddcdcff12faf563ce781b94b2b88d3a1c7395d1b6a56f38c5901e8c7` |
 | `experiments/r_state_credit_1/prereg_candidate.py` | `da90c3d57b544ee420b641945d9d50005c5bacccd6d153e9781f5f0c6f997057` |
-| `tests/test_r_state_credit_1_interactive_env.py` | `623f39be50a70d0284fbb866d84478b106ae74baa79c3460829a29ec6fb5e709` |
+| `tests/test_r_state_credit_1_interactive_env.py` | `f0c1088ca1279e1c7baf6bd15c732d6da1b6e9f81144acea8f793f4808b75fbe` |
 | `tests/test_r_state_credit_1_arm_blinding.py` | `2a93dbee7ee5e2f30981fc6a1cc7f85e0223eadbbccf459929e723a637a06214` |
 | `tests/test_r_state_credit_1_authority_verifier.py` | `992966670fb544ce2d98a1d4641ae18e150ac1939e0835a7cf20255a9103a1fb` |
-| `tests/test_r_state_credit_1_recast_integration.py` | `e544041aa834a9010d956d084dc84fdefaa41ff5631be555b3127f6669f328c4` |
+| `tests/test_r_state_credit_1_recast_integration.py` | `a01d6e83d1f3ebcfac16789518abecd65b87c8e14f34ea425378b3e04f579f20` |
 | `tests/test_r_state_credit_1_prereg_candidate.py` | `4c624e8c52844c6d6a1a771bd1c66a642a2b7d81c04684304b75cc8ef5e55119` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `e93291c3e85ffe969d9fe0d029226fd5a279005e85743fa08cbf0f96544b7646` |
-| `docs/research/R-STATE-CREDIT-1-recast-self-attack-review-2026-07-16.md` | `9b64f86cc1b4dc8275617a28c65eb3098da842db0915169b1eda25843dd854f1` |
+| `docs/research/R-STATE-CREDIT-1-recast-self-attack-review-2026-07-16.md` | `b988d8e5347a5fc977f6696a1620d291d3624b9a924a7f1ad1e7eaf620817e88` |
 
 ## 6. Verification commands
 
@@ -133,8 +133,8 @@ sha256sum \
 
 Expected results as measured on this worktree:
 
-- Targeted Phase 1-3 tests: `37 passed, 0 failed`.
-- Full `tests/test_r_state_credit_1*.py`: `141 passed, 0 failed`.
+- Targeted Phase 1-3 tests: `40 passed, 0 failed`.
+- Full `tests/test_r_state_credit_1*.py`: `142 passed, 0 failed`.
 - Full `unittest discover`: `1237 tests` with `OK (skipped=16)`.
 - `ruff check`: `All checks passed!`
 - `pyright`: `0 errors, 0 warnings, 0 informations`.
@@ -148,7 +148,7 @@ Expected results as measured on this worktree:
 | G3 — χ² arm-order uniformity | Implemented / tested | `test_call_order_chi_square_uniform` passes with p > 0.01 criterion. |
 | G4 — Arm-order independence | Implemented / tested | `test_call_order_independent_of_family_seed` passes χ² test of independence. |
 | G5 — Byte-level absence of arm names | Implemented / tested | `test_byte_level_no_arm_identity` and `test_end_to_end_no_provider` search actor-request bytes for forbidden substrings. |
-| G6 — No directive in arm output | Implemented / tested | `test_full_gate_g6_no_recovery_directive_in_arm_output` scans serialized actor-request bytes and `StubActor` response notes for whole-word directive hints. The legacy `arms.py::A3TypedStateArm` still contains `recovery_directive` and is explicitly excluded from the frozen source manifest. |
+| G6 — No directive in arm output | Implemented / tested | `test_full_gate_g6_no_recovery_directive_in_arm_output` scans serialized actor-request bytes and `StubActor` response notes for the four frozen G6 directive field names (`recovery_directive`, `action_hint`, `recommended_action`, `policy`). Environment vocabulary (e.g. a recovery or retry record inside an observation payload) is not a runner directive. The legacy `arms.py::A3TypedStateArm` still contains `recovery_directive` and is explicitly excluded from the frozen source manifest. |
 | G7 — Reversibility | Implemented / tested | `test_reversibility` and `test_reversibility_across_blinding` compare bit-identical event sequences and checkpoint/call-order state across replays. |
 | G8 — Authority builder rejection | Implemented / tested | `test_builder_minted_artifact_rejected`, `test_authority_bundle_with_builder_signer_rejected`, `test_tampered_payload_rejected`. |
 | G9 — Budget overflow fail-closed | Implemented / tested | `test_budget_overflow_fail_closed`, `test_no_overflow_on_development_seeds`, `test_observation_budget_envelope_per_turn`. |
@@ -158,7 +158,7 @@ Expected results as measured on this worktree:
 
 - **Signature backend uses HMAC-SHA256 for test harness only.** `TestHmacBackend` is deterministic and per-identity distinct, but it is not a secure signature scheme. `Ed25519BackendStub` is provided as a production placeholder. The production freeze must replace the test backend with an equivalent asymmetric signature scheme (e.g., Ed25519) and wire real key management.
 - **Legacy `arms.py` still contains the A3 `recovery_directive` but is excluded from the frozen source manifest.** The recast qualification path does not invoke the old A0–A3 arms; it uses the new `ActorRequest` / `StubActor` interface. The frozen run contract binds only the recast mechanism files listed in the source manifest.
-- **Only a subset of the amendment perturbation classes is implemented.** The current environment implements the classes needed for structural variation and the four checkpoint triggers; remaining classes can be added without changing the protocol if the frozen terminal-phase table is extended before freeze.
+- **All 18 frozen perturbation classes are implemented.** Every `PerturbationClass` enum value has an observation builder and a state-effect branch and is schedulable at seed-determined turns (`rng.sample` over the full enum per episode; a trigger colliding with another class shifts to the nearest earlier free turn, staying at or before its terminal phase). `REPRESENTATION_PRESSURE` and `PROTECTED_STATE_AT_BOUND` are marker-only observations that deliberately do not mutate state. Verified by `test_all_frozen_perturbation_classes_observable` across 120 seeds.
 - **No provider/model call has been made.** All tests use deterministic stub actors and local HMAC signatures.
 
 ## 9. Questions for the independent reviewer
@@ -167,7 +167,7 @@ Expected results as measured on this worktree:
 2. Is the authority artifact verifier topology sufficient for the non-self-minting gate, given that the signature backend is currently HMAC-SHA256 for tests with an Ed25519 stub ready for production?
 3. Should the legacy `arms.py::A3TypedStateArm.recovery_directive` be removed or the entire legacy arm file retired before freeze, even though the recast qualification path does not use it?
 4. Is the G1 dummy-classifier probe in the integration tests adequate as a freeze gate, or must the full scikit-learn `DummyClassifier` using `family + checkpoint` against sealed truth be implemented first?
-5. Are the checkpoint trigger semantics (terminal-phase table + deterministic selection algorithm with 3-turn spacing) sufficiently frozen, or do they require additional perturbation classes to be implemented before the preregistration lock?
+5. Now that all 18 frozen perturbation classes are implemented, are the checkpoint trigger semantics (terminal-phase table + deterministic selection algorithm with 3-turn spacing + trigger-collision shift to the nearest earlier free turn) sufficiently frozen for the preregistration lock, and are the marker-only classes (`REPRESENTATION_PRESSURE`, `PROTECTED_STATE_AT_BOUND`) acceptable as observation-only perturbations?
 
 ## 10. Next steps after review
 
@@ -175,7 +175,7 @@ Expected results as measured on this worktree:
    - `ACCEPT_FOR_FREEZE` — no freeze-blocking issues.
    - `CONDITIONAL_APPROVE` — list exact required fixes before freeze.
    - `REVISE_BEFORE_REVIEW` — material issues remain; re-review required.
-2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `61d26fce5715a8804faefc6a3f5f2f11a43f02bd`.
+2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `c063b37fd22d0583f27f21ae5c5e1a7128fed2d6`.
 3. **C7 acceptance:** Obtain `c7-acceptance-<owner_id>.json` binding epoch, capability token digest, and stop path.
 4. **Founder/CTO run authorization:** Obtain `run-authorization-<founder_id>.json` referencing the freeze lock and C7 acceptance, authorizing exactly one result-bearing run.
 5. **Result-bearing run:** Execute one frozen run under the native freeze lock, with independent adjudication and claim review.
