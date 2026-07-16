@@ -55,10 +55,13 @@ def test_stage_a_candidate_declares_complete_non_authorizing_protocol() -> None:
     }
     assert candidate["scenario_protocol"]["held_out_episode_count"] == 140
     assert (
-        candidate["scenario_protocol"]["early_assumption_step_range_inclusive"][1]
-        + candidate["scenario_protocol"]["failure_delay_actions_range_inclusive"][1]
-        + 2
-        <= candidate["budgets"]["max_steps"]
+        candidate["scenario_protocol"]["episode_length_turns_range_inclusive"]
+        == [20, 60]
+    )
+    assert candidate["scenario_protocol"]["checkpoint_protocol"]["count"] == 4
+    assert (
+        candidate["scenario_protocol"]["checkpoint_protocol"]["selection_algorithm"]
+        == "SEED_DETERMINED_COMBINATION_ENUMERATION_WITH_MIN_3_TURN_SPACING"
     )
     assert candidate["budgets"] == {
         "max_observable_bytes": 131_072,
@@ -67,6 +70,9 @@ def test_stage_a_candidate_declares_complete_non_authorizing_protocol() -> None:
         "max_tool_calls": 8,
         "max_wall_clock_units": 80,
         "token_proxy": "ceil_utf8_bytes_div_4",
+        "o_max": 8_192,
+        "b_a0": 262_144,
+        "b_arm": 65_536,
     }
     assert candidate["metrics"]["primary"]["comparison_baseline"] == (
         ArmId.A0_FULL_LOG.value

@@ -3,7 +3,7 @@
   "mechanism_artifact_hashes": {
     "docs/pre_spec/R-STATE-CREDIT-1.REAL-BINDINGS-BUILD-PACKET-2026-07-15.md": "fa5585706854d120dca71ff76989ee303e95800e0d527e10d588a3bea3b4b6b0",
     "docs/pre_spec/R-STATE-CREDIT-1.RUNNER-PREREG-BUILD-PACKET-2026-07-15.md": "30f86a5d56881d39b67beb7824d7ef58e94da2e7b9e1fe53aa17a9536c11260e",
-    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json": "0c404c7049f0f9ea8b9c7e8f015ad5b93e8e4e6ef9208f2090ff9b5e33249e78",
+    "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json": "8c13a7a79d1e037b237ef1cdb929778c2b31c59d9f0af722904a830189112c13",
     "experiments/r_state_credit_1/ark_responses_actor.py": "b5b7f6d4740ee77bd424862b9196be92f20242108fed813f8aea3b7d7d7a1a87",
     "experiments/r_state_credit_1/arms.py": "c2832e3f935185e4b1a650281a1422d9c90db9fe591fac1794f1e9c3affa12ef",
     "experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json": "3a449c352ac37591c0daadb1d193580ece411577f1cb1524bf19384f221e5c13",
@@ -34,7 +34,7 @@
     "tests/test_r_state_credit_1_ark_actor.py": "0c96572b5e7dc41ed4c8016003a10c785b459a051d55880258b3394db3369106",
     "tests/test_r_state_credit_1_batch2a.py": "918685f512736d6f35a338e284a5772ee12119c5caace56ea17b28dc319292a9",
     "tests/test_r_state_credit_1_external_c7.py": "fb1310a19cd5458412d7d9ae15c067231198ca2ea91a4064bb8cde0d14cec232",
-    "tests/test_r_state_credit_1_prereg_candidate.py": "e0a565a57bcac107d3a3e06207756c174b80990ae9636eca02887764e047fbb3",
+    "tests/test_r_state_credit_1_prereg_candidate.py": "4c624e8c52844c6d6a1a771bd1c66a642a2b7d81c04684304b75cc8ef5e55119",
     "tests/test_r_state_credit_1_real_corpus.py": "a97e4863253ba1b16e932c5fab82dfaa043943a95b52ec8aaab32b9ded383d77",
     "tests/test_r_state_credit_1_real_scorer.py": "f0a262c26dde039e7eb8053576f548bb9d9c9a4e0d6b38a46d054a307fd41f5e",
     "tests/test_r_state_credit_1_runner_prereg.py": "02c55849002eb18360ea1a4938cfa10816836121a644322f04a1f4ee399c121f",

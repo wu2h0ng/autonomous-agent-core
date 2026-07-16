@@ -259,6 +259,7 @@ def build_stage_a_prereg_candidate(
                 "representation": "EXACT_ORDERED_OBSERVABLE_EVENT_LOG",
                 "permitted_operation": "READ_ONLY_NO_TRUNCATION_NO_SELECTION",
                 "frozen_configuration": {},
+                "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
             {
                 "arm_id": ArmId.A1_ROLLING_SUMMARY.value,
@@ -267,6 +268,7 @@ def build_stage_a_prereg_candidate(
                 "representation": "DETERMINISTIC_BOUNDED_ROLLING_SUMMARY",
                 "permitted_operation": "COMPACT_PREFIX_KEEP_BOUNDED_RECENCY",
                 "frozen_configuration": {},
+                "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
             {
                 "arm_id": ArmId.A2_FROZEN_RETRIEVAL.value,
@@ -275,6 +277,7 @@ def build_stage_a_prereg_candidate(
                 "representation": "FROZEN_ASSERTION_EVENT_RETRIEVAL",
                 "permitted_operation": "ONE_FROZEN_QUERY_OVER_COMMON_EVENT_STORE",
                 "frozen_configuration": {"query": "ASSERTION_EVENTS"},
+                "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
             {
                 "arm_id": ArmId.A3_TYPED_STATE.value,
@@ -283,22 +286,27 @@ def build_stage_a_prereg_candidate(
                 "representation": "TYPED_VISIBLE_EVENT_STATE_PROJECTION",
                 "permitted_operation": "REDUCE_AND_PROJECT_VISIBLE_EVENTS_ONLY",
                 "frozen_configuration": {},
+                "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
         ],
         "scenario_protocol": {
-            "generator_contract": "RSC1_STAGE_A_SCENARIO_GENERATOR_V1",
+            "generator_contract": "RSC1_STAGE_A_RECAST_GENERATOR_V2",
             "families": families,
             "family_count": len(families),
             "held_out_episode_count": len(families) * len(held_out_seeds),
-            "actor_step_range_inclusive": [23, 72],
-            "early_assumption_step_range_inclusive": [1, 10],
-            "failure_delay_actions_range_inclusive": [20, 60],
-            "decision_checkpoints": [
-                "BEFORE_PERTURBATION",
-                "AFTER_PERTURBATION",
-                "AFTER_PROCESS_RESTART",
-                "TERMINAL_RECOVERY_DECISION",
-            ],
+            "episode_length_turns_range_inclusive": [20, 60],
+            "turn_structure": "OBSERVE_ACT_RESOLVE",
+            "checkpoint_protocol": {
+                "count": 4,
+                "selection_algorithm": "SEED_DETERMINED_COMBINATION_ENUMERATION_WITH_MIN_3_TURN_SPACING",
+                "trigger": "PERTURBATION_TERMINAL_PHASE",
+                "range_inclusive": [5, 58],
+            },
+            "perturbation_protocol": {
+                "classes_injectable_at_seed_determined_turns": True,
+                "combination_varies_by_seed": True,
+                "multiple_may_co_occur": True,
+            },
             "common_perturbations": [
                 "ONE_DETERMINISTIC_PROCESS_RESTART",
                 "ONE_DELAYED_FAILURE_OR_SAFETY_DECISION",
@@ -343,6 +351,9 @@ def build_stage_a_prereg_candidate(
             "max_tool_calls": 8,
             "max_wall_clock_units": 80,
             "token_proxy": "ceil_utf8_bytes_div_4",
+            "o_max": 8_192,
+            "b_a0": 262_144,
+            "b_arm": 65_536,
         },
         "seed_and_split_protocol": {
             "development_seeds": [101, 103, 107, 109, 113, 127, 131],
