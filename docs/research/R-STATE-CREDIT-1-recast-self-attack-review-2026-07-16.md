@@ -138,3 +138,26 @@ request package was updated to post-fix head `44de1ae` at `9a5aa28`.
 | F17 | P3 | Closed | `c063b37` — perturbation `NotImplementedError` stubs removed; dispatch layer exhaustive over the frozen enum (see F12). |
 | F18 | P3 | Closed | Documented-limitation resolution: review request §8 bullet 1 explicitly documents the HMAC test-only backend and the mandatory freeze-time swap to an asymmetric scheme with real key management; §9 question 2 defers the backend-adequacy ruling to the independent reviewer. No crypto dependency was added unilaterally (none exists in `pyproject.toml`/`uv.lock`); the production backend is wired at freeze, enforced before any result-bearing run. |
 | F19 | P3 | Closed | Review target head consistency maintained by refreshing the review request after each implementation head change. |
+
+## 9. Post-hoc addendum — independent OpenCode exact-head P1 closure (2026-07-17)
+
+An independent OpenCode exact-head review of `f04e956` (after the F-series
+fixes above) found three P1 methodology defects that this self-attack missed.
+They are recorded here so the internal review history stays honest.
+
+| ID | Severity | Defect found by the independent review | Closure |
+|---|---|---|---|
+| OC-P1-1 | P1 | `_default_policy(current_observation)` served as experimental truth: the correct checkpoint action was a pure event-class lookup of the current observation, so no sealed cross-turn state was ever required. | Runner-only sealed referee in `interactive_env.py` (`referee_correct_action`, `referee_loss_map`, `score_action`) derives truth from pending effects, commitments, conflicts, stale bindings, and recovery records; actor actions resolve sealed conditions and emit visible resolution observations; paired byte-identical-observation cases prove the event-class lookup fails (`tests/test_r_state_credit_1_sealed_referee.py`). |
+| OC-P1-2 | P1 | Actor-visible `valid_time` equaled `BASE_TIME + minutes=turn_index` — a fixed affine transform re-leaking the turn index that F1 had removed, and payload refs (`assertion-027`, `expected_receipt_turn`) exposed absolute turns byte-level. | Sealed seed-derived irregular valid-time clock, sealed out-of-order displacement, opaque seed-derived payload refs, and relative delay fields; byte-level and statistical recovery attacks fail while before/after/supersession relations stay decidable (`tests/test_r_state_credit_1_valid_time.py`). |
+| OC-P1-3 | P1 | The recast qualification path had no real A0–A3 arms: all four "arms" received the identical observation tuple and the same `StubActor`, and the only budget was the shared A0 byte count that forced every arm at once. | `recast_arms.py` implements four real representations (full raw log, deterministic lossy rolling summary, frozen `nonroutine-recency-v1` bounded retrieval, typed state/commitment/conflict compilation) with per-arm ledgers and sticky arm-isolated overflow; `ActorRequest` now carries representation bytes; blinding/order/reverse-map custody unchanged (`tests/test_r_state_credit_1_recast_arms.py`). |
+
+Residual limits after closure are disclosed in
+`docs/research/R-STATE-CREDIT-1-independent-review-request-2026-07-16.md` §8,
+including: released-event counts still bound the current turn inherently; the
+sealed referee priority ladder is builder-designed and needs independent
+acceptance; the legacy formal runner prereg still binds the rejected corpus
+path as internally consistent history pending a retire-or-rederive decision;
+and the HMAC signature backend remains test-only.
+
+Status ceiling unchanged: `IMPLEMENTED_LOCAL / NOT_FROZEN / NO_PROVIDER /
+NOT_RUN / NOT_EVIDENCE`.

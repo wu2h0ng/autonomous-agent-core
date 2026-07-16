@@ -1,5 +1,5 @@
 schema_version: 2
-updated: "2026-07-16T15:55:46+08:00"
+updated: "2026-07-17T00:00:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -128,7 +128,14 @@ research_ledger:
       status: "HISTORICAL_THEORY_RECORD / CONDITIONAL / ROUTE_CLOSED"
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
-active_work: []
+active_work:
+  - id: "R-STATE-CREDIT-1-RECAST-P1-CLOSURE"
+    track: "research"
+    status: "IMPLEMENTED_LOCAL / NOT_FROZEN / NO_PROVIDER / NOT_RUN / NOT_EVIDENCE / EXTERNAL_REVIEW_PENDING"
+    branch: "codex/r-state-credit-1-real-bindings-20260715"
+    result: "The three independent OpenCode exact-head P1 methodology defects are closed locally at 08e0897: a runner-only sealed state-dependent referee and recast loss scorer replace the event-class lookup as experimental truth; valid_time is a sealed seed-derived clock instead of an affine turn transform and payload refs are opaque; real A0-A3 representation arms with per-arm budget ledgers and arm-isolated overflow replace the placebo shared-input arms. Prereg candidate, exact-content manifest, review request, and self-attack addendum were refreshed to exact bytes."
+    boundary: "Implementation evidence only on this feature branch; no freeze, provider call, result run, verdict, promotion, merge, or release. Independent re-review and founder-gated freeze/run authorization remain open."
+    source: "docs/research/R-STATE-CREDIT-1-independent-review-request-2026-07-16.md"
 
 parked_work:
   - id: "LH-RECOVERY-1A-FULL-SUCCESSOR"
