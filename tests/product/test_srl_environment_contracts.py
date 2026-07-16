@@ -74,8 +74,11 @@ def _assessment(**updates: Any) -> SrlRelevanceAssessment:
         "proposed_attention_budget_seconds": 600,
         "disposition": SrlRelevanceDisposition.CREATE_TASK,
         "confidence": 0.9,
-        "false_positive_recorded": False,
+        "false_positive_recorded": True,
         "assessor_version": "assessor-1.0",
+        "assessor_policy_digest": "sha256:assessor-policy",
+        "proposed_goal_statement": "Investigate direct push to main",
+        "proposed_task_class": "Goal",
         "assessed_at": NOW,
     }
     values.update(updates)
@@ -190,3 +193,54 @@ def test_operational_projection_ref_requires_evidence() -> None:
 def test_operational_projection_ref_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError, match="extra_field"):
         _projection(extra_field="forbidden")
+
+
+def test_relevance_assessment_requires_assessor_policy_digest() -> None:
+    with pytest.raises(ValidationError, match="assessor_policy_digest"):
+        _assessment(assessor_policy_digest="")
+
+
+def test_relevance_assessment_create_task_requires_proposal_fields() -> None:
+    with pytest.raises(ValidationError, match="proposed_goal_statement"):
+        _assessment(proposed_goal_statement=None)
+    with pytest.raises(ValidationError, match="proposed_task_class"):
+        _assessment(proposed_task_class=None)
+
+
+def test_relevance_assessment_help_requires_minimum_external_input() -> None:
+    assessment = _assessment(
+        disposition=SrlRelevanceDisposition.HELP,
+        minimum_external_input="Approve or reject the staged rollout",
+        proposed_goal_statement=None,
+        proposed_task_class=None,
+        false_positive_recorded=False,
+    )
+    assert assessment.disposition is SrlRelevanceDisposition.HELP
+
+
+def test_relevance_assessment_help_rejects_proposed_goal() -> None:
+    with pytest.raises(ValidationError, match="proposed_goal_statement"):
+        _assessment(
+            disposition=SrlRelevanceDisposition.HELP,
+            minimum_external_input="Need input",
+            proposed_goal_statement="Should not be here",
+        )
+
+
+def test_relevance_assessment_non_work_rejects_proposal_fields() -> None:
+    with pytest.raises(ValidationError, match="proposed_goal_statement"):
+        _assessment(
+            disposition=SrlRelevanceDisposition.OBSERVE,
+            proposed_goal_statement="Should not be here",
+            proposed_task_class=None,
+        )
+
+
+def test_relevance_assessment_task_requires_false_positive_recorded() -> None:
+    with pytest.raises(ValidationError, match="false_positive_recorded"):
+        _assessment(false_positive_recorded=False)
+
+
+def test_relevance_assessment_create_task_rejects_minimum_external_input() -> None:
+    with pytest.raises(ValidationError, match="minimum_external_input"):
+        _assessment(minimum_external_input="Should not be here")

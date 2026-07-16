@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime
 
@@ -47,6 +47,70 @@ class SrlHelpRequest(ContractModel):
     cancellation_policy: NonEmptyStr
     escalation_policy: NonEmptyStr
     requested_at: UtcDateTime
+
+
+class SrlHelpResponseKind(str, Enum):
+    OPERATOR_DECISION = "OPERATOR_DECISION"
+    CAPABILITY_GRANT = "CAPABILITY_GRANT"
+    REVOCATION_REQUEST = "REVOCATION_REQUEST"
+    CANCELLATION = "CANCELLATION"
+
+
+class SrlHelpResponse(ContractModel):
+    """Typed operator response to a help request; raw text is not authority."""
+
+    help_request_id: NonEmptyStr
+    responded_at: UtcDateTime
+    responder_principal_id: NonEmptyStr
+    response_kind: SrlHelpResponseKind
+    decision: Literal["APPROVE", "REJECT", "MORE_INFO"] | None = None
+    capability_grant_id: NonEmptyStr | None = None
+    revocation_request_id: NonEmptyStr | None = None
+    notes: NonEmptyStr | None = None
+
+    @model_validator(mode="after")
+    def _validate_response_kind(self) -> "SrlHelpResponse":
+        if self.response_kind is SrlHelpResponseKind.OPERATOR_DECISION:
+            if self.decision is None:
+                raise ValueError("OPERATOR_DECISION requires decision")
+            if self.capability_grant_id is not None:
+                raise ValueError(
+                    "OPERATOR_DECISION cannot carry capability_grant_id"
+                )
+            if self.revocation_request_id is not None:
+                raise ValueError(
+                    "OPERATOR_DECISION cannot carry revocation_request_id"
+                )
+        elif self.response_kind is SrlHelpResponseKind.CAPABILITY_GRANT:
+            if self.capability_grant_id is None:
+                raise ValueError("CAPABILITY_GRANT requires capability_grant_id")
+            if self.decision is not None:
+                raise ValueError("CAPABILITY_GRANT cannot carry decision")
+            if self.revocation_request_id is not None:
+                raise ValueError(
+                    "CAPABILITY_GRANT cannot carry revocation_request_id"
+                )
+        elif self.response_kind is SrlHelpResponseKind.REVOCATION_REQUEST:
+            if self.revocation_request_id is None:
+                raise ValueError(
+                    "REVOCATION_REQUEST requires revocation_request_id"
+                )
+            if self.decision is not None:
+                raise ValueError("REVOCATION_REQUEST cannot carry decision")
+            if self.capability_grant_id is not None:
+                raise ValueError(
+                    "REVOCATION_REQUEST cannot carry capability_grant_id"
+                )
+        elif self.response_kind is SrlHelpResponseKind.CANCELLATION:
+            if self.decision is not None:
+                raise ValueError("CANCELLATION cannot carry decision")
+            if self.capability_grant_id is not None:
+                raise ValueError("CANCELLATION cannot carry capability_grant_id")
+            if self.revocation_request_id is not None:
+                raise ValueError(
+                    "CANCELLATION cannot carry revocation_request_id"
+                )
+        return self
 
 
 class HelpBudget(ContractModel):

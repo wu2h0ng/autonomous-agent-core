@@ -126,6 +126,8 @@ from .srl_help import (
     HelpClass,
     KnownFact,
     SrlHelpRequest,
+    SrlHelpResponse,
+    SrlHelpResponseKind,
 )
 from .runtime import (
     AgentRun,
@@ -225,6 +227,8 @@ __all__ = [
     "KnownFact",
     "SrlEnvironmentEvent",
     "SrlHelpRequest",
+    "SrlHelpResponse",
+    "SrlHelpResponseKind",
     "SrlOperationalProjectionRef",
     "SrlRelevanceAssessment",
     "SrlRelevanceDisposition",

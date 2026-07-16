@@ -99,3 +99,5 @@ class StandingMission(ContractModel):
     projected_at: UtcDateTime
     expires_at: UtcDateTime
     parent_mandate_digest: NonEmptyStr
+    correction_epoch: int = Field(ge=0)
+    ratification_receipt_digest: NonEmptyStr

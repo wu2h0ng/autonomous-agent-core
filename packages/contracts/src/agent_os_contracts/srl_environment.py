@@ -72,12 +72,71 @@ class SrlRelevanceAssessment(ContractModel):
     confidence: float = Field(ge=0.0, le=1.0)
     false_positive_recorded: bool = False
     assessor_version: NonEmptyStr
+    assessor_policy_digest: NonEmptyStr
+    provider_invocation_receipt_digest: NonEmptyStr | None = None
+    proposed_goal_statement: NonEmptyStr | None = None
+    minimum_external_input: NonEmptyStr | None = None
+    proposed_task_class: NonEmptyStr | None = None
     assessed_at: UtcDateTime
 
     @model_validator(mode="after")
-    def _trigger_required(self) -> "SrlRelevanceAssessment":
+    def _validate_assessment(self) -> "SrlRelevanceAssessment":
         if self.trigger_event_id is None and self.trigger_gap_id is None:
             raise ValueError("assessment must be triggered by an event or a gap")
+
+        task_dispositions = {
+            SrlRelevanceDisposition.INVESTIGATE,
+            SrlRelevanceDisposition.CREATE_TASK,
+        }
+        if self.disposition in task_dispositions:
+            if self.proposed_goal_statement is None:
+                raise ValueError(
+                    "task disposition requires proposed_goal_statement"
+                )
+            if self.minimum_external_input is not None:
+                raise ValueError(
+                    "minimum_external_input is only valid for HELP disposition"
+                )
+            if self.disposition is SrlRelevanceDisposition.CREATE_TASK:
+                if self.proposed_task_class is None:
+                    raise ValueError(
+                        "CREATE_TASK disposition requires proposed_task_class"
+                    )
+            else:
+                if self.proposed_task_class is not None:
+                    raise ValueError(
+                        "proposed_task_class is only valid for CREATE_TASK disposition"
+                    )
+            if not self.false_positive_recorded:
+                raise ValueError(
+                    "task disposition requires false_positive_recorded=True"
+                )
+        elif self.disposition is SrlRelevanceDisposition.HELP:
+            if self.minimum_external_input is None:
+                raise ValueError(
+                    "HELP disposition requires minimum_external_input"
+                )
+            if self.proposed_goal_statement is not None:
+                raise ValueError(
+                    "proposed_goal_statement is not valid for HELP disposition"
+                )
+            if self.proposed_task_class is not None:
+                raise ValueError(
+                    "proposed_task_class is not valid for HELP disposition"
+                )
+        else:
+            if self.proposed_goal_statement is not None:
+                raise ValueError(
+                    "proposed_goal_statement is not valid for non-work disposition"
+                )
+            if self.minimum_external_input is not None:
+                raise ValueError(
+                    "minimum_external_input is not valid for non-work disposition"
+                )
+            if self.proposed_task_class is not None:
+                raise ValueError(
+                    "proposed_task_class is not valid for non-work disposition"
+                )
         return self
 
 

@@ -160,6 +160,8 @@ def test_standing_mission_round_trip() -> None:
         projected_at=NOW,
         expires_at=NOW + timedelta(days=30),
         parent_mandate_digest="sha256:abc",
+        correction_epoch=0,
+        ratification_receipt_digest="sha256:receipt",
     )
     assert mission.review_cadence_seconds == 3600
 

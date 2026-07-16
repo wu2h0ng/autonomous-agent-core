@@ -13,6 +13,8 @@ from agent_os_contracts import (
     HelpClass,
     KnownFact,
     SrlHelpRequest,
+    SrlHelpResponse,
+    SrlHelpResponseKind,
 )
 
 
@@ -157,3 +159,55 @@ def test_help_burden_receipt_negative_request_count_rejected() -> None:
 def test_help_request_rejects_unknown_field() -> None:
     with pytest.raises(ValidationError, match="backdoor"):
         _help_request(backdoor="forbidden")
+
+
+def test_help_response_operator_decision_round_trip() -> None:
+    response = SrlHelpResponse(
+        help_request_id="help-1",
+        responded_at=NOW,
+        responder_principal_id="principal-1",
+        response_kind=SrlHelpResponseKind.OPERATOR_DECISION,
+        decision="APPROVE",
+    )
+    assert response.decision == "APPROVE"
+
+
+def test_help_response_operator_decision_requires_decision() -> None:
+    with pytest.raises(ValidationError, match="decision"):
+        SrlHelpResponse(
+            help_request_id="help-1",
+            responded_at=NOW,
+            responder_principal_id="principal-1",
+            response_kind=SrlHelpResponseKind.OPERATOR_DECISION,
+        )
+
+
+def test_help_response_capability_grant_requires_grant_id() -> None:
+    with pytest.raises(ValidationError, match="capability_grant_id"):
+        SrlHelpResponse(
+            help_request_id="help-1",
+            responded_at=NOW,
+            responder_principal_id="principal-1",
+            response_kind=SrlHelpResponseKind.CAPABILITY_GRANT,
+        )
+
+
+def test_help_response_rejects_raw_text_decision() -> None:
+    with pytest.raises(ValidationError, match="response_kind"):
+        SrlHelpResponse(
+            help_request_id="help-1",
+            responded_at=NOW,
+            responder_principal_id="principal-1",
+            response_kind="RAW_TEXT",  # type: ignore[arg-type]
+        )
+
+
+def test_help_response_cancellation_rejects_decision() -> None:
+    with pytest.raises(ValidationError, match="decision"):
+        SrlHelpResponse(
+            help_request_id="help-1",
+            responded_at=NOW,
+            responder_principal_id="principal-1",
+            response_kind=SrlHelpResponseKind.CANCELLATION,
+            decision="APPROVE",
+        )
