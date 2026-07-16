@@ -55,6 +55,14 @@ from .provider import (
     ProviderPort,
 )
 from .recovery import build_recovery_snapshot
+from .srl_event_authority import (
+    CanonicalCredentialLeaseRegistry,
+    CanonicalCredentialRefReader,
+    CredentialLeaseRegistryPort,
+    CredentialRefReader,
+    EventOriginRegistryPort,
+    PayloadAdmissionRegistryPort,
+)
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
@@ -236,6 +244,12 @@ __all__ = [
     "OpenAICompatibleProvider",
     "ProviderPort",
     "build_recovery_snapshot",
+    "CanonicalCredentialLeaseRegistry",
+    "CanonicalCredentialRefReader",
+    "CredentialLeaseRegistryPort",
+    "CredentialRefReader",
+    "EventOriginRegistryPort",
+    "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",
     "CapabilityResult",
