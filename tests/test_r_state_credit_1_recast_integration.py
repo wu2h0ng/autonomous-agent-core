@@ -38,6 +38,7 @@ from experiments.r_state_credit_1.contracts import (
 )
 from experiments.r_state_credit_1.episode_generator import EpisodeGenerator
 from experiments.r_state_credit_1.interactive_env import EpisodeStatus, InteractiveEpisode
+from experiments.r_state_credit_1.recast_arms import ArmRoster
 from experiments.r_state_credit_1.signature_backend import TestHmacBackend
 
 
@@ -117,12 +118,13 @@ def _run_checkpointed_episode(
     generator = EpisodeGenerator(family_id, seed_id)
     episode = generator.generate(temp_root=temp_root)
     blinding = ArmBlinding(episode._episode_seed)
+    roster = ArmRoster()
     actor = StubActor()
     records: list[CheckpointRecord] = []
 
     try:
         while episode.status is EpisodeStatus.RUNNING:
-            observation, forced = episode.observe()
+            observation = episode.observe()
 
             if episode._turn_index in episode.checkpoints:
                 checkpoint_ordinal = episode.checkpoints.index(episode._turn_index)
@@ -133,27 +135,26 @@ def _run_checkpointed_episode(
                     turn_index=turn_index,
                     correct_action=episode.referee_correct_action(),
                 )
-                for position in range(4):
-                    request = blinding.actor_request(
-                        checkpoint_ordinal=checkpoint_ordinal,
-                        position=position,
-                        observations=observations,
-                        valid_actions=tuple(ActorAction),
+                calls = blinding.blinded_calls(
+                    checkpoint_ordinal=checkpoint_ordinal,
+                    observations=observations,
+                    roster=roster,
+                    valid_actions=tuple(ActorAction),
+                )
+                for call in calls:
+                    assert call.request is not None, (
+                        "development budgets must not force any arm"
                     )
-                    response = actor.act(request)
+                    response = actor.act(call.request)
                     real_arm, _ = blinding.resolve_response(
-                        checkpoint_ordinal, response, request.session_label
+                        checkpoint_ordinal, response, call.session_label
                     )
-                    record.requests[request.session_label] = request
-                    record.responses[request.session_label] = response
+                    record.requests[call.session_label] = call.request
+                    record.responses[call.session_label] = response
                     record.resolved_actions[real_arm] = response.action
                 records.append(record)
 
-            step_action = (
-                forced
-                if forced is not None
-                else episode._default_policy(observation, episode)
-            )
+            step_action = episode._default_policy(observation, episode)
             episode.step(step_action)
     except Exception:
         episode.cleanup()

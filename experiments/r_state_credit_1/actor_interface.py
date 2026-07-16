@@ -8,33 +8,31 @@ in this module.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from experiments.r_state_credit_1.action_grammar import ActorAction
 from experiments.r_state_credit_1.contracts import canonical_json
-from experiments.r_state_credit_1.observation import Observation
 
 
 @dataclass(frozen=True, slots=True)
 class ActorRequest:
     """Neutral request delivered to an actor at a checkpoint.
 
-    Contains only the observable prefix released so far, a neutral session
-    label, and the frozen valid action grammar.  No arm identity, family
-    identifier, turn index, checkpoint ordinal, sealed label, or future events
-    are present.
+    Contains only the arm-rendered representation bytes of the released
+    observation prefix, a neutral session label, and the frozen valid action
+    grammar.  No arm identity, family identifier, turn index, checkpoint
+    ordinal, sealed label, correct action, or future event is present.
     """
 
-    observations: tuple[Observation, ...]
+    representation: str
     valid_actions: tuple[ActorAction, ...]
     session_label: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.observations, tuple):
-            raise ValueError("observations must be a tuple")
-        if any(not isinstance(obs, Observation) for obs in self.observations):
-            raise ValueError("observations must contain Observation values")
+        if not isinstance(self.representation, str) or not self.representation:
+            raise ValueError("representation must be non-empty text")
         if not isinstance(self.valid_actions, tuple) or not self.valid_actions:
             raise ValueError("valid_actions must be a non-empty tuple")
         if any(
@@ -51,9 +49,7 @@ class ActorRequest:
     def to_mapping(self) -> dict[str, object]:
         """Return a closed mapping for canonical serialization."""
         return {
-            "observations": tuple(
-                obs.canonical_json() for obs in self.observations
-            ),
+            "representation": self.representation,
             "valid_actions": tuple(action.value for action in self.valid_actions),
             "session_label": self.session_label,
         }
@@ -96,10 +92,12 @@ class Actor(Protocol):
 
 
 class StubActor:
-    """Deterministic rule-based actor for local qualification.
+    """Deterministic event-class lookup actor for local qualification.
 
-    Chooses from the frozen action grammar based on the most recent
-    observation.  No provider call or model inference occurs.
+    Reads the shared ``latest`` observation block inside the arm-rendered
+    representation and maps its event class to an action.  It deliberately
+    ignores the representation of history, so it must fail the sealed-referee
+    paired discrimination cases.  No provider call or model inference occurs.
     """
 
     # Priority order used when the rule-based choice is not in valid_actions.
@@ -123,12 +121,18 @@ class StubActor:
         return ActorResponse(action=chosen)
 
     def _choose(self, request: ActorRequest) -> ActorAction:
-        """Rule-based action selection from the observable prefix."""
-        if not request.observations:
+        """Event-class lookup over the shared latest observation block."""
+        try:
+            data = json.loads(request.representation)
+        except ValueError:
             return ActorAction.ABSTAIN
-        last = request.observations[-1]
-        event_class = last.event_class
-        payload = last.payload
+        latest = data.get("latest") if isinstance(data, dict) else None
+        if not isinstance(latest, dict):
+            return ActorAction.ABSTAIN
+        event_class = latest.get("event_class")
+        payload: Any = latest.get("payload")
+        if not isinstance(payload, dict):
+            payload = {}
 
         if event_class == "DETERMINISTIC_RECOVERY":
             recovery_action = payload.get("recovery_action")

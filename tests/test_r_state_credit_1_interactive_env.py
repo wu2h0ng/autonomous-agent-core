@@ -6,14 +6,17 @@ import random
 from pathlib import Path
 from typing import Any
 
-from experiments.r_state_credit_1.contracts import ProbeAction
+from experiments.r_state_credit_1.contracts import ArmId, ProbeAction
 from experiments.r_state_credit_1.episode_generator import EpisodeGenerator
 from experiments.r_state_credit_1.interactive_env import (
     B_A0,
-    B_ARM,
     O_MAX,
     InteractiveEpisode,
     PerturbationClass,
+)
+from experiments.r_state_credit_1.recast_arms import (
+    FORCED_OVERFLOW_REASON,
+    ArmRoster,
 )
 
 
@@ -87,33 +90,30 @@ def test_no_overflow_on_development_seeds(tmp_path: Path) -> None:
         try:
             episode.run()
             assert not episode.a0_overflow
-            assert not episode.arm_overflow
             assert episode.status.value in {"TERMINAL", "ABSTAINED"}
             for observation in episode.observations:
                 assert observation.serialized_bytes() <= O_MAX
             assert episode._cumulative_a0_bytes() <= B_A0
-            assert episode._cumulative_a0_bytes() <= B_ARM
         finally:
             episode.cleanup()
 
 
 def test_budget_overflow_fail_closed(tmp_path: Path) -> None:
-    """Artificially small budgets force ABSTAIN / overflow semantics."""
-    episode = InteractiveEpisode(
-        FAMILY,
-        7,
-        tmp_path / "overflow",
-        b_a0=256,
-        b_arm=128,
-    )
+    """Artificially small per-arm budgets force that arm's ABSTAIN outcome."""
+    episode = InteractiveEpisode(FAMILY, 7, tmp_path / "overflow")
     try:
-        _observations, events = episode.run()
-        assert episode.a0_overflow or episode.arm_overflow
-        # Once overflow occurs the actor is forced to ABSTAIN.
-        assert any(
-            event.payload.get("action") == ProbeAction.ABSTAIN.value
-            for event in events
-        )
+        episode.run()
+        roster = ArmRoster(b_a0=256, b_arm=128)
+        turn = episode.checkpoints[0]
+        prefix = tuple(episode.observations[:turn])
+        for arm_id in ArmId:
+            outcome = roster.representation(arm_id, prefix)
+            assert outcome.forced_action is not None
+            assert outcome.forced_action.value == ProbeAction.ABSTAIN.value
+            assert outcome.forced_reason == FORCED_OVERFLOW_REASON
+            assert roster.overflowed(arm_id)
+        # The episode itself continues; budgets close arms, not the episode.
+        assert episode.status.value in {"TERMINAL", "ABSTAINED"}
     finally:
         episode.cleanup()
 
@@ -219,23 +219,30 @@ def test_observation_budget_envelope_per_turn(tmp_path: Path) -> None:
 
 def test_a0_overflow_does_not_force_other_arms(tmp_path: Path) -> None:
     """A0 budget overflow forces only A0 to ABSTAIN; the episode continues."""
-    episode = InteractiveEpisode(
-        FAMILY,
-        7,
-        tmp_path / "a0-only-overflow",
-        b_a0=256,
-        b_arm=999_999,
-    )
+    episode = InteractiveEpisode(FAMILY, 7, tmp_path / "a0-only-overflow")
     try:
         observations, events = episode.run()
-        assert episode.a0_overflow
-        assert not episode.arm_overflow
+        roster = ArmRoster(b_a0=256, b_arm=999_999)
+        turn = episode.checkpoints[0]
+        prefix = tuple(episode.observations[:turn])
+        outcomes = {
+            arm_id: roster.representation(arm_id, prefix) for arm_id in ArmId
+        }
+        assert outcomes[ArmId.A0_FULL_LOG].forced_action is not None
+        assert outcomes[ArmId.A0_FULL_LOG].forced_reason == (
+            FORCED_OVERFLOW_REASON
+        )
+        for arm_id in (
+            ArmId.A1_ROLLING_SUMMARY,
+            ArmId.A2_FROZEN_RETRIEVAL,
+            ArmId.A3_TYPED_STATE,
+        ):
+            assert outcomes[arm_id].forced_action is None
         # The episode reached a normal terminal rather than stopping on ABSTAIN.
         assert episode.status.value == "TERMINAL"
         # No overflow-forced ABSTAIN was applied to the shared step action.
         assert not any(
-            event.payload.get("action") == ProbeAction.ABSTAIN.value
-            and event.payload.get("action_reason") == "REPRESENTATION_BUDGET_OVERFLOW"
+            event.payload.get("action_reason") == FORCED_OVERFLOW_REASON
             for event in events
         )
         # Other arms would have continued to see checkpoints.

@@ -2,7 +2,9 @@
 
 For every checkpoint, real arm identities are replaced with neutral labels and
 the call order is a uniform random permutation derived from the episode seed.
-The reverse mapping is runner-only.
+The reverse mapping is runner-only.  Arm-specific representations are attached
+per position by the runner via :class:`experiments.r_state_credit_1.recast_arms.ArmRoster`;
+the actor never sees the real arm identity behind a label.
 """
 
 from __future__ import annotations
@@ -10,16 +12,34 @@ from __future__ import annotations
 import hashlib
 import random
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from experiments.r_state_credit_1.action_grammar import ActorAction
 from experiments.r_state_credit_1.actor_interface import ActorRequest, ActorResponse
 from experiments.r_state_credit_1.contracts import ArmId
 from experiments.r_state_credit_1.observation import Observation
+from experiments.r_state_credit_1.recast_arms import ArmRoster
 
 
 NEUTRAL_LABELS: tuple[str, ...] = ("rep-a", "rep-b", "rep-c", "rep-d")
 _REAL_ARM_IDS: tuple[ArmId, ...] = tuple(ArmId)
+
+
+@dataclass(frozen=True, slots=True)
+class BlindedArmCall:
+    """One blinded checkpoint call at a call-order position.
+
+    ``request`` is ``None`` when the arm's own budget ledger forced the call
+    closed; the runner records ``forced_action`` without contacting the actor.
+    The real arm identity is deliberately absent; the runner resolves it later
+    through :meth:`ArmBlinding.resolve_response`.
+    """
+
+    position: int
+    session_label: str
+    request: ActorRequest | None
+    forced_action: ActorAction | None
+    forced_reason: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,17 +121,19 @@ class ArmBlinding:
         self,
         checkpoint_ordinal: int,
         position: int,
-        observations: Iterable[Observation],
+        representation: str,
         valid_actions: Iterable[ActorAction] | None = None,
     ) -> ActorRequest:
         """Build a blinded actor request for the arm at ``position``.
 
-        The returned request contains only a neutral session label; no real
-        arm identity, role name, turn index, checkpoint ordinal, or capability
+        The returned request contains only the representation bytes, the
+        frozen action grammar, and a neutral session label; no real arm
+        identity, role name, turn index, checkpoint ordinal, or capability
         hint is present.
         """
+        _ = checkpoint_ordinal
         return ActorRequest(
-            observations=tuple(observations),
+            representation=representation,
             valid_actions=(
                 tuple(valid_actions)
                 if valid_actions is not None
@@ -119,6 +141,54 @@ class ArmBlinding:
             ),
             session_label=self.label_for_position(position),
         )
+
+    def blinded_calls(
+        self,
+        checkpoint_ordinal: int,
+        observations: Sequence[Observation],
+        roster: ArmRoster,
+        valid_actions: Iterable[ActorAction] | None = None,
+    ) -> tuple[BlindedArmCall, ...]:
+        """Build the four blinded checkpoint calls in randomized call order.
+
+        Each position receives the representation rendered by the real arm at
+        that position, charged against that arm's own budget ledger.  An arm
+        whose ledger overflowed produces a forced ``ABSTAIN`` call without a
+        request; no other arm is affected.
+        """
+        actions = (
+            tuple(valid_actions) if valid_actions is not None else tuple(ActorAction)
+        )
+        order = self.call_order(checkpoint_ordinal)
+        calls: list[BlindedArmCall] = []
+        for position, arm_id in enumerate(order):
+            outcome = roster.representation(arm_id, observations)
+            if outcome.forced_action is not None:
+                calls.append(
+                    BlindedArmCall(
+                        position=position,
+                        session_label=self.label_for_position(position),
+                        request=None,
+                        forced_action=outcome.forced_action,
+                        forced_reason=outcome.forced_reason,
+                    )
+                )
+                continue
+            calls.append(
+                BlindedArmCall(
+                    position=position,
+                    session_label=self.label_for_position(position),
+                    request=self.actor_request(
+                        checkpoint_ordinal=checkpoint_ordinal,
+                        position=position,
+                        representation=outcome.representation,
+                        valid_actions=actions,
+                    ),
+                    forced_action=None,
+                    forced_reason=None,
+                )
+            )
+        return tuple(calls)
 
     def resolve_response(
         self,

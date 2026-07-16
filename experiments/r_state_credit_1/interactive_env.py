@@ -185,7 +185,6 @@ class InteractiveEpisode:
         self._checkpoints = self._select_checkpoint_turns()
         self._status = EpisodeStatus.RUNNING
         self._a0_overflow = False
-        self._arm_overflow = False
         self._current_perturbation: PerturbationClass | None = None
         self._pending_resolutions: list[dict[str, Any]] = []
         self._referee_actions: list[ActorAction] = []
@@ -425,15 +424,16 @@ class InteractiveEpisode:
     # Turn loop
     # ------------------------------------------------------------------
 
-    def observe(self) -> tuple[Observation, ProbeAction | None]:
-        """Release the next observation and an optional forced action.
+    def observe(self) -> Observation:
+        """Release the next observation.
 
         The observed perturbation's sealed state effect is applied when the
         observation is released, so the sealed referee evaluates the decision
-        point that includes the current turn's visible event.  A0 overflow is
-        tracked via ``a0_overflow`` but does not force the shared step action,
-        so non-A0 arms can continue.  Non-A0 arm overflow forces the shared
-        step action to ``ABSTAIN``.
+        point that includes the current turn's visible event.  Cumulative raw
+        log growth is tracked via ``a0_overflow`` as a diagnostic; per-arm
+        budget forcing lives in the per-arm ledgers of
+        :class:`experiments.r_state_credit_1.recast_arms.ArmRoster`, so an
+        arm-specific overflow can never force any other arm.
         """
         if self._status is not EpisodeStatus.RUNNING:
             raise RuntimeError(f"episode is not running: {self._status.value}")
@@ -448,17 +448,12 @@ class InteractiveEpisode:
         if self._current_perturbation is not None:
             self._apply_perturbation_effect(self._current_perturbation, observation)
             self._current_perturbation = None
-        cumulative = self._cumulative_a0_bytes(observation)
-        forced: ProbeAction | None = None
-        if cumulative > self.b_a0:
+        if self._cumulative_a0_bytes(observation) > self.b_a0:
             self._a0_overflow = True
-        if cumulative > self.b_arm:
-            self._arm_overflow = True
-            forced = ProbeAction.ABSTAIN
         self._observations.append(observation)
         self._referee_actions.append(self._referee_action_now())
         self._referee_loss_maps.append(self._referee_loss_map_now())
-        return observation, forced
+        return observation
 
     def step(self, action: ProbeAction | ActorAction) -> EpisodeEvent:
         """Resolve the actor action, update state, and record the event."""
@@ -479,8 +474,8 @@ class InteractiveEpisode:
         """Run the full episode using ``actor_policy`` or the default policy."""
         policy = actor_policy or self._default_policy
         while self._status is EpisodeStatus.RUNNING:
-            observation, forced = self.observe()
-            action = forced if forced is not None else policy(observation, self)
+            observation = self.observe()
+            action = policy(observation, self)
             self.step(action)
         return self._observations, self._events
 
@@ -963,8 +958,6 @@ class InteractiveEpisode:
         self._materialize_state()
         payload = dict(observation.payload)
         payload["action"] = value
-        if self._a0_overflow or self._arm_overflow:
-            payload["action_reason"] = "REPRESENTATION_BUDGET_OVERFLOW"
         return EpisodeEvent(
             turn_index=self._turn_index,
             event_id=f"{self.family_id}:{self.seed_id}:event:{self._turn_index:03d}",
@@ -1405,10 +1398,6 @@ class InteractiveEpisode:
     @property
     def a0_overflow(self) -> bool:
         return self._a0_overflow
-
-    @property
-    def arm_overflow(self) -> bool:
-        return self._arm_overflow
 
     @property
     def temp_root(self) -> Path:

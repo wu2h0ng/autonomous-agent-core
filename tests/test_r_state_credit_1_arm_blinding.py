@@ -10,6 +10,7 @@ from experiments.r_state_credit_1.actor_interface import StubActor
 from experiments.r_state_credit_1.arm_blinding import ArmBlinding, NEUTRAL_LABELS
 from experiments.r_state_credit_1.contracts import ArmId, ScenarioFamily
 from experiments.r_state_credit_1.interactive_env import InteractiveEpisode
+from experiments.r_state_credit_1.recast_arms import ArmRoster
 
 
 FAMILY = "TEST_FAMILY"
@@ -48,17 +49,22 @@ def _run_episode(
 def _actor_request_bytes(
     episode: InteractiveEpisode, blinding: ArmBlinding
 ) -> bytes:
-    """Serialize a representative blinded ActorRequest."""
+    """Serialize every blinded ActorRequest for the first checkpoint."""
     checkpoint_ordinal = 0
     turn_index = episode.checkpoints[checkpoint_ordinal]
     observations = episode.observations[:turn_index]
-    request = blinding.actor_request(
+    calls = blinding.blinded_calls(
         checkpoint_ordinal=checkpoint_ordinal,
-        position=0,
         observations=observations,
+        roster=ArmRoster(),
         valid_actions=tuple(ActorAction),
     )
-    return request.to_canonical_json().encode("utf-8")
+    rendered = "\n".join(
+        call.request.to_canonical_json()
+        for call in calls
+        if call.request is not None
+    )
+    return rendered.encode("utf-8")
 
 
 def test_byte_level_no_arm_identity(tmp_path: Path) -> None:
@@ -168,20 +174,24 @@ def test_neutral_labels_only(tmp_path: Path) -> None:
             FAMILY, seed_id, tmp_path / f"labels-{seed_id}"
         )
         try:
+            episode.run()
             blinding = ArmBlinding(episode._episode_seed)
+            roster = ArmRoster()
             for checkpoint_ordinal in range(len(episode.checkpoints)):
                 turn_index = episode.checkpoints[checkpoint_ordinal]
                 observations = episode.observations[:turn_index]
-                for position in range(4):
-                    request = blinding.actor_request(
-                        checkpoint_ordinal=checkpoint_ordinal,
-                        position=position,
-                        observations=observations,
-                        valid_actions=tuple(ActorAction),
+                calls = blinding.blinded_calls(
+                    checkpoint_ordinal=checkpoint_ordinal,
+                    observations=observations,
+                    roster=roster,
+                    valid_actions=tuple(ActorAction),
+                )
+                for call in calls:
+                    assert call.session_label in NEUTRAL_LABELS, (
+                        f"non-neutral label {call.session_label!r}"
                     )
-                    assert request.session_label in NEUTRAL_LABELS, (
-                        f"non-neutral label {request.session_label!r}"
-                    )
+                    assert call.request is not None
+                    assert call.request.session_label == call.session_label
         finally:
             episode.cleanup()
 
@@ -191,21 +201,24 @@ def test_reverse_mapping_runner_only(tmp_path: Path) -> None:
     episode = _run_episode(FAMILY, 99, tmp_path / "reverse")
     try:
         blinding = ArmBlinding(episode._episode_seed)
+        roster = ArmRoster()
         actor = StubActor()
         for checkpoint_ordinal in range(len(episode.checkpoints)):
             turn_index = episode.checkpoints[checkpoint_ordinal]
             observations = episode.observations[:turn_index]
             order = blinding.call_order(checkpoint_ordinal)
+            calls = blinding.blinded_calls(
+                checkpoint_ordinal=checkpoint_ordinal,
+                observations=observations,
+                roster=roster,
+                valid_actions=tuple(ActorAction),
+            )
             for position, expected_arm in enumerate(order):
-                request = blinding.actor_request(
-                    checkpoint_ordinal=checkpoint_ordinal,
-                    position=position,
-                    observations=observations,
-                    valid_actions=tuple(ActorAction),
-                )
-                response = actor.act(request)
+                call = calls[position]
+                assert call.request is not None
+                response = actor.act(call.request)
                 resolved_arm, _ = blinding.resolve_response(
-                    checkpoint_ordinal, response, request.session_label
+                    checkpoint_ordinal, response, call.session_label
                 )
                 assert resolved_arm == expected_arm, (
                     f"checkpoint {checkpoint_ordinal} position {position}: "
