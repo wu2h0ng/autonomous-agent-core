@@ -6,6 +6,7 @@ import inspect
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -15,6 +16,8 @@ from agent_os_contracts import (
     CredentialStatus,
     EnvironmentEventAdmissionReceipt,
     LedgerAccessScope,
+    PrincipalIdentity,
+    PrincipalRole,
     SituatedEvaluationTrace,
     SituatedTraceReason,
     SituatedTraceStatus,
@@ -33,6 +36,12 @@ from agent_os_core.srl_event_store import (
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_admission import EnvironmentEventAdmissionService
 from agent_os_core.mandate_steward import MandateSteward
+from agent_os_core import SituationalScopeMismatch
+from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedRuntime
+from apps.api_server import data_agent_situated_bootstrap as bootstrap_module
+from tests.product.test_data_agent_situated_bootstrap import (
+    _compose as _compose_data_agent_runtime,
+)
 
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
@@ -204,18 +213,154 @@ def test_application_has_no_direct_operational_proposal_bypass() -> None:
     source = inspect.getsource(AgentOSApplication)
     tree = ast.parse(source)
     assert "OperationalProposalService" not in source
-    assert not any(
-        isinstance(node, ast.Call)
+    proposal_calls = tuple(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "propose"
-        for node in ast.walk(tree)
     )
-    assert tuple(inspect.signature(AgentOSApplication.propose_situated_work).parameters) == (
+    assert proposal_calls
+    assert all(
+        ast.unparse(node.func) == "self._data_agent_situated_runtime.propose"
+        for node in proposal_calls
+    )
+    assert tuple(
+        inspect.signature(AgentOSApplication.propose_situated_work).parameters
+    ) == (
         "self",
         "event_id",
         "projection_id",
         "admission_receipt_id",
     )
+
+
+def test_application_public_surface_cannot_inject_situated_authority() -> None:
+    from apps.api_server.app import AgentOSApplication
+
+    public_parameters = set(inspect.signature(AgentOSApplication).parameters)
+    assert public_parameters.isdisjoint(
+        {
+            "situated_runtime",
+            "mandate_steward",
+            "admission_writer",
+            "origin_reader",
+            "attestation_reader",
+            "credential_reader",
+        }
+    )
+    assert tuple(
+        inspect.signature(
+            AgentOSApplication.observe_admit_and_propose_data_agent_report
+        ).parameters
+    ) == ("self", "trace_id")
+    combined_source = inspect.getsource(
+        AgentOSApplication.observe_admit_and_propose_data_agent_report
+    )
+    assert "EnvironmentEventAdmissionReceipt" not in combined_source
+    assert "OperationalProposalService" not in combined_source
+    assert "self.tasks" not in combined_source
+    assert "self.policy" not in combined_source
+    assert "self.sandbox" not in combined_source
+
+
+def test_uncomposed_combined_data_agent_operation_fails_before_task_state(
+    tmp_path: Path,
+) -> None:
+    from apps.api_server.app import AgentOSApplication
+
+    app = AgentOSApplication(database=tmp_path / "uncomposed.sqlite3")
+
+    with pytest.raises(RuntimeError, match="situated runtime is not configured"):
+        app.observe_admit_and_propose_data_agent_report("trace-1")
+
+    assert app.store.list_task_ids() == ()
+
+
+def test_situated_runtime_binding_rejects_fake_or_wrong_principal_scope(
+    tmp_path: Path,
+) -> None:
+    from apps.api_server.app import AgentOSApplication
+
+    principal = PrincipalIdentity(
+        principal_id="principal-a",
+        tenant_id="tenant-a",
+        workspace_id="workspace-a",
+        role=PrincipalRole.PRINCIPAL,
+        authenticated_at=NOW,
+    )
+
+    class _FakeRuntime:
+        principal_scope = ("principal-a", "tenant-a", "workspace-a")
+
+    with pytest.raises(TypeError, match="Data Agent situated runtime"):
+        AgentOSApplication._with_data_agent_situated_runtime(
+            situated_runtime=_FakeRuntime(),  # type: ignore[arg-type]
+            principal=principal,
+            database=tmp_path / "fake.sqlite3",
+            workspace=tmp_path,
+        )
+
+    with pytest.raises(TypeError, match="composition"):
+        DataAgentSituatedRuntime._from_composition(
+            adapter=_FakeRuntime(),  # type: ignore[arg-type]
+            admission=object(),  # type: ignore[arg-type]
+            steward=object(),  # type: ignore[arg-type]
+        )
+
+    runtime, _, _, _ = _compose_data_agent_runtime(tmp_path)
+    with pytest.raises(SituationalScopeMismatch, match="scope does not match"):
+        AgentOSApplication._with_data_agent_situated_runtime(
+            situated_runtime=runtime,
+            principal=principal,
+            database=tmp_path / "wrong-scope.sqlite3",
+            workspace=tmp_path,
+        )
+
+
+@pytest.mark.parametrize("sensitive_option", ("data_agent_reports", "situational_trust"))
+def test_situated_runtime_binding_rejects_second_trust_chain(
+    tmp_path: Path,
+    sensitive_option: str,
+) -> None:
+    from apps.api_server.app import AgentOSApplication
+
+    runtime, _, _, _ = _compose_data_agent_runtime(tmp_path)
+    principal = PrincipalIdentity(
+        principal_id="principal:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        role=PrincipalRole.PRINCIPAL,
+        authenticated_at=NOW,
+    )
+
+    with pytest.raises(ValueError, match="second situated trust chain"):
+        cast(Any, AgentOSApplication._with_data_agent_situated_runtime)(
+            situated_runtime=runtime,
+            principal=principal,
+            database=tmp_path / "application.sqlite3",
+            workspace=tmp_path,
+            **{sensitive_option: object()},
+        )
+
+
+def test_situated_runtime_composition_rejects_mixed_reader_chain(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "first"
+    second_path = tmp_path / "second"
+    first_path.mkdir()
+    second_path.mkdir()
+    first, _, _, _ = _compose_data_agent_runtime(first_path)
+    second, _, _, _ = _compose_data_agent_runtime(second_path)
+
+    with pytest.raises(TypeError, match="reader chain"):
+        DataAgentSituatedRuntime._from_composition(
+            adapter=first._adapter,
+            admission=second._admission,
+            steward=first._steward,
+            composition_seal=bootstrap_module._RUNTIME_COMPOSITION_SEAL,
+        )
 
 
 def test_scoped_event_ledgers_allow_same_event_id_without_cross_scope_dos(

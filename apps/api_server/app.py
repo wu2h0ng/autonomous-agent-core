@@ -29,6 +29,7 @@ from agent_os_contracts import (
     DomainCandidateDraft,
     DomainPriorArtifact,
     ExpectedOutcome,
+    EnvironmentEventAdmissionReceipt,
     ExternalSignal,
     Goal,
     HelpRequest,
@@ -69,6 +70,7 @@ from agent_os_core import (
     SQLiteCandidatePromotionStore,
     SQLiteTaskEventStore,
     SituationalScopeMismatch,
+    SituationalTrustDenied,
     SituationalTrustResolver,
     TaskService,
     WorkspaceSandbox,
@@ -91,6 +93,7 @@ from .data_agent_report_adapter import (
     DataAgentReportPollResult,
     TrustedObservationBundle,
 )
+from .data_agent_situated_bootstrap import DataAgentSituatedRuntime
 
 
 def _utc_now() -> datetime:
@@ -99,6 +102,49 @@ def _utc_now() -> datetime:
 
 class AgentOSApplication:
     """Composition root used unchanged by the CLI, HTTP API and tests."""
+
+    @classmethod
+    def _with_data_agent_situated_runtime(
+        cls,
+        *,
+        situated_runtime: DataAgentSituatedRuntime,
+        principal: PrincipalIdentity,
+        database: str | Path = ":memory:",
+        workspace: str | Path = ".",
+        clock: Clock = _utc_now,
+        **application_options: Any,
+    ) -> AgentOSApplication:
+        """Bind an already-composed Data Agent runtime to one authenticated scope."""
+        if (
+            type(situated_runtime) is not DataAgentSituatedRuntime
+            or not situated_runtime._is_bootstrap_composed()
+        ):
+            raise TypeError("binding requires the concrete Data Agent situated runtime")
+        forbidden_options = {"data_agent_reports", "situational_trust"}.intersection(
+            application_options
+        )
+        if forbidden_options:
+            raise ValueError(
+                "Data Agent situated runtime cannot bind a second situated trust chain"
+            )
+        expected_scope = (
+            principal.principal_id,
+            principal.tenant_id,
+            principal.workspace_id,
+        )
+        if situated_runtime.principal_scope != expected_scope:
+            raise SituationalScopeMismatch(
+                "Data Agent situated runtime scope does not match application principal"
+            )
+        application = cls(
+            database=database,
+            workspace=workspace,
+            principal=principal,
+            clock=clock,
+            **application_options,
+        )
+        application._data_agent_situated_runtime = situated_runtime
+        return application
 
     @classmethod
     def _with_mandate_steward(
@@ -187,6 +233,7 @@ class AgentOSApplication:
                 "Data Agent report source requires durable first-seen state"
             )
         self.data_agent_reports = data_agent_reports
+        self._data_agent_situated_runtime: DataAgentSituatedRuntime | None = None
         self._mandate_steward: MandateSteward | None = None
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
@@ -578,9 +625,16 @@ class AgentOSApplication:
         return self.tasks.create_task(Goal.model_validate(payload))
 
     def observe_data_agent_report(self, trace_id: str) -> TrustedObservationBundle:
+        if self._data_agent_situated_runtime is not None:
+            return self._data_agent_situated_runtime.observe_report(trace_id)
         if self.data_agent_reports is None:
             raise RuntimeError("Data Agent external report source is not configured")
         return self.data_agent_reports.pull(trace_id)
+
+    def admit_data_agent_event(self, event_id: str) -> EnvironmentEventAdmissionReceipt:
+        if self._data_agent_situated_runtime is None:
+            raise RuntimeError("Data Agent situated runtime is not configured")
+        return self._data_agent_situated_runtime.admit_event(event_id)
 
     def poll_data_agent_reports_once(
         self,
@@ -597,10 +651,35 @@ class AgentOSApplication:
         projection_id: str,
         admission_receipt_id: str,
     ) -> TaskDraftProposal | HelpRequest | None:
+        if self._data_agent_situated_runtime is not None:
+            if (
+                type(admission_receipt_id) is not str
+                or not admission_receipt_id.strip()
+            ):
+                raise SituationalTrustDenied("admission receipt is unavailable")
+            return self._data_agent_situated_runtime.propose(
+                event_id, projection_id, admission_receipt_id
+            )
         if self._mandate_steward is None:
             raise RuntimeError("MandateSteward is not configured")
         return self._mandate_steward.observe_event(
             event_id, projection_id, admission_receipt_id
+        )
+
+    def observe_admit_and_propose_data_agent_report(
+        self,
+        trace_id: str,
+    ) -> TaskDraftProposal | HelpRequest | None:
+        if self._data_agent_situated_runtime is None:
+            raise RuntimeError("Data Agent situated runtime is not configured")
+        bundle = self._data_agent_situated_runtime.observe_report(trace_id)
+        receipt = self._data_agent_situated_runtime.admit_event(
+            bundle.event.environment_event_id
+        )
+        return self._data_agent_situated_runtime.propose(
+            bundle.event.environment_event_id,
+            bundle.projection.projection_id,
+            receipt.receipt_id,
         )
 
     def commit_task(self, task_id: str, payload: dict[str, Any]):

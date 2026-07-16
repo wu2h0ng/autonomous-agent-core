@@ -8,31 +8,39 @@ from pathlib import Path
 import pytest
 
 from agent_os_contracts import (
+    CredentialRef,
     MandateCommitmentContext,
     MandateOutcomeContext,
     MandateRelevanceContext,
     ProviderRelevancePolicy,
+    ProviderProfile,
+    PrincipalIdentity,
+    PrincipalRole,
     RatifiedMandateRef,
     RelevanceDisposition,
     TaskDraftProposal,
 )
 from agent_os_core import (
+    CanonicalCredentialAuthorizationReader,
     DeterministicProvider,
     InMemoryMandateRelevanceContextRegistry,
+    ProviderRelevanceAssessor,
     SQLiteTaskEventStore,
     SituationalTrustDenied,
     situated_input_binding_digest,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
-from tests.product._steward_app import (
-    DeferredAdmittedApplication,
-    admitted_application,
+from apps.api_server.app import AgentOSApplication
+from apps.api_server.data_agent_report_admission import (
+    DataAgentReportAdmissionError,
+    SQLiteDataAgentReportAdmissionMaterialStore,
 )
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
     SQLiteDataAgentReportStateStore,
 )
+from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
 from tests.product.test_data_agent_external_report_adapter import (
     NOW,
     TRACE_ID,
@@ -124,19 +132,46 @@ def _application(
     control: SQLiteSituatedAssessmentStore,
     provider: DeterministicProvider,
     policy: ProviderRelevancePolicy,
-) -> DeferredAdmittedApplication:
-    return DeferredAdmittedApplication(
+    credential: CredentialRef | None = None,
+    provider_profile: ProviderProfile | None = None,
+) -> AgentOSApplication:
+    credential = credential or _data_credential()
+    assessor = ProviderRelevanceAssessor(
+        provider=provider,
+        provider_profile=provider_profile
+        or policy.provider_invocation.provider_profile,
+        policy=policy,
+        trust=adapter,
+        contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+    )
+    runtime = DataAgentSituatedBootstrap.compose(
+        adapter=adapter,
+        material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+            task_database.with_name(f"{task_database.name}.material.sqlite3"),
+            principal_id=adapter.principal_scope[0],
+            tenant_id=adapter.principal_scope[1],
+            workspace_id=adapter.principal_scope[2],
+        ),
+        credentials=CanonicalCredentialAuthorizationReader((credential,)),
+        control=control,
+        assessor=assessor,
+        admission_database=task_database.with_name(
+            f"{task_database.name}.admission.sqlite3"
+        ),
+        clock=lambda: NOW,
+    )
+    principal = PrincipalIdentity(
+        principal_id=adapter.principal_scope[0],
+        tenant_id=adapter.principal_scope[1],
+        workspace_id=adapter.principal_scope[2],
+        role=PrincipalRole.PRINCIPAL,
+        authenticated_at=NOW,
+    )
+    return AgentOSApplication._with_data_agent_situated_runtime(
+        situated_runtime=runtime,
         database=task_database,
         workspace=workspace,
-        trust=adapter,
-        data_agent_reports=adapter,
-        control=control,
-        provider_policy=policy,
-        contexts=InMemoryMandateRelevanceContextRegistry(
-            (_context(),)
-        ),
-        provider=provider,
-        provider_profile=policy.provider_invocation.provider_profile,
+        principal=principal,
         clock=lambda: NOW,
     )
 
@@ -167,18 +202,24 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     )
 
     bundle = first_app.observe_data_agent_report(TRACE_ID)
-    first = first_app.propose_situated_work(
-        bundle.event.environment_event_id,
-        bundle.projection.projection_id,
-    )
+    first = first_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
 
     assert isinstance(first, TaskDraftProposal)
     assert first.activation_authorized is False
     assert first.external_effects_authorized is False
     assert first_app.store.list_task_ids() == ()
-    assert len(first_broker.resolved) == 1
-    assert len(first_transport.requests) == 1
+    assert len(first_broker.resolved) == 3
+    assert len(first_transport.requests) == 2
     assert len(first_provider.decision_requests) == 1
+    receipt = first_app.admit_data_agent_event(bundle.event.environment_event_id)
+    with pytest.raises(SituationalTrustDenied):
+        first_app.propose_situated_work(
+            bundle.event.environment_event_id,
+            bundle.projection.projection_id,
+            receipt.model_copy(),  # type: ignore[arg-type]
+        )
+    assert len(first_provider.decision_requests) == 1
+    assert first_app.store.list_task_ids() == ()
     first_app.store.close()
 
     replay_adapter, replay_broker, replay_transport = _adapter(
@@ -195,15 +236,12 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
         policy=policy,
     )
 
-    replay = replay_app.propose_situated_work(
-        bundle.event.environment_event_id,
-        bundle.projection.projection_id,
-    )
+    replay = replay_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
 
     assert replay == first
     assert replay_app.store.list_task_ids() == ()
-    assert replay_broker.resolved == []
-    assert replay_transport.requests == []
+    assert len(replay_broker.resolved) == 2
+    assert len(replay_transport.requests) == 1
     assert replay_provider.decision_requests == []
     input_digest = situated_input_binding_digest(
         mandate,
@@ -231,14 +269,11 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     )
 
     with pytest.raises(SituationalTrustDenied, match="not active"):
-        revoked_app.propose_situated_work(
-            bundle.event.environment_event_id,
-            bundle.projection.projection_id,
-        )
+        revoked_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
 
     assert revoked_app.store.list_task_ids() == ()
-    assert revoked_broker.resolved == []
-    assert revoked_transport.requests == []
+    assert len(revoked_broker.resolved) == 2
+    assert len(revoked_transport.requests) == 1
     assert revoked_provider.decision_requests == []
     assert replay_control.record_by_input_binding(input_digest) == persisted
     revoked_app.store.close()
@@ -252,7 +287,7 @@ def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
     first_adapter, first_broker, first_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
-    bundle = first_adapter.pull(TRACE_ID)
+    first_adapter.pull(TRACE_ID)
     assert len(first_broker.resolved) == 1
     assert len(first_transport.requests) == 1
 
@@ -272,14 +307,11 @@ def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
         policy=policy,
     )
 
-    result = app.propose_situated_work(
-        bundle.event.environment_event_id,
-        bundle.projection.projection_id,
-    )
+    result = app.observe_admit_and_propose_data_agent_report(TRACE_ID)
 
     assert isinstance(result, TaskDraftProposal)
-    assert restarted_broker.resolved == []
-    assert restarted_transport.requests == []
+    assert len(restarted_broker.resolved) == 2
+    assert len(restarted_transport.requests) == 1
     assert len(provider.decision_requests) == 1
     assert restarted_adapter.registry_counts == (2, 2, 1, 1)
     assert app.store.list_task_ids() == ()
@@ -322,11 +354,8 @@ def test_foreign_namespace_never_rehydrates_or_calls_provider(
         policy=policy,
     )
 
-    with pytest.raises(SituationalTrustDenied, match="unavailable"):
-        app.propose_situated_work(
-            foreign_bundle.event.environment_event_id,
-            foreign_bundle.projection.projection_id,
-        )
+    with pytest.raises(DataAgentReportAdmissionError, match="unavailable"):
+        app.admit_data_agent_event(foreign_bundle.event.environment_event_id)
 
     assert local_adapter.registry_counts == (0, 0, 0, 0)
     assert local_broker.resolved == []
@@ -391,10 +420,7 @@ def test_corrupt_durable_report_fails_closed_before_provider_without_partial_reg
     )
 
     with pytest.raises(DataAgentReportAdapterError):
-        app.propose_situated_work(
-            bundle.event.environment_event_id,
-            bundle.projection.projection_id,
-        )
+        app.admit_data_agent_event(bundle.event.environment_event_id)
 
     assert restarted_adapter.registry_counts == (0, 0, 0, 0)
     assert broker.resolved == []
@@ -463,21 +489,24 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
         control=control,
         provider=provider,
         policy=policy,
+        credential=feed_config.credential,
     )
 
-    first_result, second_result = tuple(
-        app.propose_situated_work(
+    def propose_bundle(bundle):  # type: ignore[no-untyped-def]
+        receipt = app.admit_data_agent_event(bundle.event.environment_event_id)
+        return app.propose_situated_work(
             bundle.event.environment_event_id,
             bundle.projection.projection_id,
+            receipt.receipt_id,
         )
-        for bundle in bundles
-    )
+
+    first_result, second_result = tuple(propose_bundle(bundle) for bundle in bundles)
 
     assert isinstance(first_result, TaskDraftProposal)
     assert isinstance(second_result, TaskDraftProposal)
     assert first_result != second_result
     assert first_result.source_binding_digest != second_result.source_binding_digest
-    assert broker.resolved == []
+    assert len(broker.resolved) == 2
     assert transport.requests == []
     assert len(provider.decision_requests) == 2
     input_digests = tuple(
@@ -511,17 +540,21 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
         control=SQLiteSituatedAssessmentStore(situated_database),
         provider=replay_provider,
         policy=policy,
-    )
-    replayed = tuple(
-        replay_app.propose_situated_work(
-            bundle.event.environment_event_id,
-            bundle.projection.projection_id,
-        )
-        for bundle in bundles
+        credential=feed_config.credential,
     )
 
+    def replay_bundle(bundle):  # type: ignore[no-untyped-def]
+        receipt = replay_app.admit_data_agent_event(bundle.event.environment_event_id)
+        return replay_app.propose_situated_work(
+            bundle.event.environment_event_id,
+            bundle.projection.projection_id,
+            receipt.receipt_id,
+        )
+
+    replayed = tuple(replay_bundle(bundle) for bundle in bundles)
+
     assert replayed == (first_result, second_result)
-    assert replay_broker.resolved == []
+    assert len(replay_broker.resolved) == 2
     assert replay_transport.requests == []
     assert replay_provider.decision_requests == []
     assert replay_app.store.list_task_ids() == ()
@@ -559,24 +592,17 @@ def test_same_id_provider_binding_drift_fails_during_application_construction(
     task_database = tmp_path / f"agent-os-{drift}.sqlite3"
 
     with pytest.raises(ValueError, match="provider (profile|invocation)"):
-        admitted_application(
-            database=task_database,
+        _application(
+            task_database=task_database,
             workspace=tmp_path,
-            trust=adapter,
-            data_agent_reports=adapter,
+            adapter=adapter,
             control=SQLiteSituatedAssessmentStore(
                 tmp_path / f"situated-{drift}.sqlite3",
                 mandates=(_mandate(policy),),
             ),
-            provider_policy=policy,
-            contexts=InMemoryMandateRelevanceContextRegistry(
-                (_context(),)
-            ),
             provider=provider,
+            policy=policy,
             provider_profile=profile,
-            event_id=TRACE_ID,
-            projection_id=f"projection:{TRACE_ID}",
-            clock=lambda: NOW,
         )
 
     task_store = SQLiteTaskEventStore(task_database)

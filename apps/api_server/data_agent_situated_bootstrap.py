@@ -44,6 +44,7 @@ from apps.api_server.data_agent_report_admission import (
 
 Clock = Callable[[], datetime]
 ProposalResult = TaskDraftProposal | HelpRequest | None
+_RUNTIME_COMPOSITION_SEAL = object()
 
 
 class _OriginReader:
@@ -117,6 +118,7 @@ class DataAgentAdmissionFacade:
         "_reader",
         "_registrar",
         "_required_scopes",
+        "_principal_scope",
         "_trust",
         "_writer",
     )
@@ -133,6 +135,19 @@ class DataAgentAdmissionFacade:
         _state = state
         if type(_state) is not _AdmissionState:
             raise TypeError("facade requires deployment-internal composition state")
+        principal_scope = tuple(_state.trust.principal_scope)
+        authority_scope = (
+            _state.authority.scope.principal_id,
+            _state.authority.scope.tenant_id,
+            _state.authority.scope.workspace_id,
+        )
+        reader_scope = (
+            _state.reader.scope.principal_id,
+            _state.reader.scope.tenant_id,
+            _state.reader.scope.workspace_id,
+        )
+        if authority_scope != principal_scope or reader_scope != principal_scope:
+            raise TypeError("facade composition scope is inconsistent")
         self._registrar = _state.registrar
         self._trust = _state.trust
         self._authority = _state.authority
@@ -140,6 +155,7 @@ class DataAgentAdmissionFacade:
         self._reader = _state.reader
         self._writer = _state.writer
         self._required_scopes = _state.required_scopes
+        self._principal_scope = principal_scope
         self._clock = _state.clock
         return self
 
@@ -211,7 +227,13 @@ class DataAgentAdmissionFacade:
 class DataAgentSituatedRuntime:
     """Safe Data Agent surface: observe, admit, then propose only."""
 
-    __slots__ = ("_admission", "_adapter", "_steward")
+    __slots__ = (
+        "_admission",
+        "_adapter",
+        "_composition_seal",
+        "_principal_scope",
+        "_steward",
+    )
 
     def __init__(self) -> None:
         raise TypeError("runtime is created only by the situated composition root")
@@ -223,15 +245,50 @@ class DataAgentSituatedRuntime:
         adapter: DataAgentReportAdapter,
         admission: DataAgentAdmissionFacade,
         steward: MandateSteward,
+        composition_seal: object | None = None,
     ) -> DataAgentSituatedRuntime:
+        if (
+            composition_seal is not _RUNTIME_COMPOSITION_SEAL
+            or type(adapter) is not DataAgentReportAdapter
+            or type(admission) is not DataAgentAdmissionFacade
+            or type(steward) is not MandateSteward
+        ):
+            raise TypeError("runtime requires deployment-internal composition")
+        principal_scope = tuple(adapter.principal_scope)
+        steward_scope = (
+            steward.scope.principal_id,
+            steward.scope.tenant_id,
+            steward.scope.workspace_id,
+        )
+        if (
+            admission._principal_scope != principal_scope
+            or steward_scope != principal_scope
+        ):
+            raise TypeError("runtime composition scope is inconsistent")
+        if (
+            admission._trust is not adapter
+            or steward._trust is not adapter
+            or admission._reader is not steward._admission_reader
+            or admission._writer is not steward._trace_writer
+        ):
+            raise TypeError("runtime composition reader chain is inconsistent")
         self = object.__new__(cls)
         self._adapter = adapter
         self._admission = admission
         self._steward = steward
+        self._principal_scope = principal_scope
+        self._composition_seal = composition_seal
         return self
+
+    def _is_bootstrap_composed(self) -> bool:
+        return self._composition_seal is _RUNTIME_COMPOSITION_SEAL
 
     def observe_report(self, trace_id: str) -> TrustedObservationBundle:
         return self._adapter.pull(trace_id)
+
+    @property
+    def principal_scope(self) -> tuple[str, str, str]:
+        return self._principal_scope
 
     def admit_event(self, event_id: str) -> EnvironmentEventAdmissionReceipt:
         return self._admission.admit_event(event_id)
@@ -317,6 +374,7 @@ class DataAgentSituatedBootstrap:
             adapter=adapter,
             admission=admission,
             steward=steward,
+            composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )
 
 

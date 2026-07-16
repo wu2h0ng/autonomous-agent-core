@@ -213,8 +213,17 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     assert set(name for name in dir(runtime) if not name.startswith("_")) == {
         "admit_event",
         "observe_report",
+        "principal_scope",
         "propose",
     }
+    assert runtime.principal_scope == (
+        "principal:local",
+        "tenant:local",
+        "workspace:local",
+    )
+    assert type(runtime.principal_scope) is tuple
+    with pytest.raises(AttributeError):
+        setattr(runtime, "principal_scope", ("forged", "forged", "forged"))
 
 
 def test_restart_replays_exact_receipt_bytes(tmp_path: Path) -> None:
