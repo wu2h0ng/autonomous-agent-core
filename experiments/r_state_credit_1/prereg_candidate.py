@@ -36,7 +36,6 @@ _SOURCE_PATHS = (
     "experiments/r_state_credit_1/action_grammar.py",
     "experiments/r_state_credit_1/actor_interface.py",
     "experiments/r_state_credit_1/arm_blinding.py",
-    "experiments/r_state_credit_1/arms.py",
     "experiments/r_state_credit_1/authority_artifacts.py",
     "experiments/r_state_credit_1/authority_verifier.py",
     "experiments/r_state_credit_1/contracts.py",

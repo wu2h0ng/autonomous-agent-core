@@ -110,3 +110,22 @@ The following claims are genuinely closed by the implementation:
   - Authority verifier does not reject all builder-principal artifacts (F2).
   - Exact-content manifest / source manifest does not cover the new recast mechanism files (F3).
 - **Recommended hold:** Resolve at least F1–F3 and F5–F9 before submitting to independent re-review. The remaining P2 items can be addressed in parallel but should not be deferred past freeze.
+
+## 8. Post-fix status
+
+Self-attack fixes were applied at commit `44de1ae` and the independent review
+request package was updated to post-fix head `44de1ae` at `9a5aa28`.
+
+| ID | Severity | Status | Fix commit / note |
+|---|---|---|---|
+| F1 | P0 | Closed | `44de1ae` — `turn_index`/`observed_at_turn` removed from `ActorRequest` and `Observation.canonical_json()`. |
+| F2 | P0 | Closed | `44de1ae` — `AuthorityVerifier` rejects any artifact with `signer_principal_id == builder_id`. |
+| F3 | P0 | Closed | `44de1ae` — `_SOURCE_PATHS` extended with the nine recast mechanism files. |
+| F4 | P1 | Open / requires amendment revision | The amendment pseudo-algorithm was implemented literally but raises `InvalidEpisode` for the majority of seeds because the perturbation schedule does not produce a wide enough pool of eligible terminal turns. The schedule and/or the pseudo-algorithm need to be revised and re-frozen before this gate can close. |
+| F5 | P1 | Closed | `44de1ae` — A0 overflow no longer forces non-A0 arms to abstain. |
+| F6 | P1 | Closed | `44de1ae` — legacy `A3TypedStateArm.recovery_directive` removed. |
+| F7 | P1 | Closed | Post-review-request — `test_full_gate_g1_dummy_classifier` now trains a majority-vote dummy on `(family, checkpoint_ordinal)` and evaluates on held-out seeds. |
+| F8 | P1 | Closed | Post-review-request — `test_full_gate_g6_no_recovery_directive_in_arm_output` now scans serialized actor-request bytes for whole-word directive hints. |
+| F9 | P1 | Closed | Post-review-request — `test_instance_independence_across_canonical_families` verifies >7 structural classes per family and ≥30% seed-dependent correct-action checkpoints. |
+| F10–F16 | P2 | Open | Not addressed in this pass; can be fixed in parallel but should not be deferred past freeze. |
+| F17–F19 | P3 | Open / partially closed | F19 (review target head consistency) closed by updating the review request to `44de1ae` at `9a5aa28`. F17–F18 remain open. |

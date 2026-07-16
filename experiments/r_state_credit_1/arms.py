@@ -199,6 +199,9 @@ class A3TypedStateArm:
         representation = canonical_json(
             {
                 "projection": projection,
+                "recovery_directive": TaskStateReducer.recovery_directive(
+                    snapshot
+                ),
             }
         )
         if len(representation.encode("utf-8")) > arm_input.budget.max_representation_bytes:

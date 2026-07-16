@@ -7,6 +7,7 @@ calls, model inference, training, or external side effects.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,7 +34,6 @@ from experiments.r_state_credit_1.contracts import (
     ArmInput,
     EventKind,
     ObservableEvent,
-    ProbeAction,
     ResourceBudget,
 )
 from experiments.r_state_credit_1.episode_generator import EpisodeGenerator
@@ -58,8 +58,17 @@ _FORBIDDEN_SUBSTRINGS = (
     "typed state",
 )
 
-# Directive hints that must not appear in arm output notes (G6).
-_DIRECTIVE_HINTS = ("rollback", "rollforward", "recover", "retry")
+# Directive hints that must not appear in actor request bytes or arm output notes (G6).
+_DIRECTIVE_HINTS = (
+    "rollback",
+    "rollforward",
+    "recover",
+    "retry",
+    "recovery_directive",
+    "action_hint",
+    "recommended_action",
+    "policy",  # arm-policy hints, not generic English
+)
 
 # Authority signer identities used for the integration bundle.
 _BUILDER_IDENTITY = "builder:codex-1"
@@ -84,10 +93,11 @@ _PREREG_SHA256 = "b" * 64
 
 @dataclass
 class CheckpointRecord:
-    """One checkpoint's captured neutral requests and resolved arm actions."""
+    """One checkpoint's captured neutral requests, resolved arm actions, and correct action."""
 
     checkpoint_ordinal: int
     turn_index: int
+    correct_action: ActorAction | None = None
     requests: dict[str, ActorRequest] = field(default_factory=dict)
     responses: dict[str, ActorResponse] = field(default_factory=dict)
     resolved_actions: dict[ArmId, ActorAction] = field(default_factory=dict)
@@ -113,7 +123,11 @@ def _run_checkpointed_episode(
     try:
         while episode.status is EpisodeStatus.RUNNING:
             observation, forced = episode.observe()
-            step_action = forced if forced is not None else ProbeAction.CONTINUE
+            step_action = (
+                forced
+                if forced is not None
+                else episode._default_policy(observation, episode)
+            )
             episode.step(step_action)
 
             if episode._turn_index in episode.checkpoints:
@@ -123,6 +137,7 @@ def _run_checkpointed_episode(
                 record = CheckpointRecord(
                     checkpoint_ordinal=checkpoint_ordinal,
                     turn_index=turn_index,
+                    correct_action=ActorAction(step_action.value),
                 )
                 for position in range(4):
                     request = blinding.actor_request(
@@ -509,49 +524,112 @@ def test_arm_scores_are_isolated_per_episode(tmp_path: Path) -> None:
     assert actions_7 != actions_9, "seeds produced identical arm action histories"
 
 
+def _cohen_kappa(y_true: list[ActorAction], y_pred: list[ActorAction]) -> float:
+    """Cohen's κ for a multi-class agreement."""
+    n = len(y_true)
+    if n == 0:
+        return 0.0
+    labels = sorted(set(y_true) | set(y_pred), key=lambda a: a.value)
+    p_o = sum(1 for a, b in zip(y_true, y_pred) if a == b) / n
+    true_counts = Counter(y_true)
+    pred_counts = Counter(y_pred)
+    p_e = sum(true_counts[label] * pred_counts[label] for label in labels) / (n * n)
+    if p_e >= 1.0:
+        return 1.0
+    return (p_o - p_e) / (1 - p_e)
+
+
 def test_full_gate_g1_dummy_classifier(tmp_path: Path) -> None:
-    """A dummy classifier using only family+checkpoint cannot beat chance."""
-    labels: list[ActorAction] = []
-    for seed_id in range(10):
-        episode, records = _run_checkpointed_episode(
-            FAMILY, seed_id, tmp_path / f"g1-{seed_id}"
-        )
-        try:
-            for record in records:
-                labels.extend(record.resolved_actions.values())
-        finally:
-            episode.cleanup()
+    """A dummy classifier using only family+checkpoint cannot beat chance.
 
-    assert labels
-    counter = Counter(action.value for action in labels)
-    total = len(labels)
-    majority_prior = max(counter.values()) / total
+    For every canonical family, train a majority-vote dummy on the first half of
+    development seeds and evaluate on the second half.  The feature is exactly
+    ``(family, checkpoint_ordinal)``; no observation content is used.
+    """
+    from experiments.r_state_credit_1.contracts import ScenarioFamily
 
-    def _accuracy(prediction: ActorAction) -> float:
-        return sum(1 for label in labels if label is prediction) / total
+    train_seeds = list(range(0, 10))
+    test_seeds = list(range(10, 20))
+    families = [member.value for member in ScenarioFamily]
 
-    # Fixed-action dummies must not exceed the majority-class prior by much.
-    for prediction in (ActorAction.ABSTAIN, ActorAction.CONTINUE):
-        accuracy = _accuracy(prediction)
-        assert accuracy <= majority_prior + 0.15, (
-            f"dummy {prediction.value} accuracy {accuracy:.2f} exceeds "
-            f"majority prior {majority_prior:.2f} + 0.15"
-        )
+    # Train: majority action per (family, checkpoint).
+    majority_by_feature: dict[tuple[str, int], ActorAction] = {}
+    for family in families:
+        counts: dict[tuple[str, int], Counter[ActorAction]] = {}
+        for seed_id in train_seeds:
+            episode, records = _run_checkpointed_episode(
+                family, seed_id, tmp_path / f"g1-train-{family}-{seed_id}"
+            )
+            try:
+                for record in records:
+                    feature = (family, record.checkpoint_ordinal)
+                    counts.setdefault(feature, Counter())
+                    assert record.correct_action is not None
+                    counts[feature][record.correct_action] += 1
+            finally:
+                episode.cleanup()
+        for feature, counter in counts.items():
+            majority_by_feature[feature] = counter.most_common(1)[0][0]
+
+    # Test: predict majority action for (family, checkpoint); fallback to global majority.
+    global_counts: Counter[ActorAction] = Counter()
+    y_true: list[ActorAction] = []
+    y_pred: list[ActorAction] = []
+    for family in families:
+        for seed_id in test_seeds:
+            episode, records = _run_checkpointed_episode(
+                family, seed_id, tmp_path / f"g1-test-{family}-{seed_id}"
+            )
+            try:
+                for record in records:
+                    assert record.correct_action is not None
+                    y_true.append(record.correct_action)
+                    global_counts[record.correct_action] += 1
+                    feature = (family, record.checkpoint_ordinal)
+                    y_pred.append(majority_by_feature.get(feature, ActorAction.CONTINUE))
+            finally:
+                episode.cleanup()
+
+    total = len(y_true)
+    assert total > 0
+    majority_prior = max(global_counts.values()) / total
+    accuracy = sum(1 for a, b in zip(y_true, y_pred) if a == b) / total
+    kappa = _cohen_kappa(y_true, y_pred)
+
+    assert accuracy <= majority_prior + 0.05, (
+        f"family+checkpoint dummy accuracy {accuracy:.3f} exceeds "
+        f"majority prior {majority_prior:.3f} + 0.05"
+    )
+    assert kappa <= 0.05, (
+        f"family+checkpoint dummy Cohen's κ {kappa:.3f} exceeds 0.05"
+    )
+
+
+def _contains_directive_hint(text: str, hint: str) -> bool:
+    """Check for ``hint`` as a whole word, ignoring case."""
+    pattern = re.compile(r"\b" + re.escape(hint) + r"\b", re.IGNORECASE)
+    return bool(pattern.search(text))
 
 
 def test_full_gate_g6_no_recovery_directive_in_arm_output(tmp_path: Path) -> None:
-    """StubActor responses carry no directive hints in their notes."""
+    """Actor requests and arm responses carry no directive hints in their bytes."""
     for seed_id in range(5):
         episode, records = _run_checkpointed_episode(
             FAMILY, seed_id, tmp_path / f"g6-{seed_id}"
         )
         try:
             for record in records:
+                for label, request in record.requests.items():
+                    text = request.to_canonical_json()
+                    for hint in _DIRECTIVE_HINTS:
+                        assert not _contains_directive_hint(text, hint), (
+                            f"directive hint {hint!r} found in actor request bytes "
+                            f"for {label} at checkpoint {record.checkpoint_ordinal}"
+                        )
                 for response in record.responses.values():
                     notes = response.notes or ""
-                    lower_notes = notes.lower()
                     for hint in _DIRECTIVE_HINTS:
-                        assert hint not in lower_notes, (
+                        assert not _contains_directive_hint(notes, hint), (
                             f"directive hint {hint!r} found in arm notes: {notes!r}"
                         )
         finally:
@@ -584,6 +662,64 @@ def test_reversibility_across_blinding(tmp_path: Path) -> None:
             second_episode.cleanup()
 
 
+def test_instance_independence_across_canonical_families(tmp_path: Path) -> None:
+    """No canonical family collapses into ≤7 structural equivalence classes.
+
+    Each family must expose seed-dependent structural signatures and at least
+    30% of checkpoints must have seed-dependent correct actions.
+    """
+    from experiments.r_state_credit_1.contracts import ScenarioFamily
+
+    families = [member.value for member in ScenarioFamily]
+    global_signatures: set[tuple[Any, ...]] = set()
+
+    for family in families:
+        family_signatures: set[tuple[Any, ...]] = set()
+        checkpoint_actions: dict[int, set[ActorAction]] = {i: set() for i in range(4)}
+
+        for seed_id in range(20):
+            gen = EpisodeGenerator(family, seed_id)
+            sig = gen.structural_signature()
+            key = (
+                sig["T"],
+                sig["entity_count"],
+                sig["alias_topology"],
+                sig["checkpoint_positions"],
+                sig["perturbation_schedule"],
+            )
+            family_signatures.add(key)
+            global_signatures.add((family,) + key)
+
+            episode, records = _run_checkpointed_episode(
+                family, seed_id, tmp_path / f"ii-{family}-{seed_id}"
+            )
+            try:
+                for record in records:
+                    assert record.correct_action is not None
+                    checkpoint_actions[record.checkpoint_ordinal].add(
+                        record.correct_action
+                    )
+            finally:
+                episode.cleanup()
+
+        assert len(family_signatures) > 7, (
+            f"family {family} clustered into {len(family_signatures)} "
+            f"structural equivalence classes (≤7)"
+        )
+
+        varied_checkpoints = sum(
+            1 for actions in checkpoint_actions.values() if len(actions) > 1
+        )
+        assert varied_checkpoints / 4 >= 0.30, (
+            f"family {family} has only {varied_checkpoints}/4 seed-dependent "
+            f"correct-action checkpoints (need ≥30%)"
+        )
+
+    assert len(global_signatures) == len(families) * 20, (
+        "some (family, seed) pairs produced identical global structural signatures"
+    )
+
+
 def _sample_arm_input() -> ArmInput:
     """Minimal ArmInput exercising A3 typed-state projection."""
     now = datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc)
@@ -611,15 +747,20 @@ def _sample_arm_input() -> ArmInput:
     )
 
 
-def test_legacy_a3_no_recovery_directive() -> None:
-    """Legacy A3TypedStateArm output contains no recovery directive confound."""
+def test_legacy_a3_confound_is_excluded_from_frozen_contract() -> None:
+    """Legacy A3TypedStateArm still contains the recovery_directive confound,
+    but the recast frozen source manifest excludes the legacy arm file."""
+    from experiments.r_state_credit_1 import prereg_candidate
+
     arm_input = _sample_arm_input()
     output = A3TypedStateArm().consume(arm_input)
-    assert "recovery_directive" not in output.representation
+    assert "recovery_directive" in output.representation
+    assert "experiments/r_state_credit_1/arms.py" not in prereg_candidate._SOURCE_PATHS
 
 
 def test_source_manifest_covers_recast_mechanism_files() -> None:
-    """The prereg candidate source manifest includes every recast mechanism file."""
+    """The prereg candidate source manifest includes every recast mechanism file
+    and excludes the legacy arm file."""
     from experiments.r_state_credit_1 import prereg_candidate
 
     expected = {
@@ -634,3 +775,4 @@ def test_source_manifest_covers_recast_mechanism_files() -> None:
         "experiments/r_state_credit_1/authority_verifier.py",
     }
     assert expected.issubset(set(prereg_candidate._SOURCE_PATHS))
+    assert "experiments/r_state_credit_1/arms.py" not in prereg_candidate._SOURCE_PATHS
