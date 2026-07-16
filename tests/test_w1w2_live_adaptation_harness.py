@@ -5,18 +5,22 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from experiments.w1w2_live_adaptation import (
+    AdaptationArm,
     C7Controller,
     C7Snapshot,
     CharacterizationRecord,
     DeterministicRegimeFixture,
     FalsifierHarness,
     FalsifierRunRecord,
-    FreezeAuthorization,
-    FreezeAuthorizationRegistry,
+    CanonicalRunAuthorization,
+    CandidateFeedback,
+    CandidateObservation,
+    RunAuthorizationBinding,
+    RunAuthorizationResolver,
     ToolOption,
     W1MemoryStore,
     W1Scope,
@@ -24,19 +28,27 @@ from experiments.w1w2_live_adaptation import (
     W1W2Arm,
     W2OptionRegistry,
     W2StrategySelector,
-    make_freeze_authorization,
 )
 
 
 UTC = timezone.utc
 
 
-class _FakeFreezeRegistry(FreezeAuthorizationRegistry):
-    def __init__(self, auths: dict[str, FreezeAuthorization]) -> None:
-        self._auths = dict(auths)
+class _FakeRunAuthorizationResolver(RunAuthorizationResolver):
+    """Test-side stand-in for external custody; the package cannot mint receipts."""
 
-    def resolve(self, receipt_id: str) -> FreezeAuthorization | None:
-        return self._auths.get(receipt_id)
+    def __init__(self, auths: dict[str, CanonicalRunAuthorization]) -> None:
+        self._auths = dict(auths)
+        self._consumed: set[str] = set()
+
+    def consume(
+        self, receipt_id: str, expected: RunAuthorizationBinding
+    ) -> CanonicalRunAuthorization | None:
+        auth = self._auths.get(receipt_id)
+        if auth is None or receipt_id in self._consumed or auth.binding != expected:
+            return None
+        self._consumed.add(receipt_id)
+        return auth
 
 
 class _FakeOptionRegistry(W2OptionRegistry):
@@ -58,7 +70,7 @@ def _make_harness(
         }
     )
     return FalsifierHarness(
-        freeze_registry=_FakeFreezeRegistry({}),
+        run_authorization_resolver=_FakeRunAuthorizationResolver({}),
         option_registry=option_registry,
         authorized_option_ids=("A", "B"),
         db_path=os.path.join(tempfile.gettempdir(), "w1w2-test.db"),
@@ -67,46 +79,70 @@ def _make_harness(
     )
 
 
-def _valid_auth(harness: FalsifierHarness, arm_name: str, seed: int, n_steps: int) -> FreezeAuthorization:
-    scope = W1Scope(
-        mandate_id="m-test",
-        task_id="t-test",
-        environment_id="env-test",
-        episode_id=f"ep-{seed}",
-    )
-    selector = W2StrategySelector(
-        registry=harness._option_registry,
-        authorized_option_ids=harness._authorized_option_ids,
-    )
-    return make_freeze_authorization(
-        scope=scope,
-        authorized_sets_digest=selector.authorized_set_digest(),
-        arm_name=arm_name,
-        seed=seed,
-        n_steps=n_steps,
-        lifetime_seconds=300,
+def _externally_issued_auth(
+    harness: FalsifierHarness, receipt_id: str, arm_name: str, seed: int, n_steps: int
+) -> CanonicalRunAuthorization:
+    return CanonicalRunAuthorization(
+        receipt_id=receipt_id,
+        binding=harness.expected_run_binding(arm_name=arm_name, seed=seed, n_steps=n_steps),
+        issuer_id="independent-freezer",
+        issued_at=datetime(2020, 1, 1, tzinfo=UTC),
+        expires_at=datetime(2099, 7, 17, tzinfo=UTC),
     )
 
 
 class TestFreezeAuthorization(unittest.TestCase):
+    def test_package_exports_no_freeze_authorization_minter(self) -> None:
+        import experiments.w1w2_live_adaptation as package
+
+        self.assertFalse(hasattr(package, "make_freeze_authorization"))
+        self.assertFalse(hasattr(package, "FreezeAuthorization"))
+
     def test_run_without_auth_is_run_denied(self) -> None:
         harness = _make_harness()
-        record = harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=None)
+        record = harness.run(arm_name="frozen", seed=0, n_steps=10, authorization_receipt_id=None)
         self.assertIsInstance(record, FalsifierRunRecord)
         self.assertEqual(record.run_status, "RUN_DENIED")
 
     def test_run_with_unregistered_auth_is_run_denied(self) -> None:
         harness = _make_harness()
-        auth = _valid_auth(harness, "frozen", 0, 10)
-        record = harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=auth)
+        record = harness.run(
+            arm_name="frozen", seed=0, n_steps=10, authorization_receipt_id="forged"
+        )
         self.assertEqual(record.run_status, "RUN_DENIED")
 
     def test_run_with_valid_auth_registered_succeeds(self) -> None:
         harness = _make_harness()
-        auth = _valid_auth(harness, "frozen", 0, 10)
-        harness._freeze_registry = _FakeFreezeRegistry({auth.receipt_id: auth})
-        record = harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=auth)
+        auth = _externally_issued_auth(harness, "external-1", "frozen", 0, 10)
+        harness._run_authorization_resolver = _FakeRunAuthorizationResolver({auth.receipt_id: auth})
+        record = harness.run(
+            arm_name="frozen", seed=0, n_steps=10, authorization_receipt_id=auth.receipt_id
+        )
         self.assertEqual(record.run_status, "COMPLETED")
+
+    def test_run_receipt_is_one_time_and_bound_to_full_option_content(self) -> None:
+        harness = _make_harness()
+        auth = _externally_issued_auth(harness, "external-1", "frozen", 0, 10)
+        resolver = _FakeRunAuthorizationResolver({auth.receipt_id: auth})
+        harness._run_authorization_resolver = resolver
+        first = harness.run("frozen", 0, 10, auth.receipt_id)
+        second = harness.run("frozen", 0, 10, auth.receipt_id)
+        self.assertEqual(first.run_status, "COMPLETED")
+        self.assertEqual(second.run_status, "RUN_DENIED")
+        mutated_registry = _FakeOptionRegistry(
+            {
+                "A": ToolOption(option_id="A", tool_id="mutated", tool_version="1"),
+                "B": ToolOption(option_id="B", tool_id="tool-b", tool_version="1"),
+            }
+        )
+        mutated = FalsifierHarness(
+            run_authorization_resolver=_FakeRunAuthorizationResolver({auth.receipt_id: auth}),
+            option_registry=mutated_registry,
+            authorized_option_ids=("A", "B"),
+            switch_at=(5, 10),
+        )
+        denied = mutated.run("frozen", 0, 10, auth.receipt_id)
+        self.assertEqual(denied.run_status, "RUN_DENIED")
 
 
 class TestCharacterization(unittest.TestCase):
@@ -120,11 +156,14 @@ class TestCharacterization(unittest.TestCase):
 
 
 class TestC7AndInformationBoundaries(unittest.TestCase):
-    def test_candidate_observation_has_no_true_regime(self) -> None:
+    def test_candidate_observation_has_no_regime_or_schedule_proxy(self) -> None:
         fixture = DeterministicRegimeFixture(seed=0, n_steps=20, switch_at=10)
         for _ in range(5):
             obs = fixture.observation()
-            self.assertNotIn("true_regime", obs)
+            self.assertIsInstance(obs, CandidateObservation)
+            raw = obs.model_dump(mode="json")
+            for forbidden in ("true_regime", "regime", "hint", "step", "n_steps", "schedule"):
+                self.assertNotIn(forbidden, raw)
             fixture.submit_action("A")
 
     def test_candidate_feedback_has_no_true_regime(self) -> None:
@@ -133,7 +172,10 @@ class TestC7AndInformationBoundaries(unittest.TestCase):
         feedback = fixture.feedback()
         self.assertIsNotNone(feedback)
         assert feedback is not None
-        self.assertNotIn("true_regime", feedback)
+        self.assertIsInstance(feedback, CandidateFeedback)
+        raw = feedback.model_dump(mode="json")
+        for forbidden in ("true_regime", "regime", "hint", "step", "schedule"):
+            self.assertNotIn(forbidden, raw)
 
     def test_candidate_receives_only_c7_snapshot(self) -> None:
         controller = C7Controller(correction_id="c7-1", scope_id="s-1")
@@ -159,8 +201,50 @@ class TestC7AndInformationBoundaries(unittest.TestCase):
                 authorized_option_ids=("A",),
             )
             arm = W1W2Arm(store=store, scope=scope, selector=selector)
-            action = arm.act({"step": 0, "hint": "A"}, controller.snapshot)
-            self.assertEqual(action, "A")
+            with self.assertRaises(RuntimeError):
+                arm.act(CandidateObservation(observation_id="o-1"), controller.snapshot)
+
+    def test_c7_halt_restores_lks_and_performs_zero_subsequent_candidate_calls(self) -> None:
+        class CountingArm(AdaptationArm):
+            name = "attack-arm"
+
+            def __init__(self) -> None:
+                self.act_calls = 0
+                self.update_calls = 0
+                self.restore_calls = 0
+                self.state: list[float] = []
+                self.calls_after_restore = 0
+
+            def act(self, observation, c7):
+                if self.restore_calls:
+                    self.calls_after_restore += 1
+                self.act_calls += 1
+                return "A"
+
+            def update(self, feedback, c7):
+                if self.restore_calls:
+                    self.calls_after_restore += 1
+                self.update_calls += 1
+                self.state.append(feedback.reward)
+
+            def capture(self):
+                return tuple(self.state)
+
+            def restore(self, snapshot):
+                self.restore_calls += 1
+                if not isinstance(snapshot, tuple):
+                    raise AssertionError("expected tuple snapshot")
+                self.state = list(snapshot)
+
+        arm = CountingArm()
+        record = _make_harness().characterize(
+            "w1+w2", 0, 20, arm_factory=lambda _store, _scope, _selector: arm
+        )
+        self.assertEqual(record.c7_stops, 1)
+        self.assertEqual(arm.restore_calls, 1)
+        self.assertEqual(arm.calls_after_restore, 0)
+        self.assertLess(arm.act_calls, 20)
+        self.assertEqual(arm.state, [1.0] * len(arm.state))
 
 
 class TestWaveBDurabilityAndMechanics(unittest.TestCase):
@@ -171,7 +255,7 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
     def test_run_creates_isolated_db_per_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             harness = FalsifierHarness(
-                freeze_registry=_FakeFreezeRegistry({}),
+                run_authorization_resolver=_FakeRunAuthorizationResolver({}),
                 option_registry=_FakeOptionRegistry({
                     "A": ToolOption(option_id="A", tool_id="tool-a", tool_version="1"),
                     "B": ToolOption(option_id="B", tool_id="tool-b", tool_version="1"),
@@ -180,11 +264,13 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
                 db_path=os.path.join(tmpdir, "w1w2.db"),
                 switch_at=10,
             )
-            auth0 = _valid_auth(harness, "frozen", 0, 10)
-            auth1 = _valid_auth(harness, "frozen", 1, 10)
-            harness._freeze_registry = _FakeFreezeRegistry({auth0.receipt_id: auth0, auth1.receipt_id: auth1})
-            harness.run(arm_name="frozen", seed=0, n_steps=10, freeze_auth=auth0)
-            harness.run(arm_name="frozen", seed=1, n_steps=10, freeze_auth=auth1)
+            auth0 = _externally_issued_auth(harness, "ext-0", "frozen", 0, 10)
+            auth1 = _externally_issued_auth(harness, "ext-1", "frozen", 1, 10)
+            harness._run_authorization_resolver = _FakeRunAuthorizationResolver(
+                {auth0.receipt_id: auth0, auth1.receipt_id: auth1}
+            )
+            harness.run("frozen", 0, 10, auth0.receipt_id)
+            harness.run("frozen", 1, 10, auth1.receipt_id)
             dbs = [p for p in os.listdir(tmpdir) if p.endswith(".db")]
             self.assertEqual(len(dbs), 2)  # 2 isolated w1 dbs (checkpoint store integrated separately)
 
@@ -205,6 +291,13 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
         self.assertGreater(constant.negative_transfer_steps, 0)
         # With no recovery after the switch, the second regime is ignored.
         self.assertEqual(len(constant.recovery_speeds), 0)
+        self.assertFalse(constant.falsifier_passed)
+
+    def test_constant_b_also_cannot_pass_ab_a_falsifier(self) -> None:
+        constant = _make_harness(
+            switch_at=(5, 10), selection_fn=lambda _opts, _ctx, _hist: "B"
+        ).characterize("w1+w2", 0, 20)
+        self.assertFalse(constant.falsifier_passed)
 
     def test_ab_ba_records_recovery(self) -> None:
         harness = _make_harness(switch_at=(5, 10))
@@ -216,6 +309,7 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
         self.assertLess(record.speed, record.n_steps)
         self.assertEqual(len(record.recovery_speeds), 2)
         self.assertLess(record.recovery_speeds[1], record.n_steps)
+        self.assertTrue(record.falsifier_passed)
 
     def test_c7_stop_invokes_rollback(self) -> None:
         harness = _make_harness()

@@ -46,3 +46,17 @@ def canonical_json(value: Any) -> str:
 
 def content_digest(value: BaseModel | Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+class CandidateObservation(ContractModel):
+    """Arm-visible observation with no regime, schedule or turn oracle."""
+
+    observation_id: NonEmptyStr
+
+
+class CandidateFeedback(ContractModel):
+    """Delayed outcome visible to candidate adaptation organs."""
+
+    action: NonEmptyStr
+    reward: float
+    source_event_digest: NonEmptyStr

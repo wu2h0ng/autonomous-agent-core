@@ -1,10 +1,14 @@
-"""Authority contracts and read-only registries for freeze/run and C7."""
+"""External run-custody and correction-boundary contracts.
+
+This package deliberately has no receipt minting or registry mutation API.  A
+result-bearing run can consume only an opaque receipt id through an injected,
+read-only custody resolver.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Protocol
-from uuid import uuid4
 
 from pydantic import Field
 
@@ -12,39 +16,49 @@ from experiments.w1w2_live_adaptation._contracts import (
     ContractModel,
     NonEmptyStr,
     UtcDateTime,
-    content_digest,
 )
 from experiments.w1w2_live_adaptation.w1_state import W1Scope
 
 
-class FreezeAuthorization(ContractModel):
-    """Externally issued, content-bound freeze/run authorization.
+class RunAuthorizationBinding(ContractModel):
+    """Exact content that an independent freezer authorizes."""
 
-    This package cannot mint one; it must be resolved from an injected registry.
-    """
+    scope: W1Scope
+    arm_name: NonEmptyStr
+    seed: int
+    n_steps: int = Field(gt=0)
+    option_content_digest: NonEmptyStr
+    evaluator_gate_digest: NonEmptyStr
+    experiment_content_digest: NonEmptyStr
+
+
+class CanonicalRunAuthorization(ContractModel):
+    """Canonical resolver output, never constructed by the falsifier package."""
 
     receipt_id: NonEmptyStr
-    authorized_scope: W1Scope
-    authorized_sets_digest: NonEmptyStr
-    run_digest: NonEmptyStr
-    issued_by: NonEmptyStr
+    binding: RunAuthorizationBinding
+    issuer_id: NonEmptyStr
     issued_at: UtcDateTime
     expires_at: UtcDateTime
 
-    @property
-    def is_expired(self) -> bool:
-        return datetime.now(timezone.utc) > self.expires_at
+    def is_current(self, now: datetime) -> bool:
+        now = now.astimezone(timezone.utc)
+        return self.issued_at <= now < self.expires_at
 
 
-class FreezeAuthorizationRegistry(Protocol):
-    """Read-only registry for canonical freeze/run authorizations."""
+class RunAuthorizationResolver(Protocol):
+    """External, atomic one-time custody resolver."""
 
-    def resolve(self, receipt_id: str) -> FreezeAuthorization | None:
-        ...
+    def consume(
+        self,
+        receipt_id: str,
+        expected: RunAuthorizationBinding,
+    ) -> CanonicalRunAuthorization | None:
+        """Atomically authenticate, bind and consume a canonical receipt."""
 
 
 class C7Snapshot(ContractModel):
-    """Immutable correction snapshot visible to candidates."""
+    """Immutable correction snapshot visible to candidate code."""
 
     correction_id: NonEmptyStr
     scope_id: NonEmptyStr
@@ -53,7 +67,7 @@ class C7Snapshot(ContractModel):
 
 
 class C7Controller:
-    """Private external correction capability. Candidates never receive this."""
+    """External evaluator/controller capability; candidate arms receive snapshots only."""
 
     def __init__(self, correction_id: str, scope_id: str) -> None:
         self._correction_id = correction_id
@@ -79,45 +93,3 @@ class C7Controller:
 
     def is_halted(self) -> bool:
         return self._halted
-
-    def reset(self) -> None:
-        """Reset internal state for a fresh characterization/run. External only."""
-        self._halted = False
-        self._halt_reason = None
-
-
-def make_run_digest(
-    arm_name: str,
-    seed: int,
-    n_steps: int,
-    authorized_sets_digest: str,
-) -> str:
-    payload = {
-        "arm_name": arm_name,
-        "seed": seed,
-        "n_steps": n_steps,
-        "authorized_sets_digest": authorized_sets_digest,
-    }
-    return content_digest(payload)
-
-
-def make_freeze_authorization(
-    scope: W1Scope,
-    authorized_sets_digest: str,
-    arm_name: str,
-    seed: int,
-    n_steps: int,
-    issued_by: str = "external-test-authority",
-    lifetime_seconds: int = 60,
-) -> FreezeAuthorization:
-    now = datetime.now(timezone.utc)
-    run_digest = make_run_digest(arm_name, seed, n_steps, authorized_sets_digest)
-    return FreezeAuthorization(
-        receipt_id=f"fa-{uuid4().hex}",
-        authorized_scope=scope,
-        authorized_sets_digest=authorized_sets_digest,
-        run_digest=run_digest,
-        issued_by=issued_by,
-        issued_at=now,
-        expires_at=datetime.fromtimestamp(now.timestamp() + lifetime_seconds, tz=timezone.utc),
-    )

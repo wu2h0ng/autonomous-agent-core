@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, Callable, Mapping, Protocol
@@ -110,12 +111,17 @@ class W2StrategySelector:
         return self._authorized_option_ids
 
     def authorized_set_digest(self) -> str:
-        payload = {"option_ids": sorted(self._authorized_option_ids)}
+        options = []
+        for option_id in sorted(self._authorized_option_ids):
+            option = self._registry.resolve(option_id)
+            if option is None:
+                raise ValueError(f"authorized option '{option_id}' is not in authority registry")
+            options.append(option.model_dump(mode="json", exclude_none=True))
+        payload = {"options": options}
         return content_digest(payload)
 
     def _default_selection(self, outcome_history: tuple[Mapping[str, Any], ...]) -> str:
-        if not outcome_history:
-            return self._authorized_option_ids[0]
+        """Deterministic UCB exploration without a regime or schedule channel."""
         rewards: dict[str, float] = {}
         counts: dict[str, int] = {}
         for h in outcome_history:
@@ -124,11 +130,16 @@ class W2StrategySelector:
                 continue
             rewards[action] = rewards.get(action, 0.0) + float(h.get("reward", 0.0))
             counts[action] = counts.get(action, 0) + 1
-        if not counts:
-            return self._authorized_option_ids[0]
+        for option_id in self._authorized_option_ids:
+            if counts.get(option_id, 0) == 0:
+                return option_id
+        total = sum(counts.values())
         best_action = max(
-            ((rewards[a] / counts[a], a) for a in counts),
-            key=lambda x: x[0],
+            (
+                rewards[a] / counts[a] + math.sqrt(2.0 * math.log(total) / counts[a]),
+                a,
+            )
+            for a in self._authorized_option_ids
         )[1]
         return best_action
 
