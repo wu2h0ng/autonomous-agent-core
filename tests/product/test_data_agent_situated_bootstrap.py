@@ -31,13 +31,25 @@ from apps.api_server.data_agent_report_admission import (
     DataAgentReportAdmissionError,
     SQLiteDataAgentReportAdmissionMaterialStore,
 )
+from apps.api_server.data_agent_report_adapter import (
+    DataAgentReportAdapter,
+    SQLiteDataAgentReportStateStore,
+)
 from apps.api_server import data_agent_situated_bootstrap as bootstrap_module
 from apps.api_server.data_agent_situated_bootstrap import (
     DataAgentAdmissionFacade,
     DataAgentSituatedBootstrap,
     DataAgentSituatedRuntime,
 )
-from tests.product.test_data_agent_report_admission import NOW, _adapter, _credential
+from tests.product.test_data_agent_report_admission import (
+    NOW,
+    _adapter,
+    _body,
+    _Broker,
+    _config,
+    _credential,
+    _Transport,
+)
 
 
 class _LiveCredentialReader:
@@ -66,6 +78,20 @@ class _SequenceCredentialReader:
         del credential_ref_id
         self.calls += 1
         return next(self._values)
+
+
+def _adapter_with_credentials(
+    tmp_path: Path,
+    credentials: _LiveCredentialReader | _SequenceCredentialReader,
+) -> DataAgentReportAdapter:
+    return DataAgentReportAdapter(
+        _config(),
+        credential_broker=_Broker(),
+        credential_authorizations=credentials,
+        transport=_Transport(_body()),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "observations.sqlite3"),
+        clock=lambda: NOW,
+    )
 
 
 def _mandate() -> RatifiedMandateRef:
@@ -162,8 +188,8 @@ def _compose(
     _Assessor,
     SQLiteSituatedAssessmentStore,
 ]:
-    adapter, _ = _adapter(tmp_path)
     credentials = _LiveCredentialReader()
+    adapter = _adapter_with_credentials(tmp_path, credentials)
     assessor = _Assessor()
     control = SQLiteSituatedAssessmentStore(
         tmp_path / "authority.sqlite3", mandates=(_mandate(),)
@@ -202,7 +228,7 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     assert type(runtime) is DataAgentSituatedRuntime
     assert isinstance(proposal, TaskDraftProposal)
     assert receipt.environment_event_id == bundle.event.environment_event_id
-    assert credentials.calls == 3
+    assert credentials.calls == 4
     assert assessor.calls == 1
     assert tuple(
         inspect.signature(DataAgentAdmissionFacade.admit_event).parameters
@@ -301,6 +327,30 @@ def test_public_constructors_cannot_inject_authority_or_steward() -> None:
         )
 
 
+def test_composition_rejects_distinct_adapter_and_admission_credential_readers(
+    tmp_path: Path,
+) -> None:
+    adapter, _ = _adapter(tmp_path)
+
+    with pytest.raises(TypeError, match="credential.*reader"):
+        DataAgentSituatedBootstrap.compose(
+            adapter=adapter,
+            material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+                tmp_path / "material.sqlite3",
+                principal_id="principal:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+            ),
+            credentials=_LiveCredentialReader(),
+            control=SQLiteSituatedAssessmentStore(
+                tmp_path / "authority.sqlite3", mandates=(_mandate(),)
+            ),
+            assessor=_Assessor(),
+            admission_database=tmp_path / "receipts.sqlite3",
+            clock=lambda: NOW,
+        )
+
+
 def test_live_credential_drift_during_admission_denies_without_receipt(
     tmp_path: Path,
 ) -> None:
@@ -312,7 +362,8 @@ def test_live_credential_drift_during_admission_denies_without_receipt(
     ).resolve_authorization("credential:data-agent-report")
     assert active is not None and revoked is not None
     credentials = _SequenceCredentialReader([active, active, revoked])
-    adapter, event = _adapter(tmp_path)
+    adapter = _adapter_with_credentials(tmp_path, credentials)
+    event = adapter.pull("trace-1").event
     control = SQLiteSituatedAssessmentStore(
         tmp_path / "authority.sqlite3", mandates=(_mandate(),)
     )
@@ -338,7 +389,7 @@ def test_live_credential_drift_during_admission_denies_without_receipt(
     else:
         raise AssertionError("credential drift must fail closed")
 
-    assert credentials.calls == 3
+    assert credentials.calls == 4
     with sqlite3.connect(tmp_path / "receipts.sqlite3") as connection:
         count = connection.execute(
             "SELECT COUNT(*) FROM srl_event_admission_receipts"

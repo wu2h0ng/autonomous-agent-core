@@ -324,6 +324,8 @@ class DataAgentSituatedBootstrap:
             )
         if type(control) is not SQLiteSituatedAssessmentStore:
             raise TypeError("composition requires the durable situated authority store")
+        if adapter._credential_authorization_reader_for_composition is not credentials:
+            raise TypeError("composition requires one credential authorization reader")
         principal_id, tenant_id, workspace_id = adapter.principal_scope
         scope = LedgerAccessScope(
             principal_id=principal_id,

@@ -1474,6 +1474,12 @@ class DataAgentReportAdapter:
     def _admission_policy_for_composition(self) -> DataAgentReportEnvelopePolicy:
         return self._admission_policy
 
+    @property
+    def _credential_authorization_reader_for_composition(
+        self,
+    ) -> CredentialAuthorizationReader:
+        return self._credential_authorizations
+
     def _assert_current_credential_unreflected(
         self, body: bytes, *, assessed_at: datetime
     ) -> None:
@@ -1657,12 +1663,7 @@ class DataAgentReportAdapter:
             expected_url = f"{self._origin}/external/report-events?{query}"
             now = _utc(self._clock())
             credential = self._config.credential
-            if (
-                credential.status is not CredentialStatus.ACTIVE
-                or now < credential.created_at
-                or now >= credential.expires_at
-            ):
-                raise DataAgentReportAdapterError("credential is inactive or expired")
+            self._assert_live_credential_authorized(evaluated_at=now)
             try:
                 secret = self._credentials.resolve(credential)
             except Exception:

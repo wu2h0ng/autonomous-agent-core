@@ -150,6 +150,14 @@ class _AuthorizationReader:
         return self.snapshot
 
 
+class _FailingAuthorizationReader:
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None:
+        del credential_ref_id
+        raise RuntimeError("credential authority unavailable")
+
+
 class _Transport:
     def __init__(
         self,
@@ -1078,6 +1086,42 @@ def test_live_credential_preflight_rechecks_authority_after_startup() -> None:
     ]
     assert len(broker.resolved) == 1
     assert len(transport.requests) == 1
+
+
+@pytest.mark.parametrize("reader_kind", ("revoked", "exception"))
+def test_feed_live_credential_preflight_denies_before_secret_or_network(
+    reader_kind: str,
+) -> None:
+    credential = _credential(
+        scopes=(
+            "reports:read",
+            "report-events:read",
+            "data-agent-origin:http://127.0.0.1:8765",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    authorizations = (
+        _AuthorizationReader(
+            _authorization_snapshot(credential, status=CredentialStatus.REVOKED)
+        )
+        if reader_kind == "revoked"
+        else _FailingAuthorizationReader()
+    )
+    broker = _Broker()
+    transport = _Transport(_response())
+    adapter = DataAgentReportAdapter(
+        _config(credential=credential),
+        credential_broker=broker,
+        credential_authorizations=authorizations,
+        transport=transport,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="credential"):
+        adapter.poll_once(limit=1)
+
+    assert broker.resolved == []
+    assert transport.requests == []
 
 
 def test_redirect_or_final_origin_change_is_rejected_without_registration() -> None:

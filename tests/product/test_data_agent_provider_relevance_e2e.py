@@ -19,9 +19,9 @@ from agent_os_contracts import (
     RatifiedMandateRef,
     RelevanceDisposition,
     TaskDraftProposal,
+    content_digest,
 )
 from agent_os_core import (
-    CanonicalCredentialAuthorizationReader,
     DeterministicProvider,
     InMemoryMandateRelevanceContextRegistry,
     ProviderRelevanceAssessor,
@@ -136,6 +136,10 @@ def _application(
     provider_profile: ProviderProfile | None = None,
 ) -> AgentOSApplication:
     credential = credential or _data_credential()
+    credentials = adapter._credential_authorization_reader_for_composition
+    configured = credentials.resolve_authorization(credential.credential_ref_id)
+    assert configured is not None
+    assert configured.credential_ref_digest == content_digest(credential)
     assessor = ProviderRelevanceAssessor(
         provider=provider,
         provider_profile=provider_profile
@@ -152,7 +156,7 @@ def _application(
             tenant_id=adapter.principal_scope[1],
             workspace_id=adapter.principal_scope[2],
         ),
-        credentials=CanonicalCredentialAuthorizationReader((credential,)),
+        credentials=credentials,
         control=control,
         assessor=assessor,
         admission_database=task_database.with_name(
