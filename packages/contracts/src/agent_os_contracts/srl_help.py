@@ -32,6 +32,8 @@ class BoundedOption(ContractModel):
 class SrlHelpRequest(ContractModel):
     help_request_id: NonEmptyStr
     mandate_id: NonEmptyStr
+    tenant_id: NonEmptyStr | None = None
+    workspace_id: NonEmptyStr | None = None
     standing_mission_id: NonEmptyStr
     commitment_id: NonEmptyStr | None = None
     goal_id: NonEmptyStr | None = None
