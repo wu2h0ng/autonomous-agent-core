@@ -167,8 +167,7 @@ class DeterministicRegimeFixture:
 
 @dataclass(frozen=True)
 class _ArmSnapshot:
-    w1_checkpoint_id: str | None
-    feedback_history: tuple[CandidateFeedback, ...]
+    joint_checkpoint_id: str | None
 
 
 class AdaptationArm(ABC):
@@ -182,7 +181,7 @@ class AdaptationArm(ABC):
         del feedback, c7
 
     def capture(self) -> object:
-        return _ArmSnapshot(w1_checkpoint_id=None, feedback_history=())
+        return _ArmSnapshot(joint_checkpoint_id=None)
 
     def restore(self, snapshot: object) -> None:
         del snapshot
@@ -262,20 +261,23 @@ class W1OnlyArm(AdaptationArm):
         )
 
     def capture(self) -> _ArmSnapshot:
-        return _ArmSnapshot(self._store.checkpoint(), ())
+        checkpoint = self._store.save_joint_checkpoint(self._scope, ())
+        return _ArmSnapshot(checkpoint.checkpoint_id)
 
     def restore(self, snapshot: object) -> None:
         if not isinstance(snapshot, _ArmSnapshot):
             raise RuntimeError("invalid arm snapshot")
-        if snapshot.w1_checkpoint_id is None:
+        if snapshot.joint_checkpoint_id is None:
             raise RuntimeError("missing W1 checkpoint")
-        self._store.rollback_to(snapshot.w1_checkpoint_id)
+        self._store.restore_joint_checkpoint(snapshot.joint_checkpoint_id, self._scope)
 
 
 class W2OnlyArm(AdaptationArm):
     name = "w2-only"
 
-    def __init__(self, selector: W2StrategySelector) -> None:
+    def __init__(self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector) -> None:
+        self._store = store
+        self._scope = scope
         self._selector = selector
         self._history: list[CandidateFeedback] = []
 
@@ -294,21 +296,24 @@ class W2OnlyArm(AdaptationArm):
         self._history.append(feedback)
 
     def capture(self) -> _ArmSnapshot:
-        return _ArmSnapshot(None, tuple(self._history))
+        checkpoint = self._store.save_joint_checkpoint(self._scope, tuple(self._history))
+        return _ArmSnapshot(checkpoint.checkpoint_id)
 
     def restore(self, snapshot: object) -> None:
         if not isinstance(snapshot, _ArmSnapshot):
             raise RuntimeError("invalid arm snapshot")
-        self._history = list(snapshot.feedback_history)
+        if snapshot.joint_checkpoint_id is None:
+            raise RuntimeError("missing joint checkpoint")
+        self._history = list(
+            self._store.restore_joint_checkpoint(snapshot.joint_checkpoint_id, self._scope)
+        )
 
 
 class W1W2Arm(W2OnlyArm):
     name = "w1+w2"
 
     def __init__(self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector) -> None:
-        super().__init__(selector)
-        self._store = store
-        self._scope = scope
+        super().__init__(store, scope, selector)
         self._count = 0
 
     def update(self, feedback: CandidateFeedback, c7: C7Snapshot) -> None:
@@ -336,15 +341,17 @@ class W1W2Arm(W2OnlyArm):
         )
 
     def capture(self) -> _ArmSnapshot:
-        return _ArmSnapshot(self._store.checkpoint(), tuple(self._history))
+        checkpoint = self._store.save_joint_checkpoint(self._scope, tuple(self._history))
+        return _ArmSnapshot(checkpoint.checkpoint_id)
 
     def restore(self, snapshot: object) -> None:
         if not isinstance(snapshot, _ArmSnapshot):
             raise RuntimeError("invalid arm snapshot")
-        if snapshot.w1_checkpoint_id is None:
+        if snapshot.joint_checkpoint_id is None:
             raise RuntimeError("missing W1 checkpoint")
-        self._store.rollback_to(snapshot.w1_checkpoint_id)
-        self._history = list(snapshot.feedback_history)
+        self._history = list(
+            self._store.restore_joint_checkpoint(snapshot.joint_checkpoint_id, self._scope)
+        )
 
 
 ArmFactory = Callable[[W1MemoryStore, W1Scope, W2StrategySelector], AdaptationArm]
@@ -458,7 +465,7 @@ class FalsifierHarness:
         if arm_name == "w1-only":
             return W1OnlyArm(store, scope)
         if arm_name == "w2-only":
-            return W2OnlyArm(selector)
+            return W2OnlyArm(store, scope, selector)
         if arm_name == "w1+w2":
             return W1W2Arm(store, scope, selector)
         raise ValueError(f"unknown arm: {arm_name}")

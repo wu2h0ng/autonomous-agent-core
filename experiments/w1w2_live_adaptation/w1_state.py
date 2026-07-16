@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
 from pydantic import Field
 
 from experiments.w1w2_live_adaptation._contracts import (
+    CandidateFeedback,
     ContractModel,
     NonEmptyStr,
     UtcDateTime,
@@ -90,6 +92,17 @@ class W1UpdateResult(ContractModel):
     state_digest: str
 
 
+class JointAuthorityCheckpoint(ContractModel):
+    checkpoint_id: NonEmptyStr
+    scope: W1Scope
+    w1_sequence: int = Field(ge=0)
+    w1_history_digest: NonEmptyStr
+    w2_history_digest: NonEmptyStr
+    w1_updates: tuple[W1Update, ...]
+    w2_history: tuple[CandidateFeedback, ...]
+    created_at: UtcDateTime
+
+
 class W1MemoryState:
     def __init__(self, scope: W1Scope, updates: tuple[W1Update, ...], epoch: int) -> None:
         self.scope = scope
@@ -97,17 +110,11 @@ class W1MemoryState:
         self.epoch = epoch
 
     def digest(self) -> str:
-        """Content digest over payloads/history, excluding caller ids."""
+        """Content digest over the complete ordered history."""
         payload = {
             "scope": self.scope.model_dump(mode="json", exclude_none=True),
             "epoch": self.epoch,
-            "history": [
-                {
-                    "update_type": u.update_type.value,
-                    "payload": u.payload.model_dump(mode="json", exclude_none=True),
-                }
-                for u in self.updates
-            ],
+            "history": [u.model_dump(mode="json", exclude_none=True) for u in self.updates],
         }
         return content_digest(payload)
 
@@ -118,14 +125,14 @@ class W1MemoryStore:
     def __init__(
         self,
         db_path: str,
-        linter: Any | None = None,
-        initial_state: dict[str, Any] | None = None,
+        linter: Any,
     ) -> None:
         if not db_path:
             raise ValueError("W1MemoryStore requires a non-empty db_path")
+        if linter is None:
+            raise ValueError("W1MemoryStore requires a mandatory linter")
         self._db_path = db_path
         self._linter = linter
-        self._initial = dict(initial_state) if initial_state else {}
         self._active_scope: W1Scope | None = None
         self._init_db()
 
@@ -138,6 +145,7 @@ class W1MemoryStore:
                 """
                 CREATE TABLE IF NOT EXISTS w1_updates (
                     update_id TEXT PRIMARY KEY,
+                    sequence INTEGER NOT NULL,
                     scope_key TEXT NOT NULL,
                     scope_json TEXT NOT NULL,
                     update_type TEXT NOT NULL,
@@ -152,6 +160,14 @@ class W1MemoryStore:
                 )
                 """
             )
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(w1_updates)").fetchall()
+            }
+            if "sequence" not in columns:
+                conn.execute(
+                    "ALTER TABLE w1_updates ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0"
+                )
+                conn.execute("UPDATE w1_updates SET sequence = rowid WHERE sequence = 0")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS w1_state (
@@ -164,6 +180,21 @@ class W1MemoryStore:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_w1_updates_scope ON w1_updates(scope_key)"
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS joint_authority_checkpoints (
+                    checkpoint_id TEXT PRIMARY KEY,
+                    scope_key TEXT NOT NULL,
+                    scope_json TEXT NOT NULL,
+                    w1_sequence INTEGER NOT NULL,
+                    w1_history_digest TEXT NOT NULL,
+                    w2_history_digest TEXT NOT NULL,
+                    w1_updates_json TEXT NOT NULL,
+                    w2_history_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
             )
 
     def _key(self, scope: W1Scope) -> str:
@@ -190,7 +221,7 @@ class W1MemoryStore:
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.execute(
-                "SELECT * FROM w1_updates WHERE scope_key = ? ORDER BY transaction_time",
+                "SELECT * FROM w1_updates WHERE scope_key = ? ORDER BY sequence",
                 (key,),
             )
             updates = tuple(self._parse_update(row) for row in cur.fetchall())
@@ -202,9 +233,7 @@ class W1MemoryStore:
         return W1MemoryState(scope=scope, updates=updates, epoch=epoch)
 
     def apply(self, update: W1Update) -> W1UpdateResult:
-        violations: list[str] = []
-        if self._linter is not None:
-            violations = self._linter.lint(update)
+        violations: list[str] = self._linter.lint(update)
         if violations:
             return W1UpdateResult(
                 update_id=update.update_id,
@@ -225,23 +254,31 @@ class W1MemoryStore:
             )
 
         state = self.get_state(update.scope)
-        merged = dict(self._initial)
+        merged: dict[str, Any] = {}
         for u in state.updates:
             merged[u.update_type.value] = u.payload.model_dump(mode="json", exclude_none=True)
         merged[update.update_type.value] = update.payload.model_dump(mode="json", exclude_none=True)
         epoch = state.epoch + 1
 
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            sequence = int(
+                conn.execute(
+                    "SELECT COALESCE(MAX(sequence), 0) + 1 FROM w1_updates WHERE scope_key = ?",
+                    (key,),
+                ).fetchone()[0]
+            )
             conn.execute(
                 """
                 INSERT INTO w1_updates (
-                    update_id, scope_key, scope_json, update_type, payload_json,
+                    update_id, sequence, scope_key, scope_json, update_type, payload_json,
                     provenance, source_event_digest, correction_epoch, rollback_checkpoint_id,
                     version, valid_time, transaction_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     update.update_id,
+                    sequence,
                     key,
                     update.scope.model_dump_json(),
                     update.update_type.value,
@@ -310,7 +347,7 @@ class W1MemoryStore:
             ).digest()
 
         key = self._key(self._active_scope)
-        merged = dict(self._initial)
+        merged: dict[str, Any] = {}
         for u in target_updates:
             merged[u.update_type.value] = u.payload.model_dump(mode="json", exclude_none=True)
         epoch = len(target_updates)
@@ -334,6 +371,155 @@ class W1MemoryStore:
                 ),
             )
         return self.get_state(self._active_scope)
+
+    def save_joint_checkpoint(
+        self,
+        scope: W1Scope,
+        w2_history: tuple[CandidateFeedback, ...],
+    ) -> JointAuthorityCheckpoint:
+        """Persist one content-addressed W1+W2 checkpoint in this authority DB."""
+        state = self.get_state(scope)
+        w1_payload = [u.model_dump(mode="json", exclude_none=True) for u in state.updates]
+        w2_payload = [item.model_dump(mode="json", exclude_none=True) for item in w2_history]
+        w1_digest = content_digest({"scope": scope, "sequence": len(w1_payload), "updates": w1_payload})
+        w2_digest = content_digest({"history": w2_payload})
+        checkpoint_id = content_digest(
+            {
+                "scope": scope,
+                "w1_sequence": len(w1_payload),
+                "w1_history_digest": w1_digest,
+                "w2_history_digest": w2_digest,
+            }
+        )
+        created_at = datetime.now(timezone.utc)
+        checkpoint = JointAuthorityCheckpoint(
+            checkpoint_id=checkpoint_id,
+            scope=scope,
+            w1_sequence=len(w1_payload),
+            w1_history_digest=w1_digest,
+            w2_history_digest=w2_digest,
+            w1_updates=state.updates,
+            w2_history=w2_history,
+            created_at=created_at,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO joint_authority_checkpoints (
+                    checkpoint_id, scope_key, scope_json, w1_sequence,
+                    w1_history_digest, w2_history_digest, w1_updates_json,
+                    w2_history_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    checkpoint_id,
+                    self._key(scope),
+                    scope.model_dump_json(),
+                    len(w1_payload),
+                    w1_digest,
+                    w2_digest,
+                    json.dumps(w1_payload, sort_keys=True),
+                    json.dumps(w2_payload, sort_keys=True),
+                    created_at.isoformat(),
+                ),
+            )
+        return checkpoint
+
+    def load_joint_checkpoint(self, checkpoint_id: str) -> JointAuthorityCheckpoint:
+        with self._connect() as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM joint_authority_checkpoints WHERE checkpoint_id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("unknown joint checkpoint id")
+        scope = W1Scope(**json.loads(row["scope_json"]))
+        updates = tuple(W1Update(**item) for item in json.loads(row["w1_updates_json"]))
+        history = tuple(CandidateFeedback(**item) for item in json.loads(row["w2_history_json"]))
+        checkpoint = JointAuthorityCheckpoint(
+            checkpoint_id=row["checkpoint_id"],
+            scope=scope,
+            w1_sequence=row["w1_sequence"],
+            w1_history_digest=row["w1_history_digest"],
+            w2_history_digest=row["w2_history_digest"],
+            w1_updates=updates,
+            w2_history=history,
+            created_at=row["created_at"],
+        )
+        w1_payload = [item.model_dump(mode="json", exclude_none=True) for item in updates]
+        w2_payload = [item.model_dump(mode="json", exclude_none=True) for item in history]
+        expected_w1_digest = content_digest(
+            {"scope": scope, "sequence": len(w1_payload), "updates": w1_payload}
+        )
+        expected_w2_digest = content_digest({"history": w2_payload})
+        expected_id = content_digest(
+            {
+                "scope": scope,
+                "w1_sequence": len(w1_payload),
+                "w1_history_digest": expected_w1_digest,
+                "w2_history_digest": expected_w2_digest,
+            }
+        )
+        if (
+            expected_id != checkpoint.checkpoint_id
+            or expected_w1_digest != checkpoint.w1_history_digest
+            or expected_w2_digest != checkpoint.w2_history_digest
+            or checkpoint.w1_sequence != len(updates)
+        ):
+            raise ValueError("joint checkpoint integrity failure")
+        return checkpoint
+
+    def restore_joint_checkpoint(
+        self,
+        checkpoint_id: str,
+        scope: W1Scope,
+    ) -> tuple[CandidateFeedback, ...]:
+        checkpoint = self.load_joint_checkpoint(checkpoint_id)
+        if checkpoint.scope != scope:
+            raise ValueError("joint checkpoint scope mismatch")
+        key = self._key(scope)
+        merged: dict[str, Any] = {}
+        for update in checkpoint.w1_updates:
+            merged[update.update_type.value] = update.payload.model_dump(mode="json", exclude_none=True)
+        with self._connect() as conn:
+            conn.execute("DELETE FROM w1_updates WHERE scope_key = ?", (key,))
+            for sequence, update in enumerate(checkpoint.w1_updates, start=1):
+                conn.execute(
+                    """
+                    INSERT INTO w1_updates (
+                        update_id, sequence, scope_key, scope_json, update_type, payload_json,
+                        provenance, source_event_digest, correction_epoch, rollback_checkpoint_id,
+                        version, valid_time, transaction_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        update.update_id,
+                        sequence,
+                        key,
+                        update.scope.model_dump_json(),
+                        update.update_type.value,
+                        update.payload.model_dump_json(),
+                        update.provenance,
+                        update.source_event_digest,
+                        update.correction_epoch,
+                        update.rollback_checkpoint_id,
+                        update.version,
+                        update.valid_time.isoformat(),
+                        update.transaction_time.isoformat(),
+                    ),
+                )
+            conn.execute(
+                """
+                INSERT INTO w1_state (scope_key, scope_json, state_json, epoch)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(scope_key) DO UPDATE SET
+                    state_json = excluded.state_json,
+                    epoch = excluded.epoch
+                """,
+                (key, scope.model_dump_json(), json.dumps(merged, sort_keys=True), len(checkpoint.w1_updates)),
+            )
+        return checkpoint.w2_history
 
     def close(self) -> None:
         pass

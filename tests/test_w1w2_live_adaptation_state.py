@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from experiments.w1w2_live_adaptation import (
     BeliefPayload,
+    CandidateFeedback,
     W1MemoryStore,
     W1Scope,
     W1Update,
@@ -32,7 +33,7 @@ def _scope() -> W1Scope:
 def _store(linter: W1UpdateLinter | None = None) -> W1MemoryStore:
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
-    return W1MemoryStore(db_path=tmp.name, linter=linter)
+    return W1MemoryStore(db_path=tmp.name, linter=linter or W1UpdateLinter())
 
 
 def _cleanup(store: W1MemoryStore) -> None:
@@ -97,6 +98,15 @@ class TestW1TypedPayloads(unittest.TestCase):
 
 
 class TestW1MemoryStore(unittest.TestCase):
+    def test_store_requires_mandatory_linter(self) -> None:
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp.close()
+        try:
+            with self.assertRaises(ValueError):
+                W1MemoryStore(db_path=tmp.name, linter=None)
+        finally:
+            os.unlink(tmp.name)
+
     def test_apply_invokes_linter_transactionally(self) -> None:
         linter = W1UpdateLinter(forbidden_keys={"belief_statement"})
         store = _store(linter=linter)
@@ -177,6 +187,35 @@ class TestW1MemoryStore(unittest.TestCase):
             store.apply(u2)
             restored = store.rollback_to(cp)
             self.assertEqual(restored.digest(), before)
+        finally:
+            _cleanup(store)
+
+    def test_joint_checkpoint_is_atomic_durable_and_unknown_id_fails_closed(self) -> None:
+        store = _store()
+        try:
+            store.activate_scope(_scope())
+            store.apply(_update(update_id="u-1"))
+            history = (
+                CandidateFeedback(action="opt-a", reward=1.0, source_event_digest="e-1"),
+            )
+            checkpoint = store.save_joint_checkpoint(_scope(), history)
+            store.apply(
+                _update(
+                    update_id="u-2",
+                    payload=BeliefPayload(belief_statement="changed", confidence=0.4),
+                )
+            )
+            restored_history = store.restore_joint_checkpoint(checkpoint.checkpoint_id, _scope())
+            self.assertEqual(restored_history, history)
+            self.assertEqual(len(store.get_state(_scope()).updates), 1)
+
+            reopened = W1MemoryStore(db_path=store._db_path, linter=W1UpdateLinter())
+            loaded = reopened.load_joint_checkpoint(checkpoint.checkpoint_id)
+            self.assertEqual(loaded.checkpoint_id, checkpoint.checkpoint_id)
+            self.assertEqual(loaded.w1_history_digest, checkpoint.w1_history_digest)
+            reopened.close()
+            with self.assertRaises(ValueError):
+                store.restore_joint_checkpoint("unknown", _scope())
         finally:
             _cleanup(store)
 
