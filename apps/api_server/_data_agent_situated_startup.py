@@ -14,7 +14,7 @@ import math
 import os
 import stat
 from pathlib import Path
-from typing import Final, Literal, NoReturn, TypeVar
+from typing import Any, Final, Literal, NoReturn, TypeVar
 
 from pydantic import (
     Field,
@@ -45,6 +45,7 @@ STRUCTURALLY_VALIDATED_CONFIG_ONLY: Final = "STRUCTURALLY_VALIDATED_CONFIG_ONLY"
 STRUCTURALLY_VALIDATED_PROVISIONING_ONLY: Final = (
     "STRUCTURALLY_VALIDATED_PROVISIONING_ONLY"
 )
+_PROVISIONING_CONSTRUCTION_SEAL: Final = object()
 
 _MAX_CONFIG_BYTES: Final = 65_536
 _MAX_MATERIAL_BYTES: Final = 262_144
@@ -152,13 +153,26 @@ class DataAgentSituatedStartupConfig(ContractModel):
         return STRUCTURALLY_VALIDATED_CONFIG_ONLY
 
 
-class DataAgentSituatedStartupProvisioning(ContractModel):
+class _DataAgentSituatedStartupProvisioning(ContractModel):
     """Canonical startup inputs only; this object grants and resolves nothing."""
 
+    def __init__(self, *, _seal: object | None = None, **data: Any) -> None:
+        if _seal is not _PROVISIONING_CONSTRUCTION_SEAL:
+            _fail(_MATERIAL_BINDING_MISMATCH)
+        try:
+            super().__init__(**data)
+        except DataAgentSituatedStartupConfigError:
+            raise
+        except (TypeError, ValueError, ValidationError):
+            _fail(_MATERIAL_BINDING_MISMATCH)
+
     config: DataAgentSituatedStartupConfig
+    config_path: Path
     authority_database: Path
     source_credential_path: Path
     provider_credential_path: Path
+    provider_policy_path: Path
+    relevance_context_path: Path
     source_credential: CredentialRef
     provider_credential: CredentialRef
     provider_policy: ProviderRelevancePolicy
@@ -181,7 +195,62 @@ class DataAgentSituatedStartupProvisioning(ContractModel):
         )
 
     @model_validator(mode="after")
-    def _validate_bindings(self) -> DataAgentSituatedStartupProvisioning:
+    def _validate_bindings(self) -> _DataAgentSituatedStartupProvisioning:
+        canonical_config_path = Path(os.path.abspath(self.config_path))
+        expected_paths = (
+            canonical_config_path,
+            _validate_authority_database(
+                canonical_config_path, self.config.authority_database
+            ),
+            _resolve_locator(canonical_config_path, self.config.source.credential_file),
+            _resolve_locator(
+                canonical_config_path, self.config.provider.credential_file
+            ),
+            _resolve_locator(canonical_config_path, self.config.provider.policy_file),
+            _resolve_locator(canonical_config_path, self.config.provider.context_file),
+        )
+        actual_paths = (
+            self.config_path,
+            self.authority_database,
+            self.source_credential_path,
+            self.provider_credential_path,
+            self.provider_policy_path,
+            self.relevance_context_path,
+        )
+        if actual_paths != expected_paths:
+            raise ValueError("provisioning paths do not match startup configuration")
+        reloaded_config = _validated_config(
+            _parse_strict_json(_read_config_bytes(self.config_path))
+        )
+        reloaded_materials = (
+            _load_canonical_material(
+                self.source_credential_path,
+                CredentialRef,
+                self.config.source.expected_credential_digest,
+            ),
+            _load_canonical_material(
+                self.provider_credential_path,
+                CredentialRef,
+                self.config.provider.expected_credential_digest,
+            ),
+            _load_canonical_material(
+                self.provider_policy_path,
+                ProviderRelevancePolicy,
+                self.config.provider.expected_policy_digest,
+            ),
+            _load_canonical_material(
+                self.relevance_context_path,
+                MandateRelevanceContext,
+                self.config.provider.expected_context_digest,
+            ),
+        )
+        if reloaded_config != self.config or reloaded_materials != (
+            self.source_credential,
+            self.provider_credential,
+            self.provider_policy,
+            self.relevance_context,
+        ):
+            raise ValueError("provisioning snapshots changed before sealing")
         expected_scope = (
             self.config.principal_id,
             self.config.tenant_id,
@@ -206,9 +275,12 @@ class DataAgentSituatedStartupProvisioning(ContractModel):
         }
         if (
             self.source_credential.provider_id != "data-agent-external-report"
-            or not required_source_scopes.issubset(self.source_credential.scopes)
+            or tuple(self.source_credential.scopes)
+            != tuple(sorted(required_source_scopes))
             or self.source_credential.credential_ref_id
             == self.provider_credential.credential_ref_id
+            or self.source_credential.resolver_key
+            == self.provider_credential.resolver_key
         ):
             raise ValueError("source credential does not match adapter envelope")
         invocation = self.provider_policy.provider_invocation
@@ -217,7 +289,7 @@ class DataAgentSituatedStartupProvisioning(ContractModel):
             or invocation.credential_ref_digest
             != content_digest(self.provider_credential)
             or invocation.provider_id != self.provider_credential.provider_id
-            or "chat" not in self.provider_credential.scopes
+            or self.provider_credential.scopes != ("chat",)
         ):
             raise ValueError("provider policy does not bind the provider credential")
         context = self.relevance_context
@@ -290,7 +362,7 @@ class DataAgentSituatedCredentialFileReader:
 def _read_config_bytes(path: Path) -> bytes:
     try:
         info = os.lstat(path)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         _fail(_ERROR_UNAVAILABLE)
     if stat.S_ISLNK(info.st_mode):
         _fail(_ERROR_SYMLINK)
@@ -300,7 +372,7 @@ def _read_config_bytes(path: Path) -> bytes:
         _fail(_ERROR_OVERSIZE)
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         _fail(_ERROR_UNAVAILABLE)
     try:
         opened = os.fstat(descriptor)
@@ -313,7 +385,7 @@ def _read_config_bytes(path: Path) -> bytes:
         while received <= _MAX_CONFIG_BYTES:
             try:
                 chunk = os.read(descriptor, _MAX_CONFIG_BYTES + 1 - received)
-            except OSError:
+            except (OSError, TypeError, ValueError):
                 _fail(_ERROR_UNAVAILABLE)
             if not chunk:
                 break
@@ -330,7 +402,7 @@ def _read_config_bytes(path: Path) -> bytes:
 def _read_material_bytes(path: Path) -> bytes:
     try:
         info = os.lstat(path)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         _fail(_MATERIAL_UNAVAILABLE)
     if stat.S_ISLNK(info.st_mode):
         _fail(_MATERIAL_SYMLINK)
@@ -340,7 +412,7 @@ def _read_material_bytes(path: Path) -> bytes:
         _fail(_MATERIAL_OVERSIZE)
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         _fail(_MATERIAL_UNAVAILABLE)
     try:
         opened = os.fstat(descriptor)
@@ -351,7 +423,7 @@ def _read_material_bytes(path: Path) -> bytes:
         while received <= _MAX_MATERIAL_BYTES:
             try:
                 chunk = os.read(descriptor, _MAX_MATERIAL_BYTES + 1 - received)
-            except OSError:
+            except (OSError, TypeError, ValueError):
                 _fail(_MATERIAL_UNAVAILABLE)
             if not chunk:
                 break
@@ -426,7 +498,11 @@ def load_data_agent_situated_startup_config(
     The result is STRUCTURALLY_VALIDATED_CONFIG_ONLY. It grants nothing,
     resolves no authority and never reads the named credential secret.
     """
-    raw = _read_config_bytes(Path(path))
+    try:
+        config_path = Path(path)
+    except (TypeError, ValueError):
+        _fail(_ERROR_UNAVAILABLE)
+    raw = _read_config_bytes(config_path)
     return _validated_config(_parse_strict_json(raw))
 
 
@@ -434,8 +510,12 @@ _ContractT = TypeVar("_ContractT", bound=ContractModel)
 
 
 def _resolve_locator(config_path: Path, locator: str) -> Path:
-    path = Path(locator)
-    return path if path.is_absolute() else config_path.parent / path
+    try:
+        path = Path(locator)
+        selected = path if path.is_absolute() else config_path.parent / path
+        return Path(os.path.abspath(selected))
+    except (OSError, TypeError, ValueError):
+        _fail(_MATERIAL_UNAVAILABLE)
 
 
 def _load_canonical_material(
@@ -462,10 +542,15 @@ def _load_canonical_material(
 def _validate_authority_database(config_path: Path, locator: str) -> Path:
     if locator == ":memory:":
         _fail(_AUTHORITY_UNAVAILABLE)
-    path = _resolve_locator(config_path, locator)
+    try:
+        raw_path = Path(locator)
+        selected = raw_path if raw_path.is_absolute() else config_path.parent / raw_path
+        path = Path(os.path.abspath(selected))
+    except (OSError, TypeError, ValueError):
+        _fail(_AUTHORITY_UNAVAILABLE)
     try:
         info = os.lstat(path)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         _fail(_AUTHORITY_UNAVAILABLE)
     if stat.S_ISLNK(info.st_mode):
         _fail(_AUTHORITY_SYMLINK)
@@ -473,7 +558,7 @@ def _validate_authority_database(config_path: Path, locator: str) -> Path:
         _fail(_AUTHORITY_NOT_REGULAR)
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         _fail(_AUTHORITY_UNAVAILABLE)
     try:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
@@ -485,9 +570,12 @@ def _validate_authority_database(config_path: Path, locator: str) -> Path:
 
 def load_data_agent_situated_startup_provisioning(
     path: str | Path,
-) -> DataAgentSituatedStartupProvisioning:
+) -> _DataAgentSituatedStartupProvisioning:
     """Load canonical provisioning inputs without resolving runtime authority."""
-    config_path = Path(path)
+    try:
+        config_path = Path(os.path.abspath(Path(path)))
+    except (OSError, TypeError, ValueError):
+        _fail(_ERROR_UNAVAILABLE)
     config = load_data_agent_situated_startup_config(config_path)
     authority_database = _validate_authority_database(
         config_path, config.authority_database
@@ -498,6 +586,8 @@ def load_data_agent_situated_startup_provisioning(
     provider_credential_path = _resolve_locator(
         config_path, config.provider.credential_file
     )
+    provider_policy_path = _resolve_locator(config_path, config.provider.policy_file)
+    relevance_context_path = _resolve_locator(config_path, config.provider.context_file)
     source_credential = _load_canonical_material(
         source_credential_path,
         CredentialRef,
@@ -509,21 +599,25 @@ def load_data_agent_situated_startup_provisioning(
         config.provider.expected_credential_digest,
     )
     provider_policy = _load_canonical_material(
-        _resolve_locator(config_path, config.provider.policy_file),
+        provider_policy_path,
         ProviderRelevancePolicy,
         config.provider.expected_policy_digest,
     )
     relevance_context = _load_canonical_material(
-        _resolve_locator(config_path, config.provider.context_file),
+        relevance_context_path,
         MandateRelevanceContext,
         config.provider.expected_context_digest,
     )
     try:
-        return DataAgentSituatedStartupProvisioning(
+        return _DataAgentSituatedStartupProvisioning(
+            _seal=_PROVISIONING_CONSTRUCTION_SEAL,
             config=config,
+            config_path=config_path,
             authority_database=authority_database,
             source_credential_path=source_credential_path,
             provider_credential_path=provider_credential_path,
+            provider_policy_path=provider_policy_path,
+            relevance_context_path=relevance_context_path,
             source_credential=source_credential,
             provider_credential=provider_credential,
             provider_policy=provider_policy,

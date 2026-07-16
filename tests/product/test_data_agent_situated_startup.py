@@ -733,6 +733,50 @@ class TestProvisioningMaterial:
         ):
             load_data_agent_situated_startup_provisioning(path)
 
+    def test_rejects_shared_source_and_provider_resolver_key(
+        self, tmp_path: Path
+    ) -> None:
+        path, config = provisioning_config(tmp_path)
+        shared_resolver = provider_credential().model_copy(
+            update={"resolver_key": RESOLVER_ENV_KEY}
+        )
+        policy = provider_policy(shared_resolver)
+        write_canonical(tmp_path / "provider-credential.json", shared_resolver)
+        write_canonical(tmp_path / "provider-policy.json", policy)
+        config["provider"]["expected_credential_digest"] = content_digest(
+            shared_resolver
+        )
+        config["provider"]["expected_policy_digest"] = content_digest(policy)
+        path.write_text(json.dumps(config), encoding="utf-8")
+        with pytest.raises(
+            DataAgentSituatedStartupConfigError, match="binding mismatch"
+        ):
+            load_data_agent_situated_startup_provisioning(path)
+
+    def test_rejects_extra_source_or_provider_scopes(self, tmp_path: Path) -> None:
+        path, config = provisioning_config(tmp_path)
+        source = CredentialRef.model_validate(
+            {
+                **source_credential().model_dump(),
+                "scopes": (*source_credential().scopes, "admin"),
+            }
+        )
+        provider = CredentialRef.model_validate(
+            {**provider_credential().model_dump(), "scopes": ("chat", "admin")}
+        )
+        policy = provider_policy(provider)
+        write_canonical(tmp_path / "source-credential.json", source)
+        write_canonical(tmp_path / "provider-credential.json", provider)
+        write_canonical(tmp_path / "provider-policy.json", policy)
+        config["source"]["expected_credential_digest"] = content_digest(source)
+        config["provider"]["expected_credential_digest"] = content_digest(provider)
+        config["provider"]["expected_policy_digest"] = content_digest(policy)
+        path.write_text(json.dumps(config), encoding="utf-8")
+        with pytest.raises(
+            DataAgentSituatedStartupConfigError, match="binding mismatch"
+        ):
+            load_data_agent_situated_startup_provisioning(path)
+
     def test_rejects_policy_invocation_digest_drift(self, tmp_path: Path) -> None:
         path, config = provisioning_config(tmp_path)
         policy = provider_policy(provider_credential())
@@ -791,3 +835,59 @@ class TestLiveCredentialBoundary:
             DataAgentSituatedStartupConfigError, match="binding mismatch"
         ):
             reader.resolve_authorization("credref-data-agent-1")
+
+
+class TestProvisioningConstructionBoundary:
+    def test_direct_result_construction_cannot_forge_missing_materials(
+        self, tmp_path: Path
+    ) -> None:
+        assert not hasattr(startup, "DataAgentSituatedStartupProvisioning")
+        config = DataAgentSituatedStartupConfig.model_validate(valid_config_data())
+        result_type = getattr(startup, "_DataAgentSituatedStartupProvisioning")
+        with pytest.raises(DataAgentSituatedStartupConfigError):
+            result_type(
+                _seal=getattr(startup, "_PROVISIONING_CONSTRUCTION_SEAL"),
+                config=config.model_copy(update={"expected_mandate_digest": "9" * 64}),
+                config_path=tmp_path / "missing-config.json",
+                authority_database=tmp_path / "missing-authority.sqlite3",
+                source_credential_path=tmp_path / "missing-source.json",
+                provider_credential_path=tmp_path / "missing-provider.json",
+                provider_policy_path=tmp_path / "missing-policy.json",
+                relevance_context_path=tmp_path / "missing-context.json",
+                source_credential=source_credential(),
+                provider_credential=provider_credential(),
+                provider_policy=provider_policy(provider_credential()),
+                relevance_context=relevance_context(),
+            )
+
+    @pytest.mark.parametrize(
+        ("target", "expected"),
+        [
+            ("config", E_UNAVAILABLE),
+            (
+                "authority",
+                "data agent situated startup authority database is unavailable",
+            ),
+            (
+                "material",
+                "data agent situated startup provisioning material is unavailable",
+            ),
+        ],
+    )
+    def test_nul_locators_fail_with_fixed_safe_errors(
+        self, tmp_path: Path, target: str, expected: str
+    ) -> None:
+        if target == "config":
+            with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
+                load_data_agent_situated_startup_config("bad\x00config.json")
+        else:
+            path, config = provisioning_config(tmp_path)
+            if target == "authority":
+                config["authority_database"] = "bad\x00authority.sqlite3"
+            else:
+                config["source"]["credential_file"] = "bad\x00credential.json"
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
+                load_data_agent_situated_startup_provisioning(path)
+        assert str(excinfo.value) == expected
+        assert "\x00" not in str(excinfo.value)
