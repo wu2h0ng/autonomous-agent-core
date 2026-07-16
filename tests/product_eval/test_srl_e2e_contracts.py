@@ -26,9 +26,19 @@ from product_evals.srl_e2e_falsifier.contracts import (
     ControllerBindingReceipt,
     DecisionCandidate,
     MissingInputKind,
+    PublicContentManifest,
+    PublicContentManifestEntry,
+    PublicContentMediaType,
+    PublicContentRole,
     PublicResponsibilityState,
+    PublicResponsibilityStateVerifier,
     StaticBudgetConfiguration,
     decision_candidate_digest,
+    public_content_entry_digest,
+    public_content_manifest_digest,
+    public_responsibility_state_digest,
+    static_budget_configuration_bytes,
+    static_budget_configuration_digest,
 )
 
 
@@ -117,79 +127,93 @@ def _sealed(payload: dict[str, Any]) -> DecisionCandidate:
 
 
 # ---------------------------------------------------------------------------
-# PublicResponsibilityState helpers (content-addressed refs only)
+# PublicResponsibilityState helpers (content-addressed manifest only)
 # ---------------------------------------------------------------------------
 
 
-def _content_ref(**overrides: Any) -> dict[str, Any]:
+MISSION_BYTES = b"mission-v1"
+EVENT_BYTES = b'{"event":"new failure"}'
+PROJECTION_BYTES = b'{"projection":"tests red"}'
+EVIDENCE_BYTES = b'{"evidence":"pytest receipt"}'
+
+
+def _entry(
+    role: PublicContentRole,
+    raw: bytes,
+    *,
+    media_type: PublicContentMediaType = PublicContentMediaType.APPLICATION_JSON,
+    **overrides: Any,
+) -> PublicContentManifestEntry:
     payload: dict[str, Any] = {
-        "schema_version": "1.0",
-        "content_digest": CONTENT_DIGEST,
-        "content_class": "ARM_NEUTRAL_PUBLIC",
-        "media_type": "application/json",
+        "role": role,
+        "media_type": media_type,
+        "content_digest": hashlib.sha256(raw).hexdigest(),
     }
+    payload["entry_digest"] = public_content_entry_digest(payload)
     payload.update(overrides)
-    return payload
+    return PublicContentManifestEntry.model_validate(payload)
 
 
-def _mission_ref(**overrides: Any) -> dict[str, Any]:
+def _budget(**overrides: Any) -> StaticBudgetConfiguration:
     payload: dict[str, Any] = {
-        "schema_version": "1.0",
-        "manifest_entry_digest": MANIFEST_DIGEST,
-        "content_ref": _content_ref(content_digest=MISSION_DIGEST),
+        "max_llm_calls": 1,
+        "max_input_tokens": 100,
+        "max_output_tokens": 100,
+        "max_retries": 1,
+        "max_tool_invocations": 2,
+        "max_wall_seconds": 60,
     }
+    supplied_digest = overrides.pop("configuration_digest", None)
     payload.update(overrides)
-    return payload
+    payload["configuration_digest"] = (
+        supplied_digest or static_budget_configuration_digest(payload)
+    )
+    return StaticBudgetConfiguration.model_validate(payload)
 
 
-def _event_ref(**overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema_version": "1.0",
-        "event_id": "event-001",
-        "manifest_entry_digest": MANIFEST_DIGEST,
-        "content_ref": _content_ref(),
+def _manifest_fixture() -> tuple[
+    PublicContentManifest,
+    dict[str, bytes],
+    StaticBudgetConfiguration,
+]:
+    budget = _budget()
+    budget_bytes = static_budget_configuration_bytes(budget)
+    entries = (
+        _entry(PublicContentRole.MISSION, MISSION_BYTES),
+        _entry(PublicContentRole.EVENT, EVENT_BYTES),
+        _entry(PublicContentRole.PROJECTION, PROJECTION_BYTES),
+        _entry(PublicContentRole.EVIDENCE, EVIDENCE_BYTES),
+        _entry(PublicContentRole.STATIC_BUDGET, budget_bytes),
+    )
+    payload: dict[str, Any] = {"entries": entries}
+    payload["manifest_root_digest"] = public_content_manifest_digest(payload)
+    manifest = PublicContentManifest.model_validate(payload)
+    contents = {
+        entry.entry_digest: raw
+        for entry, raw in zip(
+            entries,
+            (MISSION_BYTES, EVENT_BYTES, PROJECTION_BYTES, EVIDENCE_BYTES, budget_bytes),
+            strict=True,
+        )
     }
-    payload.update(overrides)
-    return payload
+    return manifest, contents, budget
 
 
-def _projection_ref(**overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema_version": "1.0",
-        "projection_id": "projection-001",
-        "manifest_entry_digest": MANIFEST_DIGEST,
-        "content_ref": _content_ref(content_digest=PROJECTION_DIGEST),
-    }
-    payload.update(overrides)
-    return payload
-
-
-def _evidence_ref(**overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema_version": "1.0",
-        "evidence_id": "evidence-001",
-        "manifest_entry_digest": MANIFEST_DIGEST,
-        "content_ref": _content_ref(content_digest=EVIDENCE_DIGEST),
-    }
-    payload.update(overrides)
-    return payload
-
-
-def _state_payload(**overrides: Any) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "schema_version": "1.0",
-        "state_id": "state-001",
-        "mandate_digest": MANDATE_DIGEST,
-        "mission_ref": _mission_ref(),
-        "environment_binding_digest": BINDING_DIGEST,
-        "correction_epoch": 0,
-        "public_events": (_event_ref(),),
-        "public_projections": (_projection_ref(),),
-        "public_evidence": (_evidence_ref(),),
-        "budget_configuration_digest": BUDGET_CONFIG_DIGEST,
-    }
-    payload.update(overrides)
-    return payload
+def _verified_state() -> PublicResponsibilityState:
+    manifest, contents, budget = _manifest_fixture()
+    return PublicResponsibilityStateVerifier.build(
+        manifest=manifest,
+        content_by_entry_digest=contents,
+        static_budget_configuration=budget,
+        mandate_digest=MANDATE_DIGEST,
+        environment_binding_digest=BINDING_DIGEST,
+        correction_epoch=0,
+        mission_entry_digest=manifest.entries[0].entry_digest,
+        event_entry_digests=(manifest.entries[1].entry_digest,),
+        projection_entry_digests=(manifest.entries[2].entry_digest,),
+        evidence_entry_digests=(manifest.entries[3].entry_digest,),
+        static_budget_entry_digest=manifest.entries[4].entry_digest,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -434,356 +458,193 @@ class TestNoExternalEffectStrictness:
 
 
 class TestPublicResponsibilityState:
-    def test_valid_state_constructs(self) -> None:
-        state = PublicResponsibilityState(**_state_payload())
+    def test_trusted_builder_constructs_content_addressed_state(self) -> None:
+        state = _verified_state()
         assert state.correction_epoch == 0
-        assert state.state_digest() == content_digest(state)
-
-    def test_no_raw_payload_fields_exist(self) -> None:
-        """State fields carry only digests and closed refs, zero raw payload."""
-        fields = PublicResponsibilityState.model_fields
-        for name in ("public_events", "public_projections", "public_evidence"):
-            assert name in fields
-        assert "mission_ref" in fields
-        assert "budget_configuration_digest" in fields
-        assert "mission_statement" not in fields
-        assert "payload" not in fields
-        assert "budget_configuration" not in fields
-        assert "public_evidence_ids" not in fields
-
-    def test_state_cannot_carry_raw_mapping(self) -> None:
-        """extra=forbid rejects any free-text or mapping field at top level."""
-        for key, value in (
-            ("arm_id", "arm-3"),
-            ("remaining_llm_calls", 5),
-            ("task_class", "TEST_FIXED"),
-            ("plugin", "test_fixed_plugin"),
-            ("expected_answer", "42"),
-            ("source_identity", "operator-1"),
-            ("hcw_minutes", 12),
-            ("transcript", ("turn-1",)),
-            ("internal_state", {"beliefs": ()}),
-            ("value_channel", "arm-3"),
-            ("mission_statement", "a free-text mission"),
-            ("payload", {"summary": "something"}),
-        ):
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {**_state_payload(), key: value}
-                )
-
-    def test_value_channel_rejected(self) -> None:
-        """value_channel field must not enter public state or any nested ref."""
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {**_state_payload(), "value_channel": "trade-off-data"}
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "mission_ref": _mission_ref(value_channel="injected"),
-                }
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_events": (
-                        {**_event_ref(), "value_channel": "injected"},
-                    ),
-                }
-            )
-
-    @pytest.mark.parametrize(
-        "field_name",
-        [
-            "arm_id",
-            "armId",
-            "arm-id",
-            "arm\u200bid",        # zero-width space
-            "arm_id\ufe0f",       # variation selector
-            "ａrm_id",            # fullwidth 'a'
-            "\uff41rm_id",        # fullwidth 'a' via codepoint
-        ],
-    )
-    def test_arm_id_variants_rejected(self, field_name: str) -> None:
-        """arm_id, armId, arm-id, zero-width, fullwidth variants all rejected."""
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {**_state_payload(), field_name: "arm-3"}
-            )
-
-    def test_renamed_budget_rejected(self) -> None:
-        """Renamed budget counters (budget_left, tokens_remaining etc) rejected."""
-        for key in ("budget_left", "tokens_remaining", "calls_left", "wall_left"):
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {**_state_payload(), key: 99}
-                )
-
-    def test_static_budget_cannot_enter_public_state(self) -> None:
-        """StaticBudgetConfiguration object cannot enter state (digest only)."""
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {**_state_payload(), "budget_configuration": _digest_of("cfg")}
-            )
-        budget_obj = {
-            "schema_version": "1.0",
-            "max_llm_calls": 1,
-            "max_input_tokens": 1,
-            "max_output_tokens": 1,
-            "max_retries": 1,
-            "max_tool_invocations": 1,
-            "max_wall_seconds": 1,
-        }
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {**_state_payload(), "budget_configuration": budget_obj}
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {**_state_payload(), "remaining_llm_calls": 12}
-            )
-
-    def test_opaque_ref_missing_manifest_rejected(self) -> None:
-        """A content ref without manifest_entry_digest cannot enter anywhere."""
-        bad_event = {
-            "schema_version": "1.0",
-            "event_id": "event-bad",
-            "content_ref": _content_ref(),
-        }
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState(**_state_payload(public_events=(bad_event,)))
-        bad_projection = {
-            "schema_version": "1.0",
-            "projection_id": "projection-bad",
-            "content_ref": _content_ref(),
-        }
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState(
-                **_state_payload(public_projections=(bad_projection,))
-            )
-        bad_evidence = {
-            "schema_version": "1.0",
-            "evidence_id": "evidence-bad",
-            "content_ref": _content_ref(),
-        }
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState(
-                **_state_payload(public_evidence=(bad_evidence,))
-            )
-        bad_mission = {
-            "schema_version": "1.0",
-            "content_ref": _content_ref(content_digest=MISSION_DIGEST),
-        }
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState(**_state_payload(mission_ref=bad_mission))
-
-    def test_content_ref_missing_class_field_rejected(self) -> None:
-        """A ref omitting content_class defaults closed; a ref with a class
-        key set to None or empty is rejected."""
-        for bad_class in (None, ""):
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {
-                        **_state_payload(),
-                        "public_events": (
-                            _event_ref(
-                                content_ref=_content_ref(content_class=bad_class)
-                            ),
-                        ),
-                    }
-                )
-
-    def test_opaque_ref_wrong_content_class_rejected(self) -> None:
-        """content_class must be ARM_NEUTRAL_PUBLIC, nothing else, anywhere."""
-        for wrong_class in ("OTHER_CLASS", "ARM_SPECIFIC", "PRIVATE", "arm_neutral_public"):
-            wrong_ref = _content_ref(content_class=wrong_class)
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {
-                        **_state_payload(),
-                        "public_events": (_event_ref(content_ref=wrong_ref),),
-                    }
-                )
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {
-                        **_state_payload(),
-                        "public_projections": (
-                            _projection_ref(content_ref=wrong_ref),
-                        ),
-                    }
-                )
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {
-                        **_state_payload(),
-                        "public_evidence": (_evidence_ref(content_ref=wrong_ref),),
-                    }
-                )
-            with pytest.raises(ValidationError):
-                PublicResponsibilityState.model_validate(
-                    {
-                        **_state_payload(),
-                        "mission_ref": _mission_ref(content_ref=wrong_ref),
-                    }
-                )
-
-    @pytest.mark.parametrize(
-        "leak_payload",
-        [
-            {"condition": "arm-3-srl"},
-            {"summary": "expected answer: 42"},
-            {"note": "calls left: 5"},
-        ],
-        ids=["arm-condition-value", "expected-answer-value", "calls-left-value"],
-    )
-    def test_value_leak_via_payload_channel_rejected(
-        self, leak_payload: dict[str, Any]
-    ) -> None:
-        """The removed raw-payload channel cannot be reintroduced to carry
-        arm/expected-answer/remaining-budget values on any ref site."""
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_events": (
-                        {**_event_ref(), "payload": leak_payload},
-                    ),
-                }
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_projections": (
-                        {**_projection_ref(), "payload": leak_payload},
-                    ),
-                }
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_evidence": (
-                        {**_evidence_ref(), "payload": leak_payload},
-                    ),
-                }
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "mission_ref": {**_mission_ref(), "payload": leak_payload},
-                }
-            )
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_events": (
-                        _event_ref(content_ref={**_content_ref(), **leak_payload}),
-                    ),
-                }
-            )
-
-    def test_three_injection_attempts_then_evaluator_owned_refs(self) -> None:
-        """Three injection attempts on PublicResponsibilityState all rejected,
-        then three distinct evaluator-owned refs construct successfully."""
-        # -- injection attempt 1: arm_id at state level --
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {**_state_payload(), "arm_id": "arm-1-scheduled"}
-            )
-        # -- injection attempt 2: arm label inside event ref --
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_events": (
-                        {
-                            "schema_version": "1.0",
-                            "event_id": "event-inject",
-                            "manifest_entry_digest": MANIFEST_DIGEST,
-                            "content_ref": _content_ref(),
-                            "arm_label": "arm-3-srl",
-                        },
-                    ),
-                }
-            )
-        # -- injection attempt 3: arm_id inside content_ref --
-        with pytest.raises(ValidationError):
-            PublicResponsibilityState.model_validate(
-                {
-                    **_state_payload(),
-                    "public_events": (
-                        {
-                            "schema_version": "1.0",
-                            "event_id": "event-inject2",
-                            "manifest_entry_digest": MANIFEST_DIGEST,
-                            "content_ref": _content_ref(arm_id="arm-2"),
-                        },
-                    ),
-                }
-            )
-
-        # -- evaluator-owned refs: three distinct objects (not same instance) --
-        ref_a = _event_ref(event_id="event-eval-a")
-        ref_b = _projection_ref(projection_id="projection-eval-b")
-        ref_c = _evidence_ref(evidence_id="evidence-eval-c")
-
-        state = PublicResponsibilityState(
-            **_state_payload(
-                public_events=(ref_a,),
-                public_projections=(ref_b,),
-                public_evidence=(ref_c,),
-                correction_epoch=1,
-            )
+        assert state.state_digest == public_responsibility_state_digest(
+            state.model_dump(mode="json", exclude={"state_digest"})
         )
-        assert state.correction_epoch == 1
-        assert state.public_events[0].event_id == "event-eval-a"
-        assert state.public_projections[0].projection_id == "projection-eval-b"
-        assert state.public_evidence[0].evidence_id == "evidence-eval-c"
-        digest = state.state_digest()
-        assert isinstance(digest, str)
-        assert len(digest) == 64
 
-    def test_canonical_bytes_are_arm_neutral(self) -> None:
-        """Same state constructed twice with nothing arm-related produces same
-        canonical bytes regardless of evaluator identity."""
-        s1 = PublicResponsibilityState(**_state_payload())
-        s2 = PublicResponsibilityState(**_state_payload())
-        assert canonical_json(s1) == canonical_json(s2)
-        assert s1.state_digest() == s2.state_digest()
+    def test_state_has_only_digests_epoch_and_digest_tuples(self) -> None:
+        fields = set(PublicResponsibilityState.model_fields)
+        assert fields == {
+            "schema_version",
+            "manifest_root_digest",
+            "mandate_digest",
+            "environment_binding_digest",
+            "correction_epoch",
+            "mission_entry_digest",
+            "event_entry_digests",
+            "projection_entry_digests",
+            "evidence_entry_digests",
+            "static_budget_entry_digest",
+            "state_digest",
+        }
+        for forbidden in (
+            "state_id",
+            "event_id",
+            "projection_id",
+            "evidence_id",
+            "mission_statement",
+            "media_type",
+            "payload",
+            "value_channel",
+        ):
+            assert forbidden not in fields
 
-    def test_static_budget_configuration_is_closed(self) -> None:
+    def test_self_minted_entry_digest_is_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            StaticBudgetConfiguration.model_validate(
-                {
-                    "schema_version": "1.0",
-                    "max_llm_calls": 1,
-                    "max_input_tokens": 1,
-                    "max_output_tokens": 1,
-                    "max_retries": 1,
-                    "max_tool_invocations": 1,
-                    "max_wall_seconds": 1,
-                    "remaining_llm_calls": 1,
-                }
+            _entry(
+                PublicContentRole.EVENT,
+                EVENT_BYTES,
+                entry_digest=_digest_of("self-minted-entry"),
             )
+
+    def test_content_class_or_media_omission_is_not_defaulted(self) -> None:
+        payload = {
+            "role": "EVENT",
+            "content_digest": hashlib.sha256(EVENT_BYTES).hexdigest(),
+        }
+        payload["entry_digest"] = public_content_entry_digest(payload)
         with pytest.raises(ValidationError):
-            StaticBudgetConfiguration.model_validate(
-                {
-                    "schema_version": "1.0",
-                    "max_llm_calls": 1,
-                    "max_input_tokens": 1,
-                    "max_output_tokens": 1,
-                    "max_retries": 1,
-                    "max_tool_invocations": 1,
-                    "max_wall_seconds": 1,
-                    "arm_id": "arm-3",
-                }
+            PublicContentManifestEntry.model_validate(payload)
+
+    def test_manifest_rejects_self_minted_root_duplicate_and_reorder(self) -> None:
+        manifest, _, _ = _manifest_fixture()
+        with pytest.raises(ValidationError):
+            PublicContentManifest.model_validate(
+                {"entries": manifest.entries, "manifest_root_digest": _digest_of("fake")}
+            )
+        duplicate = (manifest.entries[0], manifest.entries[0])
+        payload: dict[str, Any] = {"entries": duplicate}
+        payload["manifest_root_digest"] = public_content_manifest_digest(payload)
+        with pytest.raises(ValidationError):
+            PublicContentManifest.model_validate(payload)
+        reordered: dict[str, Any] = {"entries": tuple(reversed(manifest.entries))}
+        reordered["manifest_root_digest"] = manifest.manifest_root_digest
+        with pytest.raises(ValidationError):
+            PublicContentManifest.model_validate(reordered)
+
+    def test_trusted_builder_rejects_wrong_content_bytes_and_missing_entry(self) -> None:
+        manifest, contents, budget = _manifest_fixture()
+        wrong = dict(contents)
+        wrong[manifest.entries[1].entry_digest] = b"different event bytes"
+        with pytest.raises(ValueError, match="content bytes"):
+            PublicResponsibilityStateVerifier.build(
+                manifest=manifest,
+                content_by_entry_digest=wrong,
+                static_budget_configuration=budget,
+                mandate_digest=MANDATE_DIGEST,
+                environment_binding_digest=BINDING_DIGEST,
+                correction_epoch=0,
+                mission_entry_digest=manifest.entries[0].entry_digest,
+                event_entry_digests=(manifest.entries[1].entry_digest,),
+                projection_entry_digests=(manifest.entries[2].entry_digest,),
+                evidence_entry_digests=(manifest.entries[3].entry_digest,),
+                static_budget_entry_digest=manifest.entries[4].entry_digest,
+            )
+        missing = dict(contents)
+        del missing[manifest.entries[2].entry_digest]
+        with pytest.raises(ValueError, match="missing content bytes"):
+            PublicResponsibilityStateVerifier.build(
+                manifest=manifest,
+                content_by_entry_digest=missing,
+                static_budget_configuration=budget,
+                mandate_digest=MANDATE_DIGEST,
+                environment_binding_digest=BINDING_DIGEST,
+                correction_epoch=0,
+                mission_entry_digest=manifest.entries[0].entry_digest,
+                event_entry_digests=(manifest.entries[1].entry_digest,),
+                projection_entry_digests=(manifest.entries[2].entry_digest,),
+                evidence_entry_digests=(manifest.entries[3].entry_digest,),
+                static_budget_entry_digest=manifest.entries[4].entry_digest,
+            )
+
+    def test_wrong_role_and_different_manifest_root_fail_closed(self) -> None:
+        manifest, contents, budget = _manifest_fixture()
+        state = _verified_state()
+        wrong_role_entries = list(manifest.entries)
+        wrong_role_entries[1] = _entry(PublicContentRole.EVIDENCE, EVENT_BYTES)
+        payload: dict[str, Any] = {"entries": tuple(wrong_role_entries)}
+        payload["manifest_root_digest"] = public_content_manifest_digest(payload)
+        wrong_manifest = PublicContentManifest.model_validate(payload)
+        wrong_contents = dict(contents)
+        wrong_contents[wrong_role_entries[1].entry_digest] = EVENT_BYTES
+        with pytest.raises(ValueError):
+            PublicResponsibilityStateVerifier.build(
+                manifest=wrong_manifest,
+                content_by_entry_digest=wrong_contents,
+                static_budget_configuration=budget,
+                mandate_digest=MANDATE_DIGEST,
+                environment_binding_digest=BINDING_DIGEST,
+                correction_epoch=0,
+                mission_entry_digest=wrong_manifest.entries[0].entry_digest,
+                event_entry_digests=(wrong_manifest.entries[1].entry_digest,),
+                projection_entry_digests=(wrong_manifest.entries[2].entry_digest,),
+                evidence_entry_digests=(wrong_manifest.entries[3].entry_digest,),
+                static_budget_entry_digest=wrong_manifest.entries[4].entry_digest,
+            )
+        with pytest.raises(ValueError, match="manifest root"):
+            PublicResponsibilityStateVerifier.verify(
+                state=state,
+                manifest=wrong_manifest,
+                content_by_entry_digest=wrong_contents,
+                static_budget_configuration=budget,
+            )
+
+    def test_random_budget_digest_and_budget_bytes_fail_closed(self) -> None:
+        with pytest.raises(ValidationError):
+            _budget(configuration_digest=_digest_of("random-budget"))
+        manifest, contents, budget = _manifest_fixture()
+        wrong_budget = _budget(max_wall_seconds=61)
+        with pytest.raises(ValueError, match="static budget"):
+            PublicResponsibilityStateVerifier.build(
+                manifest=manifest,
+                content_by_entry_digest=contents,
+                static_budget_configuration=wrong_budget,
+                mandate_digest=MANDATE_DIGEST,
+                environment_binding_digest=BINDING_DIGEST,
+                correction_epoch=0,
+                mission_entry_digest=manifest.entries[0].entry_digest,
+                event_entry_digests=(manifest.entries[1].entry_digest,),
+                projection_entry_digests=(manifest.entries[2].entry_digest,),
+                evidence_entry_digests=(manifest.entries[3].entry_digest,),
+                static_budget_entry_digest=manifest.entries[4].entry_digest,
+            )
+
+    def test_same_manifest_inputs_have_identical_bytes_and_no_arm_parameter(self) -> None:
+        first = _verified_state()
+        second = _verified_state()
+        assert canonical_json(first) == canonical_json(second)
+        assert first.state_digest == second.state_digest
+        assert "arm" not in PublicResponsibilityStateVerifier.build.__annotations__
+
+    def test_raw_state_is_syntax_only_until_verified(self) -> None:
+        state = _verified_state()
+        forged_payload = state.model_dump(mode="json", exclude={"state_digest"})
+        forged_payload["manifest_root_digest"] = _digest_of("unknown-root")
+        forged_payload["state_digest"] = public_responsibility_state_digest(
+            forged_payload
+        )
+        syntactically_valid = PublicResponsibilityState.model_validate(forged_payload)
+        manifest, contents, budget = _manifest_fixture()
+        with pytest.raises(ValueError, match="manifest root"):
+            PublicResponsibilityStateVerifier.verify(
+                state=syntactically_valid,
+                manifest=manifest,
+                content_by_entry_digest=contents,
+                static_budget_configuration=budget,
+            )
+
+    def test_missing_root_and_forged_state_digest_are_rejected(self) -> None:
+        state = _verified_state()
+        payload = state.model_dump(mode="json")
+        del payload["manifest_root_digest"]
+        with pytest.raises(ValidationError):
+            PublicResponsibilityState.model_validate(payload)
+        with pytest.raises(ValidationError):
+            PublicResponsibilityState.model_validate(
+                {**state.model_dump(mode="json"), "state_digest": _digest_of("fake")}
             )
 
 
@@ -1049,3 +910,9 @@ class TestCandidateKindMutation:
         assert w != h
         assert h != n
         assert w != n
+
+    def test_digest_helper_binds_candidate_kind_in_isolation(self) -> None:
+        payload = _work_payload()
+        mutated = dict(payload)
+        mutated["candidate_kind"] = "HELP"
+        assert decision_candidate_digest(payload) != decision_candidate_digest(mutated)

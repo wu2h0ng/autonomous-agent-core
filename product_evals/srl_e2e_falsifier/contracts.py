@@ -12,6 +12,7 @@ bytes; a resolver verifies the manifest separately.
 from __future__ import annotations
 
 from enum import Enum
+import hashlib
 from typing import Any, Literal, Mapping
 
 from pydantic import Field, field_validator, model_validator
@@ -21,6 +22,7 @@ from agent_os_contracts import (
     NonEmptyStr,
     Sha256Digest,
     UtcDateTime,
+    canonical_json,
     content_digest,
 )
 
@@ -39,47 +41,70 @@ class MissingInputKind(str, Enum):
     IRREVERSIBLE_RISK = "IRREVERSIBLE_RISK"
 
 
-class PublicContentClass(str, Enum):
-    ARM_NEUTRAL_PUBLIC = "ARM_NEUTRAL_PUBLIC"
+class PublicContentRole(str, Enum):
+    MISSION = "MISSION"
+    EVENT = "EVENT"
+    PROJECTION = "PROJECTION"
+    EVIDENCE = "EVIDENCE"
+    STATIC_BUDGET = "STATIC_BUDGET"
 
 
-class PublicContentRef(ContractModel):
-    """Content-addressed reference to frozen public-content bytes."""
+class PublicContentMediaType(str, Enum):
+    APPLICATION_JSON = "application/json"
+    TEXT_PLAIN_UTF8 = "text/plain; charset=utf-8"
 
+
+def _with_schema_version(payload: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    normalized.setdefault("schema_version", "1.0")
+    return normalized
+
+
+def public_content_entry_digest(payload: Mapping[str, Any]) -> str:
+    if "entry_digest" in payload:
+        raise ValueError("entry_digest must be excluded from its own digest payload")
+    return content_digest(_with_schema_version(payload))
+
+
+class PublicContentManifestEntry(ContractModel):
+    """Closed role plus the exact digest of externally held canonical bytes."""
+
+    role: PublicContentRole
+    media_type: PublicContentMediaType
     content_digest: Sha256Digest
-    content_class: PublicContentClass = PublicContentClass.ARM_NEUTRAL_PUBLIC
-    media_type: NonEmptyStr
+    entry_digest: Sha256Digest
+
+    @model_validator(mode="after")
+    def _validate_entry_digest(self) -> PublicContentManifestEntry:
+        payload = self.model_dump(mode="json", exclude={"entry_digest"})
+        if self.entry_digest != public_content_entry_digest(payload):
+            raise ValueError("entry_digest does not match canonical entry fields")
+        return self
 
 
-class PublicEventRef(ContractModel):
-    """Closed content-addressed reference to a public event."""
-
-    event_id: NonEmptyStr
-    manifest_entry_digest: Sha256Digest
-    content_ref: PublicContentRef
-
-
-class PublicProjectionRef(ContractModel):
-    """Closed content-addressed reference to a public projection."""
-
-    projection_id: NonEmptyStr
-    manifest_entry_digest: Sha256Digest
-    content_ref: PublicContentRef
+def public_content_manifest_digest(payload: Mapping[str, Any]) -> str:
+    if "manifest_root_digest" in payload:
+        raise ValueError(
+            "manifest_root_digest must be excluded from its own digest payload"
+        )
+    return content_digest(_with_schema_version(payload))
 
 
-class PublicEvidenceRef(ContractModel):
-    """Closed content-addressed reference to a public evidence entry."""
+class PublicContentManifest(ContractModel):
+    """Content-addressed ordered manifest; not an independent freeze receipt."""
 
-    evidence_id: NonEmptyStr
-    manifest_entry_digest: Sha256Digest
-    content_ref: PublicContentRef
+    entries: tuple[PublicContentManifestEntry, ...]
+    manifest_root_digest: Sha256Digest
 
-
-class PublicMissionRef(ContractModel):
-    """Closed content-addressed reference to a public mission statement."""
-
-    manifest_entry_digest: Sha256Digest
-    content_ref: PublicContentRef
+    @model_validator(mode="after")
+    def _validate_manifest(self) -> PublicContentManifest:
+        entry_digests = tuple(entry.entry_digest for entry in self.entries)
+        if len(entry_digests) != len(set(entry_digests)):
+            raise ValueError("manifest entries must be unique")
+        payload = self.model_dump(mode="json", exclude={"manifest_root_digest"})
+        if self.manifest_root_digest != public_content_manifest_digest(payload):
+            raise ValueError("manifest_root_digest does not match ordered entries")
+        return self
 
 
 class StaticBudgetConfiguration(ContractModel):
@@ -91,23 +116,174 @@ class StaticBudgetConfiguration(ContractModel):
     max_retries: int = Field(ge=0)
     max_tool_invocations: int = Field(ge=0)
     max_wall_seconds: int = Field(ge=0)
+    configuration_digest: Sha256Digest
+
+    @model_validator(mode="after")
+    def _validate_configuration_digest(self) -> StaticBudgetConfiguration:
+        payload = self.model_dump(mode="json", exclude={"configuration_digest"})
+        if self.configuration_digest != static_budget_configuration_digest(payload):
+            raise ValueError(
+                "configuration_digest does not match canonical static budget"
+            )
+        return self
+
+
+def static_budget_configuration_digest(payload: Mapping[str, Any]) -> str:
+    if "configuration_digest" in payload:
+        raise ValueError(
+            "configuration_digest must be excluded from its own digest payload"
+        )
+    return content_digest(_with_schema_version(payload))
+
+
+def static_budget_configuration_bytes(
+    configuration: StaticBudgetConfiguration,
+) -> bytes:
+    payload = configuration.model_dump(
+        mode="json", exclude={"configuration_digest"}
+    )
+    return canonical_json(payload).encode("utf-8")
+
+
+def public_responsibility_state_digest(payload: Mapping[str, Any]) -> str:
+    if "state_digest" in payload:
+        raise ValueError("state_digest must be excluded from its own digest payload")
+    return content_digest(_with_schema_version(payload))
 
 
 class PublicResponsibilityState(ContractModel):
-    """Structurally arm-neutral: only content-addressed refs, no raw payload."""
+    """Digest-only syntax; custody requires PublicResponsibilityStateVerifier."""
 
-    state_id: NonEmptyStr
+    manifest_root_digest: Sha256Digest
     mandate_digest: Sha256Digest
-    mission_ref: PublicMissionRef
     environment_binding_digest: Sha256Digest
     correction_epoch: int = Field(ge=0)
-    public_events: tuple[PublicEventRef, ...] = ()
-    public_projections: tuple[PublicProjectionRef, ...] = ()
-    public_evidence: tuple[PublicEvidenceRef, ...] = ()
-    budget_configuration_digest: Sha256Digest
+    mission_entry_digest: Sha256Digest
+    event_entry_digests: tuple[Sha256Digest, ...] = ()
+    projection_entry_digests: tuple[Sha256Digest, ...] = ()
+    evidence_entry_digests: tuple[Sha256Digest, ...] = ()
+    static_budget_entry_digest: Sha256Digest
+    state_digest: Sha256Digest
 
-    def state_digest(self) -> str:
-        return content_digest(self)
+    @model_validator(mode="after")
+    def _validate_state_digest(self) -> PublicResponsibilityState:
+        payload = self.model_dump(mode="json", exclude={"state_digest"})
+        if self.state_digest != public_responsibility_state_digest(payload):
+            raise ValueError("state_digest does not match canonical state fields")
+        return self
+
+
+class PublicResponsibilityStateVerifier:
+    """Trusted byte/role verifier; it does not establish independent custody."""
+
+    @staticmethod
+    def _verify_manifest_bytes(
+        manifest: PublicContentManifest,
+        content_by_entry_digest: Mapping[str, bytes],
+    ) -> dict[str, PublicContentManifestEntry]:
+        entries = {entry.entry_digest: entry for entry in manifest.entries}
+        if set(content_by_entry_digest) != set(entries):
+            missing = set(entries) - set(content_by_entry_digest)
+            if missing:
+                raise ValueError("missing content bytes for manifest entry")
+            raise ValueError("unexpected content bytes outside manifest")
+        for entry_digest, entry in entries.items():
+            raw = content_by_entry_digest[entry_digest]
+            if not isinstance(raw, bytes):
+                raise ValueError("manifest content bytes must be bytes")
+            if hashlib.sha256(raw).hexdigest() != entry.content_digest:
+                raise ValueError("content bytes do not match manifest entry digest")
+        return entries
+
+    @staticmethod
+    def _require_role(
+        entries: Mapping[str, PublicContentManifestEntry],
+        entry_digest: str,
+        role: PublicContentRole,
+    ) -> None:
+        entry = entries.get(entry_digest)
+        if entry is None:
+            raise ValueError("referenced entry is missing from manifest")
+        if entry.role is not role:
+            raise ValueError(f"referenced entry must have role {role.value}")
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        manifest: PublicContentManifest,
+        content_by_entry_digest: Mapping[str, bytes],
+        static_budget_configuration: StaticBudgetConfiguration,
+        mandate_digest: Sha256Digest,
+        environment_binding_digest: Sha256Digest,
+        correction_epoch: int,
+        mission_entry_digest: Sha256Digest,
+        event_entry_digests: tuple[Sha256Digest, ...],
+        projection_entry_digests: tuple[Sha256Digest, ...],
+        evidence_entry_digests: tuple[Sha256Digest, ...],
+        static_budget_entry_digest: Sha256Digest,
+    ) -> PublicResponsibilityState:
+        entries = cls._verify_manifest_bytes(manifest, content_by_entry_digest)
+        cls._require_role(entries, mission_entry_digest, PublicContentRole.MISSION)
+        for digest in event_entry_digests:
+            cls._require_role(entries, digest, PublicContentRole.EVENT)
+        for digest in projection_entry_digests:
+            cls._require_role(entries, digest, PublicContentRole.PROJECTION)
+        for digest in evidence_entry_digests:
+            cls._require_role(entries, digest, PublicContentRole.EVIDENCE)
+        cls._require_role(
+            entries, static_budget_entry_digest, PublicContentRole.STATIC_BUDGET
+        )
+        budget_entry = entries[static_budget_entry_digest]
+        canonical_budget_bytes = static_budget_configuration_bytes(
+            static_budget_configuration
+        )
+        if budget_entry.content_digest != static_budget_configuration.configuration_digest:
+            raise ValueError("static budget manifest digest does not match contract")
+        if content_by_entry_digest[static_budget_entry_digest] != canonical_budget_bytes:
+            raise ValueError("static budget bytes are not canonical contract bytes")
+
+        payload: dict[str, Any] = {
+            "manifest_root_digest": manifest.manifest_root_digest,
+            "mandate_digest": mandate_digest,
+            "environment_binding_digest": environment_binding_digest,
+            "correction_epoch": correction_epoch,
+            "mission_entry_digest": mission_entry_digest,
+            "event_entry_digests": event_entry_digests,
+            "projection_entry_digests": projection_entry_digests,
+            "evidence_entry_digests": evidence_entry_digests,
+            "static_budget_entry_digest": static_budget_entry_digest,
+        }
+        payload["state_digest"] = public_responsibility_state_digest(payload)
+        return PublicResponsibilityState.model_validate(payload)
+
+    @classmethod
+    def verify(
+        cls,
+        *,
+        state: PublicResponsibilityState,
+        manifest: PublicContentManifest,
+        content_by_entry_digest: Mapping[str, bytes],
+        static_budget_configuration: StaticBudgetConfiguration,
+    ) -> PublicResponsibilityState:
+        if state.manifest_root_digest != manifest.manifest_root_digest:
+            raise ValueError("state manifest root does not match supplied manifest root")
+        rebuilt = cls.build(
+            manifest=manifest,
+            content_by_entry_digest=content_by_entry_digest,
+            static_budget_configuration=static_budget_configuration,
+            mandate_digest=state.mandate_digest,
+            environment_binding_digest=state.environment_binding_digest,
+            correction_epoch=state.correction_epoch,
+            mission_entry_digest=state.mission_entry_digest,
+            event_entry_digests=state.event_entry_digests,
+            projection_entry_digests=state.projection_entry_digests,
+            evidence_entry_digests=state.evidence_entry_digests,
+            static_budget_entry_digest=state.static_budget_entry_digest,
+        )
+        if rebuilt != state:
+            raise ValueError("state does not match trusted manifest reconstruction")
+        return state
 
 
 class BudgetFeedback(ContractModel):
