@@ -2,8 +2,8 @@
 
 > Date: `2026-07-16`
 > Branch: `codex/r-state-credit-1-real-bindings-20260715`
-> Review target head: `e32f5308e23a5a971dd2e613843328a8ff3b0188`
-> Working-tree HEAD at document creation: `e32f530` (state update after fixes at `44de1ae`)
+> Review target head: `e3592c3d1d37d37b3d3b1bba004aa439503a0711`
+> Working-tree HEAD at document creation: `e3592c3d1d37d37b3d3b1bba004aa439503a0711` (F4 checkpoint algorithm fix)
 > Status: `IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW / NOT_FROZEN / NOT_RUN / NOT_EVIDENCE`
 > Track: `Research Track`
 > Claim class: `research-automation` — candidate-byte implementation only. Not product, not autonomy, not evidence.
@@ -67,7 +67,7 @@ SHA-256 computed from the worktree at document creation.
 
 | Path | SHA-256 |
 |---|---|
-| `experiments/r_state_credit_1/interactive_env.py` | `1ee65dc38df612409c250cdd5790c781b20c785b34524e5130e7e90e84a07f02` |
+| `experiments/r_state_credit_1/interactive_env.py` | `fafaede2620388f446a5dc7e1a6a4b03dc3485d7800268d352f163939db16432` |
 | `experiments/r_state_credit_1/episode_generator.py` | `2685895ee5bb02b27420c68d5928fdda10613b9c53b24b67248dd68cb951fe43` |
 | `experiments/r_state_credit_1/observation.py` | `b07db0e872adcea5bf40df64889ed8f92a0fc9cddcba85f596ff8a6558ea53bf` |
 | `experiments/r_state_credit_1/arm_blinding.py` | `bab9d34352d7e48f034f11dbab258555b40f6d081fa204f7317e84d037a145ae` |
@@ -77,13 +77,13 @@ SHA-256 computed from the worktree at document creation.
 | `experiments/r_state_credit_1/signature_backend.py` | `066757e3a58c4b439b8e3058d2a0bc220be46e36488603e9a23c92f9c9d00e76` |
 | `experiments/r_state_credit_1/authority_verifier.py` | `3afdae0a32d367cbc7be65109bb0a4db510aea31ef1607f3b506c3952e588f7b` |
 | `experiments/r_state_credit_1/recast_readme.md` | `8dfebafe64a83158c0af67593f8836a0772e412b8523d171f0a3f41004ec2004` |
-| `tests/test_r_state_credit_1_interactive_env.py` | `c601745debf8d815ccc1098a5b0392d33f6bb885e694ffd39c157e5d1dbb290d` |
+| `tests/test_r_state_credit_1_interactive_env.py` | `623f39be50a70d0284fbb866d84478b106ae74baa79c3460829a29ec6fb5e709` |
 | `tests/test_r_state_credit_1_arm_blinding.py` | `2a93dbee7ee5e2f30981fc6a1cc7f85e0223eadbbccf459929e723a637a06214` |
 | `tests/test_r_state_credit_1_authority_verifier.py` | `63e760c565214dfc8fd9a039c7f0819c93c62790e6231219a2c1b1b2c97b034f` |
 | `tests/test_r_state_credit_1_recast_integration.py` | `b16ef13c6822efaaea124efbe2696bddd0a15c8ed94f03ba7ba7e989a2b0858d` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
-| `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `a743dac0ec93aaf8b99c0ed15556623ab9df11822bc45f9b35e5d29b0c03f75e` |
+| `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `4a9610f1dc4c66ac549e8480d7fdaa493c5d3e77d66e0121b8bcc6299f40b111` |
 
 ## 6. Verification commands
 
@@ -131,7 +131,7 @@ sha256sum \
 Expected results as measured on this worktree:
 
 - Targeted Phase 1-3 tests: `36 passed, 0 failed`.
-- Full `tests/test_r_state_credit_1*.py`: `138 passed, 0 failed`.
+- Full `tests/test_r_state_credit_1*.py`: `139 passed, 0 failed`.
 - Full `unittest discover`: `1237 tests` with `OK (skipped=16)`.
 - `ruff check`: `All checks passed!`
 - `pyright`: `0 errors, 0 warnings, 0 informations`.
@@ -149,7 +149,7 @@ Expected results as measured on this worktree:
 | G7 — Reversibility | Implemented / tested | `test_reversibility` and `test_reversibility_across_blinding` compare bit-identical event sequences and checkpoint/call-order state across replays. |
 | G8 — Authority builder rejection | Implemented / tested | `test_builder_minted_artifact_rejected`, `test_authority_bundle_with_builder_signer_rejected`, `test_tampered_payload_rejected`. |
 | G9 — Budget overflow fail-closed | Implemented / tested | `test_budget_overflow_fail_closed`, `test_no_overflow_on_development_seeds`, `test_observation_budget_envelope_per_turn`. |
-| G10 — Checkpoint determinism | Implemented / tested | `test_four_checkpoints` verifies exactly four checkpoints, spacing ≥ 3 turns, and range `[5, T_max - 2]`. |
+| G10 — Checkpoint determinism | Implemented / tested | `test_four_checkpoints` verifies exactly four checkpoints, spacing ≥ 3 turns, and range `[5, T_max - 2]`; `test_checkpoint_algorithm_matches_amendment` checks `_select_checkpoint_turns` against the amended combination-enumeration pseudo-code on development seeds. |
 
 ## 8. Known limitations / deviations
 
@@ -172,7 +172,7 @@ Expected results as measured on this worktree:
    - `ACCEPT_FOR_FREEZE` — no freeze-blocking issues.
    - `CONDITIONAL_APPROVE` — list exact required fixes before freeze.
    - `REVISE_BEFORE_REVIEW` — material issues remain; re-review required.
-2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `e32f530`.
+2. **If accepted:** Create a `native-freeze-lock.json` by a freezer identity distinct from builder and reviewers, binding the exact-content manifest of `e3592c3d1d37d37b3d3b1bba004aa439503a0711`.
 3. **C7 acceptance:** Obtain `c7-acceptance-<owner_id>.json` binding epoch, capability token digest, and stop path.
 4. **Founder/CTO run authorization:** Obtain `run-authorization-<founder_id>.json` referencing the freeze lock and C7 acceptance, authorizing exactly one result-bearing run.
 5. **Result-bearing run:** Execute one frozen run under the native freeze lock, with independent adjudication and claim review.
