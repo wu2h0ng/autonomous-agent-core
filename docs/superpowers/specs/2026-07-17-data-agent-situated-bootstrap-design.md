@@ -64,7 +64,7 @@ The adapter continues to own pull/poll, transport credential use, exact durable 
 
 The public facade accepts only `event_id`. It exposes no origin, attestation, lease, credential object, writer, store, registry or authority override.
 
-Lease fields are bound to the exact event/current authority. `issued_at = event.recorded_at`; `valid_from = max(event.recorded_at, credential.created_at, mandate.valid_from)`; `expires_at = min(credential.expires_at, mandate.expires_at)`; invalid chronology denies. The issuer is `data-agent-situated-bootstrap/v1`. A fresh one-event immutable registry is used per admission; no mutable `register/put/add/verify` API and no old-lease accumulation are allowed.
+Lease fields are bound to the exact event/current authority. `issued_at = origin.registered_at`; `valid_from = max(origin.registered_at, credential.created_at, mandate.valid_from)`; `expires_at = min(credential.expires_at, mandate.expires_at)`; invalid chronology denies. The origin registration time is the truthful, persisted first-validation time, so restart remains deterministic without backdating lease issuance to event observation. The issuer is `data-agent-situated-bootstrap/v1`. A fresh one-event immutable registry is used per admission; no mutable `register/put/add/verify` API and no old-lease accumulation are allowed.
 
 `DataAgentSituatedBootstrap.compose(...)` returns a `DataAgentSituatedRuntime` containing only safe `observe_report`, `admit_event` and receipt-required `propose` operations. It reuses existing admission, situated assessment, proposal and steward implementations; it does not ratify mandates, create credentials, activate Tasks or authorize effects.
 

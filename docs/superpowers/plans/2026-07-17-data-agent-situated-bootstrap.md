@@ -38,7 +38,7 @@
 - Create `tests/product/test_data_agent_situated_bootstrap.py`
 
 - [ ] RED: facade signature only accepts `event_id`; public objects expose no writer/store/registry/authority mutation.
-- [ ] RED: deterministic lease bytes across calls/restart; every lease field mutation, clock-based issuance, expiry overflow, unknown/accumulated lease and cross-event lease fail closed.
+- [ ] RED: deterministic lease bytes across calls/restart using persisted `origin.registered_at`; every lease field mutation, ambient-clock/event-time backdating, expiry overflow, unknown/accumulated lease and cross-event lease fail closed.
 - [ ] RED: after bootstrap, credential ACTIVE->REVOKED, scope removal, expiry shortening, digest/content rotation and owner/tenant/workspace drift deny the next not-yet-admitted event without restart.
 - [ ] RED: correction epoch changes before admission, after receipt/before proposal and after restart follow current semantics; old-event conflicts do not create a second receipt.
 - [ ] RED: same durable adapter/admission/situated databases replay exact material/receipt/trace without network or second provider call; wrong/corrupt DB or scope fails closed.
