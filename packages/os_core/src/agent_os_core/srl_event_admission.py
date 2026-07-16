@@ -250,6 +250,8 @@ class EnvironmentEventAdmissionService:
             (attestation, PayloadAdmissionAttestation),
         ):
             _require_canonical_contract(value, model_type)
+        if event.observation.created_at > event.recorded_at:
+            _deny("observation artifact chronology conflicts with canonical event")
         credential = _safe_dependency(
             lambda: self._credentials.resolve_authorization(lease.credential_ref_id)
         )

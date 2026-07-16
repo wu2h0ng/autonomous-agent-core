@@ -878,6 +878,82 @@ def test_resolved_artifact_unknown_field_denies_without_pydantic_equality(
 
 
 @pytest.mark.parametrize(
+    ("scope_field", "foreign_value"),
+    [
+        ("tenant_id", "tenant-other"),
+        ("workspace_id", "workspace-other"),
+    ],
+)
+def test_foreign_observation_artifact_scope_denies_before_write(
+    tmp_path: Path,
+    scope_field: str,
+    foreign_value: str,
+) -> None:
+    canonical_event = _event()
+    foreign_artifact = canonical_event.observation.model_copy(
+        update={scope_field: foreign_value}
+    )
+    event = canonical_event.model_copy(update={"observation": foreign_artifact})
+    credential = _credential()
+    service, reader, writer = _build_service(
+        tmp_path,
+        event=event,
+        trusted_artifact=foreign_artifact,
+        origin=_origin(event, credential),
+        attestation=_attestation(event),
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(SituationalTrustDenied, match="canonical"):
+        service.admit("event-1", _lease(credential).lease_id, admitted_at=ADMITTED_AT)
+
+    assert writer.calls == 0
+    assert reader.by_event_id("event-1") is None
+
+
+@pytest.mark.parametrize(
+    ("created_at_offset", "denied"),
+    [
+        (timedelta(0), False),
+        (timedelta(microseconds=1), True),
+    ],
+)
+def test_observation_artifact_creation_time_cannot_follow_event_recording(
+    tmp_path: Path,
+    created_at_offset: timedelta,
+    denied: bool,
+) -> None:
+    canonical_event = _event()
+    future_artifact = canonical_event.observation.model_copy(
+        update={"created_at": canonical_event.recorded_at + created_at_offset}
+    )
+    event = canonical_event.model_copy(update={"observation": future_artifact})
+    credential = _credential()
+    service, reader, writer = _build_service(
+        tmp_path,
+        event=event,
+        trusted_artifact=future_artifact,
+        origin=_origin(event, credential),
+        attestation=_attestation(event),
+        writer_wrapper=_WriterSpy,
+    )
+
+    if denied:
+        with pytest.raises(SituationalTrustDenied, match="artifact chronology"):
+            service.admit(
+                "event-1", _lease(credential).lease_id, admitted_at=ADMITTED_AT
+            )
+        assert writer.calls == 0
+        assert reader.by_event_id("event-1") is None
+    else:
+        receipt = service.admit(
+            "event-1", _lease(credential).lease_id, admitted_at=ADMITTED_AT
+        )
+        assert writer.calls == 1
+        assert reader.by_event_id("event-1") == receipt
+
+
+@pytest.mark.parametrize(
     "shape_attack",
     ["nested_model_subclass", "origin_private_state", "nested_container_subclass"],
 )
