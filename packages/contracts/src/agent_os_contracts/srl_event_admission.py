@@ -161,6 +161,7 @@ class PayloadAdmissionAttestation(ContractModel):
 
 
 class EnvironmentEventAdmissionReceipt(ContractModel):
+    schema_version: Literal["1.1"] = "1.1"  # pyright: ignore[reportIncompatibleVariableOverride]
     receipt_id: NonEmptyStr
     environment_event_id: NonEmptyStr
     event_digest: Sha256Digest

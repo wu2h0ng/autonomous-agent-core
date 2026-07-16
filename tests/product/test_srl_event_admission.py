@@ -112,6 +112,14 @@ class _BarrierWriter(_WriterSpy):
         return super().persist_receipt(receipt)
 
 
+class _ArtifactRefSubclass(ArtifactRef):
+    pass
+
+
+class _EvidenceTupleSubclass(tuple[Any, ...]):
+    pass
+
+
 def _artifact() -> ArtifactRef:
     return ArtifactRef(
         artifact_id="artifact:event-1",
@@ -819,6 +827,47 @@ def test_resolved_artifact_unknown_field_denies_without_pydantic_equality(
     assert writer.calls == 0
 
 
+@pytest.mark.parametrize(
+    "shape_attack",
+    ["nested_model_subclass", "origin_private_state", "nested_container_subclass"],
+)
+def test_raw_to_decoded_tree_shape_attack_denies_before_write(
+    tmp_path: Path, shape_attack: str
+) -> None:
+    event = _event()
+    credential = _credential()
+    origin = _origin(event, credential)
+    if shape_attack == "nested_model_subclass":
+        forged_artifact = _ArtifactRefSubclass.model_validate(
+            event.observation.model_dump()
+        )
+        event = event.model_copy(update={"observation": forged_artifact})
+    elif shape_attack == "origin_private_state":
+        object.__setattr__(
+            origin,
+            "__pydantic_private__",
+            {"_hidden": "attacker-controlled"},
+        )
+    else:
+        event = event.model_copy(
+            update={"evidence": _EvidenceTupleSubclass(event.evidence)}
+        )
+    service, reader, writer = _build_service(
+        tmp_path,
+        event=event,
+        credential=credential,
+        origin=origin,
+        attestation=_attestation(event),
+        writer_wrapper=_WriterSpy,
+    )
+
+    with pytest.raises(SituationalTrustDenied, match="canonical"):
+        service.admit("event-1", _lease(credential).lease_id, admitted_at=ADMITTED_AT)
+
+    assert writer.calls == 0
+    assert reader.by_event_id("event-1") is None
+
+
 @pytest.mark.parametrize("status", ["paused", "revoked", "expired"])
 def test_non_active_current_mandate_denies_before_writer_call(
     tmp_path: Path, status: str
@@ -1132,6 +1181,11 @@ def test_source_has_no_provider_assessor_task_or_effect_dependency() -> None:
         node.module
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module is not None
+    } | {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
     }
     imported_names = {
         alias.name
@@ -1182,3 +1236,43 @@ def test_source_has_no_provider_assessor_task_or_effect_dependency() -> None:
     )
     assert imported_names.isdisjoint(forbidden_names)
     assert referenced_names.isdisjoint(forbidden_names)
+
+
+def test_positive_admission_makes_zero_provider_assessor_task_or_effect_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_os_core.capability import CapabilityBroker
+    from agent_os_core.provider import ProviderPort
+    from agent_os_core.situated import OperationalProposalService, RelevanceAssessorPort
+    from agent_os_core.task_service import TaskService
+
+    calls = {
+        "provider_complete": 0,
+        "provider_decide": 0,
+        "assess": 0,
+        "proposal": 0,
+        "task": 0,
+        "effect": 0,
+    }
+
+    def forbidden(name: str) -> Any:
+        def fail(*args: Any, **kwargs: Any) -> Any:
+            del args, kwargs
+            calls[name] += 1
+            raise AssertionError(f"admission reached forbidden runtime entry: {name}")
+
+        return fail
+
+    monkeypatch.setattr(ProviderPort, "complete", forbidden("provider_complete"))
+    monkeypatch.setattr(ProviderPort, "decide", forbidden("provider_decide"))
+    monkeypatch.setattr(RelevanceAssessorPort, "assess", forbidden("assess"))
+    monkeypatch.setattr(OperationalProposalService, "propose", forbidden("proposal"))
+    monkeypatch.setattr(TaskService, "create_task", forbidden("task"))
+    monkeypatch.setattr(CapabilityBroker, "invoke", forbidden("effect"))
+    service, reader, _ = _build_service(tmp_path)
+    lease = _lease(_credential())
+
+    receipt = service.admit("event-1", lease.lease_id, admitted_at=ADMITTED_AT)
+
+    assert reader.by_event_id("event-1") == receipt
+    assert calls == {name: 0 for name in calls}

@@ -33,7 +33,7 @@ DIGESTS = tuple(character * 64 for character in "abcdef0123456789")
 
 def _receipt(**updates: Any) -> EnvironmentEventAdmissionReceipt:
     payload: dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "environment_event_id": "environment-event-1",
         "event_digest": DIGESTS[0],
         "event_origin_digest": DIGESTS[1],

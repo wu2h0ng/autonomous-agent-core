@@ -78,6 +78,7 @@ def _require_canonical_contract(
     if (
         not _has_exact_model_shape(decoded)
         or canonical_json(decoded).encode("utf-8") != payload
+        or not _same_tree_shape(value, decoded)
     ):
         _deny("resolved admission authority is not canonical")
 
@@ -90,6 +91,9 @@ def _has_exact_model_shape(value: object) -> bool:
         extras = getattr(value, "__pydantic_extra__", None)
         if extras not in (None, {}):
             return False
+        private = getattr(value, "__pydantic_private__", None)
+        if private not in (None, {}):
+            return False
         return all(_has_exact_model_shape(item) for item in value.__dict__.values())
     if isinstance(value, Mapping):
         return all(
@@ -98,6 +102,70 @@ def _has_exact_model_shape(value: object) -> bool:
         )
     if isinstance(value, (list, tuple, set, frozenset)):
         return all(_has_exact_model_shape(item) for item in value)
+    return True
+
+
+def _same_tree_shape(raw: object, decoded: object) -> bool:
+    if type(raw) is not type(decoded):
+        return False
+    if isinstance(raw, BaseModel) and isinstance(decoded, BaseModel):
+        if set(raw.__dict__) != set(decoded.__dict__):
+            return False
+        if getattr(raw, "__pydantic_extra__", None) not in (None, {}):
+            return False
+        if getattr(decoded, "__pydantic_extra__", None) not in (None, {}):
+            return False
+        if getattr(raw, "__pydantic_private__", None) not in (None, {}):
+            return False
+        if getattr(decoded, "__pydantic_private__", None) not in (None, {}):
+            return False
+        return all(
+            _same_tree_shape(raw.__dict__[field], decoded.__dict__[field])
+            for field in raw.__dict__
+        )
+    if isinstance(raw, Mapping) and isinstance(decoded, Mapping):
+        if len(raw) != len(decoded):
+            return False
+        unmatched = list(decoded.items())
+        for raw_key, raw_value in raw.items():
+            matching_index = next(
+                (
+                    index
+                    for index, (decoded_key, _) in enumerate(unmatched)
+                    if type(raw_key) is type(decoded_key) and raw_key == decoded_key
+                ),
+                None,
+            )
+            if matching_index is None:
+                return False
+            decoded_key, decoded_value = unmatched.pop(matching_index)
+            if not _same_tree_shape(raw_key, decoded_key) or not _same_tree_shape(
+                raw_value, decoded_value
+            ):
+                return False
+        return not unmatched
+    if isinstance(raw, (list, tuple)) and isinstance(decoded, (list, tuple)):
+        return len(raw) == len(decoded) and all(
+            _same_tree_shape(raw_item, decoded_item)
+            for raw_item, decoded_item in zip(raw, decoded, strict=True)
+        )
+    if isinstance(raw, (set, frozenset)) and isinstance(decoded, (set, frozenset)):
+        if len(raw) != len(decoded):
+            return False
+        unmatched_items = list(decoded)
+        for raw_item in raw:
+            matching_index = next(
+                (
+                    index
+                    for index, decoded_item in enumerate(unmatched_items)
+                    if _same_tree_shape(raw_item, decoded_item)
+                ),
+                None,
+            )
+            if matching_index is None:
+                return False
+            unmatched_items.pop(matching_index)
+        return not unmatched_items
     return True
 
 
@@ -267,7 +335,7 @@ class EnvironmentEventAdmissionService:
             _deny("observation artifact bytes do not match canonical digest")
 
         payload = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "environment_event_id": event.environment_event_id,
             "event_digest": event_digest,
             "event_origin_digest": origin.registration_digest,

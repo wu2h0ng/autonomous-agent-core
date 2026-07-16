@@ -131,7 +131,7 @@ def _attestation(**updates: Any) -> PayloadAdmissionAttestation:
 
 def _receipt_payload() -> dict[str, Any]:
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "environment_event_id": "environment-event-1",
         "event_digest": DIGEST_A,
         "event_origin_digest": DIGEST_B,
@@ -188,6 +188,15 @@ def test_receipt_requires_admission_policy_digest_in_its_content_address() -> No
         )
 
 
+def test_receipt_breaking_policy_binding_uses_schema_version_1_1() -> None:
+    receipt = _receipt()
+    assert receipt.schema_version == "1.1"
+    with pytest.raises(ValidationError, match="schema_version"):
+        EnvironmentEventAdmissionReceipt.model_validate(
+            {**receipt.model_dump(), "schema_version": "1.0"}
+        )
+
+
 def _trace(**updates: Any) -> SituatedEvaluationTrace:
     payload: dict[str, Any] = {
         "trace_id": "situated-trace-1",
@@ -233,7 +242,7 @@ def _trace(**updates: Any) -> SituatedEvaluationTrace:
         (
             environment_event_admission_receipt_digest,
             _receipt_payload(),
-            "ab912bc32bb968ec2afc86c601d7ee3e43b06e45c8463cdffbf1ed73f996d5e5",
+            "74f31c7a2d7564e7530c492e34ca9545137f0c4fc5fd6280d5db59ee732241b1",
         ),
     ],
 )
@@ -264,7 +273,7 @@ def test_content_addressed_ids_are_exact() -> None:
     )
     assert receipt.receipt_id == (
         "event-admission:"
-        "ab912bc32bb968ec2afc86c601d7ee3e43b06e45c8463cdffbf1ed73f996d5e5"
+        "74f31c7a2d7564e7530c492e34ca9545137f0c4fc5fd6280d5db59ee732241b1"
     )
 
 
@@ -342,7 +351,7 @@ def test_content_addressed_ids_are_exact() -> None:
             "receipt_id",
             "receipt_digest",
             {
-                "schema_version": "1.1",
+                "schema_version": "1.2",
                 "environment_event_id": "environment-event-2",
                 "event_digest": DIGEST_0,
                 "event_origin_digest": DIGEST_1,
