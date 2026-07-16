@@ -14,10 +14,13 @@ from agent_os_contracts import (
 
 from tests.research.r_srl_1.harness import (
     ArmBudget,
+    ArmEnvelope,
+    ArmRole,
     BudgetEntry,
     BudgetExceeded,
     FrozenUnit,
     RsrlEventGateway,
+    SRL_INTERNAL_TYPE_NAMES,
     load_frozen_unit,
     verify_manifest,
 )
@@ -45,7 +48,12 @@ def gateway(u00_dir: Path) -> RsrlEventGateway:
     )
     return RsrlEventGateway(
         u00_dir.parent,
-        arm_budgets={"arm1": budget, "arm2": budget},
+        arm_budgets={
+            "arm1": budget,
+            "arm2": budget,
+            "arm3": budget,
+            "arm4": budget,
+        },
     )
 
 
@@ -251,3 +259,73 @@ def test_budget_ledger_tracks_wall_time(gateway: RsrlEventGateway) -> None:
     summary = gateway.get_budget_summary("arm1", "r-srl-1-u00")
     assert summary["used"]["wall_seconds"] == 2.0
     assert summary["remaining"]["wall_seconds"] == 3598.0
+
+
+# ---------------------------------------------------------------------------
+# P0-3 baseline arm envelope
+# ---------------------------------------------------------------------------
+
+
+def test_default_arm_envelopes(gateway: RsrlEventGateway) -> None:
+    assert gateway._arm_envelopes["arm1"].role == ArmRole.BASELINE_SCHEDULED
+    assert gateway._arm_envelopes["arm2"].role == ArmRole.BASELINE_USER_DRIVEN
+    assert gateway._arm_envelopes["arm3"].role == ArmRole.SRL
+    assert gateway._arm_envelopes["arm4"].role == ArmRole.ABLATION_PERSISTENT_STATE
+
+    for arm_id in ("arm1", "arm2", "arm4"):
+        envelope = gateway._arm_envelopes[arm_id]
+        assert not envelope.can_use_srl_structures
+        assert envelope.allowed_srl_type_names == set()
+
+    srl_envelope = gateway._arm_envelopes["arm3"]
+    assert srl_envelope.can_use_srl_structures
+    assert srl_envelope.allowed_srl_type_names == set(SRL_INTERNAL_TYPE_NAMES)
+
+
+def test_arm3_can_record_srl_action(gateway: RsrlEventGateway) -> None:
+    action = {"SrlRelevanceAssessment": {"event_id": "event-01", "score": 0.9}}
+    gateway.record_action("arm3", "r-srl-1-u00", action)
+    summary = gateway.finalize_unit("arm3", "r-srl-1-u00")
+    assert summary["action_count"] == 1
+
+
+@pytest.mark.parametrize("arm_id", ["arm1", "arm2", "arm4"])
+def test_baseline_cannot_record_srl_action(
+    gateway: RsrlEventGateway, arm_id: str
+) -> None:
+    action = {"SrlRelevanceAssessment": {"event_id": "event-01", "score": 0.9}}
+    with pytest.raises(PermissionError):
+        gateway.record_action(arm_id, "r-srl-1-u00", action)
+
+
+@pytest.mark.parametrize("arm_id", ["arm1", "arm2", "arm4"])
+def test_baseline_can_record_plain_action(
+    gateway: RsrlEventGateway, arm_id: str
+) -> None:
+    action = {"kind": "plain", "event_id": "event-01"}
+    gateway.record_action(arm_id, "r-srl-1-u00", action)
+    summary = gateway.finalize_unit(arm_id, "r-srl-1-u00")
+    assert summary["action_count"] == 1
+
+
+@pytest.mark.parametrize("arm_id", ["arm1", "arm2", "arm4"])
+def test_baseline_can_emit_plain_help_request(
+    gateway: RsrlEventGateway, arm_id: str, sample_help_request: SrlHelpRequest
+) -> None:
+    # The SrlHelpRequest type itself is the envelope-level message baseline arms
+    # may emit; only SRL-internal type names embedded inside the payload are
+    # rejected by the scanner.
+    gateway.emit_help_request(arm_id, "r-srl-1-u00", sample_help_request)
+    summary = gateway.finalize_unit(arm_id, "r-srl-1-u00")
+    assert summary["help_request_count"] == 1
+
+
+def test_gateway_rejects_unconfigured_arm_envelope(
+    gateway: RsrlEventGateway,
+) -> None:
+    custom_gateway = RsrlEventGateway(
+        gateway.units_root,
+        arm_envelopes={"armX": ArmEnvelope(role=ArmRole.SRL)},
+    )
+    with pytest.raises(ValueError, match="no arm envelope configured"):
+        custom_gateway.record_action("armY", "r-srl-1-u00", {"kind": "plain"})

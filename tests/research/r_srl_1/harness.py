@@ -1,16 +1,118 @@
 from __future__ import annotations
 
+import enum
 import hashlib
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 
 from agent_os_contracts import SrlEnvironmentEvent, SrlHelpRequest
+
+
+class ArmRole(str, enum.Enum):
+    """Experimental arm identity for R-SRL-1."""
+
+    BASELINE_SCHEDULED = "baseline_scheduled"
+    BASELINE_USER_DRIVEN = "baseline_user_driven"
+    SRL = "srl"
+    ABLATION_PERSISTENT_STATE = "ablation_persistent_state"
+
+
+@dataclass(frozen=True)
+class ArmEnvelope:
+    """Capability envelope for a single experimental arm.
+
+    Baseline arms receive equivalent read access to public bytes but may not
+    emit SRL-internal structures.  Arm 3 (SRL) may use the full structured
+    vocabulary.
+    """
+
+    role: ArmRole
+    allowed_srl_type_names: set[str] = field(default_factory=set)
+    can_use_srl_structures: bool = False
+
+
+SRL_INTERNAL_TYPE_NAMES: frozenset[str] = frozenset(
+    {
+        "SrlRelevanceAssessment",
+        "SrlEnvironmentEvent",
+        "SrlOperationalProjectionRef",
+        "SrlRelevanceDisposition",
+        "SrlHelpRequest",
+        "SrlHelpResponse",
+        "SrlHelpResponseKind",
+        "StandingMission",
+        "Mandate",
+        "MandateEnvelope",
+        "MandateRatificationReceipt",
+        "AgentInstanceRef",
+        "Commitment",
+        "Goal",
+        "Program",
+        "Task",
+    }
+)
+
+
+def _default_arm_envelopes() -> dict[str, ArmEnvelope]:
+    """Return the canonical R-SRL-1 four-arm envelope mapping."""
+    all_srl = set(SRL_INTERNAL_TYPE_NAMES)
+    return {
+        "arm1": ArmEnvelope(
+            role=ArmRole.BASELINE_SCHEDULED,
+            allowed_srl_type_names=set(),
+            can_use_srl_structures=False,
+        ),
+        "arm2": ArmEnvelope(
+            role=ArmRole.BASELINE_USER_DRIVEN,
+            allowed_srl_type_names=set(),
+            can_use_srl_structures=False,
+        ),
+        "arm3": ArmEnvelope(
+            role=ArmRole.SRL,
+            allowed_srl_type_names=all_srl,
+            can_use_srl_structures=True,
+        ),
+        "arm4": ArmEnvelope(
+            role=ArmRole.ABLATION_PERSISTENT_STATE,
+            allowed_srl_type_names=set(),
+            can_use_srl_structures=False,
+        ),
+    }
+
+
+def _model_dump_tree(obj: Any) -> Any:
+    """Recursively convert pydantic models into plain dict/list primitives."""
+    if hasattr(obj, "model_dump"):
+        return _model_dump_tree(obj.model_dump())
+    if hasattr(obj, "dict"):
+        return _model_dump_tree(obj.dict())
+    if isinstance(obj, dict):
+        return {k: _model_dump_tree(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_model_dump_tree(item) for item in obj]
+    return obj
+
+
+def _contains_srl_type_name(obj: Any, names: set[str]) -> bool:
+    """Return True if any dict key or string value exactly matches a type name."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if isinstance(key, str) and key in names:
+                return True
+            if _contains_srl_type_name(value, names):
+                return True
+        return False
+    if isinstance(obj, list):
+        return any(_contains_srl_type_name(item, names) for item in obj)
+    if isinstance(obj, str):
+        return obj in names
+    return False
 
 
 @dataclass(frozen=True)
@@ -338,13 +440,15 @@ class RsrlEventGateway:
 
     Enforces public-state contract: arms receive the same event ledger and
     repository bytes, but cannot read ``expected_outcomes.yaml`` or access
-    another arm's runtime logs.
+    another arm's runtime logs.  Per-arm capability envelopes prevent
+    baseline arms from emitting SRL-internal structures.
     """
 
     def __init__(
         self,
         units_root: Path,
         arm_budgets: dict[str, ArmBudget] | None = None,
+        arm_envelopes: dict[str, ArmEnvelope] | None = None,
     ):
         self.units_root = Path(units_root)
         self._units: dict[str, FrozenUnit] = {}
@@ -355,6 +459,7 @@ class RsrlEventGateway:
         self._test_reports: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._build_results: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._ledger = BudgetLedger(arm_budgets or {})
+        self._arm_envelopes = dict(arm_envelopes or _default_arm_envelopes())
         self._load_units()
 
     def _load_units(self) -> None:
@@ -375,6 +480,27 @@ class RsrlEventGateway:
                     rel = path.relative_to(repo_dir).as_posix()
                     files[rel] = path.read_bytes()
         return files
+
+    def _get_envelope(self, arm_id: str) -> ArmEnvelope:
+        """Return the envelope for ``arm_id`` or raise if it is unconfigured."""
+        if arm_id not in self._arm_envelopes:
+            raise ValueError(f"no arm envelope configured for arm_id: {arm_id}")
+        return self._arm_envelopes[arm_id]
+
+    def _enforce_arm_envelope(self, arm_id: str, payload: Any) -> None:
+        """Reject baseline-arm payloads that contain SRL-internal type names."""
+        envelope = self._get_envelope(arm_id)
+        if envelope.can_use_srl_structures:
+            return
+        blocked = SRL_INTERNAL_TYPE_NAMES - envelope.allowed_srl_type_names
+        if not blocked:
+            return
+        plain = _model_dump_tree(payload)
+        if _contains_srl_type_name(plain, set(blocked)):
+            raise PermissionError(
+                f"arm {arm_id} ({envelope.role.value}) is not permitted to emit "
+                "SRL-internal structures"
+            )
 
     def list_events(self, arm_id: str, unit_id: str) -> tuple[SrlEnvironmentEvent, ...]:
         if unit_id not in self._units:
@@ -502,6 +628,9 @@ class RsrlEventGateway:
     ) -> None:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
+        # Baseline arms may emit a plain SrlHelpRequest envelope, but any
+        # SRL-internal type name embedded inside the payload is rejected.
+        self._enforce_arm_envelope(arm_id, request)
         self._help_requests.setdefault((arm_id, unit_id), []).append(request)
 
     def record_action(self, arm_id: str, unit_id: str, action: dict) -> None:
@@ -509,6 +638,7 @@ class RsrlEventGateway:
             raise ValueError(f"unknown unit_id: {unit_id}")
         if not isinstance(action, dict):
             raise TypeError("action must be a dict")
+        self._enforce_arm_envelope(arm_id, action)
         self._actions.setdefault((arm_id, unit_id), []).append(action)
 
     def charge(self, arm_id: str, unit_id: str, entry: BudgetEntry) -> None:
