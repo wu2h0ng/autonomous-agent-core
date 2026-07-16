@@ -243,6 +243,18 @@ class TestCheapBaselineDefinitions(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "A/B/A"):
             ScheduledKnownArm(switch_at=3)
 
+    def test_scheduled_known_rejects_degenerate_switch_points(self) -> None:
+        for switch_points in ((0, 3), (3, 3), (2, 4, 6)):
+            with self.subTest(switch_points=switch_points):
+                with self.assertRaisesRegex(ValueError, "A/B/A"):
+                    ScheduledKnownArm(switch_at=switch_points)
+
+    def test_scheduled_known_requires_return_to_a_inside_authorized_horizon(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(ValueError, "authorized horizon"):
+            _make_harness(switch_at=(3, 10)).characterize("scheduled-known", 0, 10)
+
     def test_reactive_wsls_uses_only_delayed_public_feedback(self) -> None:
         arm = ReactiveWSLSArm(authorized_action_ids=("A", "B"))
         c7 = C7Controller("c7-1", "scope-1").snapshot

@@ -340,7 +340,11 @@ class ScheduledKnownArm(AdaptationArm):
         switch_points = (
             (switch_at,) if isinstance(switch_at, int) else tuple(sorted(switch_at))
         )
-        if len(switch_points) < 2:
+        if (
+            len(switch_points) != 2
+            or switch_points[0] <= 0
+            or switch_points[1] <= switch_points[0]
+        ):
             raise ValueError("ScheduledKnownArm requires a complete A/B/A schedule")
         self._switch_points = switch_points
         self._calls = 0
@@ -867,6 +871,16 @@ class FalsifierHarness:
         allow_run: bool,
         arm_factory: ArmFactory | None = None,
     ) -> CharacterizationRecord:
+        if arm_name == "scheduled-known":
+            switch_points = (
+                (self._switch_at,)
+                if isinstance(self._switch_at, int)
+                else tuple(sorted(self._switch_at))
+            )
+            if len(switch_points) != 2 or switch_points[1] >= n_steps:
+                raise ValueError(
+                    "scheduled-known must return to A inside the authorized horizon"
+                )
         scope = self._make_scope(seed)
         scorer = self._trusted_scorer if allow_run else _CharacterizationScorer()
         if scorer is None:
