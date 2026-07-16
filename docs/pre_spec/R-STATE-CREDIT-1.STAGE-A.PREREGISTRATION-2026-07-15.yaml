@@ -64,8 +64,8 @@ mechanism:
 
 candidate_binding:
   path: docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREG-CANDIDATE-2026-07-15.json
-  canonical_sha256: f82ac630f5534759635109c110fbb4ee0c31d33ea03320dd682bf5e51fc0de1f
-  source_manifest_sha256: cd54a1cd1e1321d40852f728b5c1220bf31b46962228a9901618b236c711648c
+  canonical_sha256: 38d0d95159b85232b897982b9aa5c64e65a27aa77442f7a10d9173809efd1b76
+  source_manifest_sha256: 800d2e5703574c5cc2016fee56b3a9d91290d5babea6479c66fd5698b2817be2
   candidate_status: VALID_CANDIDATE_ONLY
 
 binding_readiness:

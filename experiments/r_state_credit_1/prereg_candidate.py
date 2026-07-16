@@ -44,12 +44,20 @@ _SOURCE_PATHS = (
     "experiments/r_state_credit_1/observation.py",
     "experiments/r_state_credit_1/prereg_candidate.py",
     "experiments/r_state_credit_1/qualifier.py",
+    "experiments/r_state_credit_1/recast_arms.py",
     "experiments/r_state_credit_1/scenarios.py",
     "experiments/r_state_credit_1/signature_backend.py",
     "src/aac/persistent_task_state.py",
     "tests/test_persistent_task_state.py",
+    "tests/test_r_state_credit_1_arm_blinding.py",
+    "tests/test_r_state_credit_1_authority_verifier.py",
     "tests/test_r_state_credit_1_batch2a.py",
+    "tests/test_r_state_credit_1_interactive_env.py",
     "tests/test_r_state_credit_1_prereg_candidate.py",
+    "tests/test_r_state_credit_1_recast_arms.py",
+    "tests/test_r_state_credit_1_recast_integration.py",
+    "tests/test_r_state_credit_1_sealed_referee.py",
+    "tests/test_r_state_credit_1_valid_time.py",
 )
 
 _FORBIDDEN_RESULT_FIELDS = frozenset(
@@ -254,38 +262,54 @@ def build_stage_a_prereg_candidate(
         "arms": [
             {
                 "arm_id": ArmId.A0_FULL_LOG.value,
-                "implementation": "experiments.r_state_credit_1.arms.A0FullLogArm",
+                "implementation": "experiments.r_state_credit_1.recast_arms.FullLogArm",
                 "role": "MANDATORY_STRONG_CHEAP_BASELINE",
                 "representation": "EXACT_ORDERED_OBSERVABLE_EVENT_LOG",
                 "permitted_operation": "READ_ONLY_NO_TRUNCATION_NO_SELECTION",
-                "frozen_configuration": {},
+                "frozen_configuration": {"budget_ledger": "PEAK_BYTES_VS_B_A0"},
                 "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
             {
                 "arm_id": ArmId.A1_ROLLING_SUMMARY.value,
-                "implementation": "experiments.r_state_credit_1.arms.A1RollingSummaryArm",
+                "implementation": (
+                    "experiments.r_state_credit_1.recast_arms.RollingSummaryArm"
+                ),
                 "role": "CHEAP_BASELINE",
                 "representation": "DETERMINISTIC_BOUNDED_ROLLING_SUMMARY",
                 "permitted_operation": "COMPACT_PREFIX_KEEP_BOUNDED_RECENCY",
-                "frozen_configuration": {},
+                "frozen_configuration": {
+                    "budget_ledger": "CUMULATIVE_BYTES_VS_B_ARM",
+                    "recent_window": 6,
+                },
                 "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
             {
                 "arm_id": ArmId.A2_FROZEN_RETRIEVAL.value,
-                "implementation": "experiments.r_state_credit_1.arms.A2FrozenRetrievalArm",
+                "implementation": (
+                    "experiments.r_state_credit_1.recast_arms.BoundedRetrievalArm"
+                ),
                 "role": "CHEAP_BASELINE",
-                "representation": "FROZEN_ASSERTION_EVENT_RETRIEVAL",
+                "representation": "FROZEN_NONROUTINE_RECENCY_RETRIEVAL",
                 "permitted_operation": "ONE_FROZEN_QUERY_OVER_COMMON_EVENT_STORE",
-                "frozen_configuration": {"query": "ASSERTION_EVENTS"},
+                "frozen_configuration": {
+                    "budget_ledger": "CUMULATIVE_BYTES_VS_B_ARM",
+                    "max_selected": 12,
+                    "rule": "nonroutine-recency-v1",
+                },
                 "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
             {
                 "arm_id": ArmId.A3_TYPED_STATE.value,
-                "implementation": "experiments.r_state_credit_1.arms.A3TypedStateArm",
+                "implementation": (
+                    "experiments.r_state_credit_1.recast_arms.TypedStateArm"
+                ),
                 "role": "CANDIDATE_REPRESENTATION",
                 "representation": "TYPED_VISIBLE_EVENT_STATE_PROJECTION",
                 "permitted_operation": "REDUCE_AND_PROJECT_VISIBLE_EVENTS_ONLY",
-                "frozen_configuration": {},
+                "frozen_configuration": {
+                    "budget_ledger": "CUMULATIVE_BYTES_VS_B_ARM",
+                    "policy_hints": "FORBIDDEN",
+                },
                 "blinding_protocol": "NEUTRAL_LABEL_NO_ARM_IDENTITY_IN_ACTOR_REQUEST",
             },
         ],
@@ -319,6 +343,23 @@ def build_stage_a_prereg_candidate(
                 "EXPECTED_COMMITMENT_STATUS",
                 "DISPATCH_EFFECT_TRUTH",
             ],
+            "sealed_referee_protocol": {
+                "implementation": (
+                    "experiments.r_state_credit_1.interactive_env."
+                    "InteractiveEpisode.referee_correct_action"
+                ),
+                "truth_source": (
+                    "SEALED_CROSS_TURN_STATE_HISTORY_COMMITMENTS_"
+                    "CONFLICTS_PENDING_EFFECTS"
+                ),
+                "event_class_lookup_as_truth": "FORBIDDEN",
+                "loss_grammar": "RECAST_CHECKPOINT_LOSS_V1",
+            },
+            "valid_time_protocol": {
+                "clock": "SEED_DERIVED_IRREGULAR_INCREMENT_CLOCK_V1",
+                "turn_index_affine_transform": "FORBIDDEN",
+                "temporal_relations": "BEFORE_AFTER_SUPERSESSION_DECIDABLE",
+            },
         },
         "information_parity": {
             "same_observable_event_digest_per_episode": True,
