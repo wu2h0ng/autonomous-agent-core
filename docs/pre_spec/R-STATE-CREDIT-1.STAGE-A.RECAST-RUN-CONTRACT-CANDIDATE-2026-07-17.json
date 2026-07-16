@@ -48,6 +48,7 @@
       "tests/test_r_state_credit_1_recast_integration.py",
       "tests/test_r_state_credit_1_review3_closure.py",
       "tests/test_r_state_credit_1_review4_closure.py",
+      "tests/test_r_state_credit_1_review5_closure.py",
       "tests/test_r_state_credit_1_sealed_referee.py",
       "tests/test_r_state_credit_1_valid_time.py"
     ],
