@@ -264,13 +264,20 @@ def _make_bundle(
     authorization = _make_authorization(
         ids["authorization"], backend, freeze, c7, witness_refs=_witness("run-authorization")
     )
-    return AuthorityArtifactBundle(
+    bundle = AuthorityArtifactBundle(
         prereg_acceptance=prereg,
         architecture_acceptance=architecture,
         native_freeze_lock=freeze,
         c7_acceptance=c7,
         run_authorization=authorization,
     )
+    if witness_root is not None:
+        for artifact in bundle.all_artifacts():
+            for ref in artifact.witness_refs:
+                (witness_root / ref).write_text(
+                    artifact.payload_digest, encoding="utf-8"
+                )
+    return bundle
 
 
 def _verifier(
@@ -413,6 +420,21 @@ def test_witness_ref_must_exist_when_repository_supplied() -> None:
         result = verifier.verify(bundle)
         assert not result.accepted
         assert "does not exist" in (result.rejection_reason or "")
+
+
+def test_witness_file_must_contain_artifact_digest() -> None:
+    """A witness file that exists but lacks the artifact digest is rejected."""
+    backend = _fresh_backend()
+    with tempfile.TemporaryDirectory() as tmp:
+        witness_root = Path(tmp)
+        bundle = _make_bundle(backend, witness_root=witness_root)
+        # Corrupt the prereg witness file so it no longer contains the digest.
+        for ref in bundle.prereg_acceptance.witness_refs:
+            (witness_root / ref).write_text("stale-or-empty-witness", encoding="utf-8")
+        verifier = _verifier(witness_repository=witness_root)
+        result = verifier.verify(bundle)
+        assert not result.accepted
+        assert "does not contain artifact payload digest" in (result.rejection_reason or "")
 
 
 def test_builder_principal_any_instance_rejected() -> None:

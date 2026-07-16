@@ -143,6 +143,18 @@ class AuthorityVerifier:
                     return self._fail(
                         f"witness reference {witness_ref!r} does not exist"
                     )
+                if resolved.is_file():
+                    try:
+                        witness_text = resolved.read_text(encoding="utf-8")
+                    except OSError as exc:
+                        return self._fail(
+                            f"cannot read witness file {witness_ref!r}: {exc}"
+                        )
+                    if artifact.payload_digest not in witness_text:
+                        return self._fail(
+                            f"witness file {witness_ref!r} does not contain "
+                            f"artifact payload digest {artifact.payload_digest}"
+                        )
 
         recomputed = compute_payload_digest(artifact.content_mapping())
         if recomputed != artifact.payload_digest:

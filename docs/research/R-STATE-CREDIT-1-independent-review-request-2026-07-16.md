@@ -75,12 +75,12 @@ SHA-256 computed from the worktree at document creation.
 | `experiments/r_state_credit_1/action_grammar.py` | `7fbf5415f0bafc596cfb40195a9e34ea88e559088ce53203a4c9a50753964a98` |
 | `experiments/r_state_credit_1/authority_artifacts.py` | `69c290c9a96ce54647f9fd50273b65dc5e3cd7dbc8838e6d243c03f5e9261d35` |
 | `experiments/r_state_credit_1/signature_backend.py` | `066757e3a58c4b439b8e3058d2a0bc220be46e36488603e9a23c92f9c9d00e76` |
-| `experiments/r_state_credit_1/authority_verifier.py` | `3afdae0a32d367cbc7be65109bb0a4db510aea31ef1607f3b506c3952e588f7b` |
+| `experiments/r_state_credit_1/authority_verifier.py` | `1be843d40592c522ab5cbfee1bc087f6ebdada80bc6c9eb63a1564b78f139111` |
 | `experiments/r_state_credit_1/recast_readme.md` | `8dfebafe64a83158c0af67593f8836a0772e412b8523d171f0a3f41004ec2004` |
 | `tests/test_r_state_credit_1_interactive_env.py` | `623f39be50a70d0284fbb866d84478b106ae74baa79c3460829a29ec6fb5e709` |
 | `tests/test_r_state_credit_1_arm_blinding.py` | `2a93dbee7ee5e2f30981fc6a1cc7f85e0223eadbbccf459929e723a637a06214` |
-| `tests/test_r_state_credit_1_authority_verifier.py` | `63e760c565214dfc8fd9a039c7f0819c93c62790e6231219a2c1b1b2c97b034f` |
-| `tests/test_r_state_credit_1_recast_integration.py` | `b16ef13c6822efaaea124efbe2696bddd0a15c8ed94f03ba7ba7e989a2b0858d` |
+| `tests/test_r_state_credit_1_authority_verifier.py` | `a6d477e0109b8edf3c4b57c78734255c41d078b0a5351de63d35f43139c3000a` |
+| `tests/test_r_state_credit_1_recast_integration.py` | `842c38b142a73bb4aa767378f600505ddaef27c1ffc3ca43607618e47ab5b7bc` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-2026-07-16.md` | `fe7a766d53894dd194afe4324fee032cb93b6197a593274fbe124403fbb25a53` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-review-2026-07-16.md` | `fe188c2ecd203fc7884bf8b0a40872d9ee67ecdf09105a3d23bd06580d13f892` |
 | `docs/research/R-STATE-CREDIT-1-recast-design-amendment-2026-07-16.md` | `4a9610f1dc4c66ac549e8480d7fdaa493c5d3e77d66e0121b8bcc6299f40b111` |
@@ -131,7 +131,7 @@ sha256sum \
 Expected results as measured on this worktree:
 
 - Targeted Phase 1-3 tests: `36 passed, 0 failed`.
-- Full `tests/test_r_state_credit_1*.py`: `139 passed, 0 failed`.
+- Full `tests/test_r_state_credit_1*.py`: `140 passed, 0 failed`.
 - Full `unittest discover`: `1237 tests` with `OK (skipped=16)`.
 - `ruff check`: `All checks passed!`
 - `pyright`: `0 errors, 0 warnings, 0 informations`.

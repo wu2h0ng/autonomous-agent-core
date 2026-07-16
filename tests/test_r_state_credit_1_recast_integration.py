@@ -439,13 +439,17 @@ def _make_bundle(
     _sign_artifact(c7, ids["c7"], backend, c7.witness_refs)
     _sign_artifact(authorization, ids["authorization"], backend, authorization.witness_refs)
 
-    return AuthorityArtifactBundle(
+    bundle = AuthorityArtifactBundle(
         prereg_acceptance=prereg,
         architecture_acceptance=architecture,
         native_freeze_lock=freeze,
         c7_acceptance=c7,
         run_authorization=authorization,
     )
+    for artifact in bundle.all_artifacts():
+        for ref in artifact.witness_refs:
+            (witness_root / ref).write_text(artifact.payload_digest, encoding="utf-8")
+    return bundle
 
 
 def test_authority_bundle_accepted_for_valid_run(tmp_path: Path) -> None:
