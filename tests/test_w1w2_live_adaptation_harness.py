@@ -21,6 +21,9 @@ from experiments.w1w2_live_adaptation import (
     CandidateObservation,
     RunAuthorizationBinding,
     RunAuthorizationResolver,
+    ScorerReceipt,
+    ScorerReceiptBinding,
+    SealedScorerOutcome,
     ToolOption,
     W1MemoryStore,
     W1Scope,
@@ -59,6 +62,26 @@ class _FakeOptionRegistry(W2OptionRegistry):
         return self._options.get(option_id)
 
 
+class _FakeTrustedScorer:
+    def __init__(self) -> None:
+        self._receipts: dict[str, ScorerReceipt] = {}
+        self._consumed: set[str] = set()
+
+    def score(self, binding: ScorerReceiptBinding, outcome: SealedScorerOutcome) -> str:
+        receipt_id = f"external-score-{binding.run_id}-{binding.step}"
+        self._receipts[receipt_id] = ScorerReceipt(
+            receipt_id=receipt_id, binding=binding, outcome=outcome
+        )
+        return receipt_id
+
+    def consume(self, receipt_id, expected):
+        receipt = self._receipts.get(receipt_id)
+        if receipt is None or receipt_id in self._consumed or receipt.binding != expected:
+            return None
+        self._consumed.add(receipt_id)
+        return receipt
+
+
 def _make_harness(
     switch_at: int | tuple[int, ...] = 10,
     selection_fn: Any | None = None,
@@ -76,6 +99,7 @@ def _make_harness(
         db_path=os.path.join(tempfile.gettempdir(), "w1w2-test.db"),
         switch_at=switch_at,
         selection_fn=selection_fn,
+        trusted_scorer=_FakeTrustedScorer(),
     )
 
 
@@ -140,9 +164,27 @@ class TestFreezeAuthorization(unittest.TestCase):
             option_registry=mutated_registry,
             authorized_option_ids=("A", "B"),
             switch_at=(5, 10),
+            trusted_scorer=_FakeTrustedScorer(),
         )
         denied = mutated.run("frozen", 0, 10, auth.receipt_id)
         self.assertEqual(denied.run_status, "RUN_DENIED")
+
+    def test_result_run_denies_missing_scorer_and_stateful_selector_surface(self) -> None:
+        base = _make_harness()
+        auth = _externally_issued_auth(base, "external-2", "frozen", 0, 10)
+        base._run_authorization_resolver = _FakeRunAuthorizationResolver({auth.receipt_id: auth})
+        base._trusted_scorer = None
+        self.assertEqual(base.run("frozen", 0, 10, auth.receipt_id).run_status, "RUN_DENIED")
+
+        callback = _make_harness(selection_fn=lambda options, _ctx, _history: options[0])
+        callback_auth = _externally_issued_auth(callback, "external-3", "w1+w2", 0, 10)
+        callback._run_authorization_resolver = _FakeRunAuthorizationResolver(
+            {callback_auth.receipt_id: callback_auth}
+        )
+        self.assertEqual(
+            callback.run("w1+w2", 0, 10, callback_auth.receipt_id).run_status,
+            "RUN_DENIED",
+        )
 
 
 class TestCharacterization(unittest.TestCase):
@@ -263,6 +305,7 @@ class TestWaveBDurabilityAndMechanics(unittest.TestCase):
                 authorized_option_ids=("A", "B"),
                 db_path=os.path.join(tmpdir, "w1w2.db"),
                 switch_at=10,
+                trusted_scorer=_FakeTrustedScorer(),
             )
             auth0 = _externally_issued_auth(harness, "ext-0", "frozen", 0, 10)
             auth1 = _externally_issued_auth(harness, "ext-1", "frozen", 1, 10)

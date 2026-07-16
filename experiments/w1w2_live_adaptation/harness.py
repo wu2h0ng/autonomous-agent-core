@@ -29,7 +29,13 @@ from experiments.w1w2_live_adaptation._contracts import (
     NonEmptyStr,
     content_digest,
 )
-from experiments.w1w2_live_adaptation.transfer_monitor import ScorerReceipt, TransferMonitor
+from experiments.w1w2_live_adaptation.transfer_monitor import (
+    ScorerReceipt,
+    ScorerReceiptBinding,
+    SealedScorerOutcome,
+    TransferMonitor,
+    TrustedScorerPort,
+)
 from experiments.w1w2_live_adaptation.w1_linter import W1UpdateLinter
 from experiments.w1w2_live_adaptation.w1_state import (
     BeliefPayload,
@@ -128,41 +134,51 @@ class DeterministicRegimeFixture:
             ),
         )
 
-    def scorer_receipt(self, arm_name: str, scope: W1Scope) -> ScorerReceipt | None:
+    def latest_scored(self) -> _ScoredOutcome | None:
         if not self._scored:
             return None
-        scored = self._scored[-1]
-        regime = self._regime_at(scored.step)
-        baseline_reward = 1.0 if self.OPTIMAL[regime] == "A" else 0.0
-        return ScorerReceipt(
-            receipt_id=f"sr-{uuid4().hex}",
-            scope=scope,
-            arm_name=arm_name,
-            step=scored.step,
-            reward=scored.reward,
-            baseline_reward=baseline_reward,
-            oracle_reward=1.0,
-        )
+        return self._scored[-1]
 
-    def flush(self, arm_name: str, scope: W1Scope) -> list[ScorerReceipt]:
-        receipts: list[ScorerReceipt] = []
+    def flush(self) -> list[_ScoredOutcome]:
+        outcomes: list[_ScoredOutcome] = []
         while self._pending:
             _due, step, action, reward = self._pending.pop(0)
             scored = _ScoredOutcome(step=step, action=action, reward=reward)
             self._scored.append(scored)
-            regime = self._regime_at(step)
-            receipts.append(
-                ScorerReceipt(
-                    receipt_id=f"sr-{uuid4().hex}",
-                    scope=scope,
-                    arm_name=arm_name,
-                    step=step,
-                    reward=reward,
-                    baseline_reward=1.0 if self.OPTIMAL[regime] == "A" else 0.0,
-                    oracle_reward=1.0,
-                )
-            )
-        return receipts
+            outcomes.append(scored)
+        return outcomes
+
+    def sealed_outcome(self, scored: _ScoredOutcome) -> SealedScorerOutcome:
+        regime = self._regime_at(scored.step)
+        return SealedScorerOutcome(
+            reward=scored.reward,
+            baseline_reward=1.0 if self.OPTIMAL[regime] == "A" else 0.0,
+            oracle_reward=1.0,
+        )
+
+
+class _CharacterizationScorer(TrustedScorerPort):
+    """In-package scorer usable only by the explicitly non-evidence characterization API."""
+
+    def __init__(self) -> None:
+        self._receipts: dict[str, ScorerReceipt] = {}
+        self._consumed: set[str] = set()
+
+    def score(self, binding: ScorerReceiptBinding, outcome: SealedScorerOutcome) -> str:
+        receipt_id = f"characterization-scorer-{uuid4().hex}"
+        self._receipts[receipt_id] = ScorerReceipt(
+            receipt_id=receipt_id, binding=binding, outcome=outcome
+        )
+        return receipt_id
+
+    def consume(
+        self, receipt_id: str, expected: ScorerReceiptBinding
+    ) -> ScorerReceipt | None:
+        receipt = self._receipts.get(receipt_id)
+        if receipt is None or receipt_id in self._consumed or receipt.binding != expected:
+            return None
+        self._consumed.add(receipt_id)
+        return receipt
 
 
 @dataclass(frozen=True)
@@ -370,6 +386,7 @@ class FalsifierHarness:
         db_path: str | None = None,
         switch_at: int | tuple[int, ...] = 10,
         selection_fn: SelectionFn | None = None,
+        trusted_scorer: TrustedScorerPort | None = None,
     ) -> None:
         self._run_authorization_resolver = run_authorization_resolver
         self._option_registry = option_registry
@@ -377,6 +394,7 @@ class FalsifierHarness:
         self._db_path = db_path
         self._switch_at = switch_at
         self._selection_fn = selection_fn
+        self._trusted_scorer = trusted_scorer
 
     def _make_scope(self, seed: int) -> W1Scope:
         return W1Scope(
@@ -430,7 +448,13 @@ class FalsifierHarness:
             and resolved.is_current(datetime.now(timezone.utc))
         )
 
-    def _make_monitor(self) -> TransferMonitor:
+    def _make_monitor(
+        self,
+        run_id: str,
+        scope: W1Scope,
+        arm_name: str,
+        scorer: TrustedScorerPort,
+    ) -> TransferMonitor:
         selector = self._make_selector()
         return TransferMonitor(
             regret_window=int(self._EVALUATOR_GATE["regret_window"]),
@@ -438,6 +462,10 @@ class FalsifierHarness:
             gate_digest=content_digest(
                 {**self._EVALUATOR_GATE, "option_content_digest": selector.authorized_set_digest()}
             ),
+            run_id=run_id,
+            scope=scope,
+            arm_name=arm_name,
+            scorer_resolver=scorer,
         )
 
     def _make_db_path(self, run_id: str) -> str:
@@ -481,7 +509,10 @@ class FalsifierHarness:
     ) -> CharacterizationRecord:
         scope = self._make_scope(seed)
         selector = self._make_selector()
-        monitor = self._make_monitor()
+        scorer = self._trusted_scorer if allow_run else _CharacterizationScorer()
+        if scorer is None:
+            raise RuntimeError("result run requires an external trusted scorer")
+        monitor = self._make_monitor(run_id, scope, arm_name, scorer)
         db_path = self._make_db_path(run_id)
         linter = W1UpdateLinter(
             allowed_scopes={
@@ -495,7 +526,7 @@ class FalsifierHarness:
         arm = self._make_arm(arm_name, store, scope, selector, arm_factory)
         last_known_safe = arm.capture()
 
-        receipts: list[ScorerReceipt] = []
+        outcomes: list[_ScoredOutcome] = []
         negative_transfer_steps = 0
         rollback_latency_steps = 0
         c7_stops = 0
@@ -517,12 +548,21 @@ class FalsifierHarness:
             if feedback is None:
                 continue
             arm.update(feedback, controller.snapshot)
-            receipt = fixture.scorer_receipt(arm_name, scope)
-            if receipt is None:
+            scored = fixture.latest_scored()
+            if scored is None:
                 continue
-            receipts.append(receipt)
+            outcomes.append(scored)
+            binding = ScorerReceiptBinding(
+                run_id=run_id,
+                scope=scope,
+                arm_name=arm_name,
+                step=scored.step,
+                gate_digest=monitor.gate_digest(),
+            )
+            receipt_id = scorer.score(binding, fixture.sealed_outcome(scored))
             assessment = monitor.assess(
-                receipt,
+                receipt_id,
+                scored.step,
                 current_checkpoint_id=None,
                 authorized_option_ids=selector.authorized_option_ids,
             )
@@ -533,11 +573,11 @@ class FalsifierHarness:
                 arm.restore(last_known_safe)
                 rollback_latency_steps += 1
                 break
-            if receipt.reward > 0.5:
+            if scored.reward > 0.5:
                 last_known_safe = arm.capture()
 
         if not controller.snapshot.halted:
-            receipts.extend(fixture.flush(arm_name, scope))
+            outcomes.extend(fixture.flush())
 
         switch_points = (
             (self._switch_at,) if isinstance(self._switch_at, int) else tuple(sorted(self._switch_at))
@@ -545,19 +585,19 @@ class FalsifierHarness:
         bounds = (0, *switch_points, n_steps)
         phase_qualities: list[float] = []
         for start, end in zip(bounds, bounds[1:]):
-            phase = [item.reward for item in receipts if start <= item.step < end]
+            phase = [item.reward for item in outcomes if start <= item.step < end]
             phase_qualities.append(sum(phase) / len(phase) if phase else 0.0)
         recoveries: list[float] = []
         for index, switch in enumerate(switch_points):
             end = switch_points[index + 1] if index + 1 < len(switch_points) else n_steps
             recovered = next(
-                (item.step - switch for item in receipts if switch <= item.step < end and item.reward > 0.5),
+                (item.step - switch for item in outcomes if switch <= item.step < end and item.reward > 0.5),
                 None,
             )
             if recovered is not None:
                 recoveries.append(float(recovered))
 
-        quality = sum(item.reward for item in receipts) / max(len(receipts), 1)
+        quality = sum(item.reward for item in outcomes) / max(len(outcomes), 1)
         adaptive_candidate = arm_name == "w1+w2" and arm_factory is None
         falsifier_passed = bool(
             adaptive_candidate
@@ -595,6 +635,14 @@ class FalsifierHarness:
         authorization_receipt_id: str | None,
     ) -> FalsifierRunRecord:
         run_id = f"run-{uuid4().hex}"
+        if self._selection_fn is not None or self._trusted_scorer is None:
+            return FalsifierRunRecord(
+                run_id=run_id,
+                arm_name=arm_name,
+                seed=seed,
+                n_steps=n_steps,
+                run_status="RUN_DENIED",
+            )
         if not self._consume_authorization(authorization_receipt_id, arm_name, seed, n_steps):
             return FalsifierRunRecord(
                 run_id=run_id,

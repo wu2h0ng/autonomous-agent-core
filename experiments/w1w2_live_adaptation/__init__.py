@@ -26,6 +26,9 @@ from experiments.w1w2_live_adaptation.harness import (
 )
 from experiments.w1w2_live_adaptation.transfer_monitor import (
     ScorerReceipt,
+    ScorerReceiptBinding,
+    SealedScorerOutcome,
+    TrustedScorerPort,
     TransferAssessment,
     TransferMonitor,
 )
@@ -81,12 +84,15 @@ __all__ = [
     "RunAuthorizationResolver",
     "ScheduledStaticArm",
     "ScorerReceipt",
+    "ScorerReceiptBinding",
+    "SealedScorerOutcome",
     "RetrievalPayload",
     "TaskPayload",
     "ThresholdOption",
     "ToolOption",
     "TransferAssessment",
     "TransferMonitor",
+    "TrustedScorerPort",
     "W1MemoryState",
     "W1MemoryStore",
     "W1OnlyArm",

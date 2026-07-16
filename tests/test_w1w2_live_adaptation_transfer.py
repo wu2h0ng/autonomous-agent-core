@@ -8,6 +8,9 @@ from experiments.w1w2_live_adaptation import (
     C7Controller,
     C7Snapshot,
     ScorerReceipt,
+    ScorerReceiptBinding,
+    SealedScorerOutcome,
+    TrustedScorerPort,
     TransferAssessment,
     TransferMonitor,
     W1Scope,
@@ -23,15 +26,53 @@ def _scope() -> W1Scope:
     )
 
 
-def _receipt(step: int, reward: float, baseline: float, oracle: float) -> ScorerReceipt:
-    return ScorerReceipt(
-        receipt_id=f"sr-{step}",
-        scope=_scope(),
-        arm_name="candidate",
-        step=step,
-        reward=reward,
-        baseline_reward=baseline,
-        oracle_reward=oracle,
+class _TrustedScorer(TrustedScorerPort):
+    def __init__(self) -> None:
+        self._receipts: dict[str, ScorerReceipt] = {}
+        self._consumed: set[str] = set()
+
+    def score(self, binding: ScorerReceiptBinding, outcome: SealedScorerOutcome) -> str:
+        receipt_id = f"sr-{binding.step}"
+        self._receipts[receipt_id] = ScorerReceipt(
+            receipt_id=receipt_id, binding=binding, outcome=outcome
+        )
+        return receipt_id
+
+    def consume(self, receipt_id, expected):
+        receipt = self._receipts.get(receipt_id)
+        if receipt_id in self._consumed or receipt is None or receipt.binding != expected:
+            return None
+        self._consumed.add(receipt_id)
+        return receipt
+
+
+def _monitor(window: int, threshold: float) -> tuple[TransferMonitor, _TrustedScorer]:
+    scorer = _TrustedScorer()
+    return (
+        TransferMonitor(
+            regret_window=window,
+            threshold=threshold,
+            gate_digest="gd-1",
+            run_id="run-1",
+            scope=_scope(),
+            arm_name="candidate",
+            scorer_resolver=scorer,
+        ),
+        scorer,
+    )
+
+
+def _issue(
+    scorer: _TrustedScorer, step: int, reward: float, baseline: float, oracle: float
+) -> str:
+    binding = ScorerReceiptBinding(
+        run_id="run-1", scope=_scope(), arm_name="candidate", step=step, gate_digest="gd-1"
+    )
+    return scorer.score(
+        binding,
+        SealedScorerOutcome(
+            reward=reward, baseline_reward=baseline, oracle_reward=oracle
+        ),
     )
 
 
@@ -57,12 +98,13 @@ class TestC7Controller(unittest.TestCase):
 
 class TestTransferMonitor(unittest.TestCase):
     def test_detects_negative_transfer_from_scorer_receipts(self) -> None:
-        monitor = TransferMonitor(regret_window=3, threshold=0.0, gate_digest="gd-1")
+        monitor, scorer = _monitor(3, 0.0)
         assessment: TransferAssessment | None = None
         for step in range(5):
-            receipt = _receipt(step=step, reward=0.0, baseline=1.0, oracle=1.0)
+            receipt_id = _issue(scorer, step=step, reward=0.0, baseline=1.0, oracle=1.0)
             assessment = monitor.assess(
-                receipt,
+                receipt_id,
+                step,
                 current_checkpoint_id="cp-0",
                 authorized_option_ids=("opt-a", "opt-b"),
             )
@@ -71,12 +113,13 @@ class TestTransferMonitor(unittest.TestCase):
         self.assertTrue(assessment.negative_transfer_detected)
 
     def test_recommends_only_rollback_or_authorized_option(self) -> None:
-        monitor = TransferMonitor(regret_window=2, threshold=0.0, gate_digest="gd-1")
+        monitor, scorer = _monitor(2, 0.0)
         assessment: TransferAssessment | None = None
         for step in range(4):
-            receipt = _receipt(step=step, reward=-1.0, baseline=1.0, oracle=1.0)
+            receipt_id = _issue(scorer, step=step, reward=-1.0, baseline=1.0, oracle=1.0)
             assessment = monitor.assess(
-                receipt,
+                receipt_id,
+                step,
                 current_checkpoint_id="cp-0",
                 authorized_option_ids=("opt-a",),
             )
@@ -88,18 +131,29 @@ class TestTransferMonitor(unittest.TestCase):
         )
 
     def test_cannot_recommend_unknown_option(self) -> None:
-        monitor = TransferMonitor(regret_window=2, threshold=0.0, gate_digest="gd-1")
+        monitor, scorer = _monitor(2, 0.0)
         assessment: TransferAssessment | None = None
         for step in range(4):
-            receipt = _receipt(step=step, reward=-1.0, baseline=1.0, oracle=1.0)
+            receipt_id = _issue(scorer, step=step, reward=-1.0, baseline=1.0, oracle=1.0)
             assessment = monitor.assess(
-                receipt,
+                receipt_id,
+                step,
                 current_checkpoint_id="cp-0",
                 authorized_option_ids=("opt-a",),
             )
         self.assertIsNotNone(assessment)
         assert assessment is not None
         self.assertFalse(assessment.recommended_action.startswith("W2_OPTION:opt-evil"))
+
+    def test_replay_and_wrong_step_fail_closed(self) -> None:
+        monitor, scorer = _monitor(2, 0.0)
+        receipt_id = _issue(scorer, 0, 1.0, 1.0, 1.0)
+        monitor.assess(receipt_id, 0, None, ("opt-a",))
+        with self.assertRaises(ValueError):
+            monitor.assess(receipt_id, 0, None, ("opt-a",))
+        other_id = _issue(scorer, 1, 1.0, 1.0, 1.0)
+        with self.assertRaises(ValueError):
+            monitor.assess(other_id, 2, None, ("opt-a",))
 
 
 if __name__ == "__main__":
