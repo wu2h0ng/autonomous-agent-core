@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
+from agent_os_contracts.situated import HelpRequest, TaskDraftProposal
 from agent_os_core import (
     CandidateConcurrentWrite,
     CandidateEvaluationDenied,
@@ -37,7 +38,19 @@ INDEX = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
 
 
+def _is_situated_proposal_route(path: str) -> bool:
+    parsed_path = urlparse(path).path
+    parts = parsed_path.strip("/").split("/")
+    return (
+        len(parts) == 5
+        and parts[:3] == ["api", "situated", "data-agent-reports"]
+        and parts[4] == "proposal"
+    )
+
+
 def _uses_generic_http_idempotency(path: str) -> bool:
+    if _is_situated_proposal_route(path):
+        return False
     parsed_path = urlparse(path).path
     return not parsed_path.endswith(
         (
@@ -162,9 +175,7 @@ class Handler(BaseHTTPRequestHandler):
                     and parts[3] == "configuration-snapshots"
                 ):
                     if len(parts) == 4:
-                        snapshots = self.application.list_task_configurations(
-                            parts[2]
-                        )
+                        snapshots = self.application.list_task_configurations(parts[2])
                         self._json(
                             200,
                             {
@@ -420,9 +431,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if len(parts) == 4 and parts[:2] == ["v1", "tasks"] and parts[3] == "start":
                 if set(body) - {"configuration_snapshot_id"}:
-                    raise ValueError(
-                        "start accepts configuration_snapshot_id only"
-                    )
+                    raise ValueError("start accepts configuration_snapshot_id only")
                 configuration_snapshot_id = body.get("configuration_snapshot_id")
                 if configuration_snapshot_id is not None and (
                     not isinstance(configuration_snapshot_id, str)
@@ -500,6 +509,36 @@ class Handler(BaseHTTPRequestHandler):
                         raw_reason if isinstance(raw_reason, str) else "",
                     )
                 self._json(200, self.application.task_json(task.task_id))
+                return
+            if _is_situated_proposal_route(self.path):
+                parts = parsed.path.strip("/").split("/")
+                trace_id = parts[3]
+                if not trace_id:
+                    raise ValueError("invalid trace_id")
+                if "/" in trace_id:
+                    raise ValueError("invalid trace_id")
+                if trace_id == "0":
+                    raise ValueError("unsafe trace zero")
+                if body != {}:
+                    raise ValueError("proposal body must be an empty object")
+                if self.application._data_agent_situated_runtime is None:
+                    raise RuntimeError("Data Agent situated runtime is not configured")
+                result = self.application.observe_admit_and_propose_data_agent_report(
+                    trace_id
+                )
+                if isinstance(result, TaskDraftProposal):
+                    serialized = {
+                        "outcome_kind": "TASK_DRAFT",
+                        **result.model_dump(mode="json"),
+                    }
+                elif isinstance(result, HelpRequest):
+                    serialized = {
+                        "outcome_kind": "HELP_REQUEST",
+                        **result.model_dump(mode="json"),
+                    }
+                else:
+                    serialized = {"outcome_kind": "NO_PROPOSAL"}
+                self._json(200, serialized)
                 return
             self._json(404, {"error": "not_found"})
         except Exception as exc:
