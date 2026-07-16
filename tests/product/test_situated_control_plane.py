@@ -28,11 +28,11 @@ from agent_os_core import (
     InMemorySituationalControlPlane,
     InMemorySituationalTrustRegistry,
     OperationalProposalService,
-    SQLiteSituatedAssessmentStore,
     SituationalPersistenceConflict,
     SituationalTrustDenied,
     situated_input_binding_digest,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.app import AgentOSApplication
 
 
@@ -305,7 +305,7 @@ def test_application_entry_accepts_only_trusted_ids_and_never_writes_task(
     tmp_path,
 ) -> None:
     assessor = _Assessor(_assessment())
-    app = AgentOSApplication(
+    app = AgentOSApplication._with_situated_control(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         situational_trust=_trust(),
@@ -443,7 +443,7 @@ def test_help_request_cannot_grant_authority_or_external_effects() -> None:
 
 def test_application_rejects_partial_situated_configuration(tmp_path) -> None:
     with pytest.raises(ValueError, match="configured together"):
-        AgentOSApplication(
+        AgentOSApplication._with_situated_control(
             database=tmp_path / "agent-os.sqlite3",
             workspace=tmp_path,
             situational_trust=_trust(),
@@ -452,7 +452,7 @@ def test_application_rejects_partial_situated_configuration(tmp_path) -> None:
         )
 
     with pytest.raises(ValueError, match="trust resolver"):
-        AgentOSApplication(
+        AgentOSApplication._with_situated_control(
             database=tmp_path / "agent-os-without-trust.sqlite3",
             workspace=tmp_path,
             situational_control=InMemorySituationalControlPlane((_mandate(),)),
@@ -461,7 +461,7 @@ def test_application_rejects_partial_situated_configuration(tmp_path) -> None:
         )
 
     with pytest.raises(ValueError, match="durable authority"):
-        AgentOSApplication(
+        AgentOSApplication._with_situated_control(
             database=tmp_path / "agent-os-memory-authority.sqlite3",
             workspace=tmp_path,
             situational_trust=_trust(),
@@ -662,7 +662,7 @@ def test_application_uses_sqlite_situated_store_without_task_conversion(
 ) -> None:
     database = tmp_path / "agent-os-with-situated.sqlite3"
     situated_store = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
-    app = AgentOSApplication(
+    app = AgentOSApplication._with_situated_control(
         database=database,
         workspace=tmp_path,
         situational_trust=_trust(),

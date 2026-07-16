@@ -41,9 +41,9 @@ from agent_os_core import (
     CanonicalCredentialLeaseRegistry,
     InMemorySituationalTrustRegistry,
     InMemorySituationalControlPlane,
-    SQLiteSituatedAssessmentStore,
     SituationalTrustDenied,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_admission import EnvironmentEventAdmissionService
 from agent_os_core.srl_event_store import (
     EventAdmissionPersistenceConflict,

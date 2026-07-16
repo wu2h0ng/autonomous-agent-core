@@ -19,11 +19,11 @@ from agent_os_contracts import (
 from agent_os_core import (
     DeterministicProvider,
     InMemoryMandateRelevanceContextRegistry,
-    SQLiteSituatedAssessmentStore,
     SQLiteTaskEventStore,
     SituationalTrustDenied,
     situated_input_binding_digest,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
@@ -122,7 +122,7 @@ def _application(
     provider: DeterministicProvider,
     policy: ProviderRelevancePolicy,
 ) -> AgentOSApplication:
-    return AgentOSApplication(
+    return AgentOSApplication._with_situated_control(
         database=task_database,
         workspace=workspace,
         data_agent_reports=adapter,
@@ -555,7 +555,7 @@ def test_same_id_provider_binding_drift_fails_during_application_construction(
     task_database = tmp_path / f"agent-os-{drift}.sqlite3"
 
     with pytest.raises(ValueError, match="provider (profile|invocation)"):
-        AgentOSApplication(
+        AgentOSApplication._with_situated_control(
             database=task_database,
             workspace=tmp_path,
             data_agent_reports=adapter,

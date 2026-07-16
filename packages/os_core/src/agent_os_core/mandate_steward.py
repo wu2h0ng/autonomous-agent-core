@@ -131,10 +131,36 @@ class MandateSteward:
         admission_receipt_id: str,
     ) -> TaskDraftProposal | HelpRequest | None:
         now = _utc(self._clock())
+        # Resolve every dependency-owned trust decision before touching either
+        # durable ledger.  Unexpected adapter exceptions are translated to one
+        # fixed sentinel and can neither leak their message nor mutate an
+        # already-existing PENDING trace.
+        try:
+            event = self._trust.resolve_event(event_id)
+            projection = self._trust.resolve_projection(projection_id)
+        except Exception:
+            raise SituationalTrustDenied(
+                "situated trust dependency is unavailable"
+            ) from None
+        if event is None or projection is None:
+            raise SituationalTrustDenied("admitted event or projection is unavailable")
+        binding_tuple = (
+            self._principal_id,
+            event.tenant_id,
+            event.workspace_id,
+            event.mandate_id,
+            event.environment_binding_id,
+        )
+        try:
+            binding_authorized = self._trust.binding_is_authorized(binding_tuple)
+        except Exception:
+            raise SituationalTrustDenied(
+                "situated trust dependency is unavailable"
+            ) from None
+        if not binding_authorized:
+            raise SituationalTrustDenied("situated input binding is not authorized")
         receipt = self._admission_reader.by_receipt_id(admission_receipt_id)
-        event = self._trust.resolve_event(event_id)
-        projection = self._trust.resolve_projection(projection_id)
-        if receipt is None or event is None or projection is None:
+        if receipt is None:
             raise SituationalTrustDenied("admitted event or projection is unavailable")
         if (
             receipt.receipt_id != admission_receipt_id
@@ -272,15 +298,6 @@ class MandateSteward:
             or event.environment_event_id not in projection.source_event_ids
         ):
             raise SituationalTrustDenied("admission, event, and projection bindings conflict")
-        binding_tuple = (
-            self._principal_id,
-            event.tenant_id,
-            event.workspace_id,
-            event.mandate_id,
-            event.environment_binding_id,
-        )
-        if not self._trust.binding_is_authorized(binding_tuple):
-            raise SituationalTrustDenied("situated input binding is not authorized")
         mandate, binding = self._authority.resolve_active(
             event.mandate_id,
             event.environment_binding_id,

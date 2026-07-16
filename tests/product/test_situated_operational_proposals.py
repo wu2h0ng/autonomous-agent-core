@@ -25,12 +25,12 @@ from agent_os_contracts import (
 )
 from agent_os_core import (
     InMemorySituationalTrustRegistry,
-    SQLiteSituatedAssessmentStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     StaleOperationalProjection,
     situated_input_binding_digest,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.situated import _OperationalProposalCompiler
 from apps.api_server.app import AgentOSApplication
 
@@ -270,7 +270,7 @@ class _Assessor:
 
 
 def _app(tmp_path, *, now: datetime = NOW) -> AgentOSApplication:
-    return AgentOSApplication(
+    return AgentOSApplication._with_situated_control(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         situational_trust=_trust_registry(),

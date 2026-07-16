@@ -364,8 +364,17 @@ class ScopedEventAdmissionReader:
                 ).fetchone()
             else:
                 row = connection.execute(
-                    "SELECT * FROM srl_event_admission_receipts WHERE receipt_id = ?",
-                    (value,),
+                    """
+                    SELECT * FROM srl_event_admission_receipts
+                    WHERE receipt_id = ? AND principal_id = ?
+                      AND tenant_id = ? AND workspace_id = ?
+                    """,
+                    (
+                        value,
+                        self.scope.principal_id,
+                        self.scope.tenant_id,
+                        self.scope.workspace_id,
+                    ),
                 ).fetchone()
         except sqlite3.Error:
             raise _sqlite_conflict("receipt read") from None
@@ -402,9 +411,20 @@ class ScopedEventAdmissionReader:
                 FROM srl_situated_evaluation_traces AS t
                 JOIN srl_event_admission_receipts AS r
                   ON r.receipt_digest = t.admission_receipt_digest
-                WHERE t.trace_id = ?
+                WHERE t.trace_id = ? AND t.principal_id = ?
+                  AND t.tenant_id = ? AND t.workspace_id = ?
+                  AND r.principal_id = ? AND r.tenant_id = ?
+                  AND r.workspace_id = ?
                 """,
-                (trace_id,),
+                (
+                    trace_id,
+                    self.scope.principal_id,
+                    self.scope.tenant_id,
+                    self.scope.workspace_id,
+                    self.scope.principal_id,
+                    self.scope.tenant_id,
+                    self.scope.workspace_id,
+                ),
             ).fetchone()
         except sqlite3.Error:
             raise _sqlite_conflict("trace read") from None

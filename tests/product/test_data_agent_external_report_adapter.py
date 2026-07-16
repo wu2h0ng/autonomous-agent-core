@@ -40,10 +40,10 @@ from apps.api_server.data_agent_report_adapter import (
     SQLiteDataAgentReportStateStore,
 )
 from agent_os_core import (
-    SQLiteSituatedAssessmentStore,
     SituationalScopeMismatch,
     situated_input_binding_digest,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
@@ -369,7 +369,7 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
             tmp_path / "data-agent-state.sqlite3"
         ),
     )
-    app = AgentOSApplication(
+    app = AgentOSApplication._with_situated_control(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         principal=PrincipalIdentity(
@@ -423,7 +423,7 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
         now=NOW - timedelta(seconds=1),
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
-    first_app = AgentOSApplication(
+    first_app = AgentOSApplication._with_situated_control(
         database=application_database,
         workspace=tmp_path,
         principal=PrincipalIdentity(
@@ -446,7 +446,7 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
     restarted_adapter, restarted_broker, restarted_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
-    restarted_app = AgentOSApplication(
+    restarted_app = AgentOSApplication._with_situated_control(
         database=application_database,
         workspace=tmp_path,
         principal=PrincipalIdentity(

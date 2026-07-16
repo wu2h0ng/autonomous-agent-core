@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,11 +39,11 @@ from agent_os_core import (
     InMemorySituationalTrustRegistry,
     MandateSteward,
     OperationalProposalService,
-    SQLiteSituatedAssessmentStore,
     SituationalPersistenceConflict,
     SituationalTrustDenied,
     situated_input_binding_digest,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_store import _create_event_admission_store
 
 
@@ -373,6 +374,156 @@ def test_foreign_principal_cannot_read_or_poison_pending_trace(tmp_path: Path) -
     assert foreign_reader.by_trace_id(trace_id) is None
     assert reader.by_trace_id(trace_id) == pending
     assert assessor.calls == 0
+
+
+@pytest.mark.parametrize(
+    "failing_method",
+    ("resolve_event", "resolve_projection", "binding_is_authorized"),
+)
+def test_raw_trust_dependency_exception_is_safely_translated_before_any_ledger_access(
+    tmp_path: Path, failing_method: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    steward, reader, writer, assessor, authority = _case(tmp_path)
+    receipt = _receipt()
+    trace_id = f"situated-evaluation:{content_digest({'admission_receipt_digest': receipt.receipt_digest, 'projection_id': 'projection-1'})}"
+    pending = writer.begin_trace(
+        SituatedEvaluationTrace(
+            trace_id=trace_id,
+            admission_receipt_digest=receipt.receipt_digest,
+            event_id="event-1",
+            projection_id="projection-1",
+            mandate_id="mandate-1",
+            tenant_id="tenant-1",
+            workspace_id="workspace-1",
+            status=SituatedTraceStatus.PENDING,
+            reason=SituatedTraceReason.ASSESSMENT_PENDING,
+            result_binding_digest=None,
+            delegation_attempt_count=0,
+            committed_provider_call_attempted=None,
+            input_tokens=None,
+            output_tokens=None,
+            duration_ms=0,
+            recorded_at=NOW,
+        )
+    )
+    sentinel = "RAW-TRUST-EXCEPTION-MUST-NOT-LEAK"
+
+    class ExplodingTrust:
+        def __getattr__(self, name: str) -> Any:
+            target = getattr(steward._trust, name)  # type: ignore[attr-defined]
+            if name == failing_method:
+                def explode(*args: Any, **kwargs: Any) -> Any:
+                    raise RuntimeError(sentinel)
+                return explode
+            return target
+
+    class ReaderSpy:
+        scope = reader.scope
+        calls = 0
+
+        def by_receipt_id(self, value: str) -> Any:
+            self.calls += 1
+            return reader.by_receipt_id(value)
+
+        def by_trace_id(self, value: str) -> Any:
+            self.calls += 1
+            return reader.by_trace_id(value)
+
+    class WriterSpy:
+        calls = 0
+
+        def __getattr__(self, name: str) -> Any:
+            target = getattr(writer, name)
+            def invoke(*args: Any, **kwargs: Any) -> Any:
+                self.calls += 1
+                return target(*args, **kwargs)
+            return invoke
+
+    scoped_reader = ReaderSpy()
+    scoped_writer = WriterSpy()
+    attacked = MandateSteward(
+        trust=ExplodingTrust(),  # type: ignore[arg-type]
+        authority=authority.scoped_reader(SCOPE),
+        proposal_service=steward._proposal_service,  # type: ignore[attr-defined]
+        admission_reader=scoped_reader,  # type: ignore[arg-type]
+        trace_writer=scoped_writer,  # type: ignore[arg-type]
+        principal_id="principal-1",
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(SituationalTrustDenied) as exc:
+        attacked.observe_event("event-1", "projection-1", receipt.receipt_id)
+
+    assert str(exc.value) == "situated trust dependency is unavailable"
+    assert sentinel not in str(exc.value)
+    assert exc.value.__cause__ is None
+    assert scoped_reader.calls == 0
+    assert scoped_writer.calls == 0
+    assert assessor.calls == 0
+    assert caplog.records == []
+    assert sentinel not in caplog.text
+    assert reader.by_trace_id(trace_id) == pending
+
+
+def test_scoped_assessment_lookup_ignores_foreign_corrupt_duplicate_rows(
+    tmp_path: Path,
+) -> None:
+    steward, _, _, _, authority = _case(tmp_path)
+    steward.observe_event("event-1", "projection-1", _receipt().receipt_id)
+    owner_record = authority.assessment_record("assessment:create_task")
+    assert owner_record is not None
+    input_digest = owner_record.assessment.input_binding_digest
+
+    connection = sqlite3.connect(tmp_path / "authority.sqlite3")
+    try:
+        for suffix in ("one", "two"):
+            connection.execute(
+                """
+                INSERT INTO situated_assessment_records (
+                    assessment_id, assessment_record_id, source_binding_digest,
+                    input_binding_digest, principal_id, tenant_id, workspace_id,
+                    record_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"foreign-assessment-{suffix}",
+                    f"foreign-record-{suffix}",
+                    f"foreign-source-{suffix}",
+                    input_digest,
+                    f"principal-foreign-{suffix}",
+                    f"tenant-foreign-{suffix}",
+                    f"workspace-foreign-{suffix}",
+                    "RAW-FOREIGN-CORRUPT-RECORD",
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    assert authority.scoped_reader(SCOPE).record_by_input_binding(input_digest) == owner_record
+
+
+def test_scoped_assessment_lookup_rejects_owner_index_vs_canonical_mismatch(
+    tmp_path: Path,
+) -> None:
+    steward, _, _, _, authority = _case(tmp_path)
+    steward.observe_event("event-1", "projection-1", _receipt().receipt_id)
+    record = authority.assessment_record("assessment:create_task")
+    assert record is not None
+    connection = sqlite3.connect(tmp_path / "authority.sqlite3")
+    try:
+        connection.execute(
+            "UPDATE situated_assessment_records SET assessment_id = ? WHERE principal_id = ?",
+            ("tampered-owner-index", SCOPE.principal_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(SituationalPersistenceConflict, match="indexes"):
+        authority.scoped_reader(SCOPE).record_by_input_binding(
+            record.assessment.input_binding_digest
+        )
 
 
 def test_two_facades_share_process_single_flight(tmp_path: Path) -> None:

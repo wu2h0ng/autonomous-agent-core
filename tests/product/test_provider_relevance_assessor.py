@@ -52,11 +52,11 @@ from agent_os_core import (
     RELEVANCE_OUTPUT_SCHEMA_DIGEST,
     RELEVANCE_PROMPT_MANIFEST,
     RELEVANCE_PROMPT_TEMPLATE_DIGEST,
-    SQLiteSituatedAssessmentStore,
     SituationalTrustDenied,
     StaleOperationalProjection,
     situated_input_binding_digest,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.app import AgentOSApplication
 
 
@@ -642,16 +642,19 @@ def test_sqlite_restart_decodes_and_replays_legacy_v1_assessment_record(
     with sqlite3.connect(database) as connection:
         connection.execute(
             """
-            INSERT INTO situated_assessment_records (
-                assessment_id, assessment_record_id, source_binding_digest,
-                tenant_id, workspace_id, record_json
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO situated_assessment_records (
+                    assessment_id, assessment_record_id, source_binding_digest,
+                    input_binding_digest, principal_id, tenant_id, workspace_id,
+                    record_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 current_record.assessment.assessment_id,
-                current_record.assessment_record_id,
-                current_record.source_binding_digest,
-                current_record.tenant_id,
+                    current_record.assessment_record_id,
+                    current_record.source_binding_digest,
+                    current_record.assessment.input_binding_digest,
+                    _mandate().owner_principal_id,
+                    current_record.tenant_id,
                 current_record.workspace_id,
                 json.dumps(legacy_payload, sort_keys=True, separators=(",", ":")),
             ),
@@ -684,7 +687,7 @@ def test_application_composes_provider_assessor_on_real_product_entry(tmp_path) 
         text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
     )
     database = tmp_path / "agent-os.sqlite3"
-    app = AgentOSApplication(
+    app = AgentOSApplication._with_situated_control(
         database=database,
         workspace=tmp_path,
         situational_trust=_trust(),
@@ -962,7 +965,7 @@ def test_application_rejects_same_profile_id_with_drifted_model_before_call(
     provider = _RaisingProvider(_invocation(profile=drifted_profile))
 
     with pytest.raises(ValueError, match="provider"):
-        AgentOSApplication(
+        AgentOSApplication._with_situated_control(
             database=tmp_path / "app-provider-drift.sqlite3",
             workspace=tmp_path,
             situational_trust=_trust(),

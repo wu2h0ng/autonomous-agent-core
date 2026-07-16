@@ -160,7 +160,12 @@ class _ScopedSituatedAssessmentFacade:
     def record_by_input_binding(
         self, input_binding_digest: str
     ) -> SituatedAssessmentRecord | None:
-        record = self._store.record_by_input_binding(input_binding_digest)
+        scoped_lookup = getattr(self._store, "_record_by_input_binding_scoped", None)
+        if scoped_lookup is None:
+            raise SituationalPersistenceConflict(
+                "durable assessment store lacks scoped lookup capability"
+            )
+        record = scoped_lookup(input_binding_digest, scope=self.scope)
         if record is None:
             return None
         if (
@@ -245,15 +250,69 @@ class SQLiteSituatedAssessmentStore:
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS situated_assessment_records (
-                    assessment_id TEXT PRIMARY KEY,
-                    assessment_record_id TEXT NOT NULL UNIQUE,
-                    source_binding_digest TEXT NOT NULL UNIQUE,
+                    assessment_id TEXT NOT NULL,
+                    assessment_record_id TEXT NOT NULL,
+                    source_binding_digest TEXT NOT NULL,
+                    input_binding_digest TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
                     tenant_id TEXT NOT NULL,
                     workspace_id TEXT NOT NULL,
                     record_json TEXT NOT NULL
                 )
                 """
             )
+            for name, columns in (
+                ("ux_situated_assessment_id_scope", "principal_id, tenant_id, workspace_id, assessment_id"),
+                ("ux_situated_assessment_record_id_scope", "principal_id, tenant_id, workspace_id, assessment_record_id"),
+                ("ux_situated_source_binding_scope", "principal_id, tenant_id, workspace_id, source_binding_digest"),
+                ("ux_situated_input_binding_scope", "principal_id, tenant_id, workspace_id, input_binding_digest"),
+            ):
+                connection.execute(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {name} "
+                    f"ON situated_assessment_records ({columns})"
+                )
+            expected = (
+                ("assessment_id", "TEXT", 1, 0),
+                ("assessment_record_id", "TEXT", 1, 0),
+                ("source_binding_digest", "TEXT", 1, 0),
+                ("input_binding_digest", "TEXT", 1, 0),
+                ("principal_id", "TEXT", 1, 0),
+                ("tenant_id", "TEXT", 1, 0),
+                ("workspace_id", "TEXT", 1, 0),
+                ("record_json", "TEXT", 1, 0),
+            )
+            actual = tuple(
+                (str(row[1]), str(row[2]), int(row[3]), int(row[5]))
+                for row in connection.execute(
+                    "PRAGMA table_info(situated_assessment_records)"
+                ).fetchall()
+            )
+            unique_columns = {
+                tuple(
+                    str(column[2])
+                    for column in connection.execute(
+                        f"PRAGMA index_info({row[1]})"
+                    ).fetchall()
+                )
+                for row in connection.execute(
+                    "PRAGMA index_list(situated_assessment_records)"
+                ).fetchall()
+                if int(row[2]) == 1
+            }
+            expected_unique = {
+                ("principal_id", "tenant_id", "workspace_id", "assessment_id"),
+                ("principal_id", "tenant_id", "workspace_id", "assessment_record_id"),
+                ("principal_id", "tenant_id", "workspace_id", "source_binding_digest"),
+                ("principal_id", "tenant_id", "workspace_id", "input_binding_digest"),
+            }
+            if actual != expected or unique_columns != expected_unique:
+                raise SituationalPersistenceConflict(
+                    "existing SQLite situated assessment schema is invalid"
+                )
+        except sqlite3.Error:
+            raise SituationalPersistenceConflict(
+                "existing SQLite situated assessment schema is invalid"
+            ) from None
         finally:
             connection.close()
 
@@ -429,9 +488,18 @@ class SQLiteSituatedAssessmentStore:
             rows = connection.execute(
                 """
                 SELECT record_json FROM situated_assessment_records
-                WHERE assessment_id = ? OR source_binding_digest = ?
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND (assessment_id = ? OR source_binding_digest = ?
+                       OR input_binding_digest = ?)
                 """,
-                (assessment.assessment_id, source_binding_digest),
+                (
+                    principal_id,
+                    assessment.tenant_id,
+                    assessment.workspace_id,
+                    assessment.assessment_id,
+                    source_binding_digest,
+                    assessment.input_binding_digest,
+                ),
             ).fetchall()
             if rows:
                 existing = tuple(
@@ -447,13 +515,16 @@ class SQLiteSituatedAssessmentStore:
                 """
                 INSERT INTO situated_assessment_records (
                     assessment_id, assessment_record_id, source_binding_digest,
-                    tenant_id, workspace_id, record_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    input_binding_digest, principal_id, tenant_id, workspace_id,
+                    record_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     assessment.assessment_id,
                     record.assessment_record_id,
                     record.source_binding_digest,
+                    record.assessment.input_binding_digest,
+                    principal_id,
                     record.tenant_id,
                     record.workspace_id,
                     canonical_json(record),
@@ -470,32 +541,40 @@ class SQLiteSituatedAssessmentStore:
     def assessment_record(self, assessment_id: str) -> SituatedAssessmentRecord | None:
         connection = self._connect()
         try:
-            row = connection.execute(
+            rows = connection.execute(
                 """
-                SELECT record_json FROM situated_assessment_records
+                SELECT * FROM situated_assessment_records
                 WHERE assessment_id = ?
                 """,
                 (assessment_id,),
-            ).fetchone()
+            ).fetchall()
         finally:
             connection.close()
-        return self._decode_record(str(row["record_json"])) if row is not None else None
+        if len(rows) > 1:
+            raise SituationalPersistenceConflict(
+                "assessment id is ambiguous across durable scopes"
+            )
+        return self._decode_and_validate_record(rows[0]) if rows else None
 
     def record_by_source_binding(
         self, source_binding_digest: str
     ) -> SituatedAssessmentRecord | None:
         connection = self._connect()
         try:
-            row = connection.execute(
+            rows = connection.execute(
                 """
-                SELECT record_json FROM situated_assessment_records
+                SELECT * FROM situated_assessment_records
                 WHERE source_binding_digest = ?
                 """,
                 (source_binding_digest,),
-            ).fetchone()
+            ).fetchall()
         finally:
             connection.close()
-        return self._decode_record(str(row["record_json"])) if row is not None else None
+        if len(rows) > 1:
+            raise SituationalPersistenceConflict(
+                "source binding is ambiguous across durable scopes"
+            )
+        return self._decode_and_validate_record(rows[0]) if rows else None
 
     def record_by_input_binding(
         self, input_binding_digest: str
@@ -503,20 +582,83 @@ class SQLiteSituatedAssessmentStore:
         connection = self._connect()
         try:
             rows = connection.execute(
-                "SELECT record_json FROM situated_assessment_records"
+                "SELECT * FROM situated_assessment_records WHERE input_binding_digest = ?",
+                (input_binding_digest,),
             ).fetchall()
         finally:
             connection.close()
-        matches = tuple(
-            record
-            for record in (self._decode_record(str(row["record_json"])) for row in rows)
-            if record.assessment.input_binding_digest == input_binding_digest
-        )
+        matches = tuple(self._decode_and_validate_record(row) for row in rows)
         if len(matches) > 1:
             raise SituationalPersistenceConflict(
                 "input binding maps to multiple durable assessment records"
             )
         return matches[0] if matches else None
+
+    @classmethod
+    def _decode_and_validate_record(
+        cls, row: sqlite3.Row
+    ) -> SituatedAssessmentRecord:
+        record = cls._decode_record(str(row["record_json"]))
+        if (
+            str(row["assessment_id"]) != record.assessment.assessment_id
+            or str(row["assessment_record_id"]) != record.assessment_record_id
+            or str(row["source_binding_digest"]) != record.source_binding_digest
+            or str(row["input_binding_digest"])
+            != record.assessment.input_binding_digest
+            or str(row["tenant_id"]) != record.tenant_id
+            or str(row["workspace_id"]) != record.workspace_id
+            or record.assessment.tenant_id != record.tenant_id
+            or record.assessment.workspace_id != record.workspace_id
+        ):
+            raise SituationalPersistenceConflict(
+                "durable situated assessment indexes conflict with canonical bytes"
+            )
+        return record
+
+    def _record_by_input_binding_scoped(
+        self,
+        input_binding_digest: str,
+        *,
+        scope: LedgerAccessScope,
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND input_binding_digest = ?
+                """,
+                (
+                    scope.principal_id,
+                    scope.tenant_id,
+                    scope.workspace_id,
+                    input_binding_digest,
+                ),
+            ).fetchall()
+        finally:
+            connection.close()
+        if len(rows) > 1:
+            raise SituationalPersistenceConflict(
+                "input binding maps to multiple scoped assessment records"
+            )
+        if not rows:
+            return None
+        row = rows[0]
+        record = self._decode_and_validate_record(row)
+        mandate, _ = self.resolve_active(
+            record.assessment.mandate_id,
+            record.assessment.environment_binding_id,
+            principal_id=scope.principal_id,
+            tenant_id=scope.tenant_id,
+            workspace_id=scope.workspace_id,
+            evaluated_at=record.assessment.assessed_at,
+        )
+        if str(row["principal_id"]) != mandate.owner_principal_id:
+            raise SituationalPersistenceConflict(
+                "durable situated assessment principal conflicts with authority"
+            )
+        return record
 
     def scoped_reader(
         self, scope: LedgerAccessScope

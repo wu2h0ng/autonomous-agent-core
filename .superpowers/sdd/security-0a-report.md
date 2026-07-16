@@ -22,6 +22,26 @@ Implemented the scoped-ledger and credential-metadata boundary on exact base
 - Unexpected adapter/provider exceptions are translated to fixed safe errors;
   raw exception strings are not persisted or logged by this slice.
 
+Second-round independent review findings are closed as follows:
+
+- `resolve_event`, `resolve_projection`, and `binding_is_authorized` now run
+  before any ledger access. Dependency-owned exceptions map to one fixed
+  `SituationalTrustDenied` message with suppressed cause; an existing PENDING
+  trace remains byte-equivalent and no assessment/provider/writer is called.
+- The assessment ledger now persists and indexes `principal_id`, `tenant_id`,
+  `workspace_id`, and `input_binding_digest`. All four identities
+  (`assessment_id`, `assessment_record_id`, source binding, input binding) are
+  unique only inside their authenticated scope. Scoped reads filter in SQL
+  before canonical decode and validate every indexed canonical column.
+- Legacy unscoped assessment schemas fail closed. Foreign valid, duplicate, or
+  corrupt rows do not decode and cannot affect an owner's scoped lookup.
+- Receipt and trace by-id reads apply the full scope in SQL before decode, so
+  foreign absent, valid, and tampered identifiers have the same `None` result.
+- `SQLiteSituatedAssessmentStore` is no longer exported from the root package.
+  The public `AgentOSApplication` constructor accepts only an already-composed
+  proposal capability, not a raw assessment control. Pre-integration bootstrap
+  remains behind the private `_with_situated_control` composition seam.
+
 The old local Task 3 databases are disposable pre-integration artifacts. This
 package intentionally provides no production migration.
 
@@ -46,9 +66,9 @@ PENDING and assessment/provider delegation remains zero.
 ## Verification
 
 ```text
-Task 1-5 plus security boundary: 242 passed
-Credential drift matrix:         20 passed
-Full Product:                    1028 passed, 1 skipped
+Task 1-5 plus security boundary: covered by full Product suite
+Raw trust exception matrix:      3 passed
+Full Product:                    1035 passed, 1 skipped
 Ruff:                            all checks passed
 Pyright:                         0 errors, 0 warnings, 0 informations
 git diff --check:                passed
@@ -64,3 +84,6 @@ git diff --check:                passed
   sentinel tests establish zero raw-string persistence/logging for Task 4/5,
   not a production observability or HTTP privacy claim.
 - No global situated-runtime rewrite was performed.
+- The private local bootstrap seam is not a production identity/KMS or
+  capability-broker composition root. Replacing it with dedicated bootstrap
+  and correction capabilities remains explicit composition debt.

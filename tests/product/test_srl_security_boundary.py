@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import inspect
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -183,7 +184,14 @@ def test_root_core_surface_does_not_export_full_credential_reader() -> None:
     assert not hasattr(authority_module, "CredentialRefReader")
     assert not hasattr(store_module, "SQLiteEventAdmissionStore")
     assert not hasattr(agent_os_core, "SituatedAssessmentStore")
+    assert not hasattr(agent_os_core, "SQLiteSituatedAssessmentStore")
     assert agent_os_core.ScopedEventAdmissionReader is ScopedEventAdmissionReader
+
+    from apps.api_server.app import AgentOSApplication
+
+    assert "situational_control" not in inspect.signature(
+        AgentOSApplication
+    ).parameters
 
 
 def test_scoped_event_ledgers_allow_same_event_id_without_cross_scope_dos(
@@ -224,6 +232,44 @@ def test_scoped_reader_hides_foreign_receipt_event_and_trace(
     assert reader_a.by_trace_id(trace.trace_id) == trace
 
 
+def test_by_id_scope_filter_precedes_foreign_canonical_decode(tmp_path: Path) -> None:
+    database = tmp_path / "scope-before-decode.sqlite3"
+    owner_scope = _scope()
+    foreign_scope = _scope(
+        principal_id="principal-b", tenant_id="tenant-b", workspace_id="workspace-b"
+    )
+    owner_reader, _ = _create_event_admission_store(database, scope=owner_scope)
+    _, foreign_writer = _create_event_admission_store(database, scope=foreign_scope)
+    foreign_receipt = foreign_writer.persist_receipt(_receipt(foreign_scope))
+    foreign_trace = foreign_writer.begin_trace(_trace(foreign_receipt))
+
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            "UPDATE srl_event_admission_receipts SET canonical_json = ? WHERE receipt_id = ?",
+            (b"RAW-FOREIGN-RECEIPT-CORRUPTION", foreign_receipt.receipt_id),
+        )
+        connection.execute(
+            "UPDATE srl_situated_evaluation_traces SET canonical_json = ? WHERE trace_id = ?",
+            (b"RAW-FOREIGN-TRACE-CORRUPTION", foreign_trace.trace_id),
+        )
+        connection.commit()
+        before = tuple(connection.iterdump())
+    finally:
+        connection.close()
+
+    assert owner_reader.by_receipt_id("absent") is None
+    assert owner_reader.by_receipt_id(foreign_receipt.receipt_id) is None
+    assert owner_reader.by_trace_id("absent") is None
+    assert owner_reader.by_trace_id(foreign_trace.trace_id) is None
+
+    connection = sqlite3.connect(database)
+    try:
+        assert tuple(connection.iterdump()) == before
+    finally:
+        connection.close()
+
+
 def test_scoped_writer_rejects_foreign_scope_and_reader_rejects_scope_column_tamper(
     tmp_path: Path,
 ) -> None:
@@ -254,8 +300,10 @@ def test_scoped_writer_rejects_foreign_scope_and_reader_rejects_scope_column_tam
         connection.commit()
     finally:
         connection.close()
-    with pytest.raises(EventAdmissionPersistenceConflict, match="scope"):
-        reader.by_receipt_id(receipt.receipt_id)
+    # Scope is applied in SQL before canonical bytes are decoded, so a row
+    # whose scope index no longer belongs to this reader is indistinguishable
+    # from absent or foreign state.
+    assert reader.by_receipt_id(receipt.receipt_id) is None
 
 
 def test_scoped_reader_restart_and_concurrency_preserve_isolation(tmp_path: Path) -> None:
@@ -288,6 +336,30 @@ def test_situated_store_exposes_only_scope_bound_assessment_facade(tmp_path: Pat
     assert not hasattr(reader, "pause")
     assert not hasattr(reader, "revoke")
     assert not hasattr(reader, "_emit_guarded")
+
+
+def test_legacy_unscoped_assessment_schema_fails_closed(tmp_path: Path) -> None:
+    database = tmp_path / "legacy-situated.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE situated_assessment_records (
+                assessment_id TEXT PRIMARY KEY,
+                assessment_record_id TEXT NOT NULL UNIQUE,
+                source_binding_digest TEXT NOT NULL UNIQUE,
+                tenant_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                record_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(Exception, match="schema is invalid"):
+        SQLiteSituatedAssessmentStore(database)
 
 
 def test_task4_and_task5_reject_mismatched_scoped_ports_before_work(

@@ -97,10 +97,7 @@ from .situated import (
     situated_input_binding_digest,
     situated_source_binding_digest,
 )
-from .situated_persistence import (
-    ScopedSituatedAssessmentReader,
-    SQLiteSituatedAssessmentStore,
-)
+from .situated_persistence import ScopedSituatedAssessmentReader
 from .relevance import (
     InMemoryMandateRelevanceContextRegistry,
     MandateRelevanceContextReader,
@@ -207,7 +204,6 @@ __all__ = [
     "situated_input_binding_digest",
     "situated_source_binding_digest",
     "ScopedSituatedAssessmentReader",
-    "SQLiteSituatedAssessmentStore",
     "InMemoryMandateRelevanceContextRegistry",
     "MandateRelevanceContextReader",
     "ProviderRelevanceAssessor",
