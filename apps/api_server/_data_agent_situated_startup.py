@@ -41,8 +41,6 @@ from .data_agent_report_adapter import (
     _normalized_origin,
 )
 
-STRUCTURALLY_VALIDATED_CONFIG_ONLY: Final = "STRUCTURALLY_VALIDATED_CONFIG_ONLY"
-
 _MAX_CONFIG_BYTES: Final = 65_536
 _MAX_MATERIAL_BYTES: Final = 262_144
 
@@ -123,12 +121,7 @@ class DataAgentSituatedStartupProviderConfig(ContractModel):
 
 
 class DataAgentSituatedStartupConfig(ContractModel):
-    """Closed structural startup contract; direct construction also validates.
-
-    The claim is STRUCTURALLY_VALIDATED_CONFIG_ONLY: fields are shape-checked
-    against the canonical contract types, but no mandate, binding, credential
-    or provider authority has been resolved or verified.
-    """
+    """Closed startup configuration data; direct construction also validates."""
 
     config_contract: Literal["agent-os.data-agent-situated-startup-config.v2"]
     principal_id: NonEmptyStr
@@ -143,10 +136,6 @@ class DataAgentSituatedStartupConfig(ContractModel):
     authority_database: NonEmptyStr
     source: DataAgentSituatedStartupSourceConfig
     provider: DataAgentSituatedStartupProviderConfig
-
-    @property
-    def config_state(self) -> str:
-        return STRUCTURALLY_VALIDATED_CONFIG_ONLY
 
 
 class _DataAgentSituatedStartupProvisioningView:
@@ -528,8 +517,8 @@ def load_data_agent_situated_startup_config(
 ) -> DataAgentSituatedStartupConfig:
     """Load and structurally validate the local startup configuration file.
 
-    The result is STRUCTURALLY_VALIDATED_CONFIG_ONLY. It grants nothing,
-    resolves no authority and never reads the named credential secret.
+    The returned configuration is data, not an authority or validation token.
+    This loader resolves no authority and never reads named credential secrets.
     """
     try:
         config_path = Path(path)

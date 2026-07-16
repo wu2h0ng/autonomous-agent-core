@@ -24,7 +24,6 @@ from agent_os_contracts import (
 
 from apps.api_server import _data_agent_situated_startup as startup
 from apps.api_server._data_agent_situated_startup import (
-    STRUCTURALLY_VALIDATED_CONFIG_ONLY,
     DataAgentSituatedStartupConfig,
     DataAgentSituatedStartupConfigError,
     load_data_agent_situated_startup_config,
@@ -164,12 +163,10 @@ class TestValidConfig:
         assert config.source.expected_credential_digest == "c" * 64
         assert config.provider.policy_file == "provider-policy.json"
 
-    def test_claim_is_structural_only(self, tmp_path: Path) -> None:
+    def test_config_is_data_without_a_validated_state(self, tmp_path: Path) -> None:
         config = load(tmp_path, valid_config_data())
-        assert STRUCTURALLY_VALIDATED_CONFIG_ONLY == (
-            "STRUCTURALLY_VALIDATED_CONFIG_ONLY"
-        )
-        assert config.config_state == STRUCTURALLY_VALIDATED_CONFIG_ONLY
+        assert not hasattr(startup, "STRUCTURALLY_VALIDATED_CONFIG_ONLY")
+        assert not hasattr(config, "config_state")
 
     @pytest.mark.parametrize(
         ("dotted", "value"),
@@ -219,7 +216,6 @@ class TestDirectConstructionIsValidated:
     ) -> None:
         direct = DataAgentSituatedStartupConfig.model_validate(valid_config_data())
         assert direct == load(tmp_path, valid_config_data())
-        assert direct.config_state == STRUCTURALLY_VALIDATED_CONFIG_ONLY
 
     def test_instances_are_frozen(self, tmp_path: Path) -> None:
         config = load(tmp_path, valid_config_data())
