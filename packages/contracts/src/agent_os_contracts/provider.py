@@ -109,6 +109,17 @@ class ProviderRequest(ContractModel):
         return tuple(sorted(set(values)))
 
 
+class ProviderDecisionRequest(ContractModel):
+    """Narrow model decision input that carries no Task/Run authority."""
+
+    request_id: NonEmptyStr
+    decision_kind: NonEmptyStr
+    provider_profile_id: NonEmptyStr
+    messages: tuple[ProviderMessage, ...] = Field(min_length=1)
+    timeout_seconds: int = Field(ge=1)
+    created_at: UtcDateTime
+
+
 class ProviderUsage(ContractModel):
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)

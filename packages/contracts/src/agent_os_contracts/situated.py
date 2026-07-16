@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from .common import ContractModel, NonEmptyStr, UtcDateTime
+from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from .evidence import ArtifactRef, EvidenceRef, Sha256Digest
 
 
@@ -67,6 +67,66 @@ class RelevanceAssessorRef(ContractModel):
     policy_digest: Sha256Digest
 
 
+class ProviderRelevancePolicy(ContractModel):
+    """Ratifiable provider-assessor policy; it grants no work authority."""
+
+    assessor_id: NonEmptyStr
+    version: int = Field(ge=1)
+    provider_profile_id: NonEmptyStr
+    prompt_revision: NonEmptyStr
+    output_schema_ref: NonEmptyStr
+    request_timeout_seconds: int = Field(ge=1)
+    max_artifact_bytes: int = Field(ge=1)
+    failure_attention_budget_seconds: int = Field(ge=1)
+
+    def assessor_ref(self) -> RelevanceAssessorRef:
+        return RelevanceAssessorRef(
+            assessor_id=self.assessor_id,
+            version=self.version,
+            policy_digest=content_digest(self),
+        )
+
+
+class MandateOutcomeContext(ContractModel):
+    outcome_id: NonEmptyStr
+    statement: NonEmptyStr
+
+
+class MandateCommitmentContext(ContractModel):
+    commitment_id: NonEmptyStr
+    statement: NonEmptyStr
+    due_at: UtcDateTime | None = None
+
+
+class MandateRelevanceContextRef(ContractModel):
+    relevance_context_id: NonEmptyStr
+    version: int = Field(ge=1)
+    content_digest: Sha256Digest
+
+
+class MandateRelevanceContext(ContractModel):
+    """Digest-bound semantic context ratified for relevance assessment only."""
+
+    relevance_context_id: NonEmptyStr
+    version: int = Field(ge=1)
+    mandate_id: NonEmptyStr
+    mandate_version: int = Field(ge=1)
+    mandate_digest: Sha256Digest
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    mission_statement: NonEmptyStr
+    desired_outcomes: tuple[MandateOutcomeContext, ...] = Field(min_length=1)
+    open_commitments: tuple[MandateCommitmentContext, ...] = ()
+    permanent_constraints: tuple[NonEmptyStr, ...] = ()
+
+    def ref(self) -> MandateRelevanceContextRef:
+        return MandateRelevanceContextRef(
+            relevance_context_id=self.relevance_context_id,
+            version=self.version,
+            content_digest=content_digest(self),
+        )
+
+
 class EnvironmentBindingAuthorization(ContractModel):
     """Exact externally authorized observation binding."""
 
@@ -96,6 +156,7 @@ class RatifiedMandateRef(ContractModel):
         min_length=1
     )
     relevance_assessor: RelevanceAssessorRef
+    relevance_context: MandateRelevanceContextRef | None = None
 
     @field_validator("allowed_environment_bindings", mode="after")
     @classmethod
@@ -317,6 +378,54 @@ class RelevanceAssessment(ContractModel):
         return self
 
 
+class RelevanceAssessmentDraft(ContractModel):
+    """Provider-authored semantics only; trusted code supplies all bindings."""
+
+    affected_commitment_ids: tuple[NonEmptyStr, ...] = ()
+    disposition: RelevanceDisposition
+    uncertainty_summary: NonEmptyStr
+    urgency: RelevanceUrgency
+    expected_loss_of_delay: NonEmptyStr
+    attention_budget_seconds: int = Field(gt=0)
+    rationale: NonEmptyStr
+    proposed_goal_statement: NonEmptyStr | None = None
+    known_facts: tuple[NonEmptyStr, ...] = ()
+    unknown_facts: tuple[NonEmptyStr, ...] = ()
+    acquisition_attempts: tuple[NonEmptyStr, ...] = ()
+    bounded_options: tuple[NonEmptyStr, ...] = ()
+    minimum_external_input: NonEmptyStr | None = None
+    continuable_work: tuple[NonEmptyStr, ...] = ()
+
+    @model_validator(mode="after")
+    def _validate_payload(self) -> RelevanceAssessmentDraft:
+        task_dispositions = {
+            RelevanceDisposition.INVESTIGATE,
+            RelevanceDisposition.CREATE_TASK,
+        }
+        if self.disposition in task_dispositions:
+            if (
+                self.proposed_goal_statement is None
+                or self.minimum_external_input is not None
+            ):
+                raise ValueError(
+                    "task disposition requires only proposed_goal_statement"
+                )
+        elif self.disposition is RelevanceDisposition.HELP:
+            if (
+                self.minimum_external_input is None
+                or self.proposed_goal_statement is not None
+            ):
+                raise ValueError("HELP requires only minimum_external_input")
+        elif (
+            self.proposed_goal_statement is not None
+            or self.minimum_external_input is not None
+        ):
+            raise ValueError(
+                "non-work disposition cannot propose a goal or request input"
+            )
+        return self
+
+
 class ProposedGoal(ContractModel):
     """A non-activatable goal proposal distinct from the Task creation contract."""
 
@@ -426,7 +535,9 @@ class SituatedAssessmentRecord(ContractModel):
             expected_kind = SituatedAssessmentOutcomeKind.HELP_REQUEST
             outcome = self.help_request
             if outcome is None or self.task_draft is not None:
-                raise ValueError("help assessment must contain exactly one help request")
+                raise ValueError(
+                    "help assessment must contain exactly one help request"
+                )
         elif self.task_draft is not None or self.help_request is not None:
             raise ValueError("non-work assessment cannot contain a proposal")
         if self.outcome_kind is not expected_kind:

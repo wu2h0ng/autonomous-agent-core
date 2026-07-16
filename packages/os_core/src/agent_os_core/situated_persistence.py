@@ -96,6 +96,10 @@ class SituatedAssessmentStore(Protocol):
         self, source_binding_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
+    def record_by_input_binding(
+        self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
     def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
 
     def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
@@ -402,6 +406,27 @@ class SQLiteSituatedAssessmentStore:
         finally:
             connection.close()
         return self._decode_record(str(row["record_json"])) if row is not None else None
+
+    def record_by_input_binding(
+        self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT record_json FROM situated_assessment_records"
+            ).fetchall()
+        finally:
+            connection.close()
+        matches = tuple(
+            record
+            for record in (self._decode_record(str(row["record_json"])) for row in rows)
+            if record.assessment.input_binding_digest == input_binding_digest
+        )
+        if len(matches) > 1:
+            raise SituationalPersistenceConflict(
+                "input binding maps to multiple durable assessment records"
+            )
+        return matches[0] if matches else None
 
     def assessment(self, assessment_id: str) -> RelevanceAssessment | None:
         record = self.assessment_record(assessment_id)

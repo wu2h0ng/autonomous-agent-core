@@ -53,6 +53,11 @@ def situated_input_binding_digest(
             "mandate_version": mandate.version,
             "mandate_digest": mandate.mandate_digest,
             "correction_epoch": mandate.correction_epoch,
+            "relevance_context": (
+                mandate.relevance_context.model_dump(mode="json")
+                if mandate.relevance_context is not None
+                else None
+            ),
             "environment_binding": binding.model_dump(mode="json"),
             "event": event.model_dump(mode="json"),
             "projection": projection.model_dump(mode="json"),
@@ -206,9 +211,7 @@ class InMemorySituationalControlPlane:
             record = self._records.get(assessment_id)
             return record.assessment if record is not None else None
 
-    def assessment_record(
-        self, assessment_id: str
-    ) -> SituatedAssessmentRecord | None:
+    def assessment_record(self, assessment_id: str) -> SituatedAssessmentRecord | None:
         with self._lock:
             return self._records.get(assessment_id)
 
@@ -217,7 +220,22 @@ class InMemorySituationalControlPlane:
     ) -> SituatedAssessmentRecord | None:
         with self._lock:
             assessment_id = self._record_ids_by_source.get(source_binding_digest)
-            return self._records.get(assessment_id) if assessment_id is not None else None
+            return (
+                self._records.get(assessment_id) if assessment_id is not None else None
+            )
+
+    def record_by_input_binding(
+        self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        with self._lock:
+            return next(
+                (
+                    record
+                    for record in self._records.values()
+                    if record.assessment.input_binding_digest == input_binding_digest
+                ),
+                None,
+            )
 
     def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
         return self._change_status(
@@ -408,6 +426,23 @@ class OperationalProposalService:
         expected_assessor = mandate.relevance_assessor
         if self._assessor.ref != expected_assessor:
             raise SituationalTrustDenied("relevance assessor is not ratified")
+        input_binding_digest = situated_input_binding_digest(
+            mandate,
+            binding,
+            event,
+            projection,
+            expected_assessor,
+        )
+        existing = self._control.record_by_input_binding(input_binding_digest)
+        if existing is not None:
+            self._validate_assessment(
+                existing.assessment,
+                mandate=mandate,
+                binding=binding,
+                event=event,
+                projection=projection,
+            )
+            return proposal_result(existing)
         assessment = self._assessor.assess(
             mandate,
             binding,

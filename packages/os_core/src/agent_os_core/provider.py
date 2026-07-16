@@ -15,6 +15,7 @@ from agent_os_contracts import (
     CredentialStatus,
     ProviderErrorCode,
     ProviderFailure,
+    ProviderDecisionRequest,
     ProviderRequest,
     ProviderResponse,
     ProviderToolProposal,
@@ -43,6 +44,11 @@ class ProviderPort(ABC):
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
         raise NotImplementedError
 
+    def decide(
+        self, request: ProviderDecisionRequest
+    ) -> ProviderResponse | ProviderFailure:
+        raise NotImplementedError
+
 
 class DeterministicProvider(ProviderPort):
     """Hermetic provider used by CI; it follows the same typed port as live calls."""
@@ -55,18 +61,32 @@ class DeterministicProvider(ProviderPort):
         self.text = text
         self.tool_proposals = tool_proposals
         self.requests: list[ProviderRequest] = []
+        self.decision_requests: list[ProviderDecisionRequest] = []
 
     def complete(self, request: ProviderRequest) -> ProviderResponse:
         self.requests.append(request)
+        return self._response(request)
+
+    def decide(self, request: ProviderDecisionRequest) -> ProviderResponse:
+        self.decision_requests.append(request)
+        return self._response(request)
+
+    def _response(
+        self, request: ProviderRequest | ProviderDecisionRequest
+    ) -> ProviderResponse:
         return ProviderResponse(
             response_id=f"response-{uuid4()}",
             request_id=request.request_id,
             text=self.text,
             tool_proposals=self.tool_proposals,
             usage=ProviderUsage(
-                input_tokens=sum(len(message.content.split()) for message in request.messages),
+                input_tokens=sum(
+                    len(message.content.split()) for message in request.messages
+                ),
                 output_tokens=len(self.text.split()),
-                total_tokens=sum(len(message.content.split()) for message in request.messages)
+                total_tokens=sum(
+                    len(message.content.split()) for message in request.messages
+                )
                 + len(self.text.split()),
                 estimated_cost_usd=Decimal("0"),
             ),
@@ -92,12 +112,34 @@ class OpenAICompatibleProvider(ProviderPort):
         self.credential = credential
         self.credentials = credentials or EnvCredentialBroker()
         self.timeout_seconds = timeout_seconds
-        self.temperature = temperature if temperature is not None else float(
-            os.environ.get("AGENT_OS_PROVIDER_TEMPERATURE", os.environ.get("OPENAI_TEMPERATURE", "1.0"))
+        self.temperature = (
+            temperature
+            if temperature is not None
+            else float(
+                os.environ.get(
+                    "AGENT_OS_PROVIDER_TEMPERATURE",
+                    os.environ.get("OPENAI_TEMPERATURE", "1.0"),
+                )
+            )
         )
         self._opener = opener or urllib.request.urlopen
 
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
+        return self._invoke(
+            request, allowed_capability_ids=request.allowed_capability_ids
+        )
+
+    def decide(
+        self, request: ProviderDecisionRequest
+    ) -> ProviderResponse | ProviderFailure:
+        return self._invoke(request, allowed_capability_ids=())
+
+    def _invoke(
+        self,
+        request: ProviderRequest | ProviderDecisionRequest,
+        *,
+        allowed_capability_ids: tuple[str, ...],
+    ) -> ProviderResponse | ProviderFailure:
         try:
             secret = self.credentials.resolve(self.credential)
             body = {
@@ -108,17 +150,20 @@ class OpenAICompatibleProvider(ProviderPort):
                 ],
                 "temperature": self.temperature,
             }
-            if request.allowed_capability_ids:
+            if allowed_capability_ids:
                 body["tools"] = [
                     {
                         "type": "function",
                         "function": {
                             "name": capability_id.replace(".", "__"),
                             "description": f"Invoke typed capability {capability_id}",
-                            "parameters": {"type": "object", "additionalProperties": True},
+                            "parameters": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            },
                         },
                     }
-                    for capability_id in request.allowed_capability_ids
+                    for capability_id in allowed_capability_ids
                 ]
                 body["tool_choice"] = "auto"
             encoded = json.dumps(body).encode("utf-8")
@@ -131,11 +176,15 @@ class OpenAICompatibleProvider(ProviderPort):
                 },
                 method="POST",
             )
-            with self._opener(http_request, timeout=min(self.timeout_seconds, request.timeout_seconds)) as response:  # type: ignore[call-arg]
+            with self._opener(
+                http_request, timeout=min(self.timeout_seconds, request.timeout_seconds)
+            ) as response:  # type: ignore[call-arg]
                 payload = json.loads(response.read().decode("utf-8"))
             choice = payload["choices"][0]
             message = choice["message"]
-            proposals = tuple(self._proposal(item) for item in message.get("tool_calls", ()))
+            proposals = tuple(
+                self._proposal(item) for item in message.get("tool_calls", ())
+            )
             usage = payload.get("usage", {})
             input_tokens = int(usage.get("prompt_tokens", 0))
             output_tokens = int(usage.get("completion_tokens", 0))
@@ -147,23 +196,53 @@ class OpenAICompatibleProvider(ProviderPort):
                 usage=ProviderUsage(
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
-                    total_tokens=int(usage.get("total_tokens", input_tokens + output_tokens)),
+                    total_tokens=int(
+                        usage.get("total_tokens", input_tokens + output_tokens)
+                    ),
                     estimated_cost_usd=Decimal("0"),
                 ),
                 finish_reason=str(choice.get("finish_reason", "stop")),
                 received_at=datetime.now(timezone.utc),
             )
         except urllib.error.HTTPError as exc:
-            code = ProviderErrorCode.AUTHENTICATION_FAILED if exc.code in {401, 403} else ProviderErrorCode.RATE_LIMITED if exc.code == 429 else ProviderErrorCode.UNAVAILABLE
-            return self._failure(request, code, f"provider HTTP {exc.code}", code in {ProviderErrorCode.RATE_LIMITED, ProviderErrorCode.UNAVAILABLE})
+            code = (
+                ProviderErrorCode.AUTHENTICATION_FAILED
+                if exc.code in {401, 403}
+                else ProviderErrorCode.RATE_LIMITED
+                if exc.code == 429
+                else ProviderErrorCode.UNAVAILABLE
+            )
+            return self._failure(
+                request,
+                code,
+                f"provider HTTP {exc.code}",
+                code in {ProviderErrorCode.RATE_LIMITED, ProviderErrorCode.UNAVAILABLE},
+            )
         except TimeoutError:
-            return self._failure(request, ProviderErrorCode.TIMEOUT, "provider request timed out", True)
+            return self._failure(
+                request, ProviderErrorCode.TIMEOUT, "provider request timed out", True
+            )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            return self._failure(request, ProviderErrorCode.MALFORMED, f"provider response malformed: {type(exc).__name__}", False)
+            return self._failure(
+                request,
+                ProviderErrorCode.MALFORMED,
+                f"provider response malformed: {type(exc).__name__}",
+                False,
+            )
         except CredentialUnavailable:
-            return self._failure(request, ProviderErrorCode.AUTHENTICATION_FAILED, "credential unavailable", False)
+            return self._failure(
+                request,
+                ProviderErrorCode.AUTHENTICATION_FAILED,
+                "credential unavailable",
+                False,
+            )
         except Exception as exc:
-            return self._failure(request, ProviderErrorCode.UNAVAILABLE, f"provider unavailable: {type(exc).__name__}", True)
+            return self._failure(
+                request,
+                ProviderErrorCode.UNAVAILABLE,
+                f"provider unavailable: {type(exc).__name__}",
+                True,
+            )
 
     @staticmethod
     def _proposal(item: dict[str, object]) -> ProviderToolProposal:
@@ -177,7 +256,12 @@ class OpenAICompatibleProvider(ProviderPort):
         )
 
     @staticmethod
-    def _failure(request: ProviderRequest, code: ProviderErrorCode, message: str, retryable: bool) -> ProviderFailure:
+    def _failure(
+        request: ProviderRequest | ProviderDecisionRequest,
+        code: ProviderErrorCode,
+        message: str,
+        retryable: bool,
+    ) -> ProviderFailure:
         return ProviderFailure(
             failure_id=f"failure-{uuid4()}",
             request_id=request.request_id,

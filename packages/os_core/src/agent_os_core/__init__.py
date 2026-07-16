@@ -90,6 +90,11 @@ from .situated_persistence import (
     SQLiteSituatedAssessmentStore,
     SituatedAssessmentStore,
 )
+from .relevance import (
+    InMemoryMandateRelevanceContextRegistry,
+    MandateRelevanceContextReader,
+    ProviderRelevanceAssessor,
+)
 from .materialization import (
     MATERIALIZATION_CAPABILITY,
     DomainCandidateSealer,
@@ -189,6 +194,9 @@ __all__ = [
     "situated_source_binding_digest",
     "SituatedAssessmentStore",
     "SQLiteSituatedAssessmentStore",
+    "InMemoryMandateRelevanceContextRegistry",
+    "MandateRelevanceContextReader",
+    "ProviderRelevanceAssessor",
     "ValidatedTestReport",
     "DomainCandidateSealer",
     "DomainCandidateEvaluationRecorder",
