@@ -42,10 +42,10 @@
 - Modify: `packages/os_core/src/agent_os_core/__init__.py`
 - Test: `tests/product/test_srl_event_authority.py`
 
-**Produces:** read-only registry protocols and composition-owned in-memory implementations; no public mutable registry surface.
+**Produces:** read-only registry protocols, canonical lease/credential readers and composition-owned implementations; no public mutable origin/attestation surface.
 
 - [ ] Write RED tests for caller-minted object rejection, event-to-origin lookup, canonical lease lookup, current CredentialRef digest/status/scope/expiry, issuer identity and policy-attestation lookup.
-- [ ] Prove a boolean verifier or an unregistered same-content object cannot authorize admission.
+- [ ] Prove a boolean verifier, caller/Application-supplied origin/attestation or an unregistered same-content object cannot authorize admission.
 - [ ] Implement minimal registries/readers.
 - [ ] Run Tasks 1-2 tests, Ruff and Pyright.
 - [ ] Commit `feat(srl): add canonical event authority registries`.
@@ -56,11 +56,12 @@
 - Create: `packages/os_core/src/agent_os_core/srl_event_store.py`
 - Test: `tests/product/test_srl_event_store.py`
 
-**Produces:** `SQLiteEventAdmissionStore` with receipt lookup by id/event and trace PENDING/COMPLETED/DENIED transitions.
+**Produces:** `SQLiteEventAdmissionStore` with separate reader/service-bound writer views, identity-checked object capability, receipt lookup by id/event and trace PENDING/COMPLETED/DENIED transitions.
 
 - [ ] Write RED tests for durable restart, exact replay, changed-event conflict, trace transition legality, content conflict and no raw forbidden fields.
+- [ ] Write RED tests proving direct receipt, fake proof, same-field object and serialized/deserialized token cannot write; only the service-bound writer can.
 - [ ] Run focused RED.
-- [ ] Implement SQLite schema/transactions and package-private verified-admission write path.
+- [ ] Implement SQLite schema/transactions and the service-bound identity-capability write path; do not rely on naming privacy.
 - [ ] Run Tasks 1-3 tests, Ruff and Pyright.
 - [ ] Commit `feat(srl): persist admission and steward outbox`.
 
@@ -89,6 +90,7 @@
 **Produces:** receipt-required facade, process-local single flight and durable trace reconciliation around one existing `OperationalProposalService`.
 
 - [ ] Write RED tests for current epoch/binding recheck, TaskDraft/Help/None/ABSTAIN matrix, one delegation/store, constant-return rejection, same-process concurrency and restart reconciliation after trace completion failure.
+- [ ] Write a crash-window RED showing durable `delegation_attempt_count` increments while no exact provider-total claim is emitted before a committed assessment.
 - [ ] Add forbidden-import AST and Task/connector/capability zero-effect tests.
 - [ ] Implement thin facade; do not import provider implementations or effect paths.
 - [ ] Run Tasks 1-5 and existing provider/situated/M0 suites, Ruff and Pyright.
@@ -102,10 +104,11 @@
 - Test: `tests/product/test_data_agent_external_report_adapter.py`
 - Test: `tests/product/test_data_agent_provider_relevance_e2e.py`
 
-**Produces:** immutable derived origin/attestation material, canonical lease composition and receipt-required application proposal entry.
+**Produces:** adapter-owned read-only origin/attestation resolution, canonical lease composition and receipt-required application proposal entry.
 
 - [ ] Write RED tests that the legacy application entry without receipt fails before provider/persistence.
-- [ ] Write RED E2E tests for exact derived registration, credential drift, foreign scope, replay and zero Task/effect.
+- [ ] Write RED E2E tests for exact derived registration, restart-stable derivation, caller/Application same-content object rejection, credential drift, foreign scope, replay and zero Task/effect.
+- [ ] Make the adapter itself (or a tightly owning read-only wrapper) implement origin/attestation readers from durable state; Application must not copy/register these objects.
 - [ ] Add only derived read methods/composition; do not rewrite fetching, redaction, cursor, trust or provider logic.
 - [ ] Run Data Agent, steward, situated/provider and M0 regression suites, Ruff and Pyright.
 - [ ] Commit `feat(product): require admission for situated proposals`.
