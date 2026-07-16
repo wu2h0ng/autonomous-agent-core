@@ -18,6 +18,7 @@ from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 from agent_os_contracts import (
     ArtifactRef,
+    CredentialAuthorizationSnapshot,
     CredentialRef,
     CredentialStatus,
     EnvironmentEvent,
@@ -26,7 +27,12 @@ from agent_os_contracts import (
     canonical_json,
     content_digest,
 )
-from agent_os_core import EnvCredentialBroker, SituationalBinding
+from agent_os_core import (
+    CanonicalCredentialAuthorizationReader,
+    CredentialAuthorizationReader,
+    EnvCredentialBroker,
+    SituationalBinding,
+)
 from apps.api_server.data_agent_report_policy import (
     ADAPTER_VERSION as _ADAPTER_VERSION,
     CREDENTIAL_PROVIDER as _CREDENTIAL_PROVIDER,
@@ -1372,6 +1378,7 @@ class DataAgentReportAdapter:
         config: DataAgentReportSourceConfig,
         *,
         credential_broker: CredentialResolver | None = None,
+        credential_authorizations: CredentialAuthorizationReader | None = None,
         transport: DataAgentReportTransport | None = None,
         state_store: DataAgentReportStateStore | None = None,
         clock: Clock,
@@ -1418,6 +1425,10 @@ class DataAgentReportAdapter:
             }
         )
         self._credentials = credential_broker or EnvCredentialBroker()
+        self._credential_authorizations = (
+            credential_authorizations
+            or CanonicalCredentialAuthorizationReader((config.credential,))
+        )
         self._transport = transport or StdlibDataAgentReportTransport()
         self._state_store = state_store or _InMemoryDataAgentReportStateStore()
         self._clock = clock
@@ -1526,17 +1537,61 @@ class DataAgentReportAdapter:
                 "credential is not bound to the frozen origin, tenant, and report scope"
             )
 
+    def _assert_live_credential_authorized(self, *, evaluated_at: datetime) -> None:
+        frozen = self._config.credential
+        try:
+            current = self._credential_authorizations.resolve_authorization(
+                frozen.credential_ref_id
+            )
+        except Exception:
+            raise DataAgentReportAdapterError(
+                "current credential authorization is unavailable"
+            ) from None
+        if current is None or type(current) is not CredentialAuthorizationSnapshot:
+            raise DataAgentReportAdapterError(
+                "current credential authorization is unavailable"
+            )
+        try:
+            canonical = CredentialAuthorizationSnapshot.model_validate_json(
+                canonical_json(current).encode("utf-8"), strict=True
+            )
+        except (TypeError, ValueError):
+            raise DataAgentReportAdapterError(
+                "current credential authorization is invalid"
+            ) from None
+        if canonical != current:
+            raise DataAgentReportAdapterError(
+                "current credential authorization is invalid"
+            )
+        if (
+            current.credential_ref_id != frozen.credential_ref_id
+            or current.credential_ref_digest != content_digest(frozen)
+            or current.owner_principal_id != frozen.owner_principal_id
+            or current.tenant_id != frozen.tenant_id
+            or current.workspace_id != frozen.workspace_id
+            or current.provider_id != frozen.provider_id
+            or current.scopes != frozen.scopes
+            or current.created_at != frozen.created_at
+            or current.expires_at != frozen.expires_at
+        ):
+            raise DataAgentReportAdapterError(
+                "current credential authorization does not match frozen source"
+            )
+        if (
+            current.status is not CredentialStatus.ACTIVE
+            or evaluated_at < current.created_at
+            or evaluated_at >= current.expires_at
+        ):
+            raise DataAgentReportAdapterError(
+                "current credential authorization is inactive or expired"
+            )
+
     def pull(self, trace_id: str) -> TrustedObservationBundle:
         if not _TRACE_ID.fullmatch(trace_id) or ".." in trace_id:
             raise DataAgentReportAdapterError("trace_id is not a safe single segment")
         now = _utc(self._clock())
         credential = self._config.credential
-        if (
-            credential.status is not CredentialStatus.ACTIVE
-            or now < credential.created_at
-            or now >= credential.expires_at
-        ):
-            raise DataAgentReportAdapterError("credential is inactive or expired")
+        self._assert_live_credential_authorized(evaluated_at=now)
         path_trace = quote(trace_id, safe="")
         expected_url = f"{self._origin}/runs/{path_trace}/report?audience=external"
         try:

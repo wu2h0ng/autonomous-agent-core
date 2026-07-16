@@ -14,6 +14,7 @@ from typing import Any, Callable, assert_type
 import pytest
 
 from agent_os_contracts import (
+    CredentialAuthorizationSnapshot,
     CredentialRef,
     CredentialStatus,
     EnvironmentBindingAuthorization,
@@ -27,6 +28,7 @@ from agent_os_contracts import (
     RelevanceDisposition,
     RelevanceUrgency,
     TaskDraftProposal,
+    content_digest,
 )
 from apps.api_server.app import AgentOSApplication
 from tests.product._steward_app import DeferredAdmittedApplication
@@ -136,6 +138,18 @@ class _Broker:
         return SECRET
 
 
+class _AuthorizationReader:
+    def __init__(self, snapshot: CredentialAuthorizationSnapshot | None) -> None:
+        self.snapshot = snapshot
+        self.resolved: list[str] = []
+
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None:
+        self.resolved.append(credential_ref_id)
+        return self.snapshot
+
+
 class _Transport:
     def __init__(
         self,
@@ -171,6 +185,25 @@ def _credential(**updates: object) -> CredentialRef:
     }
     values.update(updates)
     return CredentialRef(**values)
+
+
+def _authorization_snapshot(
+    credential: CredentialRef, **updates: object
+) -> CredentialAuthorizationSnapshot:
+    values: dict[str, Any] = {
+        "credential_ref_id": credential.credential_ref_id,
+        "credential_ref_digest": content_digest(credential),
+        "owner_principal_id": credential.owner_principal_id,
+        "tenant_id": credential.tenant_id,
+        "workspace_id": credential.workspace_id,
+        "provider_id": credential.provider_id,
+        "scopes": credential.scopes,
+        "status": credential.status,
+        "created_at": credential.created_at,
+        "expires_at": credential.expires_at,
+    }
+    values.update(updates)
+    return CredentialAuthorizationSnapshot(**values)
 
 
 def _config(**updates: object) -> DataAgentReportSourceConfig:
@@ -972,6 +1005,79 @@ def test_credential_ref_must_match_frozen_tenant_origin_and_external_scope() -> 
             transport=_Transport(_response()),
             clock=lambda: NOW,
         )
+
+
+@pytest.mark.parametrize(
+    "current_authorization",
+    [
+        None,
+        _authorization_snapshot(_credential(), status=CredentialStatus.REVOKED),
+        _authorization_snapshot(_credential(), expires_at=NOW),
+        _authorization_snapshot(_credential(), credential_ref_digest="f" * 64),
+        _authorization_snapshot(_credential(), owner_principal_id="user:other"),
+        _authorization_snapshot(_credential(), provider_id="provider:other"),
+        _authorization_snapshot(_credential(), scopes=("reports:read",)),
+    ],
+    ids=(
+        "unavailable",
+        "revoked",
+        "expired",
+        "rotated",
+        "principal-drift",
+        "provider-drift",
+        "scope-drift",
+    ),
+)
+def test_live_credential_preflight_denies_before_secret_or_network(
+    current_authorization: CredentialAuthorizationSnapshot | None,
+) -> None:
+    credential = _credential()
+    broker = _Broker()
+    transport = _Transport(_response())
+    authorizations = _AuthorizationReader(current_authorization)
+    adapter = DataAgentReportAdapter(
+        _config(credential=credential),
+        credential_broker=broker,
+        credential_authorizations=authorizations,
+        transport=transport,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="credential"):
+        adapter.pull(TRACE_ID)
+
+    assert authorizations.resolved == [credential.credential_ref_id]
+    assert broker.resolved == []
+    assert transport.requests == []
+
+
+def test_live_credential_preflight_rechecks_authority_after_startup() -> None:
+    credential = _credential()
+    broker = _Broker()
+    transport = _Transport(_response())
+    authorizations = _AuthorizationReader(_authorization_snapshot(credential))
+    adapter = DataAgentReportAdapter(
+        _config(credential=credential),
+        credential_broker=broker,
+        credential_authorizations=authorizations,
+        transport=transport,
+        clock=lambda: NOW,
+    )
+
+    adapter.pull(TRACE_ID)
+    authorizations.snapshot = _authorization_snapshot(
+        credential, status=CredentialStatus.REVOKED
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="credential"):
+        adapter.pull(TRACE_ID)
+
+    assert authorizations.resolved == [
+        credential.credential_ref_id,
+        credential.credential_ref_id,
+    ]
+    assert len(broker.resolved) == 1
+    assert len(transport.requests) == 1
 
 
 def test_redirect_or_final_origin_change_is_rejected_without_registration() -> None:
