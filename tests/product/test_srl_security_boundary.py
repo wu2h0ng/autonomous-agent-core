@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import ast
 import inspect
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
@@ -192,6 +193,29 @@ def test_root_core_surface_does_not_export_full_credential_reader() -> None:
     assert "situational_control" not in inspect.signature(
         AgentOSApplication
     ).parameters
+    assert "situated_proposal_service" not in inspect.signature(
+        AgentOSApplication
+    ).parameters
+
+
+def test_application_has_no_direct_operational_proposal_bypass() -> None:
+    from apps.api_server.app import AgentOSApplication
+
+    source = inspect.getsource(AgentOSApplication)
+    tree = ast.parse(source)
+    assert "OperationalProposalService" not in source
+    assert not any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "propose"
+        for node in ast.walk(tree)
+    )
+    assert tuple(inspect.signature(AgentOSApplication.propose_situated_work).parameters) == (
+        "self",
+        "event_id",
+        "projection_id",
+        "admission_receipt_id",
+    )
 
 
 def test_scoped_event_ledgers_allow_same_event_id_without_cross_scope_dos(

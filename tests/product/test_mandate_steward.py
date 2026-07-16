@@ -22,6 +22,8 @@ from agent_os_contracts import (
     HelpRequest,
     LedgerAccessScope,
     OperationalProjectionRef,
+    PrincipalIdentity,
+    PrincipalRole,
     ProjectionEpistemicStatus,
     RatifiedMandateRef,
     RelevanceAssessment,
@@ -45,6 +47,7 @@ from agent_os_core import (
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_store import _create_event_admission_store
+from apps.api_server.app import AgentOSApplication
 
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
@@ -704,3 +707,58 @@ def test_module_has_no_effect_provider_or_capability_imports() -> None:
         for name in imported
         for token in ("provider", "capability", "connector", "task_service", "execution")
     )
+
+
+def _application(tmp_path: Path, steward: MandateSteward) -> AgentOSApplication:
+    return AgentOSApplication._with_mandate_steward(
+        mandate_steward=steward,
+        database=tmp_path / "application.sqlite3",
+        workspace=tmp_path,
+        principal=PrincipalIdentity(
+            principal_id=SCOPE.principal_id,
+            tenant_id=SCOPE.tenant_id,
+            workspace_id=SCOPE.workspace_id,
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=NOW,
+        ),
+        clock=lambda: NOW,
+    )
+
+
+def test_application_legacy_two_argument_entry_fails_before_any_delegation(
+    tmp_path: Path,
+) -> None:
+    steward, reader, _, assessor, _ = _case(tmp_path)
+    app = _application(tmp_path, steward)
+
+    with pytest.raises(TypeError):
+        app.propose_situated_work("event-1", "projection-1")  # type: ignore[call-arg]
+
+    trace_id = f"situated-evaluation:{content_digest({'admission_receipt_digest': _receipt().receipt_digest, 'projection_id': 'projection-1'})}"
+    assert assessor.calls == 0
+    assert reader.by_trace_id(trace_id) is None
+    assert app.store.list_task_ids() == ()
+
+
+def test_application_receipt_entry_uses_steward_trace_and_reconciliation(
+    tmp_path: Path,
+) -> None:
+    steward, reader, _, assessor, _ = _case(tmp_path)
+    app = _application(tmp_path, steward)
+    receipt = _receipt()
+
+    first = app.propose_situated_work(
+        "event-1", "projection-1", receipt.receipt_id
+    )
+    replay = app.propose_situated_work(
+        "event-1", "projection-1", receipt.receipt_id
+    )
+
+    trace_id = f"situated-evaluation:{content_digest({'admission_receipt_digest': receipt.receipt_digest, 'projection_id': 'projection-1'})}"
+    trace = reader.by_trace_id(trace_id)
+    assert isinstance(first, TaskDraftProposal)
+    assert replay == first
+    assert trace is not None
+    assert trace.status is SituatedTraceStatus.COMPLETED
+    assert assessor.calls == 1
+    assert app.store.list_task_ids() == ()

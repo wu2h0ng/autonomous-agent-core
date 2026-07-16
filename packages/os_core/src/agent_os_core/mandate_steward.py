@@ -12,6 +12,7 @@ from agent_os_contracts import (
     EnvironmentEvent,
     EnvironmentEventAdmissionReceipt,
     HelpRequest,
+    LedgerAccessScope,
     OperationalProjectionRef,
     RatifiedMandateRef,
     SituatedAssessmentOutcomeKind,
@@ -123,6 +124,12 @@ class MandateSteward:
         self._principal_id = principal_id
         self._clock = clock
         self._monotonic = monotonic
+
+    @property
+    def scope(self) -> LedgerAccessScope:
+        """Return the authenticated ledger scope bound at construction."""
+
+        return self._authority.scope
 
     def observe_event(
         self,

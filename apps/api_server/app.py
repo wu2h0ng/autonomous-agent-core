@@ -37,7 +37,6 @@ from agent_os_contracts import (
     PrincipalRole,
     ProviderProfile,
     ProviderFailure,
-    ProviderRelevancePolicy,
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
@@ -58,11 +57,7 @@ from agent_os_core import (
     CorrectionAuthority,
     DeterministicProvider,
     PolicyKernel,
-    OperationalProposalService,
-    RelevanceAssessorPort,
-    ProviderPort,
-    ProviderRelevanceAssessor,
-    MandateRelevanceContextReader,
+    MandateSteward,
     RunCoordinator,
     DomainCandidateSealer,
     DomainCandidateEvaluationRecorder,
@@ -89,7 +84,6 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
-from agent_os_core.situated_persistence import SituatedAssessmentStore
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
 from .data_agent_report_adapter import (
@@ -107,88 +101,44 @@ class AgentOSApplication:
     """Composition root used unchanged by the CLI, HTTP API and tests."""
 
     @classmethod
-    def _with_situated_control(
+    def _with_mandate_steward(
         cls,
         *,
-        situational_control: SituatedAssessmentStore,
-        relevance_assessor: RelevanceAssessorPort | None = None,
-        provider_relevance_policy: ProviderRelevancePolicy | None = None,
-        mandate_relevance_contexts: MandateRelevanceContextReader | None = None,
-        relevance_provider: ProviderPort | None = None,
-        relevance_provider_profile: ProviderProfile | None = None,
+        mandate_steward: MandateSteward,
         database: str | Path = ":memory:",
         workspace: str | Path = ".",
-        principal: PrincipalIdentity | None = None,
+        principal: PrincipalIdentity,
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
         **application_options: Any,
     ) -> AgentOSApplication:
-        """Private bootstrap seam for the current pre-integration runtime.
-
-        Raw authority/bootstrap controls deliberately do not cross the public
-        application constructor.  Production composition remains debt until a
-        capability-broker-owned bootstrap/correction service replaces this
-        private seam; this helper exists only for bounded local composition.
-        """
-        now = clock()
-        resolved_principal = principal or PrincipalIdentity(
-            principal_id="user:local",
-            tenant_id="tenant:local",
-            workspace_id="workspace:local",
-            role=PrincipalRole.PRINCIPAL,
-            authenticated_at=now,
+        """Bind one pre-composed, scope-authenticated steward to the application."""
+        expected_scope = (
+            principal.principal_id,
+            principal.tenant_id,
+            principal.workspace_id,
         )
-        resolved_trust = situational_trust or data_agent_reports
-        provider_values = (
-            provider_relevance_policy,
-            mandate_relevance_contexts,
-            relevance_provider,
-            relevance_provider_profile,
-        )
-        provider_configured = all(value is not None for value in provider_values)
-        if any(value is not None for value in provider_values) and not provider_configured:
-            raise ValueError(
-                "provider relevance composition requires policy, contexts, provider, and profile"
+        actual_scope = mandate_steward.scope
+        if (
+            actual_scope.principal_id,
+            actual_scope.tenant_id,
+            actual_scope.workspace_id,
+        ) != expected_scope:
+            raise SituationalScopeMismatch(
+                "MandateSteward scope does not match application principal"
             )
-        if relevance_assessor is not None and provider_configured:
-            raise ValueError("configure either explicit or provider relevance assessor")
-        if relevance_assessor is None and not provider_configured:
-            raise ValueError("situational control and relevance assessor must be configured together")
-        if resolved_trust is None:
-            raise ValueError("situated proposal service requires a situational trust resolver")
-        if not situational_control.durable:
-            raise ValueError("situated proposal service requires a durable authority store")
-        resolved_assessor = relevance_assessor
-        if provider_configured:
-            assert provider_relevance_policy is not None
-            assert mandate_relevance_contexts is not None
-            assert relevance_provider is not None
-            assert relevance_provider_profile is not None
-            resolved_assessor = ProviderRelevanceAssessor(
-                provider=relevance_provider,
-                provider_profile=relevance_provider_profile,
-                policy=provider_relevance_policy,
-                trust=resolved_trust,
-                contexts=mandate_relevance_contexts,
-            )
-        assert resolved_assessor is not None
-        service = OperationalProposalService(
-            trust=resolved_trust,
-            control=situational_control,
-            assessor=resolved_assessor,
-            principal_id=resolved_principal.principal_id,
-        )
-        return cls(
+        application = cls(
             database=database,
             workspace=workspace,
-            principal=resolved_principal,
+            principal=principal,
             clock=clock,
             situational_trust=situational_trust,
             data_agent_reports=data_agent_reports,
-            situated_proposal_service=service,
             **application_options,
         )
+        application._mandate_steward = mandate_steward
+        return application
 
     def __init__(
         self,
@@ -201,7 +151,6 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
-        situated_proposal_service: OperationalProposalService | None = None,
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -238,7 +187,7 @@ class AgentOSApplication:
                 "Data Agent report source requires durable first-seen state"
             )
         self.data_agent_reports = data_agent_reports
-        self.situated_proposal_service = situated_proposal_service
+        self._mandate_steward: MandateSteward | None = None
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
         self.correction = CorrectionAuthority(
@@ -646,13 +595,12 @@ class AgentOSApplication:
         self,
         event_id: str,
         projection_id: str,
+        admission_receipt_id: str,
     ) -> TaskDraftProposal | HelpRequest | None:
-        if self.situated_proposal_service is None:
-            raise RuntimeError("situated proposal service is not configured")
-        return self.situated_proposal_service.propose(
-            event_id,
-            projection_id,
-            evaluated_at=self._clock(),
+        if self._mandate_steward is None:
+            raise RuntimeError("MandateSteward is not configured")
+        return self._mandate_steward.observe_event(
+            event_id, projection_id, admission_receipt_id
         )
 
     def commit_task(self, task_id: str, payload: dict[str, Any]):

@@ -24,7 +24,10 @@ from agent_os_core import (
     situated_input_binding_digest,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
-from apps.api_server.app import AgentOSApplication
+from tests.product._steward_app import (
+    DeferredAdmittedApplication,
+    admitted_application,
+)
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
@@ -121,18 +124,19 @@ def _application(
     control: SQLiteSituatedAssessmentStore,
     provider: DeterministicProvider,
     policy: ProviderRelevancePolicy,
-) -> AgentOSApplication:
-    return AgentOSApplication._with_situated_control(
+) -> DeferredAdmittedApplication:
+    return DeferredAdmittedApplication(
         database=task_database,
         workspace=workspace,
+        trust=adapter,
         data_agent_reports=adapter,
-        situational_control=control,
-        provider_relevance_policy=policy,
-        mandate_relevance_contexts=InMemoryMandateRelevanceContextRegistry(
+        control=control,
+        provider_policy=policy,
+        contexts=InMemoryMandateRelevanceContextRegistry(
             (_context(),)
         ),
-        relevance_provider=provider,
-        relevance_provider_profile=policy.provider_invocation.provider_profile,
+        provider=provider,
+        provider_profile=policy.provider_invocation.provider_profile,
         clock=lambda: NOW,
     )
 
@@ -555,20 +559,23 @@ def test_same_id_provider_binding_drift_fails_during_application_construction(
     task_database = tmp_path / f"agent-os-{drift}.sqlite3"
 
     with pytest.raises(ValueError, match="provider (profile|invocation)"):
-        AgentOSApplication._with_situated_control(
+        admitted_application(
             database=task_database,
             workspace=tmp_path,
+            trust=adapter,
             data_agent_reports=adapter,
-            situational_control=SQLiteSituatedAssessmentStore(
+            control=SQLiteSituatedAssessmentStore(
                 tmp_path / f"situated-{drift}.sqlite3",
                 mandates=(_mandate(policy),),
             ),
-            provider_relevance_policy=policy,
-            mandate_relevance_contexts=InMemoryMandateRelevanceContextRegistry(
+            provider_policy=policy,
+            contexts=InMemoryMandateRelevanceContextRegistry(
                 (_context(),)
             ),
-            relevance_provider=provider,
-            relevance_provider_profile=profile,
+            provider=provider,
+            provider_profile=profile,
+            event_id=TRACE_ID,
+            projection_id=f"projection:{TRACE_ID}",
             clock=lambda: NOW,
         )
 

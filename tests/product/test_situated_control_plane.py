@@ -33,7 +33,9 @@ from agent_os_core import (
     situated_input_binding_digest,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
+from agent_os_core.srl_event_store import EventAdmissionPersistenceConflict
 from apps.api_server.app import AgentOSApplication
+from tests.product._steward_app import admitted_application
 
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
@@ -305,25 +307,28 @@ def test_application_entry_accepts_only_trusted_ids_and_never_writes_task(
     tmp_path,
 ) -> None:
     assessor = _Assessor(_assessment())
-    app = AgentOSApplication._with_situated_control(
+    app, receipt = admitted_application(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
-        situational_trust=_trust(),
-        situational_control=SQLiteSituatedAssessmentStore(
+        trust=_trust(),
+        control=SQLiteSituatedAssessmentStore(
             tmp_path / "situated.sqlite3", mandates=(_mandate(),)
         ),
-        relevance_assessor=assessor,
+        assessor=assessor,
+        event_id="event:report-1",
+        projection_id="projection:report-1",
         clock=lambda: NOW,
     )
 
     result = app.propose_situated_work(
         "event:report-1",
         "projection:report-1",
+        receipt.receipt_id,
     )
 
     assert isinstance(result, TaskDraftProposal)
     assert app.store.list_task_ids() == ()
-    with pytest.raises(TypeError):
+    with pytest.raises(EventAdmissionPersistenceConflict):
         getattr(app, "propose_situated_work")(
             "event:report-1",
             "projection:report-1",
@@ -441,34 +446,8 @@ def test_help_request_cannot_grant_authority_or_external_effects() -> None:
     assert not hasattr(result, "resume")
 
 
-def test_application_rejects_partial_situated_configuration(tmp_path) -> None:
-    with pytest.raises(ValueError, match="configured together"):
-        AgentOSApplication._with_situated_control(
-            database=tmp_path / "agent-os.sqlite3",
-            workspace=tmp_path,
-            situational_trust=_trust(),
-            situational_control=InMemorySituationalControlPlane((_mandate(),)),
-            clock=lambda: NOW,
-        )
-
-    with pytest.raises(ValueError, match="trust resolver"):
-        AgentOSApplication._with_situated_control(
-            database=tmp_path / "agent-os-without-trust.sqlite3",
-            workspace=tmp_path,
-            situational_control=InMemorySituationalControlPlane((_mandate(),)),
-            relevance_assessor=_Assessor(_assessment()),
-            clock=lambda: NOW,
-        )
-
-    with pytest.raises(ValueError, match="durable authority"):
-        AgentOSApplication._with_situated_control(
-            database=tmp_path / "agent-os-memory-authority.sqlite3",
-            workspace=tmp_path,
-            situational_trust=_trust(),
-            situational_control=InMemorySituationalControlPlane((_mandate(),)),
-            relevance_assessor=_Assessor(_assessment()),
-            clock=lambda: NOW,
-        )
+def test_application_rejects_legacy_situated_composition() -> None:
+    assert not hasattr(AgentOSApplication, "_with_situated_control")
 
 
 def test_revoked_sqlite_mandate_is_terminal_across_instances(tmp_path) -> None:
@@ -662,16 +641,20 @@ def test_application_uses_sqlite_situated_store_without_task_conversion(
 ) -> None:
     database = tmp_path / "agent-os-with-situated.sqlite3"
     situated_store = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
-    app = AgentOSApplication._with_situated_control(
+    app, receipt = admitted_application(
         database=database,
         workspace=tmp_path,
-        situational_trust=_trust(),
-        situational_control=situated_store,
-        relevance_assessor=_Assessor(_assessment()),
+        trust=_trust(),
+        control=situated_store,
+        assessor=_Assessor(_assessment()),
+        event_id="event:report-1",
+        projection_id="projection:report-1",
         clock=lambda: NOW,
     )
 
-    result = app.propose_situated_work("event:report-1", "projection:report-1")
+    result = app.propose_situated_work(
+        "event:report-1", "projection:report-1", receipt.receipt_id
+    )
 
     assert isinstance(result, TaskDraftProposal)
     assert app.store.list_task_ids() == ()

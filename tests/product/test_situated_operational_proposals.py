@@ -25,6 +25,7 @@ from agent_os_contracts import (
 )
 from agent_os_core import (
     InMemorySituationalTrustRegistry,
+    SituationalPersistenceConflict,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     StaleOperationalProjection,
@@ -32,7 +33,7 @@ from agent_os_core import (
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.situated import _OperationalProposalCompiler
-from apps.api_server.app import AgentOSApplication
+from tests.product._steward_app import admitted_application
 
 
 NOW = datetime(2026, 7, 16, 10, 0, tzinfo=timezone.utc)
@@ -269,15 +270,17 @@ class _Assessor:
         )
 
 
-def _app(tmp_path, *, now: datetime = NOW) -> AgentOSApplication:
-    return AgentOSApplication._with_situated_control(
+def _app(tmp_path, *, now: datetime = NOW):  # type: ignore[no-untyped-def]
+    return admitted_application(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
-        situational_trust=_trust_registry(),
-        situational_control=SQLiteSituatedAssessmentStore(
+        trust=_trust_registry(),
+        control=SQLiteSituatedAssessmentStore(
             tmp_path / "situated.sqlite3", mandates=(_mandate(),)
         ),
-        relevance_assessor=_Assessor(),
+        assessor=_Assessor(),
+        event_id="event:report-1",
+        projection_id="projection:report-1",
         clock=lambda: now,
     )
 
@@ -411,7 +414,7 @@ def test_event_and_projection_evidence_must_reference_bound_artifacts() -> None:
 
 
 def test_input_cannot_smuggle_workflow_or_authority(tmp_path) -> None:
-    app = _app(tmp_path)
+    app, receipt = _app(tmp_path)
     event_payload = _event().model_dump(mode="json")
     event_payload["workflow"] = {"execute": True}
     event_payload["authority_scopes"] = ["workspace:write"]
@@ -423,6 +426,7 @@ def test_input_cannot_smuggle_workflow_or_authority(tmp_path) -> None:
         getattr(app, "propose_situated_work")(
             "event:report-1",
             "projection:report-1",
+            receipt.receipt_id,
             _assessment().model_dump(mode="json"),
         )
 
@@ -457,11 +461,12 @@ def test_proposal_identity_is_content_bound_and_replay_stable() -> None:
 
 
 def test_application_entry_point_is_read_only_and_principal_scoped(tmp_path) -> None:
-    app = _app(tmp_path)
+    app, receipt = _app(tmp_path)
 
     result = app.propose_situated_work(
         "event:report-1",
         "projection:report-1",
+        receipt.receipt_id,
     )
 
     assert isinstance(result, TaskDraftProposal)
@@ -471,6 +476,7 @@ def test_application_entry_point_is_read_only_and_principal_scoped(tmp_path) -> 
         app.propose_situated_work(
             "event:unknown",
             "projection:report-1",
+            receipt.receipt_id,
         )
 
 
@@ -506,16 +512,17 @@ def test_untrusted_mandate_or_self_certified_artifact_is_rejected(tmp_path) -> N
             evaluated_at=NOW,
         )
 
-    assert _app(tmp_path).store.list_task_ids() == ()
+    assert _app(tmp_path)[0].store.list_task_ids() == ()
 
 
 def test_application_uses_trusted_clock_not_caller_time(tmp_path) -> None:
-    app = _app(tmp_path, now=NOW + timedelta(minutes=20))
+    app, receipt = _app(tmp_path, now=NOW + timedelta(minutes=20))
 
-    with pytest.raises(StaleOperationalProjection):
+    with pytest.raises(SituationalPersistenceConflict, match="delegation failed"):
         app.propose_situated_work(
             "event:report-1",
             "projection:report-1",
+            receipt.receipt_id,
         )
 
     with pytest.raises(TypeError, match="evaluated_at"):
@@ -543,7 +550,7 @@ def test_untyped_assessment_evidence_cannot_leak_into_output() -> None:
 
 
 def test_proposed_goal_cannot_enter_generic_task_creation(tmp_path) -> None:
-    app = _app(tmp_path)
+    app, _ = _app(tmp_path)
     result = _compiler().compile(
         _event(),
         _projection(),

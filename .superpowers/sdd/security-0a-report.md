@@ -38,9 +38,15 @@ Second-round independent review findings are closed as follows:
 - Receipt and trace by-id reads apply the full scope in SQL before decode, so
   foreign absent, valid, and tampered identifiers have the same `None` result.
 - `SQLiteSituatedAssessmentStore` is no longer exported from the root package.
-  The public `AgentOSApplication` constructor accepts only an already-composed
-  proposal capability, not a raw assessment control. Pre-integration bootstrap
-  remains behind the private `_with_situated_control` composition seam.
+  The public `AgentOSApplication` constructor accepts neither raw assessment
+  control nor an `OperationalProposalService`. The only private composition
+  seam accepts an already scope-bound `MandateSteward` and rejects principal
+  scope mismatch.
+- `propose_situated_work` requires an admission receipt id and delegates only
+  through `MandateSteward.observe_event`. The legacy two-argument call fails at
+  argument binding before assessment, provider, trace, Task or effect work.
+- Existing product fixtures now exercise the real receipt-required spine; the
+  production Application class contains no direct `.propose(...)` call.
 
 The old local Task 3 databases are disposable pre-integration artifacts. This
 package intentionally provides no production migration.
@@ -68,7 +74,7 @@ PENDING and assessment/provider delegation remains zero.
 ```text
 Task 1-5 plus security boundary: covered by full Product suite
 Raw trust exception matrix:      3 passed
-Full Product:                    1035 passed, 1 skipped
+Full Product:                    1038 passed, 1 skipped
 Ruff:                            all checks passed
 Pyright:                         0 errors, 0 warnings, 0 informations
 git diff --check:                passed

@@ -29,6 +29,7 @@ from agent_os_contracts import (
     TaskDraftProposal,
 )
 from apps.api_server.app import AgentOSApplication
+from tests.product._steward_app import DeferredAdmittedApplication
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
@@ -369,7 +370,7 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
             tmp_path / "data-agent-state.sqlite3"
         ),
     )
-    app = AgentOSApplication._with_situated_control(
+    app = DeferredAdmittedApplication(
         database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         principal=PrincipalIdentity(
@@ -379,11 +380,12 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
             role=PrincipalRole.PRINCIPAL,
             authenticated_at=NOW - timedelta(minutes=1),
         ),
+        trust=adapter,
         data_agent_reports=adapter,
-        situational_control=SQLiteSituatedAssessmentStore(
+        control=SQLiteSituatedAssessmentStore(
             tmp_path / "situated.sqlite3", mandates=(_mandate(),)
         ),
-        relevance_assessor=_ReportAssessor(),
+        assessor=_ReportAssessor(),
         clock=lambda: NOW,
     )
     bundle = app.observe_data_agent_report(TRACE_ID)
@@ -423,7 +425,7 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
         now=NOW - timedelta(seconds=1),
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
-    first_app = AgentOSApplication._with_situated_control(
+    first_app = DeferredAdmittedApplication(
         database=application_database,
         workspace=tmp_path,
         principal=PrincipalIdentity(
@@ -433,11 +435,12 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
             role=PrincipalRole.PRINCIPAL,
             authenticated_at=NOW - timedelta(minutes=1),
         ),
+        trust=first_adapter,
         data_agent_reports=first_adapter,
-        situational_control=SQLiteSituatedAssessmentStore(
+        control=SQLiteSituatedAssessmentStore(
             situated_database, mandates=(_mandate(),)
         ),
-        relevance_assessor=_ReportAssessor(),
+        assessor=_ReportAssessor(),
         clock=lambda: NOW,
     )
     bundle = first_app.observe_data_agent_report(TRACE_ID)
@@ -446,7 +449,7 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
     restarted_adapter, restarted_broker, restarted_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
-    restarted_app = AgentOSApplication._with_situated_control(
+    restarted_app = DeferredAdmittedApplication(
         database=application_database,
         workspace=tmp_path,
         principal=PrincipalIdentity(
@@ -456,9 +459,10 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
             role=PrincipalRole.PRINCIPAL,
             authenticated_at=NOW - timedelta(minutes=1),
         ),
+        trust=restarted_adapter,
         data_agent_reports=restarted_adapter,
-        situational_control=SQLiteSituatedAssessmentStore(situated_database),
-        relevance_assessor=_ReportAssessor(),
+        control=SQLiteSituatedAssessmentStore(situated_database),
+        assessor=_ReportAssessor(),
         clock=lambda: NOW,
     )
 

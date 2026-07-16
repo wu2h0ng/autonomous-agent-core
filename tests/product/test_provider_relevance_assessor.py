@@ -57,7 +57,7 @@ from agent_os_core import (
     situated_input_binding_digest,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
-from apps.api_server.app import AgentOSApplication
+from tests.product._steward_app import admitted_application
 
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
@@ -687,23 +687,27 @@ def test_application_composes_provider_assessor_on_real_product_entry(tmp_path) 
         text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
     )
     database = tmp_path / "agent-os.sqlite3"
-    app = AgentOSApplication._with_situated_control(
+    app, receipt = admitted_application(
         database=database,
         workspace=tmp_path,
-        situational_trust=_trust(),
-        situational_control=SQLiteSituatedAssessmentStore(
+        trust=_trust(),
+        control=SQLiteSituatedAssessmentStore(
             tmp_path / "situated.sqlite3", mandates=(_mandate(),)
         ),
-        provider_relevance_policy=_policy(),
-        mandate_relevance_contexts=InMemoryMandateRelevanceContextRegistry(
+        provider_policy=_policy(),
+        contexts=InMemoryMandateRelevanceContextRegistry(
             (_context(),)
         ),
-        relevance_provider=provider,
-        relevance_provider_profile=_profile(),
+        provider=provider,
+        provider_profile=_profile(),
+        event_id="event:report-1",
+        projection_id="projection:report-1",
         clock=lambda: NOW,
     )
 
-    result = app.propose_situated_work("event:report-1", "projection:report-1")
+    result = app.propose_situated_work(
+        "event:report-1", "projection:report-1", receipt.receipt_id
+    )
 
     assert isinstance(result, TaskDraftProposal)
     assert result.activation_authorized is False
@@ -965,19 +969,21 @@ def test_application_rejects_same_profile_id_with_drifted_model_before_call(
     provider = _RaisingProvider(_invocation(profile=drifted_profile))
 
     with pytest.raises(ValueError, match="provider"):
-        AgentOSApplication._with_situated_control(
+        admitted_application(
             database=tmp_path / "app-provider-drift.sqlite3",
             workspace=tmp_path,
-            situational_trust=_trust(),
-            situational_control=SQLiteSituatedAssessmentStore(
+            trust=_trust(),
+            control=SQLiteSituatedAssessmentStore(
                 tmp_path / "situated-provider-drift.sqlite3", mandates=(_mandate(),)
             ),
-            provider_relevance_policy=_policy(),
-            mandate_relevance_contexts=InMemoryMandateRelevanceContextRegistry(
+            provider_policy=_policy(),
+            contexts=InMemoryMandateRelevanceContextRegistry(
                 (_context(),)
             ),
-            relevance_provider=provider,
-            relevance_provider_profile=drifted_profile,
+            provider=provider,
+            provider_profile=drifted_profile,
+            event_id="event:report-1",
+            projection_id="projection:report-1",
             clock=lambda: NOW,
         )
 
