@@ -38,7 +38,9 @@ from experiments.w1w2_live_adaptation.transfer_monitor import (
 )
 from experiments.w1w2_live_adaptation.w1_linter import W1UpdateLinter
 from experiments.w1w2_live_adaptation.w1_state import (
+    ActionValueEstimate,
     BeliefPayload,
+    W1MemoryState,
     W1MemoryStore,
     W1Scope,
     W1Update,
@@ -46,6 +48,7 @@ from experiments.w1w2_live_adaptation.w1_state import (
 )
 from experiments.w1w2_live_adaptation.w2_selector import (
     SelectionFn,
+    W2DecisionReceipt,
     W2OptionRegistry,
     W2StrategySelector,
 )
@@ -74,6 +77,7 @@ class CharacterizationRecord(ContractModel):
     permission_violations: int
     recovery_speeds: tuple[float, ...] = ()
     phase_qualities: tuple[float, ...] = ()
+    w1_causal_consumption_verified: bool = False
     falsifier_passed: bool = False
 
 
@@ -112,7 +116,9 @@ class DeterministicRegimeFixture:
 
     def observation(self) -> CandidateObservation:
         # Random opaque id prevents schedule/turn/regime fields from entering the contract.
-        return CandidateObservation(observation_id=f"obs-{self._rng.getrandbits(128):032x}")
+        return CandidateObservation(
+            observation_id=f"obs-{self._rng.getrandbits(128):032x}"
+        )
 
     def submit_action(self, action: str) -> None:
         reward = 1.0 if action == self.OPTIMAL[self._regime_at(self._step)] else 0.0
@@ -130,7 +136,12 @@ class DeterministicRegimeFixture:
             action=action,
             reward=reward,
             source_event_digest=content_digest(
-                {"fixture": "w1w2-delayed-feedback", "step": step, "action": action, "reward": reward}
+                {
+                    "fixture": "w1w2-delayed-feedback",
+                    "step": step,
+                    "action": action,
+                    "reward": reward,
+                }
             ),
         )
 
@@ -175,7 +186,11 @@ class _CharacterizationScorer(TrustedScorerPort):
         self, receipt_id: str, expected: ScorerReceiptBinding
     ) -> ScorerReceipt | None:
         receipt = self._receipts.get(receipt_id)
-        if receipt is None or receipt_id in self._consumed or receipt.binding != expected:
+        if (
+            receipt is None
+            or receipt_id in self._consumed
+            or receipt.binding != expected
+        ):
             return None
         self._consumed.add(receipt_id)
         return receipt
@@ -201,6 +216,9 @@ class AdaptationArm(ABC):
 
     def restore(self, snapshot: object) -> None:
         del snapshot
+
+    def causal_consumption_verified(self) -> bool:
+        return False
 
 
 class FrozenArm(AdaptationArm):
@@ -236,25 +254,112 @@ class ScheduledStaticArm(AdaptationArm):
         return action
 
 
+def _action_values_from_state(state: W1MemoryState) -> dict[str, ActionValueEstimate]:
+    for update in reversed(state.updates):
+        if update.update_type == W1UpdateType.BELIEF and isinstance(
+            update.payload, BeliefPayload
+        ):
+            return {item.action_id: item for item in update.payload.action_values}
+    return {}
+
+
+def _latest_belief(state: W1MemoryState) -> BeliefPayload | None:
+    for update in reversed(state.updates):
+        if update.update_type == W1UpdateType.BELIEF and isinstance(
+            update.payload, BeliefPayload
+        ):
+            return update.payload
+    return None
+
+
+def _preferred_action(
+    state: W1MemoryState,
+    authorized_action_ids: tuple[str, ...],
+) -> str:
+    latest = _latest_belief(state)
+    if (
+        latest is not None
+        and latest.last_observed_action_id in authorized_action_ids
+        and latest.last_observed_reward is not None
+    ):
+        if latest.last_observed_reward > 0.0:
+            return latest.last_observed_action_id
+        return next(
+            (
+                action_id
+                for action_id in authorized_action_ids
+                if action_id != latest.last_observed_action_id
+            ),
+            latest.last_observed_action_id,
+        )
+    values = _action_values_from_state(state)
+    for action_id in authorized_action_ids:
+        if action_id not in values:
+            return action_id
+    return max(
+        authorized_action_ids,
+        key=lambda action_id: (
+            values[action_id].last_reward,
+            -authorized_action_ids.index(action_id),
+        ),
+    )
+
+
+def _updated_action_values(
+    state: W1MemoryState,
+    feedback: CandidateFeedback,
+    authorized_action_ids: tuple[str, ...],
+) -> tuple[ActionValueEstimate, ...]:
+    if feedback.action not in authorized_action_ids:
+        raise ValueError(f"feedback action '{feedback.action}' is not authorized")
+    previous = _action_values_from_state(state)
+    updated: list[ActionValueEstimate] = []
+    for action_id in authorized_action_ids:
+        prior = previous.get(action_id)
+        if action_id == feedback.action:
+            updated.append(
+                ActionValueEstimate(
+                    action_id=action_id,
+                    last_reward=feedback.reward,
+                    observation_count=(prior.observation_count if prior else 0) + 1,
+                )
+            )
+        elif prior is not None:
+            updated.append(prior)
+    return tuple(updated)
+
+
 class W1OnlyArm(AdaptationArm):
     name = "w1-only"
 
-    def __init__(self, store: W1MemoryStore, scope: W1Scope, action: str = "A") -> None:
+    def __init__(
+        self,
+        store: W1MemoryStore,
+        scope: W1Scope,
+        authorized_action_ids: tuple[str, ...] = ("A", "B"),
+    ) -> None:
+        if not authorized_action_ids:
+            raise ValueError("W1OnlyArm requires at least one authorized action")
         self._store = store
         self._scope = scope
-        self._action = action
-        self._count = 0
+        self._authorized_action_ids = tuple(authorized_action_ids)
+        self._count = len(store.get_state(scope).updates)
+        self._consumption_trace: list[tuple[str, str]] = []
 
     def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
         del observation
         if c7.halted:
             raise RuntimeError("C7 halted")
-        return self._action
+        state = self._store.get_state(self._scope)
+        action = _preferred_action(state, self._authorized_action_ids)
+        self._consumption_trace.append((state.digest(), action))
+        return action
 
     def update(self, feedback: CandidateFeedback, c7: C7Snapshot) -> None:
         if c7.halted:
             raise RuntimeError("C7 halted")
         self._count += 1
+        state = self._store.get_state(self._scope)
         checkpoint_id = self._store.checkpoint()
         now = datetime.now(timezone.utc)
         self._store.apply(
@@ -263,8 +368,13 @@ class W1OnlyArm(AdaptationArm):
                 scope=self._scope,
                 update_type=W1UpdateType.BELIEF,
                 payload=BeliefPayload(
-                    belief_statement=f"action={feedback.action};reward={feedback.reward}",
+                    belief_statement="typed action-outcome state",
                     confidence=0.8,
+                    action_values=_updated_action_values(
+                        state, feedback, self._authorized_action_ids
+                    ),
+                    last_observed_action_id=feedback.action,
+                    last_observed_reward=feedback.reward,
                 ),
                 provenance="typed_delayed_feedback",
                 source_event_digest=feedback.source_event_digest,
@@ -274,6 +384,12 @@ class W1OnlyArm(AdaptationArm):
                 valid_time=now,
                 transaction_time=now,
             )
+        )
+
+    def causal_consumption_verified(self) -> bool:
+        return (
+            len({digest for digest, _action in self._consumption_trace}) >= 2
+            and len({action for _digest, action in self._consumption_trace}) >= 2
         )
 
     def capture(self) -> _ArmSnapshot:
@@ -291,7 +407,9 @@ class W1OnlyArm(AdaptationArm):
 class W2OnlyArm(AdaptationArm):
     name = "w2-only"
 
-    def __init__(self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector) -> None:
+    def __init__(
+        self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector
+    ) -> None:
         self._store = store
         self._scope = scope
         self._selector = selector
@@ -302,7 +420,9 @@ class W2OnlyArm(AdaptationArm):
             raise RuntimeError("C7 halted")
         receipt = self._selector.select(
             context=observation.model_dump(mode="json"),
-            outcome_history=tuple(item.model_dump(mode="json") for item in self._history),
+            outcome_history=tuple(
+                item.model_dump(mode="json") for item in self._history
+            ),
         )
         return receipt.selected_option_id
 
@@ -312,7 +432,9 @@ class W2OnlyArm(AdaptationArm):
         self._history.append(feedback)
 
     def capture(self) -> _ArmSnapshot:
-        checkpoint = self._store.save_joint_checkpoint(self._scope, tuple(self._history))
+        checkpoint = self._store.save_joint_checkpoint(
+            self._scope, tuple(self._history)
+        )
         return _ArmSnapshot(checkpoint.checkpoint_id)
 
     def restore(self, snapshot: object) -> None:
@@ -321,20 +443,45 @@ class W2OnlyArm(AdaptationArm):
         if snapshot.joint_checkpoint_id is None:
             raise RuntimeError("missing joint checkpoint")
         self._history = list(
-            self._store.restore_joint_checkpoint(snapshot.joint_checkpoint_id, self._scope)
+            self._store.restore_joint_checkpoint(
+                snapshot.joint_checkpoint_id, self._scope
+            )
         )
 
 
 class W1W2Arm(W2OnlyArm):
     name = "w1+w2"
 
-    def __init__(self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector) -> None:
+    def __init__(
+        self, store: W1MemoryStore, scope: W1Scope, selector: W2StrategySelector
+    ) -> None:
         super().__init__(store, scope, selector)
-        self._count = 0
+        self._count = len(store.get_state(scope).updates)
+        self._consumption_trace: list[tuple[str, str]] = []
+        self._last_decision_receipt: W2DecisionReceipt | None = None
+
+    def act(self, observation: CandidateObservation, c7: C7Snapshot) -> str:
+        if c7.halted:
+            raise RuntimeError("C7 halted")
+        state = self._store.get_state(self._scope)
+        state_digest = state.digest()
+        preference = _preferred_action(state, self._selector.authorized_option_ids)
+        receipt = self._selector.select(
+            context=observation.model_dump(mode="json"),
+            outcome_history=tuple(
+                item.model_dump(mode="json") for item in self._history
+            ),
+            consumed_w1_state_digest=state_digest,
+            preferred_option_id=preference,
+        )
+        self._last_decision_receipt = receipt
+        self._consumption_trace.append((state_digest, receipt.selected_option_id))
+        return receipt.selected_option_id
 
     def update(self, feedback: CandidateFeedback, c7: C7Snapshot) -> None:
         super().update(feedback, c7)
         self._count += 1
+        state = self._store.get_state(self._scope)
         checkpoint_id = self._store.checkpoint()
         now = datetime.now(timezone.utc)
         self._store.apply(
@@ -343,8 +490,13 @@ class W1W2Arm(W2OnlyArm):
                 scope=self._scope,
                 update_type=W1UpdateType.BELIEF,
                 payload=BeliefPayload(
-                    belief_statement=f"action={feedback.action};reward={feedback.reward}",
+                    belief_statement="typed action-outcome state",
                     confidence=0.8,
+                    action_values=_updated_action_values(
+                        state, feedback, self._selector.authorized_option_ids
+                    ),
+                    last_observed_action_id=feedback.action,
+                    last_observed_reward=feedback.reward,
                 ),
                 provenance="typed_delayed_feedback",
                 source_event_digest=feedback.source_event_digest,
@@ -356,8 +508,22 @@ class W1W2Arm(W2OnlyArm):
             )
         )
 
+    @property
+    def last_decision_receipt(self) -> W2DecisionReceipt:
+        if self._last_decision_receipt is None:
+            raise RuntimeError("no W2 decision has been made")
+        return self._last_decision_receipt
+
+    def causal_consumption_verified(self) -> bool:
+        return (
+            len({digest for digest, _action in self._consumption_trace}) >= 2
+            and len({action for _digest, action in self._consumption_trace}) >= 2
+        )
+
     def capture(self) -> _ArmSnapshot:
-        checkpoint = self._store.save_joint_checkpoint(self._scope, tuple(self._history))
+        checkpoint = self._store.save_joint_checkpoint(
+            self._scope, tuple(self._history)
+        )
         return _ArmSnapshot(checkpoint.checkpoint_id)
 
     def restore(self, snapshot: object) -> None:
@@ -366,7 +532,9 @@ class W1W2Arm(W2OnlyArm):
         if snapshot.joint_checkpoint_id is None:
             raise RuntimeError("missing W1 checkpoint")
         self._history = list(
-            self._store.restore_joint_checkpoint(snapshot.joint_checkpoint_id, self._scope)
+            self._store.restore_joint_checkpoint(
+                snapshot.joint_checkpoint_id, self._scope
+            )
         )
 
 
@@ -411,7 +579,9 @@ class FalsifierHarness:
             selection_fn=self._selection_fn,
         )
 
-    def expected_run_binding(self, arm_name: str, seed: int, n_steps: int) -> RunAuthorizationBinding:
+    def expected_run_binding(
+        self, arm_name: str, seed: int, n_steps: int
+    ) -> RunAuthorizationBinding:
         selector = self._make_selector()
         option_digest = selector.authorized_set_digest()
         gate_digest = content_digest(self._EVALUATOR_GATE)
@@ -460,7 +630,10 @@ class FalsifierHarness:
             regret_window=int(self._EVALUATOR_GATE["regret_window"]),
             threshold=float(self._EVALUATOR_GATE["threshold"]),
             gate_digest=content_digest(
-                {**self._EVALUATOR_GATE, "option_content_digest": selector.authorized_set_digest()}
+                {
+                    **self._EVALUATOR_GATE,
+                    "option_content_digest": selector.authorized_set_digest(),
+                }
             ),
             run_id=run_id,
             scope=scope,
@@ -488,7 +661,11 @@ class FalsifierHarness:
         if arm_name == "frozen":
             return FrozenArm("A")
         if arm_name == "scheduled":
-            first = self._switch_at if isinstance(self._switch_at, int) else min(self._switch_at)
+            first = (
+                self._switch_at
+                if isinstance(self._switch_at, int)
+                else min(self._switch_at)
+            )
             return ScheduledStaticArm(first)
         if arm_name == "w1-only":
             return W1OnlyArm(store, scope)
@@ -580,7 +757,9 @@ class FalsifierHarness:
             outcomes.extend(fixture.flush())
 
         switch_points = (
-            (self._switch_at,) if isinstance(self._switch_at, int) else tuple(sorted(self._switch_at))
+            (self._switch_at,)
+            if isinstance(self._switch_at, int)
+            else tuple(sorted(self._switch_at))
         )
         bounds = (0, *switch_points, n_steps)
         phase_qualities: list[float] = []
@@ -589,9 +768,15 @@ class FalsifierHarness:
             phase_qualities.append(sum(phase) / len(phase) if phase else 0.0)
         recoveries: list[float] = []
         for index, switch in enumerate(switch_points):
-            end = switch_points[index + 1] if index + 1 < len(switch_points) else n_steps
+            end = (
+                switch_points[index + 1] if index + 1 < len(switch_points) else n_steps
+            )
             recovered = next(
-                (item.step - switch for item in outcomes if switch <= item.step < end and item.reward > 0.5),
+                (
+                    item.step - switch
+                    for item in outcomes
+                    if switch <= item.step < end and item.reward > 0.5
+                ),
                 None,
             )
             if recovered is not None:
@@ -599,8 +784,10 @@ class FalsifierHarness:
 
         quality = sum(item.reward for item in outcomes) / max(len(outcomes), 1)
         adaptive_candidate = arm_name == "w1+w2" and arm_factory is None
+        w1_causal_consumption = arm.causal_consumption_verified()
         falsifier_passed = bool(
             adaptive_candidate
+            and w1_causal_consumption
             and len(switch_points) >= 2
             and len(recoveries) == len(switch_points)
             and len(phase_qualities) >= 3
@@ -624,6 +811,7 @@ class FalsifierHarness:
             permission_violations=permission_violations,
             recovery_speeds=tuple(recoveries),
             phase_qualities=tuple(phase_qualities),
+            w1_causal_consumption_verified=w1_causal_consumption,
             falsifier_passed=falsifier_passed,
         )
 
@@ -643,7 +831,9 @@ class FalsifierHarness:
                 n_steps=n_steps,
                 run_status="RUN_DENIED",
             )
-        if not self._consume_authorization(authorization_receipt_id, arm_name, seed, n_steps):
+        if not self._consume_authorization(
+            authorization_receipt_id, arm_name, seed, n_steps
+        ):
             return FalsifierRunRecord(
                 run_id=run_id,
                 arm_name=arm_name,

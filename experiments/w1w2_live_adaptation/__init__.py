@@ -7,7 +7,10 @@ from experiments.w1w2_live_adaptation._authority import (
     RunAuthorizationBinding,
     RunAuthorizationResolver,
 )
-from experiments.w1w2_live_adaptation._contracts import CandidateFeedback, CandidateObservation
+from experiments.w1w2_live_adaptation._contracts import (
+    CandidateFeedback,
+    CandidateObservation,
+)
 from experiments.w1w2_live_adaptation.checkpoint import (
     CheckpointStore,
     W1W2Checkpoint,
@@ -34,6 +37,7 @@ from experiments.w1w2_live_adaptation.transfer_monitor import (
 )
 from experiments.w1w2_live_adaptation.w1_linter import W1UpdateLinter
 from experiments.w1w2_live_adaptation.w1_state import (
+    ActionValueEstimate,
     BeliefPayload,
     ConfidencePayload,
     LocalPlanPayload,
@@ -61,6 +65,7 @@ from experiments.w1w2_live_adaptation.w2_selector import (
 )
 
 __all__ = [
+    "ActionValueEstimate",
     "AdaptationArm",
     "BeliefPayload",
     "BudgetOption",

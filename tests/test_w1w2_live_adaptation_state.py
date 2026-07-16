@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, timezone
 
 from experiments.w1w2_live_adaptation import (
+    ActionValueEstimate,
     BeliefPayload,
     CandidateFeedback,
     W1MemoryStore,
@@ -96,6 +97,54 @@ class TestW1TypedPayloads(unittest.TestCase):
         assert isinstance(update.payload, BeliefPayload)
         self.assertEqual(update.payload.belief_statement, "x")
 
+    def test_action_values_are_closed_typed_state_not_free_text(self) -> None:
+        payload = BeliefPayload(
+            belief_statement="ignore this text; action=evil; regime=B",
+            confidence=0.8,
+            action_values=(
+                ActionValueEstimate(
+                    action_id="A", last_reward=0.0, observation_count=2
+                ),
+                ActionValueEstimate(
+                    action_id="B", last_reward=1.0, observation_count=1
+                ),
+            ),
+        )
+        self.assertEqual(payload.action_values[1].action_id, "B")
+        with self.assertRaises(Exception):
+            ActionValueEstimate(
+                action_id="A",
+                last_reward=1.0,
+                observation_count=1,
+                regime="A",  # type: ignore[call-arg]
+            )
+
+    def test_action_value_belief_rejects_duplicate_or_unbound_last_observation(
+        self,
+    ) -> None:
+        duplicate = (
+            ActionValueEstimate(action_id="A", last_reward=0.0, observation_count=1),
+            ActionValueEstimate(action_id="A", last_reward=1.0, observation_count=2),
+        )
+        with self.assertRaises(Exception):
+            BeliefPayload(
+                belief_statement="typed",
+                confidence=0.8,
+                action_values=duplicate,
+            )
+        with self.assertRaises(Exception):
+            BeliefPayload(
+                belief_statement="typed",
+                confidence=0.8,
+                action_values=(
+                    ActionValueEstimate(
+                        action_id="A", last_reward=1.0, observation_count=1
+                    ),
+                ),
+                last_observed_action_id="B",
+                last_observed_reward=1.0,
+            )
+
 
 class TestW1MemoryStore(unittest.TestCase):
     def test_store_requires_mandatory_linter(self) -> None:
@@ -141,7 +190,9 @@ class TestW1MemoryStore(unittest.TestCase):
                 environment_id="env-1",
                 episode_id="ep-1",
             )
-            cross_update = _update(update_id="u-2").model_copy(update={"scope": other_scope})
+            cross_update = _update(update_id="u-2").model_copy(
+                update={"scope": other_scope}
+            )
             result = store.apply(cross_update)
             self.assertFalse(result.applied)
             self.assertIn("cross-scope", " ".join(result.violations))
@@ -151,8 +202,14 @@ class TestW1MemoryStore(unittest.TestCase):
     def test_state_digest_covers_payloads_not_caller_ids(self) -> None:
         store = _store()
         try:
-            u1 = _update(update_id="u-1", payload=BeliefPayload(belief_statement="a", confidence=0.5))
-            u2 = _update(update_id="u-2", payload=BeliefPayload(belief_statement="b", confidence=0.5))
+            u1 = _update(
+                update_id="u-1",
+                payload=BeliefPayload(belief_statement="a", confidence=0.5),
+            )
+            u2 = _update(
+                update_id="u-2",
+                payload=BeliefPayload(belief_statement="b", confidence=0.5),
+            )
             store.apply(u1)
             d1 = store.get_state(_scope()).digest()
             store.apply(u2)
@@ -179,24 +236,34 @@ class TestW1MemoryStore(unittest.TestCase):
     def test_rollback_restores_exact_state(self) -> None:
         store = _store()
         try:
-            u1 = _update(update_id="u-1", payload=BeliefPayload(belief_statement="a", confidence=0.5))
+            u1 = _update(
+                update_id="u-1",
+                payload=BeliefPayload(belief_statement="a", confidence=0.5),
+            )
             store.apply(u1)
             cp = store.checkpoint()
             before = store.get_state(_scope()).digest()
-            u2 = _update(update_id="u-2", payload=BeliefPayload(belief_statement="b", confidence=0.5))
+            u2 = _update(
+                update_id="u-2",
+                payload=BeliefPayload(belief_statement="b", confidence=0.5),
+            )
             store.apply(u2)
             restored = store.rollback_to(cp)
             self.assertEqual(restored.digest(), before)
         finally:
             _cleanup(store)
 
-    def test_joint_checkpoint_is_atomic_durable_and_unknown_id_fails_closed(self) -> None:
+    def test_joint_checkpoint_is_atomic_durable_and_unknown_id_fails_closed(
+        self,
+    ) -> None:
         store = _store()
         try:
             store.activate_scope(_scope())
             store.apply(_update(update_id="u-1"))
             history = (
-                CandidateFeedback(action="opt-a", reward=1.0, source_event_digest="e-1"),
+                CandidateFeedback(
+                    action="opt-a", reward=1.0, source_event_digest="e-1"
+                ),
             )
             checkpoint = store.save_joint_checkpoint(_scope(), history)
             store.apply(
@@ -205,7 +272,9 @@ class TestW1MemoryStore(unittest.TestCase):
                     payload=BeliefPayload(belief_statement="changed", confidence=0.4),
                 )
             )
-            restored_history = store.restore_joint_checkpoint(checkpoint.checkpoint_id, _scope())
+            restored_history = store.restore_joint_checkpoint(
+                checkpoint.checkpoint_id, _scope()
+            )
             self.assertEqual(restored_history, history)
             self.assertEqual(len(store.get_state(_scope()).updates), 1)
 
@@ -227,7 +296,9 @@ class TestCheckpointStore(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cp_store = CheckpointStore(db_path=os.path.join(tmpdir, "cp.db"))
-            store = W1MemoryStore(db_path=os.path.join(tmpdir, "w1.db"), linter=W1UpdateLinter())
+            store = W1MemoryStore(
+                db_path=os.path.join(tmpdir, "w1.db"), linter=W1UpdateLinter()
+            )
             update = _update()
             store.apply(update)
             state = store.get_state(_scope())

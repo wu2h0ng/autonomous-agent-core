@@ -60,6 +60,7 @@ class TestW2StrategySelector(unittest.TestCase):
             registry=_registry(),
             authorized_option_ids=("opt-a", "opt-missing"),
         )
+
         # opt-missing is authorized but not in registry.
         def pick_missing(options, context, history):
             return "opt-missing"
@@ -104,6 +105,33 @@ class TestW2StrategySelector(unittest.TestCase):
         self.assertTrue(receipt.inputs_digest)
         self.assertTrue(receipt.outcome_feedback_ref)
         self.assertTrue(receipt.reason_code)
+
+    def test_receipt_binds_consumed_w1_state_and_uses_typed_preference(self) -> None:
+        selector = W2StrategySelector(
+            registry=_registry(),
+            authorized_option_ids=("opt-a", "opt-b"),
+        )
+        receipt = selector.select(
+            context={"observation_id": "opaque"},
+            outcome_history=(),
+            consumed_w1_state_digest="w1-digest-1",
+            preferred_option_id="opt-b",
+        )
+        self.assertEqual(receipt.selected_option_id, "opt-b")
+        self.assertEqual(receipt.consumed_w1_state_digest, "w1-digest-1")
+
+    def test_rejects_w1_preference_outside_authorized_set(self) -> None:
+        selector = W2StrategySelector(
+            registry=_registry(),
+            authorized_option_ids=("opt-a", "opt-b"),
+        )
+        with self.assertRaises(ValueError):
+            selector.select(
+                context={},
+                outcome_history=(),
+                consumed_w1_state_digest="w1-digest-1",
+                preferred_option_id="opt-evil",
+            )
 
 
 if __name__ == "__main__":

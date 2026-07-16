@@ -10,7 +10,12 @@ from uuid import uuid4
 
 from pydantic import Discriminator, Field
 
-from experiments.w1w2_live_adaptation._contracts import ContractModel, NonEmptyStr, UtcDateTime, content_digest
+from experiments.w1w2_live_adaptation._contracts import (
+    ContractModel,
+    NonEmptyStr,
+    UtcDateTime,
+    content_digest,
+)
 
 
 class W2OptionKind(str, Enum):
@@ -64,7 +69,12 @@ class BudgetOption(BaseW2Option):
 
 
 W2Option = Annotated[
-    ToolOption | ModelOption | WorkflowOption | RetryOption | ThresholdOption | BudgetOption,
+    ToolOption
+    | ModelOption
+    | WorkflowOption
+    | RetryOption
+    | ThresholdOption
+    | BudgetOption,
     Discriminator("kind"),
 ]
 
@@ -72,8 +82,7 @@ W2Option = Annotated[
 class W2OptionRegistry(Protocol):
     """Read-only authority registry for canonical W2 option contracts."""
 
-    def resolve(self, option_id: str) -> W2Option | None:
-        ...
+    def resolve(self, option_id: str) -> W2Option | None: ...
 
 
 class W2DecisionReceipt(ContractModel):
@@ -81,6 +90,7 @@ class W2DecisionReceipt(ContractModel):
     inputs_digest: NonEmptyStr
     authorized_set_digest: NonEmptyStr
     selected_option_id: NonEmptyStr
+    consumed_w1_state_digest: NonEmptyStr | None = None
     outcome_feedback_ref: NonEmptyStr
     reason_code: NonEmptyStr
     created_at: UtcDateTime
@@ -115,7 +125,9 @@ class W2StrategySelector:
         for option_id in sorted(self._authorized_option_ids):
             option = self._registry.resolve(option_id)
             if option is None:
-                raise ValueError(f"authorized option '{option_id}' is not in authority registry")
+                raise ValueError(
+                    f"authorized option '{option_id}' is not in authority registry"
+                )
             options.append(option.model_dump(mode="json", exclude_none=True))
         payload = {"options": options}
         return content_digest(payload)
@@ -147,13 +159,24 @@ class W2StrategySelector:
         self,
         context: Mapping[str, Any],
         outcome_history: tuple[Mapping[str, Any], ...],
+        consumed_w1_state_digest: str | None = None,
+        preferred_option_id: str | None = None,
     ) -> W2DecisionReceipt:
+        if preferred_option_id is not None:
+            if consumed_w1_state_digest is None:
+                raise ValueError("W1 preference requires a consumed state digest")
+            if preferred_option_id not in self._option_ids:
+                raise ValueError(
+                    f"preferred option '{preferred_option_id}' is not in authorized set"
+                )
         if self._selection_fn is not None:
             selected = self._selection_fn(
                 self._authorized_option_ids,
                 dict(context),
                 tuple(outcome_history),
             )
+        elif preferred_option_id is not None:
+            selected = preferred_option_id
         else:
             selected = self._default_selection(outcome_history)
 
@@ -162,11 +185,15 @@ class W2StrategySelector:
 
         resolved = self._registry.resolve(selected)
         if resolved is None:
-            raise ValueError(f"selected option '{selected}' is not in authority registry")
+            raise ValueError(
+                f"selected option '{selected}' is not in authority registry"
+            )
 
         inputs = {
             "context": dict(context),
             "outcome_history": [dict(h) for h in outcome_history],
+            "consumed_w1_state_digest": consumed_w1_state_digest,
+            "preferred_option_id": preferred_option_id,
         }
         now = datetime.now(timezone.utc)
         return W2DecisionReceipt(
@@ -174,6 +201,7 @@ class W2StrategySelector:
             inputs_digest=content_digest(inputs),
             authorized_set_digest=self.authorized_set_digest(),
             selected_option_id=selected,
+            consumed_w1_state_digest=consumed_w1_state_digest,
             outcome_feedback_ref=f"fb-{uuid4().hex}",
             reason_code="authorized_selection",
             created_at=now,
