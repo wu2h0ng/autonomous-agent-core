@@ -236,6 +236,7 @@ class AuthorityVerifier:
     def _check_acceptance_flags(
         self,
         bundle: AuthorityArtifactBundle,
+        run_id: str | None = None,
     ) -> VerificationResult:
         # native-freeze-lock does not carry an acceptance flag per amendment §5.2.3.
         for artifact, expected_type in (
@@ -256,6 +257,12 @@ class AuthorityVerifier:
                 "run authorization must authorize exactly one result-bearing run"
             )
 
+        if run_id is not None and authz_content.get("run_id") != run_id:
+            return self._fail(
+                f"run authorization run_id mismatch: expected {run_id!r}, "
+                f"got {authz_content.get('run_id')!r}"
+            )
+
         return VerificationResult(
             accepted=True,
             rejection_reason=None,
@@ -268,6 +275,7 @@ class AuthorityVerifier:
         *,
         prereg_payload_digest: str | None = None,
         builder_principal: str | None = None,
+        run_id: str | None = None,
     ) -> VerificationResult:
         """Verify ``bundle`` and return a typed ``VerificationResult``.
 
@@ -283,6 +291,11 @@ class AuthorityVerifier:
             Optional principal id to reject regardless of instance id. Used by
             ``verify_binding_artifacts`` to enforce the builder-principal
             rejection gate without mutating shared state.
+        run_id:
+            Optional run identifier that must be bound into the
+            run-authorization artifact. When supplied, the authorization's
+            ``run_id`` field must match it, preventing replay of the same
+            authorization for a different run.
 
         Returns
         -------
@@ -325,7 +338,7 @@ class AuthorityVerifier:
         if not cross_ref_result.accepted:
             return cross_ref_result
 
-        acceptance_result = self._check_acceptance_flags(bundle)
+        acceptance_result = self._check_acceptance_flags(bundle, run_id=run_id)
         if not acceptance_result.accepted:
             return acceptance_result
 
@@ -351,6 +364,8 @@ class AuthorityVerifier:
         self,
         builder_id: str,
         bundle: AuthorityArtifactBundle,
+        *,
+        run_id: str | None = None,
     ) -> VerificationResult:
         """Convenience entry point matching the design amendment outline.
 
@@ -358,4 +373,4 @@ class AuthorityVerifier:
         ``signer_principal_id`` equals ``builder_id``, regardless of instance
         id.  The shared verifier state is not mutated.
         """
-        return self.verify(bundle, builder_principal=builder_id)
+        return self.verify(bundle, builder_principal=builder_id, run_id=run_id)

@@ -376,6 +376,7 @@ def _make_authorization(
     backend: TestHmacBackend,
     freeze: NativeFreezeLockArtifact,
     c7: C7AcceptanceArtifact,
+    run_id: str = "run-2026-07-16-001",
 ) -> RunAuthorizationArtifact:
     artifact = RunAuthorizationArtifact(
         artifact_id="authz-1",
@@ -391,6 +392,7 @@ def _make_authorization(
         authorized_at=_SIGNED_AT,
         freeze_lock_digest=compute_payload_digest(freeze.content_mapping()),
         c7_acceptance_digest=compute_payload_digest(c7.content_mapping()),
+        run_id=run_id,
         max_runs=1,
         result_bearing=True,
         acceptance=True,

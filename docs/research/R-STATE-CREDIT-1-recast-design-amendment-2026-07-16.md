@@ -342,6 +342,7 @@ For standalone operation, Ed25519 signature verification is required.
   "authorized_at": "<ISO-8601 UTC timestamp>",
   "freeze_lock_digest": "<SHA-256 of native-freeze-lock>",
   "c7_acceptance_digest": "<SHA-256 of c7-acceptance artifact>",
+  "run_id": "<unique run identifier bound to this authorization>",
   "max_runs": 1,
   "result_bearing": true,
   "acceptance": true,
@@ -395,9 +396,11 @@ def verify_binding_artifacts(builder_id: str, artifact_dir: Path) -> dict:
         if artifact.get("acceptance") is not True:
             raise AuthorityError("artifact acceptance must be boolean true")
 
-    # 5. Verify run authorization is result-bearing and limited to one run.
+    # 5. Verify run authorization is result-bearing, limited to one run, and bound to the run id.
     if authz["max_runs"] != 1 or authz["result_bearing"] is not True:
         raise AuthorityError("run authorization must authorize exactly one result-bearing run")
+    if run_id is not None and authz.get("run_id") != run_id:
+        raise AuthorityError(f"run authorization run_id mismatch: expected {run_id}, got {authz.get('run_id')}")
 
     # 6. Verify signatures or witness-repository entries (implementation-specific).
     verify_signatures_or_witnesses(artifact_dir)

@@ -205,6 +205,7 @@ def _make_authorization(
     c7: C7AcceptanceArtifact,
     witness_refs: tuple[str, ...] = ("reviews/R-STATE-CREDIT-1/run-authorization.json",),
     expires_at: str = EXPIRES_AT,
+    run_id: str = "run-2026-07-16-001",
 ) -> RunAuthorizationArtifact:
     from experiments.r_state_credit_1.authority_artifacts import compute_payload_digest
 
@@ -222,6 +223,7 @@ def _make_authorization(
         authorized_at=SIGNED_AT,
         freeze_lock_digest=compute_payload_digest(freeze.content_mapping()),
         c7_acceptance_digest=compute_payload_digest(c7.content_mapping()),
+        run_id=run_id,
         max_runs=1,
         result_bearing=True,
         acceptance=True,
@@ -435,6 +437,29 @@ def test_witness_file_must_contain_artifact_digest() -> None:
         result = verifier.verify(bundle)
         assert not result.accepted
         assert "does not contain artifact payload digest" in (result.rejection_reason or "")
+
+
+def test_run_authorization_run_id_binding() -> None:
+    """The same authorization is rejected when presented for a different run."""
+    backend = _fresh_backend()
+    with tempfile.TemporaryDirectory() as tmp:
+        witness_root = Path(tmp)
+        bundle = _make_bundle(
+            backend,
+            witness_root=witness_root,
+            identities={"authorization": AUTHORIZER_IDENTITY},
+        )
+        verifier = _verifier(witness_repository=witness_root)
+
+        # Authorization bound to run-2026-07-16-001 accepts the matching run id.
+        result = verifier.verify(bundle, run_id="run-2026-07-16-001")
+        assert result.accepted, result.rejection_reason
+
+        # Re-presenting the same authorization for a different run is rejected.
+        result = verifier.verify(bundle, run_id="run-2026-07-16-002")
+        assert not result.accepted
+        assert "run authorization run_id mismatch" in (result.rejection_reason or "")
+        assert "run-2026-07-16-002" in (result.rejection_reason or "")
 
 
 def test_builder_principal_any_instance_rejected() -> None:

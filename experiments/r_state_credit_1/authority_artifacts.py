@@ -361,6 +361,7 @@ class RunAuthorizationArtifact(AuthorityArtifact):
     authorized_at: str = ""
     freeze_lock_digest: str = ""
     c7_acceptance_digest: str = ""
+    run_id: str = ""
     max_runs: int = 0
     result_bearing: bool = False
     acceptance: bool = False
@@ -378,6 +379,7 @@ class RunAuthorizationArtifact(AuthorityArtifact):
         _require_text("authorized_at", self.authorized_at)
         _require_sha256("freeze_lock_digest", self.freeze_lock_digest)
         _require_sha256("c7_acceptance_digest", self.c7_acceptance_digest)
+        _require_text("run_id", self.run_id)
         if not isinstance(self.max_runs, int) or isinstance(self.max_runs, bool):
             raise AuthorityArtifactError("max_runs must be int")
         if not isinstance(self.result_bearing, bool):
@@ -393,6 +395,7 @@ class RunAuthorizationArtifact(AuthorityArtifact):
             "authorized_at": self.authorized_at,
             "freeze_lock_digest": self.freeze_lock_digest,
             "c7_acceptance_digest": self.c7_acceptance_digest,
+            "run_id": self.run_id,
             "max_runs": self.max_runs,
             "result_bearing": self.result_bearing,
             "acceptance": self.acceptance,
