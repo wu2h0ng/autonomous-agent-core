@@ -1,12 +1,10 @@
-"""Structurally validated local startup configuration for the situated path.
+"""Structurally validated local startup provisioning for the situated path.
 
-This private module reads one bounded local JSON file and validates it into a
-frozen closed-schema contract built from the canonical contract types. The
-result is STRUCTURALLY_VALIDATED_CONFIG_ONLY: opaque locators, credential
-metadata plus resolver environment-key name, and expected version/digest/epoch
-bindings. It resolves no authority, instantiates no application, principal,
-mandate, binding, steward, store, writer, provider or assessor, and never
-reads the credential secret named by the resolver environment key.
+This private module validates a closed startup configuration and the complete,
+canonical credential, provider-policy and relevance-context snapshots it names.
+The result is STRUCTURALLY_VALIDATED_PROVISIONING_ONLY. It resolves no mandate
+authority, seeds no authority database, instantiates no application, provider,
+assessor or runtime, and never reads credential secret environment values.
 """
 
 from __future__ import annotations
@@ -15,24 +13,27 @@ import json
 import math
 import os
 import stat
-from datetime import datetime
 from pathlib import Path
-from typing import Final, Literal, NoReturn
+from typing import Final, Literal, NoReturn, TypeVar
 
 from pydantic import (
     Field,
     StrictBool,
     StrictInt,
     ValidationError,
-    field_validator,
     model_validator,
 )
 
 from agent_os_contracts import (
     ContractModel,
+    CredentialAuthorizationSnapshot,
+    CredentialRef,
+    MandateRelevanceContext,
     NonEmptyStr,
+    ProviderRelevancePolicy,
     Sha256Digest,
-    UtcDateTime,
+    canonical_json,
+    content_digest,
 )
 
 from .data_agent_report_adapter import (
@@ -41,8 +42,12 @@ from .data_agent_report_adapter import (
 )
 
 STRUCTURALLY_VALIDATED_CONFIG_ONLY: Final = "STRUCTURALLY_VALIDATED_CONFIG_ONLY"
+STRUCTURALLY_VALIDATED_PROVISIONING_ONLY: Final = (
+    "STRUCTURALLY_VALIDATED_PROVISIONING_ONLY"
+)
 
 _MAX_CONFIG_BYTES: Final = 65_536
+_MAX_MATERIAL_BYTES: Final = 262_144
 
 _PREFIX: Final = "data agent situated startup configuration "
 _ERROR_UNAVAILABLE: Final = _PREFIX + "is unavailable"
@@ -56,6 +61,21 @@ _ERROR_ROOT: Final = _PREFIX + "root must be an object"
 _ERROR_UNKNOWN_FIELD: Final = _PREFIX + "contains an unknown field"
 _ERROR_MISSING_FIELD: Final = _PREFIX + "is missing a required field"
 _ERROR_MALFORMED: Final = _PREFIX + "field is malformed"
+
+_MATERIAL_PREFIX: Final = "data agent situated startup provisioning material "
+_MATERIAL_UNAVAILABLE: Final = _MATERIAL_PREFIX + "is unavailable"
+_MATERIAL_SYMLINK: Final = _MATERIAL_PREFIX + "cannot be a symlink"
+_MATERIAL_NOT_REGULAR: Final = _MATERIAL_PREFIX + "must be a regular file"
+_MATERIAL_OVERSIZE: Final = _MATERIAL_PREFIX + "exceeds the size limit"
+_MATERIAL_MALFORMED: Final = _MATERIAL_PREFIX + "is malformed"
+_MATERIAL_NOT_CANONICAL: Final = _MATERIAL_PREFIX + "is not canonical"
+_MATERIAL_DIGEST_MISMATCH: Final = _MATERIAL_PREFIX + "digest mismatch"
+_MATERIAL_BINDING_MISMATCH: Final = _MATERIAL_PREFIX + "binding mismatch"
+
+_AUTHORITY_PREFIX: Final = "data agent situated startup authority database "
+_AUTHORITY_UNAVAILABLE: Final = _AUTHORITY_PREFIX + "is unavailable"
+_AUTHORITY_SYMLINK: Final = _AUTHORITY_PREFIX + "cannot be a symlink"
+_AUTHORITY_NOT_REGULAR: Final = _AUTHORITY_PREFIX + "must be a regular file"
 
 
 class DataAgentSituatedStartupConfigError(RuntimeError):
@@ -77,6 +97,8 @@ class DataAgentSituatedStartupSourceConfig(ContractModel):
     timeout_seconds: StrictInt = Field(ge=1, le=300)
     max_response_bytes: StrictInt = Field(ge=1, le=16_777_216)
     freshness_seconds: StrictInt = Field(ge=1, le=86_400)
+    credential_file: NonEmptyStr
+    expected_credential_digest: Sha256Digest
 
     @model_validator(mode="after")
     def _validate_origin(self) -> DataAgentSituatedStartupSourceConfig:
@@ -92,34 +114,15 @@ class DataAgentSituatedStartupSourceConfig(ContractModel):
         return self
 
 
-class DataAgentSituatedStartupCredentialConfig(ContractModel):
-    """Credential metadata and resolver key name; never the secret value."""
-
-    credential_ref_id: NonEmptyStr
-    provider_id: NonEmptyStr
-    resolver_env_key: NonEmptyStr
-    scopes: tuple[NonEmptyStr, ...] = Field(min_length=1)
-    expected_credential_digest: Sha256Digest
-    expected_expires_at: UtcDateTime
-
-    @field_validator("scopes", mode="after")
-    @classmethod
-    def _normalize_scopes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        return tuple(sorted(set(values)))
-
-    @field_validator("expected_expires_at", mode="before")
-    @classmethod
-    def _require_iso_datetime_string(cls, value: object) -> datetime:
-        if not isinstance(value, str):
-            raise ValueError("expected_expires_at must be an ISO datetime string")
-        return datetime.fromisoformat(value)
-
-
 class DataAgentSituatedStartupProviderConfig(ContractModel):
-    """Opaque provider policy and context locators; not provider objects."""
+    """Complete provider material locators and expected canonical digests."""
 
-    policy_ref: NonEmptyStr
-    context_ref: NonEmptyStr
+    policy_file: NonEmptyStr
+    expected_policy_digest: Sha256Digest
+    context_file: NonEmptyStr
+    expected_context_digest: Sha256Digest
+    credential_file: NonEmptyStr
+    expected_credential_digest: Sha256Digest
 
 
 class DataAgentSituatedStartupConfig(ContractModel):
@@ -130,7 +133,7 @@ class DataAgentSituatedStartupConfig(ContractModel):
     or provider authority has been resolved or verified.
     """
 
-    config_contract: Literal["agent-os.data-agent-situated-startup-config.v1"]
+    config_contract: Literal["agent-os.data-agent-situated-startup-config.v2"]
     principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
@@ -140,13 +143,148 @@ class DataAgentSituatedStartupConfig(ContractModel):
     expected_correction_epoch: StrictInt = Field(ge=0)
     expected_mandate_digest: Sha256Digest
     expected_binding_digest: Sha256Digest
+    authority_database: NonEmptyStr
     source: DataAgentSituatedStartupSourceConfig
-    credential: DataAgentSituatedStartupCredentialConfig
     provider: DataAgentSituatedStartupProviderConfig
 
     @property
     def config_state(self) -> str:
         return STRUCTURALLY_VALIDATED_CONFIG_ONLY
+
+
+class DataAgentSituatedStartupProvisioning(ContractModel):
+    """Canonical startup inputs only; this object grants and resolves nothing."""
+
+    config: DataAgentSituatedStartupConfig
+    authority_database: Path
+    source_credential_path: Path
+    provider_credential_path: Path
+    source_credential: CredentialRef
+    provider_credential: CredentialRef
+    provider_policy: ProviderRelevancePolicy
+    relevance_context: MandateRelevanceContext
+
+    @property
+    def provisioning_state(self) -> str:
+        return STRUCTURALLY_VALIDATED_PROVISIONING_ONLY
+
+    def source_credentials(self) -> DataAgentSituatedCredentialFileReader:
+        """Create a live metadata reader; no credential secret is resolved."""
+        return DataAgentSituatedCredentialFileReader(
+            self.source_credential_path, self.source_credential
+        )
+
+    def provider_credentials(self) -> DataAgentSituatedCredentialFileReader:
+        """Create a live metadata reader; no credential secret is resolved."""
+        return DataAgentSituatedCredentialFileReader(
+            self.provider_credential_path, self.provider_credential
+        )
+
+    @model_validator(mode="after")
+    def _validate_bindings(self) -> DataAgentSituatedStartupProvisioning:
+        expected_scope = (
+            self.config.principal_id,
+            self.config.tenant_id,
+            self.config.workspace_id,
+        )
+        for credential in (self.source_credential, self.provider_credential):
+            actual_scope = (
+                credential.owner_principal_id,
+                credential.tenant_id,
+                credential.workspace_id,
+            )
+            if actual_scope != expected_scope:
+                raise ValueError("credential scope does not match startup scope")
+        source_origin = _normalized_origin(
+            self.config.source.base_url,
+            allow_loopback_http=self.config.source.allow_loopback_http,
+        )
+        required_source_scopes = {
+            "reports:read",
+            f"data-agent-origin:{source_origin}",
+            f"data-agent-tenant:{self.config.source.source_tenant_id}",
+        }
+        if (
+            self.source_credential.provider_id != "data-agent-external-report"
+            or not required_source_scopes.issubset(self.source_credential.scopes)
+            or self.source_credential.credential_ref_id
+            == self.provider_credential.credential_ref_id
+        ):
+            raise ValueError("source credential does not match adapter envelope")
+        invocation = self.provider_policy.provider_invocation
+        if (
+            invocation.credential_ref_id != self.provider_credential.credential_ref_id
+            or invocation.credential_ref_digest
+            != content_digest(self.provider_credential)
+            or invocation.provider_id != self.provider_credential.provider_id
+            or "chat" not in self.provider_credential.scopes
+        ):
+            raise ValueError("provider policy does not bind the provider credential")
+        context = self.relevance_context
+        if (
+            context.mandate_id != self.config.mandate_id
+            or context.mandate_version != self.config.expected_mandate_version
+            or context.mandate_digest != self.config.expected_mandate_digest
+            or context.tenant_id != self.config.tenant_id
+            or context.workspace_id != self.config.workspace_id
+        ):
+            raise ValueError("relevance context does not bind startup expectations")
+        return self
+
+
+class DataAgentSituatedCredentialFileReader:
+    """Live canonical credential metadata boundary with stable identity binding.
+
+    `resolve_credential` returns the typed reference a separately authorized
+    broker may consume. This reader never resolves the `resolver_key` value.
+    """
+
+    __slots__ = ("_anchor", "_path")
+
+    def __init__(self, path: Path, anchor: CredentialRef) -> None:
+        self._path = path
+        self._anchor = anchor
+
+    @staticmethod
+    def _identity(value: CredentialRef) -> tuple[object, ...]:
+        return (
+            value.credential_ref_id,
+            value.owner_principal_id,
+            value.tenant_id,
+            value.workspace_id,
+            value.provider_id,
+            value.resolver_key,
+            value.scopes,
+            value.created_at,
+            value.expires_at,
+        )
+
+    def resolve_credential(self, credential_ref_id: str) -> CredentialRef | None:
+        if credential_ref_id != self._anchor.credential_ref_id:
+            return None
+        current = _load_canonical_material(self._path, CredentialRef, None)
+        if self._identity(current) != self._identity(self._anchor):
+            _fail(_MATERIAL_BINDING_MISMATCH)
+        return current
+
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None:
+        current = self.resolve_credential(credential_ref_id)
+        if current is None:
+            return None
+        return CredentialAuthorizationSnapshot(
+            credential_ref_id=current.credential_ref_id,
+            credential_ref_digest=content_digest(current),
+            owner_principal_id=current.owner_principal_id,
+            tenant_id=current.tenant_id,
+            workspace_id=current.workspace_id,
+            provider_id=current.provider_id,
+            scopes=current.scopes,
+            status=current.status,
+            created_at=current.created_at,
+            expires_at=current.expires_at,
+        )
 
 
 def _read_config_bytes(path: Path) -> bytes:
@@ -186,6 +324,44 @@ def _read_config_bytes(path: Path) -> bytes:
     data = b"".join(chunks)
     if len(data) > _MAX_CONFIG_BYTES:
         _fail(_ERROR_OVERSIZE)
+    return data
+
+
+def _read_material_bytes(path: Path) -> bytes:
+    try:
+        info = os.lstat(path)
+    except OSError:
+        _fail(_MATERIAL_UNAVAILABLE)
+    if stat.S_ISLNK(info.st_mode):
+        _fail(_MATERIAL_SYMLINK)
+    if not stat.S_ISREG(info.st_mode):
+        _fail(_MATERIAL_NOT_REGULAR)
+    if info.st_size > _MAX_MATERIAL_BYTES:
+        _fail(_MATERIAL_OVERSIZE)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        _fail(_MATERIAL_UNAVAILABLE)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            _fail(_MATERIAL_NOT_REGULAR)
+        chunks: list[bytes] = []
+        received = 0
+        while received <= _MAX_MATERIAL_BYTES:
+            try:
+                chunk = os.read(descriptor, _MAX_MATERIAL_BYTES + 1 - received)
+            except OSError:
+                _fail(_MATERIAL_UNAVAILABLE)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            received += len(chunk)
+    finally:
+        os.close(descriptor)
+    data = b"".join(chunks)
+    if len(data) > _MAX_MATERIAL_BYTES:
+        _fail(_MATERIAL_OVERSIZE)
     return data
 
 
@@ -252,3 +428,106 @@ def load_data_agent_situated_startup_config(
     """
     raw = _read_config_bytes(Path(path))
     return _validated_config(_parse_strict_json(raw))
+
+
+_ContractT = TypeVar("_ContractT", bound=ContractModel)
+
+
+def _resolve_locator(config_path: Path, locator: str) -> Path:
+    path = Path(locator)
+    return path if path.is_absolute() else config_path.parent / path
+
+
+def _load_canonical_material(
+    path: Path,
+    model_type: type[_ContractT],
+    expected_digest: str | None,
+) -> _ContractT:
+    raw = _read_material_bytes(path)
+    try:
+        value = model_type.model_validate_json(raw, strict=True)
+    except (ValidationError, ValueError):
+        _fail(_MATERIAL_MALFORMED)
+    try:
+        canonical = canonical_json(value).encode("utf-8")
+    except (TypeError, ValueError):
+        _fail(_MATERIAL_MALFORMED)
+    if raw != canonical:
+        _fail(_MATERIAL_NOT_CANONICAL)
+    if expected_digest is not None and content_digest(value) != expected_digest:
+        _fail(_MATERIAL_DIGEST_MISMATCH)
+    return value
+
+
+def _validate_authority_database(config_path: Path, locator: str) -> Path:
+    if locator == ":memory:":
+        _fail(_AUTHORITY_UNAVAILABLE)
+    path = _resolve_locator(config_path, locator)
+    try:
+        info = os.lstat(path)
+    except OSError:
+        _fail(_AUTHORITY_UNAVAILABLE)
+    if stat.S_ISLNK(info.st_mode):
+        _fail(_AUTHORITY_SYMLINK)
+    if not stat.S_ISREG(info.st_mode):
+        _fail(_AUTHORITY_NOT_REGULAR)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        _fail(_AUTHORITY_UNAVAILABLE)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            _fail(_AUTHORITY_NOT_REGULAR)
+    finally:
+        os.close(descriptor)
+    return path
+
+
+def load_data_agent_situated_startup_provisioning(
+    path: str | Path,
+) -> DataAgentSituatedStartupProvisioning:
+    """Load canonical provisioning inputs without resolving runtime authority."""
+    config_path = Path(path)
+    config = load_data_agent_situated_startup_config(config_path)
+    authority_database = _validate_authority_database(
+        config_path, config.authority_database
+    )
+    source_credential_path = _resolve_locator(
+        config_path, config.source.credential_file
+    )
+    provider_credential_path = _resolve_locator(
+        config_path, config.provider.credential_file
+    )
+    source_credential = _load_canonical_material(
+        source_credential_path,
+        CredentialRef,
+        config.source.expected_credential_digest,
+    )
+    provider_credential = _load_canonical_material(
+        provider_credential_path,
+        CredentialRef,
+        config.provider.expected_credential_digest,
+    )
+    provider_policy = _load_canonical_material(
+        _resolve_locator(config_path, config.provider.policy_file),
+        ProviderRelevancePolicy,
+        config.provider.expected_policy_digest,
+    )
+    relevance_context = _load_canonical_material(
+        _resolve_locator(config_path, config.provider.context_file),
+        MandateRelevanceContext,
+        config.provider.expected_context_digest,
+    )
+    try:
+        return DataAgentSituatedStartupProvisioning(
+            config=config,
+            authority_database=authority_database,
+            source_credential_path=source_credential_path,
+            provider_credential_path=provider_credential_path,
+            source_credential=source_credential,
+            provider_credential=provider_credential,
+            provider_policy=provider_policy,
+            relevance_context=relevance_context,
+        )
+    except (TypeError, ValueError, ValidationError):
+        _fail(_MATERIAL_BINDING_MISMATCH)
