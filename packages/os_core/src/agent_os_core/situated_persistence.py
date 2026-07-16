@@ -100,6 +100,16 @@ class SituatedAssessmentStore(Protocol):
         self, input_binding_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
+    def replay_if_active(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        input_binding_digest: str,
+        *,
+        principal_id: str,
+        evaluated_at: datetime,
+    ) -> SituatedAssessmentRecord | None: ...
+
     def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
 
     def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
@@ -427,6 +437,59 @@ class SQLiteSituatedAssessmentStore:
                 "input binding maps to multiple durable assessment records"
             )
         return matches[0] if matches else None
+
+    def replay_if_active(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        input_binding_digest: str,
+        *,
+        principal_id: str,
+        evaluated_at: datetime,
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            current = self._read_mandate(connection, mandate.mandate_id)
+            current, current_binding = self._resolve_active_mandate(
+                current,
+                binding.environment_binding_id,
+                principal_id=principal_id,
+                tenant_id=mandate.tenant_id,
+                workspace_id=mandate.workspace_id,
+                evaluated_at=evaluated_at,
+            )
+            if current != mandate or current_binding != binding:
+                raise SituationalTrustDenied(
+                    "mandate or environment binding epoch changed before replay"
+                )
+            row = connection.execute(
+                """
+                SELECT record_json FROM situated_assessment_records
+                WHERE assessment_id = ?
+                """,
+                (f"relevance-assessment:{input_binding_digest}",),
+            ).fetchone()
+            record = (
+                self._decode_record(str(row["record_json"]))
+                if row is not None
+                else None
+            )
+            if record is not None and (
+                record.assessment.input_binding_digest != input_binding_digest
+                or record.tenant_id != mandate.tenant_id
+                or record.workspace_id != mandate.workspace_id
+            ):
+                raise SituationalPersistenceConflict(
+                    "durable replay record does not match guarded input binding"
+                )
+            connection.commit()
+            return record
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def assessment(self, assessment_id: str) -> RelevanceAssessment | None:
         record = self.assessment_record(assessment_id)

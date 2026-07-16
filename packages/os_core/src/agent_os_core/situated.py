@@ -237,6 +237,47 @@ class InMemorySituationalControlPlane:
                 None,
             )
 
+    def replay_if_active(
+        self,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+        input_binding_digest: str,
+        *,
+        principal_id: str,
+        evaluated_at: datetime,
+    ) -> SituatedAssessmentRecord | None:
+        with self._lock:
+            current, current_binding = self._resolve_active_unlocked(
+                mandate.mandate_id,
+                binding.environment_binding_id,
+                principal_id=principal_id,
+                tenant_id=mandate.tenant_id,
+                workspace_id=mandate.workspace_id,
+                evaluated_at=evaluated_at,
+            )
+            if current != mandate or current_binding != binding:
+                raise SituationalTrustDenied(
+                    "mandate or environment binding epoch changed before replay"
+                )
+            record = next(
+                (
+                    item
+                    for item in self._records.values()
+                    if item.assessment.input_binding_digest == input_binding_digest
+                ),
+                None,
+            )
+            if record is not None and (
+                record.assessment.assessment_id
+                != f"relevance-assessment:{input_binding_digest}"
+                or record.tenant_id != mandate.tenant_id
+                or record.workspace_id != mandate.workspace_id
+            ):
+                raise SituationalPersistenceConflict(
+                    "replay record does not match guarded input binding"
+                )
+            return record
+
     def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
         return self._change_status(
             mandate_id,
@@ -433,7 +474,13 @@ class OperationalProposalService:
             projection,
             expected_assessor,
         )
-        existing = self._control.record_by_input_binding(input_binding_digest)
+        existing = self._control.replay_if_active(
+            mandate,
+            binding,
+            input_binding_digest,
+            principal_id=self._principal_id,
+            evaluated_at=evaluated_at,
+        )
         if existing is not None:
             self._validate_assessment(
                 existing.assessment,
@@ -441,6 +488,12 @@ class OperationalProposalService:
                 binding=binding,
                 event=event,
                 projection=projection,
+            )
+            _OperationalProposalCompiler._validate_time(
+                event,
+                projection,
+                existing.assessment,
+                evaluated_at,
             )
             return proposal_result(existing)
         assessment = self._assessor.assess(

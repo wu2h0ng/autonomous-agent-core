@@ -94,6 +94,9 @@ from .relevance import (
     InMemoryMandateRelevanceContextRegistry,
     MandateRelevanceContextReader,
     ProviderRelevanceAssessor,
+    RELEVANCE_OUTPUT_SCHEMA_DIGEST,
+    RELEVANCE_PROMPT_MANIFEST,
+    RELEVANCE_PROMPT_TEMPLATE_DIGEST,
 )
 from .materialization import (
     MATERIALIZATION_CAPABILITY,
@@ -197,6 +200,9 @@ __all__ = [
     "InMemoryMandateRelevanceContextRegistry",
     "MandateRelevanceContextReader",
     "ProviderRelevanceAssessor",
+    "RELEVANCE_OUTPUT_SCHEMA_DIGEST",
+    "RELEVANCE_PROMPT_MANIFEST",
+    "RELEVANCE_PROMPT_TEMPLATE_DIGEST",
     "ValidatedTestReport",
     "DomainCandidateSealer",
     "DomainCandidateEvaluationRecorder",

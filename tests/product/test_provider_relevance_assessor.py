@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -10,6 +11,8 @@ import pytest
 from agent_os_contracts import (
     ArtifactLocationClass,
     ArtifactRef,
+    CredentialRef,
+    CredentialStatus,
     EnvironmentBindingAuthorization,
     EnvironmentEvent,
     EvidenceRef,
@@ -22,6 +25,7 @@ from agent_os_contracts import (
     ProviderDecisionRequest,
     ProviderErrorCode,
     ProviderFailure,
+    ProviderInvocationBinding,
     ProviderProfile,
     ProviderRelevancePolicy,
     ProviderRequest,
@@ -31,16 +35,22 @@ from agent_os_contracts import (
     RelevanceDisposition,
     RelevanceUrgency,
     TaskDraftProposal,
+    content_digest,
 )
 from agent_os_core import (
     DeterministicProvider,
     InMemoryMandateRelevanceContextRegistry,
     InMemorySituationalTrustRegistry,
     OperationalProposalService,
+    OpenAICompatibleProvider,
     ProviderPort,
     ProviderRelevanceAssessor,
+    RELEVANCE_OUTPUT_SCHEMA_DIGEST,
+    RELEVANCE_PROMPT_MANIFEST,
+    RELEVANCE_PROMPT_TEMPLATE_DIGEST,
     SQLiteSituatedAssessmentStore,
     SituationalTrustDenied,
+    StaleOperationalProjection,
     situated_input_binding_digest,
 )
 from apps.api_server.app import AgentOSApplication
@@ -105,13 +115,61 @@ def _profile() -> ProviderProfile:
     )
 
 
-def _policy(*, version: int = 1) -> ProviderRelevancePolicy:
+def _credential(**updates: object) -> CredentialRef:
+    credential = CredentialRef(
+        credential_ref_id="credential:relevance",
+        owner_principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        provider_id="openai-compatible",
+        resolver_key="RELEVANCE_API_KEY",
+        scopes=("chat",),
+        status=CredentialStatus.ACTIVE,
+        created_at=NOW - timedelta(days=1),
+        expires_at=NOW + timedelta(days=30),
+    )
+    return credential.model_copy(update=updates)
+
+
+def _invocation(
+    *,
+    profile: ProviderProfile | None = None,
+    **updates: object,
+) -> ProviderInvocationBinding:
+    selected_profile = profile or _profile()
+    binding = ProviderInvocationBinding(
+        provider_profile=selected_profile,
+        provider_id=selected_profile.provider_id,
+        endpoint_class=selected_profile.endpoint_class,
+        credential_ref_id=selected_profile.credential_ref_id,
+        credential_ref_digest=content_digest(_credential()),
+        max_context_tokens=selected_profile.max_context_tokens,
+        adapter_kind="deterministic-test",
+        transport="in-process",
+        base_url="in-process://deterministic",
+        endpoint_path="decide",
+        model_id=selected_profile.model_id,
+        request_timeout_seconds=20,
+        temperature=Decimal("0"),
+    )
+    return binding.model_copy(update=updates)
+
+
+def _policy(
+    *,
+    version: int = 1,
+    invocation: ProviderInvocationBinding | None = None,
+    prompt_digest: str = RELEVANCE_PROMPT_TEMPLATE_DIGEST,
+    schema_digest: str = RELEVANCE_OUTPUT_SCHEMA_DIGEST,
+) -> ProviderRelevancePolicy:
     return ProviderRelevancePolicy(
         assessor_id="assessor:provider-relevance",
         version=version,
-        provider_profile_id=_profile().profile_id,
+        provider_invocation=invocation or _invocation(),
         prompt_revision="situated-relevance-prompt-v1",
+        prompt_template_digest=prompt_digest,
         output_schema_ref="agent-os://relevance-assessment-draft/v1",
+        output_schema_digest=schema_digest,
         request_timeout_seconds=20,
         max_artifact_bytes=16_384,
         failure_attention_budget_seconds=60,
@@ -215,9 +273,26 @@ def _projection() -> OperationalProjectionRef:
     )
 
 
-def _trust() -> InMemorySituationalTrustRegistry:
-    event = _event()
+def _trust(
+    *,
+    observation_bytes: bytes = OBSERVATION_BYTES,
+    projection_bytes: bytes = PROJECTION_BYTES,
+) -> InMemorySituationalTrustRegistry:
+    event = _event().model_copy(
+        update={
+            "observation": _artifact(
+                "artifact:observation", hashlib.sha256(observation_bytes).hexdigest()
+            )
+        }
+    )
     projection = _projection()
+    projection = projection.model_copy(
+        update={
+            "projection_artifact": _artifact(
+                "artifact:projection", hashlib.sha256(projection_bytes).hexdigest()
+            )
+        }
+    )
     return InMemorySituationalTrustRegistry(
         bindings=(
             (
@@ -229,8 +304,8 @@ def _trust() -> InMemorySituationalTrustRegistry:
             ),
         ),
         artifacts=(
-            (event.observation, OBSERVATION_BYTES),
-            (projection.projection_artifact, PROJECTION_BYTES),
+            (event.observation, observation_bytes),
+            (projection.projection_artifact, projection_bytes),
         ),
         evidence=(*event.evidence, *projection.evidence),
         events=(event,),
@@ -300,6 +375,10 @@ class _FailureProvider(ProviderPort):
         self.code = code
         self.decision_calls = 0
 
+    @property
+    def invocation_binding(self) -> ProviderInvocationBinding:
+        return _invocation()
+
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
         raise AssertionError("situated relevance must not use task/run completion")
 
@@ -318,7 +397,10 @@ class _FailureProvider(ProviderPort):
 
 
 def test_prompt_contains_digest_bound_mission_and_trusted_redacted_bytes() -> None:
-    provider = DeterministicProvider(text=_draft(RelevanceDisposition.CREATE_TASK))
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK),
+        invocation_binding=_invocation(),
+    )
     assessor = _assessor(provider)
 
     assessment = _assess(assessor)
@@ -331,7 +413,9 @@ def test_prompt_contains_digest_bound_mission_and_trusted_redacted_bytes() -> No
     assert not hasattr(request, "run_id")
     assert request.decision_kind == "SITUATED_RELEVANCE"
     assert request.provider_profile_id == _profile().profile_id
+    assert request.expected_invocation_binding_digest == _invocation().digest()
     prompt = json.loads(request.messages[-1].content)
+    assert RELEVANCE_PROMPT_TEMPLATE_DIGEST == content_digest(RELEVANCE_PROMPT_MANIFEST)
     assert (
         prompt["mandate_context"]["mission_statement"] == _context().mission_statement
     )
@@ -360,7 +444,9 @@ def test_strict_provider_draft_supports_create_task_help_and_abstain(
     goal: bool,
     minimum_input: bool,
 ) -> None:
-    provider = DeterministicProvider(text=_draft(disposition))
+    provider = DeterministicProvider(
+        text=_draft(disposition), invocation_binding=_invocation()
+    )
 
     assessment = _assess(_assessor(provider))
 
@@ -373,6 +459,7 @@ def test_strict_provider_draft_supports_create_task_help_and_abstain(
     assert assessment.assessment_id == f"relevance-assessment:{expected_digest}"
     assert assessment.input_binding_digest == expected_digest
     assert assessment.assessor == _policy().assessor_ref()
+    assert assessment.provider_invocation_binding_digest == _invocation().digest()
     assert assessment.assessed_at == NOW
 
 
@@ -397,7 +484,11 @@ def test_strict_provider_draft_supports_create_task_help_and_abstain(
 def test_malformed_or_authority_shaped_output_fails_closed_to_abstain(
     provider_text: str,
 ) -> None:
-    assessment = _assess(_assessor(DeterministicProvider(text=provider_text)))
+    assessment = _assess(
+        _assessor(
+            DeterministicProvider(text=provider_text, invocation_binding=_invocation())
+        )
+    )
 
     assert assessment.disposition is RelevanceDisposition.ABSTAIN
     assert assessment.proposed_goal_statement is None
@@ -424,7 +515,9 @@ def test_provider_failure_fails_closed_to_auditable_abstain(
 
 
 def test_missing_ratified_mandate_context_abstains_without_provider_call() -> None:
-    provider = DeterministicProvider(text=_draft(RelevanceDisposition.CREATE_TASK))
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
     assessor = _assessor(provider)
 
     assessment = _assess(assessor, _mandate(with_context=False))
@@ -437,7 +530,9 @@ def test_missing_ratified_mandate_context_abstains_without_provider_call() -> No
 def test_wrong_ratified_assessor_version_is_rejected_before_provider_call(
     tmp_path,
 ) -> None:
-    provider = DeterministicProvider(text=_draft(RelevanceDisposition.CREATE_TASK))
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
     assessor = _assessor(provider, policy=_policy(version=2))
     service = OperationalProposalService(
         trust=_trust(),
@@ -457,7 +552,9 @@ def test_wrong_ratified_assessor_version_is_rejected_before_provider_call(
 def test_durable_exact_replay_reuses_input_bound_outcome_without_provider_call(
     tmp_path,
 ) -> None:
-    provider = DeterministicProvider(text=_draft(RelevanceDisposition.CREATE_TASK))
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
     assessor = _assessor(provider)
     database = tmp_path / "provider-replay.sqlite3"
     first_store = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
@@ -491,10 +588,15 @@ def test_durable_exact_replay_reuses_input_bound_outcome_without_provider_call(
     record = first_store.record_by_input_binding(input_digest)
     assert record is not None
     assert record.assessment.assessment_id == f"relevance-assessment:{input_digest}"
+    assert (
+        record.assessment.provider_invocation_binding_digest == _invocation().digest()
+    )
 
 
 def test_application_composes_provider_assessor_on_real_product_entry(tmp_path) -> None:
-    provider = DeterministicProvider(text=_draft(RelevanceDisposition.CREATE_TASK))
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
     database = tmp_path / "agent-os.sqlite3"
     app = AgentOSApplication(
         database=database,
@@ -526,6 +628,10 @@ def test_provider_response_metadata_never_changes_assessment_identity() -> None:
         def __init__(self) -> None:
             self.sequence = 0
 
+        @property
+        def invocation_binding(self) -> ProviderInvocationBinding:
+            return _invocation()
+
         def complete(
             self, request: ProviderRequest
         ) -> ProviderResponse | ProviderFailure:
@@ -548,6 +654,7 @@ def test_provider_response_metadata_never_changes_assessment_identity() -> None:
                 ),
                 finish_reason="stop",
                 received_at=NOW + timedelta(seconds=self.sequence),
+                invocation_binding_digest=self.invocation_binding.digest(),
             )
 
     provider = MetadataProvider()
@@ -559,3 +666,406 @@ def test_provider_response_metadata_never_changes_assessment_identity() -> None:
     assert first.assessment_id == second.assessment_id
     assert first.input_binding_digest == second.input_binding_digest
     assert first.assessed_at == second.assessed_at == NOW
+
+
+class _RaisingProvider(ProviderPort):
+    def __init__(self, invocation: ProviderInvocationBinding | None = None) -> None:
+        self._invocation = invocation or _invocation()
+        self.decision_calls = 0
+
+    @property
+    def invocation_binding(self) -> ProviderInvocationBinding:
+        return self._invocation
+
+    def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
+        raise AssertionError("situated relevance must not use task/run completion")
+
+    def decide(
+        self, request: ProviderDecisionRequest
+    ) -> ProviderResponse | ProviderFailure:
+        self.decision_calls += 1
+        raise RuntimeError("provider adapter exploded")
+
+
+def test_provider_exception_fails_closed_to_abstain() -> None:
+    provider = _RaisingProvider()
+
+    assessment = _assess(_assessor(provider))
+
+    assert provider.decision_calls == 1
+    assert assessment.disposition is RelevanceDisposition.ABSTAIN
+    assert "UNAVAILABLE" in assessment.uncertainty_summary
+
+
+@pytest.mark.parametrize(
+    "provider_text",
+    (
+        _draft(RelevanceDisposition.ABSTAIN).replace(
+            "{", '{"disposition":"CREATE_TASK",', 1
+        ),
+        _draft(RelevanceDisposition.ABSTAIN).replace(
+            '"attention_budget_seconds": 600', '"attention_budget_seconds": NaN'
+        ),
+        _draft(RelevanceDisposition.ABSTAIN).replace(
+            '"attention_budget_seconds": 600', '"attention_budget_seconds": Infinity'
+        ),
+    ),
+)
+def test_provider_output_rejects_duplicate_keys_and_non_finite_numbers(
+    provider_text: str,
+) -> None:
+    provider = DeterministicProvider(
+        text=provider_text, invocation_binding=_invocation()
+    )
+
+    assessment = _assess(_assessor(provider))
+
+    assert assessment.disposition is RelevanceDisposition.ABSTAIN
+    assert "malformed" in assessment.uncertainty_summary.lower()
+
+
+@pytest.mark.parametrize(
+    "observation_bytes",
+    (
+        b'{"change":"first","change":"second"}',
+        b'{"confidence":NaN}',
+        b'{"confidence":Infinity}',
+    ),
+)
+def test_trusted_artifact_rejects_duplicate_keys_and_non_finite_numbers(
+    observation_bytes: bytes,
+) -> None:
+    event = _event().model_copy(
+        update={
+            "observation": _artifact(
+                "artifact:observation", hashlib.sha256(observation_bytes).hexdigest()
+            )
+        }
+    )
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK),
+        invocation_binding=_invocation(),
+    )
+    assessor = ProviderRelevanceAssessor(
+        provider=provider,
+        provider_profile=_profile(),
+        policy=_policy(),
+        trust=_trust(observation_bytes=observation_bytes),
+        contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+    )
+
+    assessment = assessor.assess(
+        _mandate(), _binding(), event, _projection(), assessed_at=NOW
+    )
+
+    assert assessment.disposition is RelevanceDisposition.ABSTAIN
+    assert provider.decision_requests == []
+    assert "malformed" in assessment.uncertainty_summary.lower()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("provider_id", "other-provider"),
+        ("model_id", "other-model"),
+        ("endpoint_class", "other-endpoint"),
+        ("credential_ref_id", "credential:other"),
+        ("max_context_tokens", 8_000),
+        ("request_timeout_seconds", 31),
+    ),
+)
+def test_full_provider_profile_drift_rejected_before_provider_call(
+    field: str, value: object
+) -> None:
+    drifted_profile = _profile().model_copy(update={field: value})
+    provider = _RaisingProvider(_invocation(profile=drifted_profile))
+
+    with pytest.raises(ValueError, match="provider"):
+        ProviderRelevanceAssessor(
+            provider=provider,
+            provider_profile=drifted_profile,
+            policy=_policy(),
+            trust=_trust(),
+            contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+        )
+
+    assert provider.decision_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("temperature", Decimal("0.5")),
+        ("base_url", "https://different.example/v1"),
+        ("endpoint_path", "/different/completions"),
+        ("request_timeout_seconds", 19),
+        ("model_id", "different-runtime-model"),
+    ),
+)
+def test_actual_provider_invocation_drift_rejected_before_provider_call(
+    field: str, value: object
+) -> None:
+    provider = _RaisingProvider(_invocation().model_copy(update={field: value}))
+
+    with pytest.raises(ValueError, match="invocation"):
+        _assessor(provider)
+
+    assert provider.decision_calls == 0
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {"model_id": "different-model"},
+        {"provider_id": "different-provider"},
+        {"endpoint_class": "different-endpoint"},
+        {"credential_ref_id": "credential:different"},
+        {"max_context_tokens": 1},
+    ),
+)
+def test_invocation_binding_rejects_internal_profile_inconsistency(
+    updates: dict[str, object],
+) -> None:
+    values: dict[str, object] = {
+        "provider_profile": _profile(),
+        "provider_id": _profile().provider_id,
+        "endpoint_class": _profile().endpoint_class,
+        "credential_ref_id": _profile().credential_ref_id,
+        "credential_ref_digest": content_digest(_credential()),
+        "max_context_tokens": _profile().max_context_tokens,
+        "adapter_kind": "deterministic-test",
+        "transport": "in-process",
+        "base_url": "in-process://deterministic",
+        "endpoint_path": "decide",
+        "model_id": _profile().model_id,
+        "request_timeout_seconds": 20,
+        "temperature": Decimal("0"),
+    }
+    values.update(updates)
+    with pytest.raises(ValueError):
+        ProviderInvocationBinding.model_validate(values)
+
+
+@pytest.mark.parametrize(
+    "credential",
+    (
+        _credential(tenant_id="tenant:other"),
+        _credential(scopes=("other",)),
+        _credential(status=CredentialStatus.REVOKED),
+        _credential(expires_at=NOW + timedelta(days=1)),
+    ),
+)
+def test_same_credential_id_content_drift_rejected_before_provider_call(
+    credential: CredentialRef,
+) -> None:
+    drifted = _invocation().model_copy(
+        update={"credential_ref_digest": content_digest(credential)}
+    )
+    provider = _RaisingProvider(drifted)
+
+    with pytest.raises(ValueError, match="invocation"):
+        _assessor(provider)
+
+    assert provider.decision_calls == 0
+
+
+def test_application_rejects_same_profile_id_with_drifted_model_before_call(
+    tmp_path,
+) -> None:
+    drifted_profile = _profile().model_copy(update={"model_id": "drifted-model"})
+    provider = _RaisingProvider(_invocation(profile=drifted_profile))
+
+    with pytest.raises(ValueError, match="provider"):
+        AgentOSApplication(
+            database=tmp_path / "app-provider-drift.sqlite3",
+            workspace=tmp_path,
+            situational_trust=_trust(),
+            situational_control=SQLiteSituatedAssessmentStore(
+                tmp_path / "situated-provider-drift.sqlite3", mandates=(_mandate(),)
+            ),
+            provider_relevance_policy=_policy(),
+            mandate_relevance_contexts=InMemoryMandateRelevanceContextRegistry(
+                (_context(),)
+            ),
+            relevance_provider=provider,
+            relevance_provider_profile=drifted_profile,
+            clock=lambda: NOW,
+        )
+
+    assert provider.decision_calls == 0
+
+
+def test_openai_provider_exposes_actual_credential_bound_invocation() -> None:
+    credential = _credential()
+    provider = OpenAICompatibleProvider(
+        base_url="https://provider.example/v1/",
+        model=_profile().model_id,
+        credential=credential,
+        timeout_seconds=20,
+        temperature=0.25,
+        provider_profile=_profile(),
+    )
+
+    binding = provider.invocation_binding
+
+    assert binding.base_url == "https://provider.example/v1"
+    assert binding.endpoint_path == "/chat/completions"
+    assert binding.model_id == _profile().model_id
+    assert binding.temperature == Decimal("0.25")
+    assert binding.credential_ref_digest == content_digest(credential)
+
+
+@pytest.mark.parametrize(
+    "credential",
+    (
+        _credential(status=CredentialStatus.REVOKED),
+        _credential(scopes=("other",)),
+        _credential(
+            created_at=datetime(2000, 1, 1, tzinfo=timezone.utc),
+            expires_at=datetime(2001, 1, 1, tzinfo=timezone.utc),
+        ),
+    ),
+)
+def test_openai_provider_rejects_unusable_credential_at_composition(
+    credential: CredentialRef,
+) -> None:
+    with pytest.raises(ValueError, match="credential"):
+        OpenAICompatibleProvider(
+            base_url="https://provider.example/v1",
+            model=_profile().model_id,
+            credential=credential,
+            timeout_seconds=20,
+            temperature=0,
+            provider_profile=_profile(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("prompt_digest", "schema_digest"),
+    (
+        ("f" * 64, RELEVANCE_OUTPUT_SCHEMA_DIGEST),
+        (RELEVANCE_PROMPT_TEMPLATE_DIGEST, "f" * 64),
+    ),
+)
+def test_prompt_and_schema_content_drift_rejected_before_provider_call(
+    prompt_digest: str, schema_digest: str
+) -> None:
+    provider = _RaisingProvider()
+
+    with pytest.raises(ValueError, match="prompt|schema"):
+        _assessor(
+            provider,
+            policy=_policy(
+                prompt_digest=prompt_digest,
+                schema_digest=schema_digest,
+            ),
+        )
+
+    assert provider.decision_calls == 0
+
+
+def test_runtime_recomputes_prompt_manifest_digest_on_construction(
+    monkeypatch,
+) -> None:
+    provider = _RaisingProvider()
+    user_template = RELEVANCE_PROMPT_MANIFEST["user"]
+    assert isinstance(user_template, dict)
+    monkeypatch.setitem(user_template, "unratified_static_field", True)
+
+    with pytest.raises(ValueError, match="prompt"):
+        _assessor(provider)
+
+    assert provider.decision_calls == 0
+
+
+def test_replay_revalidates_projection_freshness_without_provider_call(
+    tmp_path,
+) -> None:
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
+    database = tmp_path / "stale-replay.sqlite3"
+    service = OperationalProposalService(
+        trust=_trust(),
+        control=SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),)),
+        assessor=_assessor(provider),
+        principal_id="user:local",
+    )
+    assert isinstance(
+        service.propose("event:report-1", "projection:report-1", evaluated_at=NOW),
+        TaskDraftProposal,
+    )
+
+    with pytest.raises(StaleOperationalProjection):
+        service.propose(
+            "event:report-1",
+            "projection:report-1",
+            evaluated_at=NOW + timedelta(hours=2),
+        )
+
+    assert len(provider.decision_requests) == 1
+
+
+def test_revocation_wins_over_blocked_replay_across_sqlite_instances(tmp_path) -> None:
+    class BlockingReplayStore(SQLiteSituatedAssessmentStore):
+        def __init__(
+            self, database, *, started: threading.Event, release: threading.Event
+        ):
+            self.started = started
+            self.release = release
+            super().__init__(database)
+
+        def replay_if_active(self, *args, **kwargs):
+            self.started.set()
+            assert self.release.wait(timeout=5)
+            return super().replay_if_active(*args, **kwargs)
+
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
+    assessor = _assessor(provider)
+    database = tmp_path / "atomic-replay.sqlite3"
+    first_store = SQLiteSituatedAssessmentStore(database, mandates=(_mandate(),))
+    first_service = OperationalProposalService(
+        trust=_trust(),
+        control=first_store,
+        assessor=assessor,
+        principal_id="user:local",
+    )
+    assert isinstance(
+        first_service.propose(
+            "event:report-1", "projection:report-1", evaluated_at=NOW
+        ),
+        TaskDraftProposal,
+    )
+    started = threading.Event()
+    release = threading.Event()
+    replay_service = OperationalProposalService(
+        trust=_trust(),
+        control=BlockingReplayStore(database, started=started, release=release),
+        assessor=assessor,
+        principal_id="user:local",
+    )
+    outcome: list[object] = []
+
+    def replay() -> None:
+        try:
+            outcome.append(
+                replay_service.propose(
+                    "event:report-1", "projection:report-1", evaluated_at=NOW
+                )
+            )
+        except Exception as exc:
+            outcome.append(exc)
+
+    thread = threading.Thread(target=replay)
+    thread.start()
+    assert started.wait(timeout=5)
+    SQLiteSituatedAssessmentStore(database).revoke("mandate:agent-os", expected_epoch=0)
+    release.set()
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert len(outcome) == 1
+    assert isinstance(outcome[0], SituationalTrustDenied)
+    assert len(provider.decision_requests) == 1

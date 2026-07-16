@@ -6,7 +6,14 @@ from enum import Enum
 
 from pydantic import Field, field_validator, model_validator
 
-from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json
+from .common import (
+    ContractModel,
+    NonEmptyStr,
+    UtcDateTime,
+    canonical_json,
+    content_digest,
+)
+from .evidence import Sha256Digest
 
 
 class CredentialStatus(str, Enum):
@@ -71,6 +78,55 @@ class ProviderProfile(ContractModel):
         return tuple(sorted(set(values)))
 
 
+class ProviderInvocationBinding(ContractModel):
+    """Exact provider profile plus adapter settings that alter invocation semantics."""
+
+    provider_profile: ProviderProfile
+    provider_id: NonEmptyStr
+    endpoint_class: NonEmptyStr
+    credential_ref_id: NonEmptyStr
+    credential_ref_digest: Sha256Digest
+    max_context_tokens: int = Field(ge=1)
+    adapter_kind: NonEmptyStr
+    transport: NonEmptyStr
+    base_url: NonEmptyStr
+    endpoint_path: NonEmptyStr
+    model_id: NonEmptyStr
+    request_timeout_seconds: int = Field(ge=1)
+    temperature: Decimal = Field(allow_inf_nan=False)
+
+    def digest(self) -> Sha256Digest:
+        return content_digest(self)
+
+    @model_validator(mode="after")
+    def _validate_profile_consistency(self) -> ProviderInvocationBinding:
+        exact_values = (
+            (self.provider_id, self.provider_profile.provider_id, "provider id"),
+            (self.model_id, self.provider_profile.model_id, "model id"),
+            (
+                self.endpoint_class,
+                self.provider_profile.endpoint_class,
+                "endpoint class",
+            ),
+            (
+                self.credential_ref_id,
+                self.provider_profile.credential_ref_id,
+                "credential ref id",
+            ),
+            (
+                self.max_context_tokens,
+                self.provider_profile.max_context_tokens,
+                "max context tokens",
+            ),
+        )
+        for actual, expected, label in exact_values:
+            if actual != expected:
+                raise ValueError(
+                    f"invocation {label} must match the complete provider profile"
+                )
+        return self
+
+
 class ProviderMessage(ContractModel):
     role: ProviderMessageRole
     content: NonEmptyStr
@@ -115,6 +171,7 @@ class ProviderDecisionRequest(ContractModel):
     request_id: NonEmptyStr
     decision_kind: NonEmptyStr
     provider_profile_id: NonEmptyStr
+    expected_invocation_binding_digest: Sha256Digest
     messages: tuple[ProviderMessage, ...] = Field(min_length=1)
     timeout_seconds: int = Field(ge=1)
     created_at: UtcDateTime
@@ -141,6 +198,7 @@ class ProviderResponse(ContractModel):
     usage: ProviderUsage
     finish_reason: NonEmptyStr
     received_at: UtcDateTime
+    invocation_binding_digest: Sha256Digest | None = None
 
     @model_validator(mode="after")
     def _require_content(self) -> ProviderResponse:

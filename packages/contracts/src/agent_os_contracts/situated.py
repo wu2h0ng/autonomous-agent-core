@@ -7,6 +7,7 @@ from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from .evidence import ArtifactRef, EvidenceRef, Sha256Digest
+from .provider import ProviderInvocationBinding
 
 
 class ProjectionEpistemicStatus(str, Enum):
@@ -72,9 +73,11 @@ class ProviderRelevancePolicy(ContractModel):
 
     assessor_id: NonEmptyStr
     version: int = Field(ge=1)
-    provider_profile_id: NonEmptyStr
+    provider_invocation: ProviderInvocationBinding
     prompt_revision: NonEmptyStr
+    prompt_template_digest: Sha256Digest
     output_schema_ref: NonEmptyStr
+    output_schema_digest: Sha256Digest
     request_timeout_seconds: int = Field(ge=1)
     max_artifact_bytes: int = Field(ge=1)
     failure_attention_budget_seconds: int = Field(ge=1)
@@ -313,6 +316,7 @@ class RelevanceAssessment(ContractModel):
     environment_binding_digest: Sha256Digest
     correction_epoch: int = Field(ge=0)
     assessor: RelevanceAssessorRef
+    provider_invocation_binding_digest: Sha256Digest | None = None
     input_binding_digest: Sha256Digest
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr

@@ -16,10 +16,13 @@ from agent_os_contracts import (
     ProviderErrorCode,
     ProviderFailure,
     ProviderDecisionRequest,
+    ProviderInvocationBinding,
+    ProviderProfile,
     ProviderRequest,
     ProviderResponse,
     ProviderToolProposal,
     ProviderUsage,
+    content_digest,
 )
 
 
@@ -33,6 +36,10 @@ class EnvCredentialBroker:
     def resolve(self, ref: CredentialRef) -> str:
         if ref.status is not CredentialStatus.ACTIVE:
             raise CredentialUnavailable("credential is revoked")
+        if datetime.now(timezone.utc) >= ref.expires_at:
+            raise CredentialUnavailable("credential is expired")
+        if "chat" not in ref.scopes:
+            raise CredentialUnavailable("credential lacks chat scope")
         value = os.environ.get(ref.resolver_key)
         if not value:
             raise CredentialUnavailable("credential is unavailable")
@@ -40,6 +47,10 @@ class EnvCredentialBroker:
 
 
 class ProviderPort(ABC):
+    @property
+    def invocation_binding(self) -> ProviderInvocationBinding:
+        raise RuntimeError("provider invocation binding is unavailable")
+
     @abstractmethod
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
         raise NotImplementedError
@@ -57,19 +68,47 @@ class DeterministicProvider(ProviderPort):
         self,
         text: str = "provider-ok",
         tool_proposals: tuple[ProviderToolProposal, ...] = (),
+        invocation_binding: ProviderInvocationBinding | None = None,
     ) -> None:
         self.text = text
         self.tool_proposals = tool_proposals
         self.requests: list[ProviderRequest] = []
         self.decision_requests: list[ProviderDecisionRequest] = []
+        self._invocation_binding = invocation_binding
+
+    @property
+    def invocation_binding(self) -> ProviderInvocationBinding:
+        if self._invocation_binding is None:
+            return super().invocation_binding
+        return self._invocation_binding
 
     def complete(self, request: ProviderRequest) -> ProviderResponse:
         self.requests.append(request)
         return self._response(request)
 
-    def decide(self, request: ProviderDecisionRequest) -> ProviderResponse:
+    def decide(
+        self, request: ProviderDecisionRequest
+    ) -> ProviderResponse | ProviderFailure:
         self.decision_requests.append(request)
+        if (
+            request.expected_invocation_binding_digest
+            != self.invocation_binding.digest()
+        ):
+            return self._failure(request, ProviderErrorCode.MALFORMED)
         return self._response(request)
+
+    @staticmethod
+    def _failure(
+        request: ProviderDecisionRequest, code: ProviderErrorCode
+    ) -> ProviderFailure:
+        return ProviderFailure(
+            failure_id=f"failure-{uuid4()}",
+            request_id=request.request_id,
+            code=code,
+            retryable=False,
+            safe_message="provider invocation binding mismatch",
+            occurred_at=datetime.now(timezone.utc),
+        )
 
     def _response(
         self, request: ProviderRequest | ProviderDecisionRequest
@@ -92,6 +131,11 @@ class DeterministicProvider(ProviderPort):
             ),
             finish_reason="stop",
             received_at=datetime.now(timezone.utc),
+            invocation_binding_digest=(
+                self._invocation_binding.digest()
+                if self._invocation_binding is not None
+                else None
+            ),
         )
 
 
@@ -106,6 +150,7 @@ class OpenAICompatibleProvider(ProviderPort):
         timeout_seconds: int = 60,
         temperature: float | None = None,
         opener: Callable[..., object] | None = None,
+        provider_profile: ProviderProfile | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -123,6 +168,44 @@ class OpenAICompatibleProvider(ProviderPort):
             )
         )
         self._opener = opener or urllib.request.urlopen
+        self._invocation_binding: ProviderInvocationBinding | None = None
+        if provider_profile is not None:
+            if credential.status is not CredentialStatus.ACTIVE:
+                raise ValueError("provider credential must be active")
+            if datetime.now(timezone.utc) >= credential.expires_at:
+                raise ValueError("provider credential must be unexpired")
+            if "chat" not in credential.scopes:
+                raise ValueError("provider credential must grant chat scope")
+            if (
+                provider_profile.model_id != self.model
+                or provider_profile.provider_id != credential.provider_id
+                or provider_profile.credential_ref_id != credential.credential_ref_id
+                or provider_profile.endpoint_class != "openai-compatible"
+            ):
+                raise ValueError(
+                    "provider profile does not match OpenAI-compatible invocation"
+                )
+            self._invocation_binding = ProviderInvocationBinding(
+                provider_profile=provider_profile,
+                provider_id=credential.provider_id,
+                endpoint_class="openai-compatible",
+                credential_ref_id=credential.credential_ref_id,
+                credential_ref_digest=content_digest(credential),
+                max_context_tokens=provider_profile.max_context_tokens,
+                adapter_kind="openai-compatible",
+                transport="https-json",
+                base_url=self.base_url,
+                endpoint_path="/chat/completions",
+                model_id=self.model,
+                request_timeout_seconds=self.timeout_seconds,
+                temperature=Decimal(str(self.temperature)),
+            )
+
+    @property
+    def invocation_binding(self) -> ProviderInvocationBinding:
+        if self._invocation_binding is None:
+            return super().invocation_binding
+        return self._invocation_binding
 
     def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
         return self._invoke(
@@ -132,6 +215,24 @@ class OpenAICompatibleProvider(ProviderPort):
     def decide(
         self, request: ProviderDecisionRequest
     ) -> ProviderResponse | ProviderFailure:
+        try:
+            if (
+                request.expected_invocation_binding_digest
+                != self.invocation_binding.digest()
+            ):
+                return self._failure(
+                    request,
+                    ProviderErrorCode.MALFORMED,
+                    "provider invocation binding mismatch",
+                    False,
+                )
+        except RuntimeError:
+            return self._failure(
+                request,
+                ProviderErrorCode.MALFORMED,
+                "provider invocation binding unavailable",
+                False,
+            )
         return self._invoke(request, allowed_capability_ids=())
 
     def _invoke(
@@ -203,6 +304,11 @@ class OpenAICompatibleProvider(ProviderPort):
                 ),
                 finish_reason=str(choice.get("finish_reason", "stop")),
                 received_at=datetime.now(timezone.utc),
+                invocation_binding_digest=(
+                    self._invocation_binding.digest()
+                    if self._invocation_binding is not None
+                    else None
+                ),
             )
         except urllib.error.HTTPError as exc:
             code = (
