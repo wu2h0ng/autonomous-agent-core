@@ -131,6 +131,10 @@ class DataAgentReportEnvelopePolicy:
 
     def __init__(self, config: DataAgentReportPolicyConfig) -> None:
         self._config = config
+        self._descriptor = self._build_descriptor()
+
+    def _build_descriptor(self) -> DataAgentReportPolicyDescriptor:
+        config = self._config
         required_scopes = tuple(
             sorted(
                 {
@@ -165,7 +169,7 @@ class DataAgentReportEnvelopePolicy:
                 "required_credential_scopes": required_scopes,
             }
         )
-        self._descriptor = DataAgentReportPolicyDescriptor(
+        return DataAgentReportPolicyDescriptor(
             adapter_version=ADAPTER_VERSION,
             policy_version=POLICY_VERSION,
             config_digest=config_digest,
@@ -216,7 +220,7 @@ class DataAgentReportEnvelopePolicy:
             )
         return payload
 
-    def _stable_identity(self, trace_id: str, raw_digest: str) -> dict[str, object]:
+    def stable_identity(self, trace_id: str, raw_digest: str) -> dict[str, object]:
         config = self._config
         return {
             "adapter_version": ADAPTER_VERSION,
@@ -240,7 +244,7 @@ class DataAgentReportEnvelopePolicy:
     ) -> DataAgentReportEnvelope:
         self.validate_body(body, trace_id)
         raw_digest = hashlib.sha256(body).hexdigest()
-        stable_identity = self._stable_identity(trace_id, raw_digest)
+        stable_identity = self.stable_identity(trace_id, raw_digest)
         dedupe_digest = content_digest(stable_identity)
         record_identity = {**stable_identity, "observed_at": observed_at.isoformat()}
         identity_digest = content_digest(record_identity)
@@ -396,6 +400,29 @@ class DataAgentReportEnvelopePolicy:
             raise DataAgentReportPolicyError(
                 "external report envelope binding is invalid"
             )
+
+    def validate_and_describe(
+        self,
+        *,
+        body: bytes,
+        artifact: ArtifactRef,
+        evidence: EvidenceRef,
+        event: EnvironmentEvent,
+        projection: OperationalProjectionRef | None = None,
+    ) -> DataAgentReportPolicyDescriptor:
+        current = self._build_descriptor()
+        if current != self._descriptor:
+            raise DataAgentReportPolicyError(
+                "external report policy descriptor is inconsistent"
+            )
+        self.validate(
+            body=body,
+            artifact=artifact,
+            evidence=evidence,
+            event=event,
+            projection=projection,
+        )
+        return current
 
 
 __all__ = [

@@ -15,7 +15,7 @@ from agent_os_contracts import (
     event_origin_registration_digest,
     payload_admission_attestation_digest,
 )
-from agent_os_core import CanonicalCredentialAuthorizationReader
+from agent_os_core import CredentialAuthorizationReader
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
@@ -216,7 +216,7 @@ class _DataAgentReportAdmissionRegistrar:
         self,
         adapter: DataAgentReportAdapter,
         store: SQLiteDataAgentReportAdmissionMaterialStore,
-        authorizations: CanonicalCredentialAuthorizationReader,
+        authorizations: CredentialAuthorizationReader,
         *,
         clock: Clock,
     ) -> None:
@@ -224,8 +224,6 @@ class _DataAgentReportAdmissionRegistrar:
             raise TypeError("registrar requires the concrete Data Agent report adapter")
         if type(store) is not SQLiteDataAgentReportAdmissionMaterialStore:
             raise TypeError("registrar requires the concrete admission material store")
-        if type(authorizations) is not CanonicalCredentialAuthorizationReader:
-            raise TypeError("registrar requires the canonical authorization reader")
         if store.principal_scope != adapter.principal_scope:
             raise DataAgentReportAdmissionError(
                 "admission store scope does not match adapter scope"
@@ -264,7 +262,17 @@ class _DataAgentReportAdmissionRegistrar:
             raise DataAgentReportAdmissionError(
                 "external report evidence is unavailable"
             )
-        descriptor = self._adapter.admission_policy_descriptor
+        try:
+            descriptor = (
+                self._adapter._admission_policy_for_composition.validate_and_describe(
+                    body=body,
+                    artifact=artifact,
+                    evidence=evidence,
+                    event=event,
+                )
+            )
+        except DataAgentReportPolicyError as exc:
+            raise DataAgentReportAdmissionError(str(exc)) from None
         if (
             (descriptor.principal_id, descriptor.tenant_id, descriptor.workspace_id)
             != self._store.principal_scope
@@ -276,19 +284,15 @@ class _DataAgentReportAdmissionRegistrar:
             raise DataAgentReportAdmissionError(
                 "external report admission scope mismatch"
             )
-        try:
-            self._adapter._admission_policy_for_composition.validate(
-                body=body,
-                artifact=artifact,
-                evidence=evidence,
-                event=event,
-            )
-        except DataAgentReportPolicyError as exc:
-            raise DataAgentReportAdmissionError(str(exc)) from None
         assessed_at = self._utc(self._clock())
-        authorization = self._authorizations.resolve_authorization(
-            descriptor.credential_ref_id
-        )
+        try:
+            authorization = self._authorizations.resolve_authorization(
+                descriptor.credential_ref_id
+            )
+        except Exception:
+            raise DataAgentReportAdmissionError(
+                "credential authorization is unavailable"
+            ) from None
         if authorization is None:
             raise DataAgentReportAdmissionError(
                 "credential authorization is unavailable"

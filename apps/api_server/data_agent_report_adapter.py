@@ -1929,19 +1929,7 @@ class DataAgentReportAdapter:
             )
 
     def _stable_identity(self, trace_id: str, raw_digest: str) -> dict[str, object]:
-        return {
-            "adapter_version": _ADAPTER_VERSION,
-            "source_id": self._config.source_id,
-            "source_tenant_id": self._config.source_tenant_id,
-            "trace_id": trace_id,
-            "raw_digest": raw_digest,
-            "principal_id": self._config.principal_id,
-            "target_tenant_id": self._config.target_tenant_id,
-            "target_workspace_id": self._config.target_workspace_id,
-            "mandate_id": self._config.mandate_id,
-            "environment_binding_id": self._config.environment_binding_id,
-            "scope_ref": self._config.scope_ref,
-        }
+        return self._admission_policy.stable_identity(trace_id, raw_digest)
 
     def _build_bundle(
         self,

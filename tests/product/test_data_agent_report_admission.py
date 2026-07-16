@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from agent_os_contracts import (
+    CredentialAuthorizationSnapshot,
     CredentialRef,
     CredentialStatus,
     EnvironmentEvent,
@@ -19,7 +20,10 @@ from agent_os_contracts import (
     canonical_json,
     event_origin_registration_digest,
 )
-from agent_os_core import CanonicalCredentialAuthorizationReader
+from agent_os_core import (
+    CanonicalCredentialAuthorizationReader,
+    CredentialAuthorizationReader,
+)
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
@@ -144,6 +148,7 @@ def _registrar(
     adapter: DataAgentReportAdapter,
     *,
     credential: CredentialRef | None = None,
+    reader: CredentialAuthorizationReader | None = None,
     store_scope: tuple[str, str, str] = (
         "principal:local",
         "tenant:local",
@@ -160,7 +165,7 @@ def _registrar(
     return _DataAgentReportAdmissionRegistrar(
         adapter,
         store,
-        CanonicalCredentialAuthorizationReader([credential or _credential()]),
+        reader or CanonicalCredentialAuthorizationReader([credential or _credential()]),
         clock=clock,
     )
 
@@ -269,7 +274,7 @@ def test_store_scope_must_equal_adapter_principal_scope(tmp_path: Path) -> None:
         )
 
 
-def test_registrar_rejects_fake_duck_adapter_and_authorization_reader(
+def test_registrar_rejects_fake_duck_adapter(
     tmp_path: Path,
 ) -> None:
     adapter, _ = _adapter(tmp_path)
@@ -286,22 +291,11 @@ def test_registrar_rejects_fake_duck_adapter_and_authorization_reader(
         def resolve_event(self, event_id: str) -> EnvironmentEvent | None:
             return adapter.resolve_event(event_id)
 
-    class FakeReader:
-        def resolve_authorization(self, credential_ref_id: str) -> object:
-            return object()
-
     with pytest.raises(TypeError):
         _DataAgentReportAdmissionRegistrar(
             FakeAdapter(),  # type: ignore[arg-type]
             store,
             CanonicalCredentialAuthorizationReader([_credential()]),
-            clock=lambda: NOW,
-        )
-    with pytest.raises(TypeError):
-        _DataAgentReportAdmissionRegistrar(
-            adapter,
-            store,
-            FakeReader(),  # type: ignore[arg-type]
             clock=lambda: NOW,
         )
 
@@ -313,6 +307,75 @@ def test_registrar_public_operation_accepts_only_event_id() -> None:
         "self",
         "event_id",
     )
+
+
+class _MutableAuthorizationReader:
+    def __init__(self, credential: CredentialRef) -> None:
+        self.credential = credential
+
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None:
+        if credential_ref_id != self.credential.credential_ref_id:
+            return None
+        return CanonicalCredentialAuthorizationReader(
+            [self.credential]
+        ).resolve_authorization(credential_ref_id)
+
+
+@pytest.mark.parametrize(
+    "drift",
+    [
+        {"status": CredentialStatus.REVOKED},
+        {
+            "created_at": NOW + timedelta(hours=1),
+            "expires_at": NOW + timedelta(hours=2),
+        },
+        {"expires_at": NOW},
+        {"provider_id": "wrong-provider"},
+        {"scopes": ("reports:read",)},
+        {"resolver_key": "ROTATED_REPORT_KEY"},
+        {"owner_principal_id": "principal:other"},
+        {"tenant_id": "tenant:other"},
+        {"workspace_id": "workspace:other"},
+    ],
+)
+def test_registrar_reads_current_authorization_for_each_fresh_event(
+    tmp_path: Path, drift: dict[str, object]
+) -> None:
+    adapter, first = _adapter(tmp_path)
+    reader = _MutableAuthorizationReader(_credential())
+    registrar = _registrar(tmp_path, adapter, reader=reader)
+    registrar.prepare(first.environment_event_id)
+    adapter._transport.body = _body("trace-2")  # type: ignore[attr-defined]
+    second = adapter.pull("trace-2").event
+    reader.credential = _credential(**drift)
+
+    with pytest.raises(DataAgentReportAdmissionError):
+        registrar.prepare(second.environment_event_id)
+
+
+def test_authorization_reader_exception_is_safe_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    adapter, event = _adapter(tmp_path)
+
+    class BrokenReader:
+        def resolve_authorization(
+            self, credential_ref_id: str
+        ) -> CredentialAuthorizationSnapshot | None:
+            raise RuntimeError(credential_ref_id)
+
+    with pytest.raises(
+        DataAgentReportAdmissionError, match="authorization is unavailable"
+    ):
+        _registrar(tmp_path, adapter, reader=BrokenReader()).prepare(
+            event.environment_event_id
+        )
+    with sqlite3.connect(tmp_path / "admission.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM data_agent_report_admission_material"
+        ).fetchone() == (0,)
 
 
 def test_prepare_fails_when_bound_credential_reflection_check_fails(
@@ -437,6 +500,23 @@ def test_existing_material_is_denied_after_adapter_version_drift(
     )
     with pytest.raises(DataAgentReportAdmissionError):
         _registrar(tmp_path, adapter).prepare(event.environment_event_id)
+
+
+def test_forged_cached_descriptor_denies_before_new_material_row(
+    tmp_path: Path,
+) -> None:
+    adapter, event = _adapter(tmp_path)
+    descriptor = adapter.admission_policy_descriptor
+    adapter._admission_policy._descriptor = replace(  # type: ignore[attr-defined]
+        descriptor, policy_digest="f" * 64
+    )
+
+    with pytest.raises(DataAgentReportAdmissionError):
+        _registrar(tmp_path, adapter).prepare(event.environment_event_id)
+    with sqlite3.connect(tmp_path / "admission.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM data_agent_report_admission_material"
+        ).fetchone() == (0,)
 
 
 def test_single_row_is_atomic_and_idempotent(tmp_path: Path) -> None:
