@@ -176,6 +176,7 @@ class InteractiveEpisode:
         self._episode_seed = _episode_seed(family_id, seed_id)
         self._rng = random.Random(self._episode_seed)
         self.T = self._sample_T()
+        self._valid_schedule = self._build_valid_schedule()
         self._state = self._build_initial_state()
         self._turn_index = 0
         self._observations: list[Observation] = []
@@ -201,6 +202,54 @@ class InteractiveEpisode:
         """Sample episode length from the frozen [20, 60] distribution."""
         value = int.from_bytes(self._episode_seed[:4], "big")
         return T_MIN + (value % (T_MAX - T_MIN + 1))
+
+    def _build_valid_schedule(self) -> list[datetime]:
+        """Derive the sealed per-turn valid-time clock from the episode seed.
+
+        The clock starts at a seed-specific origin and advances by irregular
+        seed-derived increments, so the released ``valid_time`` is a legitimate
+        temporal variable but is not a fixed affine transform of the turn
+        index and does not identify checkpoint positions.
+        """
+        origin_digest = hashlib.sha256(
+            b"valid-origin-v1\x00" + self._episode_seed
+        ).digest()
+        current = BASE_TIME + timedelta(
+            minutes=int.from_bytes(origin_digest[:2], "big") % 4320,
+            seconds=origin_digest[2] % 60,
+        )
+        schedule: list[datetime] = []
+        for turn in range(1, self.T + 1):
+            digest = hashlib.sha256(
+                b"valid-clock-v1\x00"
+                + self._episode_seed
+                + turn.to_bytes(4, "big")
+            ).digest()
+            current = current + timedelta(
+                minutes=1 + digest[0] % 13,
+                seconds=digest[1] % 60,
+            )
+            schedule.append(current)
+        return schedule
+
+    def _valid_time_for(self, turn: int) -> datetime:
+        """Sealed valid-time clock value for ``turn`` (1-indexed)."""
+        return self._valid_schedule[turn - 1]
+
+    def _turn_digest(self, label: str, turn: int) -> bytes:
+        """Deterministic sealed digest for ``label`` at ``turn``."""
+        return hashlib.sha256(
+            label.encode("utf-8")
+            + b"\x00"
+            + self._episode_seed
+            + turn.to_bytes(4, "big", signed=True)
+        ).digest()
+
+    def _opaque_ref(self, kind: str, turn: int) -> str:
+        """Deterministic reference for ``kind`` at ``turn`` without exposing
+        the turn index in actor-visible bytes."""
+        digest = self._turn_digest(f"ref-v1:{kind}", turn).hex()[:9]
+        return f"{kind}-r{digest}"
 
     def _build_initial_state(self) -> EpisodeState:
         """Build a seed-specific initial state."""
@@ -482,14 +531,15 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=str(record["event_class"]),
             payload=dict(record["payload"]),
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
     def _normal_observation(self, turn: int) -> Observation:
         """Generate a routine progression observation."""
         entity_keys = sorted(self._state.entities.keys())
-        entity = entity_keys[(turn - 1) % max(1, len(entity_keys))]
+        selector = self._turn_digest("entity-cycle-v1", turn)[0]
+        entity = entity_keys[selector % max(1, len(entity_keys))]
         return Observation(
             turn_index=turn,
             event_class="ENTITY_OBSERVED",
@@ -498,7 +548,7 @@ class InteractiveEpisode:
                 "object_version": self._state.entities[entity],
                 "process_epoch": self._state.process_epoch,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -550,13 +600,18 @@ class InteractiveEpisode:
 
     def _alias_rebind_observation(self, turn: int) -> Observation:
         entity_keys = sorted(self._state.entities.keys())
+        selector = self._turn_digest("alias-rebind-v1", turn)
         if len(entity_keys) < 2:
             target = entity_keys[0] if entity_keys else "entity-00"
             new_ref = target
         else:
-            target = entity_keys[turn % len(entity_keys)]
-            new_ref = entity_keys[(turn + 1) % len(entity_keys)]
-        alias = f"alias-{turn % 8:02d}"
+            target = entity_keys[selector[0] % len(entity_keys)]
+            new_ref = entity_keys[(selector[0] + 1) % len(entity_keys)]
+        alias_keys = sorted(self._state.aliases.keys())
+        if alias_keys:
+            alias = alias_keys[selector[1] % len(alias_keys)]
+        else:
+            alias = self._opaque_ref("alias", turn)
         return Observation(
             turn_index=turn,
             event_class=PerturbationClass.ALIAS_REBIND.value,
@@ -565,13 +620,14 @@ class InteractiveEpisode:
                 "new_ref": new_ref,
                 "old_ref": self._state.aliases.get(alias, target),
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
     def _object_version_change_observation(self, turn: int) -> Observation:
         entity_keys = sorted(self._state.entities.keys())
-        entity = entity_keys[turn % max(1, len(entity_keys))]
+        selector = self._turn_digest("version-change-v1", turn)[0]
+        entity = entity_keys[selector % max(1, len(entity_keys))]
         return Observation(
             turn_index=turn,
             event_class=PerturbationClass.OBJECT_VERSION_CHANGE.value,
@@ -580,7 +636,7 @@ class InteractiveEpisode:
                 "new_version": "v2",
                 "old_version": self._state.entities.get(entity, "v1"),
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -593,23 +649,26 @@ class InteractiveEpisode:
                 "old_epoch": self._state.process_epoch,
                 "pending_effects_cleared": self._state.pending_effect is not None,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
     def _out_of_order_transaction_observation(self, turn: int) -> Observation:
+        selector = self._turn_digest("out-of-order-v1", turn)
+        reference_turn = max(1, turn - (2 + selector[0] % 4))
+        displaced = self._valid_time_for(reference_turn) - timedelta(
+            seconds=30 + int.from_bytes(selector[1:3], "big") % 900
+        )
         return Observation(
             turn_index=turn,
             event_class=PerturbationClass.OUT_OF_ORDER_TRANSACTION.value,
             payload={
-                "assertion_id": f"assertion-{turn:03d}",
+                "assertion_id": self._opaque_ref("assertion", turn),
                 "predicate": "release_window",
                 "value": "closed",
-                "valid_time_iso": (
-                    BASE_TIME - timedelta(days=1) + timedelta(minutes=turn)
-                ).isoformat(),
+                "valid_time_iso": displaced.isoformat(),
             },
-            valid_time=BASE_TIME - timedelta(days=1) + timedelta(minutes=turn),
+            valid_time=displaced,
             observed_at_turn=turn,
         )
 
@@ -618,12 +677,12 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.HALF_OPEN_VALID_TIME_BOUNDARY.value,
             payload={
-                "assertion_id": f"assertion-{turn:03d}",
+                "assertion_id": self._opaque_ref("assertion", turn),
                 "boundary": "start",
                 "predicate": "release_window",
                 "value": "open",
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -634,33 +693,33 @@ class InteractiveEpisode:
             payload={
                 "assertions": [
                     {
-                        "assertion_id": f"assertion-{turn:03d}-a",
+                        "assertion_id": self._opaque_ref("assertion-a", turn),
                         "predicate": "active_schema",
                         "value": "schema-v1",
                     },
                     {
-                        "assertion_id": f"assertion-{turn:03d}-b",
+                        "assertion_id": self._opaque_ref("assertion-b", turn),
                         "predicate": "active_schema",
                         "value": "schema-v2",
                     },
                 ],
                 "overlap": True,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
     def _action_dispatch_observation(self, turn: int) -> Observation:
-        action_ref = f"action-{turn:03d}"
+        action_ref = self._opaque_ref("action", turn)
         return Observation(
             turn_index=turn,
             event_class=PerturbationClass.ACTION_DISPATCH.value,
             payload={
                 "action_ref": action_ref,
-                "expected_receipt_turn": turn + 2,
+                "receipt_delay_turns": 2,
                 "value": "effect initiated",
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -669,11 +728,11 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.DETERMINISTIC_RECOVERY.value,
             payload={
-                "recovery_ref": f"recovery-{turn:03d}",
+                "recovery_ref": self._opaque_ref("recovery", turn),
                 "recovery_action": "ROLLBACK",
                 "snapshot_digest": self._state_digest(),
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -682,11 +741,11 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.PENDING_COMMITMENT.value,
             payload={
-                "commitment_ref": f"commitment-{turn:03d}",
-                "preconditions": [f"precondition-{turn:03d}"],
+                "commitment_ref": self._opaque_ref("commitment", turn),
+                "preconditions": [self._opaque_ref("precondition", turn)],
                 "value": "ship only after preconditions hold",
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -695,10 +754,10 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.PRECONDITION_REFUTATION.value,
             payload={
-                "commitment_ref": f"commitment-{turn - 1:03d}",
-                "precondition": f"precondition-{turn - 1:03d}",
+                "commitment_ref": self._opaque_ref("commitment", turn - 1),
+                "precondition": self._opaque_ref("precondition", turn - 1),
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -707,12 +766,12 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.DELAYED_DEPENDENT_ACTION.value,
             payload={
-                "action_ref": f"action-{turn:03d}",
-                "precondition": f"precondition-{turn:03d}",
-                "dispatch_turn": turn - 3,
+                "action_ref": self._opaque_ref("action", turn),
+                "precondition": self._opaque_ref("precondition", turn),
+                "dispatch_delay_turns": 3,
                 "precondition_refuted": True,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -721,13 +780,15 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.ASSERTION_SUPERSESSION.value,
             payload={
-                "assertion_id": f"assertion-{turn:03d}",
-                "supersedes": f"assertion-{turn - 3:03d}",
+                "assertion_id": self._opaque_ref("assertion", turn),
+                "supersedes": self._opaque_ref("assertion", turn - 3),
                 "predicate": "active_schema",
                 "value": f"schema-v{2 + turn % 2}",
-                "dependent_assertion_id": f"assertion-{turn:03d}-dep",
+                "dependent_assertion_id": self._opaque_ref(
+                    "assertion-dep", turn
+                ),
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -736,14 +797,14 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.LATE_REFUTATION.value,
             payload={
-                "refutation_id": f"refutation-{turn:03d}",
-                "refuted_assertion_id": f"assertion-{turn - 3:03d}",
+                "refutation_id": self._opaque_ref("refutation", turn),
+                "refuted_assertion_id": self._opaque_ref("assertion", turn - 3),
                 "dependent_assertion_ids": [
-                    f"assertion-{turn:03d}-dep-a",
-                    f"assertion-{turn:03d}-dep-b",
+                    self._opaque_ref("assertion-dep-a", turn),
+                    self._opaque_ref("assertion-dep-b", turn),
                 ],
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -753,14 +814,14 @@ class InteractiveEpisode:
             event_class=PerturbationClass.TRANSITIVE_INVALIDATION.value,
             payload={
                 "chain": [
-                    f"assertion-{turn:03d}-c0",
-                    f"assertion-{turn:03d}-c1",
-                    f"assertion-{turn:03d}-c2",
+                    self._opaque_ref("assertion-c0", turn),
+                    self._opaque_ref("assertion-c1", turn),
+                    self._opaque_ref("assertion-c2", turn),
                 ],
-                "root_cause": f"refutation-{turn:03d}",
+                "root_cause": self._opaque_ref("refutation", turn),
                 "invalidated": True,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -769,11 +830,11 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.RECEIPT_LOSS.value,
             payload={
-                "action_ref": f"action-{turn:03d}",
-                "expected_receipt_turn": turn - 1,
+                "action_ref": self._opaque_ref("action", turn),
+                "receipt_overdue": True,
                 "receipt_received": False,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -784,12 +845,12 @@ class InteractiveEpisode:
             turn_index=turn,
             event_class=PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION.value,
             payload={
-                "action_ref": f"action-{turn:03d}",
+                "action_ref": self._opaque_ref("action", turn),
                 "interrupted_epoch": self._state.process_epoch,
                 "new_epoch": self._state.process_epoch + 1,
-                "retry_record": f"retry-{turn:03d}",
+                "retry_record": self._opaque_ref("retry", turn),
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -803,7 +864,7 @@ class InteractiveEpisode:
                 "headroom_bytes": max(0, self.b_a0 - self._cumulative_a0_bytes()),
                 "pressure": True,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -816,7 +877,7 @@ class InteractiveEpisode:
                 "budget_at_bound": True,
                 "silent_loss": False,
             },
-            valid_time=BASE_TIME + timedelta(minutes=turn),
+            valid_time=self._valid_time_for(turn),
             observed_at_turn=turn,
         )
 
@@ -1129,7 +1190,7 @@ class InteractiveEpisode:
             # Marker plus a sealed pressure flag; state content is not inflated.
             self._state.pressure_flags.append(
                 {
-                    "ref": f"pressure-{observation.turn_index:03d}",
+                    "ref": self._opaque_ref("pressure", observation.turn_index),
                     "acknowledged": False,
                 }
             )
