@@ -79,6 +79,7 @@ from .provider import (
     ProviderUsage,
 )
 from .resource import ResourceBudget, RiskTier
+from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
 from .situated import (
     EnvironmentBindingAuthorization,
     EnvironmentEvent,
@@ -218,8 +219,10 @@ __all__ = [
     "CorrectionSnapshot",
     "CorrectionState",
     "CredentialRef",
+    "CredentialAuthorizationSnapshot",
     "CredentialLeaseRef",
     "CredentialStatus",
+    "LedgerAccessScope",
     "AgentInstanceRef",
     "AgentRun",
     "ExternalSignal",

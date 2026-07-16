@@ -18,6 +18,7 @@ from agent_os_contracts import (
     ArtifactLocationClass,
     ArtifactRef,
     CredentialLeaseRef,
+    CredentialAuthorizationSnapshot,
     CredentialRef,
     CredentialStatus,
     EnvironmentBindingAuthorization,
@@ -28,6 +29,7 @@ from agent_os_contracts import (
     EvidenceSourceKind,
     PayloadAdmissionAttestation,
     RatifiedMandateRef,
+    LedgerAccessScope,
     RelevanceAssessorRef,
     content_digest,
     credential_lease_digest,
@@ -35,8 +37,8 @@ from agent_os_contracts import (
     payload_admission_attestation_digest,
 )
 from agent_os_core import (
+    CanonicalCredentialAuthorizationReader,
     CanonicalCredentialLeaseRegistry,
-    CanonicalCredentialRefReader,
     InMemorySituationalTrustRegistry,
     InMemorySituationalControlPlane,
     SQLiteSituatedAssessmentStore,
@@ -45,7 +47,7 @@ from agent_os_core import (
 from agent_os_core.srl_event_admission import EnvironmentEventAdmissionService
 from agent_os_core.srl_event_store import (
     EventAdmissionPersistenceConflict,
-    SQLiteEventAdmissionStore,
+    ScopedEventAdmissionReader,
     _create_event_admission_store,
 )
 
@@ -76,8 +78,24 @@ class _CredentialLookup:
     def __init__(self, values: Mapping[str, CredentialRef]) -> None:
         self._values = dict(values)
 
-    def resolve(self, credential_ref_id: str) -> CredentialRef | None:
-        return self._values.get(credential_ref_id)
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None:
+        credential = self._values.get(credential_ref_id)
+        if credential is None:
+            return None
+        return CredentialAuthorizationSnapshot(
+            credential_ref_id=credential.credential_ref_id,
+            credential_ref_digest=content_digest(credential),
+            owner_principal_id=credential.owner_principal_id,
+            tenant_id=credential.tenant_id,
+            workspace_id=credential.workspace_id,
+            provider_id=credential.provider_id,
+            scopes=credential.scopes,
+            status=credential.status,
+            created_at=credential.created_at,
+            expires_at=credential.expires_at,
+        )
 
 
 class _LeaseLookup:
@@ -388,7 +406,7 @@ def _build_service(
     database_name: str = "admission.sqlite3",
     authority: Any | None = None,
     writer_wrapper: Any | None = None,
-) -> tuple[EnvironmentEventAdmissionService, SQLiteEventAdmissionStore, Any]:
+) -> tuple[EnvironmentEventAdmissionService, ScopedEventAdmissionReader, Any]:
     canonical_event = event or _event()
     canonical_credential = credential or _credential()
     canonical_lease = lease or _lease(canonical_credential)
@@ -397,7 +415,14 @@ def _build_service(
     current_authority = authority or SQLiteSituatedAssessmentStore(
         tmp_path / f"authority-{database_name}", mandates=(mandate or _mandate(),)
     )
-    reader, writer = _create_event_admission_store(tmp_path / database_name)
+    scope = LedgerAccessScope(
+        principal_id=principal_id,
+        tenant_id=canonical_event.tenant_id,
+        workspace_id=canonical_event.workspace_id,
+    )
+    reader, writer = _create_event_admission_store(
+        tmp_path / database_name, scope=scope
+    )
     injected_writer = writer_wrapper(writer) if writer_wrapper is not None else writer
     service = EnvironmentEventAdmissionService(
         trust=InMemorySituationalTrustRegistry(
@@ -408,7 +433,7 @@ def _build_service(
             ),
             events=((canonical_event,) if trust_event else ()),
         ),
-        authority=current_authority,
+        authority=current_authority.scoped_reader(scope),
         origins=_Lookup(
             {canonical_event.environment_event_id: canonical_origin}
             if origin_available
@@ -447,15 +472,20 @@ def test_admits_canonical_event_with_current_authority_and_exact_bytes(
     authority = SQLiteSituatedAssessmentStore(
         tmp_path / "authority.sqlite3", mandates=(_mandate(),)
     )
-    reader, writer = _create_event_admission_store(tmp_path / "admission.sqlite3")
+    scope = LedgerAccessScope(
+        principal_id="principal-1", tenant_id="tenant-1", workspace_id="workspace-1"
+    )
+    reader, writer = _create_event_admission_store(
+        tmp_path / "admission.sqlite3", scope=scope
+    )
     service = module.EnvironmentEventAdmissionService(
         trust=InMemorySituationalTrustRegistry(
             artifacts=((event.observation, RAW_OBSERVATION),), events=(event,)
         ),
-        authority=authority,
+        authority=authority.scoped_reader(scope),
         origins=_Lookup({event.environment_event_id: origin}),
         leases=CanonicalCredentialLeaseRegistry((lease,)),
-        credentials=CanonicalCredentialRefReader((credential,)),
+        credentials=CanonicalCredentialAuthorizationReader((credential,)),
         attestations=_Lookup({event.environment_event_id: attestation}),
         admission_reader=reader,
         admission_writer=writer,
@@ -513,6 +543,10 @@ def test_each_missing_resolver_input_denies_before_writer_call(
     [
         ("naive_time", "time"),
         ("wrong_principal", "principal"),
+        ("credential_owner", "principal"),
+        ("credential_tenant", "scope"),
+        ("credential_workspace", "scope"),
+        ("credential_created_after", "created"),
         ("missing_scope", "scope"),
         ("revoked_credential", "active"),
         ("expired_credential", "validity"),
@@ -546,6 +580,22 @@ def test_mutated_or_stale_material_denies_before_writer_call(
         admitted_at = ADMITTED_AT.replace(tzinfo=None)
     elif case == "wrong_principal":
         principal_id = "attacker"
+    elif case == "credential_owner":
+        credential = credential.model_copy(update={"owner_principal_id": "attacker"})
+        origin = _rebuilt_origin(origin, credential_ref_digest=content_digest(credential))
+        lease = _rebuilt_lease(lease, credential_ref_digest=content_digest(credential))
+    elif case == "credential_tenant":
+        credential = credential.model_copy(update={"tenant_id": "tenant-other"})
+        origin = _rebuilt_origin(origin, credential_ref_digest=content_digest(credential))
+        lease = _rebuilt_lease(lease, credential_ref_digest=content_digest(credential))
+    elif case == "credential_workspace":
+        credential = credential.model_copy(update={"workspace_id": "workspace-other"})
+        origin = _rebuilt_origin(origin, credential_ref_digest=content_digest(credential))
+        lease = _rebuilt_lease(lease, credential_ref_digest=content_digest(credential))
+    elif case == "credential_created_after":
+        credential = credential.model_copy(update={"created_at": ADMITTED_AT + timedelta(seconds=1)})
+        origin = _rebuilt_origin(origin, credential_ref_digest=content_digest(credential))
+        lease = _rebuilt_lease(lease, credential_ref_digest=content_digest(credential))
     elif case == "missing_scope":
         required_scopes = frozenset({"events:admin"})
     elif case == "revoked_credential":
@@ -1276,3 +1326,24 @@ def test_positive_admission_makes_zero_provider_assessor_task_or_effect_calls(
 
     assert reader.by_event_id("event-1") == receipt
     assert calls == {name: 0 for name in calls}
+
+
+def test_adapter_exception_is_sanitized_and_leaves_no_durable_sentinel(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    sentinel = "ADAPTER-RAW-EXCEPTION-MUST-NOT-LEAK-0A"
+    service, reader, _ = _build_service(tmp_path)
+
+    class _ExplodingOrigin:
+        def resolve_event(self, event_id: str) -> EventOriginRegistration | None:
+            del event_id
+            raise RuntimeError(sentinel)
+
+    service._origins = _ExplodingOrigin()  # type: ignore[assignment,attr-defined]
+    with pytest.raises(SituationalTrustDenied) as captured:
+        service.admit("event-1", _lease(_credential()).lease_id, admitted_at=ADMITTED_AT)
+
+    assert sentinel not in str(captured.value)
+    assert sentinel not in caplog.text
+    assert reader.by_event_id("event-1") is None
+    assert sentinel.encode() not in (tmp_path / "admission.sqlite3").read_bytes()

@@ -19,6 +19,7 @@ from agent_os_contracts import (
     EvidenceRef,
     EvidenceSourceKind,
     HelpRequest,
+    LedgerAccessScope,
     OperationalProjectionRef,
     ProjectionEpistemicStatus,
     RatifiedMandateRef,
@@ -28,6 +29,7 @@ from agent_os_contracts import (
     RelevanceUrgency,
     SituatedTraceReason,
     SituatedTraceStatus,
+    SituatedEvaluationTrace,
     TaskDraftProposal,
     content_digest,
     environment_event_admission_receipt_digest,
@@ -45,6 +47,9 @@ from agent_os_core.srl_event_store import _create_event_admission_store
 
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
+SCOPE = LedgerAccessScope(
+    principal_id="principal-1", tenant_id="tenant-1", workspace_id="workspace-1"
+)
 OBSERVATION = b'{"event":"observed"}'
 PROJECTION = b'{"projection":"bounded"}'
 
@@ -258,11 +263,13 @@ def _case(
     proposal = OperationalProposalService(
         trust=trust, control=authority, assessor=assessor, principal_id="principal-1"
     )
-    reader, writer = _create_event_admission_store(tmp_path / "admission.sqlite3")
+    reader, writer = _create_event_admission_store(
+        tmp_path / "admission.sqlite3", scope=SCOPE
+    )
     writer.persist_receipt(_receipt())
     steward = MandateSteward(
         trust=trust,
-        authority=authority,
+        authority=authority.scoped_reader(SCOPE),
         proposal_service=proposal,
         admission_reader=reader,
         trace_writer=writer,
@@ -314,12 +321,66 @@ def test_missing_material_fails_before_assessment(tmp_path: Path) -> None:
     assert assessor.calls == 0
 
 
+def test_foreign_principal_cannot_read_or_poison_pending_trace(tmp_path: Path) -> None:
+    steward, reader, writer, assessor, _ = _case(tmp_path)
+    receipt = _receipt()
+    trace_id = f"situated-evaluation:{content_digest({'admission_receipt_digest': receipt.receipt_digest, 'projection_id': 'projection-1'})}"
+    pending = writer.begin_trace(
+        SituatedEvaluationTrace(
+            trace_id=trace_id,
+            admission_receipt_digest=receipt.receipt_digest,
+            event_id="event-1",
+            projection_id="projection-1",
+            mandate_id="mandate-1",
+            tenant_id="tenant-1",
+            workspace_id="workspace-1",
+            status=SituatedTraceStatus.PENDING,
+            reason=SituatedTraceReason.ASSESSMENT_PENDING,
+            result_binding_digest=None,
+            delegation_attempt_count=0,
+            committed_provider_call_attempted=None,
+            input_tokens=None,
+            output_tokens=None,
+            duration_ms=0,
+            recorded_at=NOW,
+        )
+    )
+    foreign_scope = LedgerAccessScope(
+        principal_id="principal-foreign",
+        tenant_id="tenant-foreign",
+        workspace_id="workspace-foreign",
+    )
+    foreign_reader, foreign_writer = _create_event_admission_store(
+        tmp_path / "admission.sqlite3", scope=foreign_scope
+    )
+    foreign_authority = SQLiteSituatedAssessmentStore(
+        tmp_path / "foreign-authority.sqlite3"
+    )
+    attacker = MandateSteward(
+        trust=steward._trust,  # type: ignore[attr-defined]
+        authority=foreign_authority.scoped_reader(foreign_scope),
+        proposal_service=steward._proposal_service,  # type: ignore[attr-defined]
+        admission_reader=foreign_reader,
+        trace_writer=foreign_writer,
+        principal_id=foreign_scope.principal_id,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(SituationalTrustDenied):
+        attacker.observe_event("event-1", "projection-1", receipt.receipt_id)
+
+    assert foreign_reader.by_receipt_id(receipt.receipt_id) is None
+    assert foreign_reader.by_trace_id(trace_id) is None
+    assert reader.by_trace_id(trace_id) == pending
+    assert assessor.calls == 0
+
+
 def test_two_facades_share_process_single_flight(tmp_path: Path) -> None:
     steward, _, _, assessor, authority = _case(tmp_path)
     # A second facade over the same durable ports must coordinate with the first.
     second = MandateSteward(
         trust=steward._trust,  # type: ignore[attr-defined]
-        authority=authority,
+        authority=authority.scoped_reader(SCOPE),
         proposal_service=steward._proposal_service,  # type: ignore[attr-defined]
         admission_reader=steward._admission_reader,  # type: ignore[attr-defined]
         trace_writer=steward._trace_writer,  # type: ignore[attr-defined]
@@ -441,12 +502,16 @@ def test_terminal_replay_rejects_persisted_record_mutation(tmp_path: Path) -> No
     receipt = _receipt()
     steward.observe_event("event-1", "projection-1", receipt.receipt_id)
 
+    scoped_authority = authority.scoped_reader(SCOPE)
+
     class _MutatingRead:
+        scope = SCOPE
+
         def __getattr__(self, name: str) -> Any:
-            return getattr(authority, name)
+            return getattr(scoped_authority, name)
 
         def record_by_input_binding(self, digest: str) -> Any:
-            record = authority.record_by_input_binding(digest)
+            record = scoped_authority.record_by_input_binding(digest)
             assert record is not None
             return record.model_copy(
                 update={"recorded_at": record.recorded_at + timedelta(seconds=1)}
@@ -461,10 +526,11 @@ def test_delegate_exception_leaves_incremented_pending_trace(tmp_path: Path) -> 
     steward, reader, _, _, _ = _case(tmp_path)
     class _Boom:
         def propose(self, *args: Any, **kwargs: Any) -> None:
-            raise RuntimeError("uncommitted")
+            raise RuntimeError("PROVIDER-RAW-EXCEPTION-MUST-NOT-LEAK-0A")
     steward._proposal_service = _Boom()  # type: ignore[assignment,attr-defined]
-    with pytest.raises(RuntimeError, match="uncommitted"):
+    with pytest.raises(SituationalPersistenceConflict) as captured:
         steward.observe_event("event-1", "projection-1", _receipt().receipt_id)
+    assert "PROVIDER-RAW-EXCEPTION-MUST-NOT-LEAK-0A" not in str(captured.value)
     trace_id = f"situated-evaluation:{content_digest({'admission_receipt_digest': _receipt().receipt_digest, 'projection_id': 'projection-1'})}"
     trace = reader.by_trace_id(trace_id)
     assert trace is not None

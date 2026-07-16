@@ -11,6 +11,7 @@ from agent_os_contracts import (
     EnvironmentEvent,
     EvidenceRef,
     HelpRequest,
+    LedgerAccessScope,
     MandateOperationalStatus,
     OperationalProjectionRef,
     ProposedGoal,
@@ -34,6 +35,8 @@ from .situated_persistence import (
     SituatedAssessmentStore,
     proposal_result,
     situated_assessment_record,
+    scoped_situated_assessment_reader,
+    ScopedSituatedAssessmentReader,
 )
 
 
@@ -236,6 +239,11 @@ class InMemorySituationalControlPlane:
                 ),
                 None,
             )
+
+    def scoped_reader(
+        self, scope: LedgerAccessScope
+    ) -> ScopedSituatedAssessmentReader:
+        return scoped_situated_assessment_reader(self, scope)
 
     def replay_if_active(
         self,

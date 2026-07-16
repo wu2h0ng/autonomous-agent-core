@@ -56,14 +56,15 @@ from .provider import (
 )
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
+    CanonicalCredentialAuthorizationReader,
     CanonicalCredentialLeaseRegistry,
-    CanonicalCredentialRefReader,
+    CredentialAuthorizationReader,
     CredentialLeaseRegistryPort,
-    CredentialRefReader,
     EventOriginRegistryPort,
     PayloadAdmissionRegistryPort,
 )
 from .srl_event_admission import EnvironmentEventAdmissionService
+from .srl_event_store import ScopedEventAdmissionReader
 from .mandate_steward import MandateSteward
 from .capability import (
     CapabilityBroker,
@@ -97,8 +98,8 @@ from .situated import (
     situated_source_binding_digest,
 )
 from .situated_persistence import (
+    ScopedSituatedAssessmentReader,
     SQLiteSituatedAssessmentStore,
-    SituatedAssessmentStore,
 )
 from .relevance import (
     InMemoryMandateRelevanceContextRegistry,
@@ -205,7 +206,7 @@ __all__ = [
     "SituationalTrustResolver",
     "situated_input_binding_digest",
     "situated_source_binding_digest",
-    "SituatedAssessmentStore",
+    "ScopedSituatedAssessmentReader",
     "SQLiteSituatedAssessmentStore",
     "InMemoryMandateRelevanceContextRegistry",
     "MandateRelevanceContextReader",
@@ -247,11 +248,12 @@ __all__ = [
     "ProviderPort",
     "build_recovery_snapshot",
     "CanonicalCredentialLeaseRegistry",
-    "CanonicalCredentialRefReader",
+    "CanonicalCredentialAuthorizationReader",
     "CredentialLeaseRegistryPort",
-    "CredentialRefReader",
+    "CredentialAuthorizationReader",
     "EventOriginRegistryPort",
     "EnvironmentEventAdmissionService",
+    "ScopedEventAdmissionReader",
     "MandateSteward",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",

@@ -59,7 +59,6 @@ from agent_os_core import (
     DeterministicProvider,
     PolicyKernel,
     OperationalProposalService,
-    SituatedAssessmentStore,
     RelevanceAssessorPort,
     ProviderPort,
     ProviderRelevanceAssessor,
@@ -90,6 +89,7 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
+from agent_os_core.situated_persistence import SituatedAssessmentStore
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
 from .data_agent_report_adapter import (

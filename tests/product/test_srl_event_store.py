@@ -14,6 +14,7 @@ import pytest
 
 from agent_os_contracts import (
     EnvironmentEventAdmissionReceipt,
+    LedgerAccessScope,
     SituatedEvaluationTrace,
     SituatedTraceReason,
     SituatedTraceStatus,
@@ -22,13 +23,24 @@ from agent_os_contracts import (
 )
 from agent_os_core.srl_event_store import (
     EventAdmissionPersistenceConflict,
-    SQLiteEventAdmissionStore,
-    _create_event_admission_store,
+    ScopedEventAdmissionReader,
+    _create_event_admission_store as _create_scoped_event_admission_store,
 )
 
 
 NOW = datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc)
 DIGESTS = tuple(character * 64 for character in "abcdef0123456789")
+SCOPE = LedgerAccessScope(
+    principal_id="principal-1", tenant_id="tenant-1", workspace_id="workspace-1"
+)
+
+
+def SQLiteEventAdmissionStore(database: str | Path) -> ScopedEventAdmissionReader:
+    return ScopedEventAdmissionReader(database, scope=SCOPE)
+
+
+def _create_event_admission_store(database: str | Path) -> tuple[Any, Any]:
+    return _create_scoped_event_admission_store(database, scope=SCOPE)
 
 
 def _receipt(**updates: Any) -> EnvironmentEventAdmissionReceipt:

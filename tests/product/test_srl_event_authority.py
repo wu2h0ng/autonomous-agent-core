@@ -7,6 +7,7 @@ from typing import Any, Mapping
 import pytest
 
 from agent_os_contracts import (
+    CredentialAuthorizationSnapshot,
     CredentialLeaseRef,
     CredentialRef,
     CredentialStatus,
@@ -21,9 +22,9 @@ from agent_os_contracts import (
 
 from agent_os_core import (
     CanonicalCredentialLeaseRegistry,
-    CanonicalCredentialRefReader,
+    CanonicalCredentialAuthorizationReader,
     CredentialLeaseRegistryPort,
-    CredentialRefReader,
+    CredentialAuthorizationReader,
     EventOriginRegistryPort,
     PayloadAdmissionRegistryPort,
 )
@@ -86,6 +87,21 @@ def _lease(
         lease_id=f"credential-lease:{digest}",
         lease_digest=digest,
         **payload,
+    )
+
+
+def _authorization(credential: CredentialRef) -> CredentialAuthorizationSnapshot:
+    return CredentialAuthorizationSnapshot(
+        credential_ref_id=credential.credential_ref_id,
+        credential_ref_digest=content_digest(credential),
+        owner_principal_id=credential.owner_principal_id,
+        tenant_id=credential.tenant_id,
+        workspace_id=credential.workspace_id,
+        provider_id=credential.provider_id,
+        scopes=credential.scopes,
+        status=credential.status,
+        created_at=credential.created_at,
+        expires_at=credential.expires_at,
     )
 
 
@@ -162,7 +178,7 @@ def test_authority_ports_are_lookup_only() -> None:
     expected_methods = {
         EventOriginRegistryPort: {"resolve_event"},
         CredentialLeaseRegistryPort: {"resolve"},
-        CredentialRefReader: {"resolve"},
+        CredentialAuthorizationReader: {"resolve_authorization"},
         PayloadAdmissionRegistryPort: {"resolve_event"},
     }
 
@@ -210,12 +226,12 @@ def test_canonical_readers_resolve_exact_stored_values_and_unknown_is_none() -> 
     lease_reader: CredentialLeaseRegistryPort = CanonicalCredentialLeaseRegistry(
         [lease]
     )
-    credential_reader: CredentialRefReader = CanonicalCredentialRefReader([credential])
+    credential_reader: CredentialAuthorizationReader = CanonicalCredentialAuthorizationReader([credential])
 
     assert lease_reader.resolve(lease.lease_id) == lease
-    assert credential_reader.resolve(credential.credential_ref_id) == credential
+    assert credential_reader.resolve_authorization(credential.credential_ref_id) == _authorization(credential)
     assert lease_reader.resolve("unknown-lease") is None
-    assert credential_reader.resolve("unknown-credential") is None
+    assert credential_reader.resolve_authorization("unknown-credential") is None
 
 
 def test_credential_reader_preserves_current_digest_status_scope_owner_and_expiry() -> None:
@@ -224,11 +240,11 @@ def test_credential_reader_preserves_current_digest_status_scope_owner_and_expir
         scopes=("wrong:scope", "wrong:scope"),
         expires_at=NOW - timedelta(hours=1),
     )
-    reader = CanonicalCredentialRefReader([credential])
+    reader = CanonicalCredentialAuthorizationReader([credential])
 
-    resolved = reader.resolve(credential.credential_ref_id)
+    resolved = reader.resolve_authorization(credential.credential_ref_id)
     assert resolved is not None
-    assert content_digest(resolved) == content_digest(credential)
+    assert resolved.credential_ref_digest == content_digest(credential)
     assert resolved.status is CredentialStatus.REVOKED
     assert resolved.scopes == ("wrong:scope",)
     assert resolved.owner_principal_id == "principal-1"
@@ -243,13 +259,13 @@ def test_constructor_inputs_are_defensively_copied() -> None:
     leases = [lease]
     credentials = {credential.credential_ref_id: credential}
     lease_reader = CanonicalCredentialLeaseRegistry(leases)
-    credential_reader = CanonicalCredentialRefReader(credentials)
+    credential_reader = CanonicalCredentialAuthorizationReader(credentials)
 
     leases.clear()
     credentials.clear()
 
     assert lease_reader.resolve(lease.lease_id) == lease
-    assert credential_reader.resolve(credential.credential_ref_id) == credential
+    assert credential_reader.resolve_authorization(credential.credential_ref_id) == _authorization(credential)
 
 
 def test_mutating_original_objects_cannot_pollute_canonical_snapshots() -> None:
@@ -259,11 +275,11 @@ def test_mutating_original_objects_cannot_pollute_canonical_snapshots() -> None:
         expires_at=NOW - timedelta(hours=1),
     )
     lease = _lease(credential=credential)
-    credential_bytes = canonical_json(credential)
+    credential_bytes = canonical_json(_authorization(credential))
     credential_digest = content_digest(credential)
     lease_bytes = canonical_json(lease)
     lease_digest = content_digest(lease)
-    credential_reader = CanonicalCredentialRefReader([credential])
+    credential_reader = CanonicalCredentialAuthorizationReader([credential])
     lease_reader = CanonicalCredentialLeaseRegistry([lease])
 
     object.__setattr__(credential, "status", CredentialStatus.ACTIVE)
@@ -273,12 +289,12 @@ def test_mutating_original_objects_cannot_pollute_canonical_snapshots() -> None:
     object.__setattr__(lease, "issuer_id", "attacker-issuer")
     object.__setattr__(lease, "expires_at", NOW + timedelta(days=365))
 
-    resolved_credential = credential_reader.resolve("credential-ref-1")
+    resolved_credential = credential_reader.resolve_authorization("credential-ref-1")
     resolved_lease = lease_reader.resolve(lease.lease_id)
     assert resolved_credential is not None
     assert resolved_lease is not None
     assert canonical_json(resolved_credential) == credential_bytes
-    assert content_digest(resolved_credential) == credential_digest
+    assert resolved_credential.credential_ref_digest == credential_digest
     assert resolved_credential.status is CredentialStatus.REVOKED
     assert resolved_credential.scopes == ("wrong:scope",)
     assert resolved_credential.expires_at == NOW - timedelta(hours=1)
@@ -296,12 +312,12 @@ def test_mutating_resolved_objects_cannot_pollute_later_resolutions() -> None:
         expires_at=NOW - timedelta(hours=1),
     )
     lease = _lease(credential=credential)
-    credential_bytes = canonical_json(credential)
+    credential_bytes = canonical_json(_authorization(credential))
     lease_bytes = canonical_json(lease)
-    credential_reader = CanonicalCredentialRefReader([credential])
+    credential_reader = CanonicalCredentialAuthorizationReader([credential])
     lease_reader = CanonicalCredentialLeaseRegistry([lease])
 
-    first_credential = credential_reader.resolve(credential.credential_ref_id)
+    first_credential = credential_reader.resolve_authorization(credential.credential_ref_id)
     first_lease = lease_reader.resolve(lease.lease_id)
     assert first_credential is not None
     assert first_lease is not None
@@ -316,7 +332,7 @@ def test_mutating_resolved_objects_cannot_pollute_later_resolutions() -> None:
     object.__setattr__(first_lease, "issuer_id", "attacker-issuer")
     object.__setattr__(first_lease, "expires_at", NOW + timedelta(days=365))
 
-    second_credential = credential_reader.resolve(credential.credential_ref_id)
+    second_credential = credential_reader.resolve_authorization(credential.credential_ref_id)
     second_lease = lease_reader.resolve(lease.lease_id)
     assert second_credential is not None
     assert second_lease is not None
@@ -344,7 +360,7 @@ def test_non_canonical_credential_snapshot_fails_closed_at_ingestion() -> None:
     object.__setattr__(credential, "scopes", ("z:scope", "a:scope", "z:scope"))
 
     with pytest.raises(ValueError, match="canonical contract snapshot"):
-        CanonicalCredentialRefReader([credential])
+        CanonicalCredentialAuthorizationReader([credential])
 
 
 @pytest.mark.parametrize(
@@ -356,7 +372,7 @@ def test_non_canonical_credential_snapshot_fails_closed_at_ingestion() -> None:
             _lease().model_copy(update={"issuer_id": "same-id-different-content"}),
         ),
         (
-            CanonicalCredentialRefReader,
+            CanonicalCredentialAuthorizationReader,
             _credential(),
             _credential().model_copy(update={"provider_id": "different-provider"}),
         ),
@@ -378,9 +394,9 @@ def test_exact_duplicates_may_deduplicate() -> None:
     assert CanonicalCredentialLeaseRegistry([lease, lease.model_copy()]).resolve(
         lease.lease_id
     ) == lease
-    assert CanonicalCredentialRefReader(
+    assert CanonicalCredentialAuthorizationReader(
         [credential, credential.model_copy()]
-    ).resolve(credential.credential_ref_id) == credential
+    ).resolve_authorization(credential.credential_ref_id) == _authorization(credential)
 
 
 def test_issuer_string_equality_alone_cannot_resolve_a_lease() -> None:
@@ -396,15 +412,20 @@ def test_issuer_string_equality_alone_cannot_resolve_a_lease() -> None:
 def test_public_readers_accept_no_authority_objects_or_boolean_verdicts() -> None:
     for reader_type in (
         CanonicalCredentialLeaseRegistry,
-        CanonicalCredentialRefReader,
+        CanonicalCredentialAuthorizationReader,
     ):
         public_methods = {
             name
             for name, member in inspect.getmembers(reader_type, inspect.isfunction)
             if not name.startswith("_")
         }
-        assert public_methods == {"resolve"}
-        resolve = reader_type.resolve
+        expected_method = (
+            "resolve_authorization"
+            if reader_type is CanonicalCredentialAuthorizationReader
+            else "resolve"
+        )
+        assert public_methods == {expected_method}
+        resolve = getattr(reader_type, expected_method)
         parameters = inspect.signature(resolve).parameters
         assert tuple(parameters) in {("self", "lease_id"), ("self", "credential_ref_id")}
         assert not {"register", "put", "verify", "authorize", "admit"} & public_methods

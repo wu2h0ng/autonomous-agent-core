@@ -31,10 +31,10 @@ from .situated import (
 )
 from .situated_persistence import (
     ProposalResult,
-    SituatedAssessmentStore,
+    ScopedSituatedAssessmentReader,
     proposal_result,
 )
-from .srl_event_store import SQLiteEventAdmissionStore
+from .srl_event_store import ScopedEventAdmissionReader
 
 
 class _SituatedTraceWriterPort(Protocol):
@@ -100,9 +100,9 @@ class MandateSteward:
         self,
         *,
         trust: SituationalTrustResolver,
-        authority: SituatedAssessmentStore,
+        authority: ScopedSituatedAssessmentReader,
         proposal_service: OperationalProposalService,
-        admission_reader: SQLiteEventAdmissionStore,
+        admission_reader: ScopedEventAdmissionReader,
         trace_writer: _SituatedTraceWriterPort,
         principal_id: str,
         clock: Callable[[], datetime],
@@ -110,6 +110,11 @@ class MandateSteward:
     ) -> None:
         if not principal_id.strip():
             raise ValueError("principal_id must be nonempty")
+        if (
+            admission_reader.scope != authority.scope
+            or admission_reader.scope.principal_id != principal_id
+        ):
+            raise ValueError("admission and assessment reader scope must match principal")
         self._trust = trust
         self._authority = authority
         self._proposal_service = proposal_service
@@ -196,9 +201,16 @@ class MandateSteward:
                 trace.trace_id, recorded_at=now
             )
             before_provider = self._monotonic()
-            returned = self._proposal_service.propose(
-                event_id, projection_id, evaluated_at=now
-            )
+            try:
+                returned = self._proposal_service.propose(
+                    event_id, projection_id, evaluated_at=now
+                )
+            except (SituationalPersistenceConflict, SituationalTrustDenied):
+                raise
+            except Exception:
+                raise SituationalPersistenceConflict(
+                    "situated assessment delegation failed"
+                ) from None
             after_provider = self._monotonic()
             record = self._authority.record_by_input_binding(expected_digest)
             if record is None:
@@ -272,9 +284,6 @@ class MandateSteward:
         mandate, binding = self._authority.resolve_active(
             event.mandate_id,
             event.environment_binding_id,
-            principal_id=self._principal_id,
-            tenant_id=event.tenant_id,
-            workspace_id=event.workspace_id,
             evaluated_at=evaluated_at,
         )
         if (

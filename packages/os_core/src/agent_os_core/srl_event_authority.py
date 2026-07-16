@@ -7,11 +7,13 @@ from typing import Protocol, TypeVar, cast
 from pydantic import BaseModel
 
 from agent_os_contracts import (
+    CredentialAuthorizationSnapshot,
     CredentialLeaseRef,
     CredentialRef,
     EventOriginRegistration,
     PayloadAdmissionAttestation,
     canonical_json,
+    content_digest,
 )
 
 
@@ -23,8 +25,10 @@ class CredentialLeaseRegistryPort(Protocol):
     def resolve(self, lease_id: str) -> CredentialLeaseRef | None: ...
 
 
-class CredentialRefReader(Protocol):
-    def resolve(self, credential_ref_id: str) -> CredentialRef | None: ...
+class CredentialAuthorizationReader(Protocol):
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None: ...
 
 
 class PayloadAdmissionRegistryPort(Protocol):
@@ -84,29 +88,50 @@ class CanonicalCredentialLeaseRegistry:
         return CredentialLeaseRef.model_validate_json(snapshot, strict=True)
 
 
-class CanonicalCredentialRefReader:
+class CanonicalCredentialAuthorizationReader:
+    """Read only authorization metadata; resolver material is discarded at ingestion."""
+
     def __init__(
         self,
         credentials: Iterable[CredentialRef] | Mapping[str, CredentialRef],
     ) -> None:
-        self._credentials = _canonical_snapshots(
+        raw = _canonical_snapshots(
             credentials,
             id_of=lambda credential: credential.credential_ref_id,
             model_type=CredentialRef,
         )
+        snapshots: dict[str, bytes] = {}
+        for credential_ref_id, encoded in raw.items():
+            credential = CredentialRef.model_validate_json(encoded, strict=True)
+            authorization = CredentialAuthorizationSnapshot(
+                credential_ref_id=credential.credential_ref_id,
+                credential_ref_digest=content_digest(credential),
+                owner_principal_id=credential.owner_principal_id,
+                tenant_id=credential.tenant_id,
+                workspace_id=credential.workspace_id,
+                provider_id=credential.provider_id,
+                scopes=credential.scopes,
+                status=credential.status,
+                created_at=credential.created_at,
+                expires_at=credential.expires_at,
+            )
+            snapshots[credential_ref_id] = canonical_json(authorization).encode("utf-8")
+        self._authorizations = MappingProxyType(snapshots)
 
-    def resolve(self, credential_ref_id: str) -> CredentialRef | None:
-        snapshot = self._credentials.get(credential_ref_id)
+    def resolve_authorization(
+        self, credential_ref_id: str
+    ) -> CredentialAuthorizationSnapshot | None:
+        snapshot = self._authorizations.get(credential_ref_id)
         if snapshot is None:
             return None
-        return CredentialRef.model_validate_json(snapshot, strict=True)
+        return CredentialAuthorizationSnapshot.model_validate_json(snapshot, strict=True)
 
 
 __all__ = [
+    "CanonicalCredentialAuthorizationReader",
     "CanonicalCredentialLeaseRegistry",
-    "CanonicalCredentialRefReader",
+    "CredentialAuthorizationReader",
     "CredentialLeaseRegistryPort",
-    "CredentialRefReader",
     "EventOriginRegistryPort",
     "PayloadAdmissionRegistryPort",
 ]

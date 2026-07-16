@@ -9,6 +9,7 @@ from typing import Protocol, TypeAlias
 from agent_os_contracts import (
     EnvironmentBindingAuthorization,
     HelpRequest,
+    LedgerAccessScope,
     MandateOperationalStatus,
     RatifiedMandateRef,
     RelevanceAssessment,
@@ -113,6 +114,85 @@ class SituatedAssessmentStore(Protocol):
     def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
 
     def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
+
+
+class ScopedSituatedAssessmentReader(Protocol):
+    scope: LedgerAccessScope
+
+    def resolve_active(
+        self,
+        mandate_id: str,
+        environment_binding_id: str,
+        *,
+        evaluated_at: datetime,
+    ) -> tuple[RatifiedMandateRef, EnvironmentBindingAuthorization]: ...
+
+    def record_by_input_binding(
+        self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
+
+class _ScopedSituatedAssessmentFacade:
+    __slots__ = ("_store", "scope")
+
+    def __init__(
+        self, store: SituatedAssessmentStore, scope: LedgerAccessScope
+    ) -> None:
+        self._store = store
+        self.scope = scope
+
+    def resolve_active(
+        self,
+        mandate_id: str,
+        environment_binding_id: str,
+        *,
+        evaluated_at: datetime,
+    ) -> tuple[RatifiedMandateRef, EnvironmentBindingAuthorization]:
+        return self._store.resolve_active(
+            mandate_id,
+            environment_binding_id,
+            principal_id=self.scope.principal_id,
+            tenant_id=self.scope.tenant_id,
+            workspace_id=self.scope.workspace_id,
+            evaluated_at=evaluated_at,
+        )
+
+    def record_by_input_binding(
+        self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        record = self._store.record_by_input_binding(input_binding_digest)
+        if record is None:
+            return None
+        if (
+            record.tenant_id != self.scope.tenant_id
+            or record.workspace_id != self.scope.workspace_id
+            or record.assessment.tenant_id != self.scope.tenant_id
+            or record.assessment.workspace_id != self.scope.workspace_id
+        ):
+            return None
+        mandate, binding = self._store.resolve_active(
+            record.assessment.mandate_id,
+            record.assessment.environment_binding_id,
+            principal_id=self.scope.principal_id,
+            tenant_id=self.scope.tenant_id,
+            workspace_id=self.scope.workspace_id,
+            evaluated_at=record.assessment.assessed_at,
+        )
+        if (
+            mandate.owner_principal_id != self.scope.principal_id
+            or binding.environment_binding_id
+            != record.assessment.environment_binding_id
+        ):
+            raise SituationalPersistenceConflict(
+                "durable assessment scope conflicts with ratified mandate"
+            )
+        return record
+
+
+def scoped_situated_assessment_reader(
+    store: SituatedAssessmentStore, scope: LedgerAccessScope
+) -> ScopedSituatedAssessmentReader:
+    return _ScopedSituatedAssessmentFacade(store, scope)
 
 
 class SQLiteSituatedAssessmentStore:
@@ -437,6 +517,11 @@ class SQLiteSituatedAssessmentStore:
                 "input binding maps to multiple durable assessment records"
             )
         return matches[0] if matches else None
+
+    def scoped_reader(
+        self, scope: LedgerAccessScope
+    ) -> ScopedSituatedAssessmentReader:
+        return scoped_situated_assessment_reader(self, scope)
 
     def replay_if_active(
         self,

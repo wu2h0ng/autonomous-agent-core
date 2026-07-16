@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from typing import NoReturn, Protocol
+from typing import NoReturn, Protocol, TypeVar
 
 from agent_os_contracts import (
     ArtifactRef,
+    CredentialAuthorizationSnapshot,
     CredentialLeaseRef,
-    CredentialRef,
     CredentialStatus,
     EnvironmentBindingAuthorization,
     EnvironmentEvent,
@@ -24,16 +24,16 @@ from pydantic import BaseModel
 
 from .errors import SituationalTrustDenied
 from .situated import SituationalTrustResolver
-from .situated_persistence import SituatedAssessmentStore
+from .situated_persistence import ScopedSituatedAssessmentReader
 from .srl_event_authority import (
+    CredentialAuthorizationReader,
     CredentialLeaseRegistryPort,
-    CredentialRefReader,
     EventOriginRegistryPort,
     PayloadAdmissionRegistryPort,
 )
 from .srl_event_store import (
     EventAdmissionPersistenceConflict,
-    SQLiteEventAdmissionStore,
+    ScopedEventAdmissionReader,
 )
 
 
@@ -45,6 +45,18 @@ class _AdmissionWriter(Protocol):
 
 def _deny(message: str) -> NoReturn:
     raise SituationalTrustDenied(message)
+
+
+_ResolvedT = TypeVar("_ResolvedT")
+
+
+def _safe_dependency(call: Callable[[], _ResolvedT]) -> _ResolvedT:
+    try:
+        return call()
+    except (EventAdmissionPersistenceConflict, SituationalTrustDenied):
+        raise
+    except Exception:
+        _deny("event admission dependency is unavailable")
 
 
 def _utc(value: datetime) -> datetime:
@@ -176,12 +188,12 @@ class EnvironmentEventAdmissionService:
         self,
         *,
         trust: SituationalTrustResolver,
-        authority: SituatedAssessmentStore,
+        authority: ScopedSituatedAssessmentReader,
         origins: EventOriginRegistryPort,
         leases: CredentialLeaseRegistryPort,
-        credentials: CredentialRefReader,
+        credentials: CredentialAuthorizationReader,
         attestations: PayloadAdmissionRegistryPort,
-        admission_reader: SQLiteEventAdmissionStore,
+        admission_reader: ScopedEventAdmissionReader,
         admission_writer: _AdmissionWriter,
         principal_id: str,
         required_credential_scopes: frozenset[str],
@@ -196,6 +208,11 @@ class EnvironmentEventAdmissionService:
         self._admission_writer = admission_writer
         self._principal_id = principal_id
         self._required_credential_scopes = frozenset(required_credential_scopes)
+        if (
+            admission_reader.scope != authority.scope
+            or admission_reader.scope.principal_id != principal_id
+        ):
+            raise ValueError("admission and assessment reader scope must match principal")
         if not self._required_credential_scopes or any(
             not scope.strip() for scope in self._required_credential_scopes
         ):
@@ -216,10 +233,12 @@ class EnvironmentEventAdmissionService:
         admitted_at: datetime,
     ) -> EnvironmentEventAdmissionReceipt:
         evaluated_at = _utc(admitted_at)
-        event = self._trust.resolve_event(event_id)
-        origin = self._origins.resolve_event(event_id)
-        lease = self._leases.resolve(lease_id)
-        attestation = self._attestations.resolve_event(event_id)
+        event = _safe_dependency(lambda: self._trust.resolve_event(event_id))
+        origin = _safe_dependency(lambda: self._origins.resolve_event(event_id))
+        lease = _safe_dependency(lambda: self._leases.resolve(lease_id))
+        attestation = _safe_dependency(
+            lambda: self._attestations.resolve_event(event_id)
+        )
         if event is None or origin is None or lease is None or attestation is None:
             _deny("canonical event admission material is unavailable")
         if event.environment_event_id != event_id or lease.lease_id != lease_id:
@@ -231,13 +250,15 @@ class EnvironmentEventAdmissionService:
             (attestation, PayloadAdmissionAttestation),
         ):
             _require_canonical_contract(value, model_type)
-        credential = self._credentials.resolve(lease.credential_ref_id)
+        credential = _safe_dependency(
+            lambda: self._credentials.resolve_authorization(lease.credential_ref_id)
+        )
         if credential is None:
             _deny("current credential is unavailable")
-        _require_canonical_contract(credential, CredentialRef)
+        _require_canonical_contract(credential, CredentialAuthorizationSnapshot)
 
         event_digest = content_digest(event)
-        credential_digest = content_digest(credential)
+        credential_digest = credential.credential_ref_digest
         if origin.environment_event_id != event.environment_event_id:
             _deny("origin event identity does not match canonical event")
         if origin.event_digest != event_digest:
@@ -290,13 +311,12 @@ class EnvironmentEventAdmissionService:
         if not (origin.source_id == lease.source_id == attestation.source_id):
             _deny("adapter source assertions do not match")
 
-        mandate, binding = self._authority.resolve_active(
-            event.mandate_id,
-            event.environment_binding_id,
-            principal_id=self._principal_id,
-            tenant_id=event.tenant_id,
-            workspace_id=event.workspace_id,
-            evaluated_at=evaluated_at,
+        mandate, binding = _safe_dependency(
+            lambda: self._authority.resolve_active(
+                event.mandate_id,
+                event.environment_binding_id,
+                evaluated_at=evaluated_at,
+            )
         )
         _require_canonical_contract(mandate, RatifiedMandateRef)
         _require_canonical_contract(binding, EnvironmentBindingAuthorization)
@@ -320,7 +340,9 @@ class EnvironmentEventAdmissionService:
         ):
             _deny("payload attestation does not bind the canonical event")
 
-        resolved_artifact = self._trust.resolve_artifact(event.observation.artifact_id)
+        resolved_artifact = _safe_dependency(
+            lambda: self._trust.resolve_artifact(event.observation.artifact_id)
+        )
         if resolved_artifact is None:
             _deny("exact observation artifact is unavailable")
         resolved_ref = resolved_artifact[0]

@@ -8,6 +8,7 @@ from typing import NoReturn, TypeVar
 
 from agent_os_contracts import (
     EnvironmentEventAdmissionReceipt,
+    LedgerAccessScope,
     SituatedEvaluationTrace,
     SituatedTraceReason,
     SituatedTraceStatus,
@@ -99,9 +100,13 @@ def _initialize(database: str) -> None:
             """
             CREATE TABLE IF NOT EXISTS srl_event_admission_receipts (
                 receipt_id TEXT PRIMARY KEY,
-                environment_event_id TEXT NOT NULL UNIQUE,
+                principal_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
+                environment_event_id TEXT NOT NULL,
                 receipt_digest TEXT NOT NULL UNIQUE,
-                canonical_json BLOB NOT NULL
+                canonical_json BLOB NOT NULL,
+                UNIQUE (principal_id, tenant_id, workspace_id, environment_event_id)
             )
             """
         )
@@ -109,6 +114,9 @@ def _initialize(database: str) -> None:
             """
             CREATE TABLE IF NOT EXISTS srl_situated_evaluation_traces (
                 trace_id TEXT PRIMARY KEY,
+                principal_id TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                workspace_id TEXT NOT NULL,
                 admission_receipt_digest TEXT NOT NULL,
                 projection_id TEXT NOT NULL,
                 status TEXT NOT NULL,
@@ -181,6 +189,14 @@ def _decode_receipt(row: sqlite3.Row) -> EnvironmentEventAdmissionReceipt:
         label="event admission receipt",
     )
     if (
+        row["principal_id"] != receipt.principal_id
+        or row["tenant_id"] != receipt.tenant_id
+        or row["workspace_id"] != receipt.workspace_id
+    ):
+        raise EventAdmissionPersistenceConflict(
+            "durable event admission receipt scope conflicts with canonical bytes"
+        )
+    if (
         row["receipt_id"] != receipt.receipt_id
         or row["environment_event_id"] != receipt.environment_event_id
         or row["receipt_digest"] != receipt.receipt_digest
@@ -199,6 +215,11 @@ def _decode_trace(row: sqlite3.Row) -> SituatedEvaluationTrace:
     )
     if (
         row["trace_id"] != trace.trace_id
+        or row["tenant_id"] != trace.tenant_id
+        or row["workspace_id"] != trace.workspace_id
+        or row["receipt_principal_id"] != row["principal_id"]
+        or row["receipt_tenant_id"] != row["tenant_id"]
+        or row["receipt_workspace_id"] != row["workspace_id"]
         or row["admission_receipt_digest"] != trace.admission_receipt_digest
         or row["projection_id"] != trace.projection_id
         or row["status"] != trace.status.value
@@ -212,24 +233,31 @@ def _decode_trace(row: sqlite3.Row) -> SituatedEvaluationTrace:
     return trace
 
 
-class SQLiteEventAdmissionStore:
-    """Public file-backed read view for admission receipts and situated traces."""
+class ScopedEventAdmissionReader:
+    """File-backed read view confined to one authenticated ledger scope."""
 
     durable = True
 
-    def __init__(self, database: str | Path) -> None:
+    def __init__(self, database: str | Path, *, scope: LedgerAccessScope) -> None:
         self._database = _database_path(database)
+        self.scope = scope
         connection = _connect_read_only(self._database)
         try:
             expected_columns = {
                 "srl_event_admission_receipts": (
                     ("receipt_id", "TEXT", 0, 1),
+                    ("principal_id", "TEXT", 1, 0),
+                    ("tenant_id", "TEXT", 1, 0),
+                    ("workspace_id", "TEXT", 1, 0),
                     ("environment_event_id", "TEXT", 1, 0),
                     ("receipt_digest", "TEXT", 1, 0),
                     ("canonical_json", "BLOB", 1, 0),
                 ),
                 "srl_situated_evaluation_traces": (
                     ("trace_id", "TEXT", 0, 1),
+                    ("principal_id", "TEXT", 1, 0),
+                    ("tenant_id", "TEXT", 1, 0),
+                    ("workspace_id", "TEXT", 1, 0),
                     ("admission_receipt_digest", "TEXT", 1, 0),
                     ("projection_id", "TEXT", 1, 0),
                     ("status", "TEXT", 1, 0),
@@ -274,8 +302,13 @@ class SQLiteEventAdmissionStore:
             if unique_columns != {
                 "srl_event_admission_receipts": {
                     ("receipt_id",),
-                    ("environment_event_id",),
                     ("receipt_digest",),
+                    (
+                        "principal_id",
+                        "tenant_id",
+                        "workspace_id",
+                        "environment_event_id",
+                    ),
                 },
                 "srl_situated_evaluation_traces": {
                     ("trace_id",),
@@ -315,15 +348,39 @@ class SQLiteEventAdmissionStore:
     def _receipt(self, field: str, value: str) -> EnvironmentEventAdmissionReceipt | None:
         connection = _connect_read_only(self._database)
         try:
-            row = connection.execute(
-                f"SELECT * FROM srl_event_admission_receipts WHERE {field} = ?",
-                (value,),
-            ).fetchone()
+            if field == "environment_event_id":
+                row = connection.execute(
+                    """
+                    SELECT * FROM srl_event_admission_receipts
+                    WHERE environment_event_id = ? AND principal_id = ?
+                      AND tenant_id = ? AND workspace_id = ?
+                    """,
+                    (
+                        value,
+                        self.scope.principal_id,
+                        self.scope.tenant_id,
+                        self.scope.workspace_id,
+                    ),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT * FROM srl_event_admission_receipts WHERE receipt_id = ?",
+                    (value,),
+                ).fetchone()
         except sqlite3.Error:
             raise _sqlite_conflict("receipt read") from None
         finally:
             connection.close()
-        return _decode_receipt(row) if row is not None else None
+        if row is None:
+            return None
+        receipt = _decode_receipt(row)
+        if (
+            receipt.principal_id != self.scope.principal_id
+            or receipt.tenant_id != self.scope.tenant_id
+            or receipt.workspace_id != self.scope.workspace_id
+        ):
+            return None
+        return receipt
 
     def by_receipt_id(self, receipt_id: str) -> EnvironmentEventAdmissionReceipt | None:
         return self._receipt("receipt_id", receipt_id)
@@ -337,14 +394,32 @@ class SQLiteEventAdmissionStore:
         connection = _connect_read_only(self._database)
         try:
             row = connection.execute(
-                "SELECT * FROM srl_situated_evaluation_traces WHERE trace_id = ?",
+                """
+                SELECT t.*,
+                       r.principal_id AS receipt_principal_id,
+                       r.tenant_id AS receipt_tenant_id,
+                       r.workspace_id AS receipt_workspace_id
+                FROM srl_situated_evaluation_traces AS t
+                JOIN srl_event_admission_receipts AS r
+                  ON r.receipt_digest = t.admission_receipt_digest
+                WHERE t.trace_id = ?
+                """,
                 (trace_id,),
             ).fetchone()
         except sqlite3.Error:
             raise _sqlite_conflict("trace read") from None
         finally:
             connection.close()
-        return _decode_trace(row) if row is not None else None
+        if row is None:
+            return None
+        trace = _decode_trace(row)
+        if (
+            row["principal_id"] != self.scope.principal_id
+            or trace.tenant_id != self.scope.tenant_id
+            or trace.workspace_id != self.scope.workspace_id
+        ):
+            return None
+        return trace
 
 
 class _EventAdmissionWriter:
@@ -421,7 +496,9 @@ class _EventAdmissionWriter:
 
 def _create_event_admission_store(
     database: str | Path,
-) -> tuple[SQLiteEventAdmissionStore, _EventAdmissionWriter]:
+    *,
+    scope: LedgerAccessScope,
+) -> tuple[ScopedEventAdmissionReader, _EventAdmissionWriter]:
     database_path = _database_path(database)
     _initialize(database_path)
 
@@ -429,18 +506,32 @@ def _create_event_admission_store(
         receipt: EnvironmentEventAdmissionReceipt,
     ) -> EnvironmentEventAdmissionReceipt:
         payload = _validated_bytes(receipt, EnvironmentEventAdmissionReceipt)
+        if (
+            receipt.principal_id != scope.principal_id
+            or receipt.tenant_id != scope.tenant_id
+            or receipt.workspace_id != scope.workspace_id
+        ):
+            raise EventAdmissionPersistenceConflict("receipt scope is not authorized")
         connection = _connect(database_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
                 """
                 SELECT * FROM srl_event_admission_receipts
-                WHERE receipt_id = ? OR environment_event_id = ? OR receipt_digest = ?
+                WHERE receipt_id = ?
+                   OR receipt_digest = ?
+                   OR (
+                       principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                       AND environment_event_id = ?
+                   )
                 """,
                 (
                     receipt.receipt_id,
-                    receipt.environment_event_id,
                     receipt.receipt_digest,
+                    scope.principal_id,
+                    scope.tenant_id,
+                    scope.workspace_id,
+                    receipt.environment_event_id,
                 ),
             ).fetchall()
             if rows:
@@ -458,11 +549,15 @@ def _create_event_admission_store(
             connection.execute(
                 """
                 INSERT INTO srl_event_admission_receipts (
-                    receipt_id, environment_event_id, receipt_digest, canonical_json
-                ) VALUES (?, ?, ?, ?)
+                    receipt_id, principal_id, tenant_id, workspace_id,
+                    environment_event_id, receipt_digest, canonical_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     receipt.receipt_id,
+                    scope.principal_id,
+                    scope.tenant_id,
+                    scope.workspace_id,
                     receipt.environment_event_id,
                     receipt.receipt_digest,
                     payload,
@@ -484,6 +579,8 @@ def _create_event_admission_store(
 
     def begin_trace(trace: SituatedEvaluationTrace) -> SituatedEvaluationTrace:
         payload = _validated_bytes(trace, SituatedEvaluationTrace)
+        if trace.tenant_id != scope.tenant_id or trace.workspace_id != scope.workspace_id:
+            raise EventAdmissionPersistenceConflict("trace scope is not authorized")
         if (
             trace.status is not SituatedTraceStatus.PENDING
             or trace.reason is not SituatedTraceReason.ASSESSMENT_PENDING
@@ -495,11 +592,37 @@ def _create_event_admission_store(
         connection = _connect(database_path)
         try:
             connection.execute("BEGIN IMMEDIATE")
+            receipt_row = connection.execute(
+                "SELECT * FROM srl_event_admission_receipts WHERE receipt_digest = ?",
+                (trace.admission_receipt_digest,),
+            ).fetchone()
+            if receipt_row is None:
+                raise EventAdmissionPersistenceConflict(
+                    "trace admission receipt scope is unavailable"
+                )
+            receipt = _decode_receipt(receipt_row)
+            if (
+                receipt.principal_id != scope.principal_id
+                or receipt.tenant_id != scope.tenant_id
+                or receipt.workspace_id != scope.workspace_id
+                or trace.event_id != receipt.environment_event_id
+                or trace.mandate_id != receipt.mandate_id
+            ):
+                raise EventAdmissionPersistenceConflict(
+                    "trace admission receipt scope is not authorized"
+                )
             rows = connection.execute(
                 """
-                SELECT * FROM srl_situated_evaluation_traces
-                WHERE trace_id = ?
+                SELECT t.*,
+                       r.principal_id AS receipt_principal_id,
+                       r.tenant_id AS receipt_tenant_id,
+                       r.workspace_id AS receipt_workspace_id
+                FROM srl_situated_evaluation_traces AS t
+                JOIN srl_event_admission_receipts AS r
+                  ON r.receipt_digest = t.admission_receipt_digest
+                WHERE (trace_id = ?
                    OR (admission_receipt_digest = ? AND projection_id = ?)
+                )
                 """,
                 (
                     trace.trace_id,
@@ -527,13 +650,17 @@ def _create_event_admission_store(
                 connection.execute(
                     """
                     INSERT INTO srl_situated_evaluation_traces (
-                        trace_id, admission_receipt_digest, projection_id,
+                        trace_id, principal_id, tenant_id, workspace_id,
+                        admission_receipt_digest, projection_id,
                         status, reason, result_binding_digest,
                         delegation_attempt_count, canonical_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         trace.trace_id,
+                        scope.principal_id,
+                        scope.tenant_id,
+                        scope.workspace_id,
                         trace.admission_receipt_digest,
                         trace.projection_id,
                         trace.status.value,
@@ -570,8 +697,18 @@ def _create_event_admission_store(
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM srl_situated_evaluation_traces WHERE trace_id = ?",
-                (trace_id,),
+                """
+                SELECT t.*,
+                       r.principal_id AS receipt_principal_id,
+                       r.tenant_id AS receipt_tenant_id,
+                       r.workspace_id AS receipt_workspace_id
+                FROM srl_situated_evaluation_traces AS t
+                JOIN srl_event_admission_receipts AS r
+                  ON r.receipt_digest = t.admission_receipt_digest
+                WHERE t.trace_id = ? AND t.principal_id = ?
+                  AND t.tenant_id = ? AND t.workspace_id = ?
+                """,
+                (trace_id, scope.principal_id, scope.tenant_id, scope.workspace_id),
             ).fetchone()
             if row is None:
                 raise EventAdmissionPersistenceConflict("pending trace does not exist")
@@ -651,8 +788,23 @@ def _create_event_admission_store(
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT * FROM srl_situated_evaluation_traces WHERE trace_id = ?",
-                (terminal.trace_id,),
+                """
+                SELECT t.*,
+                       r.principal_id AS receipt_principal_id,
+                       r.tenant_id AS receipt_tenant_id,
+                       r.workspace_id AS receipt_workspace_id
+                FROM srl_situated_evaluation_traces AS t
+                JOIN srl_event_admission_receipts AS r
+                  ON r.receipt_digest = t.admission_receipt_digest
+                WHERE t.trace_id = ? AND t.principal_id = ?
+                  AND t.tenant_id = ? AND t.workspace_id = ?
+                """,
+                (
+                    terminal.trace_id,
+                    scope.principal_id,
+                    scope.tenant_id,
+                    scope.workspace_id,
+                ),
             ).fetchone()
             if row is None:
                 raise EventAdmissionPersistenceConflict("pending trace does not exist")
@@ -741,4 +893,4 @@ def _create_event_admission_store(
         "_EventAdmissionWriter__transition_trace_call",
         transition_trace,
     )
-    return SQLiteEventAdmissionStore(database_path), writer
+    return ScopedEventAdmissionReader(database_path, scope=scope), writer
