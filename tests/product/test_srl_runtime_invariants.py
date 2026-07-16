@@ -411,6 +411,68 @@ def test_i14_no_capability_grant_from_srl_organ():
     assert "CapabilityGrant" in (result.rejection_reason or "")
 
 
+def test_p0_allow_activation_flag_cannot_accept_caller_minted_authority(now):
+    """P0-1: a local boolean cannot stand in for TaskService/C7 authority."""
+    port = InMemoryTaskActivation(allow_activation=True)
+    goal = ProposedGoal(
+        proposal_goal_id="goal-caller-minted",
+        source_binding_digest="a" * 64,
+        tenant_id="t-1",
+        workspace_id="w-1",
+        created_by="srl-goal-formation:v1",
+        created_at=now,
+        statement="caller-proposed goal",
+        constraints=("assessor-instance:assessor-instance-1",),
+    )
+    caller_authority = ActivationAuthority(
+        authority_id="auth-caller-minted",
+        mandate_id="mandate-1",
+        standing_mission_id="mission-1",
+        authority_instance_id="authority-instance-1",
+        source_assessment_id="assessment:event-1",
+        source_proposed_goal_id=goal.proposal_goal_id,
+        authorization_digest="arbitrary-nonempty-digest",
+        authorized_at=now,
+    )
+
+    result = port.activate(goal, caller_authority)
+
+    assert not result.activated
+    assert "TaskService/C7" in (result.rejection_reason or "")
+
+
+def test_p0_runtime_rejects_mismatched_authority_without_producer_metadata(
+    make_runtime, now
+):
+    """P0-1: removing producer metadata cannot admit a wholly mismatched authority."""
+    runtime = make_runtime(allow_activation=True)
+    goal_without_producer = ProposedGoal(
+        proposal_goal_id="goal-without-producer",
+        source_binding_digest="b" * 64,
+        tenant_id="t-1",
+        workspace_id="w-1",
+        created_by="srl-goal-formation:v1",
+        created_at=now,
+        statement="goal with caller-removed producer metadata",
+        constraints=(),
+    )
+    mismatched_authority = ActivationAuthority(
+        authority_id="auth-mismatched",
+        mandate_id="wrong-mandate",
+        standing_mission_id="wrong-mission",
+        authority_instance_id="assessor-instance-1",
+        source_assessment_id="wrong-assessment",
+        source_proposed_goal_id="wrong-goal",
+        authorization_digest="arbitrary-nonempty-digest",
+        authorized_at=now,
+    )
+
+    result = runtime.activate_goal(goal_without_producer, mismatched_authority)
+
+    assert not result.activated
+    assert "TaskService/C7" in (result.rejection_reason or "")
+
+
 def test_i15_untrusted_outcome_rejected(make_runtime, mandate, standing_mission, now):
     """I-15: Outcome updates require trusted ObservedOutcome record."""
     runtime = make_runtime()
@@ -442,6 +504,82 @@ def test_i15_untrusted_outcome_rejected(make_runtime, mandate, standing_mission,
     result = runtime.accept_outcome(record)
     assert not result.accepted
     assert "trusted evaluator registry" in (result.rejection_reason or "").lower()
+
+
+def test_p0_public_registry_id_and_arbitrary_digest_cannot_trust_outcome(
+    make_runtime, mandate, standing_mission, now
+):
+    """P0-2: a caller-controlled registry ID and non-empty digest are not trust."""
+    runtime = make_runtime()
+    runtime._outcome.trust_registry("caller-whitelisted-registry")
+    observed = ObservedOutcome(
+        observed_outcome_id="out-forged-signature",
+        expected_outcome_id="expected-1",
+        task_id="task-1",
+        run_id="run-1",
+        tenant_id=mandate.tenant_id,
+        workspace_id=mandate.workspace_id,
+        evaluator_type="deterministic",
+        evaluator_version="v1",
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("evidence://forged",),
+        observed_at=now,
+    )
+    forged = TrustedOutcomeRecord(
+        record_id="rec-forged-signature",
+        mandate_id=mandate.mandate_id,
+        standing_mission_id=standing_mission.standing_mission_id,
+        task_id=observed.task_id,
+        observed_outcome=observed,
+        evaluator_registry_instance_id="caller-whitelisted-registry",
+        registry_signature_digest="arbitrary-nonempty-text",
+        recorded_at=now,
+    )
+
+    result = runtime.accept_outcome(forged)
+
+    assert not result.accepted
+    assert "no trusted evaluator registry" in (result.rejection_reason or "").lower()
+
+
+def test_p0_forged_outcome_with_outer_inner_binding_mismatch_is_rejected(
+    make_runtime, mandate, now
+):
+    """P0-2: outer mandate/mission/task fields cannot disguise a cross-task record."""
+    runtime = make_runtime()
+    runtime._outcome.trust_registry("caller-whitelisted-registry")
+    observed = ObservedOutcome(
+        observed_outcome_id="out-cross-task",
+        expected_outcome_id="expected-1",
+        task_id="inner-task",
+        run_id="run-1",
+        tenant_id=mandate.tenant_id,
+        workspace_id=mandate.workspace_id,
+        evaluator_type="deterministic",
+        evaluator_version="v1",
+        status=OutcomeStatus.VERIFIED,
+        score=1.0,
+        confidence=1.0,
+        evidence_refs=("evidence://forged",),
+        observed_at=now,
+    )
+    forged = TrustedOutcomeRecord(
+        record_id="rec-cross-task",
+        mandate_id="wrong-mandate",
+        standing_mission_id="wrong-mission",
+        task_id="outer-task",
+        observed_outcome=observed,
+        evaluator_registry_instance_id="caller-whitelisted-registry",
+        registry_signature_digest="arbitrary-nonempty-text",
+        recorded_at=now,
+    )
+
+    result = runtime.accept_outcome(forged)
+
+    assert not result.accepted
+    assert "no trusted evaluator registry" in (result.rejection_reason or "").lower()
 
 
 def test_i16_mandate_not_active_rejected(

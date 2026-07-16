@@ -230,7 +230,7 @@ class SrlRuntime:
         proposed_goal: ProposedGoal,
         authority: ActivationAuthority,
     ) -> TaskActivationResult:
-        """Promote a ProposedGoal to a Task after authority checks.
+        """Reject activation until an independent TaskService/C7 path exists.
 
         The authority record must come from an instance distinct from the one
         that produced the source assessment (I-23).
@@ -251,7 +251,14 @@ class SrlRuntime:
                 rejection_reason="I-23: same instance cannot produce and accept evidence",
             )
 
-        result = self._task_activation.activate(proposed_goal, authority)
+        # M0 has neither a trusted authority registry nor a C7 check port. A
+        # caller-created ActivationAuthority therefore cannot be verified, even
+        # when its public fields appear internally consistent. Keep the Runtime
+        # fail-closed rather than delegating final authority to an injected stub.
+        result = TaskActivationResult(
+            activated=False,
+            rejection_reason="no trusted TaskService/C7 activation authority in M0",
+        )
         self._record_transition(
             "GOAL_ACTIVATED" if result.activated else "ACTIVATION_REJECTED",
             proposed_goal.proposal_goal_id,
@@ -294,8 +301,13 @@ class SrlRuntime:
         self,
         outcome_record: TrustedOutcomeRecord,
     ) -> OutcomeAcceptanceResult:
-        """Accept an outcome only when signed by the trusted evaluator registry."""
-        result = self._outcome.accept(outcome_record)
+        """Reject outcome updates until an independent evaluator registry exists."""
+        # M0 cannot verify registry identity, signatures, or task/mandate binding.
+        # Do not let an injected acceptor turn caller-provided strings into truth.
+        result = OutcomeAcceptanceResult(
+            accepted=False,
+            rejection_reason="no trusted evaluator registry integration in M0",
+        )
         self._record_transition(
             "OUTCOME_ACCEPTED" if result.accepted else "OUTCOME_REJECTED",
             outcome_record.record_id,
