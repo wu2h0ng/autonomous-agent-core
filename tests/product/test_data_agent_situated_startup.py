@@ -31,8 +31,19 @@ E_UNKNOWN = PREFIX + "contains an unknown field"
 E_MISSING = PREFIX + "is missing a required field"
 E_MALFORMED = PREFIX + "field is malformed"
 SAFE_ERROR_MESSAGES = frozenset(
-    {E_UNAVAILABLE, E_SYMLINK, E_NOT_REGULAR, E_OVERSIZE, E_NOT_JSON, E_DUPLICATE,
-     E_NON_FINITE, E_ROOT, E_UNKNOWN, E_MISSING, E_MALFORMED}
+    {
+        E_UNAVAILABLE,
+        E_SYMLINK,
+        E_NOT_REGULAR,
+        E_OVERSIZE,
+        E_NOT_JSON,
+        E_DUPLICATE,
+        E_NON_FINITE,
+        E_ROOT,
+        E_UNKNOWN,
+        E_MISSING,
+        E_MALFORMED,
+    }
 )
 
 
