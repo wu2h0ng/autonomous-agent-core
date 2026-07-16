@@ -8,7 +8,7 @@ import re
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from queue import Queue
 from types import MappingProxyType
@@ -17,27 +17,30 @@ from typing import Callable, Mapping, Protocol, TypedDict
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 from agent_os_contracts import (
-    ArtifactLocationClass,
     ArtifactRef,
     CredentialRef,
     CredentialStatus,
     EnvironmentEvent,
     EvidenceRef,
-    EvidenceSourceKind,
     OperationalProjectionRef,
-    ProjectionEpistemicStatus,
     canonical_json,
     content_digest,
 )
 from agent_os_core import EnvCredentialBroker, SituationalBinding
+from apps.api_server.data_agent_report_policy import (
+    ADAPTER_VERSION as _ADAPTER_VERSION,
+    CREDENTIAL_PROVIDER as _CREDENTIAL_PROVIDER,
+    PROJECTION_SCHEMA as _PROJECTION_SCHEMA,
+    SOURCE_ENVELOPE_CONTRACT as _SOURCE_ENVELOPE_CONTRACT,
+    DataAgentReportEnvelopePolicy,
+    DataAgentReportPolicyConfig,
+    DataAgentReportPolicyDescriptor,
+    DataAgentReportPolicyError,
+)
 
 
 Clock = Callable[[], datetime]
 _TRACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-_ADAPTER_VERSION = "data-agent-external-report-adapter:v1"
-_PROJECTION_SCHEMA = "schema://operational-projection/data-agent-report-metadata/v1"
-_SOURCE_ENVELOPE_CONTRACT = "data-agent.external-report.security-envelope.v1"
-_CREDENTIAL_PROVIDER = "data-agent-external-report"
 
 
 class _DataAgentReportFeedEvent(TypedDict):
@@ -76,7 +79,9 @@ class DataAgentReportHttpResponse:
 
 
 class DataAgentReportTransport(Protocol):
-    def fetch(self, request: DataAgentReportHttpRequest) -> DataAgentReportHttpResponse: ...
+    def fetch(
+        self, request: DataAgentReportHttpRequest
+    ) -> DataAgentReportHttpResponse: ...
 
 
 class StdlibDataAgentReportTransport:
@@ -109,9 +114,7 @@ class StdlibDataAgentReportTransport:
         worker.join(timeout=request.timeout_seconds)
         if worker.is_alive():
             connection.close()
-            raise DataAgentReportAdapterError(
-                "external report total deadline exceeded"
-            )
+            raise DataAgentReportAdapterError("external report total deadline exceeded")
         outcome = results.get_nowait()
         if isinstance(outcome, DataAgentReportHttpResponse):
             return outcome
@@ -211,14 +214,19 @@ class DataAgentReportSourceConfig:
             self.scope_ref,
         )
         if any(not value.strip() for value in text_fields):
-            raise DataAgentReportAdapterError("source configuration fields cannot be empty")
+            raise DataAgentReportAdapterError(
+                "source configuration fields cannot be empty"
+            )
         if self.timeout_seconds <= 0:
             raise DataAgentReportAdapterError("timeout must be positive")
         if self.max_response_bytes <= 0:
             raise DataAgentReportAdapterError("response size limit must be positive")
         if self.freshness_seconds <= 0:
             raise DataAgentReportAdapterError("freshness window must be positive")
-        if not _TRACE_ID.fullmatch(self.source_tenant_id) or ".." in self.source_tenant_id:
+        if (
+            not _TRACE_ID.fullmatch(self.source_tenant_id)
+            or ".." in self.source_tenant_id
+        ):
             raise DataAgentReportAdapterError(
                 "source tenant id is not safe for an HTTP header"
             )
@@ -431,7 +439,12 @@ class SQLiteDataAgentReportStateStore:
             raise DataAgentReportAdapterError(
                 "durable external report state schema is invalid"
             )
-        for column in ("report_trace_id", "revision_digest", "event_id", "projection_id"):
+        for column in (
+            "report_trace_id",
+            "revision_digest",
+            "event_id",
+            "projection_id",
+        ):
             if column not in columns:
                 connection.execute(
                     f"ALTER TABLE data_agent_report_observations ADD COLUMN {column} TEXT"
@@ -606,9 +619,7 @@ class SQLiteDataAgentReportStateStore:
             raise DataAgentReportAdapterError(
                 "durable external report event artifact binding is invalid"
             )
-        if bundle.projection.source_event_ids != (
-            bundle.event.environment_event_id,
-        ):
+        if bundle.projection.source_event_ids != (bundle.event.environment_event_id,):
             raise DataAgentReportAdapterError(
                 "durable external report projection event binding is invalid"
             )
@@ -793,7 +804,9 @@ class SQLiteDataAgentReportStateStore:
                 artifact=ArtifactRef.model_validate(parsed["artifact"]),
                 evidence=EvidenceRef.model_validate(parsed["evidence"]),
                 event=EnvironmentEvent.model_validate(parsed["event"]),
-                projection=OperationalProjectionRef.model_validate(parsed["projection"]),
+                projection=OperationalProjectionRef.model_validate(
+                    parsed["projection"]
+                ),
             )
         except Exception:
             raise DataAgentReportAdapterError(
@@ -884,9 +897,8 @@ class SQLiteDataAgentReportStateStore:
                 "durable external report object index target is unavailable"
             )
         stored = self._read_observation(observation_key, observation_row)
-        if (
-            stored.report_trace_id != str(index_row[3])
-            or stored.revision_digest != str(index_row[4])
+        if stored.report_trace_id != str(index_row[3]) or stored.revision_digest != str(
+            index_row[4]
         ):
             raise DataAgentReportAdapterError(
                 "durable external report object index binding is invalid"
@@ -1144,9 +1156,7 @@ class _InMemoryDataAgentReportStateStore:
         self._rows: dict[
             tuple[str, str, str, str], DataAgentReportStoredObservation
         ] = {}
-        self._object_index: dict[
-            tuple[str, str, str], tuple[str, str, str, str]
-        ] = {}
+        self._object_index: dict[tuple[str, str, str], tuple[str, str, str, str]] = {}
         self._feed_cursors: dict[tuple[str, str, str], str | None] = {}
         self._feed_cursor_history: set[tuple[str, str, str, str]] = set()
 
@@ -1170,9 +1180,7 @@ class _InMemoryDataAgentReportStateStore:
         object_kind: str,
         object_id: str,
     ) -> DataAgentReportStoredObservation | None:
-        row_key = self._object_index.get(
-            (namespace_digest, object_kind, object_id)
-        )
+        row_key = self._object_index.get((namespace_digest, object_kind, object_id))
         if row_key is None or row_key[1:3] != (source_id, source_tenant_id):
             return None
         return self._rows.get(row_key)
@@ -1222,9 +1230,7 @@ class _InMemoryDataAgentReportStateStore:
         source_id: str,
         source_tenant_id: str,
     ) -> str | None:
-        return self._feed_cursors.get(
-            (namespace_digest, source_id, source_tenant_id)
-        )
+        return self._feed_cursors.get((namespace_digest, source_id, source_tenant_id))
 
     def advance_feed_cursor(
         self,
@@ -1289,7 +1295,9 @@ def _normalized_origin(base_url: str, *, allow_loopback_http: bool) -> str:
     try:
         port = parsed.port
     except ValueError:
-        raise DataAgentReportAdapterError("external report origin port is invalid") from None
+        raise DataAgentReportAdapterError(
+            "external report origin port is invalid"
+        ) from None
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
     netloc = host if port is None else f"{host}:{port}"
@@ -1338,12 +1346,6 @@ def _strict_json_object(body: bytes) -> dict[str, object]:
     return parsed
 
 
-def _object(value: object, name: str) -> dict[str, object]:
-    if not isinstance(value, dict):
-        raise DataAgentReportAdapterError(f"external report {name} must be an object")
-    return value
-
-
 def _contains_secret(value: object, secret: str) -> bool:
     if isinstance(value, str):
         return secret in value
@@ -1380,6 +1382,24 @@ class DataAgentReportAdapter:
             allow_loopback_http=config.allow_loopback_http,
         )
         self._validate_credential_contract()
+        self._admission_policy = DataAgentReportEnvelopePolicy(
+            DataAgentReportPolicyConfig(
+                source_id=config.source_id,
+                normalized_origin=self._origin,
+                source_tenant_id=config.source_tenant_id,
+                credential=config.credential,
+                principal_id=config.principal_id,
+                target_tenant_id=config.target_tenant_id,
+                target_workspace_id=config.target_workspace_id,
+                mandate_id=config.mandate_id,
+                environment_binding_id=config.environment_binding_id,
+                scope_ref=config.scope_ref,
+                allow_loopback_http=config.allow_loopback_http,
+                timeout_seconds=config.timeout_seconds,
+                max_response_bytes=config.max_response_bytes,
+                freshness_seconds=config.freshness_seconds,
+            )
+        )
         self._state_namespace = content_digest(
             {
                 "adapter_version": _ADAPTER_VERSION,
@@ -1436,6 +1456,41 @@ class DataAgentReportAdapter:
         )
 
     @property
+    def admission_policy_descriptor(self) -> DataAgentReportPolicyDescriptor:
+        return self._admission_policy.descriptor
+
+    @property
+    def _admission_policy_for_composition(self) -> DataAgentReportEnvelopePolicy:
+        return self._admission_policy
+
+    def _assert_current_credential_unreflected(
+        self, body: bytes, *, assessed_at: datetime
+    ) -> None:
+        credential = self._config.credential
+        if (
+            credential.status is not CredentialStatus.ACTIVE
+            or assessed_at < credential.created_at
+            or assessed_at >= credential.expires_at
+        ):
+            raise DataAgentReportAdapterError("credential is inactive or expired")
+        try:
+            secret = self._credentials.resolve(credential)
+        except Exception:
+            raise DataAgentReportAdapterError(
+                "external report credential is unavailable"
+            ) from None
+        if not secret:
+            raise DataAgentReportAdapterError(
+                "external report credential is unavailable"
+            )
+        if secret.encode("utf-8") in body or _contains_secret(
+            _strict_json_object(body), secret
+        ):
+            raise DataAgentReportAdapterError(
+                "external report reflected credential material"
+            )
+
+    @property
     def has_durable_state(self) -> bool:
         return self._state_store.durable
 
@@ -1463,7 +1518,9 @@ class DataAgentReportAdapter:
             or credential.workspace_id != self._config.target_workspace_id
             or credential.owner_principal_id != self._config.principal_id
         ):
-            raise DataAgentReportAdapterError("credential scope does not match target owner")
+            raise DataAgentReportAdapterError(
+                "credential scope does not match target owner"
+            )
         if not required_scopes.issubset(set(credential.scopes)):
             raise DataAgentReportAdapterError(
                 "credential is not bound to the frozen origin, tenant, and report scope"
@@ -1481,15 +1538,17 @@ class DataAgentReportAdapter:
         ):
             raise DataAgentReportAdapterError("credential is inactive or expired")
         path_trace = quote(trace_id, safe="")
-        expected_url = (
-            f"{self._origin}/runs/{path_trace}/report?audience=external"
-        )
+        expected_url = f"{self._origin}/runs/{path_trace}/report?audience=external"
         try:
             secret = self._credentials.resolve(credential)
         except Exception:
-            raise DataAgentReportAdapterError("external report credential is unavailable") from None
+            raise DataAgentReportAdapterError(
+                "external report credential is unavailable"
+            ) from None
         if not secret:
-            raise DataAgentReportAdapterError("external report credential is unavailable")
+            raise DataAgentReportAdapterError(
+                "external report credential is unavailable"
+            )
         request = DataAgentReportHttpRequest(
             url=expected_url,
             headers=MappingProxyType(
@@ -1506,7 +1565,9 @@ class DataAgentReportAdapter:
         try:
             response = self._transport.fetch(request)
         except Exception:
-            raise DataAgentReportAdapterError("external report transport failed") from None
+            raise DataAgentReportAdapterError(
+                "external report transport failed"
+            ) from None
         self._validate_http_response(response, expected_url)
         if secret.encode("utf-8") in response.body:
             raise DataAgentReportAdapterError(
@@ -1517,7 +1578,6 @@ class DataAgentReportAdapter:
             raise DataAgentReportAdapterError(
                 "external report reflected credential material"
             )
-        self._validate_report_contract(payload, trace_id)
         raw_digest = hashlib.sha256(response.body).hexdigest()
         return self._ingest_report(
             observation_key=f"trace:{trace_id}",
@@ -1602,7 +1662,6 @@ class DataAgentReportAdapter:
                     raise DataAgentReportAdapterError(
                         "external report event digest mismatch"
                     )
-                self._validate_report_contract(report, trace_id)
                 bundles.append(
                     self._ingest_report(
                         observation_key=f"feed:{trace_id}:{actual_digest}",
@@ -1642,9 +1701,7 @@ class DataAgentReportAdapter:
             "next_cursor",
             "has_more",
         }:
-            raise DataAgentReportAdapterError(
-                "external report feed fields are invalid"
-            )
+            raise DataAgentReportAdapterError("external report feed fields are invalid")
         if payload.get("schema_version") != "external-report-events.v1":
             raise DataAgentReportAdapterError(
                 "external report feed schema is unsupported"
@@ -1655,9 +1712,7 @@ class DataAgentReportAdapter:
             )
         raw_events = payload.get("events")
         if not isinstance(raw_events, list) or len(raw_events) > limit:
-            raise DataAgentReportAdapterError(
-                "external report feed events are invalid"
-            )
+            raise DataAgentReportAdapterError("external report feed events are invalid")
         has_more = payload.get("has_more")
         if not isinstance(has_more, bool):
             raise DataAgentReportAdapterError(
@@ -1669,9 +1724,7 @@ class DataAgentReportAdapter:
             or not next_cursor
             or len(next_cursor) > 1024
         ):
-            raise DataAgentReportAdapterError(
-                "external report feed cursor is invalid"
-            )
+            raise DataAgentReportAdapterError("external report feed cursor is invalid")
         events: list[_DataAgentReportFeedEvent] = []
         cursors: set[str] = set()
         for raw_event in raw_events:
@@ -1843,9 +1896,12 @@ class DataAgentReportAdapter:
             raise DataAgentReportAdapterError(
                 "external report returned an unsupported status"
             )
-        media_type = (_header(response.headers, "Content-Type") or "").split(
-            ";", 1
-        )[0].strip().lower()
+        media_type = (
+            (_header(response.headers, "Content-Type") or "")
+            .split(";", 1)[0]
+            .strip()
+            .lower()
+        )
         if media_type != "application/json":
             raise DataAgentReportAdapterError(
                 "external report returned an unsupported media type"
@@ -1872,28 +1928,6 @@ class DataAgentReportAdapter:
                 "external report response exceeds configured size limit"
             )
 
-    @staticmethod
-    def _validate_report_contract(payload: dict[str, object], trace_id: str) -> None:
-        if payload.get("trace_id") != trace_id:
-            raise DataAgentReportAdapterError("external report trace binding mismatch")
-        if payload.get("audience") != "external":
-            raise DataAgentReportAdapterError("external report audience is not external")
-        result = _object(payload.get("user_result"), "user_result")
-        if result.get("trace_id") != trace_id:
-            raise DataAgentReportAdapterError("external result trace binding mismatch")
-        if result.get("audience") != "external":
-            raise DataAgentReportAdapterError("external result audience is not external")
-        redaction = _object(result.get("redaction"), "redaction")
-        if redaction.get("audience") != "external" or redaction.get("applied") is not True:
-            raise DataAgentReportAdapterError(
-                "external result does not carry an applied external redaction"
-            )
-        business_action = _object(result.get("business_action"), "business_action")
-        if business_action.get("trace_id") != trace_id:
-            raise DataAgentReportAdapterError(
-                "external business action trace binding mismatch"
-            )
-
     def _stable_identity(self, trace_id: str, raw_digest: str) -> dict[str, object]:
         return {
             "adapter_version": _ADAPTER_VERSION,
@@ -1916,132 +1950,17 @@ class DataAgentReportAdapter:
         raw_digest: str,
         observed_at: datetime,
     ) -> TrustedObservationBundle:
-        stable_identity = self._stable_identity(trace_id, raw_digest)
-        dedupe_digest = content_digest(stable_identity)
-        record_identity = {
-            **stable_identity,
-            "observed_at": observed_at.isoformat(),
-        }
-        identity_digest = content_digest(record_identity)
-        artifact_id = f"artifact:data-agent-report:{identity_digest}"
-        evidence_id = f"evidence:data-agent-report:{identity_digest}"
-        event_id = f"event:data-agent-report:{identity_digest}"
-        projection_payload = {
-            "kind": "data-agent-external-report-metadata-projection",
-            "version": 1,
-            "source_identity": stable_identity,
-            "source_artifact_id": artifact_id,
-            "source_content_digest": raw_digest,
-            "authority": "none",
-        }
-        projection_bytes = canonical_json(projection_payload).encode("utf-8")
-        projection_digest = hashlib.sha256(projection_bytes).hexdigest()
-        projection_identity = content_digest(
-            {
-                **record_identity,
-                "projection_digest": projection_digest,
-                "schema": _PROJECTION_SCHEMA,
-            }
-        )
-        projection_artifact_id = f"artifact:data-agent-projection:{projection_identity}"
-        projection_evidence_id = f"evidence:data-agent-projection:{projection_identity}"
-        projection_id = f"projection:data-agent-report:{projection_identity}"
-        created_by = _ADAPTER_VERSION
-        artifact = ArtifactRef(
-            artifact_id=artifact_id,
-            tenant_id=self._config.target_tenant_id,
-            workspace_id=self._config.target_workspace_id,
-            content_digest=raw_digest,
-            media_type="application/json",
-            location_class=ArtifactLocationClass.OBJECT_STORE,
-            location_ref=f"data-agent-report://{self._config.source_id}/{trace_id}/{raw_digest}",
-            acl_scopes=("situated:read",),
-            retention_policy="retain-source-observation",
-            created_by=created_by,
-            created_at=observed_at,
-        )
-        evidence = EvidenceRef(
-            evidence_id=evidence_id,
-            tenant_id=self._config.target_tenant_id,
-            workspace_id=self._config.target_workspace_id,
-            source_kind=EvidenceSourceKind.EXTERNAL_OBSERVATION,
-            source_ref=f"{self._config.source_id}:{self._config.source_tenant_id}:{trace_id}",
-            relation="observed-exact-external-report-bytes",
-            artifact_ids=(artifact_id,),
-            created_by=created_by,
-            created_at=observed_at,
-        )
-        event = EnvironmentEvent(
-            environment_event_id=event_id,
-            environment_binding_id=self._config.environment_binding_id,
-            mandate_id=self._config.mandate_id,
-            tenant_id=self._config.target_tenant_id,
-            workspace_id=self._config.target_workspace_id,
-            event_type_ref="data-agent.external-report-observed.v1",
-            dedupe_key=f"data-agent-report:{dedupe_digest}",
-            observation=artifact,
-            evidence=(evidence,),
-            occurred_at=observed_at,
-            recorded_at=observed_at,
-        )
-        projection_artifact = ArtifactRef(
-            artifact_id=projection_artifact_id,
-            tenant_id=self._config.target_tenant_id,
-            workspace_id=self._config.target_workspace_id,
-            content_digest=projection_digest,
-            media_type="application/json",
-            location_class=ArtifactLocationClass.OBJECT_STORE,
-            location_ref=f"data-agent-projection://{projection_identity}",
-            acl_scopes=("situated:read",),
-            retention_policy="retain-derived-projection",
-            created_by=created_by,
-            created_at=observed_at,
-        )
-        projection_evidence = EvidenceRef(
-            evidence_id=projection_evidence_id,
-            tenant_id=self._config.target_tenant_id,
-            workspace_id=self._config.target_workspace_id,
-            source_kind=EvidenceSourceKind.ARTIFACT,
-            source_ref=artifact_id,
-            relation="projects-source-observation-metadata-without-authority",
-            artifact_ids=(projection_artifact_id, artifact_id),
-            created_by=created_by,
-            created_at=observed_at,
-        )
-        projection = OperationalProjectionRef(
-            projection_id=projection_id,
-            environment_binding_id=self._config.environment_binding_id,
-            mandate_id=self._config.mandate_id,
-            tenant_id=self._config.target_tenant_id,
-            workspace_id=self._config.target_workspace_id,
-            source_event_ids=(event_id,),
-            projection_artifact=projection_artifact,
-            schema_uri=_PROJECTION_SCHEMA,
-            version=1,
-            scope_ref=self._config.scope_ref,
-            valid_from=observed_at,
-            recorded_at=observed_at,
-            fresh_until=observed_at + timedelta(seconds=self._config.freshness_seconds),
-            evidence=(evidence, projection_evidence),
-            epistemic_status=ProjectionEpistemicStatus.UNKNOWN,
-            uncertainty_summary=(
-                "Source bytes and external redaction are verified; domain significance "
-                "and upstream snapshot immutability are not."
-            ),
-            conflict_refs=(),
-            compatibility_digest=content_digest(
-                {
-                    "adapter_version": _ADAPTER_VERSION,
-                    "schema": _PROJECTION_SCHEMA,
-                    "source_envelope_contract": _SOURCE_ENVELOPE_CONTRACT,
-                }
-            ),
-        )
+        if hashlib.sha256(body).hexdigest() != raw_digest:
+            raise DataAgentReportAdapterError("external report digest mismatch")
+        try:
+            envelope = self._admission_policy.build(trace_id, body, observed_at)
+        except DataAgentReportPolicyError as exc:
+            raise DataAgentReportAdapterError(str(exc)) from None
         return TrustedObservationBundle(
-            artifact=artifact,
-            evidence=evidence,
-            event=event,
-            projection=projection,
+            artifact=envelope.artifact,
+            evidence=envelope.evidence,
+            event=envelope.event,
+            projection=envelope.projection,
         )
 
     def _register_atomically(
@@ -2117,18 +2036,18 @@ class DataAgentReportAdapter:
             body=body,
             bundle=bundle,
         )
-        payload = _strict_json_object(body)
-        self._validate_report_contract(payload, trace_id)
-        expected = self._build_bundle(
-            trace_id,
-            body,
-            raw_digest,
-            bundle.event.recorded_at,
-        )
-        if expected != bundle:
-            raise DataAgentReportAdapterError(
-                "durable external report bundle binding is invalid"
+        try:
+            self._admission_policy.validate(
+                body=body,
+                artifact=bundle.artifact,
+                evidence=bundle.evidence,
+                event=bundle.event,
+                projection=bundle.projection,
             )
+        except DataAgentReportPolicyError as exc:
+            raise DataAgentReportAdapterError(
+                f"durable external report bundle binding is invalid: {exc}"
+            ) from None
 
     def _rehydrate_object(self, object_kind: str, object_id: str) -> None:
         stored = self._state_store.get_by_object_id(
@@ -2169,9 +2088,7 @@ class DataAgentReportAdapter:
                 self._rehydrate_object("event", event_id)
             return self._events.get(event_id)
 
-    def resolve_projection(
-        self, projection_id: str
-    ) -> OperationalProjectionRef | None:
+    def resolve_projection(self, projection_id: str) -> OperationalProjectionRef | None:
         with self._registry_lock:
             if projection_id not in self._projections:
                 self._rehydrate_object("projection", projection_id)

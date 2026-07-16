@@ -477,13 +477,22 @@ def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or
     assert restarted_app.store.list_task_ids() == ()
     assert restarted_broker.resolved == []
     assert restarted_transport.requests == []
-    assert restarted_adapter.resolve_event(bundle.event.environment_event_id) == bundle.event
-    assert restarted_adapter.resolve_projection(bundle.projection.projection_id) == bundle.projection
+    assert (
+        restarted_adapter.resolve_event(bundle.event.environment_event_id)
+        == bundle.event
+    )
+    assert (
+        restarted_adapter.resolve_projection(bundle.projection.projection_id)
+        == bundle.projection
+    )
     assert restarted_adapter.resolve_artifact(bundle.artifact.artifact_id) == (
         bundle.artifact,
         _report_bytes(),
     )
-    assert restarted_adapter.resolve_evidence(bundle.evidence.evidence_id) == bundle.evidence
+    assert (
+        restarted_adapter.resolve_evidence(bundle.evidence.evidence_id)
+        == bundle.evidence
+    )
 
 
 @pytest.mark.parametrize(
@@ -523,7 +532,9 @@ def test_each_trusted_resolver_lazily_rehydrates_after_restart(
     assert transport.requests == []
 
 
-def test_restart_namespace_isolation_does_not_rehydrate_foreign_bundle(tmp_path) -> None:
+def test_restart_namespace_isolation_does_not_rehydrate_foreign_bundle(
+    tmp_path,
+) -> None:
     database = tmp_path / "namespace-isolation.sqlite3"
     first, _, _ = _adapter(
         state_store=SQLiteDataAgentReportStateStore(database),
@@ -663,8 +674,7 @@ def test_restart_rehydrates_two_immutable_revisions_without_network(tmp_path) ->
     )
 
     assert tuple(
-        restarted.resolve_event(bundle.event.environment_event_id)
-        for bundle in bundles
+        restarted.resolve_event(bundle.event.environment_event_id) for bundle in bundles
     ) == tuple(bundle.event for bundle in bundles)
     assert tuple(
         restarted.resolve_projection(bundle.projection.projection_id)
@@ -1454,7 +1464,10 @@ def test_legacy_sqlite_observation_schema_migrates_for_id_rehydration(tmp_path) 
     )
 
     assert restarted.resolve_event(bundle.event.environment_event_id) == bundle.event
-    assert restarted.resolve_projection(bundle.projection.projection_id) == bundle.projection
+    assert (
+        restarted.resolve_projection(bundle.projection.projection_id)
+        == bundle.projection
+    )
     assert broker.resolved == []
     assert transport.requests == []
     with sqlite3.connect(legacy_database) as connection:
@@ -1470,7 +1483,12 @@ def test_legacy_sqlite_observation_schema_migrates_for_id_rehydration(tmp_path) 
             WHERE component = 'data-agent-report-adapter'
             """
         ).fetchone()
-    assert {"report_trace_id", "revision_digest", "event_id", "projection_id"} <= columns
+    assert {
+        "report_trace_id",
+        "revision_digest",
+        "event_id",
+        "projection_id",
+    } <= columns
     assert version_row == (2,)
 
 
@@ -1598,39 +1616,21 @@ def test_corrupt_durable_bundle_binding_fails_closed_without_partial_registry(
     assert transport.requests == []
 
 
-def test_rehydrate_revalidates_persisted_source_contract_without_network(
+def test_shared_policy_rejects_invalid_source_contract_before_registration(
     tmp_path,
 ) -> None:
-    database = tmp_path / "invalid-source-contract.sqlite3"
-    store = SQLiteDataAgentReportStateStore(database)
-    writer, _, _ = _adapter(state_store=store)
+    writer, broker, transport = _adapter()
     invalid_body = _report_bytes(trace_id="trace-other")
     invalid_digest = hashlib.sha256(invalid_body).hexdigest()
-    candidate = writer._build_bundle(  # type: ignore[attr-defined]
-        TRACE_ID,
-        invalid_body,
-        invalid_digest,
-        NOW,
-    )
-    store.save(
-        writer._state_namespace,  # type: ignore[attr-defined]
-        _config().source_id,
-        _config().source_tenant_id,
-        f"feed:{TRACE_ID}:{invalid_digest}",
-        TRACE_ID,
-        invalid_digest,
-        invalid_digest,
-        invalid_body,
-        candidate,
-    )
-    restarted, broker, transport = _adapter(
-        state_store=SQLiteDataAgentReportStateStore(database),
-    )
-
     with pytest.raises(DataAgentReportAdapterError, match="trace binding"):
-        restarted.resolve_event(candidate.event.environment_event_id)
+        writer._build_bundle(  # type: ignore[attr-defined]
+            TRACE_ID,
+            invalid_body,
+            invalid_digest,
+            NOW,
+        )
 
-    assert restarted.registry_counts == (0, 0, 0, 0)
+    assert writer.registry_counts == (0, 0, 0, 0)
     assert broker.resolved == []
     assert transport.requests == []
 
