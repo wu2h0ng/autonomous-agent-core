@@ -33,15 +33,37 @@ def _database_path(database: str | Path) -> str:
         or "mode=memory" in normalized
     ):
         raise ValueError("SQLite event admission store requires a file-backed database")
-    return value
+    path = Path(value).expanduser().resolve()
+    if path.exists() and not path.is_file():
+        raise ValueError("SQLite event admission store requires a file-backed database")
+    return str(path)
+
+
+def _sqlite_conflict(operation: str) -> EventAdmissionPersistenceConflict:
+    return EventAdmissionPersistenceConflict(
+        f"SQLite event admission {operation} failed"
+    )
+
+
+def _rollback(connection: sqlite3.Connection) -> None:
+    try:
+        connection.rollback()
+    except sqlite3.Error:
+        pass
 
 
 def _connect(database: str) -> sqlite3.Connection:
-    connection = sqlite3.connect(database, timeout=10, isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA busy_timeout = 10000")
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    connection: sqlite3.Connection | None = None
+    try:
+        connection = sqlite3.connect(database, timeout=10, isolation_level=None)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 10000")
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+    except sqlite3.Error:
+        if connection is not None:
+            connection.close()
+        raise _sqlite_conflict("connection") from None
 
 
 def _connect_read_only(database: str) -> sqlite3.Connection:
@@ -58,13 +80,15 @@ def _connect_read_only(database: str) -> sqlite3.Connection:
             isolation_level=None,
         )
     except sqlite3.Error:
-        raise EventAdmissionPersistenceConflict(
-            "existing SQLite event admission store is unavailable"
-        ) from None
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA busy_timeout = 10000")
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+        raise _sqlite_conflict("read-only connection") from None
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 10000")
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+    except sqlite3.Error:
+        connection.close()
+        raise _sqlite_conflict("read-only connection") from None
 
 
 def _initialize(database: str) -> None:
@@ -98,6 +122,8 @@ def _initialize(database: str) -> None:
             )
             """
         )
+    except sqlite3.Error:
+        raise _sqlite_conflict("schema initialization") from None
     finally:
         connection.close()
 
@@ -293,6 +319,8 @@ class SQLiteEventAdmissionStore:
                 f"SELECT * FROM srl_event_admission_receipts WHERE {field} = ?",
                 (value,),
             ).fetchone()
+        except sqlite3.Error:
+            raise _sqlite_conflict("receipt read") from None
         finally:
             connection.close()
         return _decode_receipt(row) if row is not None else None
@@ -312,6 +340,8 @@ class SQLiteEventAdmissionStore:
                 "SELECT * FROM srl_situated_evaluation_traces WHERE trace_id = ?",
                 (trace_id,),
             ).fetchone()
+        except sqlite3.Error:
+            raise _sqlite_conflict("trace read") from None
         finally:
             connection.close()
         return _decode_trace(row) if row is not None else None
@@ -420,7 +450,7 @@ def _create_event_admission_store(
                     and existing[0] == receipt
                     and bytes(rows[0]["canonical_json"]) == payload
                 ):
-                    connection.rollback()
+                    _rollback(connection)
                     return existing[0]
                 raise EventAdmissionPersistenceConflict(
                     "receipt id, event id, digest, or content conflicts with durable state"
@@ -440,8 +470,14 @@ def _create_event_admission_store(
             )
             connection.commit()
             return receipt
+        except EventAdmissionPersistenceConflict:
+            _rollback(connection)
+            raise
+        except sqlite3.Error:
+            _rollback(connection)
+            raise _sqlite_conflict("receipt write") from None
         except Exception:
-            connection.rollback()
+            _rollback(connection)
             raise
         finally:
             connection.close()
@@ -482,7 +518,7 @@ def _create_event_admission_store(
                     and existing[0] == trace
                     and bytes(rows[0]["canonical_json"]) == payload
                 ):
-                    connection.rollback()
+                    _rollback(connection)
                     return existing[0]
                 raise EventAdmissionPersistenceConflict(
                     "trace id, receipt projection binding, or content conflicts"
@@ -513,8 +549,14 @@ def _create_event_admission_store(
                 ) from None
             connection.commit()
             return trace
+        except EventAdmissionPersistenceConflict:
+            _rollback(connection)
+            raise
+        except sqlite3.Error:
+            _rollback(connection)
+            raise _sqlite_conflict("trace begin") from None
         except Exception:
-            connection.rollback()
+            _rollback(connection)
             raise
         finally:
             connection.close()
@@ -565,8 +607,14 @@ def _create_event_admission_store(
                 )
             connection.commit()
             return updated
+        except EventAdmissionPersistenceConflict:
+            _rollback(connection)
+            raise
+        except sqlite3.Error:
+            _rollback(connection)
+            raise _sqlite_conflict("trace attempt increment") from None
         except Exception:
-            connection.rollback()
+            _rollback(connection)
             raise
         finally:
             connection.close()
@@ -611,7 +659,7 @@ def _create_event_admission_store(
             current = _decode_trace(row)
             if current.status is not SituatedTraceStatus.PENDING:
                 if current == terminal and bytes(row["canonical_json"]) == payload:
-                    connection.rollback()
+                    _rollback(connection)
                     return current
                 raise EventAdmissionPersistenceConflict(
                     "terminal trace bytes and result binding are immutable"
@@ -660,8 +708,14 @@ def _create_event_admission_store(
                 )
             connection.commit()
             return terminal
+        except EventAdmissionPersistenceConflict:
+            _rollback(connection)
+            raise
+        except sqlite3.Error:
+            _rollback(connection)
+            raise _sqlite_conflict("trace transition") from None
         except Exception:
-            connection.rollback()
+            _rollback(connection)
             raise
         finally:
             connection.close()

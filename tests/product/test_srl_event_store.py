@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import os
 import pickle
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -221,6 +222,72 @@ def test_public_reader_rejects_corrupt_or_impostor_existing_schema(
         connection.close()
     with pytest.raises(EventAdmissionPersistenceConflict, match="schema"):
         SQLiteEventAdmissionStore(weak_schema)
+
+
+def test_relative_database_identity_is_bound_before_cwd_changes(
+    tmp_path: Path,
+) -> None:
+    directory_a = tmp_path / "a"
+    directory_b = tmp_path / "b"
+    directory_a.mkdir()
+    directory_b.mkdir()
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(directory_a)
+        reader, writer = _create_event_admission_store("events.sqlite3")
+        writer.persist_receipt(_receipt())
+
+        os.chdir(directory_b)
+        assert reader.by_event_id("environment-event-1") == _receipt()
+        assert writer.persist_receipt(_receipt()) == _receipt()
+        assert SQLiteEventAdmissionStore(directory_a / "events.sqlite3").by_event_id(
+            "environment-event-1"
+        ) == _receipt()
+        assert not (directory_b / "events.sqlite3").exists()
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_sqlite_failures_are_typed_at_factory_reader_and_writer_boundaries(
+    tmp_path: Path,
+) -> None:
+    corrupt_at_factory = tmp_path / "factory.sqlite3"
+    corrupt_at_factory.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        _create_event_admission_store(corrupt_at_factory)
+
+    reader_database = tmp_path / "reader.sqlite3"
+    reader, reader_writer = _create_event_admission_store(reader_database)
+    reader_writer.persist_receipt(_receipt())
+    reader_database.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        reader.by_receipt_id(_receipt().receipt_id)
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        reader.by_trace_id("situated-trace-1")
+
+    writer_database = tmp_path / "writer.sqlite3"
+    _, writer = _create_event_admission_store(writer_database)
+    writer_database.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        writer.persist_receipt(_receipt())
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        writer.begin_trace(_pending_trace())
+
+    increment_database = tmp_path / "increment.sqlite3"
+    _, increment_writer = _create_event_admission_store(increment_database)
+    increment_writer.persist_receipt(_receipt())
+    increment_writer.begin_trace(_pending_trace())
+    increment_database.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        increment_writer.increment_delegation_attempt("situated-trace-1")
+
+    transition_database = tmp_path / "transition.sqlite3"
+    _, transition_writer = _create_event_admission_store(transition_database)
+    transition_writer.persist_receipt(_receipt())
+    pending = transition_writer.begin_trace(_pending_trace())
+    transition_database.write_bytes(b"not-a-sqlite-database")
+    with pytest.raises(EventAdmissionPersistenceConflict, match="SQLite"):
+        transition_writer.transition_trace(_terminal_trace(pending))
 
 
 def test_receipt_restart_exact_replay_and_conflicts(tmp_path: Path) -> None:
