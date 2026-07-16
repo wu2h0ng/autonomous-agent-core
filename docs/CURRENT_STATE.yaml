@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-15"
+updated: "2026-07-16T10:00:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "codex/adm-p4-task-configuration-snapshot-20260715"
-status: "SPINE-0 and a bounded local long-horizon product slice are branch-contained. ADR-0057 accepts Adaptive Domain Materialization and Optional Domain Priors as Product definition; ADM-P1 seals inert DomainCandidate records, ADM-P2 records immutable external evaluation receipts, ADM-P3 adds Product-owned append-only promotion decisions, and ADM-P4 adds an immutable Product-derived Task configuration snapshot plus exact later-Run reference binding. Production ADM-P3 policy V1 deterministically returns DEFER for every current chain, so the production composition root creates no prior; ADM-P4 never synthesizes or applies one and exposes no activation authority. No slice executes an evaluator, proves evidence custody/independence, acquires a materializer or establishes adaptive competence. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; the full LH successor is PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
+branch: "codex/canonical-convergence-20260715"
+status: "Canonical convergence fast-forwarded to 8eb76e6. DEV-REAL-OUTCOME-1 outcome-truth fix, ADM-P1/P2/P3/P4 inert adaptation infrastructure, materialization clock-drift fix, and Data Agent provider relevance restart/rehydration integration are now on the canonical branch. Product suite: 674 passed, 1 skipped. Production ADM-P3 policy V1 remains all-DEFER; no evaluator execution, materializer acquisition or adaptive competence claim. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; LH successor PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -178,7 +178,7 @@ research_ledger:
 active_work:
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
-    status: "ADM_P1_P2_P3_P4_IMPLEMENTED_LOCAL / ADM_P4_REVIEW_FINDINGS_REMEDIATED_EXACT_HEAD_REREVIEW_PENDING / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
+    status: "ADM_P1_P2_P3_P4_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6 / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
     purpose: "Keep inert DomainCandidate sealing, externally produced evaluation receipts, Product-owned deterministic promotion decisions and immutable later-Task/Run configuration references branch-contained through the existing Product authority spine without introducing domain semantics, evaluator execution, production prior activation or a second runtime."
     entry_gate: "Exact design f63648c8766ec42a15e25951a6cb9cfca930efc05d3d2f6631317145c96f362a has Kimi TECHNICAL_APPROVE and independent RR-0029 ACCEPT_FOR_SPEC; ADR-0057 owns only the minimal Product decision."
     boundary: "The branch contains closed contracts, append-only persistence, deterministic validation/failures and real HTTP entry points through ADM-P4. Production policy V1 always DEFERs; only tests exercise atomic PROMOTE, inert-prior persistence and reference binding. ADM-P4 freezes configuration and binds a later Run but does not apply the prior or alter execution. No evaluator execution, evidence custody/independence proof, activation/configuration mutation, adaptive experiment, training, migration, push, merge or release claim."
@@ -203,6 +203,22 @@ parked_work:
     source: "../docs/research/founder-decision-2026-07-14-governed-core-evolution.md"
 
 recently_completed:
+  - id: "DEV-REAL-OUTCOME-1"
+    track: "product_truth_and_user_outcome"
+    status: "IMPLEMENTED_TESTED_AND_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6"
+    result: "DeterministicOutcomeEvaluator now enforces frozen ExpectedOutcome threshold, evidence requirements, observation window and failure semantics and fails closed for unknown evaluators. The original false-VERIFIED attack (threshold 999, two required evidence entries, arbitrary artifact, no trusted resolver) now returns INVALID with score None. Product suite on canonical-convergence: 674 passed, 1 skipped; ruff/pyright clean."
+    boundary: "Fix is on canonical-convergence but not on main or released. Outcome-driven learning and promotion may now consume canonical truth only after explicit per-consumer review; no general autonomy/Product alpha/release claim follows."
+    source:
+      - "../docs/research/portfolio-attack-review-synthesis-2026-07-16.md"
+      - "packages/os_core/src/agent_os_core/execution.py"
+      - "packages/os_core/src/agent_os_core/task_service.py"
+      - "tests/product/test_outcome_evaluator.py"
+  - id: "DATA-AGENT-PROVIDER-RELEVANCE-RESTART"
+    track: "product"
+    status: "INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6"
+    result: "Data Agent report rehydration and provider relevance assessment survive offline restart, revoke, namespace isolation, corruption fail-closed, binding drift detection and two-revision replay without task activation or external effects."
+    boundary: "Integrated on canonical-convergence; not on main or released. No production activation or autonomy claim."
+    source: "tests/product/test_data_agent_provider_relevance_e2e.py"
   - id: "LH-RECOVERY-1A-TASK7-TASK8-DISPOSITION"
     track: "research_product_eval"
     status: "TASK7_ACCEPTED_AND_INTEGRATED / TASK8_MECHANICAL_CANDIDATE_REVISE / D1_EXECUTION_CONTRACT_GAP_RECAST_REQUIRED / FULL_SUCCESSOR_PARK"
@@ -325,12 +341,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-15"
-  branch: "codex/adm-p4-task-configuration-snapshot-20260715"
-  clean_base_head: "7e76461aec8e96b4d1016f7fec3ddfc9b13d7ce2"
-  implementation_head: "initial implementation 625e0a64b283581dab0dc76baa853ad2abff012a; exact atomic review-remediation commit is reported in the delegated handoff"
-  authority_source_commit: "c1035fae33a3709dfc9d669843cb281ad6dd76e2"
-  merge_base: "065ff8b57969e99835d7fe40e0641022b4ea0cf6"
-  commit_state: "ADM_P1_P2_P3_ANCESTRY_PLUS_ADM_P4_IMPLEMENTATION_AND_ATOMIC_REVIEW_REMEDIATION / EXACT_HEAD_REREVIEW_PENDING / NOT_PUSHED_NOT_MERGED"
-  merge_scope: "The branch adds ADM-P4 immutable Task configuration contracts, Task-event persistence, exact later-Run binding, Product-owned optional-prior lineage reads, application/HTTP composition and tests; it does not apply a prior, change execution semantics, merge Data Agent or import Research mechanisms."
-  evidence_separation: "ADM-P1/P2/P3/P4 are Product implementation evidence only. ADM-P4 reference binding does not establish prior value, adaptation, evaluator performance, adaptive competence or a research result. SPINE/LH D1 ancestry and Task 7 remain branch-contained; LH v5 receipts remain semantic run-ledger evidence without Product execution authority; Task 8, B1 and RTM-1 are separate-branch evidence. None is a release, migration, D2 or general-autonomy claim."
+  checked_at: "2026-07-16T10:00:00+08:00"
+  branch: "codex/canonical-convergence-20260715"
+  canonical_head: "8eb76e676acabf9200911e0e2e51c5c68c460069"
+  prior_canonical_head: "e3cdacbcf1de506e0ad78c4d0618d2b78dd4d432"
+  merge_base: "e3cdacbcf1de506e0ad78c4d0618d2b78dd4d432"
+  commit_state: "FAST_FORWARDED_TO_8EB76E6 / DEV_REAL_OUTCOME_1_AND_DATA_AGENT_RELEVANCE_INTEGRATED / CURRENT_STATE_UPDATED / NOT_PUSHED_NOT_MERGED_TO_MAIN"
+  merge_scope: "Fast-forward integrates ADM-P1/P2/P3/P4 inert adaptation infrastructure, materialization clock-drift fix, DEV-REAL-OUTCOME-1 durable outcome truth enforcement, and Data Agent provider relevance restart/rehydration. No production activation, no Data Agent migration, no Research mechanism import, no main merge or release."
+  evidence_separation: "ADM-P1/P2/P3/P4 remain Product implementation evidence with policy V1 all-DEFER. DEV-REAL-OUTCOME-1 closes the false-VERIFIED defect on canonical-convergence only. Data Agent relevance integration is proposal-only Product behavior. SPINE/LH, B1, RTM-1 and Research Track evidence remain on separate branches. None is a release, migration, D2 or general-autonomy claim."
