@@ -92,7 +92,8 @@ _PREREG_SHA256 = "b" * 64
 
 @dataclass
 class CheckpointRecord:
-    """One checkpoint's captured neutral requests, resolved arm actions, and correct action."""
+    """One checkpoint's captured neutral requests, resolved arm actions, and
+    the sealed referee's correct action (runner-only truth)."""
 
     checkpoint_ordinal: int
     turn_index: int
@@ -122,12 +123,6 @@ def _run_checkpointed_episode(
     try:
         while episode.status is EpisodeStatus.RUNNING:
             observation, forced = episode.observe()
-            step_action = (
-                forced
-                if forced is not None
-                else episode._default_policy(observation, episode)
-            )
-            episode.step(step_action)
 
             if episode._turn_index in episode.checkpoints:
                 checkpoint_ordinal = episode.checkpoints.index(episode._turn_index)
@@ -136,7 +131,7 @@ def _run_checkpointed_episode(
                 record = CheckpointRecord(
                     checkpoint_ordinal=checkpoint_ordinal,
                     turn_index=turn_index,
-                    correct_action=ActorAction(step_action.value),
+                    correct_action=episode.referee_correct_action(),
                 )
                 for position in range(4):
                     request = blinding.actor_request(
@@ -153,6 +148,13 @@ def _run_checkpointed_episode(
                     record.responses[request.session_label] = response
                     record.resolved_actions[real_arm] = response.action
                 records.append(record)
+
+            step_action = (
+                forced
+                if forced is not None
+                else episode._default_policy(observation, episode)
+            )
+            episode.step(step_action)
     except Exception:
         episode.cleanup()
         raise

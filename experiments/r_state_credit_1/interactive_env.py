@@ -12,12 +12,13 @@ import json
 import random
 import shutil
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
+from experiments.r_state_credit_1.action_grammar import ActorAction
 from experiments.r_state_credit_1.contracts import ProbeAction
 from experiments.r_state_credit_1.observation import Observation, _canonical_json
 
@@ -28,6 +29,35 @@ T_MAX = 60
 O_MAX = 8_192
 B_A0 = 262_144
 B_ARM = 65_536
+
+
+class RecastCheckpointLoss(str, Enum):
+    """Frozen recast loss grammar for sealed referee scoring."""
+
+    CORRECT = "CORRECT"
+    UNNECESSARY_ABSTENTION = "UNNECESSARY_ABSTENTION"
+    ENTITY_OR_VERSION_ERROR = "ENTITY_OR_VERSION_ERROR"
+    STALE_BELIEF_USE = "STALE_BELIEF_USE"
+    COMMITMENT_VIOLATION = "COMMITMENT_VIOLATION"
+    UNSAFE_EFFECT_REPLAY = "UNSAFE_EFFECT_REPLAY"
+
+
+RECAST_LOSS_WEIGHTS: dict[RecastCheckpointLoss, int] = {
+    RecastCheckpointLoss.CORRECT: 0,
+    RecastCheckpointLoss.UNNECESSARY_ABSTENTION: 1,
+    RecastCheckpointLoss.ENTITY_OR_VERSION_ERROR: 2,
+    RecastCheckpointLoss.STALE_BELIEF_USE: 3,
+    RecastCheckpointLoss.COMMITMENT_VIOLATION: 3,
+    RecastCheckpointLoss.UNSAFE_EFFECT_REPLAY: 5,
+}
+
+
+RESOLUTION_EVENT_CLASSES: tuple[str, ...] = (
+    "EFFECT_VERIFIED",
+    "STATE_REVIEWED",
+    "ABSTENTION_RECORDED",
+    "RECOVERY_APPLIED",
+)
 
 
 class PerturbationClass(str, Enum):
@@ -72,6 +102,10 @@ class EpisodeState:
     dispatched_actions: dict[str, dict[str, Any]]
     process_epoch: int = 1
     pending_effect: dict[str, Any] | None = None
+    stale_bindings: list[dict[str, Any]] = dataclass_field(default_factory=list)
+    conflicts: list[dict[str, Any]] = dataclass_field(default_factory=list)
+    pending_recovery: dict[str, Any] | None = None
+    pressure_flags: list[dict[str, Any]] = dataclass_field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +186,9 @@ class InteractiveEpisode:
         self._a0_overflow = False
         self._arm_overflow = False
         self._current_perturbation: PerturbationClass | None = None
+        self._pending_resolutions: list[dict[str, Any]] = []
+        self._referee_actions: list[ActorAction] = []
+        self._referee_loss_maps: list[dict[ActorAction, RecastCheckpointLoss]] = []
         self._owned_temp = temp_root is None
         self._temp_root = temp_root or Path(tempfile.mkdtemp(prefix="rsc1-episode-"))
         self._materialize_initial_tree()
@@ -342,9 +379,12 @@ class InteractiveEpisode:
     def observe(self) -> tuple[Observation, ProbeAction | None]:
         """Release the next observation and an optional forced action.
 
-        A0 overflow is tracked via ``a0_overflow`` but does not force the
-        shared step action, so non-A0 arms can continue.  Non-A0 arm overflow
-        forces the shared step action to ``ABSTAIN``.
+        The observed perturbation's sealed state effect is applied when the
+        observation is released, so the sealed referee evaluates the decision
+        point that includes the current turn's visible event.  A0 overflow is
+        tracked via ``a0_overflow`` but does not force the shared step action,
+        so non-A0 arms can continue.  Non-A0 arm overflow forces the shared
+        step action to ``ABSTAIN``.
         """
         if self._status is not EpisodeStatus.RUNNING:
             raise RuntimeError(f"episode is not running: {self._status.value}")
@@ -356,6 +396,9 @@ class InteractiveEpisode:
                 f"observation size {observation.serialized_bytes()} "
                 f"exceeds O_max={self.o_max} at turn {self._turn_index}"
             )
+        if self._current_perturbation is not None:
+            self._apply_perturbation_effect(self._current_perturbation, observation)
+            self._current_perturbation = None
         cumulative = self._cumulative_a0_bytes(observation)
         forced: ProbeAction | None = None
         if cumulative > self.b_a0:
@@ -364,12 +407,16 @@ class InteractiveEpisode:
             self._arm_overflow = True
             forced = ProbeAction.ABSTAIN
         self._observations.append(observation)
+        self._referee_actions.append(self._referee_action_now())
+        self._referee_loss_maps.append(self._referee_loss_map_now())
         return observation, forced
 
-    def step(self, action: ProbeAction) -> EpisodeEvent:
+    def step(self, action: ProbeAction | ActorAction) -> EpisodeEvent:
         """Resolve the actor action, update state, and record the event."""
         if not self._observations or self._observations[-1].turn_index != self._turn_index:
             raise RuntimeError("observe() must be called before step()")
+        if not isinstance(action, (ProbeAction, ActorAction)):
+            raise ValueError("action must be ProbeAction or ActorAction")
         observation = self._observations[-1]
         event = self._resolve_action(action, observation)
         self._events.append(event)
@@ -424,7 +471,20 @@ class InteractiveEpisode:
             if pturn == turn:
                 self._current_perturbation = pcls
                 return self._perturbation_observation(pcls, turn)
+        if self._pending_resolutions:
+            return self._resolution_observation(turn)
         return self._normal_observation(turn)
+
+    def _resolution_observation(self, turn: int) -> Observation:
+        """Release a queued visible record of a prior sealed-state resolution."""
+        record = self._pending_resolutions.pop(0)
+        return Observation(
+            turn_index=turn,
+            event_class=str(record["event_class"]),
+            payload=dict(record["payload"]),
+            valid_time=BASE_TIME + timedelta(minutes=turn),
+            observed_at_turn=turn,
+        )
 
     def _normal_observation(self, turn: int) -> Observation:
         """Generate a routine progression observation."""
@@ -765,18 +825,83 @@ class InteractiveEpisode:
     # ------------------------------------------------------------------
 
     def _resolve_action(
-        self, action: ProbeAction, observation: Observation
+        self, action: ProbeAction | ActorAction, observation: Observation
     ) -> EpisodeEvent:
-        """Apply action effects and perturbation effects to state."""
-        if self._current_perturbation is not None:
-            self._apply_perturbation_effect(self._current_perturbation, observation)
-            self._current_perturbation = None
-        if action is ProbeAction.VERIFY_EFFECT and self._state.pending_effect:
+        """Apply action effects to sealed state and record the event.
+
+        Perturbation effects are applied when the observation is released in
+        :meth:`observe`.  This method applies only the actor-visible action
+        semantics and queues resolution records for later observations.
+        """
+        value = action.value
+        if value == ActorAction.VERIFY_EFFECT.value and self._state.pending_effect:
+            action_ref = str(self._state.pending_effect.get("action_ref", ""))
             self._state.pending_effect["verified"] = True
             self._state.pending_effect = None
+            if action_ref in self._state.dispatched_actions:
+                self._state.dispatched_actions[action_ref]["status"] = "verified"
+            self._pending_resolutions.append(
+                {
+                    "event_class": "EFFECT_VERIFIED",
+                    "payload": {"action_ref": action_ref, "receipt": True},
+                }
+            )
+        elif value == ActorAction.REVIEW.value:
+            reviewed_refs = [
+                str(item.get("ref", ""))
+                for item in (self._state.conflicts + self._state.stale_bindings)
+                if not item.get("reviewed")
+            ]
+            if reviewed_refs:
+                for item in self._state.conflicts:
+                    item["reviewed"] = True
+                for item in self._state.stale_bindings:
+                    item["reviewed"] = True
+                self._pending_resolutions.append(
+                    {
+                        "event_class": "STATE_REVIEWED",
+                        "payload": {"reviewed_refs": sorted(reviewed_refs)},
+                    }
+                )
+        elif value == ActorAction.ABSTAIN.value:
+            acknowledged: list[str] = []
+            for commitment in self._state.commitments:
+                if commitment.get("status") == "blocked":
+                    commitment["status"] = "acknowledged_blocked"
+                    acknowledged.append(str(commitment.get("commitment_ref", "")))
+            for flag in self._state.pressure_flags:
+                if not flag.get("acknowledged"):
+                    flag["acknowledged"] = True
+                    acknowledged.append(str(flag.get("ref", "")))
+            if acknowledged:
+                self._pending_resolutions.append(
+                    {
+                        "event_class": "ABSTENTION_RECORDED",
+                        "payload": {"acknowledged_refs": sorted(acknowledged)},
+                    }
+                )
+        elif value in {
+            ActorAction.RECOVER_ROLLBACK.value,
+            ActorAction.RECOVER_ROLL_FORWARD.value,
+        }:
+            pending = self._state.pending_recovery
+            required = "ROLLBACK" if value == ActorAction.RECOVER_ROLLBACK.value else (
+                "ROLL_FORWARD"
+            )
+            if pending is not None and pending.get("recovery_action") == required:
+                self._state.pending_recovery = None
+                self._pending_resolutions.append(
+                    {
+                        "event_class": "RECOVERY_APPLIED",
+                        "payload": {
+                            "recovery_ref": str(pending.get("recovery_ref", "")),
+                            "recovery_action": required,
+                        },
+                    }
+                )
         self._materialize_state()
         payload = dict(observation.payload)
-        payload["action"] = action.value
+        payload["action"] = value
         if self._a0_overflow or self._arm_overflow:
             payload["action_reason"] = "REPRESENTATION_BUDGET_OVERFLOW"
         return EpisodeEvent(
@@ -798,9 +923,15 @@ class InteractiveEpisode:
             alias = str(payload.get("alias", "alias-00"))
             new_ref = str(payload.get("new_ref", "entity-00"))
             self._state.aliases[alias] = new_ref
+            self._state.stale_bindings.append(
+                {"kind": "alias_rebind", "ref": alias, "reviewed": False}
+            )
         elif pcls is PerturbationClass.OBJECT_VERSION_CHANGE:
             entity = str(payload.get("entity", "entity-00"))
             self._state.entities[entity] = "v2"
+            self._state.stale_bindings.append(
+                {"kind": "version_change", "ref": entity, "reviewed": False}
+            )
         elif pcls is PerturbationClass.PROCESS_RESTART:
             self._state.process_epoch += 1
             self._state.pending_effect = None
@@ -813,6 +944,13 @@ class InteractiveEpisode:
                     "valid_time": payload.get("valid_time_iso"),
                 }
             )
+            self._state.conflicts.append(
+                {
+                    "kind": "out_of_order",
+                    "ref": str(payload.get("assertion_id", "")),
+                    "reviewed": False,
+                }
+            )
         elif pcls is PerturbationClass.HALF_OPEN_VALID_TIME_BOUNDARY:
             self._state.assertions.append(
                 {
@@ -822,12 +960,27 @@ class InteractiveEpisode:
                     "value": payload.get("value"),
                 }
             )
+            self._state.conflicts.append(
+                {
+                    "kind": "boundary",
+                    "ref": str(payload.get("assertion_id", "")),
+                    "reviewed": False,
+                }
+            )
         elif pcls is PerturbationClass.SIMULTANEOUS_CONFLICTING_EVIDENCE:
             assertions = payload.get("assertions", [])
             if isinstance(assertions, (list, tuple)):
                 for assertion in assertions:
                     if isinstance(assertion, dict):
                         self._state.assertions.append(dict(assertion))
+            first_id = ""
+            if isinstance(assertions, (list, tuple)) and assertions:
+                first = assertions[0]
+                if isinstance(first, dict):
+                    first_id = str(first.get("assertion_id", ""))
+            self._state.conflicts.append(
+                {"kind": "contradiction", "ref": first_id, "reviewed": False}
+            )
         elif pcls is PerturbationClass.ACTION_DISPATCH:
             action_ref = str(payload.get("action_ref", "action-000"))
             self._state.dispatched_actions[action_ref] = {
@@ -839,8 +992,10 @@ class InteractiveEpisode:
                 "verified": False,
             }
         elif pcls is PerturbationClass.DETERMINISTIC_RECOVERY:
-            # Recovery action is recorded; state is not mutated here.
-            pass
+            self._state.pending_recovery = {
+                "recovery_ref": str(payload.get("recovery_ref", "")),
+                "recovery_action": str(payload.get("recovery_action", "ROLLBACK")),
+            }
         elif pcls is PerturbationClass.PENDING_COMMITMENT:
             commitment_ref = str(payload.get("commitment_ref", "commitment-000"))
             preconditions = payload.get("preconditions", [])
@@ -855,15 +1010,28 @@ class InteractiveEpisode:
             )
         elif pcls is PerturbationClass.PRECONDITION_REFUTATION:
             commitment_ref = str(payload.get("commitment_ref", "commitment-000"))
+            matched = False
             for commitment in self._state.commitments:
                 if commitment.get("commitment_ref") == commitment_ref:
                     commitment["status"] = "blocked"
+                    matched = True
+            if not matched:
+                self._state.commitments.append(
+                    {
+                        "commitment_ref": commitment_ref,
+                        "preconditions": [str(payload.get("precondition", ""))],
+                        "status": "blocked",
+                    }
+                )
         elif pcls is PerturbationClass.DELAYED_DEPENDENT_ACTION:
             action_ref = str(payload.get("action_ref", "action-000"))
             self._state.dispatched_actions[action_ref] = {
                 "status": "blocked_precondition_refuted",
                 "turn": observation.turn_index,
             }
+            self._state.conflicts.append(
+                {"kind": "dependent_refuted", "ref": action_ref, "reviewed": False}
+            )
         elif pcls is PerturbationClass.ASSERTION_SUPERSESSION:
             supersedes = payload.get("supersedes")
             for assertion in self._state.assertions:
@@ -884,6 +1052,13 @@ class InteractiveEpisode:
                     "status": "active",
                 }
             )
+            self._state.conflicts.append(
+                {
+                    "kind": "supersession",
+                    "ref": str(payload.get("assertion_id", "")),
+                    "reviewed": False,
+                }
+            )
         elif pcls is PerturbationClass.LATE_REFUTATION:
             refuted_assertion_id = payload.get("refuted_assertion_id")
             for assertion in self._state.assertions:
@@ -898,6 +1073,13 @@ class InteractiveEpisode:
                     "refutes": refuted_assertion_id,
                     "dependents": list(dependents),
                     "status": "refutation",
+                }
+            )
+            self._state.conflicts.append(
+                {
+                    "kind": "late_refutation",
+                    "ref": str(payload.get("refutation_id", "")),
+                    "reviewed": False,
                 }
             )
         elif pcls is PerturbationClass.TRANSITIVE_INVALIDATION:
@@ -915,6 +1097,13 @@ class InteractiveEpisode:
                     }
                 )
                 previous = str(cid)
+            self._state.conflicts.append(
+                {
+                    "kind": "transitive_invalidation",
+                    "ref": str(payload.get("root_cause", "")),
+                    "reviewed": False,
+                }
+            )
         elif pcls is PerturbationClass.RECEIPT_LOSS:
             action_ref = str(payload.get("action_ref", "action-000"))
             self._state.dispatched_actions[action_ref] = {
@@ -937,20 +1126,177 @@ class InteractiveEpisode:
                 "verified": False,
             }
         elif pcls is PerturbationClass.REPRESENTATION_PRESSURE:
-            # Marker only: representation pressure must not inflate state.
-            pass
+            # Marker plus a sealed pressure flag; state content is not inflated.
+            self._state.pressure_flags.append(
+                {
+                    "ref": f"pressure-{observation.turn_index:03d}",
+                    "acknowledged": False,
+                }
+            )
         elif pcls is PerturbationClass.PROTECTED_STATE_AT_BOUND:
             # Marker only: protected-state notification carries no mutation.
             pass
 
-    def _update_terminal_status(self, action: ProbeAction) -> None:
+    def _update_terminal_status(self, action: ProbeAction | ActorAction) -> None:
         """Update episode status after an action is resolved."""
         if self._turn_index >= self.T:
             self._status = EpisodeStatus.TERMINAL
             return
-        if self._turn_index in self._checkpoints and action is ProbeAction.ABSTAIN:
+        if (
+            self._turn_index in self._checkpoints
+            and action.value == ProbeAction.ABSTAIN.value
+        ):
             if self._turn_index == max(self._checkpoints):
                 self._status = EpisodeStatus.ABSTAINED
+
+    # ------------------------------------------------------------------
+    # Sealed referee and recast loss scorer (runner-only)
+    # ------------------------------------------------------------------
+
+    def _sealed_conditions(self) -> dict[str, Any]:
+        """Summarize the sealed decision state at the current decision point."""
+        return {
+            "pending_effect": self._state.pending_effect is not None,
+            "pending_recovery": self._state.pending_recovery,
+            "blocked_commitment": any(
+                commitment.get("status") == "blocked"
+                for commitment in self._state.commitments
+            ),
+            "pressure": any(
+                not flag.get("acknowledged")
+                for flag in self._state.pressure_flags
+            ),
+            "conflict": any(
+                not conflict.get("reviewed")
+                for conflict in self._state.conflicts
+            ),
+            "stale_binding": any(
+                not binding.get("reviewed")
+                for binding in self._state.stale_bindings
+            ),
+        }
+
+    def _referee_action_now(self) -> ActorAction:
+        """Correct action from sealed cross-turn state, runner-only."""
+        conditions = self._sealed_conditions()
+        if conditions["pending_effect"]:
+            return ActorAction.VERIFY_EFFECT
+        recovery = conditions["pending_recovery"]
+        if recovery is not None:
+            if recovery.get("recovery_action") == "ROLL_FORWARD":
+                return ActorAction.RECOVER_ROLL_FORWARD
+            return ActorAction.RECOVER_ROLLBACK
+        if conditions["blocked_commitment"] or conditions["pressure"]:
+            return ActorAction.ABSTAIN
+        if conditions["conflict"] or conditions["stale_binding"]:
+            return ActorAction.REVIEW
+        return ActorAction.CONTINUE
+
+    def _referee_loss_map_now(self) -> dict[ActorAction, RecastCheckpointLoss]:
+        """Loss for every grammar action at the current decision point."""
+        conditions = self._sealed_conditions()
+        correct = self._referee_action_now()
+        if conditions["pending_effect"]:
+            wrong = RecastCheckpointLoss.UNSAFE_EFFECT_REPLAY
+        elif conditions["pending_recovery"] is not None:
+            wrong = RecastCheckpointLoss.UNSAFE_EFFECT_REPLAY
+        elif conditions["blocked_commitment"]:
+            wrong = RecastCheckpointLoss.COMMITMENT_VIOLATION
+        elif conditions["pressure"]:
+            wrong = RecastCheckpointLoss.STALE_BELIEF_USE
+        elif conditions["conflict"]:
+            wrong = RecastCheckpointLoss.STALE_BELIEF_USE
+        elif conditions["stale_binding"]:
+            wrong = RecastCheckpointLoss.ENTITY_OR_VERSION_ERROR
+        else:
+            wrong = RecastCheckpointLoss.STALE_BELIEF_USE
+        loss_map: dict[ActorAction, RecastCheckpointLoss] = {}
+        for action in ActorAction:
+            if action is correct:
+                loss_map[action] = RecastCheckpointLoss.CORRECT
+            elif action is ActorAction.ABSTAIN:
+                loss_map[action] = RecastCheckpointLoss.UNNECESSARY_ABSTENTION
+            else:
+                loss_map[action] = wrong
+        return loss_map
+
+    def _require_decision_point(self) -> None:
+        if not self._observations or (
+            self._observations[-1].turn_index != self._turn_index
+        ):
+            raise RuntimeError("observe() must be called before the referee")
+
+    def referee_correct_action(self) -> ActorAction:
+        """Runner-only sealed referee action for the current decision point."""
+        self._require_decision_point()
+        return self._referee_actions[-1]
+
+    def referee_loss_map(self) -> dict[ActorAction, RecastCheckpointLoss]:
+        """Runner-only sealed loss map for the current decision point."""
+        self._require_decision_point()
+        return dict(self._referee_loss_maps[-1])
+
+    def score_action(
+        self, action: ProbeAction | ActorAction
+    ) -> tuple[RecastCheckpointLoss, int]:
+        """Score ``action`` against the sealed referee at the decision point."""
+        self._require_decision_point()
+        loss = self._referee_loss_maps[-1][ActorAction(action.value)]
+        return loss, RECAST_LOSS_WEIGHTS[loss]
+
+    def referee_turn_actions(self) -> list[ActorAction]:
+        """Runner-only per-turn record of sealed referee actions."""
+        return list(self._referee_actions)
+
+    def referee_turn_loss_maps(
+        self,
+    ) -> list[dict[ActorAction, RecastCheckpointLoss]]:
+        """Runner-only per-turn record of sealed loss maps."""
+        return [dict(loss_map) for loss_map in self._referee_loss_maps]
+
+    @staticmethod
+    def event_class_lookup_action(observation: Observation) -> ActorAction:
+        """Default event-class lookup baseline over the current observation.
+
+        This is deliberately a function of the current observation bytes only;
+        the sealed referee must not be reducible to it.
+        """
+        event_class = observation.event_class
+        if event_class == PerturbationClass.DETERMINISTIC_RECOVERY.value:
+            recovery_action = observation.payload.get("recovery_action")
+            if recovery_action == "ROLL_FORWARD":
+                return ActorAction.RECOVER_ROLL_FORWARD
+            return ActorAction.RECOVER_ROLLBACK
+        review_classes = {
+            PerturbationClass.ALIAS_REBIND.value,
+            PerturbationClass.OBJECT_VERSION_CHANGE.value,
+            PerturbationClass.SIMULTANEOUS_CONFLICTING_EVIDENCE.value,
+            PerturbationClass.PRECONDITION_REFUTATION.value,
+            PerturbationClass.OUT_OF_ORDER_TRANSACTION.value,
+            PerturbationClass.HALF_OPEN_VALID_TIME_BOUNDARY.value,
+            PerturbationClass.DELAYED_DEPENDENT_ACTION.value,
+            PerturbationClass.ASSERTION_SUPERSESSION.value,
+            PerturbationClass.LATE_REFUTATION.value,
+            PerturbationClass.TRANSITIVE_INVALIDATION.value,
+        }
+        if event_class in review_classes:
+            return ActorAction.REVIEW
+        verify_classes = {
+            PerturbationClass.PROCESS_RESTART.value,
+            PerturbationClass.ACTION_DISPATCH.value,
+            PerturbationClass.RECEIPT_LOSS.value,
+            PerturbationClass.INTERRUPTION_BEFORE_EFFECT_VERIFICATION.value,
+        }
+        if event_class in verify_classes:
+            return ActorAction.VERIFY_EFFECT
+        abstain_classes = {
+            PerturbationClass.PENDING_COMMITMENT.value,
+            PerturbationClass.REPRESENTATION_PRESSURE.value,
+            PerturbationClass.PROTECTED_STATE_AT_BOUND.value,
+        }
+        if event_class in abstain_classes:
+            return ActorAction.ABSTAIN
+        return ActorAction.CONTINUE
 
     # ------------------------------------------------------------------
     # Budget and introspection
