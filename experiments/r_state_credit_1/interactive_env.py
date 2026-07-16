@@ -171,22 +171,10 @@ class InteractiveEpisode:
         topologies = ("chain", "star", "disconnected")
         topology = topologies[self._episode_seed[1] % len(topologies)]
         aliases = self._build_aliases(entity_count, topology)
-        files = {
-            "README.md": (
-                f"# R-STATE-CREDIT-1 Episode\n"
-                f"family={self.family_id}\n"
-                f"seed={self.seed_id}\n"
-            ),
-            "state/runtime.json": json.dumps(
-                {
-                    "family": self.family_id,
-                    "process_epoch": 1,
-                    "seed": self.seed_id,
-                }
-            ),
-        }
+        # No identifying metadata is written to the materialized temp tree;
+        # family/seed remain runner-internal in-memory state only.
         return EpisodeState(
-            files=files,
+            files={},
             aliases=aliases,
             entities=entities,
             assertions=[],
@@ -305,14 +293,9 @@ class InteractiveEpisode:
         path.write_text(content, encoding="utf-8")
 
     def _materialize_state(self) -> None:
-        """Rewrite the temp directory to reflect current state."""
-        runtime = {
-            "family": self.family_id,
-            "process_epoch": self._state.process_epoch,
-            "seed": self.seed_id,
-            "turn": self._turn_index,
-        }
-        self._write_file("state/runtime.json", json.dumps(runtime, sort_keys=True))
+        """Rewrite the temp directory to reflect current observable state."""
+        # Family, seed, and turn remain runner-internal; only observable entity
+        # and alias state is materialized.
         for entity, version in self._state.entities.items():
             self._write_file(
                 f"entities/{entity}.json",
@@ -327,8 +310,9 @@ class InteractiveEpisode:
     def observe(self) -> tuple[Observation, ProbeAction | None]:
         """Release the next observation and an optional forced action.
 
-        If a cumulative budget is exceeded, the returned forced action is
-        ``ABSTAIN``.
+        A0 overflow is tracked via ``a0_overflow`` but does not force the
+        shared step action, so non-A0 arms can continue.  Non-A0 arm overflow
+        forces the shared step action to ``ABSTAIN``.
         """
         if self._status is not EpisodeStatus.RUNNING:
             raise RuntimeError(f"episode is not running: {self._status.value}")
@@ -344,7 +328,6 @@ class InteractiveEpisode:
         forced: ProbeAction | None = None
         if cumulative > self.b_a0:
             self._a0_overflow = True
-            forced = ProbeAction.ABSTAIN
         if cumulative > self.b_arm:
             self._arm_overflow = True
             forced = ProbeAction.ABSTAIN

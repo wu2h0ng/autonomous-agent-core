@@ -175,3 +175,49 @@ def test_observation_budget_envelope_per_turn(tmp_path: Path) -> None:
             assert observation.serialized_bytes() <= O_MAX
     finally:
         episode.cleanup()
+
+
+def test_a0_overflow_does_not_force_other_arms(tmp_path: Path) -> None:
+    """A0 budget overflow forces only A0 to ABSTAIN; the episode continues."""
+    episode = InteractiveEpisode(
+        FAMILY,
+        7,
+        tmp_path / "a0-only-overflow",
+        b_a0=256,
+        b_arm=999_999,
+    )
+    try:
+        observations, events = episode.run()
+        assert episode.a0_overflow
+        assert not episode.arm_overflow
+        # The episode reached a normal terminal rather than stopping on ABSTAIN.
+        assert episode.status.value == "TERMINAL"
+        # No overflow-forced ABSTAIN was applied to the shared step action.
+        assert not any(
+            event.payload.get("action") == ProbeAction.ABSTAIN.value
+            and event.payload.get("action_reason") == "REPRESENTATION_BUDGET_OVERFLOW"
+            for event in events
+        )
+        # Other arms would have continued to see checkpoints.
+        assert len(episode.checkpoints) == 4
+        assert len(observations) == episode.T
+    finally:
+        episode.cleanup()
+
+
+def test_temp_tree_contains_no_family_seed_metadata(tmp_path: Path) -> None:
+    """The materialized temp directory contains no family or seed identifiers."""
+    episode = InteractiveEpisode(FAMILY, 7, tmp_path / "metadata-audit")
+    try:
+        episode.run()
+        for path in episode.temp_root.rglob("*"):
+            if path.is_file():
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                assert episode.family_id not in text, (
+                    f"family_id leaked into {path.relative_to(episode.temp_root)}"
+                )
+                assert str(episode.seed_id) not in text, (
+                    f"seed_id leaked into {path.relative_to(episode.temp_root)}"
+                )
+    finally:
+        episode.cleanup()

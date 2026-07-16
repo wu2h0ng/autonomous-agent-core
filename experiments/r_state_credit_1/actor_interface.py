@@ -21,13 +21,12 @@ class ActorRequest:
     """Neutral request delivered to an actor at a checkpoint.
 
     Contains only the observable prefix released so far, a neutral session
-    label, the turn index, and the frozen valid action grammar.  No arm
-    identity, family identifier, checkpoint ordinal, sealed label, or future
-    events are present.
+    label, and the frozen valid action grammar.  No arm identity, family
+    identifier, turn index, checkpoint ordinal, sealed label, or future events
+    are present.
     """
 
     observations: tuple[Observation, ...]
-    turn_index: int
     valid_actions: tuple[ActorAction, ...]
     session_label: str
 
@@ -36,12 +35,6 @@ class ActorRequest:
             raise ValueError("observations must be a tuple")
         if any(not isinstance(obs, Observation) for obs in self.observations):
             raise ValueError("observations must contain Observation values")
-        if (
-            not isinstance(self.turn_index, int)
-            or isinstance(self.turn_index, bool)
-            or self.turn_index < 0
-        ):
-            raise ValueError("turn_index must be a non-negative integer")
         if not isinstance(self.valid_actions, tuple) or not self.valid_actions:
             raise ValueError("valid_actions must be a non-empty tuple")
         if any(
@@ -61,7 +54,6 @@ class ActorRequest:
             "observations": tuple(
                 obs.canonical_json() for obs in self.observations
             ),
-            "turn_index": self.turn_index,
             "valid_actions": tuple(action.value for action in self.valid_actions),
             "session_label": self.session_label,
         }

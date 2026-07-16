@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import dataclass, is_dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -38,8 +38,17 @@ class Observation:
             raise ValueError("observed_at_turn must be an integer")
 
     def canonical_json(self) -> str:
-        """Return deterministic compact JSON for budget measurement."""
-        return _canonical_json(asdict(self))
+        """Return deterministic compact JSON for budget measurement.
+
+        The actor-facing serialization deliberately excludes runner-internal
+        sequencing fields ``turn_index`` and ``observed_at_turn``.
+        """
+        mapping = {
+            field.name: getattr(self, field.name)
+            for field in self.__dataclass_fields__.values()
+            if field.name not in {"turn_index", "observed_at_turn"}
+        }
+        return _canonical_json(mapping)
 
     def serialized_bytes(self) -> int:
         """Return UTF-8 byte length of the canonical JSON serialization."""

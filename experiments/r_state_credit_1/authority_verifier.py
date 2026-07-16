@@ -86,12 +86,22 @@ class AuthorityVerifier:
         self,
         artifact: AuthorityArtifact,
         expected_type: str,
+        builder_principal: str | None = None,
     ) -> VerificationResult:
         identity = artifact.identity_key()
 
         if identity in self._builder_identities:
             return self._fail(
                 f"builder identity {identity!r} is not allowed to mint "
+                f"{expected_type} artifacts"
+            )
+
+        if (
+            builder_principal is not None
+            and artifact.signer_principal_id == builder_principal
+        ):
+            return self._fail(
+                f"builder principal {builder_principal!r} is not allowed to mint "
                 f"{expected_type} artifacts"
             )
 
@@ -245,6 +255,7 @@ class AuthorityVerifier:
         bundle: AuthorityArtifactBundle,
         *,
         prereg_payload_digest: str | None = None,
+        builder_principal: str | None = None,
     ) -> VerificationResult:
         """Verify ``bundle`` and return a typed ``VerificationResult``.
 
@@ -256,6 +267,10 @@ class AuthorityVerifier:
             Optional SHA-256 digest of the run's preregistration candidate. When
             supplied, the prereg-acceptance artifact's ``prereg_sha256`` field
             must match it.
+        builder_principal:
+            Optional principal id to reject regardless of instance id. Used by
+            ``verify_binding_artifacts`` to enforce the builder-principal
+            rejection gate without mutating shared state.
 
         Returns
         -------
@@ -280,7 +295,9 @@ class AuthorityVerifier:
         verified: list[str] = []
 
         for artifact, expected_type in typed_checks:
-            result = self._verify_single_artifact(artifact, expected_type)
+            result = self._verify_single_artifact(
+                artifact, expected_type, builder_principal=builder_principal
+            )
             if not result.accepted:
                 return result
 
@@ -326,14 +343,7 @@ class AuthorityVerifier:
         """Convenience entry point matching the design amendment outline.
 
         Verifies the bundle and additionally rejects any artifact whose
-        ``signer_principal_id`` equals ``builder_id``.
+        ``signer_principal_id`` equals ``builder_id``, regardless of instance
+        id.  The shared verifier state is not mutated.
         """
-        builder_keys = {f"{builder_id}:{builder_id}"} | self._builder_identities
-        if builder_id not in self._builder_identities:
-            builder_keys.add(builder_id)
-        original_builder = self._builder_identities
-        self._builder_identities = builder_keys
-        try:
-            return self.verify(bundle)
-        finally:
-            self._builder_identities = original_builder
+        return self.verify(bundle, builder_principal=builder_id)

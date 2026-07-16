@@ -12,9 +12,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from datetime import datetime, timezone
+
 from experiments.r_state_credit_1.action_grammar import ActorAction
 from experiments.r_state_credit_1.actor_interface import ActorRequest, ActorResponse, StubActor
 from experiments.r_state_credit_1.arm_blinding import ArmBlinding, NEUTRAL_LABELS
+from experiments.r_state_credit_1.arms import A3TypedStateArm
 from experiments.r_state_credit_1.authority_artifacts import (
     ArchitectureAcceptanceArtifact,
     AuthorityArtifactBundle,
@@ -25,7 +28,14 @@ from experiments.r_state_credit_1.authority_artifacts import (
     compute_payload_digest,
 )
 from experiments.r_state_credit_1.authority_verifier import AuthorityVerifier
-from experiments.r_state_credit_1.contracts import ArmId, ProbeAction
+from experiments.r_state_credit_1.contracts import (
+    ArmId,
+    ArmInput,
+    EventKind,
+    ObservableEvent,
+    ProbeAction,
+    ResourceBudget,
+)
 from experiments.r_state_credit_1.episode_generator import EpisodeGenerator
 from experiments.r_state_credit_1.interactive_env import EpisodeStatus, InteractiveEpisode
 from experiments.r_state_credit_1.signature_backend import TestHmacBackend
@@ -119,7 +129,6 @@ def _run_checkpointed_episode(
                         checkpoint_ordinal=checkpoint_ordinal,
                         position=position,
                         observations=observations,
-                        turn_index=turn_index,
                         valid_actions=tuple(ActorAction),
                     )
                     response = actor.act(request)
@@ -573,3 +582,55 @@ def test_reversibility_across_blinding(tmp_path: Path) -> None:
         finally:
             first_episode.cleanup()
             second_episode.cleanup()
+
+
+def _sample_arm_input() -> ArmInput:
+    """Minimal ArmInput exercising A3 typed-state projection."""
+    now = datetime(2026, 7, 15, 10, 0, tzinfo=timezone.utc)
+    event = ObservableEvent(
+        scenario_id="scenario:test",
+        sequence=1,
+        event_id="event:1",
+        observed_at=now,
+        kind=EventKind.ENTITY_OBSERVED,
+        subject_ref="visible:client",
+        object_version="v1",
+        evidence_refs=("visible:evidence:1",),
+    )
+    return ArmInput(
+        scenario_id="scenario:test",
+        observable_events=(event,),
+        visible_through_sequence=1,
+        budget=ResourceBudget(
+            max_observable_bytes=100_000,
+            max_representation_bytes=100_000,
+            max_steps=256,
+            max_tool_calls=8,
+            max_wall_clock_units=512,
+        ),
+    )
+
+
+def test_legacy_a3_no_recovery_directive() -> None:
+    """Legacy A3TypedStateArm output contains no recovery directive confound."""
+    arm_input = _sample_arm_input()
+    output = A3TypedStateArm().consume(arm_input)
+    assert "recovery_directive" not in output.representation
+
+
+def test_source_manifest_covers_recast_mechanism_files() -> None:
+    """The prereg candidate source manifest includes every recast mechanism file."""
+    from experiments.r_state_credit_1 import prereg_candidate
+
+    expected = {
+        "experiments/r_state_credit_1/interactive_env.py",
+        "experiments/r_state_credit_1/episode_generator.py",
+        "experiments/r_state_credit_1/observation.py",
+        "experiments/r_state_credit_1/arm_blinding.py",
+        "experiments/r_state_credit_1/actor_interface.py",
+        "experiments/r_state_credit_1/action_grammar.py",
+        "experiments/r_state_credit_1/authority_artifacts.py",
+        "experiments/r_state_credit_1/signature_backend.py",
+        "experiments/r_state_credit_1/authority_verifier.py",
+    }
+    assert expected.issubset(set(prereg_candidate._SOURCE_PATHS))

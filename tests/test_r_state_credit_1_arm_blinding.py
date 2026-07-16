@@ -56,7 +56,6 @@ def _actor_request_bytes(
         checkpoint_ordinal=checkpoint_ordinal,
         position=0,
         observations=observations,
-        turn_index=turn_index,
         valid_actions=tuple(ActorAction),
     )
     return request.to_canonical_json().encode("utf-8")
@@ -73,6 +72,21 @@ def test_byte_level_no_arm_identity(tmp_path: Path) -> None:
             assert substring not in text, (
                 f"forbidden substring {substring!r} found in actor request bytes"
             )
+    finally:
+        episode.cleanup()
+
+
+def test_byte_level_no_turn_index_metadata(tmp_path: Path) -> None:
+    """Serialized ActorRequest bytes contain no turn-index leakage."""
+    episode = _run_episode(FAMILY, 42, tmp_path / "no-turn-index")
+    try:
+        blinding = ArmBlinding(episode._episode_seed)
+        payload = _actor_request_bytes(episode, blinding)
+        text = payload.decode("utf-8")
+        assert "turn_index" not in text, "turn_index leaked into actor request bytes"
+        assert "observed_at_turn" not in text, (
+            "observed_at_turn leaked into actor request bytes"
+        )
     finally:
         episode.cleanup()
 
@@ -163,7 +177,6 @@ def test_neutral_labels_only(tmp_path: Path) -> None:
                         checkpoint_ordinal=checkpoint_ordinal,
                         position=position,
                         observations=observations,
-                        turn_index=turn_index,
                         valid_actions=tuple(ActorAction),
                     )
                     assert request.session_label in NEUTRAL_LABELS, (
@@ -188,7 +201,6 @@ def test_reverse_mapping_runner_only(tmp_path: Path) -> None:
                     checkpoint_ordinal=checkpoint_ordinal,
                     position=position,
                     observations=observations,
-                    turn_index=turn_index,
                     valid_actions=tuple(ActorAction),
                 )
                 response = actor.act(request)

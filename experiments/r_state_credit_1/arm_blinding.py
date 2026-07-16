@@ -102,17 +102,16 @@ class ArmBlinding:
         checkpoint_ordinal: int,
         position: int,
         observations: Iterable[Observation],
-        turn_index: int,
         valid_actions: Iterable[ActorAction] | None = None,
     ) -> ActorRequest:
         """Build a blinded actor request for the arm at ``position``.
 
         The returned request contains only a neutral session label; no real
-        arm identity, role name, or capability hint is present.
+        arm identity, role name, turn index, checkpoint ordinal, or capability
+        hint is present.
         """
         return ActorRequest(
             observations=tuple(observations),
-            turn_index=turn_index,
             valid_actions=(
                 tuple(valid_actions)
                 if valid_actions is not None

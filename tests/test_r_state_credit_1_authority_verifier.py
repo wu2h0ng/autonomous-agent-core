@@ -413,3 +413,28 @@ def test_witness_ref_must_exist_when_repository_supplied() -> None:
         result = verifier.verify(bundle)
         assert not result.accepted
         assert "does not exist" in (result.rejection_reason or "")
+
+
+def test_builder_principal_any_instance_rejected() -> None:
+    """An artifact signed with the builder principal and any instance is rejected."""
+    backend = _fresh_backend()
+    builder_id = "builder"
+    builder_any_instance = "builder:external-1"
+    allowed = ALL_ALLOWED | {builder_any_instance}
+    with tempfile.TemporaryDirectory() as tmp:
+        witness_root = Path(tmp)
+        bundle = _make_bundle(
+            backend,
+            witness_root=witness_root,
+            identities={"prereg": builder_any_instance},
+        )
+        verifier = AuthorityVerifier(
+            allowed_signers=allowed,
+            builder_identities={BUILDER_IDENTITY},
+            backend=backend,
+            witness_repository=witness_root,
+        )
+        result = verifier.verify_binding_artifacts(builder_id, bundle)
+        assert not result.accepted
+        assert "builder" in (result.rejection_reason or "").lower()
+        assert builder_id in (result.rejection_reason or "")
