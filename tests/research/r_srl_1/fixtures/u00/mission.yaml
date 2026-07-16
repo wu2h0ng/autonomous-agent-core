@@ -1,0 +1,12 @@
+# Placeholder standing mission for R-SRL-1 sample unit u00.
+mission_statement: >
+  Maintain declared repository quality/safety invariants and open commitments;
+  detect material drift, act inside authority, and request the minimum external
+  judgment when safe continuation is impossible.
+authority_ceiling: local_test_and_read_only
+help_budget:
+  max_requests_per_window: 8
+  max_operator_minutes_per_window: 30
+  max_repeated_question_rate: 0.25
+  max_unresolved_wait_seconds: 300
+  window_seconds: 1800

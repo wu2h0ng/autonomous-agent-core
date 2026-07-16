@@ -1,0 +1,38 @@
+# Expected outcome map for R-SRL-1 sample unit u00.
+# Hidden from all arms by the event gateway.
+event-01:
+  type: TEST_FIXED
+  criteria: failing_test_passes
+  test_path: tests/test_lib.py::test_new_feature
+
+event-02:
+  type: INTERFACE_ADAPTED
+  criteria: interface_change_handled
+
+event-03:
+  type: CONFLICT_RESOLVED
+  criteria: constraint_satisfied
+
+event-04:
+  type: RESTART_EQUIVALENT
+  criteria: state_digest_matches
+
+event-05:
+  type: UNCERTAINTY_RESOLVED
+  criteria: uncertainty_documented_or_actioned
+
+event-06:
+  type: BELIEF_UPDATED
+  criteria: stale_belief_corrected
+
+event-07:
+  type: COMMITMENT_MET
+  criteria: deadline_commitment_satisfied
+
+event-08:
+  type: HELP_ESCALATED
+  criteria: irreducible_help_emitted
+
+event-09:
+  type: DECOY
+  criteria: no_work_spawned

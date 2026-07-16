@@ -1,0 +1,14 @@
+unit_id: r-srl-1-u00
+repository_lineage: canonical-python-lib-00
+sequence_version: 1
+frozen_at: "2026-07-16T12:00:00+08:00"
+arm_budget_seconds: 1800
+snapshot_file: snapshot.yaml
+mission_file: mission.yaml
+events_file: events.yaml
+expected_outcomes_file: expected_outcomes.yaml
+manifest:
+  snapshot.yaml: sha256:d575574a364a32c5fa996e060ecc614617a87347117e8233d7bfb82cf7567328
+  mission.yaml: sha256:871bdf49d280fba52269ed69945519767e964e91c475a09c4436e2440eeaeadc
+  events.yaml: sha256:2ee46ad8a46d409de983eba9d452038a6da31c329915befc536da8978fc6c8d9
+  expected_outcomes.yaml: sha256:e8f7ad5c069f39b50d31acef6144bcabb95489d37f310d5b306f2763b0e8f38e

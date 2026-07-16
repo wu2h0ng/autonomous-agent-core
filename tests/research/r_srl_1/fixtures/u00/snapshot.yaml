@@ -1,0 +1,6 @@
+# Placeholder repository snapshot for R-SRL-1 sample unit u00.
+# Real units will contain a tar.gz snapshot of the starting repository.
+lineage: canonical-python-lib-00
+files:
+  - src/lib.py
+  - tests/test_lib.py
