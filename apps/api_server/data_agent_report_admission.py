@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from agent_os_contracts import (
+    CredentialAuthorizationSnapshot,
     CredentialStatus,
     EventOriginRegistration,
     PayloadAdmissionAttestation,
@@ -241,6 +242,37 @@ class _DataAgentReportAdmissionRegistrar:
             )
         return value.astimezone(timezone.utc)
 
+    @staticmethod
+    def _freeze_authorization(
+        value: object,
+    ) -> CredentialAuthorizationSnapshot:
+        if type(value) is not CredentialAuthorizationSnapshot:
+            raise DataAgentReportAdmissionError(
+                "credential authorization is not a canonical snapshot"
+            )
+        if (
+            set(value.__dict__) != set(CredentialAuthorizationSnapshot.model_fields)
+            or value.__pydantic_extra__
+            or value.__pydantic_private__
+        ):
+            raise DataAgentReportAdmissionError(
+                "credential authorization contains unknown state"
+            )
+        try:
+            encoded = canonical_json(value).encode("utf-8")
+            frozen = CredentialAuthorizationSnapshot.model_validate_json(
+                encoded, strict=True
+            )
+        except (TypeError, ValueError):
+            raise DataAgentReportAdmissionError(
+                "credential authorization is invalid"
+            ) from None
+        if canonical_json(frozen).encode("utf-8") != encoded or frozen != value:
+            raise DataAgentReportAdmissionError(
+                "credential authorization is not canonical"
+            )
+        return frozen
+
     def prepare(self, event_id: str) -> DataAgentReportAdmissionMaterial:
         if not isinstance(event_id, str) or not event_id.strip():
             raise DataAgentReportAdmissionError("event id cannot be empty")
@@ -286,17 +318,13 @@ class _DataAgentReportAdmissionRegistrar:
             )
         assessed_at = self._utc(self._clock())
         try:
-            authorization = self._authorizations.resolve_authorization(
-                descriptor.credential_ref_id
+            authorization = self._freeze_authorization(
+                self._authorizations.resolve_authorization(descriptor.credential_ref_id)
             )
         except Exception:
             raise DataAgentReportAdmissionError(
                 "credential authorization is unavailable"
             ) from None
-        if authorization is None:
-            raise DataAgentReportAdmissionError(
-                "credential authorization is unavailable"
-            )
         if (
             authorization.credential_ref_digest != descriptor.credential_ref_digest
             or authorization.owner_principal_id != descriptor.principal_id

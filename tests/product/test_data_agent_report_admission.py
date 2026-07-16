@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import inspect
 import sqlite3
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -376,6 +377,85 @@ def test_authorization_reader_exception_is_safe_and_writes_nothing(
         assert connection.execute(
             "SELECT COUNT(*) FROM data_agent_report_admission_material"
         ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        SimpleNamespace(
+            credential_ref_id="credential:data-agent-report",
+            credential_ref_digest="0" * 64,
+            owner_principal_id="principal:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            provider_id="data-agent-external-report",
+            scopes=("reports:read",),
+            status=CredentialStatus.ACTIVE,
+            created_at=NOW - timedelta(days=1),
+            expires_at=NOW + timedelta(days=1),
+        ),
+        CredentialAuthorizationSnapshot.model_construct(
+            credential_ref_id="credential:data-agent-report",
+            credential_ref_digest="0" * 64,
+            owner_principal_id="principal:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            provider_id="data-agent-external-report",
+            scopes=("reports:read",),
+            status=CredentialStatus.ACTIVE,
+            created_at=NOW - timedelta(days=1),
+            expires_at=NOW - timedelta(days=2),
+        ),
+    ],
+)
+def test_noncanonical_dynamic_authorization_fails_closed_without_row(
+    tmp_path: Path, invalid: object
+) -> None:
+    adapter, event = _adapter(tmp_path)
+
+    class DynamicReader:
+        calls = 0
+
+        def resolve_authorization(self, credential_ref_id: str) -> object:
+            self.calls += 1
+            return invalid
+
+    reader = DynamicReader()
+    with pytest.raises(DataAgentReportAdmissionError):
+        _registrar(tmp_path, adapter, reader=reader).prepare(  # type: ignore[arg-type]
+            event.environment_event_id
+        )
+    assert reader.calls == 1
+    with sqlite3.connect(tmp_path / "admission.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM data_agent_report_admission_material"
+        ).fetchone() == (0,)
+
+
+@pytest.mark.parametrize("attribute", ["dynamic_claim", "_private_claim"])
+def test_authorization_with_dynamic_state_fails_closed(
+    tmp_path: Path, attribute: str
+) -> None:
+    adapter, event = _adapter(tmp_path)
+    snapshot = CanonicalCredentialAuthorizationReader(
+        [_credential()]
+    ).resolve_authorization("credential:data-agent-report")
+    assert snapshot is not None
+    object.__setattr__(snapshot, attribute, "forged")
+
+    class Reader:
+        calls = 0
+
+        def resolve_authorization(
+            self, credential_ref_id: str
+        ) -> CredentialAuthorizationSnapshot | None:
+            self.calls += 1
+            return snapshot
+
+    reader = Reader()
+    with pytest.raises(DataAgentReportAdmissionError):
+        _registrar(tmp_path, adapter, reader=reader).prepare(event.environment_event_id)
+    assert reader.calls == 1
 
 
 def test_prepare_fails_when_bound_credential_reflection_check_fails(
