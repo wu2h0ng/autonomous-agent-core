@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Any
 
@@ -127,6 +128,44 @@ def test_four_checkpoints(tmp_path: Path) -> None:
                 assert 5 <= turn <= episode.T - 2
             for left, right in zip(positions, positions[1:]):
                 assert right - left >= 3
+        finally:
+            episode.cleanup()
+
+
+def test_checkpoint_algorithm_matches_amendment(tmp_path: Path) -> None:
+    """``_select_checkpoint_turns`` matches the amended pseudo-algorithm."""
+    import hashlib
+    import itertools
+
+    def _reference_checkpoints(
+        episode_seed: bytes, eligible_terminal_turns: list[int], t: int
+    ) -> list[int]:
+        eligible = sorted(
+            {turn for turn in eligible_terminal_turns if 5 <= turn <= t - 2}
+        )
+        if len(eligible) < 4:
+            raise RuntimeError("insufficient terminal phases")
+        valid = [
+            combo
+            for combo in itertools.combinations(eligible, 4)
+            if all(right - left >= 3 for left, right in zip(combo, combo[1:]))
+        ]
+        if not valid:
+            raise RuntimeError("cannot space four checkpoints")
+        digest = hashlib.sha256(b"checkpoint-v1\x00" + episode_seed).digest()
+        rng = random.Random(digest)
+        return list(valid[rng.randrange(len(valid))])
+
+    for seed_id in range(50):
+        episode = InteractiveEpisode(FAMILY, seed_id, tmp_path / f"algo-{seed_id}")
+        try:
+            eligible = sorted(
+                {terminal for _, _, terminal in episode._perturbation_schedule}
+            )
+            expected = _reference_checkpoints(
+                episode._episode_seed, eligible, episode.T
+            )
+            assert episode.checkpoints == expected
         finally:
             episode.cleanup()
 

@@ -189,30 +189,28 @@ function select_checkpoint_turns(episode_seed, perturbation_schedule):
     if len(eligible_terminal_turns) < 4:
         raise INVALID_EPISODE("insufficient terminal phases for four checkpoints")
 
+    # Enumerate every 4-element subset whose consecutive turns are at least
+    # 3 turns apart.  This guarantees the spacing invariant whenever any valid
+    # selection exists and makes the seeded choice independent of the order in
+    # which turns are drawn.
+    valid_combinations = []
+    for combo in combinations(eligible_terminal_turns, 4):
+        if all(right - left >= 3 for left, right in zip(combo, combo[1:])):
+            valid_combinations.append(combo)
+
+    if not valid_combinations:
+        raise INVALID_EPISODE("cannot space four checkpoints")
+
     rng = random.Random(hash_bytes("checkpoint-v1", episode_seed))
-    selected = []
-    pool = eligible_terminal_turns[:]
-
-    for ordinal in [1, 2, 3, 4]:
-        # Require minimum spacing of 3 turns between checkpoints to avoid overlap.
-        if selected:
-            last = selected[-1]
-            pool = [t for t in pool if t >= last + 3]
-
-        if not pool:
-            raise INVALID_EPISODE("cannot space four checkpoints")
-
-        idx = rng.randrange(len(pool))
-        selected.append(pool[idx])
-        # Remove all turns close to the chosen checkpoint.
-        pool = [t for t in pool if abs(t - selected[-1]) >= 3]
-
-    return selected  # length 4, deterministic for the seed
+    selected = valid_combinations[rng.randrange(len(valid_combinations))]
+    return list(selected)  # length 4, ascending, deterministic for the seed
 ```
 
 The `hash_bytes` function is the SHA-256 of the concatenation of the literal
 string `"checkpoint-v1"`, the null byte `0x00`, and the 32-byte episode seed.
 The first 32 bytes of the digest seed the `random.Random` instance.
+The `combinations` helper produces all 4-element subsets of
+`eligible_terminal_turns` in lexicographic order.
 
 ### 4.4 Checkpoint capture rule
 

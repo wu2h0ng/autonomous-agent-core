@@ -7,6 +7,7 @@ directory.  No provider calls, model inference, or external side effects occur.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import random
 import shutil
@@ -250,9 +251,12 @@ class InteractiveEpisode:
     def _select_checkpoint_turns(self) -> list[int]:
         """Select exactly four checkpoint turns with minimum 3-turn spacing.
 
-        The perturbation schedule is constructed so that its terminal-phase
-        turns are already spaced by at least three turns.  We therefore select
-        four distinct terminals and return them in ascending order.
+        The perturbation schedule provides a set of eligible terminal-phase
+        turns.  From that set we enumerate every 4-element combination whose
+        consecutive turns are at least three turns apart, then choose one
+        combination deterministically from the episode seed.  This guarantees
+        the spacing invariant whenever any valid combination exists and makes
+        the algorithm a direct mechanical match for the frozen amendment.
         """
         eligible_terminal_turns = sorted(
             {terminal for _, _, terminal in self._perturbation_schedule}
@@ -264,12 +268,19 @@ class InteractiveEpisode:
         ]
         if len(eligible_terminal_turns) < 4:
             raise InvalidEpisode("insufficient terminal phases for four checkpoints")
+
+        valid_combinations = [
+            combo
+            for combo in itertools.combinations(eligible_terminal_turns, 4)
+            if all(right - left >= 3 for left, right in zip(combo, combo[1:]))
+        ]
+        if not valid_combinations:
+            raise InvalidEpisode("cannot space four checkpoints")
+
         digest = hashlib.sha256(b"checkpoint-v1\x00" + self._episode_seed).digest()
         rng = random.Random(digest)
-        selected_indices = sorted(
-            rng.sample(range(len(eligible_terminal_turns)), 4)
-        )
-        return [eligible_terminal_turns[index] for index in selected_indices]
+        selected = valid_combinations[rng.randrange(len(valid_combinations))]
+        return list(selected)
 
     # ------------------------------------------------------------------
     # Materialization
