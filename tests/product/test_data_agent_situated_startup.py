@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agent_os_contracts import (
     CredentialRef,
@@ -28,10 +28,6 @@ from apps.api_server._data_agent_situated_startup import (
     DataAgentSituatedStartupConfig,
     DataAgentSituatedStartupConfigError,
     load_data_agent_situated_startup_config,
-)
-
-STRUCTURALLY_VALIDATED_PROVISIONING_ONLY = getattr(
-    startup, "STRUCTURALLY_VALIDATED_PROVISIONING_ONLY", "MISSING"
 )
 
 
@@ -532,7 +528,8 @@ class TestProvisioningMaterial:
     ) -> None:
         path, _ = provisioning_config(tmp_path)
         value = load_data_agent_situated_startup_provisioning(path)
-        assert value.provisioning_state == STRUCTURALLY_VALIDATED_PROVISIONING_ONLY
+        assert not isinstance(value, BaseModel)
+        assert not hasattr(value, "provisioning_state")
         assert value.source_credential == source_credential()
         assert value.provider_credential == provider_credential()
         assert value.provider_policy == provider_policy(provider_credential())
@@ -838,41 +835,24 @@ class TestLiveCredentialBoundary:
 
 
 class TestProvisioningConstructionBoundary:
-    def test_pydantic_construction_and_copy_bypasses_are_closed(
+    def test_result_has_no_pydantic_construction_or_copy_surface(
         self, tmp_path: Path
     ) -> None:
-        result_type = getattr(startup, "_DataAgentSituatedStartupProvisioning")
-        with pytest.raises(DataAgentSituatedStartupConfigError):
-            result_type.model_construct(config=object())
-        with pytest.raises(DataAgentSituatedStartupConfigError):
-            result_type.model_validate({"config": object()})
-
         path, _ = provisioning_config(tmp_path)
         valid = load_data_agent_situated_startup_provisioning(path)
-        with pytest.raises(DataAgentSituatedStartupConfigError):
-            valid.model_copy(update={"authority_database": tmp_path / "forged.sqlite3"})
+        assert not isinstance(valid, BaseModel)
+        assert not hasattr(type(valid), "model_construct")
+        assert not hasattr(type(valid), "model_validate")
+        assert not hasattr(valid, "model_copy")
+        assert not hasattr(valid, "provisioning_state")
 
-    def test_direct_result_construction_cannot_forge_missing_materials(
-        self, tmp_path: Path
-    ) -> None:
+    def test_no_public_result_constructor_exists(self) -> None:
         assert not hasattr(startup, "DataAgentSituatedStartupProvisioning")
-        config = DataAgentSituatedStartupConfig.model_validate(valid_config_data())
-        result_type = getattr(startup, "_DataAgentSituatedStartupProvisioning")
-        with pytest.raises(DataAgentSituatedStartupConfigError):
-            result_type(
-                _seal=getattr(startup, "_PROVISIONING_CONSTRUCTION_SEAL"),
-                config=config.model_copy(update={"expected_mandate_digest": "9" * 64}),
-                config_path=tmp_path / "missing-config.json",
-                authority_database=tmp_path / "missing-authority.sqlite3",
-                source_credential_path=tmp_path / "missing-source.json",
-                provider_credential_path=tmp_path / "missing-provider.json",
-                provider_policy_path=tmp_path / "missing-policy.json",
-                relevance_context_path=tmp_path / "missing-context.json",
-                source_credential=source_credential(),
-                provider_credential=provider_credential(),
-                provider_policy=provider_policy(provider_credential()),
-                relevance_context=relevance_context(),
-            )
+        assert not hasattr(startup, "STRUCTURALLY_VALIDATED_PROVISIONING_ONLY")
+        assert not hasattr(startup, "_PROVISIONING_CONSTRUCTION_SEAL")
+        result_type = getattr(startup, "_DataAgentSituatedStartupProvisioningView")
+        with pytest.raises(TypeError):
+            result_type()
 
     @pytest.mark.parametrize(
         ("target", "expected"),

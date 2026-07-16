@@ -14,7 +14,7 @@ import math
 import os
 import stat
 from pathlib import Path
-from typing import Any, Final, Literal, NoReturn, TypeVar
+from typing import Final, Literal, NoReturn, TypeVar
 
 from pydantic import (
     Field,
@@ -42,10 +42,6 @@ from .data_agent_report_adapter import (
 )
 
 STRUCTURALLY_VALIDATED_CONFIG_ONLY: Final = "STRUCTURALLY_VALIDATED_CONFIG_ONLY"
-STRUCTURALLY_VALIDATED_PROVISIONING_ONLY: Final = (
-    "STRUCTURALLY_VALIDATED_PROVISIONING_ONLY"
-)
-_PROVISIONING_CONSTRUCTION_SEAL: Final = object()
 
 _MAX_CONFIG_BYTES: Final = 65_536
 _MAX_MATERIAL_BYTES: Final = 262_144
@@ -153,33 +149,26 @@ class DataAgentSituatedStartupConfig(ContractModel):
         return STRUCTURALLY_VALIDATED_CONFIG_ONLY
 
 
-class _DataAgentSituatedStartupProvisioning(ContractModel):
-    """Canonical startup inputs only; this object grants and resolves nothing."""
+class _DataAgentSituatedStartupProvisioningView:
+    """Private read-only view over inputs validated by the startup loader.
 
-    @classmethod
-    def model_construct(cls, *args: Any, **kwargs: Any) -> NoReturn:
-        _fail(_MATERIAL_BINDING_MISMATCH)
+    This is deliberately not a Pydantic contract or an authority token. Python
+    process-level reflection is outside its security boundary.
+    """
 
-    @classmethod
-    def model_validate(cls, *args: Any, **kwargs: Any) -> NoReturn:
-        _fail(_MATERIAL_BINDING_MISMATCH)
-
-    @classmethod
-    def model_validate_json(cls, *args: Any, **kwargs: Any) -> NoReturn:
-        _fail(_MATERIAL_BINDING_MISMATCH)
-
-    def model_copy(self, *args: Any, **kwargs: Any) -> NoReturn:
-        _fail(_MATERIAL_BINDING_MISMATCH)
-
-    def __init__(self, *, _seal: object | None = None, **data: Any) -> None:
-        if _seal is not _PROVISIONING_CONSTRUCTION_SEAL:
-            _fail(_MATERIAL_BINDING_MISMATCH)
-        try:
-            super().__init__(**data)
-        except DataAgentSituatedStartupConfigError:
-            raise
-        except (TypeError, ValueError, ValidationError):
-            _fail(_MATERIAL_BINDING_MISMATCH)
+    __slots__ = (
+        "config",
+        "config_path",
+        "authority_database",
+        "source_credential_path",
+        "provider_credential_path",
+        "provider_policy_path",
+        "relevance_context_path",
+        "source_credential",
+        "provider_credential",
+        "provider_policy",
+        "relevance_context",
+    )
 
     config: DataAgentSituatedStartupConfig
     config_path: Path
@@ -193,9 +182,11 @@ class _DataAgentSituatedStartupProvisioning(ContractModel):
     provider_policy: ProviderRelevancePolicy
     relevance_context: MandateRelevanceContext
 
-    @property
-    def provisioning_state(self) -> str:
-        return STRUCTURALLY_VALIDATED_PROVISIONING_ONLY
+    def __init__(self) -> NoReturn:
+        raise TypeError("startup provisioning view is loader-private")
+
+    def __setattr__(self, name: str, value: object) -> NoReturn:
+        raise AttributeError("startup provisioning view is read-only")
 
     def source_credentials(self) -> DataAgentSituatedCredentialFileReader:
         """Create a live metadata reader; no credential secret is resolved."""
@@ -209,114 +200,141 @@ class _DataAgentSituatedStartupProvisioning(ContractModel):
             self.provider_credential_path, self.provider_credential
         )
 
-    @model_validator(mode="after")
-    def _validate_bindings(self) -> _DataAgentSituatedStartupProvisioning:
-        canonical_config_path = Path(os.path.abspath(self.config_path))
+    @classmethod
+    def _from_validated(
+        cls,
+        *,
+        config: DataAgentSituatedStartupConfig,
+        config_path: Path,
+        authority_database: Path,
+        source_credential_path: Path,
+        provider_credential_path: Path,
+        provider_policy_path: Path,
+        relevance_context_path: Path,
+        source_credential: CredentialRef,
+        provider_credential: CredentialRef,
+        provider_policy: ProviderRelevancePolicy,
+        relevance_context: MandateRelevanceContext,
+    ) -> _DataAgentSituatedStartupProvisioningView:
+        canonical_config_path = Path(os.path.abspath(config_path))
         expected_paths = (
             canonical_config_path,
             _validate_authority_database(
-                canonical_config_path, self.config.authority_database
+                canonical_config_path, config.authority_database
             ),
-            _resolve_locator(canonical_config_path, self.config.source.credential_file),
-            _resolve_locator(
-                canonical_config_path, self.config.provider.credential_file
-            ),
-            _resolve_locator(canonical_config_path, self.config.provider.policy_file),
-            _resolve_locator(canonical_config_path, self.config.provider.context_file),
+            _resolve_locator(canonical_config_path, config.source.credential_file),
+            _resolve_locator(canonical_config_path, config.provider.credential_file),
+            _resolve_locator(canonical_config_path, config.provider.policy_file),
+            _resolve_locator(canonical_config_path, config.provider.context_file),
         )
         actual_paths = (
-            self.config_path,
-            self.authority_database,
-            self.source_credential_path,
-            self.provider_credential_path,
-            self.provider_policy_path,
-            self.relevance_context_path,
+            config_path,
+            authority_database,
+            source_credential_path,
+            provider_credential_path,
+            provider_policy_path,
+            relevance_context_path,
         )
         if actual_paths != expected_paths:
-            raise ValueError("provisioning paths do not match startup configuration")
+            _fail(_MATERIAL_BINDING_MISMATCH)
         reloaded_config = _validated_config(
-            _parse_strict_json(_read_config_bytes(self.config_path))
+            _parse_strict_json(_read_config_bytes(config_path))
         )
         reloaded_materials = (
             _load_canonical_material(
-                self.source_credential_path,
+                source_credential_path,
                 CredentialRef,
-                self.config.source.expected_credential_digest,
+                config.source.expected_credential_digest,
             ),
             _load_canonical_material(
-                self.provider_credential_path,
+                provider_credential_path,
                 CredentialRef,
-                self.config.provider.expected_credential_digest,
+                config.provider.expected_credential_digest,
             ),
             _load_canonical_material(
-                self.provider_policy_path,
+                provider_policy_path,
                 ProviderRelevancePolicy,
-                self.config.provider.expected_policy_digest,
+                config.provider.expected_policy_digest,
             ),
             _load_canonical_material(
-                self.relevance_context_path,
+                relevance_context_path,
                 MandateRelevanceContext,
-                self.config.provider.expected_context_digest,
+                config.provider.expected_context_digest,
             ),
         )
-        if reloaded_config != self.config or reloaded_materials != (
-            self.source_credential,
-            self.provider_credential,
-            self.provider_policy,
-            self.relevance_context,
+        if reloaded_config != config or reloaded_materials != (
+            source_credential,
+            provider_credential,
+            provider_policy,
+            relevance_context,
         ):
-            raise ValueError("provisioning snapshots changed before sealing")
+            _fail(_MATERIAL_BINDING_MISMATCH)
         expected_scope = (
-            self.config.principal_id,
-            self.config.tenant_id,
-            self.config.workspace_id,
+            config.principal_id,
+            config.tenant_id,
+            config.workspace_id,
         )
-        for credential in (self.source_credential, self.provider_credential):
+        for credential in (source_credential, provider_credential):
             actual_scope = (
                 credential.owner_principal_id,
                 credential.tenant_id,
                 credential.workspace_id,
             )
             if actual_scope != expected_scope:
-                raise ValueError("credential scope does not match startup scope")
-        source_origin = _normalized_origin(
-            self.config.source.base_url,
-            allow_loopback_http=self.config.source.allow_loopback_http,
-        )
+                _fail(_MATERIAL_BINDING_MISMATCH)
+        try:
+            source_origin = _normalized_origin(
+                config.source.base_url,
+                allow_loopback_http=config.source.allow_loopback_http,
+            )
+        except DataAgentReportAdapterError:
+            _fail(_MATERIAL_BINDING_MISMATCH)
         required_source_scopes = {
             "reports:read",
             f"data-agent-origin:{source_origin}",
-            f"data-agent-tenant:{self.config.source.source_tenant_id}",
+            f"data-agent-tenant:{config.source.source_tenant_id}",
         }
         if (
-            self.source_credential.provider_id != "data-agent-external-report"
-            or tuple(self.source_credential.scopes)
-            != tuple(sorted(required_source_scopes))
-            or self.source_credential.credential_ref_id
-            == self.provider_credential.credential_ref_id
-            or self.source_credential.resolver_key
-            == self.provider_credential.resolver_key
+            source_credential.provider_id != "data-agent-external-report"
+            or tuple(source_credential.scopes) != tuple(sorted(required_source_scopes))
+            or source_credential.credential_ref_id
+            == provider_credential.credential_ref_id
+            or source_credential.resolver_key == provider_credential.resolver_key
         ):
-            raise ValueError("source credential does not match adapter envelope")
-        invocation = self.provider_policy.provider_invocation
+            _fail(_MATERIAL_BINDING_MISMATCH)
+        invocation = provider_policy.provider_invocation
         if (
-            invocation.credential_ref_id != self.provider_credential.credential_ref_id
-            or invocation.credential_ref_digest
-            != content_digest(self.provider_credential)
-            or invocation.provider_id != self.provider_credential.provider_id
-            or self.provider_credential.scopes != ("chat",)
+            invocation.credential_ref_id != provider_credential.credential_ref_id
+            or invocation.credential_ref_digest != content_digest(provider_credential)
+            or invocation.provider_id != provider_credential.provider_id
+            or provider_credential.scopes != ("chat",)
         ):
-            raise ValueError("provider policy does not bind the provider credential")
-        context = self.relevance_context
+            _fail(_MATERIAL_BINDING_MISMATCH)
+        context = relevance_context
         if (
-            context.mandate_id != self.config.mandate_id
-            or context.mandate_version != self.config.expected_mandate_version
-            or context.mandate_digest != self.config.expected_mandate_digest
-            or context.tenant_id != self.config.tenant_id
-            or context.workspace_id != self.config.workspace_id
+            context.mandate_id != config.mandate_id
+            or context.mandate_version != config.expected_mandate_version
+            or context.mandate_digest != config.expected_mandate_digest
+            or context.tenant_id != config.tenant_id
+            or context.workspace_id != config.workspace_id
         ):
-            raise ValueError("relevance context does not bind startup expectations")
-        return self
+            _fail(_MATERIAL_BINDING_MISMATCH)
+        view = object.__new__(cls)
+        for name, value in (
+            ("config", config),
+            ("config_path", config_path),
+            ("authority_database", authority_database),
+            ("source_credential_path", source_credential_path),
+            ("provider_credential_path", provider_credential_path),
+            ("provider_policy_path", provider_policy_path),
+            ("relevance_context_path", relevance_context_path),
+            ("source_credential", source_credential),
+            ("provider_credential", provider_credential),
+            ("provider_policy", provider_policy),
+            ("relevance_context", relevance_context),
+        ):
+            object.__setattr__(view, name, value)
+        return view
 
 
 class DataAgentSituatedCredentialFileReader:
@@ -585,7 +603,7 @@ def _validate_authority_database(config_path: Path, locator: str) -> Path:
 
 def load_data_agent_situated_startup_provisioning(
     path: str | Path,
-) -> _DataAgentSituatedStartupProvisioning:
+) -> _DataAgentSituatedStartupProvisioningView:
     """Load canonical provisioning inputs without resolving runtime authority."""
     try:
         config_path = Path(os.path.abspath(Path(path)))
@@ -623,20 +641,16 @@ def load_data_agent_situated_startup_provisioning(
         MandateRelevanceContext,
         config.provider.expected_context_digest,
     )
-    try:
-        return _DataAgentSituatedStartupProvisioning(
-            _seal=_PROVISIONING_CONSTRUCTION_SEAL,
-            config=config,
-            config_path=config_path,
-            authority_database=authority_database,
-            source_credential_path=source_credential_path,
-            provider_credential_path=provider_credential_path,
-            provider_policy_path=provider_policy_path,
-            relevance_context_path=relevance_context_path,
-            source_credential=source_credential,
-            provider_credential=provider_credential,
-            provider_policy=provider_policy,
-            relevance_context=relevance_context,
-        )
-    except (TypeError, ValueError, ValidationError):
-        _fail(_MATERIAL_BINDING_MISMATCH)
+    return _DataAgentSituatedStartupProvisioningView._from_validated(
+        config=config,
+        config_path=config_path,
+        authority_database=authority_database,
+        source_credential_path=source_credential_path,
+        provider_credential_path=provider_credential_path,
+        provider_policy_path=provider_policy_path,
+        relevance_context_path=relevance_context_path,
+        source_credential=source_credential,
+        provider_credential=provider_credential,
+        provider_policy=provider_policy,
+        relevance_context=relevance_context,
+    )
