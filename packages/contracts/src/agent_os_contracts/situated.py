@@ -71,6 +71,7 @@ class RelevanceAssessorRef(ContractModel):
 class ProviderRelevancePolicy(ContractModel):
     """Ratifiable provider-assessor policy; it grants no work authority."""
 
+    schema_version: Literal["2.0"] = "2.0"  # pyright: ignore[reportIncompatibleVariableOverride]
     assessor_id: NonEmptyStr
     version: int = Field(ge=1)
     provider_invocation: ProviderInvocationBinding
@@ -303,6 +304,7 @@ class OperationalProjectionRef(ContractModel):
 
 
 class RelevanceAssessment(ContractModel):
+    schema_version: Literal["1.0", "2.0"] = "2.0"  # pyright: ignore[reportIncompatibleVariableOverride]
     assessment_id: NonEmptyStr
     environment_event_id: NonEmptyStr
     event_observation_digest: Sha256Digest
@@ -316,6 +318,9 @@ class RelevanceAssessment(ContractModel):
     environment_binding_digest: Sha256Digest
     correction_epoch: int = Field(ge=0)
     assessor: RelevanceAssessorRef
+    expected_provider_invocation_binding_digest: Sha256Digest | None = None
+    provider_call_attempted: bool = False
+    provider_invocation_receipt_digest: Sha256Digest | None = None
     provider_invocation_binding_digest: Sha256Digest | None = None
     input_binding_digest: Sha256Digest
     tenant_id: NonEmptyStr
@@ -353,6 +358,14 @@ class RelevanceAssessment(ContractModel):
 
     @model_validator(mode="after")
     def _validate_disposition_payload(self) -> RelevanceAssessment:
+        if self.provider_invocation_receipt_digest is not None:
+            if not self.provider_call_attempted:
+                raise ValueError("provider receipt requires an attempted provider call")
+            if (
+                self.expected_provider_invocation_binding_digest
+                != self.provider_invocation_receipt_digest
+            ):
+                raise ValueError("provider receipt must match the expected invocation")
         task_dispositions = {
             RelevanceDisposition.INVESTIGATE,
             RelevanceDisposition.CREATE_TASK,
@@ -385,6 +398,7 @@ class RelevanceAssessment(ContractModel):
 class RelevanceAssessmentDraft(ContractModel):
     """Provider-authored semantics only; trusted code supplies all bindings."""
 
+    schema_version: Literal["2.0"] = "2.0"  # pyright: ignore[reportIncompatibleVariableOverride]
     affected_commitment_ids: tuple[NonEmptyStr, ...] = ()
     disposition: RelevanceDisposition
     uncertainty_summary: NonEmptyStr

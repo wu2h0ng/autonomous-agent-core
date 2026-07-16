@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from enum import Enum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -81,6 +82,7 @@ class ProviderProfile(ContractModel):
 class ProviderInvocationBinding(ContractModel):
     """Exact provider profile plus adapter settings that alter invocation semantics."""
 
+    schema_version: Literal["2.0"] = "2.0"  # pyright: ignore[reportIncompatibleVariableOverride]
     provider_profile: ProviderProfile
     provider_id: NonEmptyStr
     endpoint_class: NonEmptyStr
@@ -168,6 +170,7 @@ class ProviderRequest(ContractModel):
 class ProviderDecisionRequest(ContractModel):
     """Narrow model decision input that carries no Task/Run authority."""
 
+    schema_version: Literal["2.0"] = "2.0"  # pyright: ignore[reportIncompatibleVariableOverride]
     request_id: NonEmptyStr
     decision_kind: NonEmptyStr
     provider_profile_id: NonEmptyStr
@@ -191,6 +194,8 @@ class ProviderUsage(ContractModel):
 
 
 class ProviderResponse(ContractModel):
+    """V1-compatible response; relevance V2 requires the optional receipt field."""
+
     response_id: NonEmptyStr
     request_id: NonEmptyStr
     text: str

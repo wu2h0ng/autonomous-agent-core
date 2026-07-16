@@ -152,12 +152,8 @@ class OpenAICompatibleProvider(ProviderPort):
         opener: Callable[..., object] | None = None,
         provider_profile: ProviderProfile | None = None,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.model = model
-        self.credential = credential
-        self.credentials = credentials or EnvCredentialBroker()
-        self.timeout_seconds = timeout_seconds
-        self.temperature = (
+        normalized_base_url = base_url.rstrip("/")
+        resolved_temperature = (
             temperature
             if temperature is not None
             else float(
@@ -167,6 +163,12 @@ class OpenAICompatibleProvider(ProviderPort):
                 )
             )
         )
+        self._base_url = normalized_base_url
+        self._model = model
+        self._credential = credential
+        self._credentials = credentials or EnvCredentialBroker()
+        self._timeout_seconds = timeout_seconds
+        self._temperature = resolved_temperature
         self._opener = opener or urllib.request.urlopen
         self._invocation_binding: ProviderInvocationBinding | None = None
         if provider_profile is not None:
@@ -177,7 +179,7 @@ class OpenAICompatibleProvider(ProviderPort):
             if "chat" not in credential.scopes:
                 raise ValueError("provider credential must grant chat scope")
             if (
-                provider_profile.model_id != self.model
+                provider_profile.model_id != self._model
                 or provider_profile.provider_id != credential.provider_id
                 or provider_profile.credential_ref_id != credential.credential_ref_id
                 or provider_profile.endpoint_class != "openai-compatible"
@@ -194,12 +196,32 @@ class OpenAICompatibleProvider(ProviderPort):
                 max_context_tokens=provider_profile.max_context_tokens,
                 adapter_kind="openai-compatible",
                 transport="https-json",
-                base_url=self.base_url,
+                base_url=self._base_url,
                 endpoint_path="/chat/completions",
-                model_id=self.model,
-                request_timeout_seconds=self.timeout_seconds,
-                temperature=Decimal(str(self.temperature)),
+                model_id=self._model,
+                request_timeout_seconds=self._timeout_seconds,
+                temperature=Decimal(str(self._temperature)),
             )
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def credential(self) -> CredentialRef:
+        return self._credential
+
+    @property
+    def timeout_seconds(self) -> int:
+        return self._timeout_seconds
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
 
     @property
     def invocation_binding(self) -> ProviderInvocationBinding:
@@ -242,14 +264,42 @@ class OpenAICompatibleProvider(ProviderPort):
         allowed_capability_ids: tuple[str, ...],
     ) -> ProviderResponse | ProviderFailure:
         try:
-            secret = self.credentials.resolve(self.credential)
+            invocation = self._invocation_binding
+            if (
+                invocation is not None
+                and content_digest(self._credential) != invocation.credential_ref_digest
+            ):
+                return self._failure(
+                    request,
+                    ProviderErrorCode.AUTHENTICATION_FAILED,
+                    "provider credential binding drifted",
+                    False,
+                )
+            secret = self._credentials.resolve(self._credential)
+            model_id = invocation.model_id if invocation is not None else self._model
+            temperature = (
+                float(invocation.temperature)
+                if invocation is not None
+                else self._temperature
+            )
+            base_url = invocation.base_url if invocation is not None else self._base_url
+            endpoint_path = (
+                invocation.endpoint_path
+                if invocation is not None
+                else "/chat/completions"
+            )
+            runtime_timeout_seconds = (
+                invocation.request_timeout_seconds
+                if invocation is not None
+                else self._timeout_seconds
+            )
             body = {
-                "model": self.model,
+                "model": model_id,
                 "messages": [
                     {"role": message.role.value.lower(), "content": message.content}
                     for message in request.messages
                 ],
-                "temperature": self.temperature,
+                "temperature": temperature,
             }
             if allowed_capability_ids:
                 body["tools"] = [
@@ -269,7 +319,7 @@ class OpenAICompatibleProvider(ProviderPort):
                 body["tool_choice"] = "auto"
             encoded = json.dumps(body).encode("utf-8")
             http_request = urllib.request.Request(
-                f"{self.base_url}/chat/completions",
+                f"{base_url}{endpoint_path}",
                 data=encoded,
                 headers={
                     "Authorization": f"Bearer {secret}",
@@ -278,7 +328,8 @@ class OpenAICompatibleProvider(ProviderPort):
                 method="POST",
             )
             with self._opener(
-                http_request, timeout=min(self.timeout_seconds, request.timeout_seconds)
+                http_request,
+                timeout=min(runtime_timeout_seconds, request.timeout_seconds),
             ) as response:  # type: ignore[call-arg]
                 payload = json.loads(response.read().decode("utf-8"))
             choice = payload["choices"][0]

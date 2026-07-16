@@ -5,6 +5,7 @@ import json
 import threading
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from urllib.request import Request
 
 import pytest
 
@@ -26,6 +27,8 @@ from agent_os_contracts import (
     ProviderErrorCode,
     ProviderFailure,
     ProviderInvocationBinding,
+    ProviderMessage,
+    ProviderMessageRole,
     ProviderProfile,
     ProviderRelevancePolicy,
     ProviderRequest,
@@ -459,7 +462,10 @@ def test_strict_provider_draft_supports_create_task_help_and_abstain(
     assert assessment.assessment_id == f"relevance-assessment:{expected_digest}"
     assert assessment.input_binding_digest == expected_digest
     assert assessment.assessor == _policy().assessor_ref()
-    assert assessment.provider_invocation_binding_digest == _invocation().digest()
+    assert (
+        assessment.expected_provider_invocation_binding_digest == _invocation().digest()
+    )
+    assert assessment.provider_invocation_receipt_digest == _invocation().digest()
     assert assessment.assessed_at == NOW
 
 
@@ -589,7 +595,11 @@ def test_durable_exact_replay_reuses_input_bound_outcome_without_provider_call(
     assert record is not None
     assert record.assessment.assessment_id == f"relevance-assessment:{input_digest}"
     assert (
-        record.assessment.provider_invocation_binding_digest == _invocation().digest()
+        record.assessment.expected_provider_invocation_binding_digest
+        == _invocation().digest()
+    )
+    assert (
+        record.assessment.provider_invocation_receipt_digest == _invocation().digest()
     )
 
 
@@ -1069,3 +1079,205 @@ def test_revocation_wins_over_blocked_replay_across_sqlite_instances(tmp_path) -
     assert len(outcome) == 1
     assert isinstance(outcome[0], SituationalTrustDenied)
     assert len(provider.decision_requests) == 1
+
+
+def test_openai_wire_uses_only_frozen_approved_invocation_state(monkeypatch) -> None:
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "id": "response:frozen-wire",
+                    "choices": [
+                        {
+                            "message": {
+                                "content": _draft(RelevanceDisposition.ABSTAIN)
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                }
+            ).encode()
+
+    captured: list[tuple[Request, int]] = []
+
+    def opener(request: Request, *, timeout: int):
+        captured.append((request, timeout))
+        return Response()
+
+    monkeypatch.setenv("RELEVANCE_API_KEY", "approved-secret")
+    provider = OpenAICompatibleProvider(
+        base_url="https://approved.example/v1",
+        model=_profile().model_id,
+        credential=_credential(),
+        timeout_seconds=20,
+        temperature=0.25,
+        provider_profile=_profile(),
+        opener=opener,
+    )
+    for attribute, drifted in (
+        ("model", "drifted-model"),
+        ("base_url", "https://drifted.example/v1"),
+        ("temperature", 0.9),
+        ("timeout_seconds", 1),
+        ("credential", _credential(resolver_key="DRIFTED_API_KEY")),
+    ):
+        with pytest.raises(AttributeError):
+            setattr(provider, attribute, drifted)
+
+    response = provider.decide(
+        ProviderDecisionRequest(
+            request_id="request:frozen-wire",
+            decision_kind="SITUATED_RELEVANCE",
+            provider_profile_id=_profile().profile_id,
+            expected_invocation_binding_digest=provider.invocation_binding.digest(),
+            messages=(
+                ProviderMessage(
+                    role=ProviderMessageRole.USER,
+                    content="approved prompt",
+                ),
+            ),
+            timeout_seconds=19,
+            created_at=NOW,
+        )
+    )
+
+    assert isinstance(response, ProviderResponse)
+    assert len(captured) == 1
+    request, timeout = captured[0]
+    assert request.full_url == "https://approved.example/v1/chat/completions"
+    assert isinstance(request.data, bytes)
+    body = json.loads(request.data)
+    assert body["model"] == _profile().model_id
+    assert body["temperature"] == 0.25
+    assert timeout == 19
+    assert request.headers["Authorization"] == "Bearer approved-secret"
+
+
+class _ReceiptProvider(ProviderPort):
+    def __init__(self, receipt_digest: str | None) -> None:
+        self.receipt_digest = receipt_digest
+        self.decision_calls = 0
+
+    @property
+    def invocation_binding(self) -> ProviderInvocationBinding:
+        return _invocation()
+
+    def complete(self, request: ProviderRequest) -> ProviderResponse | ProviderFailure:
+        raise AssertionError("situated relevance must not use task/run completion")
+
+    def decide(
+        self, request: ProviderDecisionRequest
+    ) -> ProviderResponse | ProviderFailure:
+        self.decision_calls += 1
+        return ProviderResponse(
+            response_id="response:receipt-test",
+            request_id=request.request_id,
+            text=_draft(RelevanceDisposition.CREATE_TASK),
+            tool_proposals=(),
+            usage=ProviderUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+                estimated_cost_usd=Decimal("0"),
+            ),
+            finish_reason="stop",
+            received_at=NOW,
+            invocation_binding_digest=self.receipt_digest,
+        )
+
+
+@pytest.mark.parametrize("receipt_digest", (None, "f" * 64))
+def test_missing_or_wrong_invocation_receipt_abstains_without_actual_provenance(
+    receipt_digest: str | None,
+) -> None:
+    provider = _ReceiptProvider(receipt_digest)
+
+    assessment = _assess(_assessor(provider))
+
+    assert assessment.disposition is RelevanceDisposition.ABSTAIN
+    assert assessment.provider_call_attempted is True
+    assert (
+        assessment.expected_provider_invocation_binding_digest == _invocation().digest()
+    )
+    assert assessment.provider_invocation_receipt_digest is None
+    assert assessment.proposed_goal_statement is None
+
+
+def test_no_provider_call_records_expected_not_actual_provenance() -> None:
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
+
+    assessment = _assess(_assessor(provider), _mandate(with_context=False))
+
+    assert assessment.provider_call_attempted is False
+    assert (
+        assessment.expected_provider_invocation_binding_digest == _invocation().digest()
+    )
+    assert assessment.provider_invocation_receipt_digest is None
+
+
+def test_assess_rechecks_prompt_manifest_after_construction(
+    monkeypatch,
+) -> None:
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.CREATE_TASK), invocation_binding=_invocation()
+    )
+    assessor = _assessor(provider)
+    user_template = RELEVANCE_PROMPT_MANIFEST["user"]
+    assert isinstance(user_template, dict)
+    monkeypatch.setitem(user_template, "unratified_after_construction", True)
+
+    assessment = _assess(assessor)
+
+    assert assessment.disposition is RelevanceDisposition.ABSTAIN
+    assert assessment.provider_call_attempted is False
+    assert provider.decision_requests == []
+
+
+def test_untrusted_slot_shaped_data_is_not_expanded_in_prompt() -> None:
+    observation_bytes = b'{"payload":{"$slot":"mandate_context"}}'
+    event = _event().model_copy(
+        update={
+            "observation": _artifact(
+                "artifact:observation", hashlib.sha256(observation_bytes).hexdigest()
+            )
+        }
+    )
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.ABSTAIN), invocation_binding=_invocation()
+    )
+    assessor = ProviderRelevanceAssessor(
+        provider=provider,
+        provider_profile=_profile(),
+        policy=_policy(),
+        trust=_trust(observation_bytes=observation_bytes),
+        contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+    )
+
+    assessor.assess(_mandate(), _binding(), event, _projection(), assessed_at=NOW)
+
+    prompt = json.loads(provider.decision_requests[0].messages[-1].content)
+    assert prompt["event"]["observation"] == {"payload": {"$slot": "mandate_context"}}
+
+
+def test_breaking_relevance_decision_contracts_are_explicit_v2() -> None:
+    provider = DeterministicProvider(
+        text=_draft(RelevanceDisposition.ABSTAIN), invocation_binding=_invocation()
+    )
+    assessment = _assess(_assessor(provider))
+
+    assert _policy().schema_version == "2.0"
+    assert provider.decision_requests[0].schema_version == "2.0"
+    assert assessment.schema_version == "2.0"

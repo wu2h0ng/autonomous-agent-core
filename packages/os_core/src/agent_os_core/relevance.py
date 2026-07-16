@@ -198,6 +198,16 @@ class ProviderRelevanceAssessor:
             evidence_ids=evidence_ids,
             assessed_at=assessed_at,
         )
+        if (
+            content_digest(RELEVANCE_PROMPT_MANIFEST)
+            != self._policy.prompt_template_digest
+            or content_digest(RELEVANCE_OUTPUT_SCHEMA)
+            != self._policy.output_schema_digest
+        ):
+            return self._abstain(
+                base,
+                "Ratified relevance prompt or schema drifted after composition.",
+            )
         context_ref = mandate.relevance_context
         if context_ref is None:
             return self._abstain(
@@ -260,25 +270,33 @@ class ProviderRelevanceAssessor:
             ),
             created_at=assessed_at,
         )
+        attempted_base = {**base, "provider_call_attempted": True}
         try:
             response = self._provider.decide(request)
         except Exception:
             return self._abstain(
-                base,
+                attempted_base,
                 "Provider relevance decision failed closed: UNAVAILABLE.",
             )
         if isinstance(response, ProviderFailure):
             return self._abstain(
-                base,
+                attempted_base,
                 f"Provider relevance decision failed closed: {response.code.value}.",
             )
+        if (
+            response.invocation_binding_digest
+            != request.expected_invocation_binding_digest
+        ):
+            return self._abstain(
+                attempted_base,
+                "Provider relevance output was malformed or authority-shaped.",
+            )
+        receipted_base = {
+            **attempted_base,
+            "provider_invocation_receipt_digest": response.invocation_binding_digest,
+        }
         try:
-            if (
-                response.request_id != request.request_id
-                or response.tool_proposals
-                or response.invocation_binding_digest
-                != request.expected_invocation_binding_digest
-            ):
+            if response.request_id != request.request_id or response.tool_proposals:
                 raise ValueError(
                     "unexpected provider response binding or tool proposal"
                 )
@@ -290,10 +308,16 @@ class ProviderRelevanceAssessor:
             }
             if not set(draft.affected_commitment_ids).issubset(allowed_commitments):
                 raise ValueError("unknown affected commitment")
-            return RelevanceAssessment.model_validate({**base, **draft.model_dump()})
+            return RelevanceAssessment.model_validate(
+                {
+                    **receipted_base,
+                    **draft.model_dump(exclude={"schema_version"}),
+                }
+            )
         except (ValidationError, ValueError, json.JSONDecodeError, TypeError):
             return self._abstain(
-                base, "Provider relevance output was malformed or authority-shaped."
+                receipted_base,
+                "Provider relevance output was malformed or authority-shaped.",
             )
 
     def _trusted_json(self, ref) -> object:
@@ -351,7 +375,9 @@ class ProviderRelevanceAssessor:
             "environment_binding_digest": binding.binding_digest,
             "correction_epoch": mandate.correction_epoch,
             "assessor": self.ref,
-            "provider_invocation_binding_digest": self._policy.provider_invocation.digest(),
+            "expected_provider_invocation_binding_digest": self._policy.provider_invocation.digest(),
+            "provider_call_attempted": False,
+            "provider_invocation_receipt_digest": None,
             "input_binding_digest": input_digest,
             "tenant_id": mandate.tenant_id,
             "workspace_id": mandate.workspace_id,
