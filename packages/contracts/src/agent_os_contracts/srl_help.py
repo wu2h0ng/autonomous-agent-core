@@ -29,7 +29,7 @@ class BoundedOption(ContractModel):
     required_authority: tuple[NonEmptyStr, ...] = ()
 
 
-class HelpRequest(ContractModel):
+class SrlHelpRequest(ContractModel):
     help_request_id: NonEmptyStr
     mandate_id: NonEmptyStr
     standing_mission_id: NonEmptyStr

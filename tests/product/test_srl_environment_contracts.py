@@ -9,10 +9,10 @@ from pydantic import ValidationError
 from agent_os_contracts import (
     EnvironmentBinding,
     EnvironmentBindingMode,
-    EnvironmentEvent,
-    OperationalProjectionRef,
-    RelevanceAssessment,
-    RelevanceDisposition,
+    SrlEnvironmentEvent,
+    SrlOperationalProjectionRef,
+    SrlRelevanceAssessment,
+    SrlRelevanceDisposition,
 )
 
 
@@ -41,7 +41,7 @@ def _binding(**updates: Any) -> EnvironmentBinding:
     return EnvironmentBinding(**values)
 
 
-def _event(**updates: Any) -> EnvironmentEvent:
+def _event(**updates: Any) -> SrlEnvironmentEvent:
     values: dict[str, Any] = {
         "event_id": "event-1",
         "binding_id": "binding-1",
@@ -57,10 +57,10 @@ def _event(**updates: Any) -> EnvironmentEvent:
         "provenance": ("git://canonical",),
     }
     values.update(updates)
-    return EnvironmentEvent(**values)
+    return SrlEnvironmentEvent(**values)
 
 
-def _assessment(**updates: Any) -> RelevanceAssessment:
+def _assessment(**updates: Any) -> SrlRelevanceAssessment:
     values: dict[str, Any] = {
         "assessment_id": "assessment-1",
         "mandate_id": "mandate-1",
@@ -72,17 +72,17 @@ def _assessment(**updates: Any) -> RelevanceAssessment:
         "urgency": "HIGH",
         "expected_loss_of_delay_seconds": 300,
         "proposed_attention_budget_seconds": 600,
-        "disposition": RelevanceDisposition.CREATE_TASK,
+        "disposition": SrlRelevanceDisposition.CREATE_TASK,
         "confidence": 0.9,
         "false_positive_recorded": False,
         "assessor_version": "assessor-1.0",
         "assessed_at": NOW,
     }
     values.update(updates)
-    return RelevanceAssessment(**values)
+    return SrlRelevanceAssessment(**values)
 
 
-def _projection(**updates: Any) -> OperationalProjectionRef:
+def _projection(**updates: Any) -> SrlOperationalProjectionRef:
     values: dict[str, Any] = {
         "projection_id": "projection-1",
         "artifact_digest": "sha256:artifact",
@@ -99,7 +99,7 @@ def _projection(**updates: Any) -> OperationalProjectionRef:
         "compatibility_digest": "sha256:compat",
     }
     values.update(updates)
-    return OperationalProjectionRef(**values)
+    return SrlOperationalProjectionRef(**values)
 
 
 def test_environment_binding_round_trip() -> None:
@@ -144,7 +144,7 @@ def test_environment_event_requires_event_id() -> None:
 
 def test_relevance_assessment_round_trip() -> None:
     assessment = _assessment()
-    assert assessment.disposition is RelevanceDisposition.CREATE_TASK
+    assert assessment.disposition is SrlRelevanceDisposition.CREATE_TASK
 
 
 def test_relevance_assessment_requires_event_or_gap_trigger() -> None:

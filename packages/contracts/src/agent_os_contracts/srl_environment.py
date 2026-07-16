@@ -32,7 +32,7 @@ class EnvironmentBinding(ContractModel):
     secret_policy: NonEmptyStr
 
 
-class EnvironmentEvent(ContractModel):
+class SrlEnvironmentEvent(ContractModel):
     event_id: NonEmptyStr
     binding_id: NonEmptyStr
     mandate_id: NonEmptyStr
@@ -47,7 +47,7 @@ class EnvironmentEvent(ContractModel):
     provenance: tuple[NonEmptyStr, ...] = ()
 
 
-class RelevanceDisposition(str, Enum):
+class SrlRelevanceDisposition(str, Enum):
     IGNORE = "IGNORE"
     OBSERVE = "OBSERVE"
     INVESTIGATE = "INVESTIGATE"
@@ -56,7 +56,7 @@ class RelevanceDisposition(str, Enum):
     ABSTAIN = "ABSTAIN"
 
 
-class RelevanceAssessment(ContractModel):
+class SrlRelevanceAssessment(ContractModel):
     assessment_id: NonEmptyStr
     mandate_id: NonEmptyStr
     standing_mission_id: NonEmptyStr
@@ -68,20 +68,20 @@ class RelevanceAssessment(ContractModel):
     urgency: Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
     expected_loss_of_delay_seconds: int | None = None
     proposed_attention_budget_seconds: int = Field(ge=0)
-    disposition: RelevanceDisposition
+    disposition: SrlRelevanceDisposition
     confidence: float = Field(ge=0.0, le=1.0)
     false_positive_recorded: bool = False
     assessor_version: NonEmptyStr
     assessed_at: UtcDateTime
 
     @model_validator(mode="after")
-    def _trigger_required(self) -> "RelevanceAssessment":
+    def _trigger_required(self) -> "SrlRelevanceAssessment":
         if self.trigger_event_id is None and self.trigger_gap_id is None:
             raise ValueError("assessment must be triggered by an event or a gap")
         return self
 
 
-class OperationalProjectionRef(ContractModel):
+class SrlOperationalProjectionRef(ContractModel):
     projection_id: NonEmptyStr
     artifact_digest: NonEmptyStr
     schema_version: NonEmptyStr  # pyright: ignore[reportGeneralTypeIssues, reportIncompatibleVariableOverride]

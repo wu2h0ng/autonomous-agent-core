@@ -11,8 +11,8 @@ from agent_os_contracts import (
     HelpBudget,
     HelpBurdenReceipt,
     HelpClass,
-    HelpRequest,
     KnownFact,
+    SrlHelpRequest,
 )
 
 
@@ -31,7 +31,7 @@ def _budget(**updates: Any) -> HelpBudget:
     return HelpBudget(**values)
 
 
-def _help_request(**updates: Any) -> HelpRequest:
+def _help_request(**updates: Any) -> SrlHelpRequest:
     values: dict[str, Any] = {
         "help_request_id": "help-1",
         "mandate_id": "mandate-1",
@@ -65,7 +65,7 @@ def _help_request(**updates: Any) -> HelpRequest:
         "requested_at": NOW,
     }
     values.update(updates)
-    return HelpRequest(**values)
+    return SrlHelpRequest(**values)
 
 
 def test_help_request_round_trip() -> None:
