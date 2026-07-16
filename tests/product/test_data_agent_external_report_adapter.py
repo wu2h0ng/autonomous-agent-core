@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
+import sqlite3
 import threading
 import time
 from dataclasses import replace
@@ -412,6 +413,135 @@ def test_security_envelope_enters_application_as_trusted_proposal_without_task_w
     )
 
 
+def test_application_restart_rehydrates_trusted_bundle_by_ids_without_network_or_task_write(
+    tmp_path,
+) -> None:
+    report_database = tmp_path / "data-agent-state.sqlite3"
+    application_database = tmp_path / "agent-os.sqlite3"
+    situated_database = tmp_path / "situated.sqlite3"
+    first_adapter, _, first_transport = _adapter(
+        now=NOW - timedelta(seconds=1),
+        state_store=SQLiteDataAgentReportStateStore(report_database),
+    )
+    first_app = AgentOSApplication(
+        database=application_database,
+        workspace=tmp_path,
+        principal=PrincipalIdentity(
+            principal_id="user:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=NOW - timedelta(minutes=1),
+        ),
+        data_agent_reports=first_adapter,
+        situational_control=SQLiteSituatedAssessmentStore(
+            situated_database, mandates=(_mandate(),)
+        ),
+        relevance_assessor=_ReportAssessor(),
+        clock=lambda: NOW,
+    )
+    bundle = first_app.observe_data_agent_report(TRACE_ID)
+    assert len(first_transport.requests) == 1
+
+    restarted_adapter, restarted_broker, restarted_transport = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(report_database),
+    )
+    restarted_app = AgentOSApplication(
+        database=application_database,
+        workspace=tmp_path,
+        principal=PrincipalIdentity(
+            principal_id="user:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=NOW - timedelta(minutes=1),
+        ),
+        data_agent_reports=restarted_adapter,
+        situational_control=SQLiteSituatedAssessmentStore(situated_database),
+        relevance_assessor=_ReportAssessor(),
+        clock=lambda: NOW,
+    )
+
+    result = restarted_app.propose_situated_work(
+        bundle.event.environment_event_id,
+        bundle.projection.projection_id,
+    )
+
+    assert isinstance(result, TaskDraftProposal)
+    assert result.activation_authorized is False
+    assert result.external_effects_authorized is False
+    assert restarted_app.store.list_task_ids() == ()
+    assert restarted_broker.resolved == []
+    assert restarted_transport.requests == []
+    assert restarted_adapter.resolve_event(bundle.event.environment_event_id) == bundle.event
+    assert restarted_adapter.resolve_projection(bundle.projection.projection_id) == bundle.projection
+    assert restarted_adapter.resolve_artifact(bundle.artifact.artifact_id) == (
+        bundle.artifact,
+        _report_bytes(),
+    )
+    assert restarted_adapter.resolve_evidence(bundle.evidence.evidence_id) == bundle.evidence
+
+
+@pytest.mark.parametrize(
+    "object_kind",
+    ["artifact", "evidence", "event", "projection"],
+)
+def test_each_trusted_resolver_lazily_rehydrates_after_restart(
+    tmp_path,
+    object_kind: str,
+) -> None:
+    database = tmp_path / "resolver-restart.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundle = first.pull(TRACE_ID)
+    expected_artifact = first.resolve_artifact(bundle.artifact.artifact_id)
+
+    restarted, broker, transport = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    if object_kind == "artifact":
+        resolved: object = restarted.resolve_artifact(bundle.artifact.artifact_id)
+        expected: object = expected_artifact
+    elif object_kind == "evidence":
+        resolved = restarted.resolve_evidence(bundle.evidence.evidence_id)
+        expected = bundle.evidence
+    elif object_kind == "event":
+        resolved = restarted.resolve_event(bundle.event.environment_event_id)
+        expected = bundle.event
+    else:
+        resolved = restarted.resolve_projection(bundle.projection.projection_id)
+        expected = bundle.projection
+
+    assert resolved == expected
+    assert restarted.registry_counts == (2, 2, 1, 1)
+    assert broker.resolved == []
+    assert transport.requests == []
+
+
+def test_restart_namespace_isolation_does_not_rehydrate_foreign_bundle(tmp_path) -> None:
+    database = tmp_path / "namespace-isolation.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundle = first.pull(TRACE_ID)
+    isolated, broker, transport = _adapter(
+        config=_config(
+            mandate_id="mandate:isolated",
+            environment_binding_id="binding:isolated",
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+
+    assert isolated.resolve_event(bundle.event.environment_event_id) is None
+    assert isolated.resolve_projection(bundle.projection.projection_id) is None
+    assert isolated.resolve_artifact(bundle.artifact.artifact_id) is None
+    assert isolated.resolve_evidence(bundle.evidence.evidence_id) is None
+    assert isolated.registry_counts == (0, 0, 0, 0)
+    assert broker.resolved == []
+    assert transport.requests == []
+
+
 def test_passive_poll_discovers_immutable_report_without_trace_id(tmp_path) -> None:
     cursor = "opaque-cursor-1"
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
@@ -482,6 +612,63 @@ def test_passive_poll_preserves_two_immutable_revisions_of_same_trace(tmp_path) 
     assert (
         result.bundles[0].artifact.artifact_id != result.bundles[1].artifact.artifact_id
     )
+
+
+def test_restart_rehydrates_two_immutable_revisions_without_network(tmp_path) -> None:
+    database = tmp_path / "revision-restart.sqlite3"
+    first_event = _feed_event("opaque-cursor-1")
+    second_event = _feed_event(
+        "opaque-cursor-2",
+        _report_bytes(authority_payload=True),
+    )
+    feed = _feed_bytes(
+        [first_event, second_event],
+        next_cursor="opaque-cursor-2",
+    )
+    first, _, _ = _adapter(
+        response=_response(
+            feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=2",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundles = first.poll_once(limit=2).bundles
+
+    restarted, broker, transport = _adapter(
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+
+    assert tuple(
+        restarted.resolve_event(bundle.event.environment_event_id)
+        for bundle in bundles
+    ) == tuple(bundle.event for bundle in bundles)
+    assert tuple(
+        restarted.resolve_projection(bundle.projection.projection_id)
+        for bundle in bundles
+    ) == tuple(bundle.projection for bundle in bundles)
+    assert restarted.registry_counts == (4, 4, 2, 2)
+    assert broker.resolved == []
+    assert transport.requests == []
 
 
 def test_passive_poll_digest_failure_does_not_advance_cursor(tmp_path) -> None:
@@ -1197,6 +1384,342 @@ def test_slow_response_headers_are_bounded_by_total_wall_clock_deadline() -> Non
 
     assert elapsed < 1.8
     assert adapter.registry_counts == (0, 0, 0, 0)
+
+
+def test_legacy_sqlite_observation_schema_migrates_for_id_rehydration(tmp_path) -> None:
+    source_database = tmp_path / "source.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(source_database),
+    )
+    bundle = first.pull(TRACE_ID)
+    with sqlite3.connect(source_database) as connection:
+        legacy_row = connection.execute(
+            """
+            SELECT namespace_digest, source_id, source_tenant_id, trace_id,
+                   raw_digest, body, bundle_json
+            FROM data_agent_report_observations
+            """
+        ).fetchone()
+    assert legacy_row is not None
+
+    legacy_database = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(legacy_database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE data_agent_report_observations (
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                trace_id TEXT NOT NULL,
+                raw_digest TEXT NOT NULL,
+                body BLOB NOT NULL,
+                bundle_json TEXT NOT NULL,
+                PRIMARY KEY (namespace_digest, trace_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO data_agent_report_observations (
+                namespace_digest, source_id, source_tenant_id, trace_id,
+                raw_digest, body, bundle_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            legacy_row,
+        )
+
+    restarted, broker, transport = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(legacy_database),
+    )
+
+    assert restarted.resolve_event(bundle.event.environment_event_id) == bundle.event
+    assert restarted.resolve_projection(bundle.projection.projection_id) == bundle.projection
+    assert broker.resolved == []
+    assert transport.requests == []
+    with sqlite3.connect(legacy_database) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(data_agent_report_observations)"
+            )
+        }
+        version_row = connection.execute(
+            """
+            SELECT schema_version FROM data_agent_report_schema_metadata
+            WHERE component = 'data-agent-report-adapter'
+            """
+        ).fetchone()
+    assert {"report_trace_id", "revision_digest", "event_id", "projection_id"} <= columns
+    assert version_row == (2,)
+
+
+def test_invalid_legacy_row_rolls_back_schema_migration(tmp_path) -> None:
+    source_database = tmp_path / "valid-source.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(source_database),
+    )
+    first.pull(TRACE_ID)
+    with sqlite3.connect(source_database) as connection:
+        legacy_row: list[object] = list(
+            connection.execute(
+                """
+                SELECT namespace_digest, source_id, source_tenant_id, trace_id,
+                       raw_digest, body, bundle_json
+                FROM data_agent_report_observations
+                """
+            ).fetchone()
+            or ()
+        )
+    assert legacy_row
+    legacy_row[5] = sqlite3.Binary(b"{}")
+
+    legacy_database = tmp_path / "invalid-legacy.sqlite3"
+    with sqlite3.connect(legacy_database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE data_agent_report_observations (
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                trace_id TEXT NOT NULL,
+                raw_digest TEXT NOT NULL,
+                body BLOB NOT NULL,
+                bundle_json TEXT NOT NULL,
+                PRIMARY KEY (namespace_digest, trace_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO data_agent_report_observations (
+                namespace_digest, source_id, source_tenant_id, trace_id,
+                raw_digest, body, bundle_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            legacy_row,
+        )
+
+    with pytest.raises(DataAgentReportAdapterError, match="digest"):
+        SQLiteDataAgentReportStateStore(legacy_database)
+
+    with sqlite3.connect(legacy_database) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(data_agent_report_observations)"
+            )
+        }
+        metadata_table = connection.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'data_agent_report_schema_metadata'
+            """
+        ).fetchone()
+    assert "report_trace_id" not in columns
+    assert metadata_table is None
+
+
+def test_corrupt_durable_body_fails_closed_without_partial_registry(tmp_path) -> None:
+    database = tmp_path / "corrupt-body.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundle = first.pull(TRACE_ID)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE data_agent_report_observations SET body = ?",
+            (sqlite3.Binary(b"{}"),),
+        )
+    reopened_store = SQLiteDataAgentReportStateStore(database)
+    restarted, _, transport = _adapter(state_store=reopened_store)
+
+    with pytest.raises(DataAgentReportAdapterError, match="digest"):
+        restarted.resolve_event(bundle.event.environment_event_id)
+
+    assert restarted.registry_counts == (0, 0, 0, 0)
+    assert transport.requests == []
+
+
+def test_corrupt_durable_bundle_binding_fails_closed_without_partial_registry(
+    tmp_path,
+) -> None:
+    database = tmp_path / "corrupt-bundle.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundle = first.pull(TRACE_ID)
+    reopened_store = SQLiteDataAgentReportStateStore(database)
+    with sqlite3.connect(database) as connection:
+        raw_bundle = connection.execute(
+            "SELECT bundle_json FROM data_agent_report_observations"
+        ).fetchone()
+        assert raw_bundle is not None
+        mutated = json.loads(str(raw_bundle[0]))
+        mutated["projection"]["scope_ref"] = "mission:tampered"
+        connection.execute(
+            "UPDATE data_agent_report_observations SET bundle_json = ?",
+            (
+                json.dumps(
+                    mutated,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            ),
+        )
+    restarted, _, transport = _adapter(state_store=reopened_store)
+
+    with pytest.raises(DataAgentReportAdapterError, match="bundle binding"):
+        restarted.resolve_projection(bundle.projection.projection_id)
+
+    assert restarted.registry_counts == (0, 0, 0, 0)
+    assert transport.requests == []
+
+
+def test_rehydrate_revalidates_persisted_source_contract_without_network(
+    tmp_path,
+) -> None:
+    database = tmp_path / "invalid-source-contract.sqlite3"
+    store = SQLiteDataAgentReportStateStore(database)
+    writer, _, _ = _adapter(state_store=store)
+    invalid_body = _report_bytes(trace_id="trace-other")
+    invalid_digest = hashlib.sha256(invalid_body).hexdigest()
+    candidate = writer._build_bundle(  # type: ignore[attr-defined]
+        TRACE_ID,
+        invalid_body,
+        invalid_digest,
+        NOW,
+    )
+    store.save(
+        writer._state_namespace,  # type: ignore[attr-defined]
+        _config().source_id,
+        _config().source_tenant_id,
+        f"feed:{TRACE_ID}:{invalid_digest}",
+        TRACE_ID,
+        invalid_digest,
+        invalid_digest,
+        invalid_body,
+        candidate,
+    )
+    restarted, broker, transport = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="trace binding"):
+        restarted.resolve_event(candidate.event.environment_event_id)
+
+    assert restarted.registry_counts == (0, 0, 0, 0)
+    assert broker.resolved == []
+    assert transport.requests == []
+
+
+def test_corrupt_durable_object_index_fails_closed_without_partial_registry(
+    tmp_path,
+) -> None:
+    database = tmp_path / "corrupt-index.sqlite3"
+    first, _, _ = _adapter(
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundle = first.pull(TRACE_ID)
+    reopened_store = SQLiteDataAgentReportStateStore(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            UPDATE data_agent_report_bundle_index
+            SET report_trace_id = 'trace:tampered'
+            WHERE object_kind = 'event'
+            """
+        )
+    restarted, _, transport = _adapter(state_store=reopened_store)
+
+    with pytest.raises(DataAgentReportAdapterError, match="index binding"):
+        restarted.resolve_event(bundle.event.environment_event_id)
+
+    assert restarted.registry_counts == (0, 0, 0, 0)
+    assert transport.requests == []
+
+
+def test_unknown_future_state_schema_fails_closed(tmp_path) -> None:
+    database = tmp_path / "future-schema.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE data_agent_report_schema_metadata (
+                component TEXT NOT NULL PRIMARY KEY,
+                schema_version INTEGER NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO data_agent_report_schema_metadata (
+                component, schema_version
+            ) VALUES ('data-agent-report-adapter', 999)
+            """
+        )
+
+    with pytest.raises(DataAgentReportAdapterError, match="unsupported"):
+        SQLiteDataAgentReportStateStore(database)
+
+
+def test_state_store_does_not_read_or_overwrite_database_user_version(tmp_path) -> None:
+    database = tmp_path / "shared-user-version.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version = 999")
+
+    SQLiteDataAgentReportStateStore(database)
+
+    with sqlite3.connect(database) as connection:
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    assert user_version == 999
+
+
+def test_duplicate_persisted_event_contract_id_fails_closed(tmp_path) -> None:
+    database = tmp_path / "duplicate-event-id.sqlite3"
+    feed = _feed_bytes(
+        [
+            _feed_event("opaque-cursor-1"),
+            _feed_event(
+                "opaque-cursor-2",
+                _report_bytes(authority_payload=True),
+            ),
+        ],
+        next_cursor="opaque-cursor-2",
+    )
+    first, _, _ = _adapter(
+        response=_response(
+            feed,
+            final_url="http://127.0.0.1:8765/external/report-events?limit=2",
+        ),
+        config=_config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+    )
+    bundles = first.poll_once(limit=2).bundles
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP INDEX data_agent_report_event_ids")
+        connection.execute(
+            """
+            UPDATE data_agent_report_observations SET event_id = ?
+            WHERE event_id = ?
+            """,
+            (
+                bundles[0].event.environment_event_id,
+                bundles[1].event.environment_event_id,
+            ),
+        )
+
+    with pytest.raises(DataAgentReportAdapterError, match="schema"):
+        SQLiteDataAgentReportStateStore(database)
 
 
 def test_changed_report_conflict_survives_adapter_restart(tmp_path) -> None:

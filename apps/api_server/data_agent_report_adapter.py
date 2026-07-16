@@ -232,6 +232,16 @@ class DataAgentReportPollResult:
     has_more: bool
 
 
+@dataclass(frozen=True)
+class DataAgentReportStoredObservation:
+    observation_key: str
+    report_trace_id: str
+    revision_digest: str
+    raw_digest: str
+    body: bytes
+    bundle: TrustedObservationBundle
+
+
 class DataAgentReportStateStore(Protocol):
     durable: bool
 
@@ -240,15 +250,27 @@ class DataAgentReportStateStore(Protocol):
         namespace_digest: str,
         source_id: str,
         source_tenant_id: str,
-        trace_id: str,
-    ) -> tuple[str, bytes, TrustedObservationBundle] | None: ...
+        observation_key: str,
+    ) -> DataAgentReportStoredObservation | None: ...
+
+    def get_by_object_id(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        object_kind: str,
+        object_id: str,
+    ) -> DataAgentReportStoredObservation | None: ...
 
     def save(
         self,
         namespace_digest: str,
         source_id: str,
         source_tenant_id: str,
-        trace_id: str,
+        observation_key: str,
+        report_trace_id: str,
+        revision_digest: str,
         raw_digest: str,
         body: bytes,
         bundle: TrustedObservationBundle,
@@ -276,53 +298,472 @@ class SQLiteDataAgentReportStateStore:
     """Durable first-seen identity and exact-byte store shared across processes."""
 
     durable = True
+    _SCHEMA_VERSION = 2
+    _SCHEMA_COMPONENT = "data-agent-report-adapter"
+    _OBJECT_KINDS = frozenset({"artifact", "evidence", "event", "projection"})
 
     def __init__(self, database: str | Path) -> None:
         self._database = str(database)
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS data_agent_report_observations (
-                    namespace_digest TEXT NOT NULL,
-                    source_id TEXT NOT NULL,
-                    source_tenant_id TEXT NOT NULL,
-                    trace_id TEXT NOT NULL,
-                    raw_digest TEXT NOT NULL,
-                    body BLOB NOT NULL,
-                    bundle_json TEXT NOT NULL,
-                    PRIMARY KEY (namespace_digest, trace_id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS data_agent_report_feed_cursors (
-                    namespace_digest TEXT NOT NULL,
-                    source_id TEXT NOT NULL,
-                    source_tenant_id TEXT NOT NULL,
-                    cursor TEXT,
-                    PRIMARY KEY (namespace_digest, source_id, source_tenant_id)
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS data_agent_report_feed_cursor_history (
-                    namespace_digest TEXT NOT NULL,
-                    source_id TEXT NOT NULL,
-                    source_tenant_id TEXT NOT NULL,
-                    cursor TEXT NOT NULL,
-                    PRIMARY KEY (
-                        namespace_digest, source_id, source_tenant_id, cursor
-                    )
-                )
-                """
-            )
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                schema_version = self._create_schema(connection)
+                if schema_version != self._SCHEMA_VERSION:
+                    self._migrate_legacy_rows(connection)
+                self._write_schema_version(connection)
+        except DataAgentReportAdapterError:
+            raise
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report state schema is unavailable"
+            ) from None
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database, timeout=10)
         connection.execute("PRAGMA busy_timeout = 10000")
         return connection
+
+    @staticmethod
+    def _body_bytes(value: object) -> bytes:
+        if not isinstance(value, (bytes, bytearray, memoryview)):
+            raise DataAgentReportAdapterError(
+                "durable external report body encoding is invalid"
+            )
+        return bytes(value)
+
+    @staticmethod
+    def _table_contract(
+        connection: sqlite3.Connection,
+        table: str,
+    ) -> dict[str, tuple[str, int, int]]:
+        return {
+            str(row[1]): (str(row[2]).upper(), int(row[3]), int(row[5]))
+            for row in connection.execute(f"PRAGMA table_info({table})")
+        }
+
+    @staticmethod
+    def _require_table_contract(
+        actual: dict[str, tuple[str, int, int]],
+        expected: dict[str, tuple[str, int, int]],
+    ) -> None:
+        if actual != expected:
+            raise DataAgentReportAdapterError(
+                "durable external report state schema is invalid"
+            )
+
+    @classmethod
+    def _create_schema(cls, connection: sqlite3.Connection) -> int | None:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_schema_metadata (
+                component TEXT NOT NULL PRIMARY KEY,
+                schema_version INTEGER NOT NULL
+            )
+            """
+        )
+        cls._require_table_contract(
+            cls._table_contract(connection, "data_agent_report_schema_metadata"),
+            {
+                "component": ("TEXT", 1, 1),
+                "schema_version": ("INTEGER", 1, 0),
+            },
+        )
+        version_row = connection.execute(
+            """
+            SELECT schema_version FROM data_agent_report_schema_metadata
+            WHERE component = ?
+            """,
+            (cls._SCHEMA_COMPONENT,),
+        ).fetchone()
+        schema_version: int | None = None
+        if version_row is not None:
+            if (
+                not isinstance(version_row[0], int)
+                or isinstance(version_row[0], bool)
+                or int(version_row[0]) < 1
+                or int(version_row[0]) > cls._SCHEMA_VERSION
+            ):
+                raise DataAgentReportAdapterError(
+                    "durable external report state schema is unsupported"
+                )
+            schema_version = int(version_row[0])
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_observations (
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                trace_id TEXT NOT NULL,
+                report_trace_id TEXT,
+                revision_digest TEXT,
+                event_id TEXT,
+                projection_id TEXT,
+                raw_digest TEXT NOT NULL,
+                body BLOB NOT NULL,
+                bundle_json TEXT NOT NULL,
+                PRIMARY KEY (namespace_digest, trace_id)
+            )
+            """
+        )
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(data_agent_report_observations)"
+            )
+        }
+        required_columns = {
+            "namespace_digest",
+            "source_id",
+            "source_tenant_id",
+            "trace_id",
+            "raw_digest",
+            "body",
+            "bundle_json",
+        }
+        if not required_columns.issubset(columns):
+            raise DataAgentReportAdapterError(
+                "durable external report state schema is invalid"
+            )
+        for column in ("report_trace_id", "revision_digest", "event_id", "projection_id"):
+            if column not in columns:
+                connection.execute(
+                    f"ALTER TABLE data_agent_report_observations ADD COLUMN {column} TEXT"
+                )
+        cls._require_table_contract(
+            cls._table_contract(connection, "data_agent_report_observations"),
+            {
+                "namespace_digest": ("TEXT", 1, 1),
+                "source_id": ("TEXT", 1, 0),
+                "source_tenant_id": ("TEXT", 1, 0),
+                "trace_id": ("TEXT", 1, 2),
+                "report_trace_id": ("TEXT", 0, 0),
+                "revision_digest": ("TEXT", 0, 0),
+                "event_id": ("TEXT", 0, 0),
+                "projection_id": ("TEXT", 0, 0),
+                "raw_digest": ("TEXT", 1, 0),
+                "body": ("BLOB", 1, 0),
+                "bundle_json": ("TEXT", 1, 0),
+            },
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_bundle_index (
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                object_kind TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                observation_key TEXT NOT NULL,
+                report_trace_id TEXT NOT NULL,
+                revision_digest TEXT NOT NULL,
+                PRIMARY KEY (namespace_digest, object_kind, object_id)
+            )
+            """
+        )
+        cls._require_table_contract(
+            cls._table_contract(connection, "data_agent_report_bundle_index"),
+            {
+                "namespace_digest": ("TEXT", 1, 1),
+                "source_id": ("TEXT", 1, 0),
+                "source_tenant_id": ("TEXT", 1, 0),
+                "object_kind": ("TEXT", 1, 2),
+                "object_id": ("TEXT", 1, 3),
+                "observation_key": ("TEXT", 1, 0),
+                "report_trace_id": ("TEXT", 1, 0),
+                "revision_digest": ("TEXT", 1, 0),
+            },
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS data_agent_report_event_ids
+            ON data_agent_report_observations(namespace_digest, event_id)
+            WHERE event_id IS NOT NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS data_agent_report_projection_ids
+            ON data_agent_report_observations(namespace_digest, projection_id)
+            WHERE projection_id IS NOT NULL
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_feed_cursors (
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                cursor TEXT,
+                PRIMARY KEY (namespace_digest, source_id, source_tenant_id)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_agent_report_feed_cursor_history (
+                namespace_digest TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                source_tenant_id TEXT NOT NULL,
+                cursor TEXT NOT NULL,
+                PRIMARY KEY (
+                    namespace_digest, source_id, source_tenant_id, cursor
+                )
+            )
+            """
+        )
+        return schema_version
+
+    @classmethod
+    def _write_schema_version(cls, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            INSERT INTO data_agent_report_schema_metadata (
+                component, schema_version
+            ) VALUES (?, ?)
+            ON CONFLICT(component) DO UPDATE SET
+                schema_version = excluded.schema_version
+            """,
+            (cls._SCHEMA_COMPONENT, cls._SCHEMA_VERSION),
+        )
+
+    @staticmethod
+    def _legacy_report_trace_id(observation_key: str, raw_digest: str) -> str:
+        if observation_key.startswith("trace:"):
+            trace_id = observation_key.removeprefix("trace:")
+        elif observation_key.startswith("feed:") and observation_key.endswith(
+            f":{raw_digest}"
+        ):
+            trace_id = observation_key.removeprefix("feed:")[: -(len(raw_digest) + 1)]
+        else:
+            raise DataAgentReportAdapterError(
+                "durable external report observation identity is invalid"
+            )
+        if not _TRACE_ID.fullmatch(trace_id) or ".." in trace_id:
+            raise DataAgentReportAdapterError(
+                "durable external report trace identity is invalid"
+            )
+        return trace_id
+
+    @staticmethod
+    def _object_ids(bundle: TrustedObservationBundle) -> dict[str, tuple[str, ...]]:
+        evidence = {
+            item.evidence_id: item
+            for item in (*bundle.event.evidence, *bundle.projection.evidence)
+        }
+        if any(
+            item.evidence_id in evidence and evidence[item.evidence_id] != item
+            for item in (*bundle.event.evidence, *bundle.projection.evidence)
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report evidence identity is invalid"
+            )
+        return {
+            "artifact": (
+                bundle.artifact.artifact_id,
+                bundle.projection.projection_artifact.artifact_id,
+            ),
+            "evidence": tuple(sorted(evidence)),
+            "event": (bundle.event.environment_event_id,),
+            "projection": (bundle.projection.projection_id,),
+        }
+
+    @classmethod
+    def _validate_stored_observation(
+        cls,
+        *,
+        observation_key: str,
+        report_trace_id: str,
+        revision_digest: str,
+        raw_digest: str,
+        body: bytes,
+        bundle: TrustedObservationBundle,
+    ) -> None:
+        if (
+            re.fullmatch(r"[0-9a-f]{64}", raw_digest) is None
+            or revision_digest != raw_digest
+            or hashlib.sha256(body).hexdigest() != raw_digest
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report revision digest is invalid"
+            )
+        expected_trace = cls._legacy_report_trace_id(observation_key, raw_digest)
+        if report_trace_id != expected_trace:
+            raise DataAgentReportAdapterError(
+                "durable external report trace binding is invalid"
+            )
+        if bundle.artifact.content_digest != raw_digest:
+            raise DataAgentReportAdapterError(
+                "durable external report artifact digest is invalid"
+            )
+        if bundle.event.observation != bundle.artifact:
+            raise DataAgentReportAdapterError(
+                "durable external report event artifact binding is invalid"
+            )
+        if bundle.projection.source_event_ids != (
+            bundle.event.environment_event_id,
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report projection event binding is invalid"
+            )
+        if bundle.evidence not in bundle.event.evidence:
+            raise DataAgentReportAdapterError(
+                "durable external report evidence binding is invalid"
+            )
+
+    @classmethod
+    def _insert_index_rows(
+        cls,
+        connection: sqlite3.Connection,
+        *,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        observation_key: str,
+        report_trace_id: str,
+        revision_digest: str,
+        bundle: TrustedObservationBundle,
+    ) -> None:
+        for object_kind, object_ids in cls._object_ids(bundle).items():
+            for object_id in object_ids:
+                existing = connection.execute(
+                    """
+                    SELECT source_id, source_tenant_id, observation_key,
+                           report_trace_id, revision_digest
+                    FROM data_agent_report_bundle_index
+                    WHERE namespace_digest = ? AND object_kind = ? AND object_id = ?
+                    """,
+                    (namespace_digest, object_kind, object_id),
+                ).fetchone()
+                expected = (
+                    source_id,
+                    source_tenant_id,
+                    observation_key,
+                    report_trace_id,
+                    revision_digest,
+                )
+                if existing is not None:
+                    if tuple(str(value) for value in existing) != expected:
+                        raise DataAgentReportConflict(
+                            "durable external report object identity conflict"
+                        )
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO data_agent_report_bundle_index (
+                        namespace_digest, source_id, source_tenant_id,
+                        object_kind, object_id, observation_key,
+                        report_trace_id, revision_digest
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        namespace_digest,
+                        source_id,
+                        source_tenant_id,
+                        object_kind,
+                        object_id,
+                        observation_key,
+                        report_trace_id,
+                        revision_digest,
+                    ),
+                )
+
+    @classmethod
+    def _migrate_legacy_rows(cls, connection: sqlite3.Connection) -> None:
+        rows = connection.execute(
+            """
+            SELECT namespace_digest, source_id, source_tenant_id, trace_id,
+                   report_trace_id, revision_digest, event_id, projection_id,
+                   raw_digest, body, bundle_json
+            FROM data_agent_report_observations
+            """
+        ).fetchall()
+        expected_index_rows: set[tuple[str, ...]] = set()
+        for row in rows:
+            observation_key = str(row[3])
+            raw_digest = str(row[8])
+            body = cls._body_bytes(row[9])
+            payload = str(row[10])
+            bundle = cls._deserialize(payload)
+            if cls._serialize(bundle) != payload:
+                raise DataAgentReportAdapterError(
+                    "durable external report bundle encoding is invalid"
+                )
+            inferred_trace = cls._legacy_report_trace_id(observation_key, raw_digest)
+            report_trace_id = str(row[4]) if row[4] is not None else inferred_trace
+            revision_digest = str(row[5]) if row[5] is not None else raw_digest
+            event_id = bundle.event.environment_event_id
+            projection_id = bundle.projection.projection_id
+            if row[6] is not None and str(row[6]) != event_id:
+                raise DataAgentReportAdapterError(
+                    "durable external report event index is invalid"
+                )
+            if row[7] is not None and str(row[7]) != projection_id:
+                raise DataAgentReportAdapterError(
+                    "durable external report projection index is invalid"
+                )
+            cls._validate_stored_observation(
+                observation_key=observation_key,
+                report_trace_id=report_trace_id,
+                revision_digest=revision_digest,
+                raw_digest=raw_digest,
+                body=body,
+                bundle=bundle,
+            )
+            connection.execute(
+                """
+                UPDATE data_agent_report_observations
+                SET report_trace_id = ?, revision_digest = ?,
+                    event_id = ?, projection_id = ?
+                WHERE namespace_digest = ? AND trace_id = ?
+                """,
+                (
+                    report_trace_id,
+                    revision_digest,
+                    event_id,
+                    projection_id,
+                    str(row[0]),
+                    observation_key,
+                ),
+            )
+            cls._insert_index_rows(
+                connection,
+                namespace_digest=str(row[0]),
+                source_id=str(row[1]),
+                source_tenant_id=str(row[2]),
+                observation_key=observation_key,
+                report_trace_id=report_trace_id,
+                revision_digest=revision_digest,
+                bundle=bundle,
+            )
+            for object_kind, object_ids in cls._object_ids(bundle).items():
+                expected_index_rows.update(
+                    (
+                        str(row[0]),
+                        str(row[1]),
+                        str(row[2]),
+                        object_kind,
+                        object_id,
+                        observation_key,
+                        report_trace_id,
+                        revision_digest,
+                    )
+                    for object_id in object_ids
+                )
+        actual_index_rows = {
+            tuple(str(value) for value in row)
+            for row in connection.execute(
+                """
+                SELECT namespace_digest, source_id, source_tenant_id,
+                       object_kind, object_id, observation_key,
+                       report_trace_id, revision_digest
+                FROM data_agent_report_bundle_index
+                """
+            )
+        }
+        if actual_index_rows != expected_index_rows:
+            raise DataAgentReportAdapterError(
+                "durable external report object index is invalid"
+            )
 
     @staticmethod
     def _serialize(bundle: TrustedObservationBundle) -> str:
@@ -357,73 +798,222 @@ class SQLiteDataAgentReportStateStore:
         namespace_digest: str,
         source_id: str,
         source_tenant_id: str,
-        trace_id: str,
-    ) -> tuple[str, bytes, TrustedObservationBundle] | None:
+        observation_key: str,
+    ) -> DataAgentReportStoredObservation | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT raw_digest, body, bundle_json
+                SELECT report_trace_id, revision_digest, event_id, projection_id,
+                       raw_digest, body, bundle_json
                 FROM data_agent_report_observations
                 WHERE namespace_digest = ?
                   AND source_id = ? AND source_tenant_id = ? AND trace_id = ?
                 """,
-                (namespace_digest, source_id, source_tenant_id, trace_id),
+                (namespace_digest, source_id, source_tenant_id, observation_key),
             ).fetchone()
         if row is None:
             return None
-        return str(row[0]), bytes(row[1]), self._deserialize(str(row[2]))
+        return self._read_observation(observation_key, row)
+
+    def get_by_object_id(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        object_kind: str,
+        object_id: str,
+    ) -> DataAgentReportStoredObservation | None:
+        if object_kind not in self._OBJECT_KINDS:
+            raise DataAgentReportAdapterError(
+                "durable external report object kind is invalid"
+            )
+        with self._connect() as connection:
+            index_rows = connection.execute(
+                """
+                SELECT source_id, source_tenant_id, observation_key,
+                       report_trace_id, revision_digest
+                FROM data_agent_report_bundle_index
+                WHERE namespace_digest = ? AND object_kind = ? AND object_id = ?
+                """,
+                (
+                    namespace_digest,
+                    object_kind,
+                    object_id,
+                ),
+            ).fetchall()
+            if not index_rows:
+                return None
+            if len(index_rows) != 1:
+                raise DataAgentReportAdapterError(
+                    "durable external report object index is ambiguous"
+                )
+            index_row = index_rows[0]
+            if (str(index_row[0]), str(index_row[1])) != (
+                source_id,
+                source_tenant_id,
+            ):
+                raise DataAgentReportAdapterError(
+                    "durable external report object index scope is invalid"
+                )
+            observation_key = str(index_row[2])
+            observation_row = connection.execute(
+                """
+                SELECT report_trace_id, revision_digest, event_id, projection_id,
+                       raw_digest, body, bundle_json
+                FROM data_agent_report_observations
+                WHERE namespace_digest = ? AND source_id = ?
+                  AND source_tenant_id = ? AND trace_id = ?
+                """,
+                (
+                    namespace_digest,
+                    source_id,
+                    source_tenant_id,
+                    observation_key,
+                ),
+            ).fetchone()
+        if observation_row is None:
+            raise DataAgentReportAdapterError(
+                "durable external report object index target is unavailable"
+            )
+        stored = self._read_observation(observation_key, observation_row)
+        if (
+            stored.report_trace_id != str(index_row[3])
+            or stored.revision_digest != str(index_row[4])
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report object index binding is invalid"
+            )
+        if object_id not in self._object_ids(stored.bundle)[object_kind]:
+            raise DataAgentReportAdapterError(
+                "durable external report object index target is invalid"
+            )
+        return stored
+
+    @classmethod
+    def _read_observation(
+        cls,
+        observation_key: str,
+        row: tuple[object, ...],
+    ) -> DataAgentReportStoredObservation:
+        if row[0] is None or row[1] is None:
+            raise DataAgentReportAdapterError(
+                "durable external report state migration is incomplete"
+            )
+        payload = str(row[6])
+        bundle = cls._deserialize(payload)
+        if cls._serialize(bundle) != payload:
+            raise DataAgentReportAdapterError(
+                "durable external report bundle encoding is invalid"
+            )
+        stored = DataAgentReportStoredObservation(
+            observation_key=observation_key,
+            report_trace_id=str(row[0]),
+            revision_digest=str(row[1]),
+            raw_digest=str(row[4]),
+            body=cls._body_bytes(row[5]),
+            bundle=bundle,
+        )
+        if str(row[2]) != bundle.event.environment_event_id:
+            raise DataAgentReportAdapterError(
+                "durable external report event index is invalid"
+            )
+        if str(row[3]) != bundle.projection.projection_id:
+            raise DataAgentReportAdapterError(
+                "durable external report projection index is invalid"
+            )
+        cls._validate_stored_observation(
+            observation_key=stored.observation_key,
+            report_trace_id=stored.report_trace_id,
+            revision_digest=stored.revision_digest,
+            raw_digest=stored.raw_digest,
+            body=stored.body,
+            bundle=stored.bundle,
+        )
+        return stored
 
     def save(
         self,
         namespace_digest: str,
         source_id: str,
         source_tenant_id: str,
-        trace_id: str,
+        observation_key: str,
+        report_trace_id: str,
+        revision_digest: str,
         raw_digest: str,
         body: bytes,
         bundle: TrustedObservationBundle,
     ) -> None:
         serialized = self._serialize(bundle)
+        self._validate_stored_observation(
+            observation_key=observation_key,
+            report_trace_id=report_trace_id,
+            revision_digest=revision_digest,
+            raw_digest=raw_digest,
+            body=body,
+            bundle=bundle,
+        )
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 existing = connection.execute(
                     """
-                    SELECT raw_digest, body, bundle_json
+                    SELECT report_trace_id, revision_digest, raw_digest, body, bundle_json
                     FROM data_agent_report_observations
                     WHERE namespace_digest = ?
                       AND source_id = ? AND source_tenant_id = ? AND trace_id = ?
                     """,
-                    (namespace_digest, source_id, source_tenant_id, trace_id),
+                    (namespace_digest, source_id, source_tenant_id, observation_key),
                 ).fetchone()
                 if existing is None:
                     connection.execute(
                         """
                         INSERT INTO data_agent_report_observations (
                             namespace_digest, source_id, source_tenant_id, trace_id,
+                            report_trace_id, revision_digest, event_id, projection_id,
                             raw_digest, body, bundle_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             namespace_digest,
                             source_id,
                             source_tenant_id,
-                            trace_id,
+                            observation_key,
+                            report_trace_id,
+                            revision_digest,
+                            bundle.event.environment_event_id,
+                            bundle.projection.projection_id,
                             raw_digest,
                             sqlite3.Binary(body),
                             serialized,
                         ),
                     )
-                    return
-                if (
-                    str(existing[0]) != raw_digest
-                    or bytes(existing[1]) != body
+                elif (
+                    str(existing[0]) != report_trace_id
+                    or str(existing[1]) != revision_digest
+                    or str(existing[2]) != raw_digest
+                    or self._body_bytes(existing[3]) != body
+                    or str(existing[4]) != serialized
                 ):
                     raise DataAgentReportConflict(
                         "durable external report identity conflict"
                     )
+                self._insert_index_rows(
+                    connection,
+                    namespace_digest=namespace_digest,
+                    source_id=source_id,
+                    source_tenant_id=source_tenant_id,
+                    observation_key=observation_key,
+                    report_trace_id=report_trace_id,
+                    revision_digest=revision_digest,
+                    bundle=bundle,
+                )
         except DataAgentReportConflict:
             raise
+        except sqlite3.IntegrityError:
+            raise DataAgentReportConflict(
+                "durable external report object identity conflict"
+            ) from None
         except sqlite3.Error:
             raise DataAgentReportAdapterError(
                 "durable external report state is unavailable"
@@ -545,7 +1135,10 @@ class _InMemoryDataAgentReportStateStore:
 
     def __init__(self) -> None:
         self._rows: dict[
-            tuple[str, str, str, str], tuple[str, bytes, TrustedObservationBundle]
+            tuple[str, str, str, str], DataAgentReportStoredObservation
+        ] = {}
+        self._object_index: dict[
+            tuple[str, str, str], tuple[str, str, str, str]
         ] = {}
         self._feed_cursors: dict[tuple[str, str, str], str | None] = {}
         self._feed_cursor_history: set[tuple[str, str, str, str]] = set()
@@ -555,28 +1148,66 @@ class _InMemoryDataAgentReportStateStore:
         namespace_digest: str,
         source_id: str,
         source_tenant_id: str,
-        trace_id: str,
-    ) -> tuple[str, bytes, TrustedObservationBundle] | None:
+        observation_key: str,
+    ) -> DataAgentReportStoredObservation | None:
         return self._rows.get(
-            (namespace_digest, source_id, source_tenant_id, trace_id)
+            (namespace_digest, source_id, source_tenant_id, observation_key)
         )
+
+    def get_by_object_id(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        object_kind: str,
+        object_id: str,
+    ) -> DataAgentReportStoredObservation | None:
+        row_key = self._object_index.get(
+            (namespace_digest, object_kind, object_id)
+        )
+        if row_key is None or row_key[1:3] != (source_id, source_tenant_id):
+            return None
+        return self._rows.get(row_key)
 
     def save(
         self,
         namespace_digest: str,
         source_id: str,
         source_tenant_id: str,
-        trace_id: str,
+        observation_key: str,
+        report_trace_id: str,
+        revision_digest: str,
         raw_digest: str,
         body: bytes,
         bundle: TrustedObservationBundle,
     ) -> None:
-        key = (namespace_digest, source_id, source_tenant_id, trace_id)
-        value = (raw_digest, bytes(body), bundle)
+        key = (namespace_digest, source_id, source_tenant_id, observation_key)
+        value = DataAgentReportStoredObservation(
+            observation_key=observation_key,
+            report_trace_id=report_trace_id,
+            revision_digest=revision_digest,
+            raw_digest=raw_digest,
+            body=bytes(body),
+            bundle=bundle,
+        )
         existing = self._rows.get(key)
         if existing is not None and existing != value:
             raise DataAgentReportConflict("external report identity conflict")
+        pending_index: dict[tuple[str, str, str], tuple[str, str, str, str]] = {}
+        for object_kind, object_ids in SQLiteDataAgentReportStateStore._object_ids(
+            bundle
+        ).items():
+            for object_id in object_ids:
+                index_key = (namespace_digest, object_kind, object_id)
+                indexed = self._object_index.get(index_key)
+                if indexed is not None and indexed != key:
+                    raise DataAgentReportConflict(
+                        "external report object identity conflict"
+                    )
+                pending_index[index_key] = key
         self._rows[key] = value
+        self._object_index.update(pending_index)
 
     def get_feed_cursor(
         self,
@@ -1134,19 +1765,23 @@ class DataAgentReportAdapter:
                 observation_key,
             )
             if stored is not None:
-                stored_digest, stored_body, stored_bundle = stored
-                if stored_digest != raw_digest or stored_body != body:
+                if (
+                    stored.report_trace_id != trace_id
+                    or stored.revision_digest != raw_digest
+                    or stored.raw_digest != raw_digest
+                    or stored.body != body
+                ):
                     raise DataAgentReportConflict(
                         "external report changed for an already observed identity"
                     )
                 self._register_atomically(
-                    observation_key,
-                    trace_id,
-                    stored_digest,
-                    stored_body,
-                    stored_bundle,
+                    stored.observation_key,
+                    stored.report_trace_id,
+                    stored.raw_digest,
+                    stored.body,
+                    stored.bundle,
                 )
-                return stored_bundle
+                return stored.bundle
 
             candidate = self._build_bundle(trace_id, body, raw_digest, observed_at)
             self._state_store.save(
@@ -1154,6 +1789,8 @@ class DataAgentReportAdapter:
                 self._config.source_id,
                 self._config.source_tenant_id,
                 observation_key,
+                trace_id,
+                raw_digest,
                 raw_digest,
                 body,
                 candidate,
@@ -1168,19 +1805,23 @@ class DataAgentReportAdapter:
                 raise DataAgentReportAdapterError(
                     "durable external report state was not committed"
                 )
-            canonical_digest, canonical_body, canonical_bundle = canonical
-            if canonical_digest != raw_digest or canonical_body != body:
+            if (
+                canonical.report_trace_id != trace_id
+                or canonical.revision_digest != raw_digest
+                or canonical.raw_digest != raw_digest
+                or canonical.body != body
+            ):
                 raise DataAgentReportConflict(
                     "external report changed during durable registration"
                 )
             self._register_atomically(
-                observation_key,
-                trace_id,
-                canonical_digest,
-                canonical_body,
-                canonical_bundle,
+                canonical.observation_key,
+                canonical.report_trace_id,
+                canonical.raw_digest,
+                canonical.body,
+                canonical.bundle,
             )
-            return canonical_bundle
+            return canonical.bundle
 
     def _validate_http_response(
         self,
@@ -1404,6 +2045,13 @@ class DataAgentReportAdapter:
         body: bytes,
         bundle: TrustedObservationBundle,
     ) -> None:
+        self._validate_bundle_binding(
+            observation_key=observation_key,
+            trace_id=trace_id,
+            raw_digest=raw_digest,
+            body=body,
+            bundle=bundle,
+        )
         projection_artifact = bundle.projection.projection_artifact
         projection_bytes = canonical_json(
             {
@@ -1445,23 +2093,79 @@ class DataAgentReportAdapter:
         self._digests_by_observation[observation_key] = raw_digest
         self._bundles_by_observation[observation_key] = bundle
 
+    def _validate_bundle_binding(
+        self,
+        *,
+        observation_key: str,
+        trace_id: str,
+        raw_digest: str,
+        body: bytes,
+        bundle: TrustedObservationBundle,
+    ) -> None:
+        SQLiteDataAgentReportStateStore._validate_stored_observation(
+            observation_key=observation_key,
+            report_trace_id=trace_id,
+            revision_digest=raw_digest,
+            raw_digest=raw_digest,
+            body=body,
+            bundle=bundle,
+        )
+        payload = _strict_json_object(body)
+        self._validate_report_contract(payload, trace_id)
+        expected = self._build_bundle(
+            trace_id,
+            body,
+            raw_digest,
+            bundle.event.recorded_at,
+        )
+        if expected != bundle:
+            raise DataAgentReportAdapterError(
+                "durable external report bundle binding is invalid"
+            )
+
+    def _rehydrate_object(self, object_kind: str, object_id: str) -> None:
+        stored = self._state_store.get_by_object_id(
+            self._state_namespace,
+            self._config.source_id,
+            self._config.source_tenant_id,
+            object_kind=object_kind,
+            object_id=object_id,
+        )
+        if stored is None:
+            return
+        self._register_atomically(
+            stored.observation_key,
+            stored.report_trace_id,
+            stored.raw_digest,
+            stored.body,
+            stored.bundle,
+        )
+
     def binding_is_authorized(self, binding: SituationalBinding) -> bool:
         return binding == self._binding
 
     def resolve_artifact(self, artifact_id: str) -> tuple[ArtifactRef, bytes] | None:
         with self._registry_lock:
+            if artifact_id not in self._artifacts:
+                self._rehydrate_object("artifact", artifact_id)
             return self._artifacts.get(artifact_id)
 
     def resolve_evidence(self, evidence_id: str) -> EvidenceRef | None:
         with self._registry_lock:
+            if evidence_id not in self._evidence:
+                self._rehydrate_object("evidence", evidence_id)
             return self._evidence.get(evidence_id)
 
     def resolve_event(self, event_id: str) -> EnvironmentEvent | None:
         with self._registry_lock:
+            if event_id not in self._events:
+                self._rehydrate_object("event", event_id)
             return self._events.get(event_id)
 
     def resolve_projection(
         self, projection_id: str
     ) -> OperationalProjectionRef | None:
         with self._registry_lock:
+            if projection_id not in self._projections:
+                self._rehydrate_object("projection", projection_id)
             return self._projections.get(projection_id)
