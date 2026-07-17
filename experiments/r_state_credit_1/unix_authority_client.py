@@ -14,6 +14,8 @@ import stat
 import struct
 import subprocess
 import tempfile
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
@@ -174,7 +176,7 @@ class UnixAuthorityClient:
             raise ExecutionBridgeViolation("authority public key digest drift")
         self._public_key = public_key
 
-    def _verify_verifier_binary(self) -> None:
+    def _open_verified_verifier_binary(self) -> int:
         path = self._verifier_binary_path
         if not path.is_absolute():
             raise ExecutionBridgeViolation("verifier binary path must be absolute")
@@ -215,10 +217,96 @@ class UnixAuthorityClient:
                 or final_stat.st_ctime_ns != opened_stat.st_ctime_ns
             ):
                 raise ExecutionBridgeViolation("verifier binary changed during hashing")
-        finally:
+            if digest.hexdigest() != self._verifier_binary_sha256:
+                raise ExecutionBridgeViolation("verifier binary digest drift")
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            return descriptor
+        except BaseException:
             os.close(descriptor)
-        if digest.hexdigest() != self._verifier_binary_sha256:
-            raise ExecutionBridgeViolation("verifier binary digest drift")
+            raise
+
+    def _verify_verifier_binary(self) -> None:
+        descriptor = self._open_verified_verifier_binary()
+        os.close(descriptor)
+
+    @contextmanager
+    def _private_verifier_copy(self) -> Iterator[Path]:
+        source = self._open_verified_verifier_binary()
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="r-state-verifier-copy-"
+            ) as raw_directory:
+                directory = Path(raw_directory)
+                directory.chmod(0o700)
+                if stat.S_IMODE(directory.lstat().st_mode) != 0o700:
+                    raise ExecutionBridgeViolation(
+                        "private verifier directory mode drift"
+                    )
+                destination = directory / f"verifier-{secrets.token_hex(16)}"
+                flags = (
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+                try:
+                    output = os.open(destination, flags, 0o600)
+                except OSError as exc:
+                    raise ExecutionBridgeViolation(
+                        "private verifier copy creation failed"
+                    ) from exc
+                copied_digest = hashlib.sha256()
+                try:
+                    while True:
+                        chunk = os.read(source, 1024 * 1024)
+                        if not chunk:
+                            break
+                        copied_digest.update(chunk)
+                        view = memoryview(chunk)
+                        while view:
+                            written = os.write(output, view)
+                            if written <= 0:
+                                raise ExecutionBridgeViolation(
+                                    "private verifier copy write failed"
+                                )
+                            view = view[written:]
+                    os.fsync(output)
+                    os.fchmod(output, 0o500)
+                    os.fsync(output)
+                finally:
+                    os.close(output)
+                if copied_digest.hexdigest() != self._verifier_binary_sha256:
+                    raise ExecutionBridgeViolation("private verifier copy digest drift")
+                copied_stat = destination.lstat()
+                if (
+                    not stat.S_ISREG(copied_stat.st_mode)
+                    or stat.S_ISLNK(copied_stat.st_mode)
+                    or stat.S_IMODE(copied_stat.st_mode) != 0o500
+                ):
+                    raise ExecutionBridgeViolation("private verifier copy mode drift")
+                reopened = os.open(
+                    destination,
+                    os.O_RDONLY
+                    | getattr(os, "O_CLOEXEC", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                )
+                try:
+                    confirmed_digest = hashlib.sha256()
+                    while True:
+                        chunk = os.read(reopened, 1024 * 1024)
+                        if not chunk:
+                            break
+                        confirmed_digest.update(chunk)
+                finally:
+                    os.close(reopened)
+                if confirmed_digest.hexdigest() != self._verifier_binary_sha256:
+                    raise ExecutionBridgeViolation(
+                        "private verifier confirmation digest drift"
+                    )
+                yield destination
+        finally:
+            os.close(source)
 
     def _read_exact(self, stream: socket.socket, count: int) -> bytes:
         chunks: list[bytes] = []
@@ -237,9 +325,11 @@ class UnixAuthorityClient:
         return b"".join(chunks)
 
     def _verify_ed25519(self, message: bytes, signature: bytes) -> None:
-        self._verify_verifier_binary()
         try:
-            with tempfile.TemporaryDirectory(prefix="r-state-authority-verify-") as raw:
+            with (
+                self._private_verifier_copy() as verifier,
+                tempfile.TemporaryDirectory(prefix="r-state-authority-verify-") as raw,
+            ):
                 directory = Path(raw)
                 public_key = directory / "response-public.pem"
                 signature_path = directory / "response.sig"
@@ -249,7 +339,7 @@ class UnixAuthorityClient:
                 message_path.write_bytes(message)
                 completed = subprocess.run(
                     [
-                        str(self._verifier_binary_path),
+                        str(verifier),
                         "pkeyutl",
                         "-verify",
                         "-pubin",
@@ -264,6 +354,7 @@ class UnixAuthorityClient:
                     capture_output=True,
                     check=False,
                     timeout=self._timeout_seconds,
+                    env={"LC_ALL": "C"},
                 )
         except (OSError, subprocess.SubprocessError) as exc:
             raise ExecutionBridgeViolation(

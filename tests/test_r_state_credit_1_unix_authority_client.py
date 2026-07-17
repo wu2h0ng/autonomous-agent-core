@@ -34,7 +34,11 @@ BROKER = "workflow-authority-broker-1"
 SERVER_NONCE = "5" * 64
 MAX_FRAME = 64 * 1024
 _OPENSSL_LOCATOR = shutil.which("openssl")
-assert _OPENSSL_LOCATOR is not None
+if _OPENSSL_LOCATOR is None:
+    pytest.skip(
+        "OpenSSL executable is required for authority-client tests",
+        allow_module_level=True,
+    )
 _OPENSSL_BINARY = Path(_OPENSSL_LOCATOR).resolve()
 
 
@@ -566,6 +570,17 @@ def test_verifier_binary_path_hash_and_symlink_fail_closed(
             verifier_binary_sha256=hashlib.sha256(real_binary.read_bytes()).hexdigest(),
         )
 
+    missing = tmp_path / "missing-openssl"
+    missing_admission = _admission(
+        public_digest,
+        verifier_binary_path=missing,
+        verifier_binary_sha256="0" * 64,
+    )
+    with pytest.raises(
+        ExecutionBridgeViolation, match="verifier binary is unavailable"
+    ):
+        _client(missing_admission, _socket_path("missing-verifier"), public_key)
+
 
 def test_verifier_binary_bytes_are_rechecked_before_every_signature(
     tmp_path: Path,
@@ -615,6 +630,58 @@ def test_path_replacement_cannot_change_signed_verifier(
 
     with _Server(socket_path, [handler]):
         assert _client(admission, socket_path, public_key).abort_requested() is False
+
+
+def test_verified_private_copy_survives_source_swap_and_sanitizes_environment(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key, public_key, public_digest = keypair
+    verifier = tmp_path / "replaceable-openssl"
+    shutil.copy2(_openssl_binary(), verifier)
+    verifier.chmod(0o755)
+    signed_digest = hashlib.sha256(verifier.read_bytes()).hexdigest()
+    admission = _admission(public_digest, verifier_binary_path=verifier)
+    client = _client(admission, _socket_path("source-swap"), public_key)
+    message_payload = {"probe": "verified-private-copy"}
+    message = canonical_json(message_payload).encode()
+    signature = _sign(private_key, message_payload)
+    real_run = subprocess.run
+    observed: dict[str, object] = {}
+
+    def guarded_run(
+        command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        replacement = tmp_path / "hostile-openssl"
+        replacement.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+        replacement.chmod(0o755)
+        os.replace(replacement, verifier)
+        executed = Path(command[0])
+        observed.update(
+            executed=executed,
+            environment=kwargs.get("env"),
+            directory_mode=stat.S_IMODE(executed.parent.stat().st_mode),
+            binary_mode=stat.S_IMODE(executed.stat().st_mode),
+            binary_sha256=hashlib.sha256(executed.read_bytes()).hexdigest(),
+        )
+        return real_run(command, **kwargs)
+
+    monkeypatch.setenv("OPENSSL_CONF", "/attacker/openssl.cnf")
+    monkeypatch.setenv("OPENSSL_MODULES", "/attacker/modules")
+    monkeypatch.setenv("OPENSSL_ENGINES", "/attacker/engines")
+    monkeypatch.setenv("DYLD_LIBRARY_PATH", "/attacker/dylib")
+    monkeypatch.setattr(subprocess, "run", guarded_run)
+
+    client._verify_ed25519(message, signature)
+
+    executed = cast(Path, observed["executed"])
+    assert executed != verifier
+    assert observed["environment"] == {"LC_ALL": "C"}
+    assert observed["directory_mode"] == 0o700
+    assert observed["binary_mode"] == 0o500
+    assert observed["binary_sha256"] == signed_digest
+    assert not executed.exists()
 
 
 def test_client_half_closes_request_before_reading_signed_response(
