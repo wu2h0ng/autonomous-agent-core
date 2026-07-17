@@ -40,9 +40,9 @@ from .contracts import (
     decision_candidate_digest,
 )
 from .docker_exec import (
-    DockerArmExecutor,
     DockerExecutionReceipt,
     DockerExecutionRequest,
+    execute_trusted_docker_request,
 )
 
 
@@ -1208,7 +1208,7 @@ def seal_controlled_execution_receipt(
 
 def execute_and_seal_controlled_arm(
     *,
-    executor: DockerArmExecutor,
+    unit_loader: TrustedFrozenUnitLoader,
     unit: FrozenEvaluationUnit,
     arm_id: ArmId,
     decision: BoundControllerDecision,
@@ -1217,8 +1217,9 @@ def execute_and_seal_controlled_arm(
 ) -> ControlledExecutionReceipt:
     """Execute one bound proposal-only arm, verify its raw receipt, then seal it."""
 
-    if type(executor) is not DockerArmExecutor:
-        raise TypeError("controlled execution requires a trusted DockerArmExecutor")
+    if type(unit_loader) is not TrustedFrozenUnitLoader:
+        raise TypeError("controlled execution requires a TrustedFrozenUnitLoader")
+    custody = unit_loader.verify(unit)
     if type(arm_id) is not ArmId:
         raise ValueError("arm binding must use an exact ArmId")
     _validate_sha256_digest("provider_probe_digest", provider_probe_digest)
@@ -1242,6 +1243,21 @@ def execute_and_seal_controlled_arm(
         ) from None
 
     usage_receipt = decision.usage_receipt
+    binding_payload = {
+        "schema_version": binding.schema_version,
+        "public_state_digest": binding.public_state_digest,
+        "controller_digest": binding.controller_digest,
+        "prompt_digest": binding.prompt_digest,
+        "model_digest": binding.model_digest,
+        "tool_catalog_digest": binding.tool_catalog_digest,
+        "budget_configuration_digest": binding.budget_configuration_digest,
+        "trigger_digest": binding.trigger_digest,
+        "candidate_digest": binding.candidate_digest,
+        "bound_at": binding.bound_at,
+        "authority_granted": binding.authority_granted,
+        "external_effects_authorized": binding.external_effects_authorized,
+    }
+    binding_digest = content_digest(binding_payload)
     usage_payload = {
         "probe_digest": usage_receipt.probe_digest,
         "before_snapshot_digest": usage_receipt.before_snapshot_digest,
@@ -1259,8 +1275,25 @@ def execute_and_seal_controlled_arm(
         binding.public_state_digest == public_state.state_digest,
         binding.candidate_digest == candidate.candidate_digest,
         binding.budget_configuration_digest == budget.configuration_digest,
+        binding.trigger_digest == custody.manifest_digest,
+        binding.content_digest == binding_digest,
+        binding.receipt_id == f"controller-binding:{binding_digest}",
         binding.authority_granted is False,
         binding.external_effects_authorized is False,
+        custody.public_state_digest == public_state.state_digest,
+        custody.budget_configuration_digest == budget.configuration_digest,
+        custody.correction_epoch == public_state.correction_epoch,
+        custody.mandate_digest == public_state.mandate_digest,
+        custody.environment_binding_digest
+        == public_state.environment_binding_digest,
+        all(
+            value.strip()
+            for value in (
+                custody.principal_id,
+                custody.tenant_id,
+                custody.workspace_id,
+            )
+        ),
         usage_receipt.content_digest == content_digest(usage_payload),
         provider_probe_digest == usage_receipt.probe_digest,
         budget_receipt.arm_id is arm_id,
@@ -1278,6 +1311,13 @@ def execute_and_seal_controlled_arm(
             "controller_binding_digest": binding.content_digest,
             "budget_configuration_digest": budget.configuration_digest,
             "provider_probe_digest": provider_probe_digest,
+            "unit_manifest_digest": custody.manifest_digest,
+            "principal_id": custody.principal_id,
+            "tenant_id": custody.tenant_id,
+            "workspace_id": custody.workspace_id,
+            "correction_epoch": custody.correction_epoch,
+            "mandate_digest": custody.mandate_digest,
+            "environment_binding_digest": custody.environment_binding_digest,
         }
     )
     request_payload: dict[str, object] = {
@@ -1289,7 +1329,7 @@ def execute_and_seal_controlled_arm(
     request_payload["request_digest"] = content_digest(request_payload)
     request = DockerExecutionRequest.from_mapping(request_payload)
 
-    raw_receipt = executor.execute(request)
+    raw_receipt = execute_trusted_docker_request(request)
     if type(raw_receipt) is not DockerExecutionReceipt:
         raise TypeError("executor must return a raw DockerExecutionReceipt")
     raw_payload = raw_receipt.to_mapping(exclude_digest=True)
@@ -1316,8 +1356,6 @@ def execute_and_seal_controlled_arm(
     )
     if not all(exact_raw_receipt):
         raise ValueError("raw DockerExecutionReceipt conflicts with bound request")
-    executor.verify_local_receipt(raw_receipt)
-
     return seal_controlled_execution_receipt(
         unit_id=unit.unit_id,
         arm_id=arm_id,

@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
-from typing import Any, cast
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -37,6 +38,7 @@ from product_evals.srl_e2e_falsifier.docker_exec import (
     DockerExecutionRequest,
     trusted_docker_executor,
 )
+from product_evals.srl_e2e_falsifier import docker_exec as docker_exec_module
 from product_evals.srl_e2e_falsifier.harness import (
     ArmId,
     BoundControllerDecision,
@@ -50,6 +52,7 @@ from product_evals.srl_e2e_falsifier.harness import (
     execute_and_seal_controlled_arm,
     seal_controlled_execution_receipt,
 )
+from tests.product_eval.test_srl_e2e_harness import _real_srl_controller
 
 
 def _candidate(
@@ -195,7 +198,11 @@ def _bound_decision(
         "model_digest": config.model_digest,
         "tool_catalog_digest": config.tool_catalog_digest,
         "budget_configuration_digest": unit.budget.configuration_digest,
-        "trigger_digest": "8" * 64,
+        "trigger_digest": (
+            unit.custody_receipt.manifest_digest
+            if unit.custody_receipt is not None
+            else "8" * 64
+        ),
         "candidate_digest": candidate.candidate_digest,
         "bound_at": observed_at,
         "authority_granted": False,
@@ -214,83 +221,6 @@ def _bound_decision(
         usage_receipt=usage_receipt,
         binding_receipt=binding_receipt,
     )
-
-
-class _FakeReceiptExecutor:
-    def __init__(self, receipt: object) -> None:
-        self.receipt = receipt
-        self.calls = 0
-
-    def execute(self, request: DockerExecutionRequest) -> Any:
-        self.calls += 1
-        return self.receipt
-
-    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
-        return None
-
-
-class _SelfCertifiedExecutor:
-    """Attacker controls both raw receipt production and its alleged verifier."""
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
-        self.calls += 1
-        cleanup = {"cleanup_remove_exit_code": 0, "cleanup_absent": True}
-        payload: dict[str, Any] = {
-            "schema_version": "1.0",
-            "request_id": request.request_id,
-            "request_digest": request.request_digest,
-            "public_state_digest": request.public_state_digest,
-            "candidate": request.candidate.model_dump(mode="json"),
-            "image_identity": "attacker/image@sha256:" + "a" * 64,
-            "resolved_image_id": "sha256:" + "b" * 64,
-            "policy_digest": "c" * 64,
-            "worker_artifact_sha256": "d" * 64,
-            "container_id": "attacker-container",
-            "pre_start_inspect_digest": "e" * 64,
-            "post_start_inspect_digest": "f" * 64,
-            "exit_code": 0,
-            "stdout_digest": "1" * 64,
-            "stderr_digest": "2" * 64,
-            "network_mode": "none",
-            "rootfs_read_only": True,
-            "environment_empty": True,
-            "no_external_effect": True,
-            **cleanup,
-            "cleanup_digest": content_digest(cleanup),
-        }
-        receipt_digest = content_digest(payload)
-        return DockerExecutionReceipt(
-            schema_version="1.0",
-            request_id=request.request_id,
-            request_digest=request.request_digest,
-            public_state_digest=request.public_state_digest,
-            candidate=request.candidate,
-            image_identity="attacker/image@sha256:" + "a" * 64,
-            resolved_image_id="sha256:" + "b" * 64,
-            policy_digest="c" * 64,
-            worker_artifact_sha256="d" * 64,
-            container_id="attacker-container",
-            pre_start_inspect_digest="e" * 64,
-            post_start_inspect_digest="f" * 64,
-            exit_code=0,
-            stdout_digest="1" * 64,
-            stderr_digest="2" * 64,
-            network_mode="none",
-            rootfs_read_only=True,
-            environment_empty=True,
-            no_external_effect=True,
-            cleanup_remove_exit_code=0,
-            cleanup_absent=True,
-            cleanup_digest=content_digest(cleanup),
-            receipt_digest=receipt_digest,
-            local_integrity_hmac="0" * 64,
-        )
-
-    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
-        return None
 
 
 def _execution_bindings(
@@ -598,7 +528,7 @@ def test_controlled_receipt_carries_docker_execution_cleanup_integrity() -> None
         )
 
 
-def test_evaluate_unit_still_fail_closed_when_executor_is_available() -> None:
+def test_local_docker_and_controlled_receipts_remain_proposal_only() -> None:
     candidate = _candidate()
     docker_receipt = _docker_execution(candidate)
     assert isinstance(docker_receipt, DockerExecutionReceipt)
@@ -658,36 +588,21 @@ def test_controlled_receipt_rejects_unbounded_arm_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_execute_and_seal_calls_executor_with_exact_bound_request(
+def test_execute_and_seal_ignores_overridden_factory_instance(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    unit = _unit()
+    _, unit, _, loader = _real_srl_controller(tmp_path)
     decision, budget = _execution_bindings(unit, ArmId.SRL)
-    executor = trusted_docker_executor()
-    requests: list[DockerExecutionRequest] = []
-    real_start = executor._start_capped
-
-    def recording_start(
-        container_id: str,
-        *,
-        input_bytes: bytes,
-        timeout_seconds: int,
-        expected_worker: bytes = executor.worker_bytes,
-        expected_arguments: tuple[str, ...] = (),
-    ) -> tuple[bytes, bytes, int, str]:
-        requests.append(DockerExecutionRequest.from_json(input_bytes))
-        return real_start(
-            container_id,
-            input_bytes=input_bytes,
-            timeout_seconds=timeout_seconds,
-            expected_worker=expected_worker,
-            expected_arguments=expected_arguments,
-        )
-
-    monkeypatch.setattr(executor, "_start_capped", recording_start)
+    compromised = trusted_docker_executor()
+    monkeypatch.setattr(
+        compromised,
+        "execute",
+        lambda request: (_ for _ in ()).throw(AssertionError("instance dispatch used")),
+    )
 
     controlled = execute_and_seal_controlled_arm(
-        executor=executor,
+        unit_loader=loader,
         unit=unit,
         arm_id=ArmId.SRL,
         decision=decision,
@@ -695,48 +610,37 @@ def test_execute_and_seal_calls_executor_with_exact_bound_request(
         provider_probe_digest=decision.usage_receipt.probe_digest,
     )
 
-    assert len(requests) == 1
-    request = requests[0]
     binding = decision.binding_receipt
-    expected_request_binding = content_digest(
-        {
-            "unit_id": unit.unit_id,
-            "arm_id": ArmId.SRL.value,
-            "controller_binding_digest": binding.content_digest,
-            "budget_configuration_digest": budget.budget_configuration_digest,
-            "provider_probe_digest": decision.usage_receipt.probe_digest,
-        }
+    assert controlled.unit_digest == content_digest(
+        {"unit_id": unit.unit_id, "public_state_digest": unit.public_state.state_digest}
     )
-    assert request.request_id == f"docker-execution:{expected_request_binding}"
-    assert request.public_state_digest == unit.public_state.state_digest
-    assert request.candidate == decision.candidate
-    request_payload = request.to_mapping()
-    del request_payload["request_digest"]
-    assert request.request_digest == content_digest(request_payload)
     assert controlled.docker_execution_receipt_digest != ""
     assert controlled.controller_digest == binding.controller_digest
     assert controlled.budget_configuration_digest == budget.budget_configuration_digest
     assert controlled.provider_probe_digest == decision.usage_receipt.probe_digest
 
 
-def test_execute_and_seal_propagates_executor_failure_without_verification(
+def test_execute_and_seal_propagates_docker_os_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    unit = _unit()
+    _, unit, _, loader = _real_srl_controller(tmp_path)
     decision, budget = _execution_bindings(unit)
-    executor = trusted_docker_executor()
     calls = 0
+    real_docker_run = docker_exec_module._docker_run
 
-    def fail_create(**kwargs: Any) -> str:
+    def fail_create(args: list[str], *, timeout: int = 10) -> Any:
         nonlocal calls
-        calls += 1
-        raise RuntimeError("executor failed")
+        if args[:2] == ["docker", "create"]:
+            calls += 1
+            raise RuntimeError("docker OS seam failed")
+        return real_docker_run(args, timeout=timeout)
 
-    monkeypatch.setattr(executor, "_create_container", fail_create)
+    monkeypatch.setattr(docker_exec_module, "_docker_run", fail_create)
 
-    with pytest.raises(RuntimeError, match="executor failed"):
+    with pytest.raises(RuntimeError, match="docker OS seam failed"):
         execute_and_seal_controlled_arm(
-            executor=executor,
+            unit_loader=loader,
             unit=unit,
             arm_id=ArmId.DIRECT,
             decision=decision,
@@ -746,46 +650,59 @@ def test_execute_and_seal_propagates_executor_failure_without_verification(
     assert calls == 1
 
 
-def test_execute_and_seal_rejects_non_receipt_from_executor() -> None:
-    unit = _unit()
-    decision, budget = _execution_bindings(unit)
-    executor = _FakeReceiptExecutor({"receipt_digest": "f" * 64})
+@pytest.mark.parametrize("drift", ["none", "mac", "unit", "trigger"])
+def test_execute_and_seal_rejects_custody_drift_before_docker(
+    tmp_path: Path,
+    drift: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, loaded_unit, _, loader = _real_srl_controller(tmp_path)
+    unit = loaded_unit
+    if drift == "none":
+        unit = _unit()
+    elif drift == "mac":
+        assert unit.custody_receipt is not None
+        unit = replace(
+            unit,
+            custody_receipt=replace(unit.custody_receipt, custody_mac="0" * 64),
+        )
+    elif drift == "unit":
+        unit = replace(unit, event_id="event-drifted")
+    decision, budget = _execution_bindings(loaded_unit)
+    if drift == "trigger":
+        decision = replace(
+            decision,
+            binding_receipt=decision.binding_receipt.model_copy(
+                update={"trigger_digest": "9" * 64}
+            ),
+        )
+    calls = 0
 
-    with pytest.raises(TypeError, match="trusted DockerArmExecutor"):
+    def unexpected_docker(args: list[str], *, timeout: int = 10) -> Any:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("custody drift reached Docker")
+
+    monkeypatch.setattr(docker_exec_module, "_docker_run", unexpected_docker)
+    with pytest.raises(ValueError, match="custody|binding"):
         execute_and_seal_controlled_arm(
-            executor=cast(Any, executor),
+            unit_loader=loader,
             unit=unit,
             arm_id=ArmId.DIRECT,
             decision=decision,
             budget_receipt=budget,
             provider_probe_digest=decision.usage_receipt.probe_digest,
         )
-    assert executor.calls == 0
-
-
-def test_execute_and_seal_rejects_self_certified_executor_and_receipt() -> None:
-    unit = _unit()
-    decision, budget = _execution_bindings(unit)
-    executor = _SelfCertifiedExecutor()
-
-    with pytest.raises(TypeError, match="trusted DockerArmExecutor"):
-        execute_and_seal_controlled_arm(
-            executor=cast(Any, executor),
-            unit=unit,
-            arm_id=ArmId.DIRECT,
-            decision=decision,
-            budget_receipt=budget,
-            provider_probe_digest=decision.usage_receipt.probe_digest,
-        )
-    assert executor.calls == 0
+    assert calls == 0
 
 
 @pytest.mark.parametrize("drift", ["budget", "provider", "binding"])
 def test_execute_and_seal_rejects_binding_drift_before_executor_call(
+    tmp_path: Path,
     drift: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    unit = _unit()
+    _, unit, _, loader = _real_srl_controller(tmp_path)
     decision, budget = _execution_bindings(unit)
     provider_probe_digest = decision.usage_receipt.probe_digest
     if drift == "budget":
@@ -799,19 +716,18 @@ def test_execute_and_seal_rejects_binding_drift_before_executor_call(
                 update={"public_state_digest": "9" * 64}
             ),
         )
-    executor = trusted_docker_executor()
     calls = 0
 
-    def unexpected_create(**kwargs: Any) -> str:
+    def unexpected_create(args: list[str], *, timeout: int = 10) -> Any:
         nonlocal calls
         calls += 1
         raise AssertionError("binding drift reached Docker OS seam")
 
-    monkeypatch.setattr(executor, "_create_container", unexpected_create)
+    monkeypatch.setattr(docker_exec_module, "_docker_run", unexpected_create)
 
     with pytest.raises(ValueError, match="binding|receipt integrity"):
         execute_and_seal_controlled_arm(
-            executor=executor,
+            unit_loader=loader,
             unit=unit,
             arm_id=ArmId.DIRECT,
             decision=decision,
@@ -819,3 +735,13 @@ def test_execute_and_seal_rejects_binding_drift_before_executor_call(
             provider_probe_digest=provider_probe_digest,
         )
     assert calls == 0
+
+
+def test_trusted_receipt_ceiling_rejects_raw_identity_drift() -> None:
+    candidate = _candidate()
+    receipt = _docker_execution(candidate)
+    docker_exec_module.verify_trusted_docker_receipt_ceiling(receipt)
+    with pytest.raises(ValueError, match="trusted Docker policy ceiling"):
+        docker_exec_module.verify_trusted_docker_receipt_ceiling(
+            replace(receipt, policy_digest="9" * 64)
+        )

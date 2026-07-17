@@ -762,6 +762,36 @@ class DockerArmExecutor:
         }
 
 
+def verify_trusted_docker_receipt_ceiling(
+    receipt: DockerExecutionReceipt,
+) -> None:
+    """Recompute the fixed local ceiling; never trust receipt self-repetition."""
+
+    if type(receipt) is not DockerExecutionReceipt:
+        raise TypeError("trusted Docker execution requires an exact raw receipt")
+    expected = _expected_policy()
+    if (
+        receipt.image_identity != expected.allowed_image_identity
+        or receipt.resolved_image_id != expected.resolved_image_id
+        or receipt.policy_digest != expected.policy_digest
+        or receipt.worker_artifact_sha256 != expected.worker_artifact_sha256
+    ):
+        raise ValueError("raw receipt conflicts with trusted Docker policy ceiling")
+
+
+def execute_trusted_docker_request(
+    request: DockerExecutionRequest,
+) -> DockerExecutionReceipt:
+    """Create, execute, and locally verify through the sole trusted entry point."""
+
+    exact_request = DockerExecutionRequest.from_mapping(request.to_mapping())
+    executor = trusted_docker_executor()
+    receipt = executor.execute(exact_request)
+    executor.verify_local_receipt(receipt)
+    verify_trusted_docker_receipt_ceiling(receipt)
+    return receipt
+
+
 __all__ = [
     "DockerArmExecutor",
     "DockerExecutionFailed",
@@ -769,7 +799,9 @@ __all__ = [
     "DockerExecutionRequest",
     "DockerExecutorUnavailable",
     "DockerPolicyCeiling",
+    "execute_trusted_docker_request",
     "trusted_docker_executor",
+    "verify_trusted_docker_receipt_ceiling",
 ]
 
 
