@@ -39,6 +39,7 @@ from .contracts import (
     StaticBudgetConfiguration,
     decision_candidate_digest,
 )
+from .docker_exec import DockerExecutionReceipt, DockerExecutionRequest
 
 
 class ArmId(str, Enum):
@@ -1198,6 +1199,148 @@ def seal_controlled_execution_receipt(
         policy_digest=docker_policy_digest,
         worker_artifact_sha256=docker_worker_artifact_sha256,
         content_digest=receipt_digest,
+    )
+
+
+class DockerArmExecutorPort(Protocol):
+    """Narrow local execution port; it grants no scoring or evaluation authority."""
+
+    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt: ...
+
+    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None: ...
+
+
+def execute_and_seal_controlled_arm(
+    *,
+    executor: DockerArmExecutorPort,
+    unit: FrozenEvaluationUnit,
+    arm_id: ArmId,
+    decision: BoundControllerDecision,
+    budget_receipt: BudgetReceipt,
+    provider_probe_digest: str,
+) -> ControlledExecutionReceipt:
+    """Execute one bound proposal-only arm, verify its raw receipt, then seal it."""
+
+    if type(arm_id) is not ArmId:
+        raise ValueError("arm binding must use an exact ArmId")
+    _validate_sha256_digest("provider_probe_digest", provider_probe_digest)
+    try:
+        public_state = PublicResponsibilityState.model_validate(
+            unit.public_state.model_dump(mode="json")
+        )
+        budget = StaticBudgetConfiguration.model_validate(
+            unit.budget.model_dump(mode="json")
+        )
+        candidate = DecisionCandidate.model_validate(
+            decision.candidate.model_dump(mode="json")
+        )
+        binding = ControllerBindingReceipt.model_validate(
+            decision.binding_receipt.model_dump(mode="json")
+        )
+        usage = BudgetUsage(**decision.usage.__dict__)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError(
+            "controlled execution binding receipt integrity failed"
+        ) from None
+
+    usage_receipt = decision.usage_receipt
+    usage_payload = {
+        "probe_digest": usage_receipt.probe_digest,
+        "before_snapshot_digest": usage_receipt.before_snapshot_digest,
+        "after_snapshot_digest": usage_receipt.after_snapshot_digest,
+        "usage": usage.__dict__,
+        "duration_ms": usage_receipt.duration_ms,
+        "observed_at": usage_receipt.observed_at,
+    }
+    exact_bindings = (
+        public_state == unit.public_state,
+        budget == unit.budget,
+        candidate == decision.candidate,
+        binding == decision.binding_receipt,
+        candidate.public_state_digest == public_state.state_digest,
+        binding.public_state_digest == public_state.state_digest,
+        binding.candidate_digest == candidate.candidate_digest,
+        binding.budget_configuration_digest == budget.configuration_digest,
+        binding.authority_granted is False,
+        binding.external_effects_authorized is False,
+        usage_receipt.content_digest == content_digest(usage_payload),
+        provider_probe_digest == usage_receipt.probe_digest,
+        budget_receipt.arm_id is arm_id,
+        budget_receipt.unit_id == unit.unit_id,
+        budget_receipt.budget_configuration_digest == budget.configuration_digest,
+        budget_receipt.usage == usage,
+    )
+    if not all(exact_bindings):
+        raise ValueError("controlled execution bindings drifted")
+
+    request_binding_digest = content_digest(
+        {
+            "unit_id": unit.unit_id,
+            "arm_id": arm_id.value,
+            "controller_binding_digest": binding.content_digest,
+            "budget_configuration_digest": budget.configuration_digest,
+            "provider_probe_digest": provider_probe_digest,
+        }
+    )
+    request_payload: dict[str, object] = {
+        "schema_version": "1.0",
+        "request_id": f"docker-execution:{request_binding_digest}",
+        "public_state_digest": public_state.state_digest,
+        "candidate": candidate.model_dump(mode="json"),
+    }
+    request_payload["request_digest"] = content_digest(request_payload)
+    request = DockerExecutionRequest.from_mapping(request_payload)
+
+    raw_receipt = executor.execute(request)
+    if type(raw_receipt) is not DockerExecutionReceipt:
+        raise TypeError("executor must return a raw DockerExecutionReceipt")
+    raw_payload = raw_receipt.to_mapping(exclude_digest=True)
+    cleanup_digest = content_digest(
+        {
+            "cleanup_remove_exit_code": raw_receipt.cleanup_remove_exit_code,
+            "cleanup_absent": raw_receipt.cleanup_absent,
+        }
+    )
+    exact_raw_receipt = (
+        raw_receipt.request_id == request.request_id,
+        raw_receipt.request_digest == request.request_digest,
+        raw_receipt.public_state_digest == request.public_state_digest,
+        raw_receipt.candidate == request.candidate,
+        raw_receipt.receipt_digest == content_digest(raw_payload),
+        raw_receipt.cleanup_digest == cleanup_digest,
+        raw_receipt.exit_code == 0,
+        raw_receipt.network_mode == "none",
+        raw_receipt.rootfs_read_only is True,
+        raw_receipt.environment_empty is True,
+        raw_receipt.no_external_effect is True,
+        raw_receipt.cleanup_remove_exit_code == 0,
+        raw_receipt.cleanup_absent is True,
+    )
+    if not all(exact_raw_receipt):
+        raise ValueError("raw DockerExecutionReceipt conflicts with bound request")
+    executor.verify_local_receipt(raw_receipt)
+
+    return seal_controlled_execution_receipt(
+        unit_id=unit.unit_id,
+        arm_id=arm_id,
+        public_state_digest=public_state.state_digest,
+        controller_digest=binding.controller_digest,
+        prompt_digest=binding.prompt_digest,
+        model_digest=binding.model_digest,
+        tool_catalog_digest=binding.tool_catalog_digest,
+        budget_configuration_digest=budget.configuration_digest,
+        provider_probe_digest=provider_probe_digest,
+        docker_execution_receipt_digest=raw_receipt.receipt_digest,
+        docker_image_identity=raw_receipt.image_identity,
+        docker_resolved_image_id=raw_receipt.resolved_image_id,
+        docker_policy_digest=raw_receipt.policy_digest,
+        docker_worker_artifact_sha256=raw_receipt.worker_artifact_sha256,
+        docker_receipt_public_state_digest=raw_receipt.public_state_digest,
+        docker_receipt_image_identity=raw_receipt.image_identity,
+        docker_receipt_resolved_image_id=raw_receipt.resolved_image_id,
+        docker_receipt_policy_digest=raw_receipt.policy_digest,
+        docker_receipt_worker_artifact_sha256=raw_receipt.worker_artifact_sha256,
+        docker_receipt_receipt_digest=raw_receipt.receipt_digest,
     )
 
 

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
 from typing import Any
@@ -17,6 +18,7 @@ import pytest
 from agent_os_contracts import content_digest
 from product_evals.srl_e2e_falsifier.contracts import (
     CandidateKind,
+    ControllerBindingReceipt,
     DecisionCandidate,
     PublicContentManifest,
     PublicContentManifestEntry,
@@ -37,11 +39,15 @@ from product_evals.srl_e2e_falsifier.docker_exec import (
 )
 from product_evals.srl_e2e_falsifier.harness import (
     ArmId,
+    BoundControllerDecision,
+    BudgetReceipt,
     BudgetUsage,
     ControllerBindingConfig,
     ControlledExecutionReceipt,
     FrozenEvaluationUnit,
     MatchedBudgetLedger,
+    UsageReceipt,
+    execute_and_seal_controlled_arm,
     seal_controlled_execution_receipt,
 )
 
@@ -155,6 +161,113 @@ def _binding_config() -> ControllerBindingConfig:
         model_digest="3" * 64,
         tool_catalog_digest="4" * 64,
     )
+
+
+def _bound_decision(
+    unit: FrozenEvaluationUnit,
+    candidate: DecisionCandidate,
+) -> BoundControllerDecision:
+    config = _binding_config()
+    usage = BudgetUsage(llm_calls=1, input_tokens=7, output_tokens=3)
+    observed_at = datetime(2026, 7, 17, tzinfo=timezone.utc)
+    usage_payload = {
+        "probe_digest": "5" * 64,
+        "before_snapshot_digest": "6" * 64,
+        "after_snapshot_digest": "7" * 64,
+        "usage": usage.__dict__,
+        "duration_ms": 12,
+        "observed_at": observed_at,
+    }
+    usage_receipt = UsageReceipt(
+        probe_digest="5" * 64,
+        before_snapshot_digest="6" * 64,
+        after_snapshot_digest="7" * 64,
+        usage=usage,
+        duration_ms=12,
+        observed_at=observed_at,
+        content_digest=content_digest(usage_payload),
+    )
+    binding_payload = {
+        "schema_version": "1.0",
+        "public_state_digest": unit.public_state.state_digest,
+        "controller_digest": config.controller_digest,
+        "prompt_digest": config.prompt_digest,
+        "model_digest": config.model_digest,
+        "tool_catalog_digest": config.tool_catalog_digest,
+        "budget_configuration_digest": unit.budget.configuration_digest,
+        "trigger_digest": "8" * 64,
+        "candidate_digest": candidate.candidate_digest,
+        "bound_at": observed_at,
+        "authority_granted": False,
+        "external_effects_authorized": False,
+    }
+    binding_digest = content_digest(binding_payload)
+    binding_receipt = ControllerBindingReceipt.model_validate(
+        {
+            **binding_payload,
+            "receipt_id": f"controller-binding:{binding_digest}",
+            "content_digest": binding_digest,
+        }
+    )
+    return BoundControllerDecision(
+        candidate=candidate,
+        usage_receipt=usage_receipt,
+        binding_receipt=binding_receipt,
+    )
+
+
+class _RecordingExecutor:
+    def __init__(self, delegate: Any) -> None:
+        self.delegate = delegate
+        self.requests: list[DockerExecutionRequest] = []
+        self.verified: list[DockerExecutionReceipt] = []
+
+    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
+        self.requests.append(request)
+        return self.delegate.execute(request)
+
+    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
+        self.verified.append(receipt)
+        self.delegate.verify_local_receipt(receipt)
+
+
+class _FailingExecutor:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
+        self.calls += 1
+        raise RuntimeError("executor failed")
+
+    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
+        raise AssertionError("failed execution must not produce a receipt")
+
+
+class _FakeReceiptExecutor:
+    def __init__(self, receipt: object) -> None:
+        self.receipt = receipt
+        self.calls = 0
+
+    def execute(self, request: DockerExecutionRequest) -> Any:
+        self.calls += 1
+        return self.receipt
+
+    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
+        return None
+
+
+def _execution_bindings(
+    unit: FrozenEvaluationUnit,
+    arm_id: ArmId = ArmId.DIRECT,
+) -> tuple[BoundControllerDecision, BudgetReceipt]:
+    candidate = _candidate(unit.public_state.state_digest, CandidateKind.WORK)
+    decision = _bound_decision(unit, candidate)
+    budget = MatchedBudgetLedger().seal(
+        arm_id=arm_id,
+        unit=unit,
+        usage=decision.usage,
+    )
+    return decision, budget
 
 
 def _docker_execution(candidate: DecisionCandidate) -> DockerExecutionReceipt:
@@ -501,3 +614,116 @@ def test_controlled_receipt_rejects_unbounded_arm_id() -> None:
             docker_receipt_worker_artifact_sha256=docker_receipt.worker_artifact_sha256,
             docker_receipt_receipt_digest=docker_receipt.receipt_digest,
         )
+
+
+# ---------------------------------------------------------------------------
+# REAL EXECUTE-AND-SEAL WIRING
+# ---------------------------------------------------------------------------
+
+
+def test_execute_and_seal_calls_executor_with_exact_bound_request() -> None:
+    unit = _unit()
+    decision, budget = _execution_bindings(unit, ArmId.SRL)
+    executor = _RecordingExecutor(trusted_docker_executor())
+
+    controlled = execute_and_seal_controlled_arm(
+        executor=executor,
+        unit=unit,
+        arm_id=ArmId.SRL,
+        decision=decision,
+        budget_receipt=budget,
+        provider_probe_digest=decision.usage_receipt.probe_digest,
+    )
+
+    assert len(executor.requests) == 1
+    request = executor.requests[0]
+    binding = decision.binding_receipt
+    expected_request_binding = content_digest(
+        {
+            "unit_id": unit.unit_id,
+            "arm_id": ArmId.SRL.value,
+            "controller_binding_digest": binding.content_digest,
+            "budget_configuration_digest": budget.budget_configuration_digest,
+            "provider_probe_digest": decision.usage_receipt.probe_digest,
+        }
+    )
+    assert request.request_id == f"docker-execution:{expected_request_binding}"
+    assert request.public_state_digest == unit.public_state.state_digest
+    assert request.candidate == decision.candidate
+    request_payload = request.to_mapping()
+    del request_payload["request_digest"]
+    assert request.request_digest == content_digest(request_payload)
+    assert len(executor.verified) == 1
+    raw = executor.verified[0]
+    assert raw.request_id == request.request_id
+    assert raw.request_digest == request.request_digest
+    assert controlled.docker_execution_receipt_digest == raw.receipt_digest
+    assert controlled.controller_digest == binding.controller_digest
+    assert controlled.budget_configuration_digest == budget.budget_configuration_digest
+    assert controlled.provider_probe_digest == decision.usage_receipt.probe_digest
+
+
+def test_execute_and_seal_propagates_executor_failure_without_verification() -> None:
+    unit = _unit()
+    decision, budget = _execution_bindings(unit)
+    executor = _FailingExecutor()
+
+    with pytest.raises(RuntimeError, match="executor failed"):
+        execute_and_seal_controlled_arm(
+            executor=executor,
+            unit=unit,
+            arm_id=ArmId.DIRECT,
+            decision=decision,
+            budget_receipt=budget,
+            provider_probe_digest=decision.usage_receipt.probe_digest,
+        )
+    assert executor.calls == 1
+
+
+def test_execute_and_seal_rejects_non_receipt_from_executor() -> None:
+    unit = _unit()
+    decision, budget = _execution_bindings(unit)
+    executor = _FakeReceiptExecutor({"receipt_digest": "f" * 64})
+
+    with pytest.raises(TypeError, match="raw DockerExecutionReceipt"):
+        execute_and_seal_controlled_arm(
+            executor=executor,
+            unit=unit,
+            arm_id=ArmId.DIRECT,
+            decision=decision,
+            budget_receipt=budget,
+            provider_probe_digest=decision.usage_receipt.probe_digest,
+        )
+    assert executor.calls == 1
+
+
+@pytest.mark.parametrize("drift", ["budget", "provider", "binding"])
+def test_execute_and_seal_rejects_binding_drift_before_executor_call(
+    drift: str,
+) -> None:
+    unit = _unit()
+    decision, budget = _execution_bindings(unit)
+    provider_probe_digest = decision.usage_receipt.probe_digest
+    if drift == "budget":
+        budget = replace(budget, unit_id="other-unit")
+    elif drift == "provider":
+        provider_probe_digest = "9" * 64
+    else:
+        decision = replace(
+            decision,
+            binding_receipt=decision.binding_receipt.model_copy(
+                update={"public_state_digest": "9" * 64}
+            ),
+        )
+    executor = _FailingExecutor()
+
+    with pytest.raises(ValueError, match="binding|receipt integrity"):
+        execute_and_seal_controlled_arm(
+            executor=executor,
+            unit=unit,
+            arm_id=ArmId.DIRECT,
+            decision=decision,
+            budget_receipt=budget,
+            provider_probe_digest=provider_probe_digest,
+        )
+    assert executor.calls == 0
