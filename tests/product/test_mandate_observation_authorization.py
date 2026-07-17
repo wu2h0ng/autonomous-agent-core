@@ -22,6 +22,7 @@ from agent_os_contracts import (
     ObservationBindingDescriptor,
     PrincipalIdentity,
     PrincipalRole,
+    RatifiedMandateRef,
     RelevanceAssessorRef,
     RelevanceDisposition,
     TaskDraftProposal,
@@ -328,6 +329,75 @@ def test_receipt_or_index_tamper_fails_closed_after_restart(tmp_path) -> None:
         )
 
 
+def test_command_digest_tamper_fails_closed_on_list(tmp_path) -> None:
+    database, _, authorizer = _apps(tmp_path)
+    authorizer.authorize_mandate_observation_binding(
+        "mandate:build-agent-os", _command()
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE mandate_observation_authorizations SET command_digest = ?",
+            ("0" * 64,),
+        )
+    with pytest.raises(MandateObservationAuthorizationPersistenceConflict):
+        authorizer.list_mandate_observation_authorizations(
+            "mandate:build-agent-os"
+        )
+
+
+def test_same_mandate_id_is_isolated_by_tenant_and_workspace(tmp_path) -> None:
+    database, _, first_admin = _apps(tmp_path)
+    first_admin.authorize_mandate_observation_binding(
+        "mandate:build-agent-os", _command()
+    )
+    second_owner = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        principal=_principal(
+            "principal:owner-2",
+            role=PrincipalRole.PRINCIPAL,
+            tenant_id="tenant:second",
+            workspace_id="workspace:second",
+        ),
+        clock=lambda: NOW,
+    )
+    second_owner.create_mandate_workspace_record(
+        _payload(expires_at=NOW + timedelta(days=30))
+    )
+    second_admin = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        principal=_principal(
+            "principal:security-2",
+            role=PrincipalRole.TENANT_ADMIN,
+            tenant_id="tenant:second",
+            workspace_id="workspace:second",
+        ),
+        clock=lambda: NOW,
+        observation_binding_descriptors=(_descriptor(),),
+    )
+    second_admin.authorize_mandate_observation_binding(
+        "mandate:build-agent-os", _command(authorization_id="auth:second")
+    )
+    first = SQLiteSituatedAssessmentStore(database).resolve_active(
+        "mandate:build-agent-os",
+        "binding:data-agent-report:v1",
+        principal_id="principal:owner",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluated_at=NOW,
+    )
+    second = SQLiteSituatedAssessmentStore(database).resolve_active(
+        "mandate:build-agent-os",
+        "binding:data-agent-report:v1",
+        principal_id="principal:owner-2",
+        tenant_id="tenant:second",
+        workspace_id="workspace:second",
+        evaluated_at=NOW,
+    )
+    assert first[0].tenant_id != second[0].tenant_id
+
+
 def test_missing_expired_or_digest_drifted_workspace_record_fails_closed(
     tmp_path,
 ) -> None:
@@ -416,7 +486,15 @@ def test_caller_created_ratified_ref_cannot_enter_authorization_api(tmp_path) ->
 
 def test_http_authorize_and_list_observation_authorizations(tmp_path) -> None:
     _, _, authorizer = _apps(tmp_path)
-    handler = type("ObservationAuthorizationHandler", (Handler,), {"application": authorizer})
+    public = AgentOSApplication(database=tmp_path / "public.sqlite3", workspace=tmp_path)
+    handler = type(
+        "ObservationAuthorizationHandler",
+        (Handler,),
+        {
+            "application": public,
+            "admin_applications": {"opaque-admin-token": authorizer},
+        },
+    )
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -430,13 +508,18 @@ def test_http_authorize_and_list_observation_authorizations(tmp_path) -> None:
             headers={
                 "Content-Type": "application/json",
                 "Idempotency-Key": "same-http-key",
+                "Authorization": "Bearer opaque-admin-token",
             },
             method="POST",
         )
         with urllib.request.urlopen(request) as response:
             assert response.status == 201
             created = json.loads(response.read())
-        with urllib.request.urlopen(base + list_path) as response:
+        list_request = urllib.request.Request(
+            base + list_path,
+            headers={"Authorization": "Bearer opaque-admin-token"},
+        )
+        with urllib.request.urlopen(list_request) as response:
             assert response.status == 200
             listed = json.loads(response.read())
         assert listed == {"observation_authorizations": [created]}
@@ -449,6 +532,7 @@ def test_http_authorize_and_list_observation_authorizations(tmp_path) -> None:
             headers={
                 "Content-Type": "application/json",
                 "Idempotency-Key": "same-http-key",
+                "Authorization": "Bearer opaque-admin-token",
             },
             method="POST",
         )
@@ -457,6 +541,20 @@ def test_http_authorize_and_list_observation_authorizations(tmp_path) -> None:
         assert excinfo.value.code == 409
         conflict = json.loads(excinfo.value.read())
         assert conflict["error"] == "MandateObservationAuthorizationConflict"
+
+        for token in (None, "wrong-token"):
+            headers = {"Content-Type": "application/json"}
+            if token is not None:
+                headers["Authorization"] = f"Bearer {token}"
+            denied = urllib.request.Request(
+                base + path,
+                data=json.dumps(_command()).encode(),
+                headers=headers,
+                method="POST",
+            )
+            with pytest.raises(urllib.error.HTTPError) as denied_info:
+                urllib.request.urlopen(denied)
+            assert denied_info.value.code == 401
     finally:
         server.shutdown()
         server.server_close()
@@ -632,3 +730,8 @@ def test_real_data_agent_observation_replays_without_second_provider_assessment(
     assert replay == first
     assert replay_provider.decision_requests == []
     assert replay_app.list_tasks() == []
+
+    with sqlite3.connect(authority_database) as connection:
+        connection.execute("DELETE FROM mandate_observation_authorizations")
+    with pytest.raises(Exception, match="observation authorization"):
+        compose(replay_adapter, replay_provider)
