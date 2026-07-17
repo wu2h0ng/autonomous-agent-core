@@ -49,6 +49,7 @@ from agent_os_contracts import (
     TaskEventType,
     TaskDraftProposal,
     TaskStatus,
+    TrajectoryProjection,
     WorkflowGraph,
 )
 from agent_os_core import (
@@ -87,6 +88,7 @@ from agent_os_core import (
     TaskConfigurationRuntime,
     TaskConfigurationSnapshotService,
 )
+from agent_os_core.trajectory import TrajectoryProjector
 from domain_packs.developer_agent import manifest as developer_agent_manifest
 
 from .data_agent_report_adapter import (
@@ -261,6 +263,9 @@ class AgentOSApplication:
         self.policy = PolicyKernel(self.correction)
         live_base_url = os.environ.get("AGENT_OS_PROVIDER_BASE_URL")
         live_model = os.environ.get("AGENT_OS_PROVIDER_MODEL", "gpt-4o-mini")
+        live_model_revision_digest = os.environ.get(
+            "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
+        )
         credential_key = os.environ.get(
             "AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY"
         )
@@ -281,6 +286,7 @@ class AgentOSApplication:
             profile_id="provider-profile:default",
             provider_id="openai-compatible" if live_base_url else "deterministic",
             model_id=live_model if live_base_url else "deterministic-v1",
+            model_revision_digest=live_model_revision_digest,
             endpoint_class="openai-compatible" if live_base_url else "test",
             credential_ref_id=credential_ref.credential_ref_id,
             capabilities=("chat",),
@@ -295,6 +301,7 @@ class AgentOSApplication:
                 credential=credential_ref,
                 credentials=EnvCredentialBroker(),
                 timeout_seconds=60,
+                provider_profile=self.provider_profile,
             )
             if live_base_url
             else DeterministicProvider(text="provider proposal accepted")
@@ -544,6 +551,7 @@ class AgentOSApplication:
             "configured": self.provider_configured,
             "provider_id": self.provider_profile.provider_id,
             "model_id": self.provider_profile.model_id,
+            "model_revision_digest": self.provider_profile.model_revision_digest,
             "endpoint_class": self.provider_profile.endpoint_class,
             "credential_ref_id": self.provider_profile.credential_ref_id,
         }
@@ -553,6 +561,13 @@ class AgentOSApplication:
         if base_url.endswith("/chat/completions"):
             base_url = base_url.removesuffix("/chat/completions")
         model = str(payload.get("model", "")).strip()
+        model_revision_digest = payload.get("model_revision_digest")
+        if model_revision_digest is not None and (
+            not isinstance(model_revision_digest, str)
+            or len(model_revision_digest) != 64
+            or any(character not in "0123456789abcdef" for character in model_revision_digest)
+        ):
+            raise ValueError("model_revision_digest must be a lowercase SHA-256 digest")
         api_key = payload.get("api_key")
         temperature = float(payload.get("temperature", 1.0))
         parsed = urlparse(base_url)
@@ -583,6 +598,7 @@ class AgentOSApplication:
             profile_id=f"provider-profile:{uuid4()}",
             provider_id="openai-compatible",
             model_id=model,
+            model_revision_digest=model_revision_digest,
             endpoint_class="openai-compatible",
             credential_ref_id=credential.credential_ref_id,
             capabilities=("chat", "tool-calls"),
@@ -597,6 +613,7 @@ class AgentOSApplication:
             credentials=EnvCredentialBroker(),
             timeout_seconds=60,
             temperature=temperature,
+            provider_profile=profile,
         )
         smoke = provider.complete(
             ProviderRequest(
@@ -624,6 +641,22 @@ class AgentOSApplication:
 
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
+
+    def project_task_trajectory(
+        self,
+        task_id: str,
+        run_id: str,
+    ) -> TrajectoryProjection:
+        """Project safe, read-only task/run provenance from durable events."""
+
+        projection = TrajectoryProjector().project(self.store, task_id, run_id)
+        manifest = projection.manifest
+        if (
+            manifest.tenant_id != self.principal.tenant_id
+            or manifest.workspace_id != self.principal.workspace_id
+        ):
+            raise PermissionError("trajectory principal scope mismatch")
+        return projection
 
     def observe_data_agent_report(self, trace_id: str) -> TrustedObservationBundle:
         if self._data_agent_situated_runtime is not None:

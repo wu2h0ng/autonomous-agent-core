@@ -85,6 +85,7 @@ from .provider import (
     CredentialStatus,
     ProviderErrorCode,
     ProviderFailure,
+    ProviderExecutionReceipt,
     ProviderInvocationBinding,
     ProviderMessage,
     ProviderMessageRole,
@@ -94,6 +95,7 @@ from .provider import (
     ProviderResponse,
     ProviderToolProposal,
     ProviderUsage,
+    provider_execution_receipt_digest,
 )
 from .protocol_ingress import (
     ActorRef,
@@ -369,6 +371,7 @@ __all__ = [
     "PrincipalRole",
     "ProviderErrorCode",
     "ProviderFailure",
+    "ProviderExecutionReceipt",
     "ProviderInvocationBinding",
     "ProviderDecisionRequest",
     "ProviderMessage",
@@ -379,6 +382,7 @@ __all__ = [
     "ProviderResponse",
     "ProviderToolProposal",
     "ProviderUsage",
+    "provider_execution_receipt_digest",
     "PriorEvaluationSource",
     "ProjectionEpistemicStatus",
     "RatifiedMandateRef",

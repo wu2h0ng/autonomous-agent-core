@@ -183,6 +183,19 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 parts = parsed.path.strip("/").split("/")
                 if (
+                    len(parts) == 6
+                    and parts[:2] == ["v1", "tasks"]
+                    and parts[3] == "runs"
+                    and parts[5] == "trajectory"
+                    and not parsed.query
+                    and not parsed.fragment
+                ):
+                    projection = self.application.project_task_trajectory(
+                        parts[2], parts[4]
+                    )
+                    self._json(200, projection.model_dump(mode="json"))
+                    return
+                if (
                     len(parts) in {4, 5}
                     and parts[:2] == ["v1", "tasks"]
                     and parts[3] == "configuration-snapshots"

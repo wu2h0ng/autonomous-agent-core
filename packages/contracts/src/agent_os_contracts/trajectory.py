@@ -57,7 +57,9 @@ class ModelInvocationRef(ContractModel):
     provider_id: NonEmptyStr | None = None
     model_id: NonEmptyStr | None = None
     model_revision_digest: Sha256Digest | None = None
+    request_id: NonEmptyStr | None = None
     request_digest: Sha256Digest | None = None
+    response_id: NonEmptyStr | None = None
     response_digest: Sha256Digest
     invocation_binding_digest: Sha256Digest | None = None
     working_set_ref: WorkingSetRef

@@ -14,6 +14,9 @@ from agent_os_contracts import (
     EpisodeManifest,
     ModelInvocationRef,
     OutcomeLink,
+    ProviderExecutionReceipt,
+    ProviderProfile,
+    TaskConfigurationSnapshot,
     TaskEvent,
     TaskEventType,
     TrajectoryProjection,
@@ -130,6 +133,7 @@ class TrajectoryProjector:
         working_set_ref = self._working_set_ref(selected)
         correction_epoch = self._correction_epoch(selected)
         self._validate_correction_epoch_use(selected)
+        sealed_provider_profile = self._sealed_provider_profile(selected)
 
         missing: list[str] = []
         if workflow_digest is None:
@@ -152,7 +156,16 @@ class TrajectoryProjector:
             step_id = f"step:{event.sequence}:{event.event_id}"
             prior_step_ids = tuple(step.step_id for step in steps)
             model_ref = self._model_ref(
-                event, payload, provider_profile_id, working_set_ref
+                event,
+                payload,
+                provider_profile_id,
+                working_set_ref,
+                task_id=task_id,
+                run_id=run_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                correction_epoch=correction_epoch,
+                sealed_provider_profile=sealed_provider_profile,
             )
             capability_ref = self._capability_ref(
                 event, payload, policy_version, policy_digest
@@ -332,19 +345,39 @@ class TrajectoryProjector:
     @staticmethod
     def _working_set_ref(events: tuple[TaskEvent, ...]) -> WorkingSetRef:
         for event in reversed(events):
-            payload = event.decoded_payload()
-            digest = _optional_str(_find_first(payload, "working_set_digest"))
-            if digest is not None:
-                identity = _optional_str(_find_first(payload, "working_set_id"))
-                return WorkingSetRef(
-                    status=BindingStatus.BOUND,
-                    working_set_id=identity or f"digest:{digest}",
-                    digest=digest,
-                )
+            if event.event_type is not TaskEventType.PROVIDER_RESPONDED:
+                continue
+            raw_receipt = event.decoded_payload().get("provider_execution_receipt")
+            if not isinstance(raw_receipt, Mapping):
+                continue
+            receipt = ProviderExecutionReceipt.model_validate(raw_receipt)
+            if receipt.working_set_ref.status is BindingStatus.BOUND:
+                return receipt.working_set_ref
         return WorkingSetRef(
             status=BindingStatus.MISSING,
-            gap_reason="no working-set digest exists in the source event stream",
+            gap_reason="no TrustedWorkingSet receipt exists in the source event stream",
         )
+
+    @staticmethod
+    def _sealed_provider_profile(
+        events: tuple[TaskEvent, ...],
+    ) -> ProviderProfile | None:
+        for event in events:
+            if (
+                event.event_type
+                is not TaskEventType.TASK_CONFIGURATION_SNAPSHOT_SEALED
+            ):
+                continue
+            payload = event.decoded_payload()
+            snapshot = _mapping(payload.get("configuration_snapshot"))
+            if not snapshot:
+                snapshot = _mapping(payload.get("snapshot"))
+            if not snapshot:
+                raise EventStreamError(
+                    "configuration snapshot event lacks typed snapshot payload"
+                )
+            return TaskConfigurationSnapshot.model_validate(snapshot).provider_profile
+        return None
 
     @staticmethod
     def _correction_epoch(events: tuple[TaskEvent, ...]) -> int:
@@ -377,7 +410,15 @@ class TrajectoryProjector:
                     )
                 current[scope] = epoch
                 continue
-            vectors = _all_values(payload, "observed_correction_epochs")
+            vectors = tuple(
+                value
+                for key in (
+                    "observed_correction_epochs",
+                    "pre_correction_epochs",
+                    "post_correction_epochs",
+                )
+                for value in _all_values(payload, key)
+            )
             for value in vectors:
                 vector = _mapping(value)
                 for scope, field in (
@@ -398,10 +439,65 @@ class TrajectoryProjector:
         payload: Mapping[str, Any],
         provider_profile_id: str | None,
         working_set_ref: WorkingSetRef,
+        *,
+        task_id: str,
+        run_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        correction_epoch: int,
+        sealed_provider_profile: ProviderProfile | None,
     ) -> ModelInvocationRef | None:
         if event.event_type is not TaskEventType.PROVIDER_RESPONDED:
             return None
-        missing: list[str] = []
+        raw_receipt = payload.get("provider_execution_receipt")
+        if isinstance(raw_receipt, Mapping):
+            receipt = ProviderExecutionReceipt.model_validate(raw_receipt)
+            if (
+                receipt.task_id != task_id
+                or receipt.run_id != run_id
+                or receipt.tenant_id != tenant_id
+                or receipt.workspace_id != workspace_id
+                or receipt.provider_profile_id != provider_profile_id
+                or receipt.correction_epoch != correction_epoch
+            ):
+                raise ScopeMismatchError(
+                    "provider execution receipt scope or correction epoch mismatch"
+                )
+            event_node_id = _optional_str(payload.get("node_id"))
+            if receipt.source_event_id != event.event_id:
+                raise ScopeMismatchError(
+                    "provider receipt source event binding mismatch"
+                )
+            if receipt.node_id != event_node_id:
+                raise ScopeMismatchError("provider receipt node binding mismatch")
+            if sealed_provider_profile is not None and (
+                receipt.provider_profile_id != sealed_provider_profile.profile_id
+                or receipt.provider_profile_digest
+                != content_digest(sealed_provider_profile)
+                or receipt.provider_id != sealed_provider_profile.provider_id
+                or receipt.model_id != sealed_provider_profile.model_id
+                or receipt.model_revision_digest
+                != sealed_provider_profile.model_revision_digest
+            ):
+                raise ScopeMismatchError(
+                    "provider execution receipt configuration binding mismatch"
+                )
+            return ModelInvocationRef(
+                source_event_id=event.event_id,
+                provider_profile_id=receipt.provider_profile_id,
+                provider_profile_digest=receipt.provider_profile_digest,
+                provider_id=receipt.provider_id,
+                model_id=receipt.model_id,
+                model_revision_digest=receipt.model_revision_digest,
+                request_id=receipt.request_id,
+                request_digest=receipt.request_digest,
+                response_id=receipt.response_id,
+                response_digest=receipt.response_digest,
+                invocation_binding_digest=receipt.invocation_binding_digest,
+                working_set_ref=receipt.working_set_ref,
+                missing_fields=receipt.missing_fields,
+            )
+        missing: list[str] = ["request_id", "response_id"]
         values: dict[str, str | None] = {}
         for field in (
             "provider_profile_digest",
@@ -426,7 +522,9 @@ class TrajectoryProjector:
             provider_id=values["provider_id"],
             model_id=values["model_id"],
             model_revision_digest=values["model_revision_digest"],
+            request_id=None,
             request_digest=values["request_digest"],
+            response_id=None,
             response_digest=content_digest(payload),
             invocation_binding_digest=values["invocation_binding_digest"],
             working_set_ref=working_set_ref,
