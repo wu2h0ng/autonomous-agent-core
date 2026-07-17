@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-17T16:30:05+08:00"
+updated: "2026-07-17T16:42:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715"
-status: "Canonical convergence is clean at independently approved integration head efc59c8 after merging P-SRL-RUNTIME-M1-plus and Evaluator Authority V0. The Product path now includes authenticated protocol admission, separated principal/actor/workload/delegation identities, durable replay/conflict handling, trusted resource authorization and Working Set assembly, proposal-only MandateSteward, external durable/policy/telemetry adapter boundaries, and a provider-neutral evaluator registry with durable local sealed receipts but no Outcome authority. Post-merge evidence is 270 focused tests passed, 1340 Product tests passed/1 skipped, clean Ruff/Pyright/diff and an independent APPROVE_INTEGRATION_WINDOW. Trajectory/Credit V0 was deliberately excluded from this integration window pending its next-window review. Nothing here establishes a result-bearing run, W1/W2 learning effectiveness, production identity/KMS/cross-host custody, main release, Agent OS Alpha or Autonomy(S,E,O,V,T)."
+status: "Canonical convergence is clean at independently approved second integration head bd56ff4 after merging P-SRL-RUNTIME-M1-plus, Evaluator Authority V0 and Trajectory/Credit V0. The Product path now includes authenticated protocol admission, typed identity separation, durable replay/conflict handling, trusted resource authorization and Working Set assembly, proposal-only MandateSteward, external durable/policy/telemetry adapter boundaries, a provider-neutral evaluator registry with durable local sealed receipts but no Outcome authority, and deterministic read-only task-event trajectory projection with a scoped append-only credit ledger. Window-2 evidence is 196 focused tests passed, 1376 Product tests passed/1 skipped, clean Ruff/Pyright/diff and APPROVE_INTEGRATION_WINDOW_2. Trajectory/Credit remains an offline data contract with no W1/W2 mutation or activation entry. Nothing here establishes a result-bearing run, learning effectiveness, production identity/KMS/cross-host custody, main release, Agent OS Alpha or Autonomy(S,E,O,V,T)."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -264,6 +264,15 @@ parked_work:
     source: "../docs/research/founder-decision-2026-07-14-governed-core-evolution.md"
 
 recently_completed:
+  - id: "P-TRAJECTORY-CREDIT-CONTRACT-0"
+    track: "product_and_translational"
+    status: "IMPLEMENTED_REVIEWED_AND_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_BD56FF4 / OFFLINE_DATA_CONTRACT_ONLY / NO_W1_W2_ACTIVATION"
+    result: "TrajectoryProjector deterministically projects scoped TaskEventStore history into versioned episode/step/outcome/correction references with explicit missing bindings. CreditLedger uses projection-bound scoped keys, canonical records, hash-chain/head CAS and typed uncertain evidence refs. Window-2 verification passed 196 focused and 1376 Product tests/1 skipped with clean Ruff/Pyright/diff."
+    boundary: "No credit entry can modify policy, grant, evaluator, Task or Runtime authority. V0 forbids deterministic zero-uncertainty causal credit; W1/W2 outcome consumption and effectiveness remain unimplemented and untested."
+    source:
+      - "packages/contracts/src/agent_os_contracts/trajectory.py"
+      - "packages/os_core/src/agent_os_core/trajectory.py"
+      - "tests/product/test_trajectory_credit.py"
   - id: "P-EVALUATOR-AUTHORITY-1-V0"
     track: "product_and_architecture"
     status: "IMPLEMENTED_REVIEWED_AND_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_EFC59C8 / LOCAL_PROCESS_ISOLATED_CUSTODY / NO_OUTCOME_AUTHORITY"
