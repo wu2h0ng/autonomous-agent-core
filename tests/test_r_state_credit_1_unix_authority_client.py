@@ -6,8 +6,10 @@ import hmac
 import json
 import os
 import socket
+import stat
 import struct
 import subprocess
+import shutil
 import tempfile
 import threading
 from collections.abc import Callable
@@ -31,6 +33,13 @@ PROTOCOL = "r-state-authority-v1"
 BROKER = "workflow-authority-broker-1"
 SERVER_NONCE = "5" * 64
 MAX_FRAME = 64 * 1024
+_OPENSSL_LOCATOR = shutil.which("openssl")
+assert _OPENSSL_LOCATOR is not None
+_OPENSSL_BINARY = Path(_OPENSSL_LOCATOR).resolve()
+
+
+def _openssl_binary() -> Path:
+    return _OPENSSL_BINARY
 
 
 def _socket_path(label: str) -> Path:
@@ -65,7 +74,7 @@ def _sign(private_key: Path, payload: dict[str, object]) -> bytes:
     message_path.write_bytes(unsigned)
     completed = subprocess.run(
         [
-            "openssl",
+            str(_openssl_binary()),
             "pkeyutl",
             "-sign",
             "-inkey",
@@ -174,13 +183,20 @@ def keypair(tmp_path: Path) -> tuple[Path, Path, str]:
     private_key = tmp_path / "private.pem"
     public_key = tmp_path / "public.pem"
     subprocess.run(
-        ["openssl", "genpkey", "-algorithm", "ED25519", "-out", str(private_key)],
+        [
+            str(_openssl_binary()),
+            "genpkey",
+            "-algorithm",
+            "ED25519",
+            "-out",
+            str(private_key),
+        ],
         check=True,
         capture_output=True,
     )
     subprocess.run(
         [
-            "openssl",
+            str(_openssl_binary()),
             "pkey",
             "-in",
             str(private_key),
@@ -195,18 +211,27 @@ def keypair(tmp_path: Path) -> tuple[Path, Path, str]:
     return private_key, public_key, digest
 
 
-def _admission(public_key_sha256: str) -> ExecutionAdmission:
+def _admission(
+    public_key_sha256: str,
+    *,
+    verifier_binary_path: Path | None = None,
+    verifier_binary_sha256: str | None = None,
+) -> ExecutionAdmission:
+    verifier = verifier_binary_path or _openssl_binary()
     isolation_binding = {
-        "schema_version": "r-state-credit-1-isolation-binding-v1",
+        "schema_version": "r-state-credit-1-isolation-binding-v2",
         "interpreter_path": "/usr/bin/python3",
         "interpreter_sha256": "4" * 64,
         "sandbox_profile_sha256": "3" * 64,
         "required_deny_set_sha256": "2" * 64,
         "authority_public_key_sha256": public_key_sha256,
         "child_command_sha256": "1" * 64,
+        "verifier_binary_path": str(verifier),
+        "verifier_binary_sha256": verifier_binary_sha256
+        or hashlib.sha256(verifier.read_bytes()).hexdigest(),
     }
     mapping: dict[str, object] = {
-        "schema_version": "r-state-credit-1-execution-admission-v3",
+        "schema_version": "r-state-credit-1-execution-admission-v4",
         "route_id": "R-STATE-CREDIT-1",
         "run_id": "run-authority-client-1",
         "freeze_subject_digest": "a" * 64,
@@ -297,6 +322,8 @@ def _client(
         socket_path=socket_path,
         response_public_key_path=public_key,
         reservation_token_fd=read_fd,
+        verifier_binary_path=Path(admission.isolation_binding.verifier_binary_path),
+        verifier_binary_sha256=admission.isolation_binding.verifier_binary_sha256,
     )
 
 
@@ -500,7 +527,94 @@ def test_public_key_and_token_are_pinned_not_trusted_by_locator(
             socket_path=socket_path,
             response_public_key_path=public_key,
             reservation_token_fd=read_fd,
+            verifier_binary_path=Path(admission.isolation_binding.verifier_binary_path),
+            verifier_binary_sha256=(admission.isolation_binding.verifier_binary_sha256),
         )
+
+
+def test_verifier_binary_path_hash_and_symlink_fail_closed(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+) -> None:
+    _private_key, public_key, public_digest = keypair
+    real_binary = _openssl_binary()
+
+    wrong_hash = _admission(public_digest, verifier_binary_sha256="0" * 64)
+    with pytest.raises(ExecutionBridgeViolation, match="verifier binary digest"):
+        _client(wrong_hash, _socket_path("wrong-verifier-hash"), public_key)
+
+    symlink = tmp_path / "openssl-link"
+    symlink.symlink_to(real_binary)
+    symlink_admission = _admission(
+        public_digest,
+        verifier_binary_path=symlink,
+        verifier_binary_sha256=hashlib.sha256(real_binary.read_bytes()).hexdigest(),
+    )
+    with pytest.raises(ExecutionBridgeViolation, match="real non-symlink"):
+        _client(symlink_admission, _socket_path("symlink-verifier"), public_key)
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, TOKEN)
+    os.close(write_fd)
+    with pytest.raises(ExecutionBridgeViolation, match="signed verifier.*drift"):
+        UnixAuthorityClient(
+            admission=_admission(public_digest),
+            socket_path=_socket_path("verifier-path-drift"),
+            response_public_key_path=public_key,
+            reservation_token_fd=read_fd,
+            verifier_binary_path=tmp_path / "different-openssl",
+            verifier_binary_sha256=hashlib.sha256(real_binary.read_bytes()).hexdigest(),
+        )
+
+
+def test_verifier_binary_bytes_are_rechecked_before_every_signature(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+) -> None:
+    _private_key, public_key, public_digest = keypair
+    verifier = tmp_path / "openssl-copy"
+    shutil.copy2(_openssl_binary(), verifier)
+    verifier.chmod(verifier.stat().st_mode | stat.S_IWUSR)
+    admission = _admission(public_digest, verifier_binary_path=verifier)
+    client = _client(admission, _socket_path("verifier-drift"), public_key)
+
+    verifier.write_bytes(verifier.read_bytes() + b"drift")
+
+    with pytest.raises(ExecutionBridgeViolation, match="verifier binary digest"):
+        client._verify_ed25519(b"message", b"signature")
+
+
+def test_path_replacement_cannot_change_signed_verifier(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    private_key, public_key, public_digest = keypair
+    fake_directory = tmp_path / "fake-path"
+    fake_directory.mkdir()
+    fake_openssl = fake_directory / "openssl"
+    fake_openssl.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    fake_openssl.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fake_directory))
+    admission = _admission(public_digest)
+    socket_path = _socket_path("path-replacement")
+
+    def handler(request: dict[str, object]) -> bytes:
+        return _response(
+            request,
+            {
+                "abort_requested": False,
+                "owner_id": admission.c7_binding.owner_id,
+                "policy_sha256": admission.c7_binding.policy_sha256,
+                "correction_epoch": admission.c7_binding.correction_epoch,
+                "c7_epoch": 1,
+            },
+            private_key,
+            public_digest,
+        )
+
+    with _Server(socket_path, [handler]):
+        assert _client(admission, socket_path, public_key).abort_requested() is False
 
 
 def test_client_half_closes_request_before_reading_signed_response(

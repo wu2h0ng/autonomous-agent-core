@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -413,17 +414,20 @@ def _envelope_bytes(
         "max_total_tokens_per_call": 2,
     }
     budget.update(budget_changes)
+    verifier_binary = Path(cast(str, shutil.which("openssl"))).resolve()
     isolation_binding = {
-        "schema_version": "r-state-credit-1-isolation-binding-v1",
+        "schema_version": "r-state-credit-1-isolation-binding-v2",
         "interpreter_path": "/usr/bin/python3",
         "interpreter_sha256": "4" * 64,
         "sandbox_profile_sha256": "3" * 64,
         "required_deny_set_sha256": "2" * 64,
         "authority_public_key_sha256": "6" * 64,
         "child_command_sha256": "1" * 64,
+        "verifier_binary_path": str(verifier_binary),
+        "verifier_binary_sha256": _sha(verifier_binary.read_bytes()),
     }
     payload: dict[str, object] = {
-        "schema_version": "r-state-credit-1-execution-admission-v3",
+        "schema_version": "r-state-credit-1-execution-admission-v4",
         "route_id": "R-STATE-CREDIT-1",
         "run_id": "run-bridge-test-1",
         "freeze_subject_digest": "a" * 64,
@@ -536,6 +540,13 @@ def test_execution_admission_is_closed_canonical_and_pinned(
     missing_isolation.pop("isolation_binding")
     with pytest.raises(ExecutionBridgeViolation, match="closed"):
         ExecutionAdmission.from_mapping(missing_isolation)
+
+    relative_verifier = json.loads(encoded)
+    relative_verifier["isolation_binding"]["verifier_binary_path"] = "openssl"
+    with pytest.raises(
+        ExecutionBridgeViolation, match="verifier_binary_path.*absolute"
+    ):
+        ExecutionAdmission.from_mapping(relative_verifier)
 
     floating = json.loads(encoded)
     floating["provider_binding"]["model_id"] = "ark-code-latest"

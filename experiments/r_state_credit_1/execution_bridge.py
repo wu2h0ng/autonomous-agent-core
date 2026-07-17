@@ -32,7 +32,7 @@ from experiments.r_state_credit_1.recast_scorer import RawRecastScorer
 from experiments.r_state_credit_1.run_contracts import CheckpointId, HELD_OUT_SEEDS
 
 
-SCHEMA_VERSION = "r-state-credit-1-execution-admission-v3"
+SCHEMA_VERSION = "r-state-credit-1-execution-admission-v4"
 ROUTE_ID = "R-STATE-CREDIT-1"
 # This is the independently reviewed mechanism baseline, not the Git HEAD of
 # this execution adapter.  Execution bytes are anchored by the active manifest
@@ -225,16 +225,22 @@ class IsolationBinding:
     required_deny_set_sha256: str
     authority_public_key_sha256: str
     child_command_sha256: str
+    verifier_binary_path: str
+    verifier_binary_sha256: str
 
     @classmethod
     def from_mapping(cls, value: object) -> IsolationBinding:
         raw = _closed(value, {field.name for field in fields(cls)}, "isolation_binding")
         result = cls(**raw)  # type: ignore[arg-type]
-        if result.schema_version != "r-state-credit-1-isolation-binding-v1":
+        if result.schema_version != "r-state-credit-1-isolation-binding-v2":
             raise ExecutionBridgeViolation("isolation binding schema drift")
         if not result.interpreter_path.startswith("/"):
             raise ExecutionBridgeViolation(
                 "isolation interpreter_path must be absolute"
+            )
+        if not Path(result.verifier_binary_path).is_absolute():
+            raise ExecutionBridgeViolation(
+                "isolation verifier_binary_path must be absolute"
             )
         for field_name in (
             "interpreter_sha256",
@@ -242,6 +248,7 @@ class IsolationBinding:
             "required_deny_set_sha256",
             "authority_public_key_sha256",
             "child_command_sha256",
+            "verifier_binary_sha256",
         ):
             _require_sha256(getattr(result, field_name), f"isolation {field_name}")
         return result

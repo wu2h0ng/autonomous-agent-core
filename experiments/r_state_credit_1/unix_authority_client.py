@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import socket
+import stat
 import struct
 import subprocess
 import tempfile
@@ -117,33 +118,12 @@ class UnixAuthorityClient:
         socket_path: Path,
         response_public_key_path: Path,
         reservation_token_fd: int,
+        verifier_binary_path: Path,
+        verifier_binary_sha256: str,
         timeout_seconds: float = 5.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ExecutionBridgeViolation("authority timeout must be positive")
-        self._admission = admission
-        self._socket_path = socket_path
-        self._timeout_seconds = timeout_seconds
-        self.owner_id = admission.c7_binding.owner_id
-        self.policy_sha256 = admission.c7_binding.policy_sha256
-        self.correction_epoch = admission.c7_binding.correction_epoch
-        self._last_c7_epoch = 0
-        self._last_abort_requested: bool | None = None
-        self._claimant_nonces: dict[str, str] = {}
-
-        try:
-            public_key = response_public_key_path.read_bytes()
-        except OSError as exc:
-            raise ExecutionBridgeViolation(
-                "authority public key is unavailable"
-            ) from exc
-        if (
-            hashlib.sha256(public_key).hexdigest()
-            != admission.authority_binding.response_public_key_sha256
-        ):
-            raise ExecutionBridgeViolation("authority public key digest drift")
-        self._public_key = public_key
-
         try:
             token = os.read(reservation_token_fd, 33)
         except OSError as exc:
@@ -160,6 +140,85 @@ class UnixAuthorityClient:
         ):
             raise ExecutionBridgeViolation("reservation token digest drift")
         self._reservation_token = token
+        self._admission = admission
+        self._socket_path = socket_path
+        self._timeout_seconds = timeout_seconds
+        self.owner_id = admission.c7_binding.owner_id
+        self.policy_sha256 = admission.c7_binding.policy_sha256
+        self.correction_epoch = admission.c7_binding.correction_epoch
+        self._last_c7_epoch = 0
+        self._last_abort_requested: bool | None = None
+        self._claimant_nonces: dict[str, str] = {}
+        isolation = admission.isolation_binding
+        if (
+            str(verifier_binary_path) != isolation.verifier_binary_path
+            or verifier_binary_sha256 != isolation.verifier_binary_sha256
+        ):
+            raise ExecutionBridgeViolation("signed verifier binary binding drift")
+        self._verifier_binary_path = verifier_binary_path
+        self._verifier_binary_sha256 = _sha(
+            verifier_binary_sha256, "verifier binary SHA-256"
+        )
+        self._verify_verifier_binary()
+
+        try:
+            public_key = response_public_key_path.read_bytes()
+        except OSError as exc:
+            raise ExecutionBridgeViolation(
+                "authority public key is unavailable"
+            ) from exc
+        if (
+            hashlib.sha256(public_key).hexdigest()
+            != admission.authority_binding.response_public_key_sha256
+        ):
+            raise ExecutionBridgeViolation("authority public key digest drift")
+        self._public_key = public_key
+
+    def _verify_verifier_binary(self) -> None:
+        path = self._verifier_binary_path
+        if not path.is_absolute():
+            raise ExecutionBridgeViolation("verifier binary path must be absolute")
+        try:
+            path_stat = path.lstat()
+        except OSError as exc:
+            raise ExecutionBridgeViolation("verifier binary is unavailable") from exc
+        if stat.S_ISLNK(path_stat.st_mode) or not stat.S_ISREG(path_stat.st_mode):
+            raise ExecutionBridgeViolation(
+                "verifier binary must be a real non-symlink file"
+            )
+        if path_stat.st_mode & 0o111 == 0:
+            raise ExecutionBridgeViolation("verifier binary must be executable")
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as exc:
+            raise ExecutionBridgeViolation(
+                "verifier binary secure open failed"
+            ) from exc
+        try:
+            opened_stat = os.fstat(descriptor)
+            if not stat.S_ISREG(opened_stat.st_mode) or (
+                opened_stat.st_dev,
+                opened_stat.st_ino,
+            ) != (path_stat.st_dev, path_stat.st_ino):
+                raise ExecutionBridgeViolation("verifier binary identity drift")
+            digest = hashlib.sha256()
+            while True:
+                chunk = os.read(descriptor, 1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+            final_stat = os.fstat(descriptor)
+            if (
+                final_stat.st_size != opened_stat.st_size
+                or final_stat.st_mtime_ns != opened_stat.st_mtime_ns
+                or final_stat.st_ctime_ns != opened_stat.st_ctime_ns
+            ):
+                raise ExecutionBridgeViolation("verifier binary changed during hashing")
+        finally:
+            os.close(descriptor)
+        if digest.hexdigest() != self._verifier_binary_sha256:
+            raise ExecutionBridgeViolation("verifier binary digest drift")
 
     def _read_exact(self, stream: socket.socket, count: int) -> bytes:
         chunks: list[bytes] = []
@@ -178,6 +237,7 @@ class UnixAuthorityClient:
         return b"".join(chunks)
 
     def _verify_ed25519(self, message: bytes, signature: bytes) -> None:
+        self._verify_verifier_binary()
         try:
             with tempfile.TemporaryDirectory(prefix="r-state-authority-verify-") as raw:
                 directory = Path(raw)
@@ -189,7 +249,7 @@ class UnixAuthorityClient:
                 message_path.write_bytes(message)
                 completed = subprocess.run(
                     [
-                        "openssl",
+                        str(self._verifier_binary_path),
                         "pkeyutl",
                         "-verify",
                         "-pubin",

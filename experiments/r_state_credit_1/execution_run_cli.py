@@ -813,6 +813,8 @@ def _execute(
         socket_path=arguments.authority_socket,
         response_public_key_path=arguments.authority_public_key,
         reservation_token_fd=arguments.reservation_token_fd,
+        verifier_binary_path=Path(admission.isolation_binding.verifier_binary_path),
+        verifier_binary_sha256=(admission.isolation_binding.verifier_binary_sha256),
     )
     actor = (actor_factory or _production_actor)(admission)
     if not isinstance(actor, ProviderActor):
