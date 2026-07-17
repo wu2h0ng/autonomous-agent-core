@@ -406,6 +406,12 @@ def _envelope_bytes(
             "policy_sha256": _C7.policy_sha256,
             "correction_epoch": _C7.correction_epoch,
         },
+        "authority_binding": {
+            "broker_id": "workflow-authority-broker-1",
+            "protocol_version": "r-state-authority-v1",
+            "response_public_key_sha256": "6" * 64,
+            "server_nonce_sha256": "5" * 64,
+        },
         "workflow_reservation": {
             "reservation_id": "workflow-reservation-1",
             "reservation_token_sha256": "8" * 64,
@@ -491,6 +497,25 @@ def test_execution_admission_is_closed_canonical_and_pinned(
         ExecutionAdmission.from_canonical_json(canonical_json(floating).encode())
 
     assert active_manifest.is_file() and len(receipts) == 6 and root.is_dir()
+
+
+def test_authority_binding_mutation_invalidates_run_authorization_context(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+) -> None:
+    _root, _active_manifest, receipts, encoded = admission_inputs
+    original = ExecutionAdmission.from_canonical_json(encoded)
+    mutated = json.loads(encoded)
+    mutated["authority_binding"]["broker_id"] = "attacker-broker"
+
+    with pytest.raises(ExecutionBridgeViolation, match="core digest drift"):
+        ExecutionAdmission.from_mapping(mutated)
+
+    assert (
+        json.loads(receipts[ReceiptKind.RUN_AUTHORIZATION])[
+            "authorization_context_sha256"
+        ]
+        == original.envelope_core_sha256
+    )
 
 
 def test_execution_admission_cli_emits_parse_only_machine_receipt(

@@ -185,6 +185,31 @@ class C7Binding:
 
 
 @dataclass(frozen=True, slots=True)
+class AuthorityBinding:
+    broker_id: str
+    protocol_version: str
+    response_public_key_sha256: str
+    server_nonce_sha256: str
+
+    @classmethod
+    def from_mapping(cls, value: object) -> AuthorityBinding:
+        raw = _closed(value, {field.name for field in fields(cls)}, "authority_binding")
+        result = cls(**raw)  # type: ignore[arg-type]
+        _require_text(result.broker_id, "authority broker_id")
+        if result.protocol_version != "r-state-authority-v1":
+            raise ExecutionBridgeViolation("authority protocol version drift")
+        _require_sha256(
+            result.response_public_key_sha256,
+            "authority response_public_key_sha256",
+        )
+        _require_sha256(result.server_nonce_sha256, "authority server_nonce_sha256")
+        return result
+
+    def to_mapping(self) -> dict[str, object]:
+        return {field.name: getattr(self, field.name) for field in fields(self)}
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowReservation:
     reservation_id: str
     reservation_token_sha256: str
@@ -246,6 +271,7 @@ class ExecutionAdmission:
     active_manifest_sha256: str
     provider_binding: ProviderAdmissionBinding
     c7_binding: C7Binding
+    authority_binding: AuthorityBinding
     workflow_reservation: WorkflowReservation
     components: dict[str, str]
     budget: ExecutionBudget
@@ -304,6 +330,7 @@ class ExecutionAdmission:
                 raw["provider_binding"]
             ),
             c7_binding=C7Binding.from_mapping(raw["c7_binding"]),
+            authority_binding=AuthorityBinding.from_mapping(raw["authority_binding"]),
             workflow_reservation=WorkflowReservation.from_mapping(
                 raw["workflow_reservation"]
             ),
@@ -349,6 +376,7 @@ class ExecutionAdmission:
                 for field in fields(self.provider_binding)
             },
             "c7_binding": self.c7_binding.to_mapping(),
+            "authority_binding": self.authority_binding.to_mapping(),
             "workflow_reservation": self.workflow_reservation.to_mapping(),
             "components": dict(self.components),
             "budget": self.budget.to_mapping(),
