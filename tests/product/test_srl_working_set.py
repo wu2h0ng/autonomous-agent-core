@@ -35,7 +35,10 @@ AUTHORIZATION_SCOPE_DIGEST = content_digest(
         "mandate_id": "mandate:build-agent-os",
         "environment_binding_id": "binding:data-agent-reports",
         "environment_binding_version": 1,
-        "environment_binding_digest": "b" * 64,
+        "environment_binding_digest": (
+            "866b22d41dde83e25afb71fdeb350d1de"
+            "cd1c0a9dbb4e73a2398fc04cf4751bd"
+        ),
     }
 )
 

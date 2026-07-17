@@ -510,30 +510,11 @@ class SQLiteMandateObservationAuthorizationStore:
             version=descriptor.version,
             binding_digest=descriptor.source_descriptor_digest,
         )
-        projected = RatifiedMandateRef(
-            mandate_id=mandate.mandate_id,
-            version=mandate.correction_epoch + 1,
-            mandate_digest=content_digest(mandate),
-            ratification_receipt_id=record.ratification_receipt.receipt_id,
-            tenant_id=mandate.tenant_id,
-            workspace_id=mandate.workspace_id,
-            owner_principal_id=mandate.principal_id,
-            ratified_by=mandate.principal_id,
-            ratified_at=record.ratification_receipt.ratified_at,
-            valid_from=now,
-            expires_at=mandate.expires_at,
-            correction_epoch=mandate.correction_epoch,
-            status=MandateOperationalStatus.ACTIVE,
-            authority_envelope_digest=content_digest(mandate.authority_envelope),
-            allowed_environment_bindings=(binding,),
-            relevance_assessor=descriptor.relevance_assessor,
-            relevance_context=descriptor.relevance_context,
-        )
         receipt = MandateObservationAuthorizationReceipt.create(
             authorization_id=command.authorization_id,
             mandate_id=mandate.mandate_id,
-            mandate_version=projected.version,
-            mandate_digest=projected.mandate_digest,
+            mandate_version=mandate.correction_epoch + 1,
+            mandate_digest=content_digest(mandate),
             workspace_record_digest=content_digest(record),
             ratification_receipt_id=record.ratification_receipt.receipt_id,
             ratification_receipt_digest=content_digest(record.ratification_receipt),
@@ -555,6 +536,30 @@ class SQLiteMandateObservationAuthorizationStore:
             task_activation_authorized=False,
             capability_grant_authorized=False,
             external_effects_authorized=False,
+        )
+        projected = RatifiedMandateRef(
+            mandate_id=mandate.mandate_id,
+            version=mandate.correction_epoch + 1,
+            mandate_digest=content_digest(mandate),
+            ratification_receipt_id=record.ratification_receipt.receipt_id,
+            tenant_id=mandate.tenant_id,
+            workspace_id=mandate.workspace_id,
+            owner_principal_id=mandate.principal_id,
+            ratified_by=mandate.principal_id,
+            ratified_at=record.ratification_receipt.ratified_at,
+            valid_from=now,
+            expires_at=mandate.expires_at,
+            correction_epoch=mandate.correction_epoch,
+            status=MandateOperationalStatus.ACTIVE,
+            authority_envelope_digest=content_digest(mandate.authority_envelope),
+            allowed_environment_bindings=(binding,),
+            relevance_assessor=descriptor.relevance_assessor,
+            relevance_context=descriptor.relevance_context,
+            observation_authorization_id=command.authorization_id,
+            observation_authorization_receipt_digest=(
+                receipt.authorization_receipt_digest
+            ),
+            workspace_record_digest=receipt.workspace_record_digest,
         )
         return projected, receipt
 
@@ -610,8 +615,20 @@ class SQLiteMandateObservationAuthorizationStore:
             raise MandateObservationAuthorizationPersistenceConflict(
                 "durable observation authorization receipt is invalid"
             ) from None
+        reconstructed_command = MandateObservationAuthorizationCommand(
+            authorization_id=receipt.authorization_id,
+            environment_binding_id=receipt.environment_binding.environment_binding_id,
+            environment_binding_class=receipt.environment_binding_class,
+            binding_version=receipt.environment_binding.version,
+            requested_capabilities=receipt.observation_capabilities,
+            wake_budget_per_window=receipt.wake_budget_per_window,
+            query_budget_per_window=receipt.query_budget_per_window,
+            relevance_assessor=receipt.relevance_assessor,
+            relevance_context=receipt.relevance_context,
+        )
         if (
             receipt.authorization_receipt_digest != str(row["receipt_digest"])
+            or content_digest(reconstructed_command) != str(row["command_digest"])
             or receipt.authorization_id != str(row["authorization_id"])
             or receipt.mandate_id != str(row["mandate_id"])
             or receipt.environment_binding.environment_binding_id
@@ -619,6 +636,8 @@ class SQLiteMandateObservationAuthorizationStore:
             or receipt.authorized_by != str(row["principal_id"])
             or receipt.tenant_id != str(row["tenant_id"])
             or receipt.workspace_id != str(row["workspace_id"])
+            or receipt.environment_binding.binding_digest
+            != receipt.source_descriptor_digest
         ):
             raise MandateObservationAuthorizationPersistenceConflict(
                 "durable observation authorization index is invalid"
@@ -676,8 +695,15 @@ class SQLiteMandateObservationAuthorizationStore:
             check = self._connect()
             try:
                 situated = check.execute(
-                    "SELECT mandate_json FROM situated_mandates WHERE mandate_id = ?",
-                    (mandate_id,),
+                    """SELECT mandate_json FROM situated_mandates
+                       WHERE principal_id = ? AND tenant_id = ?
+                         AND workspace_id = ? AND mandate_id = ?""",
+                    (
+                        record.mandate.principal_id,
+                        record.mandate.tenant_id,
+                        record.mandate.workspace_id,
+                        mandate_id,
+                    ),
                 ).fetchone()
             finally:
                 check.close()
@@ -727,8 +753,15 @@ class SQLiteMandateObservationAuthorizationStore:
                     "ratified Mandate Workspace record changed during authorization"
                 )
             situated = connection.execute(
-                "SELECT mandate_json FROM situated_mandates WHERE mandate_id = ?",
-                (mandate_id,),
+                """SELECT mandate_json FROM situated_mandates
+                   WHERE principal_id = ? AND tenant_id = ?
+                     AND workspace_id = ? AND mandate_id = ?""",
+                (
+                    record.mandate.principal_id,
+                    record.mandate.tenant_id,
+                    record.mandate.workspace_id,
+                    mandate_id,
+                ),
             ).fetchone()
             if situated is not None:
                 try:
@@ -777,11 +810,15 @@ class SQLiteMandateObservationAuthorizationStore:
                 connection.execute(
                     """
                     INSERT INTO situated_mandates (
+                        principal_id, tenant_id, workspace_id,
                         mandate_id, mandate_version, mandate_digest,
                         status, correction_epoch, mandate_json
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        projected.owner_principal_id,
+                        projected.tenant_id,
+                        projected.workspace_id,
                         projected.mandate_id,
                         projected.version,
                         projected.mandate_digest,
@@ -846,8 +883,15 @@ class SQLiteMandateObservationAuthorizationStore:
             ).fetchall()
             receipts = tuple(self._decode_receipt(row) for row in rows)
             situated = connection.execute(
-                "SELECT mandate_json FROM situated_mandates WHERE mandate_id = ?",
-                (mandate_id,),
+                """SELECT mandate_json FROM situated_mandates
+                   WHERE principal_id = ? AND tenant_id = ?
+                     AND workspace_id = ? AND mandate_id = ?""",
+                (
+                    record.mandate.principal_id,
+                    record.mandate.tenant_id,
+                    record.mandate.workspace_id,
+                    mandate_id,
+                ),
             ).fetchone()
         finally:
             connection.close()

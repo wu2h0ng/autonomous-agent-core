@@ -13,6 +13,7 @@ from agent_os_contracts import (
     CredentialStatus,
     EnvironmentBindingAuthorization,
     LedgerAccessScope,
+    MandateRelevanceContextRef,
     RatifiedMandateRef,
     RelevanceAssessment,
     RelevanceAssessorRef,
@@ -49,6 +50,10 @@ from tests.product.test_data_agent_report_admission import (
     _config,
     _credential,
     _Transport,
+)
+from tests.product.mandate_observation_support import (
+    authorize_workspace_observation,
+    create_workspace_record,
 )
 
 
@@ -130,7 +135,11 @@ class _Assessor:
 
     @property
     def ref(self) -> RelevanceAssessorRef:
-        return _mandate().relevance_assessor
+        return RelevanceAssessorRef(
+            assessor_id="assessor:data-agent",
+            version=1,
+            policy_digest="d" * 64,
+        )
 
     def assess(
         self,
@@ -186,6 +195,30 @@ class _Assessor:
         )
 
 
+def _authorized_control(
+    tmp_path: Path,
+    adapter: DataAgentReportAdapter,
+    assessor: _Assessor,
+) -> SQLiteSituatedAssessmentStore:
+    authority_database = tmp_path / "authority.sqlite3"
+    create_workspace_record(
+        authority_database, tmp_path, adapter=adapter, now=NOW
+    )
+    authorize_workspace_observation(
+        authority_database,
+        tmp_path,
+        adapter=adapter,
+        assessor=assessor.ref,
+        context=MandateRelevanceContextRef(
+            relevance_context_id="context:test-data-agent",
+            version=1,
+            content_digest="f" * 64,
+        ),
+        now=NOW,
+    )
+    return SQLiteSituatedAssessmentStore(authority_database)
+
+
 def _compose(
     tmp_path: Path,
 ) -> tuple[
@@ -197,9 +230,7 @@ def _compose(
     credentials = _LiveCredentialReader()
     adapter = _adapter_with_credentials(tmp_path, credentials)
     assessor = _Assessor()
-    control = SQLiteSituatedAssessmentStore(
-        tmp_path / "authority.sqlite3", mandates=(_mandate(),)
-    )
+    control = _authorized_control(tmp_path, adapter, assessor)
     material_store = SQLiteDataAgentReportAdmissionMaterialStore(
         tmp_path / "material.sqlite3",
         principal_id="principal:local",
@@ -358,6 +389,39 @@ def test_composition_rejects_distinct_adapter_and_admission_credential_readers(
         )
 
 
+@pytest.mark.parametrize(
+    "mandate",
+    [
+        _mandate(),
+        _mandate().model_copy(
+            update={"ratification_receipt_id": "mandate-ratification:forged"}
+        ),
+    ],
+)
+def test_product_composition_rejects_unverified_and_prefix_forged_mandates(
+    tmp_path: Path, mandate: RatifiedMandateRef
+) -> None:
+    credentials = _LiveCredentialReader()
+    adapter = _adapter_with_credentials(tmp_path, credentials)
+    with pytest.raises(SituationalTrustDenied, match="observation authorization"):
+        DataAgentSituatedBootstrap.compose(
+            adapter=adapter,
+            material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+                tmp_path / "material.sqlite3",
+                principal_id="principal:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+            ),
+            credentials=credentials,
+            control=SQLiteSituatedAssessmentStore(
+                tmp_path / "unverified.sqlite3", mandates=(mandate,)
+            ),
+            assessor=_Assessor(),
+            admission_database=tmp_path / "receipts.sqlite3",
+            clock=lambda: NOW,
+        )
+
+
 def test_live_credential_drift_during_admission_denies_without_receipt(
     tmp_path: Path,
 ) -> None:
@@ -371,9 +435,8 @@ def test_live_credential_drift_during_admission_denies_without_receipt(
     credentials = _SequenceCredentialReader([active, active, revoked])
     adapter = _adapter_with_credentials(tmp_path, credentials)
     event = adapter.pull("trace-1").event
-    control = SQLiteSituatedAssessmentStore(
-        tmp_path / "authority.sqlite3", mandates=(_mandate(),)
-    )
+    assessor = _Assessor()
+    control = _authorized_control(tmp_path, adapter, assessor)
     runtime = DataAgentSituatedBootstrap.compose(
         adapter=adapter,
         material_store=SQLiteDataAgentReportAdmissionMaterialStore(
@@ -384,7 +447,7 @@ def test_live_credential_drift_during_admission_denies_without_receipt(
         ),
         credentials=credentials,
         control=control,
-        assessor=_Assessor(),
+        assessor=assessor,
         admission_database=tmp_path / "receipts.sqlite3",
         clock=lambda: NOW,
     )
@@ -409,7 +472,7 @@ def test_paused_mandate_denies_admission_before_receipt_or_assessment(
 ) -> None:
     runtime, _, assessor, control = _compose(tmp_path)
     bundle = runtime.observe_report("trace-1")
-    control.pause("mandate:agent-os", expected_epoch=7)
+    control.pause("mandate:agent-os", expected_epoch=0)
 
     with pytest.raises((DataAgentReportAdmissionError, SituationalTrustDenied)):
         runtime.admit_event(bundle.event.environment_event_id)

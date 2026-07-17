@@ -22,7 +22,6 @@ from agent_os_contracts import (
     ObservationBindingDescriptor,
     PrincipalIdentity,
     PrincipalRole,
-    RatifiedMandateRef,
     RelevanceAssessorRef,
     RelevanceDisposition,
     TaskDraftProposal,
@@ -35,6 +34,7 @@ from agent_os_core import (
     DeterministicProvider,
     InMemoryMandateRelevanceContextRegistry,
     ProviderRelevanceAssessor,
+    SituationalTrustDenied,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.app import AgentOSApplication
@@ -657,7 +657,7 @@ def test_real_data_agent_observation_replays_without_second_provider_assessment(
         trust=drift_adapter,
         contexts=InMemoryMandateRelevanceContextRegistry((context,)),
     )
-    with pytest.raises(TypeError, match="exact observation authorization"):
+    with pytest.raises(SituationalTrustDenied, match="observation authorization"):
         DataAgentSituatedBootstrap.compose(
             adapter=drift_adapter,
             material_store=SQLiteDataAgentReportAdmissionMaterialStore(
@@ -733,5 +733,5 @@ def test_real_data_agent_observation_replays_without_second_provider_assessment(
 
     with sqlite3.connect(authority_database) as connection:
         connection.execute("DELETE FROM mandate_observation_authorizations")
-    with pytest.raises(Exception, match="observation authorization"):
+    with pytest.raises(SituationalTrustDenied, match="observation authorization"):
         compose(replay_adapter, replay_provider)

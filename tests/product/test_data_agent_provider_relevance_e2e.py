@@ -57,15 +57,19 @@ from tests.product.test_provider_relevance_assessor import (
     _invocation as _provider_invocation,
     _policy as _provider_policy,
 )
+from tests.product.mandate_observation_support import (
+    authorize_workspace_observation,
+    create_workspace_record,
+)
 
 
-def _context() -> MandateRelevanceContext:
+def _context(*, mandate_digest: str = "a" * 64) -> MandateRelevanceContext:
     return MandateRelevanceContext(
         relevance_context_id="mandate-context:data-agent-reports-v1",
         version=1,
         mandate_id="mandate:build-agent-os",
         mandate_version=1,
-        mandate_digest="a" * 64,
+        mandate_digest=mandate_digest,
         tenant_id="tenant:local",
         workspace_id="workspace:local",
         mission_statement=(
@@ -139,14 +143,40 @@ def _application(
     configured = credentials.resolve_authorization(credential.credential_ref_id)
     assert configured is not None
     assert configured.credential_ref_digest == content_digest(credential)
+    authority_database = Path(control._database)
+    workspace_record = create_workspace_record(
+        authority_database, workspace, adapter=adapter, now=NOW
+    )
+    context = _context(mandate_digest=content_digest(workspace_record.mandate))
     assessor = ProviderRelevanceAssessor(
         provider=provider,
         provider_profile=provider_profile
         or policy.provider_invocation.provider_profile,
         policy=policy,
         trust=adapter,
-        contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+        contexts=InMemoryMandateRelevanceContextRegistry((context,)),
     )
+    with sqlite3.connect(authority_database) as connection:
+        table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'mandate_observation_authorizations'"
+        ).fetchone()
+        authorization_exists = (
+            connection.execute(
+                "SELECT 1 FROM mandate_observation_authorizations LIMIT 1"
+            ).fetchone()
+            if table_exists is not None
+            else None
+        )
+    if authorization_exists is None:
+        authorize_workspace_observation(
+            authority_database,
+            workspace,
+            adapter=adapter,
+            assessor=assessor.ref,
+            context=context.ref(),
+            now=NOW,
+        )
     runtime = DataAgentSituatedBootstrap.compose(
         adapter=adapter,
         material_store=SQLiteDataAgentReportAdmissionMaterialStore(
@@ -186,15 +216,11 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     situated_database = tmp_path / "situated.sqlite3"
     task_database = tmp_path / "agent-os.sqlite3"
     policy = _provider_policy()
-    mandate = _mandate(policy)
     first_adapter, first_broker, first_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
     first_provider = _provider(policy)
-    first_control = SQLiteSituatedAssessmentStore(
-        situated_database,
-        mandates=(mandate,),
-    )
+    first_control = SQLiteSituatedAssessmentStore(situated_database)
     first_app = _application(
         task_database=task_database,
         workspace=tmp_path,
@@ -253,29 +279,25 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     assert persisted is not None
     replay_app.store.close()
 
-    replay_control.revoke(mandate.mandate_id, expected_epoch=0)
+    replay_control.revoke("mandate:build-agent-os", expected_epoch=0)
     revoked_adapter, revoked_broker, revoked_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
     revoked_provider = _provider(policy)
-    revoked_app = _application(
-        task_database=task_database,
-        workspace=tmp_path,
-        adapter=revoked_adapter,
-        control=SQLiteSituatedAssessmentStore(situated_database),
-        provider=revoked_provider,
-        policy=policy,
-    )
-
     with pytest.raises(SituationalTrustDenied, match="not active"):
-        revoked_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
+        _application(
+            task_database=task_database,
+            workspace=tmp_path,
+            adapter=revoked_adapter,
+            control=SQLiteSituatedAssessmentStore(situated_database),
+            provider=revoked_provider,
+            policy=policy,
+        )
 
-    assert revoked_app.store.list_task_ids() == ()
-    assert len(revoked_broker.resolved) == 2
-    assert len(revoked_transport.requests) == 1
+    assert revoked_broker.resolved == []
+    assert len(revoked_transport.requests) == 0
     assert revoked_provider.decision_requests == []
     assert replay_control.record_by_input_binding(input_digest) == persisted
-    revoked_app.store.close()
 
 
 def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
@@ -298,10 +320,7 @@ def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         adapter=restarted_adapter,
-        control=SQLiteSituatedAssessmentStore(
-            tmp_path / "situated.sqlite3",
-            mandates=(_mandate(policy),),
-        ),
+        control=SQLiteSituatedAssessmentStore(tmp_path / "situated.sqlite3"),
         provider=provider,
         policy=policy,
     )
@@ -345,10 +364,7 @@ def test_foreign_namespace_never_rehydrates_or_calls_provider(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         adapter=local_adapter,
-        control=SQLiteSituatedAssessmentStore(
-            tmp_path / "situated.sqlite3",
-            mandates=(_mandate(policy),),
-        ),
+        control=SQLiteSituatedAssessmentStore(tmp_path / "situated.sqlite3"),
         provider=provider,
         policy=policy,
     )
@@ -406,8 +422,7 @@ def test_corrupt_durable_report_fails_closed_before_provider_without_partial_reg
     policy = _provider_policy()
     provider = _provider(policy)
     control = SQLiteSituatedAssessmentStore(
-        tmp_path / f"situated-{corruption}.sqlite3",
-        mandates=(_mandate(policy),),
+        tmp_path / f"situated-{corruption}.sqlite3"
     )
     app = _application(
         task_database=tmp_path / f"agent-os-{corruption}.sqlite3",
@@ -471,16 +486,12 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
     )
     bundles = writer.poll_once(limit=2).bundles
     policy = _provider_policy()
-    mandate = _mandate(policy)
     restarted, broker, transport = _adapter(
         config=feed_config,
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
     provider = _provider(policy)
-    control = SQLiteSituatedAssessmentStore(
-        situated_database,
-        mandates=(mandate,),
-    )
+    control = SQLiteSituatedAssessmentStore(situated_database)
     app = _application(
         task_database=task_database,
         workspace=tmp_path,
@@ -596,8 +607,7 @@ def test_same_id_provider_binding_drift_fails_during_application_construction(
             workspace=tmp_path,
             adapter=adapter,
             control=SQLiteSituatedAssessmentStore(
-                tmp_path / f"situated-{drift}.sqlite3",
-                mandates=(_mandate(policy),),
+                tmp_path / f"situated-{drift}.sqlite3"
             ),
             provider=provider,
             policy=policy,

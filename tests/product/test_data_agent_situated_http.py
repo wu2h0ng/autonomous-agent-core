@@ -46,18 +46,22 @@ from tests.product.test_provider_relevance_assessor import (
     _draft as _provider_draft,
     _policy as _provider_policy,
 )
+from tests.product.mandate_observation_support import (
+    authorize_workspace_observation,
+    create_workspace_record,
+)
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 TRACE_ID = "trace-123"
 
 
-def _context() -> MandateRelevanceContext:
+def _context(*, mandate_digest: str = "a" * 64) -> MandateRelevanceContext:
     return MandateRelevanceContext(
         relevance_context_id="mandate-context:data-agent-reports-v1",
         version=1,
         mandate_id="mandate:build-agent-os",
         mandate_version=1,
-        mandate_digest="a" * 64,
+        mandate_digest=mandate_digest,
         tenant_id="tenant:local",
         workspace_id="workspace:local",
         mission_statement=(
@@ -120,8 +124,6 @@ def _situated_app(
     task_database = tmp_path / "agent-os.sqlite3"
 
     policy = _provider_policy()
-    mandate = _mandate(policy)
-
     adapter, _broker, _transport = _external_adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )
@@ -129,14 +131,12 @@ def _situated_app(
         text=_provider_draft(disposition),
         invocation_binding=policy.provider_invocation,
     )
-    control = SQLiteSituatedAssessmentStore(
-        situated_database,
-        mandates=(mandate,),
+    workspace_record = create_workspace_record(
+        situated_database, tmp_path, adapter=adapter, now=NOW
     )
+    context = _context(mandate_digest=content_digest(workspace_record.mandate))
     if provider_sink is not None:
         provider_sink.append(provider)
-    if control_sink is not None:
-        control_sink.append(control)
     credential = _external_credential()
     credentials = adapter._credential_authorization_reader_for_composition
     configured = credentials.resolve_authorization(credential.credential_ref_id)
@@ -147,8 +147,19 @@ def _situated_app(
         provider_profile=policy.provider_invocation.provider_profile,
         policy=policy,
         trust=adapter,
-        contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
+        contexts=InMemoryMandateRelevanceContextRegistry((context,)),
     )
+    authorize_workspace_observation(
+        situated_database,
+        tmp_path,
+        adapter=adapter,
+        assessor=assessor.ref,
+        context=context.ref(),
+        now=NOW,
+    )
+    control = SQLiteSituatedAssessmentStore(situated_database)
+    if control_sink is not None:
+        control_sink.append(control)
     compose_options: dict[str, Any] = {}
     if external_state_adapters:
         compose_options["external_state_adapters"] = external_state_adapters

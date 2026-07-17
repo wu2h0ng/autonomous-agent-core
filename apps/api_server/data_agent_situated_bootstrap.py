@@ -441,44 +441,45 @@ class DataAgentSituatedBootstrap:
             raise TypeError("composition requires one credential authorization reader")
         principal_id, tenant_id, workspace_id = adapter.principal_scope
         descriptor = adapter.admission_policy_descriptor
-        try:
-            mandate, binding = control.resolve_active(
-                descriptor.mandate_id,
-                descriptor.environment_binding_id,
-                principal_id=principal_id,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-                evaluated_at=clock(),
+        candidate_mandate, _ = control.resolve_active(
+            descriptor.mandate_id,
+            descriptor.environment_binding_id,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            evaluated_at=clock(),
+        )
+        context_ref = candidate_mandate.relevance_context
+        mandate, binding = control.resolve_observation_authority(
+            descriptor.mandate_id,
+            descriptor.environment_binding_id,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            evaluated_at=clock(),
+            source_descriptor_digest=descriptor.policy_digest,
+            relevance_assessor=assessor.ref,
+            relevance_context=context_ref,
+        )
+        if context_ref is None:
+            raise SituationalTrustDenied(
+                "verified observation authorization context is unavailable"
             )
-        except Exception:
-            mandate = None
-            binding = None
-        if (
-            mandate is not None
-            and binding is not None
-            and mandate.ratification_receipt_id.startswith("mandate-ratification:")
+        context = (
+            assessor._resolve_context_for_composition(context_ref)
+            if type(assessor) is ProviderRelevanceAssessor
+            else None
+        )
+        if type(assessor) is ProviderRelevanceAssessor and (
+            context is None
+            or context.ref() != context_ref
+            or context.mandate_id != mandate.mandate_id
+            or context.mandate_version != mandate.version
+            or context.mandate_digest != mandate.mandate_digest
+            or context.tenant_id != mandate.tenant_id
+            or context.workspace_id != mandate.workspace_id
         ):
-            context_ref = mandate.relevance_context
-            context = (
-                assessor._resolve_context_for_composition(context_ref)
-                if type(assessor) is ProviderRelevanceAssessor
-                and context_ref is not None
-                else None
-            )
-            if (
-                binding.binding_digest != descriptor.policy_digest
-                or mandate.relevance_assessor != assessor.ref
-                or context is None
-                or context.ref() != context_ref
-                or context.mandate_id != mandate.mandate_id
-                or context.mandate_version != mandate.version
-                or context.mandate_digest != mandate.mandate_digest
-                or context.tenant_id != mandate.tenant_id
-                or context.workspace_id != mandate.workspace_id
-            ):
-                raise TypeError(
-                    "composition requires exact observation authorization"
-                )
+            raise TypeError("composition requires exact observation authorization")
         scope = LedgerAccessScope(
             principal_id=principal_id,
             tenant_id=tenant_id,

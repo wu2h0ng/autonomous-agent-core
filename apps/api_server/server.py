@@ -136,6 +136,19 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
 
 class Handler(BaseHTTPRequestHandler):
     application: AgentOSApplication
+    admin_applications: dict[str, AgentOSApplication] = {}
+
+    def _admin_application(self) -> AgentOSApplication | None:
+        authorization = self.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
+            self._json(401, {"error": "admin_authentication_required"})
+            return None
+        token = authorization.removeprefix("Bearer ")
+        application = self.admin_applications.get(token)
+        if application is None:
+            self._json(401, {"error": "admin_authentication_failed"})
+            return None
+        return application
 
     def _json(self, status: int, payload: object) -> None:
         if (
@@ -196,11 +209,14 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[:2] == ["v1", "mandates"]
                 and parts[3] == "observation-authorizations"
             ):
+                admin = self._admin_application()
+                if admin is None:
+                    return
                 try:
                     self._json(
                         200,
                         {
-                            "observation_authorizations": self.application.list_mandate_observation_authorizations(
+                            "observation_authorizations": admin.list_mandate_observation_authorizations(
                                 parts[2]
                             )
                         },
@@ -438,7 +454,10 @@ class Handler(BaseHTTPRequestHandler):
                 and parts[:2] == ["v1", "mandates"]
                 and parts[3] == "environment-bindings:authorize"
             ):
-                receipt = self.application.authorize_mandate_observation_binding(
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                receipt = admin.authorize_mandate_observation_binding(
                     parts[2], body
                 )
                 self._json(201, receipt)
@@ -638,7 +657,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(
-    application: AgentOSApplication, host: str = "127.0.0.1", port: int = 8787
+    application: AgentOSApplication,
+    host: str = "127.0.0.1",
+    port: int = 8787,
+    *,
+    admin_applications: dict[str, AgentOSApplication] | None = None,
 ) -> None:
-    handler = type("AgentOSHandler", (Handler,), {"application": application})
+    handler = type(
+        "AgentOSHandler",
+        (Handler,),
+        {
+            "application": application,
+            "admin_applications": dict(admin_applications or {}),
+        },
+    )
     ThreadingHTTPServer((host, port), handler).serve_forever()
