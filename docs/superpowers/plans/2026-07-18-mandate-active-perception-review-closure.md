@@ -35,6 +35,8 @@
 
 Add a test that acquires lease A, advances the clock beyond A expiry, acquires lease B, then attempts completion through A. Assert `DataAgentReportAdapterError` or `RuntimeError` with `lease fence` and assert the outbox row remains `PENDING`.
 
+First update the local `_service` test helper so its report adapter and `SQLiteMandateActivePerceptionStore` use the same `runtime.sqlite3` path, matching production startup. Add one separate constructor test proving two different database paths fail closed.
+
 ```python
 def test_stale_lease_holder_cannot_complete_after_takeover(tmp_path: Path) -> None:
     service, runtime, adapter = _service(tmp_path)
