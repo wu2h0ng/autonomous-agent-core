@@ -3,18 +3,20 @@
   "status": ["FREEZE_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
   "active_freeze_input": false,
   "artifact_sha256": {
-    "experiments/continual_retention_f1/__init__.py": "925f0ea4946f87618424c53f50c8fca629d67ad34114fd3e2755e6d0bc9cbb16",
-    "experiments/continual_retention_f1/baselines.py": "40f9b91065a665ce4f4145580348ac4485772ed796293e01b711c393f86f4f26",
-    "experiments/continual_retention_f1/contracts.py": "dbcdff66ab55f90990161fd90dde8848b8cc3a504362131ecd365e72591903ae",
-    "experiments/continual_retention_f1/dual_store.py": "164610270de1ae87ffad4f418b1027bebb9f8463261ba2b690fef8785497e491",
-    "experiments/continual_retention_f1/fixture.py": "c378ecd295c2d2737b79276d379967a8f66d6016c7b361e28edba2bbc214c246",
-    "experiments/continual_retention_f1/harness.py": "5ce66cc408fc5669fe7a8d3358d5a3e3975f04ae470f3ef997ff1e466c285a24",
+    "experiments/continual_retention_f1/__init__.py": "4e3fed2e84d37d4ed64ebcae14313f754ac3c4bd3b160f0e6b8bfbc35446ae0f",
+    "experiments/continual_retention_f1/baselines.py": "2ad68f22484a3fc5184a147207b01e3850809a8d88b51d73c7f87fc30da835b5",
+    "experiments/continual_retention_f1/contracts.py": "af5409d982a23292bdd948c98ec65a33a1db675c1bd75639198efbdb67f6d787",
+    "experiments/continual_retention_f1/dual_store.py": "e4b6df8ff72743faf30c69d20861f560a6c3ad7892c3547f7fe3f2dae983dcff",
+    "experiments/continual_retention_f1/fixture.py": "2905159fa558f7589eb2f09feb8f2270dca2c9d852e4e6820cadb29e803b885b",
+    "experiments/continual_retention_f1/harness.py": "c17ed56f7b75b2d6f3f3de509d8cc5233109ec17a4865d34d294eaaa04063130",
+    "experiments/continual_retention_f1/manifest.py": "2aceba6601fc2ecd7500e3b8782d6723e776448da3e246e4990adf531ee1ddb2",
     "experiments/continual_retention_f1/oracle.py": "c4979b5a1b91440d8db9126ca714342d7a8e3d15451f9f629bbb91343521fb63",
-    "experiments/continual_retention_f1/scorer.py": "9e394a7709699124f1482ef6f8b257c6ca015359cc1fd10804ea7a3471d9e5c1",
-    "tests/test_continual_retention_f1.py": "a5fead9dd185b7806fc9655b65e2a838c123dea36d100069d2e80924c41734c6",
-    "tests/test_cls_f1_qualification_freeze_candidate.py": "c743a80d8f146c139222c02e6bcf7b730e24f8391d0467b688fa7b7165dad62f",
-    "docs/superpowers/specs/2026-07-18-cls-f1-qualification-design.md": "35a201fac6201a1ae27d58835aef8d9cf71e090e214ba1b6fb3e6f87d44bf2ac",
+    "experiments/continual_retention_f1/qualification.py": "7097ba856678a163c18488444953e293809ee147aba518f4905a0efd9aac856d",
+    "experiments/continual_retention_f1/scorer.py": "b0bbd05c7768242632f76a87bd1adedccabd1a04438c8b81c96d694370aedac4",
+    "tests/test_continual_retention_f1.py": "605ebc47bee0c968c5b6ec45c36859e731e74e2f97103c127c632ec9bc88e1ae",
+    "tests/test_cls_f1_qualification_freeze_candidate.py": "53801aa1ca672110bc99daf785742d73dbede715ea9e37f18dbe0351f56adfec",
+    "docs/superpowers/specs/2026-07-18-cls-f1-qualification-design.md": "b8715775834f2bace474a48892c52aa6d3b31bbf9865ba58bbf9a14f09dee5c5",
     "docs/superpowers/plans/2026-07-18-cls-f1-qualification.md": "83b5ae4a8cc17f8615155ce62a82e6c5051578b70d03e7f811cccc2ca945a305",
-    "docs/pre_spec/CLS-F1-QUALIFICATION.PREREG-CANDIDATE-2026-07-18.json": "3579779fb6c1654ccd22c4fa4bcde9b15b3ab480ff424c8e55ba80dee5591425"
+    "docs/pre_spec/CLS-F1-QUALIFICATION.PREREG-CANDIDATE-2026-07-18.json": "7af2fd2f5be7f1439be37d712d270ad2468110fefb0f52c3f05b4e66690db793"
   }
 }

@@ -1,6 +1,6 @@
 # CLS-F1 A→B→A Continual-Retention Qualification Design
 
-> Status: `DESIGN_CANDIDATE / NOT_FROZEN / NOT_RUN`
+> Status: `FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN`
 > Track: `R`
 > Claim class: qualification instrument only
 > Base: `8c090f1604b83a6d10c3a1cbe6f557cfe1553e6e`
@@ -44,8 +44,9 @@ Each episode contains:
 
 - eight latent task contexts;
 - four authorized actions;
-- three phases, exact `A→B→A`;
-- a balanced, pre-generated context schedule independent of every arm;
+- three phases, exact `A→B→A`, with seed-randomized phase lengths;
+- a pre-generated context schedule with seed-randomized per-context occurrence
+  counts, independent of every arm;
 - delayed stochastic action feedback generated from evaluator-owned reward
   tables and common random numbers;
 - exactly four changed contexts in B, selected before any arm runs; and
@@ -71,7 +72,7 @@ An online non-oracle arm receives only:
 It never receives seed, turn, phase, switch schedule, latent context ID,
 changed/unchanged status, optimal action, or evaluator metrics.
 
-There is no stable context identifier. For every seed, the evaluator applies a
+There is no explicit context identifier or fixed per-context phase counter. For every seed, the evaluator applies a
 hidden bijection over feature dimensions and categorical value names. Action
 tokens are also renamed by a hidden bijection. Isomorphic episodes under those
 bijections must yield mapped-equivalent candidate actions and identical mapped
@@ -80,8 +81,9 @@ candidate.
 
 ### 3.3 Correction probe
 
-At a freeze-bound step, the public stream includes one plausible but incorrect
-feedback event. A later typed correction invalidates its digest. Arms must
+At a freeze-bound step, the public stream includes one evaluator-generated,
+plausible but incorrect delayed feedback event. A later typed correction
+invalidates its digest permanently. Arms must
 remove the invalidated event's influence using their own checkpoint/event
 discipline. The correction carries no phase or optimal-action information.
 
@@ -194,7 +196,7 @@ general architecture adoption decision.
 The package is isolated under `experiments/continual_retention_f1/` and exposes:
 
 - closed observation, feedback, correction, arm-access, budget, trajectory,
-  metric, and disposition contracts;
+  metric, evaluator-owned operation ledger, and disposition contracts;
 - a seeded evaluator fixture that owns latent phase/context/reward truth;
 - six arms with a shared online protocol;
 - a run-neutral harness that can build and validate episodes but has no result

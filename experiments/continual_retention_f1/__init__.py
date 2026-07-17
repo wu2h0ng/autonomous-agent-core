@@ -6,11 +6,18 @@ from .baselines import (
     SingleStoreReplayStabilityArm,
     make_non_oracle_arm,
 )
-from .contracts import ArmBudget, CorrectionEvent, FeedbackEvent, RawObservation
+from .contracts import (
+    ArmBudget,
+    CorrectionEvent,
+    FeedbackEvent,
+    OperationMeter,
+    RawObservation,
+)
 from .dual_store import DualStoreRetentionArm
 from .fixture import EpisodeConfig, EvaluatorFixture
 from .harness import EpisodeExecutor
-from .scorer import HiddenScorer, adjudicate
+from .qualification import QualificationTrial, freeze_strongest_single_store
+from .scorer import HiddenScorer, ScoredArm, adjudicate
 
 __all__ = [
     "ArmBudget",
@@ -22,9 +29,13 @@ __all__ = [
     "FeedbackEvent",
     "FrozenQualificationConfig",
     "HiddenScorer",
+    "OperationMeter",
     "RawObservation",
+    "QualificationTrial",
     "SingleStoreConfig",
     "SingleStoreReplayStabilityArm",
+    "ScoredArm",
     "adjudicate",
+    "freeze_strongest_single_store",
     "make_non_oracle_arm",
 ]

@@ -9,13 +9,13 @@ from .contracts import (
     CorrectionEvent,
     CostRecord,
     FeedbackEvent,
-    OperationLedger,
+    OperationMeter,
     RawObservation,
 )
 
 
 def _key(obs: RawObservation) -> tuple[tuple[str, str], ...]:
-    return obs.features
+    return tuple(sorted(obs.features))
 
 
 @dataclass(frozen=True)
@@ -23,20 +23,35 @@ class SingleStoreConfig:
     learning_rate: float = 0.5
     stability: float = 0.25
     detector_threshold: float = 0.4
+    reservoir_size: int = 16
+
+    def __post_init__(self) -> None:
+        if not 0 < self.learning_rate <= 1 or not 0 <= self.stability <= 1:
+            raise ValueError("invalid single-store learning configuration")
+        if not 0 <= self.detector_threshold <= 1 or self.reservoir_size < 1:
+            raise ValueError("invalid detector or reservoir configuration")
 
 
 @dataclass(frozen=True)
 class FrozenQualificationConfig:
     qualification_seed_digest: str
     selected: SingleStoreConfig
+    search_trials: int
+    selection_digest: str
 
     @classmethod
     def freeze(
-        cls, qualification_seed_digest: str, selected: SingleStoreConfig
+        cls,
+        qualification_seed_digest: str,
+        selected: SingleStoreConfig,
+        search_trials: int = 1,
     ) -> "FrozenQualificationConfig":
-        if len(qualification_seed_digest) != 64:
-            raise ValueError("qualification digest must be sha256")
-        return cls(qualification_seed_digest, selected)
+        if len(qualification_seed_digest) != 64 or search_trials <= 0:
+            raise ValueError("qualification digest/search trials invalid")
+        selection_digest = hashlib.sha256(
+            repr((qualification_seed_digest, selected, search_trials)).encode()
+        ).hexdigest()
+        return cls(qualification_seed_digest, selected, search_trials, selection_digest)
 
     def for_result_seed(self, **changes: float) -> SingleStoreConfig:
         if changes:
@@ -45,58 +60,136 @@ class FrozenQualificationConfig:
 
 
 class SingleStoreReplayStabilityArm:
-    def __init__(self, config: SingleStoreConfig, budget: ArmBudget) -> None:
+    def __init__(
+        self,
+        config: SingleStoreConfig,
+        budget: ArmBudget,
+        qualification_search_trials: int = 1,
+    ) -> None:
+        if qualification_search_trials <= 0:
+            raise ValueError("qualification search trials must be positive")
         self.config, self.budget = config, budget
+        self.qualification_search_trials = qualification_search_trials
         self._events: list[FeedbackEvent] = []
+        self._event_digests: set[str] = set()
+        self._tombstones: set[str] = set()
+        self._reservoir: list[FeedbackEvent] = []
+        self._seen = 0
         self._values: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
         self._anchors: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
-        self._ledger = OperationLedger()
+        self._importance: dict[tuple[tuple[str, str], ...], dict[str, int]] = {}
+        self._meter: OperationMeter | None = None
+
+    @classmethod
+    def from_frozen(
+        cls, frozen: FrozenQualificationConfig, budget: ArmBudget
+    ) -> "SingleStoreReplayStabilityArm":
+        return cls(frozen.selected, budget, frozen.search_trials)
+
+    def bind_meter(self, meter: OperationMeter) -> None:
+        if meter.budget != self.budget:
+            raise ValueError("meter budget must exactly match arm budget")
+        if self._meter is not None and self._meter is not meter:
+            raise ValueError("operation meter is already bound")
+        self._meter = meter
+
+    def _charge(self, method: str, count: int = 1) -> None:
+        if self._meter is not None:
+            getattr(self._meter, method)(count)
 
     def act(self, observation: RawObservation) -> str:
         values = self._values.get(_key(observation), {})
+        self._charge("compare", len(observation.authorized_actions))
         return max(
-            observation.authorized_actions, key=lambda action: values.get(action, 0.0)
+            observation.authorized_actions,
+            key=lambda action: (
+                values.get(action, 0.0),
+                -observation.authorized_actions.index(action),
+            ),
         )
 
     def observe(self, feedback: FeedbackEvent) -> None:
+        if feedback.event_digest in self._tombstones:
+            raise ValueError("invalidated feedback digest cannot be consumed")
+        if feedback.event_digest in self._event_digests:
+            raise ValueError("duplicate feedback digest")
         self._events.append(feedback)
-        self._apply(feedback, charge=True)
+        self._event_digests.add(feedback.event_digest)
+        self._learn(feedback, charge=True, include_replay=True)
+        self._reservoir_add(feedback)
 
-    def _apply(self, feedback: FeedbackEvent, charge: bool) -> None:
-        self._update_value(feedback, self.budget.max_updates_per_feedback)
-        replay_pool = (
-            self._events[:-1]
-            if self._events and self._events[-1] is feedback
-            else self._events
-        )
-        for replay in replay_pool[-self.budget.max_replays_per_feedback :]:
-            self._update_value(replay, 1)
-        if charge:
-            self._ledger.updates += self.budget.max_updates_per_feedback
-            self._ledger.replays += self.budget.max_replays_per_feedback
-
-    def _update_value(self, feedback: FeedbackEvent, repetitions: int) -> None:
+    def _update_value(self, feedback: FeedbackEvent, *, charge: bool) -> None:
         key = _key(feedback.observation)
         values = self._values.setdefault(key, {})
-        anchors = self._anchors.setdefault(key, dict(values))
-        for _ in range(repetitions):
-            old = values.get(feedback.action, 0.0)
-            learned = old + self.config.learning_rate * (feedback.reward - old)
-            anchor = anchors.get(feedback.action, old)
-            values[feedback.action] = (
-                1 - self.config.stability
-            ) * learned + self.config.stability * anchor
+        anchors = self._anchors.setdefault(key, {})
+        importance = self._importance.setdefault(key, {})
+        old = values.get(feedback.action, 0.0)
+        anchors.setdefault(feedback.action, old)
+        previous_importance = importance.get(feedback.action, 0)
+        importance[feedback.action] = previous_importance + 1
+        learned = old + self.config.learning_rate * (feedback.reward - old)
+        weight = importance[feedback.action] / (importance[feedback.action] + 1)
+        penalty = self.config.stability * weight
+        values[feedback.action] = (1 - penalty) * learned + penalty * anchors[
+            feedback.action
+        ]
+        if feedback.reward >= 0.5:
+            anchors[feedback.action] = (
+                anchors[feedback.action] * previous_importance + values[feedback.action]
+            ) / (previous_importance + 1)
+        if charge:
+            self._charge("update")
+
+    def _learn(
+        self, feedback: FeedbackEvent, *, charge: bool, include_replay: bool
+    ) -> None:
+        for _ in range(self.budget.max_updates_per_feedback):
+            self._update_value(feedback, charge=charge)
+        if not include_replay or not self._reservoir:
+            return
+        ranked = sorted(
+            self._reservoir,
+            key=lambda event: hashlib.sha256(
+                (feedback.event_digest + event.event_digest).encode()
+            ).digest(),
+        )
+        for replay in ranked[: self.budget.max_replays_per_feedback]:
+            self._update_value(replay, charge=False)
+            if charge:
+                self._charge("replay")
+
+    def _reservoir_add(self, feedback: FeedbackEvent) -> None:
+        self._seen += 1
+        if len(self._reservoir) < self.config.reservoir_size:
+            self._reservoir.append(feedback)
+            return
+        slot = (
+            int.from_bytes(
+                hashlib.sha256(feedback.event_digest.encode()).digest()[:8], "big"
+            )
+            % self._seen
+        )
+        if slot < self.config.reservoir_size:
+            self._reservoir[slot] = feedback
 
     def correct(self, correction: CorrectionEvent) -> None:
-        self._events = [
-            event
-            for event in self._events
-            if event.event_digest != correction.invalidated_event_digest
-        ]
+        digest = correction.invalidated_event_digest
+        self._tombstones.add(digest)
+        self._events = [event for event in self._events if event.event_digest != digest]
+        self._event_digests.discard(digest)
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        valid = tuple(self._events)
         self._values = {}
         self._anchors = {}
-        for event in self._events:
-            self._apply(event, charge=False)
+        self._importance = {}
+        self._reservoir = []
+        self._seen = 0
+        for event in valid:
+            self._charge("rebuild")
+            self._learn(event, charge=True, include_replay=True)
+            self._reservoir_add(event)
 
     def decision_state(self) -> str:
         canonical = [
@@ -107,44 +200,56 @@ class SingleStoreReplayStabilityArm:
             json.dumps(canonical, separators=(",", ":")).encode()
         ).hexdigest()
 
+    def state_bytes(self) -> int:
+        return len(
+            repr(
+                (self._values, self._anchors, self._importance, self._tombstones)
+            ).encode()
+        )
+
+    @property
+    def reservoir_event_digests(self) -> tuple[str, ...]:
+        return tuple(event.event_digest for event in self._reservoir)
+
     def cost(self) -> CostRecord:
-        return self._ledger.snapshot(len(repr(self._values).encode()))
+        if self._meter is None:
+            return CostRecord(
+                stored_events=len(self._events), state_bytes=self.state_bytes()
+            )
+        return self._meter.snapshot(
+            stored_events=len(self._events), state_bytes=self.state_bytes()
+        )
 
 
-class _ConfiguredArm(SingleStoreReplayStabilityArm):
-    pass
-
-
-class ResetOnChangeArm(_ConfiguredArm):
+class ResetOnChangeArm(SingleStoreReplayStabilityArm):
     def observe(self, feedback: FeedbackEvent) -> None:
         predicted = self._values.get(_key(feedback.observation), {}).get(
             feedback.action, 0.0
         )
+        self._charge("compare")
         if abs(feedback.reward - predicted) > self.config.detector_threshold:
-            self._events = []
             self._values = {}
             self._anchors = {}
+            self._importance = {}
         super().observe(feedback)
 
 
-class RecencyArm(_ConfiguredArm):
+class RecencyArm(SingleStoreReplayStabilityArm):
     def observe(self, feedback: FeedbackEvent) -> None:
         super().observe(feedback)
-        if len(self._events) > 16:
-            self._events = self._events[-16:]
-            self._values = {}
-            self._anchors = {}
-            for event in self._events:
-                self._apply(event, charge=False)
+        if len(self._events) > self.config.reservoir_size:
+            self._events = self._events[-self.config.reservoir_size :]
+            self._event_digests = {event.event_digest for event in self._events}
+            self._rebuild()
 
 
-class StaticArm(_ConfiguredArm):
+class StaticArm(SingleStoreReplayStabilityArm):
     def observe(self, feedback: FeedbackEvent) -> None:
-        if not self._events:
+        if len(self._events) < 8:
             super().observe(feedback)
 
 
-class WSLSDiagnosticArm(_ConfiguredArm):
+class WSLSDiagnosticArm(SingleStoreReplayStabilityArm):
     def act(self, observation: RawObservation) -> str:
         relevant = [
             event
@@ -165,7 +270,9 @@ def make_non_oracle_arm(name: str, budget: ArmBudget):
     configs = {
         "single-store": SingleStoreConfig(),
         "reset": SingleStoreConfig(learning_rate=1.0, stability=0.0),
-        "recency": SingleStoreConfig(learning_rate=0.8, stability=0.0),
+        "recency": SingleStoreConfig(
+            learning_rate=0.8, stability=0.0, reservoir_size=16
+        ),
         "static": SingleStoreConfig(learning_rate=0.2, stability=0.8),
         "wsls": SingleStoreConfig(learning_rate=1.0, stability=0.0),
     }

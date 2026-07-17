@@ -10,6 +10,8 @@
     "changed_contexts": 4,
     "unchanged_contexts": 4,
     "feedback_delay": 2,
+    "phase_lengths": "seed-randomized within frozen bounds",
+    "per_context_occurrences": "seed-randomized; no fixed phase counter",
     "hidden_per_seed_bijections": ["feature_dimension", "feature_value", "action_token"],
     "arm_visible_context_id": false,
     "arm_visible_phase": false
@@ -24,6 +26,8 @@
     "identical_environment": true,
     "identical_update_budget": true,
     "identical_replay_budget": true,
+    "evaluator_owned_operation_ledger": true,
+    "equal_search_trials": true,
     "qualification_seed_tuning_only": true,
     "result_seed_retuning": false
   },
