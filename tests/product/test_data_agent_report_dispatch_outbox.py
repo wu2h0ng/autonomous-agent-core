@@ -171,6 +171,36 @@ def test_recomputed_dispatch_cannot_reference_nonexistent_projection(
         adapter.pending_dispatches()
 
 
+def test_recomputed_principal_tamper_cannot_unlock_pending_or_resolver(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "reports.sqlite3"
+    adapter = _feed_adapter(database)
+    result = adapter.poll_once(limit=1)
+    forged = replace(adapter.pending_dispatches()[0], principal_id="principal:attacker")
+    forged_digest = content_digest(
+        SQLiteDataAgentReportStateStore._dispatch_payload(forged)
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            UPDATE data_agent_report_dispatch_outbox
+            SET dispatch_id = ?, dispatch_digest = ?, principal_id = ?
+            """,
+            (
+                f"data-agent-dispatch:{forged_digest}",
+                forged_digest,
+                forged.principal_id,
+            ),
+        )
+
+    with pytest.raises(DataAgentReportAdapterError, match="scope"):
+        adapter.pending_dispatches()
+    restarted = _feed_adapter(database)
+    with pytest.raises(DataAgentReportAdapterError, match="scope"):
+        restarted.resolve_event(result.bundles[0].event.environment_event_id)
+
+
 def test_completion_receipt_tamper_fails_closed(tmp_path: Path) -> None:
     database = tmp_path / "reports.sqlite3"
     adapter = _feed_adapter(database)

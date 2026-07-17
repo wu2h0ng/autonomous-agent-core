@@ -309,6 +309,11 @@ class DataAgentReportStateStore(Protocol):
         *,
         object_kind: str,
         object_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        environment_binding_id: str,
     ) -> DataAgentReportStoredObservation | None: ...
 
     def save(
@@ -986,6 +991,11 @@ class SQLiteDataAgentReportStateStore:
         *,
         object_kind: str,
         object_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        environment_binding_id: str,
     ) -> DataAgentReportStoredObservation | None:
         if object_kind not in self._OBJECT_KINDS:
             raise DataAgentReportAdapterError(
@@ -1036,9 +1046,9 @@ class SQLiteDataAgentReportStateStore:
                 ),
             ).fetchone()
             if observation_row is not None and observation_key.startswith("feed:"):
-                committed = connection.execute(
-                    """
-                    SELECT 1 FROM data_agent_report_dispatch_outbox
+                committed_rows = connection.execute(
+                    self._dispatch_select()
+                    + """
                     WHERE namespace_digest = ? AND source_id = ?
                       AND source_tenant_id = ? AND environment_event_id = ?
                       AND projection_id = ?
@@ -1050,9 +1060,25 @@ class SQLiteDataAgentReportStateStore:
                         str(observation_row[2]),
                         str(observation_row[3]),
                     ),
-                ).fetchone()
-                if committed is None:
-                    return None
+                ).fetchall()
+                if len(committed_rows) != 1:
+                    if not committed_rows:
+                        return None
+                    raise DataAgentReportAdapterError(
+                        "durable external report dispatch is ambiguous"
+                    )
+                committed = self._dispatch_from_row(committed_rows[0])
+                self._validate_dispatch_observation(connection, committed)
+                if (
+                    committed.principal_id != principal_id
+                    or committed.tenant_id != tenant_id
+                    or committed.workspace_id != workspace_id
+                    or committed.mandate_id != mandate_id
+                    or committed.environment_binding_id != environment_binding_id
+                ):
+                    raise DataAgentReportAdapterError(
+                        "durable external report dispatch scope is invalid"
+                    )
         if observation_row is None:
             raise DataAgentReportAdapterError(
                 "durable external report object index target is unavailable"
@@ -1797,7 +1823,13 @@ class _InMemoryDataAgentReportStateStore:
         *,
         object_kind: str,
         object_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        environment_binding_id: str,
     ) -> DataAgentReportStoredObservation | None:
+        del principal_id, tenant_id, workspace_id, mandate_id, environment_binding_id
         row_key = self._object_index.get((namespace_digest, object_kind, object_id))
         if row_key is None or row_key[1:3] != (source_id, source_tenant_id):
             return None
@@ -2252,12 +2284,15 @@ class DataAgentReportAdapter:
         )
 
     def pending_dispatches(self) -> tuple[DataAgentReportDispatch, ...]:
-        return self._state_store.list_dispatches(
+        dispatches = self._state_store.list_dispatches(
             self._state_namespace,
             self._config.source_id,
             self._config.source_tenant_id,
             status="PENDING",
         )
+        for dispatch in dispatches:
+            self._assert_dispatch_scope(dispatch)
+        return dispatches
 
     def completed_dispatch(self, dispatch_id: str) -> DataAgentReportDispatch | None:
         dispatch = self._state_store.get_dispatch(
@@ -2266,18 +2301,10 @@ class DataAgentReportAdapter:
         )
         if dispatch is None or dispatch.status != "COMPLETED":
             return None
+        self._assert_dispatch_scope(dispatch)
         return dispatch
 
-    def complete_dispatch(
-        self,
-        dispatch: DataAgentReportDispatch,
-        *,
-        outcome_kind: str,
-        outcome_digest: str,
-        completed_at: datetime,
-        consumer_id: str,
-        authority_snapshot_digest: str,
-    ) -> DataAgentReportDispatch:
+    def _assert_dispatch_scope(self, dispatch: DataAgentReportDispatch) -> None:
         if (
             dispatch.namespace_digest != self._state_namespace
             or dispatch.source_id != self._config.source_id
@@ -2291,6 +2318,18 @@ class DataAgentReportAdapter:
             raise DataAgentReportAdapterError(
                 "external report dispatch scope does not match adapter"
             )
+
+    def complete_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_kind: str,
+        outcome_digest: str,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        self._assert_dispatch_scope(dispatch)
         return self._state_store.complete_dispatch(
             dispatch,
             outcome_kind=outcome_kind,
@@ -2927,6 +2966,11 @@ class DataAgentReportAdapter:
             self._config.source_tenant_id,
             object_kind=object_kind,
             object_id=object_id,
+            principal_id=self._config.principal_id,
+            tenant_id=self._config.target_tenant_id,
+            workspace_id=self._config.target_workspace_id,
+            mandate_id=self._config.mandate_id,
+            environment_binding_id=self._config.environment_binding_id,
         )
         if stored is None:
             return
