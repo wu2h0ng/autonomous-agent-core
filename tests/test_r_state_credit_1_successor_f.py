@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -11,8 +12,11 @@ from experiments.r_state_credit_1.action_grammar import ALL_ACTIONS, ActorAction
 from experiments.r_state_credit_1.actor_interface import ActorRequest
 from experiments.r_state_credit_1.contracts import ArmId, ProbeAction, ScenarioFamily
 from experiments.r_state_credit_1.recast_freeze_contracts import (
+    ExactSuccessorArtifacts,
     ExecutionBundle,
+    ReceiptKind,
     SuccessorReadiness,
+    VerifiedReceipt,
 )
 from experiments.r_state_credit_1.recast_provider_actor import (
     ProviderActor,
@@ -21,14 +25,12 @@ from experiments.r_state_credit_1.recast_provider_actor import (
 )
 from experiments.r_state_credit_1.recast_result_runner import (
     C7Interrupted,
+    PublicResultRow,
     ResultRunner,
     RunNotReady,
 )
 from experiments.r_state_credit_1.recast_scorer import RawRecastScorer
 from experiments.r_state_credit_1.run_contracts import CheckpointId, HELD_OUT_SEEDS
-
-
-DIGEST = "a" * 64
 
 
 class _Transport:
@@ -49,6 +51,11 @@ class _C7:
 
     def abort_requested(self) -> bool:
         return self.values.pop(0)
+
+
+class _ReceiptVerifier:
+    def verify(self, receipt: VerifiedReceipt) -> bool:
+        return receipt.signer_id.startswith("independent-")
 
 
 def _binding(**changes: object) -> ProviderBinding:
@@ -75,16 +82,31 @@ def _request() -> ActorRequest:
 
 
 def _bundle(**changes: object) -> ExecutionBundle:
+    root = Path(__file__).resolve().parents[1]
+    manifest = (
+        root / "docs/pre_spec/R-STATE-CREDIT-1.SUCCESSOR-F-MANIFEST-2026-07-17.json"
+    )
+
+    def digest(relative: str) -> str:
+        return hashlib.sha256((root / relative).read_bytes()).hexdigest()
+
     values: dict[str, object] = {
         "schema_version": "r-state-credit-1-successor-f-execution-v1",
         "reviewed_mechanism_head": "0ca38aa3491161fa115c0b58685cf408e5be106b",
-        "provider_binding_sha256": DIGEST,
-        "runner_sha256": DIGEST,
-        "scorer_sha256": DIGEST,
-        "c7_schema_sha256": DIGEST,
-        "prereg_sha256": DIGEST,
+        "provider_binding_sha256": digest(
+            "experiments/r_state_credit_1/bindings/ark-agent-plan-actor-candidate.json"
+        ),
+        "runner_sha256": digest("experiments/r_state_credit_1/recast_result_runner.py"),
+        "scorer_sha256": digest("experiments/r_state_credit_1/recast_scorer.py"),
+        "c7_schema_sha256": digest(
+            "experiments/r_state_credit_1/bindings/c7-signal-candidate.json"
+        ),
+        "prereg_sha256": digest(
+            "docs/pre_spec/R-STATE-CREDIT-1.SUCCESSOR-F-CANDIDATE-2026-07-17.json"
+        ),
         "future_freeze_receipt_sha256": None,
         "run_authorization_freeze_sha256": None,
+        "artifact_manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
         "expected_provider_calls": 2240,
         "max_total_input_tokens": 2_240_000,
         "max_total_output_tokens": 1_120_000,
@@ -93,14 +115,48 @@ def _bundle(**changes: object) -> ExecutionBundle:
     return ExecutionBundle(**values)  # type: ignore[arg-type]
 
 
-def _public_rows() -> tuple[dict[str, object], ...]:
+def _authorized_context() -> tuple[
+    ExecutionBundle, ExactSuccessorArtifacts, tuple[VerifiedReceipt, ...]
+]:
+    root = Path(__file__).resolve().parents[1]
+    artifacts = ExactSuccessorArtifacts.load(root)
+    receipt_digests = {
+        kind: hashlib.sha256(f"verified-{kind.value}".encode()).hexdigest()
+        for kind in ReceiptKind
+    }
+    bundle = _bundle(
+        future_freeze_receipt_sha256=receipt_digests[ReceiptKind.FREEZE],
+        run_authorization_freeze_sha256=receipt_digests[ReceiptKind.RUN_AUTHORIZATION],
+    )
+    subjects = {
+        ReceiptKind.PROVIDER_CANARY: bundle.provider_binding_sha256,
+        ReceiptKind.C7: bundle.c7_schema_sha256,
+        ReceiptKind.EXECUTOR: bundle.runner_sha256,
+        ReceiptKind.INTEGRITY: artifacts.integrity_subject_sha256,
+        ReceiptKind.FREEZE: artifacts.manifest_sha256,
+        ReceiptKind.RUN_AUTHORIZATION: receipt_digests[ReceiptKind.FREEZE],
+    }
+    receipts = tuple(
+        VerifiedReceipt(
+            kind=kind,
+            receipt_sha256=receipt_digests[kind],
+            subject_sha256=subjects[kind],
+            signer_id=f"independent-{kind.value}",
+            signature_verified=True,
+        )
+        for kind in ReceiptKind
+    )
+    return bundle, artifacts, receipts
+
+
+def _public_rows() -> tuple[PublicResultRow, ...]:
     return tuple(
-        {
-            "family": family.value,
-            "seed": seed,
-            "checkpoint_id": checkpoint.value,
-            "arm_id": arm.value,
-        }
+        PublicResultRow(
+            family=family,
+            seed=seed,
+            checkpoint_id=checkpoint,
+            arm_id=arm,
+        )
         for family in ScenarioFamily
         for seed in HELD_OUT_SEEDS
         for checkpoint in CheckpointId
@@ -140,16 +196,19 @@ def test_provider_emits_typed_revision_bound_receipt() -> None:
 def test_runner_never_runs_without_future_freeze_bound_authorization() -> None:
     readiness = SuccessorReadiness.evaluate(_bundle())
     assert readiness.status == "NOT_READY"
-    with pytest.raises(RunNotReady, match="future freeze"):
+    with pytest.raises(RunNotReady, match="verified custody"):
         ResultRunner(_bundle(), _C7([False])).run(())
 
 
 def test_runner_checks_c7_before_and_after_and_lock_is_terminal() -> None:
-    bundle = _bundle(
-        future_freeze_receipt_sha256="b" * 64,
-        run_authorization_freeze_sha256="b" * 64,
+    bundle, artifacts, receipts = _authorized_context()
+    runner = ResultRunner(
+        bundle,
+        _C7([False, True]),
+        artifacts=artifacts,
+        receipts=receipts,
+        receipt_verifier=_ReceiptVerifier(),
     )
-    runner = ResultRunner(bundle, _C7([False, True]))
     with pytest.raises(C7Interrupted):
         runner.run(_public_rows())
     with pytest.raises(RunNotReady, match="terminal"):
@@ -157,26 +216,63 @@ def test_runner_checks_c7_before_and_after_and_lock_is_terminal() -> None:
 
 
 def test_runner_rejects_hidden_truth_payload_before_provider() -> None:
-    bundle = _bundle(
-        future_freeze_receipt_sha256="b" * 64,
-        run_authorization_freeze_sha256="b" * 64,
-    )
-    with pytest.raises(RunNotReady, match="hidden truth"):
-        ResultRunner(bundle, _C7([False])).run(
-            ({"family": "x", "correct_action": "REVIEW"},)
+    with pytest.raises(ValueError, match="closed public row schema"):
+        PublicResultRow.from_mapping(
+            {
+                "family": next(iter(ScenarioFamily)).value,
+                "seed": HELD_OUT_SEEDS[0],
+                "checkpoint_id": next(iter(CheckpointId)).value,
+                "arm_id": next(iter(ArmId)).value,
+                "payload": {"correct_action": "REVIEW"},
+            }
         )
 
 
-def test_runner_rejects_missing_or_duplicate_exact_rows_and_budget_drift() -> None:
-    bundle = _bundle(
-        future_freeze_receipt_sha256="b" * 64,
-        run_authorization_freeze_sha256="b" * 64,
+def test_runner_rejects_nested_hidden_truth_and_untyped_rows() -> None:
+    with pytest.raises(ValueError, match="closed public row schema"):
+        PublicResultRow.from_mapping(
+            {
+                "family": next(iter(ScenarioFamily)).value,
+                "seed": HELD_OUT_SEEDS[0],
+                "checkpoint_id": next(iter(CheckpointId)).value,
+                "arm_id": next(iter(ArmId)).value,
+                "metadata": {"referee": {"correct_action": "REVIEW"}},
+            }
+        )
+    bundle, artifacts, receipts = _authorized_context()
+    untyped_rows = cast(
+        tuple[PublicResultRow, ...],
+        ({"family": "x", "payload": {"loss_by_action": {}}},),
     )
+    with pytest.raises(RunNotReady, match="typed public rows"):
+        ResultRunner(
+            bundle,
+            _C7([False]),
+            artifacts=artifacts,
+            receipts=receipts,
+            receipt_verifier=_ReceiptVerifier(),
+        ).run(untyped_rows)
+
+
+def test_runner_rejects_missing_or_duplicate_exact_rows_and_budget_drift() -> None:
+    bundle, artifacts, receipts = _authorized_context()
     rows = _public_rows()
     with pytest.raises(RunNotReady, match="coverage"):
-        ResultRunner(bundle, _C7([False])).run(rows[:-1])
+        ResultRunner(
+            bundle,
+            _C7([False]),
+            artifacts=artifacts,
+            receipts=receipts,
+            receipt_verifier=_ReceiptVerifier(),
+        ).run(rows[:-1])
     with pytest.raises(RunNotReady, match="coverage"):
-        ResultRunner(bundle, _C7([False])).run(rows[:-1] + (rows[0],))
+        ResultRunner(
+            bundle,
+            _C7([False]),
+            artifacts=artifacts,
+            receipts=receipts,
+            receipt_verifier=_ReceiptVerifier(),
+        ).run(rows[:-1] + (rows[0],))
     with pytest.raises(ValueError, match="provider call budget"):
         replace(bundle, expected_provider_calls=2239)
 
@@ -232,8 +328,48 @@ def test_successor_contract_closes_family_overclaim_and_integrity_umbrella() -> 
     assert bundle.required_family_strata == tuple(item.value for item in ScenarioFamily)
     assert bundle.required_perturbations == "GENERATED_PER_FAMILY_NOT_EVERY_INSTANCE"
     assert bundle.integrity_umbrella == "INTEGRITY_VALID"
-    with pytest.raises(ValueError, match="freeze"):
-        replace(bundle, run_authorization_freeze_sha256="c" * 64)
+    drifted = replace(bundle, run_authorization_freeze_sha256="c" * 64)
+    assert SuccessorReadiness.evaluate(drifted).status == "NOT_READY"
+
+
+def test_placeholder_digests_budgets_and_same_receipt_never_become_ready() -> None:
+    with pytest.raises(ValueError, match="token budgets"):
+        _bundle(
+            provider_binding_sha256="a" * 64,
+            runner_sha256="a" * 64,
+            scorer_sha256="a" * 64,
+            c7_schema_sha256="a" * 64,
+            prereg_sha256="a" * 64,
+            max_total_input_tokens=1,
+            max_total_output_tokens=1,
+        )
+    bundle = _bundle()
+    root = Path(__file__).resolve().parents[1]
+    artifacts = ExactSuccessorArtifacts.load(root)
+    receipts = tuple(
+        VerifiedReceipt(
+            kind=kind,
+            receipt_sha256="b" * 64,
+            subject_sha256=artifacts.manifest_sha256,
+            signer_id=f"signer-{kind.value}",
+            signature_verified=True,
+        )
+        for kind in ReceiptKind
+    )
+    readiness = SuccessorReadiness.evaluate(
+        bundle, artifacts=artifacts, receipts=receipts
+    )
+    assert readiness.status == "NOT_READY"
+    assert "receipt digests must be distinct" in readiness.blockers
+
+
+def test_provider_self_claim_cannot_close_readiness_without_verified_canary() -> None:
+    bundle = _bundle()
+    root = Path(__file__).resolve().parents[1]
+    artifacts = ExactSuccessorArtifacts.load(root)
+    readiness = SuccessorReadiness.evaluate(bundle, artifacts=artifacts, receipts=())
+    assert readiness.status == "NOT_READY"
+    assert "verified PROVIDER_CANARY receipt absent" in readiness.blockers
 
 
 def test_successor_candidate_is_separate_not_ready_and_exactly_manifested() -> None:

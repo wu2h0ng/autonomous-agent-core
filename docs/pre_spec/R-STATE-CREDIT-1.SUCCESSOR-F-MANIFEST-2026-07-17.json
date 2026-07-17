@@ -4,12 +4,12 @@
   "active_freeze_input": false,
   "reviewed_mechanism_base": "0ca38aa3491161fa115c0b58685cf408e5be106b",
   "artifact_sha256": {
-    "docs/pre_spec/R-STATE-CREDIT-1.SUCCESSOR-F-CANDIDATE-2026-07-17.json": "e6872152cb254a068ff7bc310fc7d70ae18ffc9a80b00573cefdea1f6fcf02a6",
-    "docs/research/R-STATE-CREDIT-1-successor-f-amendment-2026-07-17.md": "f2dde1d401900358b700202055ea22677e3d9ea5938a3b6230bddf909e97286e",
-    "experiments/r_state_credit_1/recast_freeze_contracts.py": "71e8e6f621551c42882ea245d8a60d977452cf69f427c956b3f2957d80293485",
+    "docs/pre_spec/R-STATE-CREDIT-1.SUCCESSOR-F-CANDIDATE-2026-07-17.json": "7aea201bdaefa89aca225d0c73eef04791490b24b83a81111dfd8b01f5dcd137",
+    "docs/research/R-STATE-CREDIT-1-successor-f-amendment-2026-07-17.md": "fdb7bbcd6fc3b7cb04bdb8a3169c66175bb5384bd3e495c95be9723b21ca1f81",
+    "experiments/r_state_credit_1/recast_freeze_contracts.py": "a4960ad3f84c2c8b45c42fe3022150d8b7196a3f547d4dd7cc535e64771ce5a5",
     "experiments/r_state_credit_1/recast_provider_actor.py": "fe88c3ba5df5a2f9405577d71f1465d3c34d5cdd4da32dfdd2d5a6f82ba3041e",
-    "experiments/r_state_credit_1/recast_result_runner.py": "9730af9caaf7c9f011055389523af8d696a5679ae34feb6156c8c652eb79d978",
+    "experiments/r_state_credit_1/recast_result_runner.py": "04b8bc5f9b21e3813258b0870075f156cd5ce6728e18b31d1dbbc5102a52aad9",
     "experiments/r_state_credit_1/recast_scorer.py": "5aa7fa0c7fb5375deb8f1013e5d0e2943044b7f22cbb15f50e2c1a3c39ba1f82",
-    "tests/test_r_state_credit_1_successor_f.py": "2063e60cda4e3790a5aa52c7477f54d60fded75ca574099b9a6bff88a0992f65"
+    "tests/test_r_state_credit_1_successor_f.py": "5e183316d8a9bc2a8cb7a6a28dcbdf25c2472682ad9e17ffcc3c27500099e489"
   }
 }

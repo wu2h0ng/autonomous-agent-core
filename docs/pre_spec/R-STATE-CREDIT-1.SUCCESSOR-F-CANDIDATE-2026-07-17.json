@@ -15,6 +15,7 @@
   ],
   "provider_contract": {
     "binding_status": "NOT_BOUND",
+    "verified_canary_receipt_status": "ABSENT",
     "stub_fallback": "FORBIDDEN",
     "model_alias": "FORBIDDEN",
     "confirmed_immutable_revision": "REQUIRED",
@@ -26,7 +27,20 @@
     "max_total_output_tokens": 1120000,
     "c7_checks": ["PRE", "POST"],
     "same_lock_retry_after_interrupt": "FORBIDDEN",
-    "hidden_truth_in_public_runner": "FORBIDDEN"
+    "hidden_truth_in_public_runner": "FORBIDDEN",
+    "public_row_schema": "CLOSED_FAMILY_SEED_CHECKPOINT_ARM_SCALARS_ONLY"
+  },
+  "custody_receipts": {
+    "status": "ABSENT_NOT_READY",
+    "required_distinct_roles": [
+      "PROVIDER_CANARY",
+      "C7",
+      "EXECUTOR",
+      "INTEGRITY",
+      "FREEZE",
+      "RUN_AUTHORIZATION"
+    ],
+    "external_receipt_verifier": "REQUIRED"
   },
   "family_perturbation_contract": "GENERATED_PER_FAMILY_NOT_EVERY_INSTANCE",
   "integrity_umbrella": "INTEGRITY_VALID",
