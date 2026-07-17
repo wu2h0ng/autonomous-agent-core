@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import replace
+import subprocess
+from typing import Any, cast
 
 import pytest
 
 from research_tools.active_discovery.actor_loop import (
-    ActorIsolationReceipt,
     ActorLoopReceipt,
     ActorLoopError,
+    DockerActorPort,
     ExhaustiveConfigurationDomainManifest,
     HiddenConfigurationPolicyTrace,
-    SubprocessActorPort,
     audit_static_voi_reduction,
     run_actor_loop,
+    trusted_docker_actor_port,
 )
 from research_tools.active_discovery.canonical import canonical_json, content_digest
 from research_tools.active_discovery.catalogue import VisibleProbeCandidate
@@ -150,6 +151,7 @@ def _actor_source(
     *,
     stale_binding: bool = False,
     constant_material_update: bool = False,
+    length_only_update: bool = False,
 ) -> bytes:
     challenge = catalogue.sequences[0]
     probabilities = [
@@ -176,8 +178,25 @@ if set(request) != expected_keys:
     raise SystemExit(41)
 legal = request["legal_probe_payloads"]
 observations = request["prefix_observations"]
+descriptor_keys = {{
+    "schema_version", "descriptor_digest", "operation_id", "schema_json",
+    "documentation_fragments", "initial_state_digest"
+}}
+observation_keys = {{
+    "step_index", "probe_id", "outcome_label", "state_relation",
+    "before_state_digest", "after_state_digest", "public_observation_digest"
+}}
+if set(request["public_descriptor"]) != descriptor_keys:
+    raise SystemExit(42)
+if any(set(item) != observation_keys for item in observations):
+    raise SystemExit(43)
 k = len(observations)
-delta = 0 if {constant_material_update!r} else k * 1000
+if k == 0 or {constant_material_update!r}:
+    delta = 0
+elif {length_only_update!r}:
+    delta = k * 1000
+else:
+    delta = int(request["transcript_prefix_digest"][:5], 16) % 400000 + 1
 hypotheses = [
     {{"hypothesis_id": "actor-h-a", "description": "accepts boundary", "probability_micros": 500000 + delta}},
     {{"hypothesis_id": "actor-h-b", "description": "rejects boundary", "probability_micros": 500000 - delta}},
@@ -212,21 +231,8 @@ sys.stdout.write(json.dumps(output, sort_keys=True, separators=(",", ":")))
     return source.encode("utf-8")
 
 
-def _port(source: bytes) -> SubprocessActorPort:
-    receipt = ActorIsolationReceipt.bind(
-        executable_path=sys.executable,
-        actor_artifact_bytes=source,
-        isolation_provider_digest=_digest("external-isolation-provider"),
-        filesystem_policy="EXTERNALLY_ATTESTED_NO_HOST_READ_WRITE",
-        network_policy="EXTERNALLY_ATTESTED_NONE",
-        environment_policy="EMPTY",
-    )
-    return SubprocessActorPort.create(
-        executable_path=sys.executable,
-        actor_artifact_bytes=source,
-        isolation_receipt=receipt,
-        timeout_seconds=2,
-    )
+def _port(source: bytes) -> DockerActorPort:
+    return trusted_docker_actor_port(actor_artifact_bytes=source)
 
 
 class _Executor:
@@ -261,7 +267,7 @@ class _Executor:
 def _run(
     *,
     candidates: tuple[VisibleProbeCandidate, ...],
-    actor_port: SubprocessActorPort | None = None,
+    actor_port: DockerActorPort | None = None,
     executor: _Executor | None = None,
 ) -> ActorLoopReceipt:
     descriptor = _descriptor()
@@ -279,7 +285,7 @@ def _run(
     )
 
 
-def test_actor_uses_fresh_serialized_processes_and_public_projection_only() -> None:
+def test_actor_uses_fresh_hardened_containers_and_public_projection_only() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
     port = _port(_actor_source(catalogue))
@@ -299,12 +305,17 @@ def test_actor_uses_fresh_serialized_processes_and_public_projection_only() -> N
 
     assert tuple(bundle.prefix_index for bundle in receipt.prefix_bundles) == tuple(range(5))
     assert receipt.selected_probe_ids == ("probe-0", "probe-1", "probe-2", "probe-3")
-    assert len(receipt.actor_invocation_receipts) == 10
-    assert len({item.process_id for item in receipt.actor_invocation_receipts}) == 10
+    assert len(receipt.actor_invocation_receipts) == 18
+    assert len({item.container_id for item in receipt.actor_invocation_receipts}) == 18
     assert all(
         item.actor_artifact_digest == port.actor_artifact_digest
-        and item.executable_digest == port.executable_digest
+        and item.resolved_image_id == port.resolved_image_id
         and item.allowed_projection_digest == port.allowed_projection_digest
+        and item.network_mode == "none"
+        and item.rootfs_read_only
+        and item.cap_drop_all
+        and item.no_new_privileges
+        and item.cleanup_absent
         for item in receipt.actor_invocation_receipts
     )
     assert len(executor.requests) == 4
@@ -320,28 +331,19 @@ def test_environment_preloaded_predictions_and_hypothesis_ids_cannot_change_acto
     )
 
 
-@pytest.mark.parametrize(
-    ("executor", "message"),
-    (
-        (_Executor(stdout="oracle score=9"), "oracle-shaped observation"),
-        (_Executor(stderr="hidden-family"), "oracle-shaped observation"),
-        (
-            _Executor(output={"outer": {"configuration_truth": "x"}}),
-            "oracle-shaped observation",
+def test_raw_observation_channels_are_not_projected_to_actor() -> None:
+    receipt = _run(
+        candidates=_candidates(environment_hypothesis_prefix="environment"),
+        executor=_Executor(
+            stdout="oracle score=9",
+            stderr="hidden-family",
+            output={"outer": {"configuration_truth": "x"}},
         ),
-    ),
-)
-def test_observations_are_recursively_redacted_before_actor_input(
-    executor: _Executor, message: str
-) -> None:
-    with pytest.raises(ActorLoopError, match=message):
-        _run(
-            candidates=_candidates(environment_hypothesis_prefix="environment"),
-            executor=executor,
-        )
+    )
+    assert receipt.selected_probe_ids == ("probe-0", "probe-1", "probe-2", "probe-3")
 
 
-def test_actor_rejects_stale_transcript_binding_and_constant_material_update() -> None:
+def test_actor_rejects_stale_constant_and_same_length_transcript_ignorance() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
     candidates = _candidates(environment_hypothesis_prefix="environment")
@@ -355,27 +357,47 @@ def test_actor_rejects_stale_transcript_binding_and_constant_material_update() -
             actor_port=_port(_actor_source(catalogue, constant_material_update=True)),
         )
 
+    with pytest.raises(ActorLoopError, match="same-length counterfactual"):
+        _run(
+            candidates=candidates,
+            actor_port=_port(_actor_source(catalogue, length_only_update=True)),
+        )
 
-def test_actor_artifact_and_isolation_receipt_must_bind_exact_bytes() -> None:
+
+def test_docker_policy_is_fixed_has_no_host_mount_and_cleanup_is_real() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
-    source = _actor_source(catalogue)
-    receipt = ActorIsolationReceipt.bind(
-        executable_path=sys.executable,
-        actor_artifact_bytes=source,
-        isolation_provider_digest=_digest("external-isolation-provider"),
-        filesystem_policy="EXTERNALLY_ATTESTED_NO_HOST_READ_WRITE",
-        network_policy="EXTERNALLY_ATTESTED_NONE",
-        environment_policy="EMPTY",
-    )
-
-    with pytest.raises(ActorLoopError, match="artifact binding"):
-        SubprocessActorPort.create(
-            executable_path=sys.executable,
-            actor_artifact_bytes=source + b"\n# mutation",
-            isolation_receipt=receipt,
-            timeout_seconds=2,
+    port = _port(_actor_source(catalogue))
+    joined = " ".join(port.docker_security_args)
+    for required in (
+        "--network none",
+        "--read-only",
+        "--cap-drop ALL",
+        "--security-opt no-new-privileges",
+        "--pids-limit 32",
+        "--memory 64m",
+        "--memory-swap 64m",
+        "--cpus 0.5",
+    ):
+        assert required in joined
+    for forbidden in ("--mount", "--volume", "-v", "docker.sock", "--privileged"):
+        assert forbidden not in port.docker_security_args
+    with pytest.raises(TypeError):
+        cast(Any, trusted_docker_actor_port)(
+            actor_artifact_bytes=_actor_source(catalogue), image="alpine:latest"
         )
+
+    run_receipt = _run(
+        candidates=_candidates(environment_hypothesis_prefix="environment"),
+        actor_port=port,
+    )
+    assert all(item.cleanup_absent for item in run_receipt.actor_invocation_receipts)
+    for item in run_receipt.actor_invocation_receipts:
+        assert subprocess.run(
+            ["docker", "container", "inspect", item.container_id],
+            capture_output=True,
+            check=False,
+        ).returncode != 0
 
 
 def _domain_manifest(configuration_digests: tuple[str, ...]) -> ExhaustiveConfigurationDomainManifest:
@@ -403,7 +425,7 @@ def test_static_reduction_requires_exhaustive_manifest_and_parks_only_exact_doma
         policy_traces=equal_domain,
     )
 
-    assert parked.disposition == "PARK_ACTIVE_ADAPTATION"
+    assert parked.disposition == "NEEDS_INDEPENDENT_DOMAIN_CERTIFICATE"
     assert parked.domain_manifest_digest == manifest.manifest_digest
 
     with pytest.raises(ActorLoopError, match="exact exhaustive domain"):
