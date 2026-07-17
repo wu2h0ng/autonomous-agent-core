@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Callable, Mapping, Protocol, cast
@@ -345,6 +346,7 @@ class ReservationClaimReceipt:
     cas_epoch: int
     run_id: str
     envelope_sha256: str
+    claimant_nonce_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +366,7 @@ class AuthorityVerifier(Protocol):
         reservation: dict[str, object],
         run_id: str,
         envelope_sha256: str,
+        claimant_nonce_sha256: str,
     ) -> ReservationClaimReceipt: ...
 
     def query_claim(
@@ -371,6 +374,7 @@ class AuthorityVerifier(Protocol):
         reservation: dict[str, object],
         run_id: str,
         envelope_sha256: str,
+        claimant_nonce_sha256: str,
     ) -> ReservationClaimReceipt | None: ...
 
     def terminalize(
@@ -749,23 +753,31 @@ class ExecutionBridge:
             self._fault_hook(stage)
 
     def _validate_claim(
-        self, claim: ReservationClaimReceipt, envelope: ExecutionAdmission
+        self,
+        claim: ReservationClaimReceipt,
+        envelope: ExecutionAdmission,
+        claimant_nonce_sha256: str,
     ) -> None:
         expected = envelope.workflow_reservation
         if (
             not isinstance(claim, ReservationClaimReceipt)
             or not claim.registry_verified
-            or not claim.claimed
             or claim.reservation_id != expected.reservation_id
             or claim.reservation_token_sha256 != expected.reservation_token_sha256
             or claim.attempt_epoch != expected.attempt_epoch
             or claim.cas_epoch != expected.cas_epoch
             or claim.run_id != envelope.run_id
             or claim.envelope_sha256 != envelope.envelope_sha256
+            or claim.claimant_nonce_sha256 != claimant_nonce_sha256
         ):
             raise ExecutionBridgeViolation("workflow reservation claim binding failed")
+        _require_sha256(claim.claimant_nonce_sha256, "claimant_nonce_sha256")
+        if not claim.claimed:
+            raise ExecutionBridgeViolation("workflow reservation already claimed")
 
-    def _claim_intent(self, envelope: ExecutionAdmission) -> dict[str, object]:
+    def _claim_intent(
+        self, envelope: ExecutionAdmission, claimant_nonce_sha256: str
+    ) -> dict[str, object]:
         return {
             "schema_version": "r-state-credit-1-claim-intent-v1",
             "run_id": envelope.run_id,
@@ -776,7 +788,47 @@ class ExecutionBridge:
             ),
             "attempt_epoch": envelope.workflow_reservation.attempt_epoch,
             "cas_epoch": envelope.workflow_reservation.cas_epoch,
+            "claimant_nonce_sha256": claimant_nonce_sha256,
         }
+
+    def _claimant_nonce_from_intent(self, envelope: ExecutionAdmission) -> str:
+        try:
+            encoded = self.claim_intent_path.read_bytes()
+            raw = json.loads(encoded)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ExecutionBridgeViolation("claim intent is absent or invalid") from exc
+        if (canonical_json(raw) + "\n").encode() != encoded:
+            raise ExecutionBridgeViolation("claim intent must be canonical JSON")
+        intent = _closed(
+            raw,
+            {
+                "schema_version",
+                "run_id",
+                "envelope_sha256",
+                "reservation_id",
+                "reservation_token_sha256",
+                "attempt_epoch",
+                "cas_epoch",
+                "claimant_nonce_sha256",
+            },
+            "claim intent",
+        )
+        expected = envelope.workflow_reservation
+        nonce = _require_sha256(
+            intent["claimant_nonce_sha256"], "claim intent claimant_nonce_sha256"
+        )
+        if (
+            intent["schema_version"] != "r-state-credit-1-claim-intent-v1"
+            or intent["run_id"] != envelope.run_id
+            or intent["envelope_sha256"] != envelope.envelope_sha256
+            or intent["reservation_id"] != expected.reservation_id
+            or intent["reservation_token_sha256"]
+            != expected.reservation_token_sha256
+            or intent["attempt_epoch"] != expected.attempt_epoch
+            or intent["cas_epoch"] != expected.cas_epoch
+        ):
+            raise ExecutionBridgeViolation("claim intent binding failed")
+        return nonce
 
     def _reconcile_terminal_intent(self) -> None:
         if self._claim is None:
@@ -841,12 +893,13 @@ class ExecutionBridge:
         self._reconcile_terminal_intent()
 
     def _query_claim(
-        self, envelope: ExecutionAdmission
+        self, envelope: ExecutionAdmission, claimant_nonce_sha256: str
     ) -> ReservationClaimReceipt | None:
         return self.receipt_verifier.query_claim(
             envelope.workflow_reservation.to_mapping(),
             envelope.run_id,
             envelope.envelope_sha256,
+            claimant_nonce_sha256,
         )
 
     def _reconcile_existing(self, envelope: ExecutionAdmission) -> None:
@@ -861,14 +914,20 @@ class ExecutionBridge:
             or self.lock_path.exists()
         ):
             return
-        claim = self._query_claim(envelope)
+        if not self.claim_intent_path.exists():
+            raise ExecutionBridgeViolation(
+                "claim intent is required for custody reconciliation"
+            )
+        claimant_nonce_sha256 = self._claimant_nonce_from_intent(envelope)
+        claim = self._query_claim(envelope, claimant_nonce_sha256)
         if claim is None:
             claim = self.receipt_verifier.claim(
                 envelope.workflow_reservation.to_mapping(),
                 envelope.run_id,
                 envelope.envelope_sha256,
+                claimant_nonce_sha256,
             )
-        self._validate_claim(claim, envelope)
+        self._validate_claim(claim, envelope, claimant_nonce_sha256)
         self._claim = claim
         if self.terminal_intent_path.exists():
             self._reconcile_terminal_intent()
@@ -878,10 +937,8 @@ class ExecutionBridge:
                 payload={
                     "run_id": envelope.run_id,
                     "envelope_sha256": envelope.envelope_sha256,
-                    "artifact_sha256": (
-                        _sha256(self.claim_intent_path.read_bytes())
-                        if self.claim_intent_path.exists()
-                        else "0" * 64
+                    "artifact_sha256": _sha256(
+                        self.claim_intent_path.read_bytes()
                     ),
                     "recovery_reason": "INCOMPLETE_CLAIM_OR_EXECUTION_STATE",
                 },
@@ -891,16 +948,22 @@ class ExecutionBridge:
     def execute(self, envelope: ExecutionAdmission) -> ExecutionReceipt:
         self.admit(envelope)
         self._reconcile_existing(envelope)
-        prior_claim = self._query_claim(envelope)
+        claimant_nonce_sha256 = _sha256(secrets.token_bytes(32))
+        self._write_exclusive(
+            self.claim_intent_path,
+            self._claim_intent(envelope, claimant_nonce_sha256),
+        )
+        prior_claim = self._query_claim(envelope, claimant_nonce_sha256)
         if prior_claim is not None:
+            self._validate_claim(prior_claim, envelope, claimant_nonce_sha256)
             raise ExecutionBridgeViolation("workflow reservation already claimed")
-        self._write_exclusive(self.claim_intent_path, self._claim_intent(envelope))
         claim = self.receipt_verifier.claim(
             envelope.workflow_reservation.to_mapping(),
             envelope.run_id,
             envelope.envelope_sha256,
+            claimant_nonce_sha256,
         )
-        self._validate_claim(claim, envelope)
+        self._validate_claim(claim, envelope, claimant_nonce_sha256)
         self._claim = claim
         self._fault("after_claim_before_lock")
         self._write_exclusive(

@@ -84,8 +84,9 @@ class _ExternalVerifier:
     def __init__(self, accepted: bool = True) -> None:
         self.accepted = accepted
         self.kinds: list[ReceiptKind] = []
-        self.claimed: set[tuple[str, str, int]] = set()
-        self.claim_receipts: dict[tuple[str, str, int], ReservationClaimReceipt] = {}
+        self.claim_receipts: dict[
+            tuple[str, str, int, int, str, str], ReservationClaimReceipt
+        ] = {}
         self.terminal_receipts: dict[str, ReservationTerminalReceipt] = {}
         self.terminal_states: list[str] = []
 
@@ -116,20 +117,35 @@ class _ExternalVerifier:
         reservation: dict[str, object],
         run_id: str,
         envelope_sha256: str,
+        claimant_nonce_sha256: str,
     ) -> ReservationClaimReceipt:
         key = (
-            run_id,
+            str(reservation["reservation_id"]),
             str(reservation["reservation_token_sha256"]),
             cast(int, reservation["attempt_epoch"]),
+            cast(int, reservation["cas_epoch"]),
+            run_id,
+            envelope_sha256,
         )
         prior = self.claim_receipts.get(key)
         if prior is not None:
-            return prior
-        claimed = key not in self.claimed
-        self.claimed.add(key)
+            if prior.claimant_nonce_sha256 == claimant_nonce_sha256:
+                return prior
+            return ReservationClaimReceipt(
+                registry_verified=self.accepted,
+                claimed=False,
+                claim_id=prior.claim_id,
+                reservation_id=prior.reservation_id,
+                reservation_token_sha256=prior.reservation_token_sha256,
+                attempt_epoch=prior.attempt_epoch,
+                cas_epoch=prior.cas_epoch,
+                run_id=prior.run_id,
+                envelope_sha256=prior.envelope_sha256,
+                claimant_nonce_sha256=claimant_nonce_sha256,
+            )
         receipt = ReservationClaimReceipt(
             registry_verified=self.accepted,
-            claimed=claimed,
+            claimed=True,
             claim_id=f"claim:{run_id}:1",
             reservation_id=str(reservation["reservation_id"]),
             reservation_token_sha256=str(reservation["reservation_token_sha256"]),
@@ -137,6 +153,7 @@ class _ExternalVerifier:
             cas_epoch=cast(int, reservation["cas_epoch"]),
             run_id=run_id,
             envelope_sha256=envelope_sha256,
+            claimant_nonce_sha256=claimant_nonce_sha256,
         )
         self.claim_receipts[key] = receipt
         return receipt
@@ -146,14 +163,30 @@ class _ExternalVerifier:
         reservation: dict[str, object],
         run_id: str,
         envelope_sha256: str,
+        claimant_nonce_sha256: str,
     ) -> ReservationClaimReceipt | None:
-        _ = envelope_sha256
-        return self.claim_receipts.get(
-            (
-                run_id,
-                str(reservation["reservation_token_sha256"]),
-                cast(int, reservation["attempt_epoch"]),
-            )
+        key = (
+            str(reservation["reservation_id"]),
+            str(reservation["reservation_token_sha256"]),
+            cast(int, reservation["attempt_epoch"]),
+            cast(int, reservation["cas_epoch"]),
+            run_id,
+            envelope_sha256,
+        )
+        prior = self.claim_receipts.get(key)
+        if prior is None or prior.claimant_nonce_sha256 == claimant_nonce_sha256:
+            return prior
+        return ReservationClaimReceipt(
+            registry_verified=self.accepted,
+            claimed=False,
+            claim_id=prior.claim_id,
+            reservation_id=prior.reservation_id,
+            reservation_token_sha256=prior.reservation_token_sha256,
+            attempt_epoch=prior.attempt_epoch,
+            cas_epoch=prior.cas_epoch,
+            run_id=prior.run_id,
+            envelope_sha256=prior.envelope_sha256,
+            claimant_nonce_sha256=claimant_nonce_sha256,
         )
 
     def terminalize(
@@ -181,6 +214,33 @@ class _ExternalVerifier:
         self, claim_id: str
     ) -> ReservationTerminalReceipt | None:
         return self.terminal_receipts.get(claim_id)
+
+
+class _StealingVerifier(_ExternalVerifier):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stolen = False
+
+    def query_claim(
+        self,
+        reservation: dict[str, object],
+        run_id: str,
+        envelope_sha256: str,
+        claimant_nonce_sha256: str,
+    ) -> ReservationClaimReceipt | None:
+        prior = super().query_claim(
+            reservation, run_id, envelope_sha256, claimant_nonce_sha256
+        )
+        if prior is None and not self.stolen:
+            self.stolen = True
+            super().claim(
+                reservation,
+                run_id,
+                envelope_sha256,
+                "f" * 64,
+            )
+            return None
+        return prior
 
 
 class _WorkspaceProbe:
@@ -617,6 +677,7 @@ def test_atomic_reservation_claim_rejects_same_envelope_in_a_new_run_dir(
     assert authority.claim_receipts == {}
     with pytest.raises(ExecutionBridgeViolation, match="C7 interrupted"):
         first.execute(envelope)
+    second_transport = _Transport()
     second = ExecutionBridge(
         root=root,
         active_manifest=active_manifest,
@@ -625,10 +686,63 @@ def test_atomic_reservation_claim_rejects_same_envelope_in_a_new_run_dir(
         receipt_verifier=authority,
         workspace_probe=_WorkspaceProbe(root),
         c7=_C7(),
-        actor=_actor(_Transport()),
+        actor=_actor(second_transport),
     )
     with pytest.raises(ExecutionBridgeViolation, match="already claimed"):
         second.execute(envelope)
+    assert second_transport.calls == 0
+
+
+def test_claim_cas_rejects_toctou_steal_before_provider_effect(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+    transport = _Transport()
+    bridge = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=tmp_path / "claim-toctou",
+        receipt_documents=receipts,
+        receipt_verifier=_StealingVerifier(),
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(),
+        actor=_actor(transport),
+    )
+
+    with pytest.raises(ExecutionBridgeViolation, match="already claimed"):
+        bridge.execute(ExecutionAdmission.from_canonical_json(encoded))
+
+    assert transport.calls == 0
+    claim_intent = json.loads(bridge.claim_intent_path.read_bytes())
+    assert len(claim_intent["claimant_nonce_sha256"]) == 64
+    assert claim_intent["claimant_nonce_sha256"] != "f" * 64
+
+
+def test_reconcile_without_claim_intent_fails_closed_before_provider(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+    transport = _Transport()
+    run_dir = tmp_path / "missing-claim-intent"
+    run_dir.mkdir()
+    (run_dir / "execution.lock.json").write_text("{}", encoding="utf-8")
+    bridge = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=run_dir,
+        receipt_documents=receipts,
+        receipt_verifier=_ExternalVerifier(),
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(),
+        actor=_actor(transport),
+    )
+
+    with pytest.raises(ExecutionBridgeViolation, match="claim intent"):
+        bridge.execute(ExecutionAdmission.from_canonical_json(encoded))
+
+    assert transport.calls == 0
 
 
 @pytest.mark.parametrize(
@@ -664,6 +778,10 @@ def test_crash_recovery_only_reconciles_and_never_calls_provider(
     with pytest.raises(RuntimeError, match="simulated crash"):
         crashing.execute(envelope)
     assert transport.calls == 0
+    claim_intent = json.loads(crashing.claim_intent_path.read_bytes())
+    nonce = claim_intent["claimant_nonce_sha256"]
+    assert len(nonce) == 64
+    assert next(iter(authority.claim_receipts.values())).claimant_nonce_sha256 == nonce
 
     recovering = ExecutionBridge(
         root=root,
