@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import replace
-from typing import Any
 
 import pytest
 
 from research_tools.active_discovery.actor_loop import (
+    ActorIsolationReceipt,
+    ActorLoopReceipt,
     ActorLoopError,
-    ActorModelOutput,
-    BehaviorHypothesis,
+    ExhaustiveConfigurationDomainManifest,
     HiddenConfigurationPolicyTrace,
-    ProbeHypothesisLikelihood,
+    SubprocessActorPort,
     audit_static_voi_reduction,
     run_actor_loop,
 )
-from research_tools.active_discovery.canonical import content_digest
+from research_tools.active_discovery.canonical import canonical_json, content_digest
 from research_tools.active_discovery.catalogue import VisibleProbeCandidate
 from research_tools.active_discovery.contracts import (
     ProbeObservation,
@@ -25,7 +26,6 @@ from research_tools.active_discovery.contracts import (
 from research_tools.active_discovery.scoring_contracts import (
     BehaviorTrace,
     ChallengeCatalogue,
-    ChallengePrediction,
     ChallengeSequence,
     ChallengeStep,
     OutcomeAtom,
@@ -33,7 +33,6 @@ from research_tools.active_discovery.scoring_contracts import (
     StatefulTestCase,
     StatefulTestIR,
     StatefulTestStep,
-    TraceProbability,
 )
 from research_tools.active_discovery.selector import (
     HypothesisPrediction,
@@ -105,7 +104,7 @@ def _candidates(*, environment_hypothesis_prefix: str) -> tuple[VisibleProbeCand
         VisibleProbeCandidate(
             probe_id=f"probe-{index}",
             stable_order=index,
-            payload_json=json.dumps({"x": index}, sort_keys=True, separators=(",", ":")),
+            payload_json=canonical_json({"x": index}),
             cost_units=1,
             zero_status_label="ZERO",
             nonzero_status_label="NONZERO",
@@ -122,8 +121,8 @@ def _candidates(*, environment_hypothesis_prefix: str) -> tuple[VisibleProbeCand
     )
 
 
-def _test_ir() -> StatefulTestIR:
-    return StatefulTestIR(
+def _test_ir_mapping() -> dict[str, object]:
+    test_ir = StatefulTestIR(
         tests=(
             StatefulTestCase.create(
                 test_id="generated-boundary-test",
@@ -143,134 +142,172 @@ def _test_ir() -> StatefulTestIR:
             ),
         )
     )
+    return test_ir.to_mapping()
 
 
-class _GroundedModel:
-    def __init__(self, catalogue: ChallengeCatalogue) -> None:
-        self._challenge = catalogue.sequences[0]
-        self.inputs: list[tuple[Any, Any, Any]] = []
+def _actor_source(
+    catalogue: ChallengeCatalogue,
+    *,
+    stale_binding: bool = False,
+    constant_material_update: bool = False,
+) -> bytes:
+    challenge = catalogue.sequences[0]
+    probabilities = [
+        {"trace_digest": trace.trace_digest, "probability_micros": 500_000}
+        for trace in challenge.traces
+    ]
+    fixed = {
+        "challenge_digest": challenge.challenge_digest,
+        "probabilities": probabilities,
+        "predicted_trace_digest": min(
+            item["trace_digest"] for item in probabilities
+        ),
+    }
+    source = f"""
+import json
+import sys
 
-    def __call__(self, descriptor: Any, legal_probes: Any, observations: Any) -> ActorModelOutput:
-        self.inputs.append((descriptor, legal_probes, observations))
-        hypotheses = (
-            BehaviorHypothesis("actor-h-a", "accepts a boundary region", 500_000),
-            BehaviorHypothesis("actor-h-b", "rejects a boundary region", 500_000),
-        )
-        likelihoods = tuple(
-            ProbeHypothesisLikelihood(
-                probe_id=probe.probe_id,
-                hypothesis_id=hypothesis.hypothesis_id,
-                outcomes=(
-                    OutcomeLikelihood(
-                        "ZERO", 900_000 if hypothesis.hypothesis_id.endswith("a") else 100_000
-                    ),
-                    OutcomeLikelihood(
-                        "NONZERO",
-                        100_000 if hypothesis.hypothesis_id.endswith("a") else 900_000,
-                    ),
-                ),
-            )
-            for probe in legal_probes
-            for hypothesis in hypotheses
-        )
-        probabilities = tuple(
-            TraceProbability(trace.trace_digest, 500_000)
-            for trace in self._challenge.traces
-        )
-        return ActorModelOutput(
-            hypotheses=hypotheses,
-            probe_likelihoods=likelihoods,
-            selected_probe_id=legal_probes[0].probe_id,
-            predictions=(
-                ChallengePrediction(
-                    challenge_digest=self._challenge.challenge_digest,
-                    probabilities=probabilities,
-                    predicted_trace_digest=min(
-                        probabilities,
-                        key=lambda item: item.trace_digest,
-                    ).trace_digest,
-                ),
-            ),
-            test_ir=_test_ir(),
-        )
+request = json.loads(sys.stdin.buffer.read())
+expected_keys = {{
+    "schema_version", "public_descriptor", "legal_probe_payloads",
+    "prefix_observations", "transcript_prefix_digest"
+}}
+if set(request) != expected_keys:
+    raise SystemExit(41)
+legal = request["legal_probe_payloads"]
+observations = request["prefix_observations"]
+k = len(observations)
+delta = 0 if {constant_material_update!r} else k * 1000
+hypotheses = [
+    {{"hypothesis_id": "actor-h-a", "description": "accepts boundary", "probability_micros": 500000 + delta}},
+    {{"hypothesis_id": "actor-h-b", "description": "rejects boundary", "probability_micros": 500000 - delta}},
+]
+likelihoods = []
+for probe in legal:
+    for hypothesis in hypotheses:
+        positive = 900000 if hypothesis["hypothesis_id"].endswith("a") else 100000
+        likelihoods.append({{
+            "probe_id": probe["probe_id"],
+            "hypothesis_id": hypothesis["hypothesis_id"],
+            "outcomes": [
+                {{"outcome_label": "ZERO", "probability_micros": positive}},
+                {{"outcome_label": "NONZERO", "probability_micros": 1000000 - positive}},
+            ],
+        }})
+binding = {json.dumps(_digest("stale-transcript"))} if {stale_binding!r} else request["transcript_prefix_digest"]
+disposition = "ABSTAIN_INSUFFICIENT_EVIDENCE" if k == 0 else "MATERIAL_UPDATE"
+output = {{
+    "hypotheses": hypotheses,
+    "probe_likelihoods": likelihoods,
+    "selected_probe_id": legal[0]["probe_id"],
+    "predictions": [{json.dumps(fixed, sort_keys=True)}],
+    "test_ir": {json.dumps(_test_ir_mapping(), sort_keys=True)},
+    "evidence_binding": {{
+        "transcript_prefix_digest": binding,
+        "update_disposition": disposition,
+    }},
+}}
+sys.stdout.write(json.dumps(output, sort_keys=True, separators=(",", ":")))
+"""
+    return source.encode("utf-8")
+
+
+def _port(source: bytes) -> SubprocessActorPort:
+    receipt = ActorIsolationReceipt.bind(
+        executable_path=sys.executable,
+        actor_artifact_bytes=source,
+        isolation_provider_digest=_digest("external-isolation-provider"),
+        filesystem_policy="EXTERNALLY_ATTESTED_NO_HOST_READ_WRITE",
+        network_policy="EXTERNALLY_ATTESTED_NONE",
+        environment_policy="EMPTY",
+    )
+    return SubprocessActorPort.create(
+        executable_path=sys.executable,
+        actor_artifact_bytes=source,
+        isolation_receipt=receipt,
+        timeout_seconds=2,
+    )
 
 
 class _Executor:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        stdout: str = "ok",
+        stderr: str = "",
+        output: object | None = None,
+    ) -> None:
         self.requests: list[ProbeRequest] = []
+        self.stdout = stdout
+        self.stderr = stderr
+        self.output = {"accepted": True} if output is None else output
 
     def __call__(self, request: ProbeRequest) -> ProbeObservation:
         self.requests.append(request)
-        after = _digest(f"state-{request.step_index + 1}")
+        assert isinstance(self.output, dict)
         return ProbeObservation.create(
             episode_id=request.episode_id,
             step_index=request.step_index,
             probe_id=request.probe_id,
             status_code=0,
-            stdout="ok",
-            stderr="",
-            output={"accepted": True},
+            stdout=self.stdout,
+            stderr=self.stderr,
+            output=self.output,
             before_state_digest=request.expected_state_digest,
-            after_state_digest=after,
+            after_state_digest=_digest(f"state-{request.step_index + 1}"),
         )
 
 
 def _run(
     *,
     candidates: tuple[VisibleProbeCandidate, ...],
-    model: Any | None = None,
-) -> Any:
+    actor_port: SubprocessActorPort | None = None,
+    executor: _Executor | None = None,
+) -> ActorLoopReceipt:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
     return run_actor_loop(
         experiment_id="R-ACTIVE-DISCOVERY-1",
         episode_id="episode-1",
         arm_id="ACTIVE_VOI",
-        actor_binding_digest=_digest("fixed-model"),
         descriptor=descriptor,
         candidates=candidates,
         challenge_catalogue=catalogue,
-        model_callback=model or _GroundedModel(catalogue),
-        execute_probe=_Executor(),
+        actor_port=actor_port or _port(_actor_source(catalogue)),
+        execute_probe=executor or _Executor(),
         probe_budget=4,
     )
 
 
-def test_actor_only_exposes_public_descriptor_payloads_and_prefix_observations() -> None:
+def test_actor_uses_fresh_serialized_processes_and_public_projection_only() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
-    model = _GroundedModel(catalogue)
+    port = _port(_actor_source(catalogue))
     executor = _Executor()
 
     receipt = run_actor_loop(
         experiment_id="R-ACTIVE-DISCOVERY-1",
         episode_id="episode-1",
         arm_id="ACTIVE_VOI",
-        actor_binding_digest=_digest("fixed-model"),
         descriptor=descriptor,
         candidates=_candidates(environment_hypothesis_prefix="oracle-alpha"),
         challenge_catalogue=catalogue,
-        model_callback=model,
+        actor_port=port,
         execute_probe=executor,
         probe_budget=4,
     )
 
     assert tuple(bundle.prefix_index for bundle in receipt.prefix_bundles) == tuple(range(5))
     assert receipt.selected_probe_ids == ("probe-0", "probe-1", "probe-2", "probe-3")
+    assert len(receipt.actor_invocation_receipts) == 10
+    assert len({item.process_id for item in receipt.actor_invocation_receipts}) == 10
+    assert all(
+        item.actor_artifact_digest == port.actor_artifact_digest
+        and item.executable_digest == port.executable_digest
+        and item.allowed_projection_digest == port.allowed_projection_digest
+        for item in receipt.actor_invocation_receipts
+    )
     assert len(executor.requests) == 4
-    # Determinism is checked by replaying the fixed callback for every exact input.
-    assert len(model.inputs) == 10
-    for descriptor_input, legal_probes, observations in model.inputs:
-        assert descriptor_input is descriptor
-        assert all(
-            set(probe.to_mapping())
-            == {"probe_id", "stable_order", "operation_id", "payload_json", "cost_units"}
-            for probe in legal_probes
-        )
-        assert not any(
-            environment_id in repr((legal_probes, observations))
-            for environment_id in ("oracle-alpha-weak", "oracle-alpha-strong")
-        )
 
 
 def test_environment_preloaded_predictions_and_hypothesis_ids_cannot_change_actor() -> None:
@@ -283,77 +320,105 @@ def test_environment_preloaded_predictions_and_hypothesis_ids_cannot_change_acto
     )
 
 
-def test_actor_fails_closed_on_oracle_shaped_callback_fields_and_nondeterminism() -> None:
+@pytest.mark.parametrize(
+    ("executor", "message"),
+    (
+        (_Executor(stdout="oracle score=9"), "oracle-shaped observation"),
+        (_Executor(stderr="hidden-family"), "oracle-shaped observation"),
+        (
+            _Executor(output={"outer": {"configuration_truth": "x"}}),
+            "oracle-shaped observation",
+        ),
+    ),
+)
+def test_observations_are_recursively_redacted_before_actor_input(
+    executor: _Executor, message: str
+) -> None:
+    with pytest.raises(ActorLoopError, match=message):
+        _run(
+            candidates=_candidates(environment_hypothesis_prefix="environment"),
+            executor=executor,
+        )
+
+
+def test_actor_rejects_stale_transcript_binding_and_constant_material_update() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
-    valid_model = _GroundedModel(catalogue)
+    candidates = _candidates(environment_hypothesis_prefix="environment")
 
-    def oracle_shaped(descriptor: Any, legal: Any, observations: Any) -> dict[str, Any]:
-        raw = valid_model(descriptor, legal, observations).to_mapping()
-        raw["hidden_family"] = "leak"
-        return raw
+    with pytest.raises(ActorLoopError, match="transcript evidence binding"):
+        _run(candidates=candidates, actor_port=_port(_actor_source(catalogue, stale_binding=True)))
 
-    with pytest.raises(ActorLoopError, match="oracle-shaped"):
+    with pytest.raises(ActorLoopError, match="material update"):
         _run(
-            candidates=_candidates(environment_hypothesis_prefix="environment"),
-            model=oracle_shaped,
-        )
-
-    calls = 0
-
-    def unstable(descriptor: Any, legal: Any, observations: Any) -> ActorModelOutput:
-        nonlocal calls
-        calls += 1
-        output = valid_model(descriptor, legal, observations)
-        if calls % 2 == 0:
-            return replace(output, selected_probe_id=legal[-1].probe_id)
-        return output
-
-    with pytest.raises(ActorLoopError, match="non-deterministic"):
-        _run(
-            candidates=_candidates(environment_hypothesis_prefix="environment"),
-            model=unstable,
+            candidates=candidates,
+            actor_port=_port(_actor_source(catalogue, constant_material_update=True)),
         )
 
 
-def test_actor_rejects_non_voi_choice_from_model_generated_likelihoods() -> None:
+def test_actor_artifact_and_isolation_receipt_must_bind_exact_bytes() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
-    valid_model = _GroundedModel(catalogue)
+    source = _actor_source(catalogue)
+    receipt = ActorIsolationReceipt.bind(
+        executable_path=sys.executable,
+        actor_artifact_bytes=source,
+        isolation_provider_digest=_digest("external-isolation-provider"),
+        filesystem_policy="EXTERNALLY_ATTESTED_NO_HOST_READ_WRITE",
+        network_policy="EXTERNALLY_ATTESTED_NONE",
+        environment_policy="EMPTY",
+    )
 
-    def wrong_choice(descriptor: Any, legal: Any, observations: Any) -> ActorModelOutput:
-        return replace(
-            valid_model(descriptor, legal, observations),
-            selected_probe_id=legal[-1].probe_id,
+    with pytest.raises(ActorLoopError, match="artifact binding"):
+        SubprocessActorPort.create(
+            executable_path=sys.executable,
+            actor_artifact_bytes=source + b"\n# mutation",
+            isolation_receipt=receipt,
+            timeout_seconds=2,
         )
 
-    with pytest.raises(ActorLoopError, match="VOI choice"):
-        _run(
-            candidates=_candidates(environment_hypothesis_prefix="environment"),
-            model=wrong_choice,
-        )
+
+def _domain_manifest(configuration_digests: tuple[str, ...]) -> ExhaustiveConfigurationDomainManifest:
+    return ExhaustiveConfigurationDomainManifest.create(
+        domain_definition_digest=_digest("legal-domain-definition"),
+        configuration_digests=configuration_digests,
+        declared_cardinality=len(configuration_digests),
+        enumeration_certificate_digest=_digest("exhaustive-enumeration-certificate"),
+    )
 
 
-def test_static_reduction_audit_parks_when_voi_equals_systematic_everywhere() -> None:
+def test_static_reduction_requires_exhaustive_manifest_and_parks_only_exact_domain() -> None:
+    digests = tuple(_digest(f"config-{index}") for index in range(3))
+    manifest = _domain_manifest(digests)
     equal_domain = tuple(
         HiddenConfigurationPolicyTrace(
-            configuration_digest=_digest(f"config-{index}"),
+            configuration_digest=digest,
             voi_probe_ids=("probe-0", "probe-1", "probe-2", "probe-3"),
             systematic_probe_ids=("probe-0", "probe-1", "probe-2", "probe-3"),
         )
-        for index in range(3)
+        for digest in digests
     )
-    parked = audit_static_voi_reduction(equal_domain)
+    parked = audit_static_voi_reduction(
+        manifest=manifest,
+        policy_traces=equal_domain,
+    )
 
     assert parked.disposition == "PARK_ACTIVE_ADAPTATION"
-    assert parked.all_configurations_equal
-    assert parked.counterexample_configuration_digests == ()
+    assert parked.domain_manifest_digest == manifest.manifest_digest
+
+    with pytest.raises(ActorLoopError, match="exact exhaustive domain"):
+        audit_static_voi_reduction(manifest=manifest, policy_traces=equal_domain[:-1])
+    with pytest.raises(ActorLoopError, match="at least two"):
+        _domain_manifest((_digest("singleton"),))
 
     changed = replace(
         equal_domain[-1],
         voi_probe_ids=("probe-1", "probe-0", "probe-2", "probe-3"),
     )
-    not_reduced = audit_static_voi_reduction((*equal_domain[:-1], changed))
+    not_reduced = audit_static_voi_reduction(
+        manifest=manifest,
+        policy_traces=(*equal_domain[:-1], changed),
+    )
     assert not_reduced.disposition == "ACTIVE_ADAPTATION_NOT_STATICALLY_REDUCED"
     assert not_reduced.counterexample_configuration_digests == (
         changed.configuration_digest,
