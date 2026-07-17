@@ -70,13 +70,26 @@ class FeedbackReceipt:
 
 
 @dataclass(frozen=True)
+class OperationReceipt:
+    sequence: int
+    kind: str
+    turn: int
+    event_digest: str
+    previous_digest: str
+    receipt_digest: str
+
+
+@dataclass(frozen=True)
 class ArmBudget:
     max_updates_per_feedback: int
     max_replays_per_feedback: int
     max_copies_per_feedback: int = 4
+    max_retrievals_per_feedback: int = 4
     max_comparisons_per_feedback: int = 32
     max_rebuilds: int = 256
     max_search_trials: int = 16
+    max_stored_events: int = 256
+    max_state_bytes: int = 1_000_000
 
     def __post_init__(self) -> None:
         if any(
@@ -85,9 +98,12 @@ class ArmBudget:
                 self.max_updates_per_feedback,
                 self.max_replays_per_feedback,
                 self.max_copies_per_feedback,
+                self.max_retrievals_per_feedback,
                 self.max_comparisons_per_feedback,
                 self.max_rebuilds,
                 self.max_search_trials,
+                self.max_stored_events,
+                self.max_state_bytes,
             )
         ):
             raise ValueError("budget limits must be positive integers")
@@ -115,76 +131,6 @@ class CostRecord:
             + self.rebuilds
             + self.retrievals
             + self.search_trials
-        )
-
-
-class OperationMeter:
-    """Executor-owned mutable meter; arms receive only its charging surface."""
-
-    def __init__(self, budget: ArmBudget) -> None:
-        self.budget = budget
-        self._counts = {
-            "updates": 0,
-            "replays": 0,
-            "comparisons": 0,
-            "copies": 0,
-            "rebuilds": 0,
-            "retrievals": 0,
-            "search_trials": 0,
-        }
-
-    def _charge(self, field: str, count: int = 1) -> None:
-        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-            raise ValueError("operation charge must be a non-negative integer")
-        self._counts[field] += count
-        if field == "rebuilds" and self._counts[field] > self.budget.max_rebuilds:
-            raise RuntimeError("rebuild budget exceeded")
-        if (
-            field == "search_trials"
-            and self._counts[field] > self.budget.max_search_trials
-        ):
-            raise RuntimeError("search budget exceeded")
-
-    def update(self, count: int = 1) -> None:
-        self._charge("updates", count)
-
-    def replay(self, count: int = 1) -> None:
-        self._charge("replays", count)
-
-    def compare(self, count: int = 1) -> None:
-        self._charge("comparisons", count)
-
-    def copy(self, count: int = 1) -> None:
-        self._charge("copies", count)
-
-    def rebuild(self, count: int = 1) -> None:
-        self._charge("rebuilds", count)
-
-    def retrieve(self, count: int = 1) -> None:
-        self._charge("retrievals", count)
-
-    def search(self, count: int = 1) -> None:
-        self._charge("search_trials", count)
-
-    def snapshot(self, *, stored_events: int = 0, state_bytes: int = 0) -> CostRecord:
-        return CostRecord(
-            **self._counts, stored_events=stored_events, state_bytes=state_bytes
-        )
-
-    def delta(
-        self, before: CostRecord, *, stored_events: int = 0, state_bytes: int = 0
-    ) -> CostRecord:
-        after = self.snapshot(stored_events=stored_events, state_bytes=state_bytes)
-        return CostRecord(
-            updates=after.updates - before.updates,
-            replays=after.replays - before.replays,
-            comparisons=after.comparisons - before.comparisons,
-            copies=after.copies - before.copies,
-            rebuilds=after.rebuilds - before.rebuilds,
-            retrievals=after.retrievals - before.retrievals,
-            search_trials=after.search_trials - before.search_trials,
-            stored_events=after.stored_events,
-            state_bytes=after.state_bytes,
         )
 
 

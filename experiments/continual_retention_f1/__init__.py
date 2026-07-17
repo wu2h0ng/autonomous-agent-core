@@ -10,13 +10,12 @@ from .contracts import (
     ArmBudget,
     CorrectionEvent,
     FeedbackEvent,
-    OperationMeter,
     RawObservation,
 )
 from .dual_store import DualStoreRetentionArm
 from .fixture import EpisodeConfig, EvaluatorFixture
 from .harness import EpisodeExecutor
-from .qualification import QualificationTrial, freeze_strongest_single_store
+from .qualification import freeze_strongest_single_store
 from .scorer import HiddenScorer, ScoredArm, adjudicate
 
 __all__ = [
@@ -29,9 +28,7 @@ __all__ = [
     "FeedbackEvent",
     "FrozenQualificationConfig",
     "HiddenScorer",
-    "OperationMeter",
     "RawObservation",
-    "QualificationTrial",
     "SingleStoreConfig",
     "SingleStoreReplayStabilityArm",
     "ScoredArm",

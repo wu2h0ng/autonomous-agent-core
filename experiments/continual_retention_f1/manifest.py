@@ -27,13 +27,26 @@ REQUIRED_PATHS = frozenset(
 
 
 def verify_candidate_manifest(root: Path, manifest: Mapping[str, object]) -> bool:
-    if manifest.get("status") != ["FREEZE_CANDIDATE", "NOT_FROZEN", "NOT_RUN"]:
+    if manifest.get("status") != ["QUALIFICATION_CANDIDATE", "NOT_FROZEN", "NOT_RUN"]:
         raise ValueError("manifest status drift")
     if manifest.get("active_freeze_input") is not False:
         raise ValueError("manifest cannot activate freeze authority")
     bindings = manifest.get("artifact_sha256")
     if not isinstance(bindings, dict) or set(bindings) != REQUIRED_PATHS:
         raise ValueError("manifest exact required paths drift")
+    package_dir = root / "experiments/continual_retention_f1"
+    expected_package = {
+        path
+        for path in REQUIRED_PATHS
+        if path.startswith("experiments/continual_retention_f1/")
+    }
+    actual_package = {
+        path.relative_to(root).as_posix()
+        for path in package_dir.iterdir()
+        if path.suffix == ".py" or path.is_symlink()
+    }
+    if actual_package != expected_package:
+        raise ValueError("unexpected executable package path")
     for relative_path, expected in bindings.items():
         relative = Path(relative_path)
         if (

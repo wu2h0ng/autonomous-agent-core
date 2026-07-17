@@ -38,7 +38,6 @@ class ScoredArm:
     budget_valid: bool
     correction_valid: bool
     equivariant: bool = True
-    custody_valid: bool = True
 
 
 class HiddenScorer:
@@ -189,16 +188,57 @@ class HiddenScorer:
                 1 for value in correct[correction.delivered_turn : stop] if value == 0
             )
         budget = trajectory.budget
+        counts = {
+            kind: sum(receipt.kind == kind for receipt in trajectory.operation_receipts)
+            for kind in (
+                "updates",
+                "replays",
+                "comparisons",
+                "copies",
+                "rebuilds",
+                "retrievals",
+                "search_trials",
+            )
+        }
+        previous = "0" * 64
+        for sequence, receipt in enumerate(trajectory.operation_receipts):
+            expected = stable_digest(
+                "cls-f1-operation-receipt/v1",
+                {
+                    "sequence": sequence,
+                    "kind": receipt.kind,
+                    "turn": receipt.turn,
+                    "event_digest": receipt.event_digest,
+                    "previous_digest": previous,
+                },
+            )
+            if (
+                receipt.sequence != sequence
+                or receipt.previous_digest != previous
+                or receipt.receipt_digest != expected
+            ):
+                raise ValueError("operation receipt chain mismatch")
+            previous = receipt.receipt_digest
+        cost = CostRecord(
+            **counts,
+            stored_events=trajectory.terminal_stored_events,
+            state_bytes=trajectory.terminal_state_bytes,
+        )
         feedback_count = len(trajectory.feedback_receipts)
         budget_valid = (
-            trajectory.cost.updates
+            cost.updates
             <= feedback_count * budget.max_updates_per_feedback
-            + trajectory.cost.rebuilds * budget.max_updates_per_feedback
-            and trajectory.cost.replays
+            + cost.rebuilds * budget.max_updates_per_feedback
+            and cost.replays
             <= feedback_count * budget.max_replays_per_feedback
-            + trajectory.cost.rebuilds * budget.max_replays_per_feedback
-            and trajectory.cost.search_trials <= budget.max_search_trials
-            and trajectory.cost.rebuilds <= budget.max_rebuilds
+            + cost.rebuilds * budget.max_replays_per_feedback
+            and cost.comparisons <= total * budget.max_comparisons_per_feedback
+            and cost.copies <= feedback_count * budget.max_copies_per_feedback
+            and cost.retrievals <= feedback_count * budget.max_retrievals_per_feedback
+            and cost.search_trials <= budget.max_search_trials
+            and cost.rebuilds <= budget.max_rebuilds
+            and cost.stored_events <= budget.max_stored_events
+            and cost.state_bytes <= budget.max_state_bytes
         )
         metrics = ArmMetrics(
             coverage=1.0,
@@ -225,7 +265,7 @@ class HiddenScorer:
         return ScoredArm(
             trajectory.arm_id,
             metrics,
-            trajectory.cost,
+            cost,
             custody_digest,
             budget_valid,
             correction_valid,
@@ -241,10 +281,7 @@ def adjudicate(
         raise ValueError("strong non-oracle baseline is required")
     all_arms = (candidate, *baselines, oracle)
     if any(
-        not arm.custody_valid
-        or not arm.budget_valid
-        or not arm.correction_valid
-        or not arm.equivariant
+        not arm.budget_valid or not arm.correction_valid or not arm.equivariant
         for arm in all_arms
     ):
         return Disposition("INVALID", "K4 custody, budget, correction, or equivariance")

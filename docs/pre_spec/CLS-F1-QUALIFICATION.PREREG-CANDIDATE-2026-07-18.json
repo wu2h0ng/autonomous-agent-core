@@ -1,6 +1,6 @@
 {
   "artifact_id": "CLS-F1-QUALIFICATION",
-  "status": ["FREEZE_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
+  "status": ["QUALIFICATION_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
   "track": "Research",
   "claim_ceiling": "Qualification instrument only; no continual-learning or autonomy result",
   "environment": {
@@ -46,6 +46,7 @@
     "active_freeze_input": false,
     "result_run_authorized": false,
     "freeze_receipt_present": false,
-    "result_receipt_present": false
+    "result_receipt_present": false,
+    "freeze_blocker": "Profiler receipts are accepted only for exact reviewed arm types; independent worker or executor-owned state transition API remains required before freeze review"
   }
 }

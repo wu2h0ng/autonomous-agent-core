@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Status remains `FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN`.
+- Status remains `QUALIFICATION_CANDIDATE / NOT_FROZEN / NOT_RUN`.
 - No result seed, result-bearing run, freeze authority, or result authority is created.
 - No arm-visible seed, turn, phase, schedule, latent context ID, changed-context marker, optimal action, or scorer metric.
 - Feature dimensions/value names and action tokens receive hidden per-seed bijections; mapped behavior must be equivariant.
@@ -360,7 +360,7 @@ Commit: `git commit -m "feat(cls-f1): add qualification scorer and kill rules"`
 - Modify: `experiments/continual_retention_f1/__init__.py`
 
 **Interfaces:**
-- Produces: exact candidate bytes and `FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN` status only.
+- Produces: exact candidate bytes and `QUALIFICATION_CANDIDATE / NOT_FROZEN / NOT_RUN` status only.
 
 - [ ] **Step 1: Write failing closure tests**
 
@@ -390,7 +390,7 @@ budget equality, metrics, K1–K5 ordering, claim ceiling, and explicit
 - [ ] **Step 4: Generate exact-content manifest from committed mechanism bytes**
 
 The manifest has `active_freeze_input: false`, status
-`FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN`, and hashes every package, test, design,
+`QUALIFICATION_CANDIDATE / NOT_FROZEN / NOT_RUN`, and hashes every package, test, design,
 plan, and preregistration candidate file. The manifest cannot hash itself.
 
 - [ ] **Step 5: Run focused and full verification**

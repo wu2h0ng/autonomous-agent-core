@@ -1,22 +1,22 @@
 {
   "artifact_id": "CLS-F1-QUALIFICATION",
-  "status": ["FREEZE_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
+  "status": ["QUALIFICATION_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
   "active_freeze_input": false,
   "artifact_sha256": {
-    "experiments/continual_retention_f1/__init__.py": "4e3fed2e84d37d4ed64ebcae14313f754ac3c4bd3b160f0e6b8bfbc35446ae0f",
-    "experiments/continual_retention_f1/baselines.py": "2ad68f22484a3fc5184a147207b01e3850809a8d88b51d73c7f87fc30da835b5",
-    "experiments/continual_retention_f1/contracts.py": "af5409d982a23292bdd948c98ec65a33a1db675c1bd75639198efbdb67f6d787",
-    "experiments/continual_retention_f1/dual_store.py": "e4b6df8ff72743faf30c69d20861f560a6c3ad7892c3547f7fe3f2dae983dcff",
+    "experiments/continual_retention_f1/__init__.py": "fb5eb1e1eace3952c24ee3f40e464a72c25596fde96bd80455d7e25071329d91",
+    "experiments/continual_retention_f1/baselines.py": "4d9068dbfac06f992c5d7df66f73d44f8cb3b534c1a4293ac7a8ab53a668c6bf",
+    "experiments/continual_retention_f1/contracts.py": "d1f45f9af898f1bda1fb36c593d7182f06c63aee3001a143e15e29c1a79ec795",
+    "experiments/continual_retention_f1/dual_store.py": "e26cced902fa07d13a516d77c917a1a72053225a754db648d76778890c4515bd",
     "experiments/continual_retention_f1/fixture.py": "2905159fa558f7589eb2f09feb8f2270dca2c9d852e4e6820cadb29e803b885b",
-    "experiments/continual_retention_f1/harness.py": "c17ed56f7b75b2d6f3f3de509d8cc5233109ec17a4865d34d294eaaa04063130",
-    "experiments/continual_retention_f1/manifest.py": "2aceba6601fc2ecd7500e3b8782d6723e776448da3e246e4990adf531ee1ddb2",
+    "experiments/continual_retention_f1/harness.py": "dc21250b06c4200895a85a6d78b4b218bb1b234dd441b37079d916cd3949ccb1",
+    "experiments/continual_retention_f1/manifest.py": "b8ec4023ad3009cc3dc4e677f9e50d401f4f4c4f0d872b835d2cd822f8d7f635",
     "experiments/continual_retention_f1/oracle.py": "c4979b5a1b91440d8db9126ca714342d7a8e3d15451f9f629bbb91343521fb63",
-    "experiments/continual_retention_f1/qualification.py": "7097ba856678a163c18488444953e293809ee147aba518f4905a0efd9aac856d",
-    "experiments/continual_retention_f1/scorer.py": "b0bbd05c7768242632f76a87bd1adedccabd1a04438c8b81c96d694370aedac4",
-    "tests/test_continual_retention_f1.py": "605ebc47bee0c968c5b6ec45c36859e731e74e2f97103c127c632ec9bc88e1ae",
-    "tests/test_cls_f1_qualification_freeze_candidate.py": "53801aa1ca672110bc99daf785742d73dbede715ea9e37f18dbe0351f56adfec",
-    "docs/superpowers/specs/2026-07-18-cls-f1-qualification-design.md": "b8715775834f2bace474a48892c52aa6d3b31bbf9865ba58bbf9a14f09dee5c5",
-    "docs/superpowers/plans/2026-07-18-cls-f1-qualification.md": "83b5ae4a8cc17f8615155ce62a82e6c5051578b70d03e7f811cccc2ca945a305",
-    "docs/pre_spec/CLS-F1-QUALIFICATION.PREREG-CANDIDATE-2026-07-18.json": "7af2fd2f5be7f1439be37d712d270ad2468110fefb0f52c3f05b4e66690db793"
+    "experiments/continual_retention_f1/qualification.py": "b9e58c2850a472a011ce55409d0af003d5b2b23a94996eb148eeb7a5e25ae93a",
+    "experiments/continual_retention_f1/scorer.py": "efa5e70999b98f9d4065129dddfe9aa8a0710d266196d39e2f13b5ba4f64e199",
+    "tests/test_continual_retention_f1.py": "18d8ac51031511f4abf58beb1f8050ebae8f26d3bc546824893fc77522f95f51",
+    "tests/test_cls_f1_qualification_freeze_candidate.py": "47af31a70be7da41e9154541c0d0743ab1dced4172e91b457169cd04335df46d",
+    "docs/superpowers/specs/2026-07-18-cls-f1-qualification-design.md": "4e6414d0898613282b7a26b9f8d177afc3126e2ab68739ec5bc48238c48ece04",
+    "docs/superpowers/plans/2026-07-18-cls-f1-qualification.md": "61515551e60e8b482a8341d475ab534286353f648f55384558271cd401b393a7",
+    "docs/pre_spec/CLS-F1-QUALIFICATION.PREREG-CANDIDATE-2026-07-18.json": "36dfdd5e98ddccc4b89273a0d8fdbebc7332766841022d923fb60c29d2325cf1"
   }
 }

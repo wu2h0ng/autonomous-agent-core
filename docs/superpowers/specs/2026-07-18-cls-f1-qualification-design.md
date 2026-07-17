@@ -1,6 +1,6 @@
 # CLS-F1 A→B→A Continual-Retention Qualification Design
 
-> Status: `FREEZE_CANDIDATE / NOT_FROZEN / NOT_RUN`
+> Status: `QUALIFICATION_CANDIDATE / NOT_FROZEN / NOT_RUN`
 > Track: `R`
 > Claim class: qualification instrument only
 > Base: `8c090f1604b83a6d10c3a1cbe6f557cfe1553e6e`
@@ -161,7 +161,7 @@ scored as failure, not omitted.
 - Parameter search counts and qualification seed exposures are reported as
   cost. The candidate cannot receive more search trials than the strongest
   baseline.
-- This implementation ends at `FREEZE_CANDIDATE / NOT_RUN`. Unit and contract
+- This implementation ends at `QUALIFICATION_CANDIDATE / NOT_RUN`. Unit and contract
   tests are allowed; no multi-seed characterization or result-bearing run is.
 
 ## 7. Frozen disposition logic

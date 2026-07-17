@@ -7,9 +7,7 @@ from dataclasses import dataclass
 from .contracts import (
     ArmBudget,
     CorrectionEvent,
-    CostRecord,
     FeedbackEvent,
-    OperationMeter,
     RawObservation,
 )
 
@@ -78,7 +76,6 @@ class SingleStoreReplayStabilityArm:
         self._values: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
         self._anchors: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
         self._importance: dict[tuple[tuple[str, str], ...], dict[str, int]] = {}
-        self._meter: OperationMeter | None = None
 
     @classmethod
     def from_frozen(
@@ -86,20 +83,8 @@ class SingleStoreReplayStabilityArm:
     ) -> "SingleStoreReplayStabilityArm":
         return cls(frozen.selected, budget, frozen.search_trials)
 
-    def bind_meter(self, meter: OperationMeter) -> None:
-        if meter.budget != self.budget:
-            raise ValueError("meter budget must exactly match arm budget")
-        if self._meter is not None and self._meter is not meter:
-            raise ValueError("operation meter is already bound")
-        self._meter = meter
-
-    def _charge(self, method: str, count: int = 1) -> None:
-        if self._meter is not None:
-            getattr(self._meter, method)(count)
-
     def act(self, observation: RawObservation) -> str:
         values = self._values.get(_key(observation), {})
-        self._charge("compare", len(observation.authorized_actions))
         return max(
             observation.authorized_actions,
             key=lambda action: (
@@ -137,8 +122,6 @@ class SingleStoreReplayStabilityArm:
             anchors[feedback.action] = (
                 anchors[feedback.action] * previous_importance + values[feedback.action]
             ) / (previous_importance + 1)
-        if charge:
-            self._charge("update")
 
     def _learn(
         self, feedback: FeedbackEvent, *, charge: bool, include_replay: bool
@@ -154,9 +137,10 @@ class SingleStoreReplayStabilityArm:
             ).digest(),
         )
         for replay in ranked[: self.budget.max_replays_per_feedback]:
-            self._update_value(replay, charge=False)
-            if charge:
-                self._charge("replay")
+            self._replay_value(replay)
+
+    def _replay_value(self, feedback: FeedbackEvent) -> None:
+        self._update_value(feedback, charge=False)
 
     def _reservoir_add(self, feedback: FeedbackEvent) -> None:
         self._seen += 1
@@ -187,9 +171,11 @@ class SingleStoreReplayStabilityArm:
         self._reservoir = []
         self._seen = 0
         for event in valid:
-            self._charge("rebuild")
-            self._learn(event, charge=True, include_replay=True)
+            self._rebuild_event(event)
             self._reservoir_add(event)
+
+    def _rebuild_event(self, event: FeedbackEvent) -> None:
+        self._learn(event, charge=True, include_replay=True)
 
     def decision_state(self) -> str:
         canonical = [
@@ -211,22 +197,12 @@ class SingleStoreReplayStabilityArm:
     def reservoir_event_digests(self) -> tuple[str, ...]:
         return tuple(event.event_digest for event in self._reservoir)
 
-    def cost(self) -> CostRecord:
-        if self._meter is None:
-            return CostRecord(
-                stored_events=len(self._events), state_bytes=self.state_bytes()
-            )
-        return self._meter.snapshot(
-            stored_events=len(self._events), state_bytes=self.state_bytes()
-        )
-
 
 class ResetOnChangeArm(SingleStoreReplayStabilityArm):
     def observe(self, feedback: FeedbackEvent) -> None:
         predicted = self._values.get(_key(feedback.observation), {}).get(
             feedback.action, 0.0
         )
-        self._charge("compare")
         if abs(feedback.reward - predicted) > self.config.detector_threshold:
             self._values = {}
             self._anchors = {}

@@ -12,8 +12,6 @@ from experiments.continual_retention_f1 import (
     FrozenQualificationConfig,
     RawObservation,
     HiddenScorer,
-    OperationMeter,
-    QualificationTrial,
     SingleStoreConfig,
     SingleStoreReplayStabilityArm,
     adjudicate,
@@ -56,12 +54,7 @@ def test_single_store_exact_budget_correction_and_frozen_tuning():
     action = arm.act(obs)
     before = arm.decision_state()
     event = FeedbackEvent("e1", obs, action, 1.0)
-    meter = OperationMeter(BUDGET)
-    arm = SingleStoreReplayStabilityArm(SingleStoreConfig(), BUDGET)
-    arm.bind_meter(meter)
     arm.observe(event)
-    assert meter.snapshot().updates == 2
-    assert meter.snapshot().replays == 0
     arm.correct(CorrectionEvent("e1"))
     assert arm.decision_state() == before
     with pytest.raises(ValueError, match="invalidated"):
@@ -79,25 +72,19 @@ def test_oracle_is_not_in_non_oracle_factory_and_baselines_are_available():
 
 
 def test_qualification_search_is_equal_metered_and_frozen():
-    meter = OperationMeter(BUDGET)
-    trials = (
-        QualificationTrial(SingleStoreConfig(stability=0.1), 0.7),
-        QualificationTrial(SingleStoreConfig(stability=0.4), 0.8),
-    )
+    configs = (SingleStoreConfig(stability=0.1), SingleStoreConfig(stability=0.4))
     frozen = freeze_strongest_single_store(
-        qualification_seed_digest="b" * 64,
-        baseline_trials=trials,
+        budget=BUDGET,
+        baseline_configs=configs,
         candidate_search_trials=2,
-        meter=meter,
     )
-    assert frozen.selected.stability == 0.4
-    assert frozen.search_trials == meter.snapshot().search_trials == 2
+    assert frozen.selected in configs
+    assert frozen.search_trials == 2
     with pytest.raises(ValueError, match="exactly equal"):
         freeze_strongest_single_store(
-            qualification_seed_digest="b" * 64,
-            baseline_trials=trials,
+            budget=BUDGET,
+            baseline_configs=configs,
             candidate_search_trials=1,
-            meter=OperationMeter(BUDGET),
         )
 
 
@@ -187,8 +174,6 @@ def test_dual_store_slow_prototypes_are_consumed_and_behavior_is_distinct():
     single = SingleStoreReplayStabilityArm(
         SingleStoreConfig(learning_rate=0.7, stability=0.35), BUDGET
     )
-    dual.bind_meter(OperationMeter(BUDGET))
-    single.bind_meter(OperationMeter(BUDGET))
     stream = (
         FeedbackEvent("a-good", obs, "a", 1.0),
         FeedbackEvent("a-bad", obs, "a", 0.0),
@@ -201,6 +186,24 @@ def test_dual_store_slow_prototypes_are_consumed_and_behavior_is_distinct():
     assert dual.prototype_versions(obs) >= 2
     assert dual.retrieval_count > 0
     assert dual.decision_state() != single.decision_state()
+
+
+def test_slow_store_is_load_bearing_on_fixed_qualification_seeds():
+    # Predeclared qualification-only positive control. Zero differences means
+    # the proposed slow mechanism is behaviorally dead and the route must stop.
+    changed = 0
+    for seed in range(2000, 2100):
+        plan = EvaluatorFixture.build(seed, EpisodeConfig(blocks_per_phase=2))
+        candidate = EpisodeExecutor().execute(
+            plan, DualStoreRetentionArm(BUDGET, slow_enabled=True)
+        )
+        ablation = EpisodeExecutor().execute(
+            plan, DualStoreRetentionArm(BUDGET, slow_enabled=False)
+        )
+        changed += candidate.action_digest != ablation.action_digest
+    assert changed >= 1, (
+        "mechanism failure: slow store is behaviorally dead on 100/100 seeds"
+    )
 
 
 def test_kill_rules_are_typed_mechanical_and_all_reachable():
@@ -222,10 +225,7 @@ def test_kill_rules_are_typed_mechanical_and_all_reachable():
         "TRIVIAL_INVALID",
         "QUALIFIED_FOR_RESULT_FREEZE_REVIEW",
     }
-    assert (
-        adjudicate(replace(candidate, custody_valid=False), (baseline,), oracle).status
-        == "INVALID"
-    )
+    assert adjudicate(candidate, (candidate,), oracle).status == "KILL_TC1"
     assert (
         adjudicate(
             replace(candidate, correction_valid=False), (baseline,), oracle
@@ -276,7 +276,7 @@ def test_executor_and_hidden_scorer_cover_every_authorized_step():
     assert metrics.coverage == 1.0
     assert metrics.total_regret_denominator == len(plan.public_steps)
     assert metrics.return_a_retention >= 0.0
-    assert trace.cost.updates > 0
+    assert scored.cost.updates > 0
     assert trace.correction_receipts
     corrupted = next(item for item in trace.feedback_receipts if item.corrupted)
     assert corrupted.delivered_reward == 1.0 - trace.rewards[corrupted.action_turn]
@@ -288,7 +288,9 @@ def test_executor_and_hidden_scorer_cover_every_authorized_step():
             trace.rewards,
             trace.feedback_receipts,
             trace.correction_receipts,
-            trace.cost,
+            trace.operation_receipts,
+            trace.terminal_stored_events,
+            trace.terminal_state_bytes,
             trace.budget,
             trace.action_digest,
             trace.seal_digest,
@@ -299,16 +301,33 @@ def test_executor_and_hidden_scorer_cover_every_authorized_step():
         HiddenScorer.score(plan, trace)
 
 
-def test_executor_rejects_arm_that_exceeds_external_budget():
-    class OverBudgetArm(SingleStoreReplayStabilityArm):
+def test_executor_rejects_free_unmetered_state_mutation():
+    class FreeWorkArm(SingleStoreReplayStabilityArm):
         def observe(self, feedback):
-            super().observe(feedback)
-            assert self._meter is not None
-            self._meter.update(self.budget.max_updates_per_feedback + 1)
+            self._values[(("free", "work"),)] = {"a": 1.0}
 
     plan = EvaluatorFixture.build(19, EpisodeConfig(blocks_per_phase=2))
-    with pytest.raises(RuntimeError, match="operation budget"):
-        EpisodeExecutor().execute(plan, OverBudgetArm(SingleStoreConfig(), BUDGET))
+    with pytest.raises(TypeError, match="untrusted arm"):
+        EpisodeExecutor().execute(plan, FreeWorkArm(SingleStoreConfig(), BUDGET))
+
+
+def test_executor_rejects_profiler_disabling_and_hidden_work_subclasses():
+    class ProfilerDisabler(SingleStoreReplayStabilityArm):
+        def observe(self, feedback):
+            import sys
+
+            sys.setprofile(None)
+            super().observe(feedback)
+
+    class HiddenMutation(SingleStoreReplayStabilityArm):
+        def _update_value(self, feedback, *, charge):
+            super()._update_value(feedback, charge=charge)
+            self._values.setdefault((("hidden", "mutation"),), {})["x"] = 1.0
+
+    plan = EvaluatorFixture.build(23, EpisodeConfig(blocks_per_phase=2))
+    for arm_type in (ProfilerDisabler, HiddenMutation):
+        with pytest.raises(TypeError, match="exact reviewed type"):
+            EpisodeExecutor().execute(plan, arm_type(SingleStoreConfig(), BUDGET))
 
 
 def replace_metrics(values, **changes):
