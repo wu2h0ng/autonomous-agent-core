@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-17T12:35:00+08:00"
+updated: "2026-07-17T13:21:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715"
-status: "Canonical convergence is clean at state head 84ae0c1 after the exact Task6 implementation fast-forward to 5ab33b2. The integrated Product path includes typed event admission, authenticated source/binding registry, persistent event and budget ledgers, provider-backed relevance assessment, proposal-only MandateSteward, separate TaskActivation, Data Agent situated startup/CLI/HTTP/full-stack composition, trace redaction and credential-reference boundaries. Fresh integrated verification remains 1260 Product tests passed, 1 skipped; Ruff, Pyright and diff-check clean. Two separate exact candidates are now independently implementation-approved but not integrated: M0c local custody-bound proposal-only Docker execution at bd4e148, and the active-discovery hardened Docker actor transport/closed public projection at c72375a. Neither establishes independent scorer/freezer custody, semantic grounding, a result-bearing run, W1/W2 learning effectiveness, production identity/tenancy/KMS, SPINE-1 migration, main merge, release, general autonomy or Agent OS Alpha."
+status: "Canonical convergence is clean at merge head 2024f8a after integrating the independently approved M0c successor e6abe0d on top of Task6. The integrated Product path now includes typed event admission, authenticated source/binding registry, persistent event/budget/audit state, provider relevance assessment, proposal-only MandateSteward, separate TaskActivation, situated Data Agent entry paths, and local custody-bound proposal-only Docker falsifier execution. Post-merge gates are 233 focused tests passed, 1260 Product tests passed/1 skipped, Product-eval 907 passed with exactly the same three pre-existing baseline failures as before integration, plus clean Ruff/Pyright/diff and no residual Docker containers. Public evaluation and independent scorer/freezer custody remain closed. Actor transport c72375a remains an isolated approved Research-infrastructure candidate. Nothing here establishes semantic grounding, a result-bearing run, W1/W2 learning effectiveness, production identity/tenancy/KMS, SPINE-1 migration, main release or Agent OS Alpha."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -402,10 +402,10 @@ recently_completed:
     source: "separate-branch docs/CURRENT_STATE.yaml at 9c450f5ce7929899e18c4d49f68b7a88dd406422"
   - id: "P-SRL-M0C-LOCAL-DOCKER-EXECUTION"
     track: "product_eval"
-    status: "IMPLEMENTED_AND_INDEPENDENTLY_APPROVED_ON_ISOLATED_BRANCH / LOCAL_CUSTODY_BOUND / PROPOSAL_ONLY / PUBLIC_EVALUATE_CLOSED / NOT_INTEGRATED / NO_RESULT_RUN"
+    status: "INTEGRATED_ON_CANONICAL_FEATURE_BRANCH / IMPLEMENTED_AND_INDEPENDENTLY_APPROVED / LOCAL_CUSTODY_BOUND / PROPOSAL_ONLY / PUBLIC_EVALUATE_CLOSED / NO_RESULT_RUN"
     result: "Exact bd4e148 adds a real module-owned Docker execute-and-seal path. It verifies a TrustedFrozenUnitLoader receipt before Docker, binds manifest/scope/correction/mandate/environment/controller/budget/provider state, executes through the fixed Docker factory, verifies the local MAC and rederives the fixed image/policy/worker ceiling before sealing a controlled receipt. Final independent review found P0=0 and P1=0; 50 related tests passed across writer and reviewer runs with Ruff/Pyright/diff clean and no residual containers."
     boundary: "Local Python process and shared Docker daemon remain trusted. Independent executor/scorer/freezer custody, public evaluation, result-run authority, canonical integration, release and product evidence remain absent."
-    source: "codex/p-srl-docker-real-wiring-fix-20260717 at bd4e1487f5a9321e2fec0e6001d2036b0442b189"
+    source: "successor e6abe0d1ac0c3a397cbf4051a43076e314f7b5c6 integrated by no-ff merge 2024f8a on codex/canonical-convergence-20260715"
   - id: "R-ACTIVE-DISCOVERY-ACTOR-TRANSPORT"
     track: "research_infrastructure"
     status: "IMPLEMENTED_AND_INDEPENDENTLY_APPROVED_ON_ISOLATED_BRANCH / HARDENED_DOCKER_TRANSPORT / CLOSED_PUBLIC_PROJECTION / LOCAL_NON_INDEPENDENT_CUSTODY / NO_SEMANTIC_GROUNDING_CLAIM / NOT_FROZEN / NOT_RUN"
@@ -436,7 +436,7 @@ blockers:
   repository:
     - "ADR-0057 and ADM-P1/P2/P3 remain in the ancestry of codex/adm-p4-task-configuration-snapshot-20260715; ADM-P4 is contained on that isolated branch. Its first exact-head Kimi review timed out without verdict after identifying a stale-clock blocker; the fix is locally verified and awaits same-reviewer exact-head rereview. No push, main merge or release is implied."
     - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
-    - "Canonical convergence is locally integrated at Task6 implementation head 5ab33b2 with state head 84ae0c1, but is not merged to main, pushed or released. M0c Docker candidate bd4e148 and active-discovery transport candidate c72375a are independently approved on separate worktrees and are not integrated. W1/W2 custody remains unimplemented."
+    - "Canonical feature branch is at M0c merge head 2024f8a and is not released. Actor transport c72375a remains an approved isolated Research candidate. W1/W2 direct adaptation and independent scorer/freezer custody remain unimplemented."
 
 claim_boundaries:
   product:
@@ -458,7 +458,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Advance M0c only by supplying genuinely independent scorer/freezer/hidden-unit custody and a held-out run-authorization path. The local Docker execute-and-seal candidate bd4e148 is approved but must remain proposal-only and public-evaluate closed until that external boundary exists."
+    action: "Implement P-SRL-RUNTIME-M1-plus in an isolated feature worktree using the exact external architecture map b34f3d3 sections 5-7: separate external envelope/admission, four identity refs, untrusted external-state adapters, trusted working-set assembly, authority-free durable checkpoints and protocol/policy/telemetry bypass tests."
   - priority: 2
     action: "Implement and independently review the W1/W2 external run-authorization and trusted-score consumption substrate; preserve NOT_FROZEN/NO_RESULT_RUN until external custody and exact preregistration are real."
   - priority: 3
@@ -509,11 +509,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-17T12:35:00+08:00"
+  checked_at: "2026-07-17T13:21:00+08:00"
   branch: "codex/canonical-convergence-20260715"
-  canonical_head: "84ae0c1ef87fc31490c42d13be18c97741336125"
+  canonical_head: "2024f8a"
   prior_canonical_head: "a8c71b152b57ab78720ce8bd09f1ab2f7eed78e9"
   merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
-  commit_state: "TASK6_SITUATED_RUNTIME_AND_DATA_AGENT_PATH_INTEGRATED_CANONICAL / PRODUCT_1260_PASSED_1_SKIPPED / RUFF_PYRIGHT_DIFF_CLEAN / PROPOSAL_ONLY_STEWARD / SEPARATE_TASK_ACTIVATION / NOT_PUSHED_NOT_MERGED_TO_MAIN_NOT_RELEASED"
+  commit_state: "TASK6_AND_M0C_LOCAL_PROPOSAL_EXECUTION_INTEGRATED_CANONICAL_FEATURE_BRANCH / FOCUSED_233 / PRODUCT_1260_PASSED_1_SKIPPED / PRODUCT_EVAL_907_PASSED_3_BASELINE_FAILED / RUFF_PYRIGHT_DIFF_CLEAN / PUBLIC_EVALUATE_CLOSED / NOT_RELEASED"
   merge_scope: "Adds SRL V1 contract amendments, frozen R-SRL-1 preregistration, contract-level RED tests for V0/V1 A-SRL-1 invariants, an R-SRL-1 evaluation harness design candidate with implemented skeleton, internal self-attack review, full 9 event-type hidden scorer plugin coverage (TEST_FIXED, DECOY, INTERFACE_ADAPTED, CONFLICT_RESOLVED, RESTART_EQUIVALENT, UNCERTAINTY_RESOLVED, BELIEF_UPDATED, COMMITMENT_MET, HELP_ESCALATED), fail-closed outcome evaluator dispatched through the plugin map, updated independent methodology review request with refreshed manifest hashes, test/build gateway with matched-arm budget ledger, and a P-SRL-RUNTIME-1 design candidate mapping RT invariants to a minimal Runtime vertical. P0-4/P0-5 now closed; P2-1/2/3 remain open. Awaiting independent methodology review and environment/scorer freeze. RT invariants remain pending SRL Runtime implementation. Preserves ADM-P1/P2/P3/P4 inert adaptation infrastructure, materialization clock-drift fix, DEV-REAL-OUTCOME-1 durable outcome truth enforcement, and Data Agent provider relevance restart/rehydration. No production activation, no SRL Runtime integration, no Data Agent migration, no Research mechanism import, no result run, no main merge or release."
-  evidence_separation: "Task6 is integrated Product implementation evidence on a local canonical feature branch. M0c bd4e148 is approved local proposal-only Product-eval infrastructure; actor transport c72375a is approved Research infrastructure with no semantic-grounding claim. Both remain isolated and are not results. W1/W2 remains unimplemented; ADM all-DEFER remains inert W3/W4 infrastructure. None is a release, migration, production activation, customer outcome, general cognition or Autonomy(S,E,O,V,T) result."
+  evidence_separation: "Task6 and M0c successor e6abe0d are integrated local Product/Product-eval infrastructure on canonical merge head 2024f8a. M0c remains proposal-only with public evaluation closed and is not result evidence. Actor transport c72375a remains isolated Research infrastructure with no semantic-grounding claim. W1/W2 remains unimplemented; ADM all-DEFER remains inert W3/W4 infrastructure. None is a release, customer outcome, general cognition or Autonomy(S,E,O,V,T) result."
