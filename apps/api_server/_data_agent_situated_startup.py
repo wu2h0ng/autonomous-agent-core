@@ -1,10 +1,11 @@
-"""Structurally validated local startup provisioning for the situated path.
+"""Private provisioning and composition for the situated Data Agent path.
 
 This private module validates a closed startup configuration and the complete,
 canonical credential, provider-policy and relevance-context snapshots it names.
-The result is STRUCTURALLY_VALIDATED_PROVISIONING_ONLY. It resolves no mandate
-authority, seeds no authority database, instantiates no application, provider,
-assessor or runtime, and never reads credential secret environment values.
+The public loader result remains structurally validated provisioning only. The
+private application builder additionally resolves pre-provisioned authority and
+composes the receipt-required runtime without seeding authority or making a
+provider call during startup.
 """
 
 from __future__ import annotations
@@ -13,8 +14,11 @@ import json
 import math
 import os
 import stat
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Final, Literal, NoReturn, TypeVar
+from urllib.parse import urlsplit
 
 from pydantic import (
     Field,
@@ -28,18 +32,36 @@ from agent_os_contracts import (
     ContractModel,
     CredentialAuthorizationSnapshot,
     CredentialRef,
+    CredentialStatus,
     MandateRelevanceContext,
     NonEmptyStr,
+    PrincipalIdentity,
+    PrincipalRole,
     ProviderRelevancePolicy,
     Sha256Digest,
     canonical_json,
     content_digest,
 )
+from agent_os_core import (
+    EnvCredentialBroker,
+    InMemoryMandateRelevanceContextRegistry,
+    OpenAICompatibleProvider,
+    ProviderRelevanceAssessor,
+)
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 
+from .app import AgentOSApplication
+from .data_agent_report_admission import (
+    SQLiteDataAgentReportAdmissionMaterialStore,
+)
 from .data_agent_report_adapter import (
+    DataAgentReportAdapter,
     DataAgentReportAdapterError,
+    DataAgentReportSourceConfig,
+    SQLiteDataAgentReportStateStore,
     _normalized_origin,
 )
+from .data_agent_situated_bootstrap import DataAgentSituatedBootstrap
 
 _MAX_CONFIG_BYTES: Final = 65_536
 _MAX_MATERIAL_BYTES: Final = 262_144
@@ -71,6 +93,16 @@ _AUTHORITY_PREFIX: Final = "data agent situated startup authority database "
 _AUTHORITY_UNAVAILABLE: Final = _AUTHORITY_PREFIX + "is unavailable"
 _AUTHORITY_SYMLINK: Final = _AUTHORITY_PREFIX + "cannot be a symlink"
 _AUTHORITY_NOT_REGULAR: Final = _AUTHORITY_PREFIX + "must be a regular file"
+_RUNTIME_PREFIX: Final = "data agent situated startup runtime "
+_RUNTIME_IN_MEMORY: Final = _RUNTIME_PREFIX + "cannot use an in-memory database"
+_RUNTIME_AUTHORITY: Final = _RUNTIME_PREFIX + "authority resolution failed"
+_RUNTIME_BINDING: Final = _RUNTIME_PREFIX + "binding mismatch"
+_RUNTIME_COMPOSITION: Final = _RUNTIME_PREFIX + "composition failed"
+Clock = Callable[[], datetime]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class DataAgentSituatedStartupConfigError(RuntimeError):
@@ -643,3 +675,241 @@ def load_data_agent_situated_startup_provisioning(
         provider_policy=provider_policy,
         relevance_context=relevance_context,
     )
+
+
+def _resolve_live_credential_secret(
+    reader: DataAgentSituatedCredentialFileReader,
+    credential: CredentialRef,
+    *,
+    required_scope: str,
+    clock: Clock,
+) -> str:
+    try:
+        current = reader.resolve_credential(credential.credential_ref_id)
+        evaluated_at = clock()
+        if (
+            current is None
+            or current != credential
+            or current.status is not CredentialStatus.ACTIVE
+            or evaluated_at < current.created_at
+            or evaluated_at >= current.expires_at
+            or required_scope not in current.scopes
+        ):
+            raise RuntimeError
+        value = os.environ.get(current.resolver_key)
+        if not value:
+            raise RuntimeError
+        return value
+    except Exception:
+        raise RuntimeError("credential is unavailable") from None
+
+
+class _LiveSourceCredentialFileBroker:
+    """Source-secret resolver behind the adapter's typed credential port."""
+
+    __slots__ = ("_clock", "_reader")
+
+    def __init__(
+        self,
+        reader: DataAgentSituatedCredentialFileReader,
+        *,
+        clock: Clock,
+    ) -> None:
+        self._reader = reader
+        self._clock = clock
+
+    def resolve(self, credential: CredentialRef) -> str:
+        return _resolve_live_credential_secret(
+            self._reader,
+            credential,
+            required_scope="reports:read",
+            clock=self._clock,
+        )
+
+
+class _LiveProviderCredentialFileBroker(EnvCredentialBroker):
+    """Provider-secret resolver that preserves the provider's broker contract."""
+
+    __slots__ = ("_clock", "_reader")
+
+    def __init__(
+        self,
+        reader: DataAgentSituatedCredentialFileReader,
+        *,
+        clock: Clock,
+    ) -> None:
+        self._reader = reader
+        self._clock = clock
+
+    def resolve(self, ref: CredentialRef) -> str:
+        return _resolve_live_credential_secret(
+            self._reader,
+            ref,
+            required_scope="chat",
+            clock=self._clock,
+        )
+
+
+def _provider_endpoint_is_secure(base_url: str) -> bool:
+    try:
+        parsed = urlsplit(base_url)
+        return bool(
+            parsed.scheme == "https"
+            and parsed.hostname
+            and parsed.username is None
+            and parsed.password is None
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _build_data_agent_situated_application(
+    config_path: str | Path,
+    *,
+    database: str | Path,
+    workspace: str | Path,
+    clock: Clock = _utc_now,
+) -> AgentOSApplication:
+    """Compose the private receipt-required runtime from pre-provisioned authority."""
+    if str(database) == ":memory:":
+        _fail(_RUNTIME_IN_MEMORY)
+    provisioned = load_data_agent_situated_startup_provisioning(config_path)
+    config = provisioned.config
+    try:
+        evaluated_at = clock()
+        authority_database = _validate_authority_database(
+            provisioned.config_path, config.authority_database
+        )
+        if authority_database != provisioned.authority_database:
+            raise RuntimeError
+        control = SQLiteSituatedAssessmentStore(provisioned.authority_database)
+        mandate, binding = control.resolve_active(
+            config.mandate_id,
+            config.environment_binding_id,
+            principal_id=config.principal_id,
+            tenant_id=config.tenant_id,
+            workspace_id=config.workspace_id,
+            evaluated_at=evaluated_at,
+        )
+    except Exception:
+        _fail(_RUNTIME_AUTHORITY)
+    policy = provisioned.provider_policy
+    context = provisioned.relevance_context
+    if (
+        mandate.version != config.expected_mandate_version
+        or mandate.mandate_digest != config.expected_mandate_digest
+        or mandate.correction_epoch != config.expected_correction_epoch
+        or binding.environment_binding_id != config.environment_binding_id
+        or binding.binding_digest != config.expected_binding_digest
+        or mandate.relevance_assessor != policy.assessor_ref()
+        or mandate.relevance_context != context.ref()
+        or context.mandate_id != mandate.mandate_id
+        or context.mandate_version != mandate.version
+        or context.mandate_digest != mandate.mandate_digest
+    ):
+        _fail(_RUNTIME_BINDING)
+    invocation = policy.provider_invocation
+    if not _provider_endpoint_is_secure(invocation.base_url):
+        _fail(_RUNTIME_BINDING)
+    try:
+        source_reader = provisioned.source_credentials()
+        source_credential = source_reader.resolve_credential(
+            provisioned.source_credential.credential_ref_id
+        )
+        provider_reader = provisioned.provider_credentials()
+        provider_credential = provider_reader.resolve_credential(
+            provisioned.provider_credential.credential_ref_id
+        )
+        if (
+            source_credential is None
+            or provider_credential is None
+            or source_credential != provisioned.source_credential
+            or provider_credential != provisioned.provider_credential
+            or source_credential.status is not CredentialStatus.ACTIVE
+            or provider_credential.status is not CredentialStatus.ACTIVE
+            or evaluated_at < source_credential.created_at
+            or evaluated_at >= source_credential.expires_at
+            or evaluated_at < provider_credential.created_at
+            or evaluated_at >= provider_credential.expires_at
+            or policy.provider_invocation.credential_ref_digest
+            != content_digest(provider_credential)
+        ):
+            _fail(_RUNTIME_COMPOSITION)
+
+        source = config.source
+        adapter = DataAgentReportAdapter(
+            DataAgentReportSourceConfig(
+                source_id=source.source_id,
+                base_url=source.base_url,
+                source_tenant_id=source.source_tenant_id,
+                credential=source_credential,
+                principal_id=config.principal_id,
+                target_tenant_id=config.tenant_id,
+                target_workspace_id=config.workspace_id,
+                mandate_id=config.mandate_id,
+                environment_binding_id=config.environment_binding_id,
+                scope_ref=source.scope_ref,
+                allow_loopback_http=source.allow_loopback_http,
+                timeout_seconds=source.timeout_seconds,
+                max_response_bytes=source.max_response_bytes,
+                freshness_seconds=source.freshness_seconds,
+            ),
+            credential_broker=_LiveSourceCredentialFileBroker(
+                source_reader, clock=clock
+            ),
+            credential_authorizations=source_reader,
+            state_store=SQLiteDataAgentReportStateStore(database),
+            clock=clock,
+        )
+
+        provider = OpenAICompatibleProvider(
+            base_url=invocation.base_url,
+            model=invocation.model_id,
+            credential=provider_credential,
+            credentials=_LiveProviderCredentialFileBroker(provider_reader, clock=clock),
+            timeout_seconds=invocation.request_timeout_seconds,
+            temperature=float(invocation.temperature),
+            provider_profile=invocation.provider_profile,
+        )
+        if provider.invocation_binding != invocation:
+            _fail(_RUNTIME_BINDING)
+        assessor = ProviderRelevanceAssessor(
+            provider=provider,
+            provider_profile=invocation.provider_profile,
+            policy=policy,
+            trust=adapter,
+            contexts=InMemoryMandateRelevanceContextRegistry((context,)),
+        )
+        material_store = SQLiteDataAgentReportAdmissionMaterialStore(
+            database,
+            principal_id=config.principal_id,
+            tenant_id=config.tenant_id,
+            workspace_id=config.workspace_id,
+        )
+        runtime = DataAgentSituatedBootstrap.compose(
+            adapter=adapter,
+            material_store=material_store,
+            credentials=source_reader,
+            control=control,
+            assessor=assessor,
+            admission_database=database,
+            clock=clock,
+        )
+        principal = PrincipalIdentity(
+            principal_id=config.principal_id,
+            tenant_id=config.tenant_id,
+            workspace_id=config.workspace_id,
+            role=PrincipalRole.PRINCIPAL,
+            authenticated_at=evaluated_at,
+        )
+        return AgentOSApplication._with_data_agent_situated_runtime(
+            situated_runtime=runtime,
+            principal=principal,
+            database=database,
+            workspace=workspace,
+            clock=clock,
+        )
+    except Exception:
+        _fail(_RUNTIME_COMPOSITION)
