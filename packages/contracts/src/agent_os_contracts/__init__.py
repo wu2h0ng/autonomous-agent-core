@@ -189,6 +189,13 @@ from .workflow import (
     NodeSpec,
     WorkflowGraph,
 )
+from .working_set import (
+    ExternalStateCandidateRef,
+    SelectionManifest,
+    SelectionReceipt,
+    TrustedWorkingSet,
+    WorkingSetRequest,
+)
 
 __all__ = [
     "ActionContract",
@@ -342,6 +349,11 @@ __all__ = [
     "UtcDateTime",
     "WaitCondition",
     "WorkflowGraph",
+    "ExternalStateCandidateRef",
+    "WorkingSetRequest",
+    "SelectionManifest",
+    "SelectionReceipt",
+    "TrustedWorkingSet",
     "canonical_json",
     "candidate_evaluation_receipt_digest",
     "candidate_promotion_decision_digest",

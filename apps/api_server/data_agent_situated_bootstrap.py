@@ -26,6 +26,7 @@ from agent_os_core import (
     CredentialAuthorizationReader,
     EnvironmentEventAdmissionService,
     EventEnvelopeAdapter,
+    ExternalStateSourceAdapter,
     MandateSteward,
     OperationalProposalService,
     RelevanceAssessorPort,
@@ -34,6 +35,8 @@ from agent_os_core import (
     ScopedSituatedAssessmentReader,
     SituationalTrustDenied,
     WorkloadIdentityAdapter,
+    TrustedWorkingSetAssembler,
+    WORKING_SET_SELECTION_POLICY_DIGEST,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_store import _create_event_admission_store
@@ -418,6 +421,7 @@ class DataAgentSituatedBootstrap:
         admission_database: str | Path,
         clock: Clock,
         workload_identities: tuple[WorkloadIdentityRegistration, ...] = (),
+        external_state_adapters: tuple[ExternalStateSourceAdapter, ...] = (),
     ) -> DataAgentSituatedRuntime:
         if type(adapter) is not DataAgentReportAdapter:
             raise TypeError("composition requires the concrete Data Agent adapter")
@@ -460,6 +464,10 @@ class DataAgentSituatedBootstrap:
             trace_writer=writer,
             principal_id=principal_id,
             clock=clock,
+            working_set_assembler=TrustedWorkingSetAssembler(
+                adapters=external_state_adapters,
+                selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST,
+            ),
         )
         admission = DataAgentAdmissionFacade._from_composition(
             _AdmissionState(

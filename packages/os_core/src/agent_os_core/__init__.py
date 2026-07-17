@@ -71,6 +71,11 @@ from .srl_event_authority import (
 )
 from .srl_event_admission import EnvironmentEventAdmissionService
 from .srl_event_store import ScopedEventAdmissionReader
+from .srl_working_set import (
+    ExternalStateSourceAdapter,
+    TrustedWorkingSetAssembler,
+    WORKING_SET_SELECTION_POLICY_DIGEST,
+)
 from .mandate_steward import MandateSteward
 from .capability import (
     CapabilityBroker,
@@ -260,6 +265,9 @@ __all__ = [
     "EventOriginRegistryPort",
     "EnvironmentEventAdmissionService",
     "ScopedEventAdmissionReader",
+    "ExternalStateSourceAdapter",
+    "TrustedWorkingSetAssembler",
+    "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",

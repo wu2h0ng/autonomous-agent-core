@@ -21,6 +21,8 @@ from agent_os_contracts import (
     SituatedTraceReason,
     SituatedTraceStatus,
     TaskDraftProposal,
+    TrustedWorkingSet,
+    WorkingSetRequest,
     content_digest,
 )
 
@@ -36,6 +38,10 @@ from .situated_persistence import (
     proposal_result,
 )
 from .srl_event_store import ScopedEventAdmissionReader
+from .srl_working_set import (
+    TrustedWorkingSetAssembler,
+    WORKING_SET_SELECTION_POLICY_DIGEST,
+)
 
 
 class _SituatedTraceWriterPort(Protocol):
@@ -107,6 +113,7 @@ class MandateSteward:
         trace_writer: _SituatedTraceWriterPort,
         principal_id: str,
         clock: Callable[[], datetime],
+        working_set_assembler: TrustedWorkingSetAssembler | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         if not principal_id.strip():
@@ -124,6 +131,12 @@ class MandateSteward:
         self._principal_id = principal_id
         self._clock = clock
         self._monotonic = monotonic
+        selected_assembler = working_set_assembler or TrustedWorkingSetAssembler(
+            selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST
+        )
+        if type(selected_assembler) is not TrustedWorkingSetAssembler:
+            raise TypeError("steward requires the deterministic working set assembler")
+        self._working_set_assembler = selected_assembler
 
     @property
     def scope(self) -> LedgerAccessScope:
@@ -191,12 +204,34 @@ class MandateSteward:
                 ):
                     self._deny_pending(existing_trace)
                 raise
+            request_payload = {
+                "principal_id": self._principal_id,
+                "tenant_id": event.tenant_id,
+                "workspace_id": event.workspace_id,
+                "mandate_id": mandate.mandate_id,
+                "mandate_version": mandate.version,
+                "mandate_digest": mandate.mandate_digest,
+                "admission_receipt_id": receipt.receipt_id,
+                "admission_receipt_digest": receipt.receipt_digest,
+                "correction_epoch": mandate.correction_epoch,
+                "relevance_policy_digest": mandate.relevance_assessor.policy_digest,
+                "selection_policy_digest": self._working_set_assembler.selection_policy_digest,
+            }
+            working_set_request = WorkingSetRequest(
+                request_id=f"working-set-request:{content_digest(request_payload)}",
+                **request_payload,
+            )
+            working_set = self._working_set_assembler.assemble(working_set_request)
+            self._validate_working_set_anchors(
+                working_set, receipt, mandate, event
+            )
             expected_digest = situated_input_binding_digest(
                 mandate,
                 binding,
                 event,
                 projection,
                 mandate.relevance_assessor,
+                working_set,
             )
             trace = existing_trace
             if trace is not None:
@@ -227,7 +262,15 @@ class MandateSteward:
 
             record = self._authority.record_by_input_binding(expected_digest)
             if record is not None:
-                self._validate_record(record, mandate, binding, event, projection, expected_digest)
+                self._validate_record(
+                    record,
+                    mandate,
+                    binding,
+                    event,
+                    projection,
+                    working_set,
+                    expected_digest,
+                )
                 return self._complete(trace, record, active_start=active_start)
 
             trace = self._trace_writer.increment_delegation_attempt(
@@ -236,7 +279,10 @@ class MandateSteward:
             before_provider = self._monotonic()
             try:
                 returned = self._proposal_service.propose(
-                    event_id, projection_id, evaluated_at=now
+                    event_id,
+                    projection_id,
+                    evaluated_at=now,
+                    working_set=working_set,
                 )
             except (SituationalPersistenceConflict, SituationalTrustDenied):
                 raise
@@ -250,7 +296,15 @@ class MandateSteward:
                 raise SituationalPersistenceConflict(
                     "proposal service returned without a persisted assessment"
                 )
-            self._validate_record(record, mandate, binding, event, projection, expected_digest)
+            self._validate_record(
+                record,
+                mandate,
+                binding,
+                event,
+                projection,
+                working_set,
+                expected_digest,
+            )
             persisted_result = proposal_result(record)
             if returned != persisted_result:
                 raise SituationalPersistenceConflict(
@@ -347,6 +401,7 @@ class MandateSteward:
         binding: EnvironmentBindingAuthorization,
         event: EnvironmentEvent,
         projection: OperationalProjectionRef,
+        working_set: TrustedWorkingSet,
         expected_digest: str,
     ) -> None:
         assessment = record.assessment
@@ -364,11 +419,48 @@ class MandateSteward:
             assessment.event_observation_digest == event.observation.content_digest,
             assessment.projection_id == projection.projection_id,
             assessment.projection_digest == projection.projection_artifact.content_digest,
+            assessment.input_binding_digest
+            == situated_input_binding_digest(
+                mandate,
+                binding,
+                event,
+                projection,
+                mandate.relevance_assessor,
+                working_set,
+            ),
             record.tenant_id == event.tenant_id,
             record.workspace_id == event.workspace_id,
         )
         if not all(exact):
             raise SituationalPersistenceConflict("persisted assessment binding conflicts")
+
+    @staticmethod
+    def _validate_working_set_anchors(
+        working_set: TrustedWorkingSet,
+        receipt: EnvironmentEventAdmissionReceipt,
+        mandate: RatifiedMandateRef,
+        event: EnvironmentEvent,
+    ) -> None:
+        request = working_set.request
+        exact = (
+            request.principal_id == receipt.principal_id,
+            request.tenant_id == receipt.tenant_id == event.tenant_id,
+            request.workspace_id == receipt.workspace_id == event.workspace_id,
+            request.mandate_id == receipt.mandate_id == mandate.mandate_id,
+            request.mandate_version == mandate.version,
+            request.mandate_digest == mandate.mandate_digest,
+            request.admission_receipt_id == receipt.receipt_id,
+            request.admission_receipt_digest == receipt.receipt_digest,
+            request.correction_epoch
+            == receipt.correction_epoch
+            == mandate.correction_epoch,
+            request.relevance_policy_digest
+            == mandate.relevance_assessor.policy_digest,
+        )
+        if not all(exact):
+            raise SituationalTrustDenied(
+                "working set mandatory anchors are unavailable or drifted"
+            )
 
     def _terminal_result(
         self, trace: SituatedEvaluationTrace, expected_digest: str

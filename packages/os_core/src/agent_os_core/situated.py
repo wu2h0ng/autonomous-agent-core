@@ -21,6 +21,7 @@ from agent_os_contracts import (
     RelevanceDisposition,
     SituatedAssessmentRecord,
     TaskDraftProposal,
+    TrustedWorkingSet,
     content_digest,
 )
 
@@ -49,6 +50,7 @@ def situated_input_binding_digest(
     event: EnvironmentEvent,
     projection: OperationalProjectionRef,
     assessor: RelevanceAssessorRef,
+    working_set: TrustedWorkingSet | None = None,
 ) -> str:
     return content_digest(
         {
@@ -65,6 +67,12 @@ def situated_input_binding_digest(
             "event": event.model_dump(mode="json"),
             "projection": projection.model_dump(mode="json"),
             "assessor": assessor.model_dump(mode="json"),
+            "working_set_selection_receipt": (
+                working_set.receipt.model_dump(mode="json")
+                if working_set is not None
+                and working_set.receipt.selected_count > 0
+                else None
+            ),
         }
     )
 
@@ -95,6 +103,7 @@ class RelevanceAssessorPort(Protocol):
         projection: OperationalProjectionRef,
         *,
         assessed_at: datetime,
+        working_set: TrustedWorkingSet | None = None,
     ) -> RelevanceAssessment: ...
 
 
@@ -457,6 +466,7 @@ class OperationalProposalService:
         projection_id: str,
         *,
         evaluated_at: datetime,
+        working_set: TrustedWorkingSet | None = None,
     ) -> ProposalResult:
         evaluated_at = _OperationalProposalCompiler._utc(evaluated_at)
         event = self._trust.resolve_event(event_id)
@@ -475,12 +485,15 @@ class OperationalProposalService:
         expected_assessor = mandate.relevance_assessor
         if self._assessor.ref != expected_assessor:
             raise SituationalTrustDenied("relevance assessor is not ratified")
+        if working_set is not None:
+            self._validate_working_set(working_set, mandate, event)
         input_binding_digest = situated_input_binding_digest(
             mandate,
             binding,
             event,
             projection,
             expected_assessor,
+            working_set,
         )
         existing = self._control.replay_if_active(
             mandate,
@@ -496,6 +509,7 @@ class OperationalProposalService:
                 binding=binding,
                 event=event,
                 projection=projection,
+                working_set=working_set,
             )
             _OperationalProposalCompiler._validate_time(
                 event,
@@ -504,19 +518,30 @@ class OperationalProposalService:
                 evaluated_at,
             )
             return proposal_result(existing)
-        assessment = self._assessor.assess(
-            mandate,
-            binding,
-            event,
-            projection,
-            assessed_at=evaluated_at,
-        )
+        if working_set is None:
+            assessment = self._assessor.assess(
+                mandate,
+                binding,
+                event,
+                projection,
+                assessed_at=evaluated_at,
+            )
+        else:
+            assessment = self._assessor.assess(
+                mandate,
+                binding,
+                event,
+                projection,
+                assessed_at=evaluated_at,
+                working_set=working_set,
+            )
         self._validate_assessment(
             assessment,
             mandate=mandate,
             binding=binding,
             event=event,
             projection=projection,
+            working_set=working_set,
         )
         source_binding_digest = situated_source_binding_digest(
             event,
@@ -580,6 +605,7 @@ class OperationalProposalService:
         binding: EnvironmentBindingAuthorization,
         event: EnvironmentEvent,
         projection: OperationalProjectionRef,
+        working_set: TrustedWorkingSet | None,
     ) -> None:
         expected_input_digest = situated_input_binding_digest(
             mandate,
@@ -587,6 +613,7 @@ class OperationalProposalService:
             event,
             projection,
             mandate.relevance_assessor,
+            working_set,
         )
         exact_values = (
             (assessment.mandate_id, mandate.mandate_id, "mandate id"),
@@ -638,6 +665,34 @@ class OperationalProposalService:
                 raise SituationalTrustDenied(
                     f"trusted assessment {label} does not match ratified input"
                 )
+
+    def _validate_working_set(
+        self,
+        working_set: TrustedWorkingSet,
+        mandate: RatifiedMandateRef,
+        event: EnvironmentEvent,
+    ) -> None:
+        request = working_set.request
+        exact = (
+            request.principal_id == self._principal_id,
+            request.tenant_id == event.tenant_id == mandate.tenant_id,
+            request.workspace_id == event.workspace_id == mandate.workspace_id,
+            request.mandate_id == mandate.mandate_id,
+            request.mandate_version == mandate.version,
+            request.mandate_digest == mandate.mandate_digest,
+            request.correction_epoch == mandate.correction_epoch,
+            request.relevance_policy_digest == mandate.relevance_assessor.policy_digest,
+            working_set.manifest.principal_id == request.principal_id,
+            working_set.manifest.tenant_id == request.tenant_id,
+            working_set.manifest.workspace_id == request.workspace_id,
+            working_set.manifest.correction_epoch == request.correction_epoch,
+            working_set.manifest.selection_policy_digest
+            == request.selection_policy_digest,
+        )
+        if not all(exact):
+            raise SituationalTrustDenied(
+                "trusted working set differs from current authority"
+            )
 
 
 class _OperationalProposalCompiler:

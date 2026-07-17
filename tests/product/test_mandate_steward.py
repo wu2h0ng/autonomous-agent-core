@@ -215,7 +215,22 @@ class _Assessor:
         self.calls += 1
         if self.barrier is not None:
             self.barrier.wait(timeout=3)
-        return self.assessment
+        working_set = kwargs.get("working_set")
+        if working_set is None or working_set.receipt.selected_count == 0:
+            return self.assessment
+        mandate, binding, event, projection = args
+        return self.assessment.model_copy(
+            update={
+                "input_binding_digest": situated_input_binding_digest(
+                    mandate,
+                    binding,
+                    event,
+                    projection,
+                    mandate.relevance_assessor,
+                    working_set,
+                )
+            }
+        )
 
 
 def _receipt() -> EnvironmentEventAdmissionReceipt:

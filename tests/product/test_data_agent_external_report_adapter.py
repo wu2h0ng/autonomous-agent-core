@@ -359,6 +359,7 @@ class _ReportAssessor:
         projection: OperationalProjectionRef,
         *,
         assessed_at: datetime,
+        working_set: Any = None,
     ) -> RelevanceAssessment:
         return RelevanceAssessment(
             assessment_id="assessment:data-report-1",
@@ -380,6 +381,7 @@ class _ReportAssessor:
                 event,
                 projection,
                 self.ref,
+                working_set,
             ),
             tenant_id="tenant:local",
             workspace_id="workspace:local",
