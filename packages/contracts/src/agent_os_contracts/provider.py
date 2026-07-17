@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 from enum import Enum
-from typing import Literal
+from collections.abc import Mapping
+from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -14,7 +15,9 @@ from .common import (
     canonical_json,
     content_digest,
 )
+from .authority import CorrectionEpochVector
 from .evidence import Sha256Digest
+from .trajectory import BindingStatus, WorkingSetRef
 
 
 class CredentialStatus(str, Enum):
@@ -66,6 +69,7 @@ class ProviderProfile(ContractModel):
     profile_id: NonEmptyStr
     provider_id: NonEmptyStr
     model_id: NonEmptyStr
+    model_revision_digest: Sha256Digest | None = None
     endpoint_class: NonEmptyStr
     credential_ref_id: NonEmptyStr
     capabilities: tuple[NonEmptyStr, ...] = Field(min_length=1)
@@ -209,6 +213,73 @@ class ProviderResponse(ContractModel):
     def _require_content(self) -> ProviderResponse:
         if not self.text.strip() and not self.tool_proposals:
             raise ValueError("provider response requires text or tool proposal")
+        return self
+
+
+def provider_execution_receipt_digest(
+    payload: Mapping[str, Any],
+) -> Sha256Digest:
+    """Digest an execution receipt without trusting its claimed seal."""
+
+    return content_digest(
+        {key: value for key, value in payload.items() if key != "receipt_digest"}
+    )
+
+
+class ProviderExecutionReceipt(ContractModel):
+    """Safe provenance for one Product provider invocation.
+
+    Prompt, response text, credentials and transport configuration are excluded.
+    Missing model revisions and working sets remain explicit rather than inferred.
+    """
+
+    schema_version: Literal["1.0"] = "1.0"  # pyright: ignore[reportIncompatibleVariableOverride]
+    task_id: NonEmptyStr
+    run_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    provider_profile_id: NonEmptyStr
+    provider_profile_digest: Sha256Digest
+    provider_id: NonEmptyStr
+    model_id: NonEmptyStr
+    model_revision_digest: Sha256Digest | None = None
+    request_id: NonEmptyStr
+    request_digest: Sha256Digest
+    response_id: NonEmptyStr
+    response_digest: Sha256Digest
+    invocation_binding_digest: Sha256Digest
+    working_set_ref: WorkingSetRef
+    observed_correction_epochs: CorrectionEpochVector
+    correction_epoch: int = Field(ge=0)
+    missing_fields: tuple[NonEmptyStr, ...] = ()
+    receipt_digest: Sha256Digest
+
+    @field_validator("missing_fields", mode="after")
+    @classmethod
+    def _normalize_missing_fields(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(set(values)))
+
+    @model_validator(mode="after")
+    def _validate_receipt(self) -> ProviderExecutionReceipt:
+        expected_missing: set[str] = set()
+        if self.model_revision_digest is None:
+            expected_missing.add("model_revision_digest")
+        if self.working_set_ref.status is BindingStatus.MISSING:
+            expected_missing.add("working_set_digest")
+        if set(self.missing_fields) != expected_missing:
+            raise ValueError("provider receipt missing fields are not explicit")
+        expected_epoch = max(
+            self.observed_correction_epochs.task_epoch,
+            self.observed_correction_epochs.run_epoch,
+            self.observed_correction_epochs.capability_epoch,
+        )
+        if self.correction_epoch != expected_epoch:
+            raise ValueError("provider receipt correction epoch mismatch")
+        expected_digest = provider_execution_receipt_digest(
+            self.model_dump(mode="json")
+        )
+        if self.receipt_digest != expected_digest:
+            raise ValueError("provider execution receipt digest mismatch")
         return self
 
 

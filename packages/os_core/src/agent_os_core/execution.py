@@ -10,6 +10,7 @@ from uuid import uuid4
 from agent_os_contracts import (
     ActionContract,
     ApprovalDisposition,
+    BindingStatus,
     CapabilityGrant,
     CandidateGenerationEnvelope,
     CompensationMode,
@@ -21,6 +22,7 @@ from agent_os_contracts import (
     PrincipalRole,
     ProviderMessage,
     ProviderMessageRole,
+    ProviderExecutionReceipt,
     ProviderProfile,
     ProviderRequest,
     ProviderFailure,
@@ -34,6 +36,9 @@ from agent_os_contracts import (
     ObservedOutcome,
     OutcomeStatus,
     PatchCompensationRecord,
+    WorkingSetRef,
+    content_digest,
+    provider_execution_receipt_digest,
 )
 
 from .capability import CapabilityBroker, CapabilityResult, WorkspaceSandbox
@@ -351,12 +356,25 @@ class RunCoordinator:
                 raise
             try:
                 if node.kind is NodeKind.PROVIDER:
-                    provider_output = self._call_provider(run.run_id, task_id, node.capability or "provider", context)
+                    provider_output, provider_receipt = self._call_provider(
+                        run.run_id,
+                        task_id,
+                        node.capability or "provider",
+                        context,
+                    )
                     context[node.node_id] = provider_output
+                    provider_event_payload: dict[str, Any] = {
+                        "node_id": node.node_id,
+                        "provider_output": provider_output,
+                    }
+                    if provider_receipt is not None:
+                        provider_event_payload["provider_execution_receipt"] = (
+                            provider_receipt.model_dump(mode="json")
+                        )
                     self.tasks.append_event(
                         task_id,
                         TaskEventType.PROVIDER_RESPONDED,
-                        {"node_id": node.node_id, "provider_output": provider_output},
+                        provider_event_payload,
                         correlation_id=run.run_id,
                     )
                     for proposal in provider_output["tool_proposals"]:
@@ -508,7 +526,9 @@ class RunCoordinator:
                     )
                 finally:
                     self._release_lease(run.run_id, owner)
-                raise RunExecutionError(f"node {node.node_id} failed: {type(exc).__name__}") from exc
+                raise RunExecutionError(
+                    f"node {node.node_id} failed: {type(exc).__name__}: {exc}"
+                ) from exc
         if observed_outcome is None:
             self._release_lease(run.run_id, owner)
             raise RunExecutionError("workflow completed without an evaluation node")
@@ -1005,7 +1025,54 @@ class RunCoordinator:
             correlation_id=run_id,
         )
 
-    def _call_provider(self, run_id: str, task_id: str, capability: str, context: dict[str, Any]) -> dict[str, Any]:
+    def _call_provider(
+        self,
+        run_id: str,
+        task_id: str,
+        capability: str,
+        context: dict[str, Any],
+    ) -> tuple[dict[str, Any], ProviderExecutionReceipt | None]:
+        aggregate = self.tasks.get_task(task_id)
+        snapshot = aggregate.configuration_snapshot
+        run = aggregate.run
+        if run is None:
+            raise RunExecutionError("provider invocation requires an active Run")
+        try:
+            invocation_binding = self.provider.invocation_binding
+        except RuntimeError as exc:
+            if snapshot is not None:
+                raise RunExecutionError(
+                    "provider invocation binding is unavailable"
+                ) from exc
+            invocation_binding = None
+        if snapshot is None:
+            if invocation_binding is not None:
+                raise RunExecutionError(
+                    "bound provider invocation requires an exact configuration snapshot"
+                )
+            invocation_binding_digest = None
+        else:
+            if (
+                run.run_id != run_id
+                or run.configuration_snapshot_id != snapshot.snapshot_id
+                or run.configuration_snapshot_digest != snapshot.snapshot_digest
+                or run.provider_profile_id != snapshot.provider_profile.profile_id
+            ):
+                raise RunExecutionError("provider Run snapshot binding drift")
+            if (
+                self.provider_profile != snapshot.provider_profile
+                or content_digest(self.provider_profile)
+                != snapshot.provider_profile_digest
+            ):
+                raise RunExecutionError("provider profile snapshot binding drift")
+            assert invocation_binding is not None
+            if (
+                invocation_binding.provider_profile != self.provider_profile
+                or invocation_binding.provider_id != self.provider_profile.provider_id
+                or invocation_binding.model_id != self.provider_profile.model_id
+            ):
+                raise RunExecutionError("provider profile invocation binding mismatch")
+            invocation_binding_digest = invocation_binding.digest()
         target_path = str(context.get("target_path") or context.get("path") or "")
         read_output = context.get("workspace.read") or context.get("read")
         if not target_path or not isinstance(read_output, dict):
@@ -1033,6 +1100,12 @@ class RunCoordinator:
         response = self.provider.complete(request)
         if isinstance(response, ProviderFailure):
             raise RunExecutionError(f"provider {response.code.value}: {response.safe_message}")
+        if response.request_id != request.request_id:
+            raise RunExecutionError("provider response request binding mismatch")
+        if snapshot is not None and (
+            response.invocation_binding_digest != invocation_binding_digest
+        ):
+            raise RunExecutionError("provider response invocation binding mismatch")
         proposals = list(response.tool_proposals)
         if proposals and (
             len(proposals) != 1
@@ -1072,12 +1145,53 @@ class RunCoordinator:
             capability_id="workspace.apply_patch",
             arguments_json=json.dumps(raw_arguments),
         )
-        return {
+        provider_output = {
             "text": response.text,
             "tool_proposals": [bound_proposal.model_dump(mode="json")],
             "usage": response.usage.model_dump(mode="json"),
             "finish_reason": response.finish_reason,
         }
+        if snapshot is None:
+            return provider_output, None
+        assert invocation_binding_digest is not None
+        working_set_ref = WorkingSetRef(
+            status=BindingStatus.MISSING,
+            gap_reason="developer provider path has no TrustedWorkingSet binding",
+        )
+        observed_epochs = self.correction.snapshot(task_id, run_id, capability)
+        missing_fields: list[str] = ["working_set_digest"]
+        if self.provider_profile.model_revision_digest is None:
+            missing_fields.append("model_revision_digest")
+        receipt_payload = {
+            "schema_version": "1.0",
+            "task_id": task_id,
+            "run_id": run_id,
+            "tenant_id": run.tenant_id,
+            "workspace_id": run.workspace_id,
+            "provider_profile_id": self.provider_profile.profile_id,
+            "provider_profile_digest": snapshot.provider_profile_digest,
+            "provider_id": self.provider_profile.provider_id,
+            "model_id": self.provider_profile.model_id,
+            "model_revision_digest": self.provider_profile.model_revision_digest,
+            "request_id": request.request_id,
+            "request_digest": content_digest(request),
+            "response_id": response.response_id,
+            "response_digest": content_digest(response),
+            "invocation_binding_digest": invocation_binding_digest,
+            "working_set_ref": working_set_ref.model_dump(mode="json"),
+            "observed_correction_epochs": observed_epochs.model_dump(mode="json"),
+            "correction_epoch": max(
+                observed_epochs.task_epoch,
+                observed_epochs.run_epoch,
+                observed_epochs.capability_epoch,
+            ),
+            "missing_fields": tuple(sorted(missing_fields)),
+        }
+        receipt = ProviderExecutionReceipt(
+            **receipt_payload,
+            receipt_digest=provider_execution_receipt_digest(receipt_payload),
+        )
+        return provider_output, receipt
 
     def _call_tool(self, task_id: str, run_id: str, node_id: str, capability_id: str, principal: PrincipalIdentity, args: Any, expected: ExpectedOutcome, envelope_id: str, approval: Any = None, risk_tier: int = 0, proposed_action: Any = None) -> CapabilityResult:
         if capability_id == "workspace.compensate_patch":
