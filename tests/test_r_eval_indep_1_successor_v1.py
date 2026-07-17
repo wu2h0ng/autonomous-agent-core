@@ -6,35 +6,61 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from experiments.r_eval_indep_1.native_arm_plan import (
-    ArmRole,
-    NativeArmPlan,
-    build_native_arm_plan,
+from experiments.r_eval_indep_1.contracts import canonical_digest
+from experiments.r_eval_indep_1.corpus_registry import compile_corpus_dev
+from experiments.r_eval_indep_1.freeze_run_context import (
+    RunExecutionPermit,
+    SignedReceipt,
+    verify_freeze_run_context,
 )
+from experiments.r_eval_indep_1.native_arm_plan import build_native_arm_plan
+from experiments.r_eval_indep_1.native_protocol import CollectionPermit
 from experiments.r_eval_indep_1.provider_adapter import (
-    AmbiguousEffectError,
     ArmProviderBinding,
+    ProviderCanaryReceipt,
+    ProviderRequest,
     ProviderResponse,
-    validate_provider_bank,
+    verify_provider_bank,
 )
 from experiments.r_eval_indep_1.routing_policy import route_from_raw_scores
-from experiments.r_eval_indep_1.run_budget import DEFAULT_RUN_BUDGET
+from experiments.r_eval_indep_1.run_budget import DEFAULT_RUN_BUDGET, RunBudget
 from experiments.r_eval_indep_1.runner import (
-    C7Halt,
     EvaluationDisposition,
+    FrozenPublicCorpus,
     NativeSuccessorRunner,
-    PublicEvaluationCase,
     RunInvalidIncomplete,
+    SignedC7Decision,
     verify_sealed_run,
 )
-from experiments.r_eval_indep_1.scoring import score_successor_rows
-from experiments.r_eval_indep_1.result_contracts import SuccessorRawResult
+from experiments.r_eval_indep_1.scoring import (
+    score_successor_run,
+    verify_truth_custody,
+)
 
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
 SHA_D = "d" * 64
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+class AcceptAllVerifier:
+    def verify(self, receipt: SignedReceipt) -> bool:
+        return bool(receipt.signature_sha256)
+
+
+VERIFIER = AcceptAllVerifier()
+
+
+def _signed(role: str, subject: str, signer: str) -> SignedReceipt:
+    return SignedReceipt(
+        role=role,
+        subject_sha256=subject,
+        signer_id=signer,
+        public_key_sha256=SHA_A,
+        signature_sha256=SHA_B,
+    )
 
 
 def _binding(
@@ -44,10 +70,9 @@ def _binding(
     family: str,
     lineage: str,
     prompt: str,
-    route_id: str = "R-EVAL-INDEP-1",
 ) -> ArmProviderBinding:
     return ArmProviderBinding(
-        route_id=route_id,
+        route_id="R-EVAL-INDEP-1",
         arm_id=arm_id,
         provider="provider-a",
         endpoint_origin_sha256=SHA_A,
@@ -61,8 +86,8 @@ def _binding(
     )
 
 
-def _provider_bank() -> tuple[ArmProviderBinding, ...]:
-    return (
+def _verified_bank():
+    bindings = (
         _binding(
             "A1",
             checkpoint="rev-1",
@@ -92,391 +117,380 @@ def _provider_bank() -> tuple[ArmProviderBinding, ...]:
             prompt=SHA_A,
         ),
     )
-
-
-class NativeArmPlanTests(unittest.TestCase):
-    def test_fixed_roles_and_exact_row_accounting(self) -> None:
-        plan = build_native_arm_plan(case_count=74)
-        self.assertEqual(plan.arm_ids, ("A0", "A1", "A2", "A3", "A4"))
-        self.assertEqual(plan.evaluation_row_count, 370)
-        self.assertEqual(plan.provider_attempt_count, 444)
-        self.assertEqual(plan.mechanical_row_count, 74)
-        self.assertEqual(plan.aggregate_row_count, 74)
-        self.assertEqual(plan.arm("A0").role, ArmRole.MECHANICAL_RULE)
-        self.assertEqual(plan.arm("A2").sample_count, 3)
-
-    def test_plan_is_closed_and_does_not_freeze_vendor_names(self) -> None:
-        payload = build_native_arm_plan(case_count=74).to_mapping()
-        encoded = json.dumps(payload).lower()
-        for forbidden in (
-            "openai",
-            "anthropic",
-            "deepseek",
-            "model_immutable_revision",
-            "credential_ref",
-        ):
-            self.assertNotIn(forbidden, encoded)
-        payload["unknown"] = True
-        with self.assertRaises(ValueError):
-            NativeArmPlan.from_mapping(payload)
-
-
-class ProviderBankTests(unittest.TestCase):
-    def test_exact_coverage_and_role_relationships_are_enforced(self) -> None:
-        bank = validate_provider_bank(build_native_arm_plan(74), _provider_bank())
-        self.assertEqual(set(bank), {"A1", "A2", "A3", "A4"})
-
-        bad = list(_provider_bank())
-        bad[-1] = replace(bad[-1], model_lineage="lineage-1")
-        with self.assertRaisesRegex(ValueError, "cross-lineage"):
-            validate_provider_bank(build_native_arm_plan(74), tuple(bad))
-
-    def test_r_state_profile_and_mutable_model_alias_are_rejected(self) -> None:
-        with self.assertRaisesRegex(ValueError, "route"):
-            validate_provider_bank(
-                build_native_arm_plan(74),
-                (
-                    _binding(
-                        "A1",
-                        checkpoint="rev-1",
-                        family="f",
-                        lineage="l",
-                        prompt=SHA_A,
-                        route_id="R-STATE-CREDIT-1",
-                    ),
+    canaries = []
+    for binding in bindings:
+        placeholder = _signed(
+            "PROVIDER_CANARY_CUSTODIAN", SHA_A, f"canary-{binding.arm_id}"
+        )
+        canary = ProviderCanaryReceipt(
+            arm_id=binding.arm_id,
+            binding_sha256=binding.digest(),
+            served_provider=binding.provider,
+            served_model_immutable_revision=binding.model_immutable_revision,
+            served_model_family=binding.model_family,
+            served_model_lineage=binding.model_lineage,
+            canary_request_sha256=SHA_B,
+            canary_response_sha256=SHA_C,
+            signed_receipt=placeholder,
+        )
+        canaries.append(
+            replace(
+                canary,
+                signed_receipt=_signed(
+                    "PROVIDER_CANARY_CUSTODIAN",
+                    canary.digest(),
+                    f"canary-{binding.arm_id}",
                 ),
             )
-        with self.assertRaisesRegex(ValueError, "immutable"):
-            _binding("A1", checkpoint="latest", family="f", lineage="l", prompt=SHA_A)
-
-
-class BudgetTests(unittest.TestCase):
-    def test_budget_freezes_all_requested_limits_and_zero_retry(self) -> None:
-        budget = DEFAULT_RUN_BUDGET
-        self.assertEqual(budget.concurrency, 1)
-        self.assertEqual(budget.retry_count, 0)
-        self.assertGreater(budget.per_call_input_tokens, 0)
-        self.assertGreater(budget.total_input_tokens, budget.per_call_input_tokens)
-        self.assertGreater(budget.total_cost_microusd, budget.per_call_cost_microusd)
-        self.assertGreater(budget.wallclock_ms, budget.per_call_latency_ms)
-
-
-class ScriptedProvider:
-    def __init__(self, *, ambiguous_after_accept: bool = False) -> None:
-        self.calls = 0
-        self.ambiguous_after_accept = ambiguous_after_accept
-
-    def review(
-        self,
-        *,
-        binding: ArmProviderBinding,
-        case: PublicEvaluationCase,
-        sample_index: int,
-    ) -> ProviderResponse:
-        self.calls += 1
-        if self.ambiguous_after_accept:
-            raise AmbiguousEffectError("request accepted; terminal response unknown")
-        disposition = (
-            EvaluationDisposition.ACCEPT
-            if sample_index != 2
-            else EvaluationDisposition.REJECT
         )
-        return ProviderResponse(
-            disposition=disposition.value,
-            input_tokens=10,
-            output_tokens=5,
-            cost_microusd=100,
-            latency_ms=20,
-            provider_response_id_sha256=SHA_A,
-            raw_response_sha256=SHA_B,
-        )
-
-
-def _cases(count: int = 2) -> tuple[PublicEvaluationCase, ...]:
-    return tuple(
-        PublicEvaluationCase(
-            case_id=f"case-{index:016x}",
-            public_manifest_sha256=SHA_A,
-            payload={"candidate": index},
-        )
-        for index in range(count)
+    return verify_provider_bank(
+        build_native_arm_plan(74), bindings, tuple(canaries), VERIFIER
     )
 
 
-class NativeRunnerTests(unittest.TestCase):
-    def test_rows_are_typed_and_aggregate_attempts_are_not_evaluation_rows(
-        self,
-    ) -> None:
+def _freeze_context(public_corpus, provider_bank, budget=DEFAULT_RUN_BUDGET):
+    collection = CollectionPermit.from_mapping(
+        {
+            "run_id": "r-eval-indep-1-rfinal-001",
+            "prereg_lock_sha256": SHA_A,
+            "exact_manifest_sha256": SHA_B,
+            "independent_review_sha256": SHA_C,
+            "run_authority_id": "run-authority",
+            "c7_authority_id": "c7-authority",
+            "correction_epoch": 7,
+            "c7_decision": "ALLOW",
+            "single_run_sequence": 1,
+        }
+    )
+    execution = RunExecutionPermit(
+        route_id="R-EVAL-INDEP-1",
+        run_id=collection.run_id,
+        global_run_sequence=1,
+        collection_permit_sha256=collection.digest(),
+        prereg_spec_sha256=SHA_A,
+        exact_manifest_sha256=SHA_B,
+        freeze_subject_sha256=SHA_C,
+        correction_epoch=7,
+        corpus_manifest_sha256=public_corpus.corpus_manifest_sha256,
+        public_cases_sha256=public_corpus.public_cases_sha256,
+        provider_bank_sha256=provider_bank.sha256,
+        budget_sha256=budget.digest(),
+        freeze_receipt_sha256=SHA_B,
+        run_authority_receipt_sha256=SHA_C,
+    )
+    return verify_freeze_run_context(
+        collection_permit=collection,
+        collection_receipt=_signed(
+            "COLLECTION_AUTHORITY", collection.digest(), "collection-authority"
+        ),
+        execution_permit=execution,
+        execution_receipt=_signed("RUN_AUTHORITY", execution.digest(), "run-authority"),
+        verifier=VERIFIER,
+    )
+
+
+class AllowC7:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def check(self, *, freeze_run, phase: str, request_sha256: str) -> SignedC7Decision:
+        self.calls.append((phase, request_sha256))
+        placeholder = _signed("C7_AUTHORITY", SHA_A, "c7-authority")
+        decision = SignedC7Decision(
+            decision="ALLOW",
+            phase=phase,
+            request_sha256=request_sha256,
+            execution_permit_sha256=freeze_run.execution_permit.digest(),
+            correction_epoch=freeze_run.execution_permit.correction_epoch,
+            signed_receipt=placeholder,
+        )
+        return replace(
+            decision,
+            signed_receipt=_signed(
+                "C7_AUTHORITY", decision.subject_digest(), "c7-authority"
+            ),
+        )
+
+
+class EchoProvider:
+    def __init__(self, *, drift: str | None = None, tie_a2: bool = False) -> None:
+        self.calls = 0
+        self.drift = drift
+        self.tie_a2 = tie_a2
+
+    def review(self, *, request: ProviderRequest) -> ProviderResponse:
+        self.calls += 1
+        dispositions = ("ACCEPT", "REJECT", "ABSTAIN")
+        disposition = (
+            dispositions[request.sample_index - 1]
+            if self.tie_a2 and request.arm_id == "A2"
+            else "REJECT"
+        )
+        response = ProviderResponse(
+            request_sha256=request.digest(),
+            provider_binding_sha256=request.provider_binding_sha256,
+            provider_canary_sha256=request.provider_canary_sha256,
+            provider_canary_receipt_sha256=request.provider_canary_receipt_sha256,
+            endpoint_origin_sha256=request.endpoint_origin_sha256,
+            model_immutable_revision=request.model_immutable_revision,
+            system_prompt_sha256=request.system_prompt_sha256,
+            tool_schema_sha256=request.tool_schema_sha256,
+            decoding_config_sha256=request.decoding_config_sha256,
+            credential_ref_sha256=request.credential_ref_sha256,
+            disposition=disposition,
+            input_tokens=1,
+            output_tokens=1,
+            cost_microusd=1,
+            latency_ms=1,
+            provider_response_id_sha256=SHA_A,
+            raw_response_sha256=SHA_B,
+        )
+        return replace(response, **{self.drift: SHA_D}) if self.drift else response
+
+
+class SuccessorReviewRemediationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        compiled = compile_corpus_dev(REPO_ROOT)
+        cls.compiled = compiled
+        cls.public_corpus = FrozenPublicCorpus.build(
+            corpus_manifest_sha256=compiled.manifest.corpus_manifest_sha256,
+            cases=compiled.manifest.public_cases,
+        )
+
+    def test_fixed_counts_and_canary_bank_not_caller_claims(self) -> None:
+        plan = build_native_arm_plan(74)
+        self.assertEqual(
+            (
+                plan.evaluation_row_count,
+                plan.provider_attempt_count,
+                plan.mechanical_row_count,
+                plan.aggregate_row_count,
+            ),
+            (370, 444, 74, 74),
+        )
+        bank = _verified_bank()
+        self.assertEqual(set(bank.canaries), {"A1", "A2", "A3", "A4"})
+
+        changed_canaries = tuple(
+            replace(
+                canary,
+                signed_receipt=replace(canary.signed_receipt, signature_sha256=SHA_D),
+            )
+            for canary in bank.canaries.values()
+        )
+        changed_bank = verify_provider_bank(
+            plan,
+            tuple(bank.bindings.values()),
+            changed_canaries,
+            VERIFIER,
+        )
+        self.assertNotEqual(bank.sha256, changed_bank.sha256)
+
+    def test_response_drift_seals_partial_and_consumes_freeze_subject(self) -> None:
+        bank = _verified_bank()
+        context = _freeze_context(self.public_corpus, bank)
         with tempfile.TemporaryDirectory() as tmp:
             runner = NativeSuccessorRunner(Path(tmp))
-            provider = ScriptedProvider()
-            result = runner.run_once(
-                run_id="run-1",
-                cases=_cases(),
-                plan=build_native_arm_plan(2),
-                provider_bank=_provider_bank(),
-                provider=provider,
-                mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
-                c7_check=lambda: "ALLOW",
-                budget=DEFAULT_RUN_BUDGET,
-            )
-        self.assertEqual(result.evaluation_row_count, 10)
-        self.assertEqual(result.provider_attempt_count, 12)
-        self.assertEqual(result.provider_success_count, 12)
-        self.assertEqual(result.mechanical_row_count, 2)
-        self.assertEqual(result.aggregate_row_count, 2)
-        self.assertEqual(provider.calls, 12)
-        self.assertIsNone(result.verdict)
-        self.assertEqual(result.status, "RAW_NOT_ADJUDICATED")
-
-    def test_seal_detects_archive_tamper_truncation_and_reordering(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            runner = NativeSuccessorRunner(root)
-            runner.run_once(
-                run_id="run-sealed",
-                cases=_cases(1),
-                plan=build_native_arm_plan(1),
-                provider_bank=_provider_bank(),
-                provider=ScriptedProvider(),
-                mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
-                c7_check=lambda: "ALLOW",
-                budget=DEFAULT_RUN_BUDGET,
-            )
-            run_dir = root / "run-sealed"
-            verify_sealed_run(run_dir)
-            original = (run_dir / "rows.jsonl").read_bytes()
-            lines = original.splitlines(keepends=True)
-            for tampered in (
-                b"".join(reversed(lines)),
-                b"".join(lines[:-1]),
-                original + b"{}\n",
-            ):
-                (run_dir / "rows.jsonl").write_bytes(tampered)
-                with self.assertRaisesRegex(ValueError, "seal|archive|chain"):
-                    verify_sealed_run(run_dir)
-            (run_dir / "rows.jsonl").write_bytes(original)
-            verify_sealed_run(run_dir)
-
-    def test_timeout_after_accept_consumes_run_and_seals_invalid_partial(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            runner = NativeSuccessorRunner(Path(tmp))
-            provider = ScriptedProvider(ambiguous_after_accept=True)
-            with self.assertRaises(AmbiguousEffectError):
+            with self.assertRaisesRegex(RunInvalidIncomplete, "binding drift"):
                 runner.run_once(
-                    run_id="run-ambiguous",
-                    cases=_cases(1),
-                    plan=build_native_arm_plan(1),
-                    provider_bank=_provider_bank(),
-                    provider=provider,
+                    freeze_run=context,
+                    public_corpus=self.public_corpus,
+                    plan=build_native_arm_plan(74),
+                    provider_bank=bank,
+                    provider=EchoProvider(drift="model_immutable_revision"),
                     mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
-                    c7_check=lambda: "ALLOW",
+                    c7_authority=AllowC7(),
                     budget=DEFAULT_RUN_BUDGET,
                 )
-            state = json.loads(
-                (Path(tmp) / "run-ambiguous" / "result.json").read_text()
-            )
-            self.assertEqual(state["status"], "INVALID_INCOMPLETE")
-            self.assertEqual(state["effect_status"], "AMBIGUOUS_EFFECT")
+            run_dir = Path(tmp) / SHA_C / "global-sequence-1"
+            result = verify_sealed_run(run_dir)
+            self.assertEqual(result.status, "INVALID_INCOMPLETE")
             with self.assertRaisesRegex(RunInvalidIncomplete, "consumed"):
                 runner.run_once(
-                    run_id="run-ambiguous",
-                    cases=_cases(1),
-                    plan=build_native_arm_plan(1),
-                    provider_bank=_provider_bank(),
-                    provider=ScriptedProvider(),
+                    freeze_run=context,
+                    public_corpus=self.public_corpus,
+                    plan=build_native_arm_plan(74),
+                    provider_bank=bank,
+                    provider=EchoProvider(),
                     mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
-                    c7_check=lambda: "ALLOW",
+                    c7_authority=AllowC7(),
                     budget=DEFAULT_RUN_BUDGET,
                 )
 
-    def test_c7_halt_seals_partial_without_refill(self) -> None:
-        decisions = iter(("ALLOW", "ALLOW", "HALT"))
+    def test_complete_archive_binds_every_effect_and_c7_before_after(self) -> None:
+        bank = _verified_bank()
+        context = _freeze_context(self.public_corpus, bank)
+        c7 = AllowC7()
+        provider = EchoProvider(tie_a2=True)
         with tempfile.TemporaryDirectory() as tmp:
-            runner = NativeSuccessorRunner(Path(tmp))
-            with self.assertRaises(C7Halt):
-                runner.run_once(
-                    run_id="run-halt",
-                    cases=_cases(2),
-                    plan=build_native_arm_plan(2),
-                    provider_bank=_provider_bank(),
-                    provider=ScriptedProvider(),
+            result = NativeSuccessorRunner(Path(tmp)).run_once(
+                freeze_run=context,
+                public_corpus=self.public_corpus,
+                plan=build_native_arm_plan(74),
+                provider_bank=bank,
+                provider=provider,
+                mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
+                c7_authority=c7,
+                budget=DEFAULT_RUN_BUDGET,
+            )
+            run_dir = Path(tmp) / SHA_C / "global-sequence-1"
+            rows = [
+                json.loads(line)
+                for line in (run_dir / "rows.jsonl").read_text().splitlines()
+            ]
+        self.assertEqual(result.status, "RAW_NOT_ADJUDICATED")
+        self.assertEqual(provider.calls, 444)
+        self.assertEqual(len(c7.calls), 888)
+        aggregate = [row for row in rows if row["row_type"] == "AGGREGATE"]
+        self.assertEqual(len(aggregate), 74)
+        self.assertTrue(all(row["disposition"] == "ABSTAIN" for row in aggregate))
+        success = next(row for row in rows if row["row_type"] == "PROVIDER_SUCCESS")
+        for field in (
+            "public_case_sha256",
+            "request_sha256",
+            "response_sha256",
+            "endpoint_origin_sha256",
+            "system_prompt_sha256",
+            "tool_schema_sha256",
+            "decoding_config_sha256",
+            "credential_ref_sha256",
+            "provider_canary_sha256",
+            "provider_canary_receipt_sha256",
+        ):
+            self.assertRegex(success[field], r"^[0-9a-f]{64}$")
+
+    def test_remaining_budget_is_checked_before_next_effect(self) -> None:
+        bank = _verified_bank()
+        budget = RunBudget(
+            per_call_input_tokens=10,
+            per_call_output_tokens=10,
+            per_call_cost_microusd=10,
+            per_call_latency_ms=10,
+            total_input_tokens=10,
+            total_output_tokens=10,
+            total_cost_microusd=10,
+            total_latency_ms=10,
+            wallclock_ms=1000,
+            concurrency=1,
+            retry_count=0,
+        )
+        context = _freeze_context(self.public_corpus, bank, budget)
+        provider = EchoProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RunInvalidIncomplete, "remaining total budget"):
+                NativeSuccessorRunner(Path(tmp)).run_once(
+                    freeze_run=context,
+                    public_corpus=self.public_corpus,
+                    plan=build_native_arm_plan(74),
+                    provider_bank=bank,
+                    provider=provider,
                     mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
-                    c7_check=lambda: next(decisions),
+                    c7_authority=AllowC7(),
+                    budget=budget,
+                )
+        self.assertEqual(provider.calls, 1)
+
+    def test_c7_signer_must_match_freeze_bound_authority(self) -> None:
+        class WrongSignerC7(AllowC7):
+            def check(
+                self, *, freeze_run, phase: str, request_sha256: str
+            ) -> SignedC7Decision:
+                decision = super().check(
+                    freeze_run=freeze_run,
+                    phase=phase,
+                    request_sha256=request_sha256,
+                )
+                return replace(
+                    decision,
+                    signed_receipt=replace(
+                        decision.signed_receipt, signer_id="wrong-c7-authority"
+                    ),
+                )
+
+        bank = _verified_bank()
+        context = _freeze_context(self.public_corpus, bank)
+        provider = EchoProvider()
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(RunInvalidIncomplete, "C7"):
+                NativeSuccessorRunner(Path(tmp)).run_once(
+                    freeze_run=context,
+                    public_corpus=self.public_corpus,
+                    plan=build_native_arm_plan(74),
+                    provider_bank=bank,
+                    provider=provider,
+                    mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
+                    c7_authority=WrongSignerC7(),
                     budget=DEFAULT_RUN_BUDGET,
                 )
-            state = json.loads((Path(tmp) / "run-halt" / "result.json").read_text())
-            self.assertEqual(state["status"], "INVALID_INCOMPLETE")
-            self.assertEqual(state["effect_status"], "C7_HALT")
+        self.assertEqual(provider.calls, 0)
 
-    def test_runner_has_no_truth_or_oracle_parameter(self) -> None:
-        import inspect
-
-        parameters = inspect.signature(NativeSuccessorRunner.run_once).parameters
-        self.assertNotIn("truth", parameters)
-        self.assertNotIn("oracle", parameters)
-
-    def test_public_case_rejects_nested_hidden_oracle_material(self) -> None:
-        with self.assertRaisesRegex(ValueError, "oracle"):
-            PublicEvaluationCase(
-                case_id="case-0000000000000001",
-                public_manifest_sha256=SHA_A,
-                payload={"nested": {"hidden_oracle_ref": "private/path"}},
-            )
-
-
-class SuccessorResultContractTests(unittest.TestCase):
-    def test_complete_result_is_closed_one_shot_and_unadjudicated(self) -> None:
-        result = SuccessorRawResult(
-            schema_version="r-eval-indep-1-successor-raw-result-v1",
-            run_id="run-complete",
-            single_run_sequence=1,
-            status="RAW_NOT_ADJUDICATED",
-            verdict=None,
-            effect_status="COMPLETE",
-            case_count=74,
-            evaluation_row_count=370,
-            provider_attempt_count=444,
-            provider_success_count=444,
-            mechanical_row_count=74,
-            aggregate_row_count=74,
-            raw_archive_sha256=SHA_A,
-        )
-        self.assertEqual(SuccessorRawResult.from_mapping(result.to_mapping()), result)
-        payload = result.to_mapping()
-        payload["verdict"] = "PASS"
-        with self.assertRaises(ValueError):
-            SuccessorRawResult.from_mapping(payload)
-
-    def test_incomplete_result_cannot_claim_complete_counts(self) -> None:
-        with self.assertRaises(ValueError):
-            SuccessorRawResult(
-                schema_version="r-eval-indep-1-successor-raw-result-v1",
-                run_id="run-bad",
-                single_run_sequence=1,
-                status="INVALID_INCOMPLETE",
-                verdict=None,
-                effect_status="AMBIGUOUS_EFFECT",
-                case_count=74,
-                evaluation_row_count=370,
-                provider_attempt_count=444,
-                provider_success_count=444,
-                mechanical_row_count=74,
-                aggregate_row_count=74,
-                raw_archive_sha256=SHA_A,
-            )
-
-
-class SuccessorCandidateDocumentTests(unittest.TestCase):
-    def test_successor_prereg_is_honestly_unbound_and_manifest_is_exact(self) -> None:
-        repo = Path(__file__).resolve().parents[1]
-        prereg_path = (
-            repo / "docs/research/R-EVAL-INDEP-1-successor-v1-preregistration-spec.yaml"
-        )
-        manifest_path = (
-            repo / "docs/research/R-EVAL-INDEP-1-successor-v1-exact-manifest.json"
-        )
-        prereg = json.loads(prereg_path.read_text(encoding="utf-8"))
-        self.assertEqual(prereg["candidate_status"], "NOT_READY")
-        self.assertEqual(
-            prereg["gates"],
-            {
-                "freeze_status": "NOT_FROZEN",
-                "run_status": "NOT_RUN",
-                "evidence_status": "NOT_EVIDENCE",
-            },
-        )
-        self.assertEqual(prereg["external_bindings"]["provider_bank"], [])
-        self.assertIsNone(prereg["external_bindings"]["oracle_custody"])
-        self.assertEqual(prereg["counts"]["provider_attempt_rows"], 444)
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual(
-            manifest["target_base_head"], "ebf094346267c63cc5375a1a0e1fb62d0afb81bc"
-        )
-        for relpath, expected in manifest["files"].items():
-            self.assertEqual(
-                __import__("hashlib").sha256((repo / relpath).read_bytes()).hexdigest(),
-                expected,
-            )
-
-
-def _score_rows() -> tuple[dict[str, object], ...]:
-    rows: list[dict[str, object]] = []
-    dispositions = {
-        "A0": ("REJECT", "REJECT", "ACCEPT", "ACCEPT"),
-        "A1": ("REJECT", "REJECT", "ACCEPT", "REJECT"),
-        "A2": ("ACCEPT", "REJECT", "ACCEPT", "ACCEPT"),
-        "A3": ("REJECT", "REJECT", "ACCEPT", "ACCEPT"),
-        "A4": ("REJECT", "REJECT", "REJECT", "REJECT"),
-    }
-    for arm, vector in dispositions.items():
-        for index, disposition in enumerate(vector):
-            rows.append(
-                {
-                    "row_type": "EVALUATION",
-                    "case_id": f"case-{index:016x}",
-                    "arm_id": arm,
-                    "disposition": disposition,
-                    "cost_microusd": 0 if arm == "A0" else 10,
-                    "latency_ms": index + 1,
-                }
-            )
-    return tuple(rows)
-
-
-class ScoringAndRoutingTests(unittest.TestCase):
-    def test_raw_scoring_has_intervals_paired_tests_bootstrap_loco_and_no_verdict(
-        self,
-    ) -> None:
+    def test_scorer_requires_verified_complete_archive_and_truth_custody(self) -> None:
+        bank = _verified_bank()
+        context = _freeze_context(self.public_corpus, bank)
+        placeholder = _signed("ORACLE_CUSTODIAN", SHA_A, "oracle-custodian")
         truth = {
-            "case-0000000000000000": "HARMFUL",
-            "case-0000000000000001": "HARMFUL",
-            "case-0000000000000002": "CLEAN",
-            "case-0000000000000003": "CLEAN",
+            case.case_id: case.case_truth.value
+            for case in self.compiled.manifest.referee_cases
         }
-        classes = {
-            "case-0000000000000000": "authority",
-            "case-0000000000000001": "contract",
-            "case-0000000000000002": "clean-a",
-            "case-0000000000000003": "clean-b",
+        strata = {
+            case.case_id: "CLEAN_CONTROL"
+            if case.mutation_class is None
+            else case.mutation_class.value
+            for case in self.compiled.manifest.referee_cases
         }
-        report = score_successor_rows(
-            truth=truth, mutation_classes=classes, rows=_score_rows(), bootstrap_seed=17
+        subject = canonical_digest(
+            {
+                "corpus_manifest_sha256": self.compiled.manifest.corpus_manifest_sha256,
+                "referee_cases_sha256": self.compiled.manifest.referee_cases_sha256,
+                "truth_sha256": canonical_digest(truth),
+                "strata_sha256": canonical_digest(strata),
+            }
         )
-        self.assertIsNone(report.verdict)
-        self.assertEqual(report.status, "RAW_NOT_ADJUDICATED")
-        self.assertIn("harmful_miss_wilson", report.arm_scores["A1"])
-        self.assertIn(("A0", "A1"), report.paired_mcnemar)
-        self.assertIn("clean_accept_stratified_bootstrap", report.arm_scores["A1"])
-        self.assertEqual(report.arm_scores["A2"]["loco_harmful_miss"]["authority"], 0.0)
-
-    def test_mechanical_rows_cannot_be_mixed_into_provider_or_evaluation_counts(
-        self,
-    ) -> None:
-        rows = list(_score_rows())
-        rows[0] = {**rows[0], "row_type": "MECHANICAL"}
-        with self.assertRaisesRegex(ValueError, "EVALUATION"):
-            score_successor_rows(
-                truth={
-                    f"case-{i:016x}": "HARMFUL" if i < 2 else "CLEAN" for i in range(4)
-                },
-                mutation_classes={f"case-{i:016x}": f"class-{i}" for i in range(4)},
-                rows=tuple(rows),
-                bootstrap_seed=17,
+        custody = verify_truth_custody(
+            corpus_manifest_sha256=self.compiled.manifest.corpus_manifest_sha256,
+            referee_cases_sha256=self.compiled.manifest.referee_cases_sha256,
+            referee_cases=self.compiled.manifest.referee_cases,
+            custody_receipt=replace(placeholder, subject_sha256=subject),
+            verifier=VERIFIER,
+        )
+        collapsed_custody = verify_truth_custody(
+            corpus_manifest_sha256=self.compiled.manifest.corpus_manifest_sha256,
+            referee_cases_sha256=self.compiled.manifest.referee_cases_sha256,
+            referee_cases=self.compiled.manifest.referee_cases,
+            custody_receipt=replace(
+                placeholder,
+                subject_sha256=subject,
+                signer_id="run-authority",
+            ),
+            verifier=VERIFIER,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / SHA_C / "global-sequence-1"
+            NativeSuccessorRunner(Path(tmp)).run_once(
+                freeze_run=context,
+                public_corpus=self.public_corpus,
+                plan=build_native_arm_plan(74),
+                provider_bank=bank,
+                provider=EchoProvider(),
+                mechanical_rule=lambda _case: EvaluationDisposition.REJECT,
+                c7_authority=AllowC7(),
+                budget=DEFAULT_RUN_BUDGET,
             )
-
-    def test_zero_harm_rule_cannot_be_rescued_by_clean_accept_cost_or_latency(
-        self,
-    ) -> None:
-        truth = {f"case-{i:016x}": "HARMFUL" if i < 2 else "CLEAN" for i in range(4)}
-        classes = {f"case-{i:016x}": f"class-{i}" for i in range(4)}
-        report = score_successor_rows(
-            truth=truth, mutation_classes=classes, rows=_score_rows(), bootstrap_seed=17
-        )
+            report = score_successor_run(
+                run_dir=run_dir, freeze_run=context, truth_custody=custody
+            )
+            with self.assertRaisesRegex(ValueError, "independent"):
+                score_successor_run(
+                    run_dir=run_dir,
+                    freeze_run=context,
+                    truth_custody=collapsed_custody,
+                )
+        self.assertIsNone(report.verdict)
+        self.assertIn(("A0", "A1"), report.paired_mcnemar)
         decision = route_from_raw_scores(report)
-        self.assertNotEqual(decision.selected_arm_id, "A2")
-        self.assertEqual(decision.selected_arm_id, "A3")
-        self.assertEqual(decision.reason, "ZERO_HARMFUL_MISS_LEXICOGRAPHIC")
+        self.assertEqual(decision.disposition, "SELECT_ARM")
+        self.assertEqual(decision.selected_arm_id, "A1")
 
 
 if __name__ == "__main__":

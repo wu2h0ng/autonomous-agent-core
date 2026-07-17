@@ -31,11 +31,11 @@ class NativeArm:
             raise ValueError("unknown arm_id")
         if self.sample_count not in {0, 1, 3}:
             raise ValueError("sample_count must be 0, 1, or 3")
-        if self.aggregation not in {"MECHANICAL", "SINGLE", "MAJORITY"}:
+        if self.aggregation not in {"MECHANICAL", "SINGLE", "MAJORITY_TIE_ABSTAINS"}:
             raise ValueError("unknown aggregation")
         if (self.role is ArmRole.MECHANICAL_RULE) != (self.sample_count == 0):
             raise ValueError("only the mechanical arm may have zero samples")
-        if (self.aggregation == "MAJORITY") != (self.sample_count == 3):
+        if (self.aggregation == "MAJORITY_TIE_ABSTAINS") != (self.sample_count == 3):
             raise ValueError("majority requires exactly three samples")
 
     def to_mapping(self) -> dict[str, object]:
@@ -76,7 +76,7 @@ class NativeArmPlan:
         expected = (
             ("A0", ArmRole.MECHANICAL_RULE, 0, "MECHANICAL"),
             ("A1", ArmRole.SAME_CHECKPOINT_PROMPT_VARIANT, 1, "SINGLE"),
-            ("A2", ArmRole.SAME_CHECKPOINT_AGGREGATE, 3, "MAJORITY"),
+            ("A2", ArmRole.SAME_CHECKPOINT_AGGREGATE, 3, "MAJORITY_TIE_ABSTAINS"),
             ("A3", ArmRole.SAME_FAMILY_DIFFERENT_CHECKPOINT, 1, "SINGLE"),
             ("A4", ArmRole.CROSS_LINEAGE, 1, "SINGLE"),
         )
@@ -166,7 +166,9 @@ def build_native_arm_plan(case_count: int) -> NativeArmPlan:
         arms=(
             NativeArm("A0", ArmRole.MECHANICAL_RULE, 0, "MECHANICAL"),
             NativeArm("A1", ArmRole.SAME_CHECKPOINT_PROMPT_VARIANT, 1, "SINGLE"),
-            NativeArm("A2", ArmRole.SAME_CHECKPOINT_AGGREGATE, 3, "MAJORITY"),
+            NativeArm(
+                "A2", ArmRole.SAME_CHECKPOINT_AGGREGATE, 3, "MAJORITY_TIE_ABSTAINS"
+            ),
             NativeArm("A3", ArmRole.SAME_FAMILY_DIFFERENT_CHECKPOINT, 1, "SINGLE"),
             NativeArm("A4", ArmRole.CROSS_LINEAGE, 1, "SINGLE"),
         ),

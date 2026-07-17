@@ -3,18 +3,20 @@
   "candidate_id": "R-EVAL-INDEP-1-SUCCESSOR-V1",
   "candidate_status": "NOT_READY_NOT_FROZEN_NOT_RUN",
   "algorithm": "sha256",
-  "target_base_head": "ebf094346267c63cc5375a1a0e1fb62d0afb81bc",
+  "target_base_head": "bdead02dc3b1145c6c78df1557ac4b623a8e5bee",
   "predecessor_exact_manifest_sha256": "8415e35b0ccf4d074702d3eae38f5ea68af4844927877cb99d29604cd130dabe",
   "files": {
-    "docs/research/R-EVAL-INDEP-1-successor-v1-preregistration-spec.yaml": "d84efa4706f633fa8a8ea53716e76b02f5c706c80abc0e69ebfd3bd981e6b0ff",
-    "experiments/r_eval_indep_1/native_arm_plan.py": "7cbd57a3e2a00e52ed8f9082a4161484d05766d61c93051369ca48f93c3b91c0",
-    "experiments/r_eval_indep_1/provider_adapter.py": "253982e52f51c9e061a9fc66d997c19f5c9b273970ab4b9cebe70d8ea885cd46",
-    "experiments/r_eval_indep_1/result_contracts.py": "203970be9b676297d86380dcdf2723dba6e6fac5fb6e6faa46b9243c489ff0b0",
+    "docs/research/R-EVAL-INDEP-1-successor-v1-preregistration-spec.yaml": "ccb6dfebb42a6ee7079b3e866932bb26bddf6fee41da5e1547a5987dcf6bb100",
+    "experiments/r_eval_indep_1/freeze_run_context.py": "92825ad59da494412c1155986d020edab396e3331c9fbe46e16cc3f314ace1a6",
+    "experiments/r_eval_indep_1/native_arm_plan.py": "89a28f2ff0792489859da1248c23874ca1c5bc9df3e346bfd510a377f4117747",
+    "experiments/r_eval_indep_1/provider_adapter.py": "18c9f44860b2c5be8147e71ffb8800b29b6b44ac08133b152690a74913dac38e",
+    "experiments/r_eval_indep_1/result_contracts.py": "9f930147cbbcff751d6679a60ce399a94945a0cb72d6a5e97bb99e8f1dd34007",
     "experiments/r_eval_indep_1/routing_policy.py": "e41f93f96b5b3466a8d46cb797e39cb38a3146c0c005008846d392385dea552a",
-    "experiments/r_eval_indep_1/run_budget.py": "54572668cd2cf76682f6f2f152d6d1b7e12310d9c47e0b5928dfb773381668ba",
-    "experiments/r_eval_indep_1/runner.py": "e8fff8915053f0f546d2902ad32156419b086ff71750aa97a2958b3434844fee",
-    "experiments/r_eval_indep_1/scoring.py": "325142b034b4d02078e8e112f87ea402a7ab878bf39725febabcd135616b1f6d",
-    "tests/test_r_eval_indep_1_successor_v1.py": "fd6b89bea8c0796fd01454c1f92f5bdc2d3ec9258fa1f95bbce7944e16399301"
+    "experiments/r_eval_indep_1/run_budget.py": "9065eb60b43e7c47f606bdba902628601d5bdc8a811d5b8741391c0cde6134a6",
+    "experiments/r_eval_indep_1/runner.py": "cb9f27314b48b146be773dca3f8053d50851f8b7d67d4516b6d09ab896a7788b",
+    "experiments/r_eval_indep_1/scoring.py": "3a6f2ee8895d124a61dee27bb1c2ac51a6636387459444efd7084f9abcd763ce",
+    "tests/test_r_eval_indep_1_successor_v1.py": "b9fb737ff587b1af02d9094ab15fd12aac6b8c5290be2f40e0c2218745b55193",
+    "tests/test_r_eval_indep_1_successor_v1_review_pocs.py": "65b74880db554f4838a229ca3ab3906c819afa238ede6e43cd9d76bc0c6b8220"
   },
   "binding_boundary": "This manifest binds only the additive successor bytes plus the predecessor exact-manifest digest. It does not bind providers, credentials, oracle custody, C7, reviews, freezer, run authority, freeze or result."
 }

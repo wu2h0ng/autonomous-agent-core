@@ -11,9 +11,12 @@
       "harmful_cases": 60,
       "clean_cases": 14,
       "total_cases": 74,
-      "corpus_manifest_sha256": "a261aeccfea46b1fd4b28525ba7d20acf32c76b36fd2c587f6ebf8a82ec81bc0"
+      "corpus_manifest_sha256": "a261aeccfea46b1fd4b28525ba7d20acf32c76b36fd2c587f6ebf8a82ec81bc0",
+      "public_cases_sha256": "c758e4f59b61e63c647960076da64fc9a0459350d9a56504289c0cbac25d1f7f",
+      "referee_cases_sha256": "688ed739700f4df4bd52852ea52a5d6057b98de17761f6c5e5c1d2ef1471edab"
     }
   },
+  "remediation_base_head": "bdead02dc3b1145c6c78df1557ac4b623a8e5bee",
   "claim_boundary": {
     "ceiling": "MEASURED_REVIEWER_ROUTING_ON_FROZEN_MUTATION_CORPUS",
     "excluded": [
@@ -29,11 +32,11 @@
     "arms": [
       {"arm_id": "A0", "role": "MECHANICAL_RULE", "sample_count": 0, "aggregation": "MECHANICAL"},
       {"arm_id": "A1", "role": "SAME_CHECKPOINT_PROMPT_VARIANT", "sample_count": 1, "aggregation": "SINGLE"},
-      {"arm_id": "A2", "role": "SAME_CHECKPOINT_AGGREGATE", "sample_count": 3, "aggregation": "MAJORITY"},
+      {"arm_id": "A2", "role": "SAME_CHECKPOINT_AGGREGATE", "sample_count": 3, "aggregation": "MAJORITY_TIE_ABSTAINS"},
       {"arm_id": "A3", "role": "SAME_FAMILY_DIFFERENT_CHECKPOINT", "sample_count": 1, "aggregation": "SINGLE"},
       {"arm_id": "A4", "role": "CROSS_LINEAGE", "sample_count": 1, "aggregation": "SINGLE"}
     ],
-    "binding_rule": "Concrete provider, immutable model revision, prompt, tool schema, decoding, endpoint origin and credential reference must be bound before freeze. Mutable aliases and fallback are forbidden."
+    "binding_rule": "Concrete provider, immutable model revision, family, lineage, prompt, tool schema, decoding, endpoint origin and credential reference must be proven by externally verified provider-bank canary receipts before freeze. Caller strings, mutable aliases and fallback are insufficient and forbidden."
   },
   "counts": {
     "cases": 74,
@@ -60,8 +63,11 @@
     "post_freeze_change": "FORBIDDEN"
   },
   "collection_protocol": {
+    "authority_input": "VERIFIED_FREEZE_RUN_CONTEXT_ONLY",
+    "required_signed_permits": ["CollectionPermit", "RunExecutionPermit"],
+    "freeze_subject_global_sequence": 1,
     "single_run_sequence": 1,
-    "row_types": ["EVALUATION", "PROVIDER_ATTEMPT", "PROVIDER_SUCCESS", "MECHANICAL", "AGGREGATE"],
+    "row_types": ["EVALUATION", "PROVIDER_ATTEMPT", "PROVIDER_SUCCESS", "MECHANICAL", "AGGREGATE", "C7_CHECK"],
     "append_only_hash_chain": true,
     "seal_complete_or_partial": true,
     "provider_fallback": "FORBIDDEN",
@@ -69,6 +75,9 @@
     "refill": "FORBIDDEN",
     "timeout_after_accept": "AMBIGUOUS_EFFECT_AND_INVALID_INCOMPLETE_PERMANENTLY_CONSUMED",
     "c7_halt": "SEAL_PARTIAL_INVALID_INCOMPLETE_NO_REFILL",
+    "c7_check_frequency": "SIGNED_CORRECTION_BOUND_BEFORE_AND_AFTER_EVERY_PROVIDER_CALL_INCLUDING_EACH_A2_SAMPLE",
+    "budget_precheck": "PER_CALL_AND_REMAINING_TOTAL_BEFORE_EVERY_PROVIDER_EFFECT",
+    "row_binding": "CASE_BYTES_REQUEST_RESPONSE_ENDPOINT_PROMPT_TOOL_DECODING_CREDENTIAL_PROVIDER_BINDING_AND_CANARY_RECEIPT_DIGESTS",
     "collector_truth_access": "FORBIDDEN",
     "truth_join": "SEPARATE_REFEREE_SIDE_AFTER_COLLECTION"
   },
@@ -76,8 +85,9 @@
     "descriptive_only": true,
     "raw_verdict": null,
     "intervals": "WILSON_95_PERCENT",
-    "paired_test": "EXACT_MCNEMAR",
+    "paired_test": "EXACT_MCNEMAR_ON_HARMFUL_MISS_ENDPOINT",
     "bootstrap": "CLASS_STRATIFIED_FIXED_SEED",
+    "clean_stratum": "CLEAN_CONTROL_SINGLE_STRATUM_EQUIVALENT_TO_UNSTRATIFIED_CLEAN_BOOTSTRAP",
     "bootstrap_seed": 20260717,
     "bootstrap_repetitions": 10000,
     "sensitivity": "LEAVE_ONE_MUTATION_CLASS_OUT_HARMFUL_MISS"
@@ -90,6 +100,7 @@
   },
   "external_bindings": {
     "provider_bank": [],
+    "provider_bank_canary_receipts": [],
     "provider_bank_exact_coverage": null,
     "oracle_custody": null,
     "c7_authority": null,
@@ -99,7 +110,7 @@
     "run_authority": null,
     "founder_budget_acceptance": null
   },
-  "readiness_rule": "NOT_READY until every external binding is non-null, the exact provider bank covers A1-A4 with immutable revisions and frozen relationships, the exact successor manifest is independently accepted, and the external freezer issues a separate freeze receipt.",
+  "readiness_rule": "NOT_READY until every external binding is non-null, signed CollectionPermit and RunExecutionPermit bind prereg/manifest/freeze subject/global sequence/correction epoch/corpus/provider bank/budget, exact provider canary receipts prove A1-A4 immutable served identities and relationships, independent truth custody binds the exact 60/14 digests, the exact successor manifest is independently accepted, and the external freezer issues a separate freeze receipt.",
   "gates": {
     "freeze_status": "NOT_FROZEN",
     "run_status": "NOT_RUN",

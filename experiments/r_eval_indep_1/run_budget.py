@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .contracts import canonical_digest
+
 
 @dataclass(frozen=True)
 class RunBudget:
@@ -43,6 +45,12 @@ class RunBudget:
             raise ValueError("total cost budget below per-call budget")
         if self.wallclock_ms < self.per_call_latency_ms:
             raise ValueError("wallclock budget below per-call latency")
+
+    def to_mapping(self) -> dict[str, int]:
+        return {field: int(getattr(self, field)) for field in self.__dataclass_fields__}
+
+    def digest(self) -> str:
+        return canonical_digest(self.to_mapping())
 
 
 # A Founder/freezer may accept or replace these constants exactly once before

@@ -1,11 +1,14 @@
-"""Freeze-time provider bindings for the R-EVAL-INDEP-1 successor."""
+"""Canary-backed provider bindings for R-EVAL-INDEP-1 successor V1."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 
+from .contracts import canonical_digest
+from .freeze_run_context import ReceiptVerifier, SignedReceipt
 from .native_arm_plan import NativeArmPlan
 
 
@@ -14,10 +17,10 @@ _MUTABLE_ALIASES = {"latest", "stable", "default", "production", "current"}
 
 
 class AmbiguousEffectError(RuntimeError):
-    """The provider accepted the request but its terminal effect is unknown."""
+    """Provider accepted a request but the terminal effect is unknown."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ArmProviderBinding:
     route_id: str
     arm_id: str
@@ -36,64 +39,166 @@ class ArmProviderBinding:
             raise ValueError("provider binding route must be R-EVAL-INDEP-1")
         if self.arm_id not in {"A1", "A2", "A3", "A4"}:
             raise ValueError("provider binding cannot target mechanical/unknown arm")
-        if (
-            not self.provider.strip()
-            or not self.model_family.strip()
-            or not self.model_lineage.strip()
-        ):
-            raise ValueError("provider, family, and lineage are required")
+        for field in ("provider", "model_family", "model_lineage"):
+            if not getattr(self, field).strip():
+                raise ValueError(f"{field} is required")
         revision = self.model_immutable_revision.strip()
         if not revision or revision.lower() in _MUTABLE_ALIASES:
             raise ValueError("model_immutable_revision cannot be a mutable alias")
-        for name in (
+        for field in (
             "endpoint_origin_sha256",
             "system_prompt_sha256",
             "tool_schema_sha256",
             "decoding_config_sha256",
             "credential_ref_sha256",
         ):
-            if not _SHA256.fullmatch(getattr(self, name)):
-                raise ValueError(f"{name} must be sha256")
+            if not _SHA256.fullmatch(getattr(self, field)):
+                raise ValueError(f"{field} must be sha256")
 
     def to_mapping(self) -> dict[str, str]:
-        return {
-            "route_id": self.route_id,
-            "arm_id": self.arm_id,
-            "provider": self.provider,
-            "endpoint_origin_sha256": self.endpoint_origin_sha256,
-            "model_immutable_revision": self.model_immutable_revision,
-            "model_family": self.model_family,
-            "model_lineage": self.model_lineage,
-            "system_prompt_sha256": self.system_prompt_sha256,
-            "tool_schema_sha256": self.tool_schema_sha256,
-            "decoding_config_sha256": self.decoding_config_sha256,
-            "credential_ref_sha256": self.credential_ref_sha256,
-        }
+        return {field: str(getattr(self, field)) for field in self.__dataclass_fields__}
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> ArmProviderBinding:
-        expected = {
-            "route_id",
-            "arm_id",
-            "provider",
-            "endpoint_origin_sha256",
-            "model_immutable_revision",
-            "model_family",
-            "model_lineage",
-            "system_prompt_sha256",
-            "tool_schema_sha256",
-            "decoding_config_sha256",
-            "credential_ref_sha256",
-        }
+        expected = set(cls.__dataclass_fields__)
         if set(value) != expected or not all(
             isinstance(value[field], str) for field in expected
         ):
             raise ValueError("ArmProviderBinding is a closed string contract")
         return cls(**{field: str(value[field]) for field in expected})
 
+    def digest(self) -> str:
+        return canonical_digest(self.to_mapping())
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, slots=True)
+class ProviderCanaryReceipt:
+    arm_id: str
+    binding_sha256: str
+    served_provider: str
+    served_model_immutable_revision: str
+    served_model_family: str
+    served_model_lineage: str
+    canary_request_sha256: str
+    canary_response_sha256: str
+    signed_receipt: SignedReceipt
+
+    def __post_init__(self) -> None:
+        if self.arm_id not in {"A1", "A2", "A3", "A4"}:
+            raise ValueError("canary arm is invalid")
+        for field in (
+            "binding_sha256",
+            "canary_request_sha256",
+            "canary_response_sha256",
+        ):
+            if not _SHA256.fullmatch(getattr(self, field)):
+                raise ValueError(f"{field} must be sha256")
+        for field in (
+            "served_provider",
+            "served_model_immutable_revision",
+            "served_model_family",
+            "served_model_lineage",
+        ):
+            if not getattr(self, field).strip():
+                raise ValueError(f"{field} is required")
+
+    def subject_mapping(self) -> dict[str, str]:
+        return {
+            "arm_id": self.arm_id,
+            "binding_sha256": self.binding_sha256,
+            "served_provider": self.served_provider,
+            "served_model_immutable_revision": self.served_model_immutable_revision,
+            "served_model_family": self.served_model_family,
+            "served_model_lineage": self.served_model_lineage,
+            "canary_request_sha256": self.canary_request_sha256,
+            "canary_response_sha256": self.canary_response_sha256,
+        }
+
+    def digest(self) -> str:
+        return canonical_digest(self.subject_mapping())
+
+
+_VERIFIED_BANK = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class VerifiedProviderBank:
+    bindings: Mapping[str, ArmProviderBinding]
+    canaries: Mapping[str, ProviderCanaryReceipt]
+    sha256: str
+    _token: object
+
+    @classmethod
+    def _create(
+        cls,
+        bindings: Mapping[str, ArmProviderBinding],
+        canaries: Mapping[str, ProviderCanaryReceipt],
+    ) -> VerifiedProviderBank:
+        instance = object.__new__(cls)
+        frozen_bindings = MappingProxyType(dict(sorted(bindings.items())))
+        frozen_canaries = MappingProxyType(dict(sorted(canaries.items())))
+        digest = canonical_digest(
+            {
+                "bindings": {
+                    arm: item.to_mapping() for arm, item in frozen_bindings.items()
+                },
+                "canaries": {
+                    arm: {
+                        **item.subject_mapping(),
+                        "signed_receipt_sha256": item.signed_receipt.digest(),
+                    }
+                    for arm, item in frozen_canaries.items()
+                },
+            }
+        )
+        object.__setattr__(instance, "bindings", frozen_bindings)
+        object.__setattr__(instance, "canaries", frozen_canaries)
+        object.__setattr__(instance, "sha256", digest)
+        object.__setattr__(instance, "_token", _VERIFIED_BANK)
+        return instance
+
+    def assert_verified(self) -> None:
+        if self._token is not _VERIFIED_BANK:
+            raise ValueError("unverified provider bank")
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRequest:
+    run_id: str
+    case_id: str
+    arm_id: str
+    sample_index: int
+    public_case_sha256: str
+    public_manifest_sha256: str
+    execution_permit_sha256: str
+    provider_binding_sha256: str
+    provider_canary_sha256: str
+    provider_canary_receipt_sha256: str
+    endpoint_origin_sha256: str
+    model_immutable_revision: str
+    system_prompt_sha256: str
+    tool_schema_sha256: str
+    decoding_config_sha256: str
+    credential_ref_sha256: str
+
+    def digest(self) -> str:
+        return canonical_digest(
+            {field: getattr(self, field) for field in self.__dataclass_fields__}
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ProviderResponse:
+    request_sha256: str
+    provider_binding_sha256: str
+    provider_canary_sha256: str
+    provider_canary_receipt_sha256: str
+    endpoint_origin_sha256: str
+    model_immutable_revision: str
+    system_prompt_sha256: str
+    tool_schema_sha256: str
+    decoding_config_sha256: str
+    credential_ref_sha256: str
     disposition: str
     input_tokens: int
     output_tokens: int
@@ -104,48 +209,71 @@ class ProviderResponse:
 
 
 class ProviderAdapter(Protocol):
-    def review(
-        self, *, binding: ArmProviderBinding, case: object, sample_index: int
-    ) -> ProviderResponse: ...
+    def review(self, *, request: ProviderRequest) -> ProviderResponse: ...
 
 
-def validate_provider_bank(
+def verify_provider_bank(
     plan: NativeArmPlan,
     bindings: tuple[ArmProviderBinding, ...],
-) -> dict[str, ArmProviderBinding]:
-    if plan.route_id != "R-EVAL-INDEP-1":
-        raise ValueError("wrong plan route")
-    bank = {binding.arm_id: binding for binding in bindings}
-    if len(bank) != len(bindings):
-        raise ValueError("duplicate arm provider binding")
-    if set(bank) != {"A1", "A2", "A3", "A4"}:
+    canaries: tuple[ProviderCanaryReceipt, ...],
+    verifier: ReceiptVerifier,
+) -> VerifiedProviderBank:
+    if plan.route_id != "R-EVAL-INDEP-1" or plan.case_count != 74:
+        raise ValueError("provider bank requires the fixed R-EVAL plan")
+    bank = {item.arm_id: item for item in bindings}
+    canary_bank = {item.arm_id: item for item in canaries}
+    expected = {"A1", "A2", "A3", "A4"}
+    if len(bank) != len(bindings) or set(bank) != expected:
         raise ValueError("provider bank requires exact A1-A4 coverage")
-    a1, a2, a3, a4 = (bank[f"A{i}"] for i in range(1, 5))
+    if len(canary_bank) != len(canaries) or set(canary_bank) != expected:
+        raise ValueError("provider canaries require exact A1-A4 coverage")
+    for arm_id, binding in bank.items():
+        canary = canary_bank[arm_id]
+        if canary.binding_sha256 != binding.digest():
+            raise ValueError("provider canary binding drift")
+        receipt = canary.signed_receipt
+        if (
+            receipt.role != "PROVIDER_CANARY_CUSTODIAN"
+            or receipt.subject_sha256 != canary.digest()
+        ):
+            raise ValueError("provider canary receipt subject/role drift")
+        if not verifier.verify(receipt):
+            raise ValueError("provider canary receipt signature invalid")
+        if (
+            canary.served_provider,
+            canary.served_model_immutable_revision,
+            canary.served_model_family,
+            canary.served_model_lineage,
+        ) != (
+            binding.provider,
+            binding.model_immutable_revision,
+            binding.model_family,
+            binding.model_lineage,
+        ):
+            raise ValueError("provider canary served identity drift")
+    a1, a2, a3, a4 = (canary_bank[f"A{i}"] for i in range(1, 5))
     if (
-        a1.provider,
-        a1.endpoint_origin_sha256,
-        a1.model_immutable_revision,
-        a1.model_family,
-        a1.model_lineage,
-        a1.tool_schema_sha256,
-        a1.decoding_config_sha256,
+        a1.served_provider,
+        a1.served_model_immutable_revision,
+        a1.served_model_family,
+        a1.served_model_lineage,
     ) != (
-        a2.provider,
-        a2.endpoint_origin_sha256,
-        a2.model_immutable_revision,
-        a2.model_family,
-        a2.model_lineage,
-        a2.tool_schema_sha256,
-        a2.decoding_config_sha256,
+        a2.served_provider,
+        a2.served_model_immutable_revision,
+        a2.served_model_family,
+        a2.served_model_lineage,
     ):
-        raise ValueError("A1/A2 must use the same checkpoint")
-    if a1.system_prompt_sha256 == a2.system_prompt_sha256:
-        raise ValueError("A1/A2 must use a prompt variant")
-    if (a3.model_family, a3.model_lineage) != (
-        a1.model_family,
-        a1.model_lineage,
-    ) or a3.model_immutable_revision == a1.model_immutable_revision:
-        raise ValueError("A3 must use the same family and a different checkpoint")
-    if a4.model_lineage == a1.model_lineage:
-        raise ValueError("A4 must be cross-lineage")
-    return bank
+        raise ValueError("A1/A2 canaries must prove the same checkpoint")
+    if bank["A1"].system_prompt_sha256 == bank["A2"].system_prompt_sha256:
+        raise ValueError("A1/A2 require a prompt variant")
+    if (
+        a3.served_model_family,
+        a3.served_model_lineage,
+    ) != (
+        a1.served_model_family,
+        a1.served_model_lineage,
+    ) or a3.served_model_immutable_revision == a1.served_model_immutable_revision:
+        raise ValueError("A3 canary must prove same-family different-checkpoint")
+    if a4.served_model_lineage == a1.served_model_lineage:
+        raise ValueError("A4 canary must prove cross-lineage")
+    return VerifiedProviderBank._create(bank, canary_bank)

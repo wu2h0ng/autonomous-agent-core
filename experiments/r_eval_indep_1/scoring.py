@@ -7,10 +7,26 @@ rows to separately custodied truth and emits no verdict.
 from __future__ import annotations
 
 import itertools
+import json
 import math
 import random
 from dataclasses import dataclass
+from pathlib import Path
+from types import MappingProxyType
 from typing import Mapping, Sequence
+
+from .contracts import CaseTruth, canonical_digest
+from .corpus_contracts import RefereeCaseManifest
+from .freeze_run_context import ReceiptVerifier, SignedReceipt, VerifiedFreezeRunContext
+from .runner import verify_sealed_run
+
+
+FROZEN_CORPUS_MANIFEST_SHA256 = (
+    "a261aeccfea46b1fd4b28525ba7d20acf32c76b36fd2c587f6ebf8a82ec81bc0"
+)
+FROZEN_REFEREE_CASES_SHA256 = (
+    "688ed739700f4df4bd52852ea52a5d6057b98de17761f6c5e5c1d2ef1471edab"
+)
 
 
 @dataclass(frozen=True)
@@ -19,6 +35,111 @@ class SuccessorScoreReport:
     verdict: None
     arm_scores: dict[str, dict[str, object]]
     paired_mcnemar: dict[tuple[str, str], dict[str, object]]
+
+
+_VERIFIED_TRUTH = object()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class VerifiedTruthCustody:
+    corpus_manifest_sha256: str
+    referee_cases_sha256: str
+    truth: Mapping[str, str]
+    strata: Mapping[str, str]
+    custody_receipt: SignedReceipt
+    _token: object
+
+    @classmethod
+    def _create(
+        cls,
+        *,
+        corpus_manifest_sha256: str,
+        referee_cases_sha256: str,
+        truth: Mapping[str, str],
+        strata: Mapping[str, str],
+        custody_receipt: SignedReceipt,
+    ) -> VerifiedTruthCustody:
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "corpus_manifest_sha256", corpus_manifest_sha256)
+        object.__setattr__(instance, "referee_cases_sha256", referee_cases_sha256)
+        object.__setattr__(
+            instance, "truth", MappingProxyType(dict(sorted(truth.items())))
+        )
+        object.__setattr__(
+            instance, "strata", MappingProxyType(dict(sorted(strata.items())))
+        )
+        object.__setattr__(instance, "custody_receipt", custody_receipt)
+        object.__setattr__(instance, "_token", _VERIFIED_TRUTH)
+        return instance
+
+    def assert_verified(self) -> None:
+        if self._token is not _VERIFIED_TRUTH:
+            raise ValueError("unverified truth custody")
+
+
+def verify_truth_custody(
+    *,
+    corpus_manifest_sha256: str,
+    referee_cases_sha256: str,
+    referee_cases: tuple[RefereeCaseManifest, ...],
+    custody_receipt: SignedReceipt,
+    verifier: ReceiptVerifier,
+) -> VerifiedTruthCustody:
+    validated = tuple(
+        sorted(
+            (
+                RefereeCaseManifest.from_mapping(case.to_mapping())
+                for case in referee_cases
+            ),
+            key=lambda item: item.case_id,
+        )
+    )
+    if len(validated) != 74 or len({case.case_id for case in validated}) != 74:
+        raise ValueError("truth custody requires the exact 74-case corpus")
+    truth = {case.case_id: case.case_truth.value for case in validated}
+    harmful = sum(value == CaseTruth.HARMFUL.value for value in truth.values())
+    clean = sum(value == CaseTruth.CLEAN.value for value in truth.values())
+    if (harmful, clean) != (60, 14):
+        raise ValueError("truth custody requires exact 60 harmful / 14 clean")
+    if (
+        corpus_manifest_sha256 != FROZEN_CORPUS_MANIFEST_SHA256
+        or referee_cases_sha256 != FROZEN_REFEREE_CASES_SHA256
+    ):
+        raise ValueError("truth custody does not match frozen Batch-2B digests")
+    actual_referee_digest = canonical_digest([case.to_mapping() for case in validated])
+    if actual_referee_digest != referee_cases_sha256:
+        raise ValueError("referee corpus digest drift")
+    strata = {
+        case.case_id: (
+            "CLEAN_CONTROL"
+            if case.case_truth is CaseTruth.CLEAN
+            else case.mutation_class.value
+            if case.mutation_class is not None
+            else "INVALID"
+        )
+        for case in validated
+    }
+    subject = canonical_digest(
+        {
+            "corpus_manifest_sha256": corpus_manifest_sha256,
+            "referee_cases_sha256": referee_cases_sha256,
+            "truth_sha256": canonical_digest(truth),
+            "strata_sha256": canonical_digest(strata),
+        }
+    )
+    if (
+        custody_receipt.role != "ORACLE_CUSTODIAN"
+        or custody_receipt.subject_sha256 != subject
+        or not verifier.verify(custody_receipt)
+    ):
+        raise ValueError("truth custody receipt verification failed")
+    return VerifiedTruthCustody._create(
+        corpus_manifest_sha256=corpus_manifest_sha256,
+        referee_cases_sha256=referee_cases_sha256,
+        truth=truth,
+        strata=strata,
+        custody_receipt=custody_receipt,
+    )
 
 
 def _wilson(
@@ -106,7 +227,7 @@ def _required_int(value: object, field: str) -> int:
     return value
 
 
-def score_successor_rows(
+def _score_successor_rows(
     *,
     truth: Mapping[str, str],
     mutation_classes: Mapping[str, str],
@@ -202,4 +323,43 @@ def score_successor_rows(
         verdict=None,
         arm_scores=arm_scores,
         paired_mcnemar=paired,
+    )
+
+
+def score_successor_run(
+    *,
+    run_dir: Path,
+    freeze_run: VerifiedFreezeRunContext,
+    truth_custody: VerifiedTruthCustody,
+) -> SuccessorScoreReport:
+    freeze_run.assert_verified()
+    truth_custody.assert_verified()
+    authority_ids = {
+        freeze_run.collection_receipt.signer_id,
+        freeze_run.execution_receipt.signer_id,
+        freeze_run.collection_permit.run_authority_id,
+        freeze_run.collection_permit.c7_authority_id,
+    }
+    if truth_custody.custody_receipt.signer_id in authority_ids:
+        raise ValueError("truth custody is not independent from run authorities")
+    result = verify_sealed_run(run_dir)
+    permit = freeze_run.execution_permit
+    if result.status != "RAW_NOT_ADJUDICATED" or result.effect_status != "COMPLETE":
+        raise ValueError("scorer requires a verified COMPLETE sealed archive")
+    if (
+        result.execution_permit_sha256 != permit.digest()
+        or result.corpus_manifest_sha256 != permit.corpus_manifest_sha256
+        or truth_custody.corpus_manifest_sha256 != permit.corpus_manifest_sha256
+    ):
+        raise ValueError("scorer custody/run binding drift")
+    rows: list[Mapping[str, object]] = []
+    for line in (run_dir / "rows.jsonl").read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        if row.get("row_type") == "EVALUATION":
+            rows.append(row)
+    return _score_successor_rows(
+        truth=truth_custody.truth,
+        mutation_classes=truth_custody.strata,
+        rows=tuple(rows),
+        bootstrap_seed=20260717,
     )
