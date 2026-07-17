@@ -101,6 +101,7 @@ def _response(
         "payload": payload,
         "server_nonce_sha256": SERVER_NONCE,
         "response_public_key_sha256": public_key_sha256,
+        "request_sha256": hashlib.sha256(canonical_json(request).encode()).hexdigest(),
     }
     response["signature_b64"] = base64.b64encode(_sign(private_key, response)).decode()
     return canonical_json(response).encode()
@@ -379,6 +380,11 @@ def test_client_implements_all_authority_and_c7_operations(
         )
         assert request["run_id"] == admission.run_id
         assert request["envelope_sha256"] == admission.envelope_sha256
+        assert len(cast(str, request["request_id"])) == 64
+        assert all(
+            character in "0123456789abcdef"
+            for character in cast(str, request["request_id"])
+        )
 
 
 @pytest.mark.parametrize(
@@ -394,6 +400,7 @@ def test_client_implements_all_authority_and_c7_operations(
         "public_key_hash_drift",
         "zero_frame",
         "trailing_frame",
+        "request_digest_drift",
     ],
 )
 def test_client_fails_closed_on_signed_response_or_frame_attack(
@@ -431,6 +438,8 @@ def test_client_fails_closed_on_signed_response_or_frame_attack(
             response["server_nonce_sha256"] = "0" * 64
         elif attack == "public_key_hash_drift":
             response["response_public_key_sha256"] = "0" * 64
+        elif attack == "request_digest_drift":
+            response["request_sha256"] = "0" * 64
         elif attack == "truncated_frame":
             return len(encoded), encoded[:-1]
         elif attack == "oversized_frame":

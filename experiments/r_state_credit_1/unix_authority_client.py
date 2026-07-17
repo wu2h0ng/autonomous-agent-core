@@ -43,6 +43,7 @@ _RESPONSE_FIELDS = {
     "payload",
     "server_nonce_sha256",
     "response_public_key_sha256",
+    "request_sha256",
     "signature_b64",
 }
 _CLAIM_FIELDS = {
@@ -216,7 +217,7 @@ class UnixAuthorityClient:
         request: dict[str, object] = {
             "protocol_version": binding.protocol_version,
             "broker_id": binding.broker_id,
-            "request_id": secrets.token_hex(16),
+            "request_id": secrets.token_hex(32),
             "op": op,
             "run_id": self._admission.run_id,
             "envelope_sha256": self._admission.envelope_sha256,
@@ -231,7 +232,9 @@ class UnixAuthorityClient:
             canonical_json(request).encode(),
             hashlib.sha256,
         ).hexdigest()
+        _sha(request["request_id"], "authority request_id")
         encoded = canonical_json(request).encode()
+        request_sha256 = hashlib.sha256(encoded).hexdigest()
         if not encoded or len(encoded) > MAX_FRAME_BYTES:
             raise ExecutionBridgeViolation("authority request exceeds 64KiB")
 
@@ -260,6 +263,8 @@ class UnixAuthorityClient:
         if canonical_json(response_raw).encode() != response_bytes:
             raise ExecutionBridgeViolation("authority response must be canonical JSON")
         response = _closed(response_raw, _RESPONSE_FIELDS, "authority response")
+        _sha(response["request_id"], "response request_id")
+        _sha(response["request_sha256"], "response request_sha256")
         signature_b64 = _text(response["signature_b64"], "response signature_b64")
         try:
             signature = base64.b64decode(signature_b64, validate=True)
@@ -288,6 +293,7 @@ class UnixAuthorityClient:
             "client_nonce": request["client_nonce"],
             "server_nonce_sha256": binding.server_nonce_sha256,
             "response_public_key_sha256": binding.response_public_key_sha256,
+            "request_sha256": request_sha256,
         }
         if any(response[name] != expected for name, expected in echoes.items()):
             raise ExecutionBridgeViolation("authority response echo binding drift")
