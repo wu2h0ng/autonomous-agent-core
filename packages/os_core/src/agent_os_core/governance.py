@@ -260,7 +260,10 @@ class PolicyKernel:
         if internal.verdict is not PolicyVerdict.ALLOW or self.external_backend is None:
             return internal
         assert context.grant is not None
+        policy_request_id = f"external-policy-request:{uuid4()}"
+        policy_nonce = str(uuid4())
         query = ExternalPolicyQuery(
+            policy_request_id=policy_request_id,
             backend_id=self.external_backend.backend_id,
             backend_version=self.external_backend.version,
             action_id=action.action_id,
@@ -276,6 +279,9 @@ class PolicyKernel:
             policy_version=self.policy_version,
             risk_tier=action.risk_tier,
             correction_epochs=internal.correction_epochs,
+            nonce=policy_nonce,
+            issued_at=now,
+            expires_at=now + timedelta(seconds=30),
         )
 
         def external_denial(reason: str) -> PolicyDecision:
@@ -305,6 +311,16 @@ class PolicyKernel:
         )
         if not all(exact):
             return external_denial("EXTERNAL_POLICY_SCOPE_MISMATCH")
+        binding = (
+            advice.policy_query_digest == query.query_digest(),
+            advice.policy_request_id == query.policy_request_id,
+            advice.nonce == query.nonce,
+            advice.issued_at == query.issued_at,
+            advice.expires_at == query.expires_at,
+            advice.issued_at <= now < advice.expires_at,
+        )
+        if not all(binding):
+            return external_denial("EXTERNAL_POLICY_BINDING_MISMATCH")
         if advice.verdict == "DENY":
             return external_denial("EXTERNAL_POLICY_DENY")
         return internal

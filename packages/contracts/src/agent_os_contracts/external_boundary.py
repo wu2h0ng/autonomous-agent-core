@@ -91,6 +91,7 @@ class ExternalBoundaryReceipt(ContractModel):
 
 
 class ExternalPolicyQuery(ContractModel):
+    policy_request_id: NonEmptyStr
     backend_id: NonEmptyStr
     backend_version: int = Field(ge=1)
     action_id: NonEmptyStr
@@ -106,6 +107,18 @@ class ExternalPolicyQuery(ContractModel):
     policy_version: NonEmptyStr
     risk_tier: int = Field(ge=0, le=5)
     correction_epochs: CorrectionEpochVector
+    nonce: NonEmptyStr
+    issued_at: UtcDateTime
+    expires_at: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_window(self) -> ExternalPolicyQuery:
+        if self.expires_at <= self.issued_at:
+            raise ValueError("external policy query expiry must follow issuance")
+        return self
+
+    def query_digest(self) -> str:
+        return content_digest(self)
 
 
 class ExternalPolicyAdvice(ContractModel):
@@ -115,9 +128,19 @@ class ExternalPolicyAdvice(ContractModel):
     principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
+    policy_query_digest: Sha256Digest
+    policy_request_id: NonEmptyStr
+    nonce: NonEmptyStr
     verdict: Literal["ALLOW", "DENY"]
     reason_codes: tuple[NonEmptyStr, ...] = Field(min_length=1)
-    evaluated_at: UtcDateTime
+    issued_at: UtcDateTime
+    expires_at: UtcDateTime
+
+    @model_validator(mode="after")
+    def validate_window(self) -> ExternalPolicyAdvice:
+        if self.expires_at <= self.issued_at:
+            raise ValueError("external policy advice expiry must follow issuance")
+        return self
 
 
 TraceAttributeValue = str | int | float | bool | None

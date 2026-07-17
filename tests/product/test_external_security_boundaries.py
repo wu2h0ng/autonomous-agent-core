@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+
+import pytest
+
 from agent_os_contracts import (
     ActionContract,
     BoundaryDisposition,
@@ -12,6 +15,7 @@ from agent_os_contracts import (
     CredentialRef,
     CredentialStatus,
     ExternalExecutionResourceRef,
+    ExternalPolicyQuery,
     PrincipalIdentity,
     PrincipalRole,
     ResourceBudget,
@@ -58,10 +62,11 @@ class _PolicyBackend:
         self.calls = 0
 
     def evaluate(self, query: object) -> object:
-        del query
         self.calls += 1
         if self.error is not None:
             raise self.error
+        if callable(self.response):
+            return self.response(query)
         return self.response
 
 
@@ -244,17 +249,21 @@ def _policy_material() -> tuple[
     return action, PolicyInput(principal, grant, capability, now=NOW), correction
 
 
-def _allow_advice() -> dict[str, object]:
+def _allow_advice(query: ExternalPolicyQuery) -> dict[str, object]:
     return {
         "backend_id": "policy-backend:test",
         "backend_version": 1,
-        "action_id": "action-1",
-        "principal_id": "user-1",
-        "tenant_id": "tenant-1",
-        "workspace_id": "workspace-1",
+        "action_id": query.action_id,
+        "principal_id": query.principal_id,
+        "tenant_id": query.tenant_id,
+        "workspace_id": query.workspace_id,
+        "policy_query_digest": query.query_digest(),
+        "policy_request_id": query.policy_request_id,
+        "nonce": query.nonce,
         "verdict": "ALLOW",
         "reason_codes": ["EXTERNAL_ADMITTED"],
-        "evaluated_at": NOW,
+        "issued_at": query.issued_at,
+        "expires_at": query.expires_at,
     }
 
 
@@ -262,8 +271,8 @@ def test_external_policy_is_fail_closed_and_cannot_expand_or_validate_outcome() 
     action, context, correction = _policy_material()
     timeout_backend = _PolicyBackend(error=TimeoutError("late"))
     malformed_backend = _PolicyBackend(
-        response={
-            **_allow_advice(),
+        response=lambda query: {
+            **_allow_advice(query),
             "capability_grant": {"capability_id": "shell"},
             "observed_outcome_status": "VERIFIED",
         }
@@ -284,7 +293,7 @@ def test_external_policy_is_fail_closed_and_cannot_expand_or_validate_outcome() 
 
 def test_external_policy_allow_cannot_override_internal_scope_denial() -> None:
     action, context, correction = _policy_material()
-    backend = _PolicyBackend(response=_allow_advice())
+    backend = _PolicyBackend(response=_allow_advice)
     foreign_action = action.model_copy(update={"tenant_id": "tenant-other"})
 
     decision = PolicyKernel(correction, external_backend=backend).decide(
@@ -294,6 +303,34 @@ def test_external_policy_allow_cannot_override_internal_scope_denial() -> None:
     assert decision.verdict.value == "DENY"
     assert decision.reason_codes == ("SCOPE_MISMATCH",)
     assert backend.calls == 0
+
+
+def test_external_policy_advice_cannot_replay_across_action_digest_change() -> None:
+    action, context, correction = _policy_material()
+
+    class _ReplayBackend:
+        backend_id = "policy-backend:test"
+        version = 1
+
+        def __init__(self) -> None:
+            self.cached: dict[str, object] | None = None
+
+        def evaluate(self, query: ExternalPolicyQuery) -> object:
+            if self.cached is None:
+                self.cached = _allow_advice(query)
+            return self.cached
+
+    backend = _ReplayBackend()
+    policy = PolicyKernel(correction, external_backend=backend)
+    first = policy.decide(action, context)
+    changed = action.model_copy(
+        update={"arguments_json": '{"path":"other"}', "idempotency_key": "key-2"}
+    )
+    replay = policy.decide(changed, context)
+
+    assert first.verdict.value == "ALLOW"
+    assert replay.verdict.value == "DENY"
+    assert replay.reason_codes == ("EXTERNAL_POLICY_BINDING_MISMATCH",)
 
 
 def _trace() -> SituatedEvaluationTrace:
@@ -342,19 +379,73 @@ def test_trace_export_redacts_secrets_and_exports_credential_ref_only() -> None:
         resource_id="trace-resource-1",
         credential_ref=_credential_ref(),
         attributes={
-            "api_token": "SECRET-VALUE",
-            "opaque": "Bearer SECOND-SECRET",
-            "safe": "visible",
+            "event_type": "Bearer SECRET-VALUE",
+            "resource_kind": "ghp_0123456789abcdefghijklmnopqrstuvwxyz",
+            "status": "COMPLETED",
         },
     )
 
     assert receipt.disposition is BoundaryDisposition.EXPORTED
-    assert receipt.redacted_fields == ("api_token", "opaque")
+    assert receipt.redacted_fields == ("event_type", "resource_kind")
     assert "SECRET-VALUE" not in receipt.model_dump_json()
-    assert "SECOND-SECRET" not in receipt.model_dump_json()
+    assert "ghp_" not in receipt.model_dump_json()
     assert len(exporter.records) == 1
     assert "SECRET-VALUE" not in exporter.records[0].model_dump_json()  # type: ignore[attr-defined]
     assert exporter.records[0].credential_ref == _credential_ref()  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "secret_value",
+    [
+        "ghp_0123456789abcdefghijklmnopqrstuvwxyz",
+        "AKIAIOSFODNN7EXAMPLE",
+        "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature",
+        "-----BEGIN PRIVATE KEY-----\nSECRET\n-----END PRIVATE KEY-----",
+        "Bearer bearer-secret",
+    ],
+)
+def test_trace_allowlisted_field_still_redacts_secret_value(
+    secret_value: str,
+) -> None:
+    exporter = _TraceExporter()
+    receipt = TraceExportBoundary(exporter).export_situated_trace(
+        _trace(),
+        _principal(),
+        resource_id="trace-resource-1",
+        credential_ref=_credential_ref(),
+        attributes={"status": secret_value},
+    )
+
+    assert receipt.disposition is BoundaryDisposition.EXPORTED
+    assert receipt.redacted_fields == ("status",)
+    assert secret_value not in receipt.model_dump_json()
+    assert secret_value not in exporter.records[0].model_dump_json()  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {"context": "free-form hidden prompt"},
+        {"note": "operator private note"},
+        {"unknown": "A9fK2mQ7xP4zR8vT1bN6cD3eH5jL0sW"},
+    ],
+)
+def test_trace_unknown_attributes_are_default_denied(
+    attributes: dict[str, object],
+) -> None:
+    exporter = _TraceExporter()
+    receipt = TraceExportBoundary(exporter).export_situated_trace(
+        _trace(),
+        _principal(),
+        resource_id="trace-resource-1",
+        credential_ref=_credential_ref(),
+        attributes=attributes,
+    )
+
+    assert receipt.disposition is BoundaryDisposition.DENIED
+    assert receipt.reason_code == "TRACE_ATTRIBUTE_NOT_ALLOWLISTED"
+    assert exporter.records == []
 
 
 def test_trace_export_rejects_raw_candidate_bytes_and_cross_tenant_collision() -> None:
@@ -373,14 +464,14 @@ def test_trace_export_rejects_raw_candidate_bytes_and_cross_tenant_collision() -
         _principal(tenant_id="tenant-other"),
         resource_id="trace-resource-1",
         credential_ref=_credential_ref(),
-        attributes={"safe": "visible"},
+        attributes={"status": "COMPLETED"},
     )
     raw_credential = boundary.export_situated_trace(
         _trace(),
         _principal(),
         resource_id="trace-resource-1",
         credential_ref="SECRET-CREDENTIAL-VALUE",  # type: ignore[arg-type]
-        attributes={"safe": "visible"},
+        attributes={"status": "COMPLETED"},
     )
 
     assert raw.disposition is BoundaryDisposition.DENIED

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from agent_os_contracts import (
@@ -161,16 +162,48 @@ class DurableExecutionBoundary:
 class TraceExportBoundary:
     """Redact a situated trace before calling an OTel-shaped exporter."""
 
-    _SECRET_MARKERS = (
-        "secret",
-        "token",
-        "password",
-        "api_key",
-        "credential",
-        "cookie",
-        "authorization",
+    _SAFE_ATTRIBUTE_FIELDS = frozenset(
+        {
+            "duration_ms",
+            "event_type",
+            "input_tokens",
+            "output_tokens",
+            "provider_call_attempted",
+            "reason_code",
+            "resource_kind",
+            "status",
+        }
     )
-    _SECRET_VALUE_PREFIXES = ("bearer ", "sk-", "token=", "api_key=")
+    _GITHUB_TOKEN = re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}")
+    _AWS_ACCESS_KEY = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}")
+    _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+
+    @classmethod
+    def _looks_secret_value(cls, value: str) -> bool:
+        stripped = value.strip()
+        lowered = stripped.lower()
+        if lowered.startswith(("bearer ", "sk-", "token=", "api_key=")):
+            return True
+        if "-----begin" in lowered and "private key-----" in lowered:
+            return True
+        if (
+            cls._GITHUB_TOKEN.search(stripped)
+            or cls._AWS_ACCESS_KEY.search(stripped)
+            or cls._JWT.search(stripped)
+        ):
+            return True
+        if len(stripped) < 32 or any(character.isspace() for character in stripped):
+            return False
+        classes = sum(
+            any(predicate(character) for character in stripped)
+            for predicate in (
+                str.islower,
+                str.isupper,
+                str.isdigit,
+                lambda character: character in "+/=_-",
+            )
+        )
+        return classes >= 3 and len(set(stripped)) / len(stripped) >= 0.45
 
     def __init__(self, exporter: TraceExporterBackend) -> None:
         if not exporter.exporter_id.strip() or exporter.version < 1:
@@ -224,13 +257,9 @@ class TraceExportBoundary:
                 return denied("TRACE_ATTRIBUTE_MALFORMED")
             if isinstance(value, (bytes, bytearray, memoryview)):
                 return denied("RAW_SENSITIVE_BYTES_FORBIDDEN")
-            if any(marker in normalized for marker in self._SECRET_MARKERS):
-                sanitized[key] = "[REDACTED]"
-                redacted.append(key)
-                continue
-            if isinstance(value, str) and value.strip().lower().startswith(
-                self._SECRET_VALUE_PREFIXES
-            ):
+            if normalized not in self._SAFE_ATTRIBUTE_FIELDS:
+                return denied("TRACE_ATTRIBUTE_NOT_ALLOWLISTED")
+            if isinstance(value, str) and self._looks_secret_value(value):
                 sanitized[key] = "[REDACTED]"
                 redacted.append(key)
                 continue
