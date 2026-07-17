@@ -7,6 +7,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 
 from agent_os_contracts import (
@@ -18,6 +19,7 @@ from agent_os_contracts import (
     ProviderRelevancePolicy,
     RatifiedMandateRef,
     RelevanceDisposition,
+    WorkloadIdentityRegistration,
     content_digest,
 )
 from agent_os_core import (
@@ -106,6 +108,12 @@ def _mandate(policy: ProviderRelevancePolicy) -> RatifiedMandateRef:
 def _situated_app(
     tmp_path: Path,
     disposition: RelevanceDisposition,
+    *,
+    workload_identities: tuple[WorkloadIdentityRegistration, ...] = (),
+    external_state_adapters: tuple[Any, ...] = (),
+    external_state_authorization_receipts: tuple[Any, ...] = (),
+    provider_sink: list[DeterministicProvider] | None = None,
+    control_sink: list[SQLiteSituatedAssessmentStore] | None = None,
 ) -> AgentOSApplication:
     report_database = tmp_path / "reports.sqlite3"
     situated_database = tmp_path / "situated.sqlite3"
@@ -125,6 +133,10 @@ def _situated_app(
         situated_database,
         mandates=(mandate,),
     )
+    if provider_sink is not None:
+        provider_sink.append(provider)
+    if control_sink is not None:
+        control_sink.append(control)
     credential = _external_credential()
     credentials = adapter._credential_authorization_reader_for_composition
     configured = credentials.resolve_authorization(credential.credential_ref_id)
@@ -137,6 +149,12 @@ def _situated_app(
         trust=adapter,
         contexts=InMemoryMandateRelevanceContextRegistry((_context(),)),
     )
+    compose_options: dict[str, Any] = {}
+    if external_state_adapters:
+        compose_options["external_state_adapters"] = external_state_adapters
+        compose_options["external_state_authorization_receipts"] = (
+            external_state_authorization_receipts
+        )
     runtime = DataAgentSituatedBootstrap.compose(
         adapter=adapter,
         material_store=SQLiteDataAgentReportAdmissionMaterialStore(
@@ -152,6 +170,8 @@ def _situated_app(
             f"{task_database.name}.admission.sqlite3"
         ),
         clock=lambda: NOW,
+        workload_identities=workload_identities,
+        **compose_options,
     )
     principal = PrincipalIdentity(
         principal_id=adapter.principal_scope[0],

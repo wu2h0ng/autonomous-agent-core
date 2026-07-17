@@ -41,6 +41,7 @@ from agent_os_contracts import (
     ProviderMessage,
     ProviderMessageRole,
     ProviderRequest,
+    ProtocolIngressReceipt,
     ResourceBudget,
     RunStatus,
     TaskConfigurationSnapshot,
@@ -680,6 +681,19 @@ class AgentOSApplication:
             bundle.event.environment_event_id,
             bundle.projection.projection_id,
             receipt.receipt_id,
+        )
+
+    def propose_authenticated_protocol_envelope(
+        self,
+        raw_envelope: dict[str, Any],
+        workload_assertion: str,
+    ) -> ProtocolIngressReceipt:
+        """Public ingress with transport parsing separated from workload authority."""
+        if self._data_agent_situated_runtime is None:
+            raise RuntimeError("Data Agent situated runtime is not configured")
+        return self._data_agent_situated_runtime.propose_authenticated_protocol_envelope(
+            raw_envelope,
+            workload_assertion,
         )
 
     def commit_task(self, task_id: str, payload: dict[str, Any]):

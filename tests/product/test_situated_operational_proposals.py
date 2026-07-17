@@ -257,6 +257,7 @@ class _Assessor:
         projection: OperationalProjectionRef,
         *,
         assessed_at: datetime,
+        working_set: Any = None,
     ) -> RelevanceAssessment:
         return _assessment(
             input_binding_digest=situated_input_binding_digest(
@@ -265,6 +266,7 @@ class _Assessor:
                 event,
                 projection,
                 self.ref,
+                working_set,
             ),
             assessed_at=assessed_at,
         )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
+from typing import Any
 
 import pytest
 import agent_os_core
@@ -227,9 +228,23 @@ class _Assessor:
         projection: OperationalProjectionRef,
         *,
         assessed_at: datetime,
+        working_set: Any = None,
     ) -> RelevanceAssessment:
         self.calls += 1
-        return self.assessment
+        if working_set is None:
+            return self.assessment
+        return self.assessment.model_copy(
+            update={
+                "input_binding_digest": situated_input_binding_digest(
+                    mandate,
+                    binding,
+                    event,
+                    projection,
+                    mandate.relevance_assessor,
+                    working_set,
+                )
+            }
+        )
 
 
 class _BlockingAssessor(_Assessor):

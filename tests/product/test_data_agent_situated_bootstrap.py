@@ -140,6 +140,7 @@ class _Assessor:
         projection: Any,
         *,
         assessed_at: Any,
+        working_set: Any = None,
     ) -> RelevanceAssessment:
         self.calls += 1
         return RelevanceAssessment(
@@ -157,7 +158,12 @@ class _Assessor:
             correction_epoch=mandate.correction_epoch,
             assessor=mandate.relevance_assessor,
             input_binding_digest=situated_input_binding_digest(
-                mandate, binding, event, projection, mandate.relevance_assessor
+                mandate,
+                binding,
+                event,
+                projection,
+                mandate.relevance_assessor,
+                working_set,
             ),
             tenant_id=event.tenant_id,
             workspace_id=event.workspace_id,
@@ -238,10 +244,11 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     )
     assert set(name for name in dir(runtime) if not name.startswith("_")) == {
         "admit_event",
-        "observe_report",
-        "principal_scope",
-        "propose",
-    }
+            "observe_report",
+            "principal_scope",
+            "propose",
+            "propose_authenticated_protocol_envelope",
+        }
     assert runtime.principal_scope == (
         "principal:local",
         "tenant:local",

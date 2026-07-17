@@ -25,6 +25,7 @@ from agent_os_contracts import (
     RelevanceAssessorRef,
     RelevanceDisposition,
     RelevanceUrgency,
+    TrustedWorkingSet,
     canonical_json,
     content_digest,
 )
@@ -65,6 +66,15 @@ RELEVANCE_PROMPT_MANIFEST: dict[str, object] = {
             "epistemic_status": {"$slot": "epistemic_status"},
             "uncertainty_summary": {"$slot": "uncertainty_summary"},
             "content": {"$slot": "projection_content"},
+        },
+        "working_set": {
+            "selection_receipt_digest": {
+                "$slot": "working_set_selection_receipt_digest"
+            },
+            "selection_manifest": {"$slot": "working_set_selection_manifest"},
+            "selected_external_candidates": {
+                "$slot": "selected_external_candidates"
+            },
         },
     },
 }
@@ -177,9 +187,10 @@ class ProviderRelevanceAssessor:
         projection: OperationalProjectionRef,
         *,
         assessed_at: datetime,
+        working_set: TrustedWorkingSet | None = None,
     ) -> RelevanceAssessment:
         input_digest = situated_input_binding_digest(
-            mandate, binding, event, projection, self.ref
+            mandate, binding, event, projection, self.ref, working_set
         )
         evidence_ids = tuple(
             sorted(
@@ -221,6 +232,9 @@ class ProviderRelevanceAssessor:
         try:
             observation = self._trusted_json(event.observation)
             projection_content = self._trusted_json(projection.projection_artifact)
+            selected_external_candidates = self._selected_external_candidates(
+                working_set
+            )
         except ValueError as exc:
             return self._abstain(base, f"Trusted input malformed: {exc}")
 
@@ -241,6 +255,25 @@ class ProviderRelevanceAssessor:
                 "epistemic_status": projection.epistemic_status.value,
                 "uncertainty_summary": projection.uncertainty_summary,
                 "projection_content": projection_content,
+                "working_set_selection_receipt_digest": (
+                    working_set.receipt.receipt_digest
+                    if working_set is not None
+                    else None
+                ),
+                "working_set_selection_manifest": (
+                    {
+                        "manifest_digest": working_set.manifest.manifest_digest,
+                        "selected_candidate_ids": (
+                            working_set.manifest.selected_candidate_ids
+                        ),
+                        "selection_policy_digest": (
+                            working_set.manifest.selection_policy_digest
+                        ),
+                    }
+                    if working_set is not None
+                    else None
+                ),
+                "selected_external_candidates": selected_external_candidates,
             },
         )
         if not isinstance(rendered_prompt, dict):
@@ -337,6 +370,30 @@ class ProviderRelevanceAssessor:
             return _strict_json_loads(data)
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise ValueError("artifact JSON is invalid") from exc
+
+    @staticmethod
+    def _selected_external_candidates(
+        working_set: TrustedWorkingSet | None,
+    ) -> tuple[dict[str, object], ...]:
+        if working_set is None:
+            return ()
+        selected: list[dict[str, object]] = []
+        for candidate, payload in zip(
+            working_set.selected_candidates,
+            working_set.selected_candidate_bytes,
+            strict=True,
+        ):
+            try:
+                content = _strict_json_loads(payload)
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+                raise ValueError("selected working set candidate is invalid") from exc
+            selected.append(
+                {
+                    "candidate": candidate.model_dump(mode="json"),
+                    "content": content,
+                }
+            )
+        return tuple(selected)
 
     @staticmethod
     def _context_matches(

@@ -23,6 +23,7 @@ from .errors import (
     ScopeMismatchError,
     SituationalProposalError,
     SituationalPersistenceConflict,
+    ProtocolIngressConflict,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SignalMismatchError,
@@ -38,12 +39,19 @@ from .errors import (
     TaskConfigurationScopeMismatch,
 )
 from .event_store import InMemoryTaskEventStore, TaskEventStore
+from .external_boundary import (
+    DurableExecutionBackend,
+    DurableExecutionBoundary,
+    TraceExportBoundary,
+    TraceExporterBackend,
+)
 from .persistence import SQLiteTaskEventStore
 from .postgres import PostgresTaskEventStore
 from .governance import (
     POLICY_KERNEL_V1_DIGEST,
     POLICY_KERNEL_V1_SPEC,
     CorrectionAuthority,
+    ExternalPolicyBackend,
     PolicyInput,
     PolicyKernel,
 )
@@ -53,6 +61,11 @@ from .provider import (
     EnvCredentialBroker,
     OpenAICompatibleProvider,
     ProviderPort,
+)
+from .protocol_ingress import (
+    EventEnvelopeAdapter,
+    SQLiteProtocolIngressStore,
+    WorkloadIdentityAdapter,
 )
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
@@ -65,6 +78,16 @@ from .srl_event_authority import (
 )
 from .srl_event_admission import EnvironmentEventAdmissionService
 from .srl_event_store import ScopedEventAdmissionReader
+from .srl_working_set import (
+    ExternalStateAuthorizationRegistry,
+    ExternalStateSourceAdapter,
+    InMemoryExternalStateAuthorizationRegistry,
+    MAX_EXTERNAL_STATE_CANDIDATE_BYTES,
+    MAX_TRUSTED_WORKING_SET_CANDIDATES,
+    MAX_TRUSTED_WORKING_SET_TOTAL_BYTES,
+    TrustedWorkingSetAssembler,
+    WORKING_SET_SELECTION_POLICY_DIGEST,
+)
 from .mandate_steward import MandateSteward
 from .capability import (
     CapabilityBroker,
@@ -188,6 +211,7 @@ __all__ = [
     "ScopeMismatchError",
     "SituationalProposalError",
     "SituationalPersistenceConflict",
+    "ProtocolIngressConflict",
     "SituationalScopeMismatch",
     "SituationalTrustDenied",
     "SignalMismatchError",
@@ -237,11 +261,15 @@ __all__ = [
     "CorrectionAuthority",
     "PolicyInput",
     "PolicyKernel",
+    "ExternalPolicyBackend",
     "CredentialUnavailable",
     "DeterministicProvider",
     "EnvCredentialBroker",
     "OpenAICompatibleProvider",
     "ProviderPort",
+    "EventEnvelopeAdapter",
+    "SQLiteProtocolIngressStore",
+    "WorkloadIdentityAdapter",
     "build_recovery_snapshot",
     "CanonicalCredentialLeaseRegistry",
     "CanonicalCredentialAuthorizationReader",
@@ -250,6 +278,18 @@ __all__ = [
     "EventOriginRegistryPort",
     "EnvironmentEventAdmissionService",
     "ScopedEventAdmissionReader",
+    "ExternalStateSourceAdapter",
+    "ExternalStateAuthorizationRegistry",
+    "InMemoryExternalStateAuthorizationRegistry",
+    "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",
+    "MAX_TRUSTED_WORKING_SET_CANDIDATES",
+    "MAX_TRUSTED_WORKING_SET_TOTAL_BYTES",
+    "DurableExecutionBackend",
+    "DurableExecutionBoundary",
+    "TraceExportBoundary",
+    "TraceExporterBackend",
+    "TrustedWorkingSetAssembler",
+    "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
