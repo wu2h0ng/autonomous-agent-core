@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import subprocess
@@ -111,7 +112,7 @@ class _ExternalVerifier:
         role, purpose = roles[kind]
         return ReceiptVerification(
             registry_verified=self.accepted,
-            principal_id=f"registry:{kind.value.lower()}",
+            principal_id=receipt["signer_id"],
             role=role,
             purpose=purpose,
             subject_sha256=receipt["subject_sha256"],
@@ -345,6 +346,10 @@ def _receipt_documents(root: Path) -> dict[ReceiptKind, bytes]:
                     if kind is ReceiptKind.FREEZE
                     else f"receipt-{kind.value.lower()}"
                 ),
+                "signature_b64": base64.b64encode(
+                    f"signature:{kind.value}".encode()
+                ).decode(),
+                "signer_id": f"registry:{kind.value.lower()}",
                 "subject_sha256": subjects[kind],
             }
         ).encode()
@@ -353,6 +358,8 @@ def _receipt_documents(root: Path) -> dict[ReceiptKind, bytes]:
             "authorization_context_sha256": "0" * 64,
             "kind": ReceiptKind.RUN_AUTHORIZATION.value,
             "receipt_id": "run-authorization-receipt-1",
+            "signature_b64": base64.b64encode(b"signature:RUN_AUTHORIZATION").decode(),
+            "signer_id": "registry:run_authorization",
             "subject_sha256": _sha(documents[ReceiptKind.FREEZE]),
         }
     ).encode()
@@ -426,6 +433,8 @@ def _envelope_bytes(
             "authorization_context_sha256": core_sha256,
             "kind": ReceiptKind.RUN_AUTHORIZATION.value,
             "receipt_id": "run-authorization-receipt-1",
+            "signature_b64": base64.b64encode(b"signature:RUN_AUTHORIZATION").decode(),
+            "signer_id": "registry:run_authorization",
             "subject_sha256": _sha(receipts[ReceiptKind.FREEZE]),
         }
     ).encode()
@@ -659,6 +668,101 @@ def test_admission_rejects_component_manifest_receipt_and_external_signature_dri
             c7=_C7(),
             actor=_actor(_Transport()),
         ).admit(envelope)
+
+
+@pytest.mark.parametrize("field", ["signer_id", "signature_b64"])
+def test_signed_receipt_field_tampering_breaks_envelope_digest(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+    field: str,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+    tampered = dict(receipts)
+    payload = json.loads(tampered[ReceiptKind.C7])
+    payload[field] = "dGFtcGVyZWQ=" if field == "signature_b64" else "attacker"
+    tampered[ReceiptKind.C7] = canonical_json(payload).encode()
+
+    with pytest.raises(ExecutionBridgeViolation, match="receipt digest drift"):
+        ExecutionBridge(
+            root=root,
+            active_manifest=active_manifest,
+            run_dir=tmp_path / field,
+            receipt_documents=tampered,
+            receipt_verifier=_ExternalVerifier(),
+            workspace_probe=_WorkspaceProbe(root),
+            c7=_C7(),
+            actor=_actor(_Transport()),
+        ).admit(ExecutionAdmission.from_canonical_json(encoded))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("signer_id", "", "signer_id"),
+        ("signature_b64", "", "signature_b64"),
+        ("signature_b64", "***", "strict base64"),
+    ],
+)
+def test_signed_receipt_wire_rejects_empty_identity_or_signature(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+    field: str,
+    value: str,
+    message: str,
+) -> None:
+    root, active_manifest, receipts, _encoded = admission_inputs
+    changed = dict(receipts)
+    payload = json.loads(changed[ReceiptKind.C7])
+    payload[field] = value
+    changed[ReceiptKind.C7] = canonical_json(payload).encode()
+    encoded = _envelope_bytes(root, active_manifest, changed)
+
+    with pytest.raises(ExecutionBridgeViolation, match=message):
+        ExecutionBridge(
+            root=root,
+            active_manifest=active_manifest,
+            run_dir=tmp_path / field,
+            receipt_documents=changed,
+            receipt_verifier=_ExternalVerifier(),
+            workspace_probe=_WorkspaceProbe(root),
+            c7=_C7(),
+            actor=_actor(_Transport()),
+        ).admit(ExecutionAdmission.from_canonical_json(encoded))
+
+
+def test_signed_receipt_signer_must_match_external_verified_principal(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+
+    class _SignerMismatch(_ExternalVerifier):
+        def verify(
+            self, kind: ReceiptKind, receipt_bytes: bytes
+        ) -> ReceiptVerification:
+            result = super().verify(kind, receipt_bytes)
+            if kind is ReceiptKind.C7:
+                return ReceiptVerification(
+                    registry_verified=result.registry_verified,
+                    principal_id="registry:someone-else",
+                    role=result.role,
+                    purpose=result.purpose,
+                    subject_sha256=result.subject_sha256,
+                    artifact_sha256=result.artifact_sha256,
+                )
+            return result
+
+    with pytest.raises(ExecutionBridgeViolation, match="signature binding drift"):
+        ExecutionBridge(
+            root=root,
+            active_manifest=active_manifest,
+            run_dir=tmp_path / "signer-mismatch",
+            receipt_documents=receipts,
+            receipt_verifier=_SignerMismatch(),
+            workspace_probe=_WorkspaceProbe(root),
+            c7=_C7(),
+            actor=_actor(_Transport()),
+        ).admit(ExecutionAdmission.from_canonical_json(encoded))
 
 
 def test_real_2240_call_loop_seals_raw_output_without_route_verdicts(

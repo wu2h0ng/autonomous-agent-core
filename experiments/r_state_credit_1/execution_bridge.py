@@ -7,6 +7,8 @@ arms, sealed checkpoint loss and raw scorer behind a closed authority envelope.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -628,12 +630,32 @@ class ExecutionBridge:
             raise ExecutionBridgeViolation("receipt must be canonical JSON") from exc
         if canonical_json(raw).encode() != encoded:
             raise ExecutionBridgeViolation("receipt must be canonical JSON")
-        expected = {"kind", "receipt_id", "subject_sha256"}
+        expected = {
+            "kind",
+            "receipt_id",
+            "subject_sha256",
+            "signer_id",
+            "signature_b64",
+        }
         if kind is ReceiptKind.RUN_AUTHORIZATION:
             expected.add("authorization_context_sha256")
         payload = _closed(raw, expected, f"{kind.value} receipt")
         _require_text(payload["receipt_id"], f"{kind.value} receipt_id")
         _require_sha256(payload["subject_sha256"], f"{kind.value} subject_sha256")
+        _require_text(payload["signer_id"], f"{kind.value} signer_id")
+        signature_b64 = _require_text(
+            payload["signature_b64"], f"{kind.value} signature_b64"
+        )
+        try:
+            signature = base64.b64decode(signature_b64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ExecutionBridgeViolation(
+                f"{kind.value} signature_b64 must be strict base64"
+            ) from exc
+        if not signature or base64.b64encode(signature).decode() != signature_b64:
+            raise ExecutionBridgeViolation(
+                f"{kind.value} signature_b64 must encode non-empty canonical bytes"
+            )
         if kind is ReceiptKind.RUN_AUTHORIZATION:
             _require_sha256(
                 payload["authorization_context_sha256"],
@@ -722,6 +744,7 @@ class ExecutionBridge:
             if (
                 verification.subject_sha256 != expected_subjects[kind]
                 or verification.artifact_sha256 != digest
+                or verification.principal_id != payload["signer_id"]
             ):
                 raise ExecutionBridgeViolation(
                     "external receipt signature binding drift"
