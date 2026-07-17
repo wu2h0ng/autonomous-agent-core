@@ -15,6 +15,7 @@ from agent_os_contracts import (
 )
 from agent_os_core import DeterministicProvider
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
+from apps.api_server.app import AgentOSApplication
 from product_evals.srl_e2e_falsifier.contracts import (
     CandidateKind,
     DecisionCandidate,
@@ -38,15 +39,23 @@ from product_evals.srl_e2e_falsifier.harness import (
     BoundControllerDecision,
     BudgetUsage,
     ControllerBindingConfig,
+    DeterministicProviderUsageProbe,
+    EffectFreeSandboxGate,
     FrozenEvaluationUnit,
     HiddenScore,
     HiddenScorerPort,
     MatchedBudgetLedger,
-    OperatorBurden,
+    MeteredControllerRunner,
+    OperatorBurdenReceipt,
+    RunnerIsolation,
+    ScoredDecisionReceipt,
+    ScorerIsolation,
     SrlE2EFalsifierHarness,
     SituatedStewardController,
     TrustedFrozenUnitLoader,
-    bind_controller_decision,
+    UsageSnapshot,
+    seal_hidden_score,
+    seal_operator_burden,
 )
 from tests.product._steward_app import admitted_application
 from tests.product.test_provider_relevance_assessor import (
@@ -157,27 +166,54 @@ def _candidate(
 
 
 class _Controller:
-    def __init__(self, candidate: DecisionCandidate, usage: BudgetUsage) -> None:
+    def __init__(self, candidate: DecisionCandidate, probe: _Probe) -> None:
         self.candidate = candidate
-        self.usage = usage
+        self.probe = probe
 
-    def decide(self, unit: FrozenEvaluationUnit) -> BoundControllerDecision:
+    def decide(self, unit: FrozenEvaluationUnit) -> DecisionCandidate:
         assert unit.public_state.state_digest == self.candidate.public_state_digest
-        return bind_controller_decision(
-            unit=unit,
-            candidate=self.candidate,
-            usage=self.usage,
-            config=_binding_config(),
-            bound_at=NOW,
-        )
+        self.probe.record_provider_call()
+        return self.candidate
 
 
-class _TamperedBindingController(_Controller):
-    def decide(self, unit: FrozenEvaluationUnit) -> BoundControllerDecision:
-        decision = super().decide(unit)
+class _Probe:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    @property
+    def probe_digest(self) -> str:
+        return "9" * 64
+
+    def record_provider_call(self) -> None:
+        self.calls += 1
+
+    def snapshot(self) -> UsageSnapshot:
+        payload = {
+            "provider_calls": self.calls,
+            "input_tokens": self.calls * 5,
+            "output_tokens": self.calls * 2,
+            "retries": 0,
+            "tool_invocations": 0,
+            "provider_cost_microunits": self.calls * 10,
+        }
+        return UsageSnapshot(**payload, snapshot_digest=content_digest(payload))
+
+
+class _SilentController:
+    def __init__(self, candidate: DecisionCandidate) -> None:
+        self.candidate = candidate
+
+    def decide(self, unit: FrozenEvaluationUnit) -> DecisionCandidate:
+        assert unit.public_state.state_digest == self.candidate.public_state_digest
+        return self.candidate
+
+
+class _TamperedBindingRunner(MeteredControllerRunner):
+    def run(self, unit: FrozenEvaluationUnit) -> BoundControllerDecision:
+        decision = super().run(unit)
         return BoundControllerDecision(
             candidate=decision.candidate,
-            usage=decision.usage,
+            usage_receipt=decision.usage_receipt,
             binding_receipt=decision.binding_receipt.model_copy(
                 update={"candidate_digest": "f" * 64}
             ),
@@ -193,26 +229,68 @@ def _binding_config() -> ControllerBindingConfig:
     )
 
 
+def _runner(
+    controller: object,
+    probe: object,
+    *,
+    baseline: bool,
+    tampered: bool = False,
+) -> MeteredControllerRunner:
+    runner_type = _TamperedBindingRunner if tampered else MeteredControllerRunner
+    config = _binding_config()
+    return runner_type(
+        controller=controller,  # type: ignore[arg-type]
+        usage_probe=probe,  # type: ignore[arg-type]
+        binding_config=config,
+        clock=lambda: NOW,
+        monotonic=lambda: 1.0,
+        isolation=RunnerIsolation.TEST_ONLY_IN_PROCESS,
+        sandbox_receipt=(
+            EffectFreeSandboxGate.issue(
+                controller_digest=config.controller_digest,
+                capability_ids=(),
+                isolation=RunnerIsolation.TEST_ONLY_IN_PROCESS,
+            )
+            if baseline
+            else None
+        ),
+    )
+
+
 class _Scorer:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
         self.decisions: list[BlindedDecision] = []
+
+    @property
+    def isolation(self) -> ScorerIsolation:
+        return ScorerIsolation.TEST_ONLY_IN_PROCESS
+
+    @property
+    def scorer_process_digest(self) -> str:
+        return "8" * 64
 
     def score(
         self,
         *,
         decision: BlindedDecision,
         sealed_slot_tokens: tuple[str, ...],
-    ) -> HiddenScore:
+        custody_token: str,
+    ) -> ScoredDecisionReceipt:
         self.calls.append((decision.slot_token, sealed_slot_tokens))
         self.decisions.append(decision)
-        return HiddenScore(
-            decision_ok=True,
-            false_work=False,
-            missed_critical=False,
-            mandatory_help_ok=True,
-            executor_ok=False,
-            severe_safety_violation=False,
+        return seal_hidden_score(
+            decision=decision,
+            custody_token=custody_token,
+            scorer_process_digest=self.scorer_process_digest,
+            score=HiddenScore(
+                decision_ok=True,
+                false_work=False,
+                missed_critical=False,
+                mandatory_help_ok=True,
+                executor_ok=False,
+                severe_safety_violation=False,
+            ),
         )
 
 
@@ -270,7 +348,7 @@ def _load_frozen_unit(
 def _real_srl_controller(
     tmp_path: Path,
 ) -> tuple[
-    SituatedStewardController,
+    MeteredControllerRunner,
     FrozenEvaluationUnit,
     DeterministicProvider,
     TrustedFrozenUnitLoader,
@@ -298,12 +376,15 @@ def _real_srl_controller(
         assessor=assessor,
     )
     loader, unit = _load_frozen_unit(tmp_path / "unit", receipt=receipt)
+    controller = SituatedStewardController(
+        application=app,
+        admission_receipt=receipt,
+    )
     return (
-        SituatedStewardController(
-            application=app,
-            usage=BudgetUsage(llm_calls=1, wall_seconds=1),
-            binding_config=_binding_config(),
-            clock=lambda: NOW,
+        _runner(
+            controller,
+            DeterministicProviderUsageProbe(provider),
+            baseline=False,
         ),
         unit,
         provider,
@@ -317,25 +398,26 @@ def test_harness_seals_three_matched_arms_before_hidden_scoring(
     srl, unit, provider, loader = _real_srl_controller(tmp_path)
     state = unit.public_state
     budget = unit.budget
-    usage = BudgetUsage(
-        llm_calls=1,
-        input_tokens=20,
-        output_tokens=10,
-        retries=0,
-        tool_invocations=1,
-        wall_seconds=1,
-        provider_cost_microunits=10,
-    )
     candidates = {
         ArmId.DIRECT: _candidate(state, candidate_id="ARM-DIRECT-LEAK"),
         ArmId.WORKFLOW: _candidate(state, candidate_id="ARM-WORKFLOW-LEAK"),
         ArmId.SRL: _candidate(state, candidate_id="ARM-SRL-LEAK"),
     }
     scorer = _Scorer()
+    direct_probe = _Probe()
+    workflow_probe = _Probe()
     harness = SrlE2EFalsifierHarness(
-        controllers={
-            ArmId.DIRECT: _Controller(candidates[ArmId.DIRECT], usage),
-            ArmId.WORKFLOW: _Controller(candidates[ArmId.WORKFLOW], usage),
+        runners={
+            ArmId.DIRECT: _runner(
+                _Controller(candidates[ArmId.DIRECT], direct_probe),
+                direct_probe,
+                baseline=True,
+            ),
+            ArmId.WORKFLOW: _runner(
+                _Controller(candidates[ArmId.WORKFLOW], workflow_probe),
+                workflow_probe,
+                baseline=True,
+            ),
             ArmId.SRL: srl,
         },
         hidden_scorer=scorer,
@@ -347,7 +429,12 @@ def test_harness_seals_three_matched_arms_before_hidden_scoring(
     report = harness.evaluate_unit(
         unit,
         burdens={
-            arm: OperatorBurden(
+            arm: seal_operator_burden(
+                unit_id=unit.unit_id,
+                rater_id="blind-rater-1",
+                transcript_digest="7" * 64,
+                window_started_at=NOW,
+                window_ended_at=NOW,
                 hcw_minutes=1.0,
                 auth_minutes=0.0,
                 help_minutes=0.0,
@@ -384,6 +471,8 @@ def test_harness_seals_three_matched_arms_before_hidden_scoring(
         for arm in ArmId
     )
     assert len(provider.decision_requests) == 1
+    assert report.admissible is False
+    assert "SCORER_NOT_INDEPENDENT_PROCESS" in report.inadmissible_reasons
 
 
 def test_harness_rejects_fake_srl_controller_and_budget_overrun() -> None:
@@ -397,10 +486,17 @@ def test_harness_rejects_fake_srl_controller_and_budget_overrun() -> None:
         admission_receipt_id="receipt-1",
     )
     candidate = _candidate(state, candidate_id="candidate-1")
-    normal = _Controller(candidate, BudgetUsage())
+    probes = {arm: _Probe() for arm in ArmId}
     with pytest.raises(TypeError, match="real SituatedStewardController"):
         SrlE2EFalsifierHarness(
-            controllers={arm: normal for arm in ArmId},
+            runners={
+                arm: _runner(
+                    _Controller(candidate, probes[arm]),
+                    probes[arm],
+                    baseline=arm is not ArmId.SRL,
+                )
+                for arm in ArmId
+            },
             hidden_scorer=_Scorer(),
             budget_ledger=MatchedBudgetLedger(),
             blinding_nonce_digest="c" * 64,
@@ -419,9 +515,9 @@ def test_harness_rejects_fake_srl_controller_and_budget_overrun() -> None:
 def test_srl_arm_calls_real_admission_required_mandate_steward(
     tmp_path: Path,
 ) -> None:
-    controller, unit, provider, _ = _real_srl_controller(tmp_path)
+    runner, unit, provider, _ = _real_srl_controller(tmp_path)
 
-    decision = controller.decide(unit)
+    decision = runner.run(unit)
     candidate, usage = decision.candidate, decision.usage
 
     assert len(provider.decision_requests) == 1
@@ -469,10 +565,21 @@ def test_harness_rejects_controller_binding_receipt_drift_before_scoring(
     srl, unit, _, loader = _real_srl_controller(tmp_path)
     candidate = _candidate(unit.public_state, candidate_id="candidate-baseline")
     scorer = _Scorer()
+    direct_probe = _Probe()
+    workflow_probe = _Probe()
     harness = SrlE2EFalsifierHarness(
-        controllers={
-            ArmId.DIRECT: _TamperedBindingController(candidate, BudgetUsage(llm_calls=1)),
-            ArmId.WORKFLOW: _Controller(candidate, BudgetUsage(llm_calls=1)),
+        runners={
+            ArmId.DIRECT: _runner(
+                _Controller(candidate, direct_probe),
+                direct_probe,
+                baseline=True,
+                tampered=True,
+            ),
+            ArmId.WORKFLOW: _runner(
+                _Controller(candidate, workflow_probe),
+                workflow_probe,
+                baseline=True,
+            ),
             ArmId.SRL: srl,
         },
         hidden_scorer=scorer,
@@ -481,7 +588,12 @@ def test_harness_rejects_controller_binding_receipt_drift_before_scoring(
         unit_loader=loader,
     )
     burdens = {
-        arm: OperatorBurden(
+        arm: seal_operator_burden(
+            unit_id=unit.unit_id,
+            rater_id="blind-rater-1",
+            transcript_digest="7" * 64,
+            window_started_at=NOW,
+            window_ended_at=NOW,
             hcw_minutes=1.0,
             auth_minutes=0.0,
             help_minutes=0.0,
@@ -494,3 +606,114 @@ def test_harness_rejects_controller_binding_receipt_drift_before_scoring(
     with pytest.raises(ValueError, match="controller binding receipt"):
         harness.evaluate_unit(unit, burdens=burdens)
     assert scorer.calls == []
+
+
+def test_metered_runner_rejects_controller_without_observable_usage(
+    tmp_path: Path,
+) -> None:
+    _, unit, _, _ = _real_srl_controller(tmp_path)
+    probe = _Probe()
+    runner = _runner(
+        _SilentController(_candidate(unit.public_state, candidate_id="silent")),
+        probe,
+        baseline=True,
+    )
+
+    with pytest.raises(ValueError, match="not observably metered"):
+        runner.run(unit)
+
+
+def test_baseline_without_capability_empty_sandbox_receipt_is_rejected(
+    tmp_path: Path,
+) -> None:
+    srl, unit, _, loader = _real_srl_controller(tmp_path)
+    candidate = _candidate(unit.public_state, candidate_id="baseline")
+    direct_probe = _Probe()
+    workflow_probe = _Probe()
+    direct_without_sandbox = _runner(
+        _Controller(candidate, direct_probe),
+        direct_probe,
+        baseline=False,
+    )
+
+    with pytest.raises(ValueError, match="effect-free sandbox receipt"):
+        SrlE2EFalsifierHarness(
+            runners={
+                ArmId.DIRECT: direct_without_sandbox,
+                ArmId.WORKFLOW: _runner(
+                    _Controller(candidate, workflow_probe),
+                    workflow_probe,
+                    baseline=True,
+                ),
+                ArmId.SRL: srl,
+            },
+            hidden_scorer=_Scorer(),
+            budget_ledger=MatchedBudgetLedger(),
+            blinding_nonce_digest="c" * 64,
+            unit_loader=loader,
+        )
+
+
+def test_srl_composition_rejects_duck_application_even_if_isinstance(
+    tmp_path: Path,
+) -> None:
+    _real_srl_controller(tmp_path)
+    receipt = EnvironmentEventAdmissionReceipt.model_validate(
+        json.loads((tmp_path / "unit" / "admission.json").read_text())
+    )
+
+    class DuckAgentOSApplication(AgentOSApplication):
+        pass
+
+    duck = object.__new__(DuckAgentOSApplication)
+    with pytest.raises(TypeError, match="concrete AgentOSApplication"):
+        SituatedStewardController(application=duck, admission_receipt=receipt)
+
+
+def test_operator_burden_receipt_drift_fails_before_any_controller(
+    tmp_path: Path,
+) -> None:
+    srl, unit, _, loader = _real_srl_controller(tmp_path)
+    probes = {arm: _Probe() for arm in (ArmId.DIRECT, ArmId.WORKFLOW)}
+    candidate = _candidate(unit.public_state, candidate_id="baseline")
+    harness = SrlE2EFalsifierHarness(
+        runners={
+            ArmId.DIRECT: _runner(
+                _Controller(candidate, probes[ArmId.DIRECT]),
+                probes[ArmId.DIRECT],
+                baseline=True,
+            ),
+            ArmId.WORKFLOW: _runner(
+                _Controller(candidate, probes[ArmId.WORKFLOW]),
+                probes[ArmId.WORKFLOW],
+                baseline=True,
+            ),
+            ArmId.SRL: srl,
+        },
+        hidden_scorer=_Scorer(),
+        budget_ledger=MatchedBudgetLedger(),
+        blinding_nonce_digest="c" * 64,
+        unit_loader=loader,
+    )
+    valid = seal_operator_burden(
+        unit_id=unit.unit_id,
+        rater_id="blind-rater-1",
+        transcript_digest="7" * 64,
+        window_started_at=NOW,
+        window_ended_at=NOW,
+        hcw_minutes=1.0,
+        auth_minutes=0.0,
+        help_minutes=0.0,
+        help_count=0,
+        latency_ms=1,
+    )
+    forged = OperatorBurdenReceipt(
+        **{
+            **valid.__dict__,
+            "transcript_digest": "6" * 64,
+        }
+    )
+
+    with pytest.raises(ValueError, match="burden receipt provenance"):
+        harness.evaluate_unit(unit, burdens={arm: forged for arm in ArmId})
+    assert all(probe.calls == 0 for probe in probes.values())
