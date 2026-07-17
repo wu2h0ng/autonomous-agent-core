@@ -26,6 +26,8 @@ from agent_os_core import (
     RelevanceAssessorPort,
     SituationalTrustDenied,
     SituationalTrustResolver,
+    TrustedWorkingSetAssembler,
+    WORKING_SET_SELECTION_POLICY_DIGEST,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_store import _create_event_admission_store
@@ -92,14 +94,18 @@ def admitted_application(
         workspace_id=scope.workspace_id,
         evaluated_at=clock(),
     )
+    admission_reader, admission_writer = _create_event_admission_store(
+        database.with_name(f"{database.name}.admission.sqlite3"), scope=scope
+    )
     proposal = OperationalProposalService(
         trust=trust,
         control=control,
         assessor=assessor,
         principal_id=scope.principal_id,
-    )
-    admission_reader, admission_writer = _create_event_admission_store(
-        database.with_name(f"{database.name}.admission.sqlite3"), scope=scope
+        admission_reader=admission_reader,
+        working_set_assembler=TrustedWorkingSetAssembler(
+            selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST
+        ),
     )
     payload: dict[str, Any] = {
         "schema_version": "1.1",

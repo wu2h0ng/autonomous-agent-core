@@ -143,11 +143,6 @@ class _Assessor:
         working_set: Any = None,
     ) -> RelevanceAssessment:
         self.calls += 1
-        effective_working_set = (
-            working_set
-            if working_set is not None and working_set.receipt.selected_count > 0
-            else None
-        )
         return RelevanceAssessment(
             assessment_id=f"assessment:{event.environment_event_id}",
             environment_event_id=event.environment_event_id,
@@ -168,7 +163,7 @@ class _Assessor:
                 event,
                 projection,
                 mandate.relevance_assessor,
-                effective_working_set,
+                working_set,
             ),
             tenant_id=event.tenant_id,
             workspace_id=event.workspace_id,

@@ -231,7 +231,7 @@ class _Assessor:
         working_set: Any = None,
     ) -> RelevanceAssessment:
         self.calls += 1
-        if working_set is None or working_set.receipt.selected_count == 0:
+        if working_set is None:
             return self.assessment
         return self.assessment.model_copy(
             update={

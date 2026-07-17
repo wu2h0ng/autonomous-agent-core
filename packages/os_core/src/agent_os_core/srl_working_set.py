@@ -15,12 +15,20 @@ from agent_os_contracts import (
 from .errors import SituationalTrustDenied
 
 
+MAX_TRUSTED_WORKING_SET_CANDIDATES = 64
+MAX_EXTERNAL_STATE_CANDIDATE_BYTES = 64 * 1024
+MAX_TRUSTED_WORKING_SET_TOTAL_BYTES = 256 * 1024
+
+
 WORKING_SET_SELECTION_POLICY_DIGEST = content_digest(
     {
         "policy": "working-set-selection/v1",
         "selection": "all-scope-and-correction-matched-candidates",
         "ordering": "candidate-id-ascending",
         "external_candidates_are_mandatory": False,
+        "max_candidate_count": MAX_TRUSTED_WORKING_SET_CANDIDATES,
+        "max_candidate_bytes": MAX_EXTERNAL_STATE_CANDIDATE_BYTES,
+        "max_total_bytes": MAX_TRUSTED_WORKING_SET_TOTAL_BYTES,
     }
 )
 
@@ -68,6 +76,8 @@ class TrustedWorkingSetAssembler:
         if request.selection_policy_digest != self._selection_policy_digest:
             raise SituationalTrustDenied("working set selection policy mismatch")
         loaded: dict[str, tuple[ExternalStateCandidateRef, bytes]] = {}
+        loaded_count = 0
+        loaded_bytes = 0
         for adapter in self._adapters:
             try:
                 candidates = adapter.load(request)
@@ -77,6 +87,11 @@ class TrustedWorkingSetAssembler:
                 ) from None
             if type(candidates) is not tuple:
                 raise SituationalTrustDenied("external state candidates are not closed")
+            loaded_count += len(candidates)
+            if loaded_count > MAX_TRUSTED_WORKING_SET_CANDIDATES:
+                raise SituationalTrustDenied(
+                    "external state candidate count exceeds frozen budget"
+                )
             for item in candidates:
                 if (
                     type(item) is not tuple
@@ -88,6 +103,15 @@ class TrustedWorkingSetAssembler:
                         "external state candidate payload is not closed"
                     )
                 candidate, payload = item
+                if len(payload) > MAX_EXTERNAL_STATE_CANDIDATE_BYTES:
+                    raise SituationalTrustDenied(
+                        "external state candidate bytes exceed frozen budget"
+                    )
+                loaded_bytes += len(payload)
+                if loaded_bytes > MAX_TRUSTED_WORKING_SET_TOTAL_BYTES:
+                    raise SituationalTrustDenied(
+                        "external state total bytes exceed frozen budget"
+                    )
                 if (
                     candidate.source_adapter_id != adapter.adapter_id
                     or candidate.source_adapter_version != adapter.version
@@ -110,6 +134,15 @@ class TrustedWorkingSetAssembler:
         excluded: list[str] = []
         for candidate_id in sorted(loaded):
             candidate, payload = loaded[candidate_id]
+            if candidate.principal_id != request.principal_id:
+                excluded.append(f"{candidate_id}:PRINCIPAL_MISMATCH")
+                continue
+            if (
+                candidate.authorization_scope_digest
+                != request.authorization_scope_digest
+            ):
+                excluded.append(f"{candidate_id}:AUTHORIZATION_SCOPE_MISMATCH")
+                continue
             if (
                 candidate.tenant_id != request.tenant_id
                 or candidate.workspace_id != request.workspace_id
@@ -139,6 +172,7 @@ class TrustedWorkingSetAssembler:
             "principal_id": request.principal_id,
             "tenant_id": request.tenant_id,
             "workspace_id": request.workspace_id,
+            "authorization_scope_digest": request.authorization_scope_digest,
             "correction_epoch": request.correction_epoch,
             "selection_policy_digest": request.selection_policy_digest,
         }
@@ -184,4 +218,7 @@ __all__ = [
     "ExternalStateSourceAdapter",
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
+    "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",
+    "MAX_TRUSTED_WORKING_SET_CANDIDATES",
+    "MAX_TRUSTED_WORKING_SET_TOTAL_BYTES",
 ]

@@ -73,6 +73,9 @@ from .srl_event_admission import EnvironmentEventAdmissionService
 from .srl_event_store import ScopedEventAdmissionReader
 from .srl_working_set import (
     ExternalStateSourceAdapter,
+    MAX_EXTERNAL_STATE_CANDIDATE_BYTES,
+    MAX_TRUSTED_WORKING_SET_CANDIDATES,
+    MAX_TRUSTED_WORKING_SET_TOTAL_BYTES,
     TrustedWorkingSetAssembler,
     WORKING_SET_SELECTION_POLICY_DIGEST,
 )
@@ -266,6 +269,9 @@ __all__ = [
     "EnvironmentEventAdmissionService",
     "ScopedEventAdmissionReader",
     "ExternalStateSourceAdapter",
+    "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",
+    "MAX_TRUSTED_WORKING_SET_CANDIDATES",
+    "MAX_TRUSTED_WORKING_SET_TOTAL_BYTES",
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",

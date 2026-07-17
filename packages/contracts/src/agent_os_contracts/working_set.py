@@ -14,8 +14,10 @@ class ExternalStateCandidateRef(ContractModel):
     source_kind: Literal["SESSION", "MEMORY", "LEARNED_GRAPH", "EXTERNAL_STATE"]
     source_adapter_id: NonEmptyStr
     source_adapter_version: int = Field(ge=1)
+    principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
+    authorization_scope_digest: Sha256Digest
     observed_correction_epoch: int = Field(ge=0)
     media_type: Literal["application/json"] = "application/json"
     content_digest: Sha256Digest
@@ -28,6 +30,7 @@ class WorkingSetRequest(ContractModel):
     principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
+    authorization_scope_digest: Sha256Digest
     mandate_id: NonEmptyStr
     mandate_version: int = Field(ge=1)
     mandate_digest: Sha256Digest
@@ -49,6 +52,7 @@ class SelectionManifest(ContractModel):
     principal_id: NonEmptyStr
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
+    authorization_scope_digest: Sha256Digest
     correction_epoch: int = Field(ge=0)
     selection_policy_digest: Sha256Digest
 

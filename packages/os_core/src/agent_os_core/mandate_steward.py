@@ -22,7 +22,6 @@ from agent_os_contracts import (
     SituatedTraceStatus,
     TaskDraftProposal,
     TrustedWorkingSet,
-    WorkingSetRequest,
     content_digest,
 )
 
@@ -38,10 +37,6 @@ from .situated_persistence import (
     proposal_result,
 )
 from .srl_event_store import ScopedEventAdmissionReader
-from .srl_working_set import (
-    TrustedWorkingSetAssembler,
-    WORKING_SET_SELECTION_POLICY_DIGEST,
-)
 
 
 class _SituatedTraceWriterPort(Protocol):
@@ -113,7 +108,6 @@ class MandateSteward:
         trace_writer: _SituatedTraceWriterPort,
         principal_id: str,
         clock: Callable[[], datetime],
-        working_set_assembler: TrustedWorkingSetAssembler | None = None,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         if not principal_id.strip():
@@ -126,17 +120,14 @@ class MandateSteward:
         self._trust = trust
         self._authority = authority
         self._proposal_service = proposal_service
+        if type(proposal_service) is not OperationalProposalService:
+            raise TypeError("steward requires the internal operational proposal service")
+        self._working_set_authority = proposal_service
         self._admission_reader = admission_reader
         self._trace_writer = trace_writer
         self._principal_id = principal_id
         self._clock = clock
         self._monotonic = monotonic
-        selected_assembler = working_set_assembler or TrustedWorkingSetAssembler(
-            selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST
-        )
-        if type(selected_assembler) is not TrustedWorkingSetAssembler:
-            raise TypeError("steward requires the deterministic working set assembler")
-        self._working_set_assembler = selected_assembler
 
     @property
     def scope(self) -> LedgerAccessScope:
@@ -204,27 +195,16 @@ class MandateSteward:
                 ):
                     self._deny_pending(existing_trace)
                 raise
-            request_payload = {
-                "principal_id": self._principal_id,
-                "tenant_id": event.tenant_id,
-                "workspace_id": event.workspace_id,
-                "mandate_id": mandate.mandate_id,
-                "mandate_version": mandate.version,
-                "mandate_digest": mandate.mandate_digest,
-                "admission_receipt_id": receipt.receipt_id,
-                "admission_receipt_digest": receipt.receipt_digest,
-                "correction_epoch": mandate.correction_epoch,
-                "relevance_policy_digest": mandate.relevance_assessor.policy_digest,
-                "selection_policy_digest": self._working_set_assembler.selection_policy_digest,
-            }
-            working_set_request = WorkingSetRequest(
-                request_id=f"working-set-request:{content_digest(request_payload)}",
-                **request_payload,
+            working_set = self._working_set_authority.trusted_working_set(
+                event_id,
+                projection_id,
+                admission_receipt_id=receipt.receipt_id,
+                evaluated_at=now,
             )
-            working_set = self._working_set_assembler.assemble(working_set_request)
-            self._validate_working_set_anchors(
-                working_set, receipt, mandate, event
-            )
+            if working_set is not None:
+                self._validate_working_set_anchors(
+                    working_set, receipt, mandate, event
+                )
             expected_digest = situated_input_binding_digest(
                 mandate,
                 binding,
@@ -282,7 +262,7 @@ class MandateSteward:
                     event_id,
                     projection_id,
                     evaluated_at=now,
-                    working_set=working_set,
+                    admission_receipt_id=receipt.receipt_id,
                 )
             except (SituationalPersistenceConflict, SituationalTrustDenied):
                 raise
@@ -401,7 +381,7 @@ class MandateSteward:
         binding: EnvironmentBindingAuthorization,
         event: EnvironmentEvent,
         projection: OperationalProjectionRef,
-        working_set: TrustedWorkingSet,
+        working_set: TrustedWorkingSet | None,
         expected_digest: str,
     ) -> None:
         assessment = record.assessment

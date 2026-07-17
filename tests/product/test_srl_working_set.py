@@ -19,7 +19,7 @@ from agent_os_contracts import (
 )
 from agent_os_core import SituationalTrustDenied
 from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
-from tests.product.test_data_agent_situated_http import _situated_app
+from tests.product.test_data_agent_situated_http import NOW, TRACE_ID, _situated_app
 from tests.product.test_protocol_event_ingress import (
     _cloud_event,
     _registration,
@@ -27,6 +27,17 @@ from tests.product.test_protocol_event_ingress import (
 
 
 POLICY_DIGEST = "9" * 64
+AUTHORIZATION_SCOPE_DIGEST = content_digest(
+    {
+        "principal_id": "user:local",
+        "tenant_id": "tenant:local",
+        "workspace_id": "workspace:local",
+        "mandate_id": "mandate:build-agent-os",
+        "environment_binding_id": "binding:data-agent-reports",
+        "environment_binding_version": 1,
+        "environment_binding_digest": "b" * 64,
+    }
+)
 
 
 def _require_m1b() -> None:
@@ -38,8 +49,17 @@ def _require_m1b() -> None:
         "WorkingSetRequest",
     ):
         assert hasattr(contracts, name), f"missing M1b contract: {name}"
-    for name in ("ExternalStateSourceAdapter", "TrustedWorkingSetAssembler"):
+    for name in (
+        "ExternalStateSourceAdapter",
+        "TrustedWorkingSetAssembler",
+        "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",
+        "MAX_TRUSTED_WORKING_SET_CANDIDATES",
+        "MAX_TRUSTED_WORKING_SET_TOTAL_BYTES",
+    ):
         assert hasattr(core, name), f"missing M1b runtime: {name}"
+    assert "working_set" not in inspect.signature(
+        core.OperationalProposalService.propose
+    ).parameters
     assert "external_state_adapters" in inspect.signature(
         DataAgentSituatedBootstrap.compose
     ).parameters
@@ -52,6 +72,7 @@ def _request(**updates: object):
         "principal_id": "user:local",
         "tenant_id": "tenant:local",
         "workspace_id": "workspace:local",
+        "authorization_scope_digest": AUTHORIZATION_SCOPE_DIGEST,
         "mandate_id": "mandate:build-agent-os",
         "mandate_version": 1,
         "mandate_digest": "a" * 64,
@@ -73,6 +94,8 @@ def _candidate(
     ] = "MEMORY",
     tenant_id: str = "tenant:local",
     workspace_id: str = "workspace:local",
+    principal_id: str = "user:local",
+    authorization_scope_digest: str = AUTHORIZATION_SCOPE_DIGEST,
     correction_epoch: int = 0,
     adapter_id: str = "external-state:test",
     adapter_version: int = 1,
@@ -87,6 +110,8 @@ def _candidate(
         source_adapter_version=adapter_version,
         tenant_id=tenant_id,
         workspace_id=workspace_id,
+        principal_id=principal_id,
+        authorization_scope_digest=authorization_scope_digest,
         observed_correction_epoch=correction_epoch,
         media_type="application/json",
         content_digest=hashlib.sha256(payload).hexdigest(),
@@ -95,14 +120,16 @@ def _candidate(
 
 
 class _Adapter:
-    adapter_id = "external-state:test"
-    version = 1
-
     def __init__(
         self,
         candidates: tuple[tuple[ExternalStateCandidateRef, bytes], ...],
         on_load: Callable[[], None] | None = None,
+        *,
+        adapter_id: str = "external-state:test",
+        version: int = 1,
     ) -> None:
+        self.adapter_id = adapter_id
+        self.version = version
         self._candidates = candidates
         self._on_load = on_load
 
@@ -265,3 +292,113 @@ def test_scope_or_correction_drift_fails_before_provider(tmp_path: Path) -> None
         )
 
     assert provider_sink[0].decision_requests == []
+
+
+def test_direct_service_call_cannot_inject_fabricated_working_set(
+    tmp_path: Path,
+) -> None:
+    provider_sink: list[Any] = []
+    app = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        provider_sink=provider_sink,
+    )
+    runtime = app._data_agent_situated_runtime
+    assert runtime is not None
+    bundle = runtime.observe_report(TRACE_ID)
+    receipt = runtime.admit_event(bundle.event.environment_event_id)
+    fabricated = _assembler(_Adapter((_candidate("forged-private-memory"),))).assemble(
+        _request(
+            admission_receipt_id=receipt.receipt_id,
+            admission_receipt_digest=receipt.receipt_digest,
+            relevance_policy_digest=bundle.event.mandate_id.replace(
+                "mandate:build-agent-os", "c" * 64
+            ),
+        )
+    )
+
+    with pytest.raises(TypeError):
+        runtime._steward._proposal_service.propose(
+            bundle.event.environment_event_id,
+            bundle.projection.projection_id,
+            evaluated_at=NOW,
+            working_set=fabricated,
+        )
+    with pytest.raises(SituationalTrustDenied, match="admission receipt"):
+        runtime._steward._proposal_service.propose(
+            bundle.event.environment_event_id,
+            bundle.projection.projection_id,
+            evaluated_at=NOW,
+            admission_receipt_id="event-admission:fabricated",
+        )
+    assert provider_sink[0].decision_requests == []
+
+
+def test_empty_working_sets_from_different_adapter_versions_do_not_collide(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "v1").mkdir()
+    (tmp_path / "v2").mkdir()
+    app_v1 = _situated_app(
+        tmp_path / "v1",
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(_registration(),),
+        external_state_adapters=(_Adapter((), adapter_id="memory", version=1),),
+    )
+    app_v2 = _situated_app(
+        tmp_path / "v2",
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(_registration(),),
+        external_state_adapters=(_Adapter((), adapter_id="memory", version=2),),
+    )
+
+    receipt_v1 = app_v1.propose_authenticated_protocol_envelope(
+        _cloud_event("empty-working-set"), "workload-secret"
+    )
+    receipt_v2 = app_v2.propose_authenticated_protocol_envelope(
+        _cloud_event("empty-working-set"), "workload-secret"
+    )
+
+    assert receipt_v1.receipt_id != receipt_v2.receipt_id
+
+
+def test_private_candidate_requires_exact_principal_and_authorization_scope() -> None:
+    wrong_principal = _candidate("wrong-principal", principal_id="user:other")
+    wrong_authorization = _candidate(
+        "wrong-authorization", authorization_scope_digest="f" * 64
+    )
+
+    working_set = _assembler(
+        _Adapter((wrong_principal, wrong_authorization))
+    ).assemble(_request())
+
+    assert working_set.selected_candidates == ()
+    assert working_set.manifest.excluded_reasons == (
+        "candidate:wrong-authorization:AUTHORIZATION_SCOPE_MISMATCH",
+        "candidate:wrong-principal:PRINCIPAL_MISMATCH",
+    )
+
+
+def test_external_candidate_budgets_fail_closed() -> None:
+    too_many = tuple(
+        _candidate(f"count-{index}")
+        for index in range(core.MAX_TRUSTED_WORKING_SET_CANDIDATES + 1)
+    )
+    with pytest.raises(SituationalTrustDenied, match="budget"):
+        _assembler(_Adapter(too_many)).assemble(_request())
+
+    oversized = _candidate(
+        "oversized",
+        content=b"x" * (core.MAX_EXTERNAL_STATE_CANDIDATE_BYTES + 1),
+    )
+    with pytest.raises(SituationalTrustDenied, match="budget"):
+        _assembler(_Adapter((oversized,))).assemble(_request())
+
+    chunk_size = core.MAX_EXTERNAL_STATE_CANDIDATE_BYTES
+    chunk_count = core.MAX_TRUSTED_WORKING_SET_TOTAL_BYTES // chunk_size + 1
+    excessive_total = tuple(
+        _candidate(f"total-{index}", content=b"x" * chunk_size)
+        for index in range(chunk_count)
+    )
+    with pytest.raises(SituationalTrustDenied, match="budget"):
+        _assembler(_Adapter(excessive_total)).assemble(_request())

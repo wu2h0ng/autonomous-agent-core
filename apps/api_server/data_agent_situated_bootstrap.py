@@ -455,6 +455,11 @@ class DataAgentSituatedBootstrap:
             control=control,
             assessor=assessor,
             principal_id=principal_id,
+            admission_reader=reader,
+            working_set_assembler=TrustedWorkingSetAssembler(
+                adapters=external_state_adapters,
+                selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST,
+            ),
         )
         steward = MandateSteward(
             trust=adapter,
@@ -464,10 +469,6 @@ class DataAgentSituatedBootstrap:
             trace_writer=writer,
             principal_id=principal_id,
             clock=clock,
-            working_set_assembler=TrustedWorkingSetAssembler(
-                adapters=external_state_adapters,
-                selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST,
-            ),
         )
         admission = DataAgentAdmissionFacade._from_composition(
             _AdmissionState(

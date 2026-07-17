@@ -27,7 +27,6 @@ from agent_os_core import (
     ProviderRelevanceAssessor,
     SQLiteTaskEventStore,
     SituationalTrustDenied,
-    situated_input_binding_digest,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.app import AgentOSApplication
@@ -247,13 +246,9 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     assert len(replay_broker.resolved) == 2
     assert len(replay_transport.requests) == 1
     assert replay_provider.decision_requests == []
-    input_digest = situated_input_binding_digest(
-        mandate,
-        _binding(),
-        bundle.event,
-        bundle.projection,
-        policy.assessor_ref(),
-    )
+    assessment = replay_control.assessment(first.relevance_assessment_id)
+    assert assessment is not None
+    input_digest = assessment.input_binding_digest
     persisted = replay_control.record_by_input_binding(input_digest)
     assert persisted is not None
     replay_app.store.close()
@@ -513,15 +508,15 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
     assert len(broker.resolved) == 2
     assert transport.requests == []
     assert len(provider.decision_requests) == 2
+    assessments = tuple(
+        control.assessment(result.relevance_assessment_id)
+        for result in (first_result, second_result)
+    )
+    assert all(assessment is not None for assessment in assessments)
     input_digests = tuple(
-        situated_input_binding_digest(
-            mandate,
-            _binding(),
-            bundle.event,
-            bundle.projection,
-            policy.assessor_ref(),
-        )
-        for bundle in bundles
+        assessment.input_binding_digest
+        for assessment in assessments
+        if assessment is not None
     )
     assert input_digests[0] != input_digests[1]
     records = tuple(control.record_by_input_binding(digest) for digest in input_digests)

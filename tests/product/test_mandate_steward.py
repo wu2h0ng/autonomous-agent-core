@@ -41,6 +41,8 @@ from agent_os_core import (
     InMemorySituationalTrustRegistry,
     MandateSteward,
     OperationalProposalService,
+    TrustedWorkingSetAssembler,
+    WORKING_SET_SELECTION_POLICY_DIGEST,
     SituationalPersistenceConflict,
     SituationalTrustDenied,
     situated_input_binding_digest,
@@ -216,7 +218,7 @@ class _Assessor:
         if self.barrier is not None:
             self.barrier.wait(timeout=3)
         working_set = kwargs.get("working_set")
-        if working_set is None or working_set.receipt.selected_count == 0:
+        if working_set is None:
             return self.assessment
         mandate, binding, event, projection = args
         return self.assessment.model_copy(
@@ -279,13 +281,20 @@ def _case(
         tmp_path / "authority.sqlite3", mandates=(mandate,)
     )
     assessor = _Assessor(disposition)
-    proposal = OperationalProposalService(
-        trust=trust, control=authority, assessor=assessor, principal_id="principal-1"
-    )
     reader, writer = _create_event_admission_store(
         tmp_path / "admission.sqlite3", scope=SCOPE
     )
     writer.persist_receipt(_receipt())
+    proposal = OperationalProposalService(
+        trust=trust,
+        control=authority,
+        assessor=assessor,
+        principal_id="principal-1",
+        admission_reader=reader,
+        working_set_assembler=TrustedWorkingSetAssembler(
+            selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST
+        ),
+    )
     steward = MandateSteward(
         trust=trust,
         authority=authority.scoped_reader(SCOPE),
@@ -593,8 +602,17 @@ def test_return_without_persisted_record_is_rejected_and_restart_reconciles(
         control=authority,
         assessor=assessor,
         principal_id="principal-1",
+        admission_reader=reader,
+        working_set_assembler=TrustedWorkingSetAssembler(
+            selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST
+        ),
     )
-    expected = real.propose("event-1", "projection-1", evaluated_at=NOW)
+    expected = real.propose(
+        "event-1",
+        "projection-1",
+        evaluated_at=NOW,
+        admission_receipt_id=_receipt().receipt_id,
+    )
     steward._proposal_service = real  # type: ignore[attr-defined]
     assert steward.observe_event("event-1", "projection-1", _receipt().receipt_id) == expected
     assert assessor.calls == 1

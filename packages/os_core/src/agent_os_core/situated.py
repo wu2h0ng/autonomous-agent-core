@@ -9,6 +9,7 @@ from agent_os_contracts import (
     ArtifactRef,
     EnvironmentBindingAuthorization,
     EnvironmentEvent,
+    EnvironmentEventAdmissionReceipt,
     EvidenceRef,
     HelpRequest,
     LedgerAccessScope,
@@ -22,6 +23,7 @@ from agent_os_contracts import (
     SituatedAssessmentRecord,
     TaskDraftProposal,
     TrustedWorkingSet,
+    WorkingSetRequest,
     content_digest,
 )
 
@@ -39,6 +41,8 @@ from .situated_persistence import (
     scoped_situated_assessment_reader,
     ScopedSituatedAssessmentReader,
 )
+from .srl_event_store import ScopedEventAdmissionReader
+from .srl_working_set import TrustedWorkingSetAssembler
 
 
 SituationalBinding: TypeAlias = tuple[str, str, str, str, str]
@@ -70,7 +74,6 @@ def situated_input_binding_digest(
             "working_set_selection_receipt": (
                 working_set.receipt.model_dump(mode="json")
                 if working_set is not None
-                and working_set.receipt.selected_count > 0
                 else None
             ),
         }
@@ -450,11 +453,26 @@ class OperationalProposalService:
         control: SituatedAssessmentStore,
         assessor: RelevanceAssessorPort,
         principal_id: str,
+        admission_reader: ScopedEventAdmissionReader | None = None,
+        working_set_assembler: TrustedWorkingSetAssembler | None = None,
     ) -> None:
+        if (admission_reader is None) != (working_set_assembler is None):
+            raise ValueError(
+                "working set authority requires admission reader and assembler"
+            )
+        if (
+            admission_reader is not None
+            and admission_reader.scope.principal_id != principal_id
+        ):
+            raise ValueError("working set admission scope must match principal")
         self._trust = trust
         self._control = control
         self._assessor = assessor
         self._principal_id = principal_id
+        self._admission_reader = admission_reader
+        self._working_set_assembler = working_set_assembler
+        self._working_set_cache: dict[tuple[str, str, str], TrustedWorkingSet] = {}
+        self._working_set_lock = RLock()
         self._compiler = _OperationalProposalCompiler(
             trust,
             principal_id=principal_id,
@@ -466,7 +484,7 @@ class OperationalProposalService:
         projection_id: str,
         *,
         evaluated_at: datetime,
-        working_set: TrustedWorkingSet | None = None,
+        admission_receipt_id: str | None = None,
     ) -> ProposalResult:
         evaluated_at = _OperationalProposalCompiler._utc(evaluated_at)
         event = self._trust.resolve_event(event_id)
@@ -485,8 +503,12 @@ class OperationalProposalService:
         expected_assessor = mandate.relevance_assessor
         if self._assessor.ref != expected_assessor:
             raise SituationalTrustDenied("relevance assessor is not ratified")
-        if working_set is not None:
-            self._validate_working_set(working_set, mandate, event)
+        working_set = self.trusted_working_set(
+            event_id,
+            projection_id,
+            admission_receipt_id=admission_receipt_id,
+            evaluated_at=evaluated_at,
+        )
         input_binding_digest = situated_input_binding_digest(
             mandate,
             binding,
@@ -562,6 +584,118 @@ class OperationalProposalService:
                 evaluated_at=evaluated_at,
             ),
         )
+
+    def trusted_working_set(
+        self,
+        event_id: str,
+        projection_id: str,
+        *,
+        admission_receipt_id: str | None,
+        evaluated_at: datetime,
+    ) -> TrustedWorkingSet | None:
+        """Resolve a working set only from this service's trusted dependencies."""
+
+        if self._admission_reader is None or self._working_set_assembler is None:
+            if admission_receipt_id is not None:
+                raise SituationalTrustDenied(
+                    "working set authority is not configured"
+                )
+            return None
+        if admission_receipt_id is None:
+            raise SituationalTrustDenied("durable admission receipt is required")
+        evaluated_at = _OperationalProposalCompiler._utc(evaluated_at)
+        event = self._trust.resolve_event(event_id)
+        projection = self._trust.resolve_projection(projection_id)
+        if event is None or projection is None:
+            raise SituationalTrustDenied("trusted event or projection is unavailable")
+        self._validate_input_pair(event, projection)
+        mandate, binding = self._control.resolve_active(
+            event.mandate_id,
+            event.environment_binding_id,
+            principal_id=self._principal_id,
+            tenant_id=event.tenant_id,
+            workspace_id=event.workspace_id,
+            evaluated_at=evaluated_at,
+        )
+        receipt = self._admission_reader.by_receipt_id(admission_receipt_id)
+        if receipt is None:
+            raise SituationalTrustDenied("durable admission receipt is unavailable")
+        self._validate_admission_receipt(receipt, event, mandate, binding)
+        authorization_scope_digest = content_digest(
+            {
+                "principal_id": self._principal_id,
+                "tenant_id": event.tenant_id,
+                "workspace_id": event.workspace_id,
+                "mandate_id": mandate.mandate_id,
+                "environment_binding_id": binding.environment_binding_id,
+                "environment_binding_version": binding.version,
+                "environment_binding_digest": binding.binding_digest,
+            }
+        )
+        request_payload = {
+            "principal_id": self._principal_id,
+            "tenant_id": event.tenant_id,
+            "workspace_id": event.workspace_id,
+            "authorization_scope_digest": authorization_scope_digest,
+            "mandate_id": mandate.mandate_id,
+            "mandate_version": mandate.version,
+            "mandate_digest": mandate.mandate_digest,
+            "admission_receipt_id": receipt.receipt_id,
+            "admission_receipt_digest": receipt.receipt_digest,
+            "correction_epoch": mandate.correction_epoch,
+            "relevance_policy_digest": mandate.relevance_assessor.policy_digest,
+            "selection_policy_digest": self._working_set_assembler.selection_policy_digest,
+        }
+        request = WorkingSetRequest(
+            request_id=f"working-set-request:{content_digest(request_payload)}",
+            **request_payload,
+        )
+        cache_key = (event_id, projection_id, request.request_id)
+        with self._working_set_lock:
+            cached = self._working_set_cache.get(cache_key)
+            if cached is not None:
+                self._validate_working_set(cached, mandate, binding, event)
+                return cached
+            working_set = self._working_set_assembler.assemble(request)
+            self._validate_working_set(working_set, mandate, binding, event)
+            current_mandate, current_binding = self._control.resolve_active(
+                event.mandate_id,
+                event.environment_binding_id,
+                principal_id=self._principal_id,
+                tenant_id=event.tenant_id,
+                workspace_id=event.workspace_id,
+                evaluated_at=evaluated_at,
+            )
+            if current_mandate != mandate or current_binding != binding:
+                raise SituationalTrustDenied(
+                    "authority changed during working set selection"
+                )
+            self._working_set_cache[cache_key] = working_set
+            return working_set
+
+    def _validate_admission_receipt(
+        self,
+        receipt: EnvironmentEventAdmissionReceipt,
+        event: EnvironmentEvent,
+        mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
+    ) -> None:
+        exact = (
+            receipt.principal_id == self._principal_id,
+            receipt.tenant_id == event.tenant_id == mandate.tenant_id,
+            receipt.workspace_id == event.workspace_id == mandate.workspace_id,
+            receipt.environment_event_id == event.environment_event_id,
+            receipt.event_digest == content_digest(event),
+            receipt.mandate_id == mandate.mandate_id,
+            receipt.environment_binding_id == binding.environment_binding_id,
+            receipt.environment_binding_version == binding.version,
+            receipt.environment_binding_digest == binding.binding_digest,
+            receipt.correction_epoch == mandate.correction_epoch,
+        )
+        if not all(exact):
+            raise SituationalTrustDenied(
+                "durable admission receipt differs from current authority"
+            )
 
     def _validate_input_pair(
         self,
@@ -670,6 +804,7 @@ class OperationalProposalService:
         self,
         working_set: TrustedWorkingSet,
         mandate: RatifiedMandateRef,
+        binding: EnvironmentBindingAuthorization,
         event: EnvironmentEvent,
     ) -> None:
         request = working_set.request
@@ -677,6 +812,18 @@ class OperationalProposalService:
             request.principal_id == self._principal_id,
             request.tenant_id == event.tenant_id == mandate.tenant_id,
             request.workspace_id == event.workspace_id == mandate.workspace_id,
+            request.authorization_scope_digest
+            == content_digest(
+                {
+                    "principal_id": self._principal_id,
+                    "tenant_id": event.tenant_id,
+                    "workspace_id": event.workspace_id,
+                    "mandate_id": mandate.mandate_id,
+                    "environment_binding_id": binding.environment_binding_id,
+                    "environment_binding_version": binding.version,
+                    "environment_binding_digest": binding.binding_digest,
+                }
+            ),
             request.mandate_id == mandate.mandate_id,
             request.mandate_version == mandate.version,
             request.mandate_digest == mandate.mandate_digest,
@@ -685,6 +832,8 @@ class OperationalProposalService:
             working_set.manifest.principal_id == request.principal_id,
             working_set.manifest.tenant_id == request.tenant_id,
             working_set.manifest.workspace_id == request.workspace_id,
+            working_set.manifest.authorization_scope_digest
+            == request.authorization_scope_digest,
             working_set.manifest.correction_epoch == request.correction_epoch,
             working_set.manifest.selection_policy_digest
             == request.selection_policy_digest,
