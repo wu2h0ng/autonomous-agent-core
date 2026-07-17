@@ -59,12 +59,16 @@ def _partition_rows(
 ) -> tuple[tuple[tuple[float, ...], ...], ...]:
     keys = tuple(row[key_index] for row in rows)
     if len(keys) != len(set(keys)):
-        raise DiscoveryContractError("partition covariate must uniquely identify public rows")
+        raise DiscoveryContractError(
+            "partition covariate must uniquely identify public rows"
+        )
     ordered = tuple(sorted(rows, key=lambda row: row[key_index]))
     return ordered[::2], ordered[1::2]
 
 
-def _signed_standardized_shift(control: tuple[float, ...], treated: tuple[float, ...]) -> float:
+def _signed_standardized_shift(
+    control: tuple[float, ...], treated: tuple[float, ...]
+) -> float:
     if not control or not treated:
         raise DiscoveryContractError("effect calculation requires both samples")
     difference = statistics.mean(treated) - statistics.mean(control)
@@ -109,9 +113,7 @@ def _exact_permutation_null(
             )
         )
     ordered = sorted(nulls)
-    rank = math.ceil(
-        calibration.exact_null_quantile_micros * len(ordered) / _MICROS
-    )
+    rank = math.ceil(calibration.exact_null_quantile_micros * len(ordered) / _MICROS)
     return ordered[max(0, rank - 1)], combination_count
 
 
@@ -137,7 +139,9 @@ def discover(
             )
             if half_effects[0] == 0.0 or half_effects[1] == 0.0:
                 continue
-            if math.copysign(1.0, half_effects[0]) != math.copysign(1.0, half_effects[1]):
+            if math.copysign(1.0, half_effects[0]) != math.copysign(
+                1.0, half_effects[1]
+            ):
                 continue
             null, permutation_count = _exact_permutation_null(
                 dataset.control_rows,
@@ -161,7 +165,9 @@ def discover(
                     "condition_id": condition.condition_id,
                     "source": condition.target,
                     "target": target,
-                    "half_effects_micros": [round(value * _MICROS) for value in half_effects],
+                    "half_effects_micros": [
+                        round(value * _MICROS) for value in half_effects
+                    ],
                     "pooled_effect_micros": round(pooled * _MICROS),
                     "permutation_null_micros": round(null * _MICROS),
                     "exact_permutation_count": permutation_count,

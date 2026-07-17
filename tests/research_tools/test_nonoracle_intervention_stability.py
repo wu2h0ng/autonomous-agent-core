@@ -13,7 +13,9 @@ from research_tools.nonoracle_discovery.mechanism import (
 
 def _dataset() -> InterventionDataset:
     control = tuple((float(index), float(index), 0.0) for index in range(8))
-    stable = tuple((float(index), float(index), 4.0 + 0.1 * (index % 2)) for index in range(8))
+    stable = tuple(
+        (float(index), float(index), 4.0 + 0.1 * (index % 2)) for index in range(8)
+    )
     unstable = tuple(
         (float(index), float(index), 5.0 if index % 2 == 0 else 0.0)
         for index in range(8)
@@ -51,7 +53,10 @@ def test_row_and_condition_order_do_not_change_output() -> None:
             condition.condition_id: tuple(reversed(condition.rows))
             for condition in reversed(dataset.conditions)
         },
-        {condition.condition_id: condition.target for condition in reversed(dataset.conditions)},
+        {
+            condition.condition_id: condition.target
+            for condition in reversed(dataset.conditions)
+        },
     )
 
     assert discover(dataset, _calibration()) == discover(reordered, _calibration())

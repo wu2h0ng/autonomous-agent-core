@@ -51,13 +51,17 @@ effect, stability and provenance digests. It contains no score or verdict.
    target lists.
 3. Cheap baselines consume the identical public view and emit the identical
    hypothesis type:
-   - matched-k observational absolute correlation;
+   - exact-k observational absolute correlation with a frozen, variable-name-
+     independent tie break;
    - fixed-threshold pooled mean shift without stability;
    - finite screen declaring every legal driver-target pair.
 4. A qualification harness uses synthetic fixtures only. A future hidden
    scorer is a separate custody surface and is not invoked by this package.
-5. A freeze-candidate manifest binds exact mechanism files, calibration,
-   baseline definitions and attack-test names. It grants no run authority.
+5. A freeze-candidate manifest binds the complete executable package file set,
+   calibration, baseline definitions and attack-test names. A sealed runner
+   verifies externally supplied exact bindings, copies only those bytes, and
+   runs them under `python -I -S` with a minimal environment. It grants no run
+   authority.
 
 ## Decisive qualification case
 
@@ -70,8 +74,12 @@ both cheap baselines; it is not result evidence.
 
 ## Leakage and shortcut attacks
 
-- The public API has no gold input, and exact source validation rejects truth,
-  scorer, file-I/O and dynamic-import channels.
+- The public API has no gold input. Exact external source binding rejects any
+  changed or additional executable byte before the isolated runner imports it.
+- The runner is not a general Python sandbox and does not claim that arbitrary
+  approved malicious Python cannot perform I/O. Its narrower boundary is:
+  reviewed exact source set, no unbound package file, isolated interpreter,
+  minimal inherited environment and no injected project secrets.
 - A bijective variable-ID rename produces an equivalently renamed output.
 - Row order and within-condition order cannot change output.
 - Removing, duplicating or contradicting intervention metadata fails closed.
@@ -81,6 +89,8 @@ both cheap baselines; it is not result evidence.
   unknown serialized fields.
 - Qualification asserts output changes when public interventional evidence
   changes, preventing a constant or finite-screen implementation from passing.
+- Qualification disposition rejects any missing, extra or wrong hypothesis,
+  non-exact-k comparator, or missing attack/calibration/binding gate.
 
 ## Freeze and claim boundary
 

@@ -68,7 +68,7 @@ def correlation_baseline(
 ) -> tuple[DirectedAncestryHypothesis, ...]:
     if isinstance(k, bool) or not isinstance(k, int) or k <= 0:
         raise ValueError("correlation baseline k must be a positive integer")
-    candidates: list[DirectedAncestryHypothesis] = []
+    candidates: list[tuple[DirectedAncestryHypothesis, str]] = []
     for source_index, source in enumerate(dataset.variable_ids):
         for target_index, target in enumerate(dataset.variable_ids):
             if source_index == target_index:
@@ -79,21 +79,25 @@ def correlation_baseline(
                 correlation = statistics.correlation(source_values, target_values)
             except statistics.StatisticsError:
                 correlation = 0.0
-            candidates.append(
-                _hypothesis(
-                    dataset=dataset,
-                    baseline_id="OBSERVATIONAL_ABS_CORRELATION_MATCHED_K",
-                    source=source,
-                    target=target,
-                    signed_effect_micros=round(correlation * _MICROS),
-                    stability_micros=round(abs(correlation) * _MICROS),
-                )
+            hypothesis = _hypothesis(
+                dataset=dataset,
+                baseline_id="OBSERVATIONAL_ABS_CORRELATION_MATCHED_K",
+                source=source,
+                target=target,
+                signed_effect_micros=round(correlation * _MICROS),
+                stability_micros=round(abs(correlation) * _MICROS),
             )
-    candidates.sort(key=lambda item: -item.stability_micros)
-    if not candidates:
-        return ()
-    cutoff = candidates[min(k, len(candidates)) - 1].stability_micros
-    return tuple(item for item in candidates if item.stability_micros >= cutoff)
+            tie_key = content_digest(
+                "observational-correlation-frozen-tie/v1",
+                {
+                    "control_rows": sorted(dataset.control_rows),
+                    "source_index": source_index,
+                    "target_index": target_index,
+                },
+            )
+            candidates.append((hypothesis, tie_key))
+    candidates.sort(key=lambda item: (-item[0].stability_micros, item[1]))
+    return tuple(item[0] for item in candidates[: min(k, len(candidates))])
 
 
 def pooled_shift_baseline(
@@ -134,7 +138,9 @@ def pooled_shift_baseline(
     return tuple(accepted)
 
 
-def finite_screen_baseline(dataset: InterventionDataset) -> tuple[DirectedAncestryHypothesis, ...]:
+def finite_screen_baseline(
+    dataset: InterventionDataset,
+) -> tuple[DirectedAncestryHypothesis, ...]:
     values: list[DirectedAncestryHypothesis] = []
     for condition in dataset.conditions:
         for target in dataset.variable_ids:

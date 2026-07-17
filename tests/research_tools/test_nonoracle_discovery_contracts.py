@@ -49,8 +49,13 @@ def test_dataset_create_is_closed_immutable_and_digest_stable() -> None:
     [
         (DO_ROWS, {}),
         (DO_ROWS, {"condition-0": "v0", "unknown": "v1"}),
-        ({"condition-0": DO_ROWS["condition-0"], "condition-1": DO_ROWS["condition-0"]},
-         {"condition-0": "v0"}),
+        (
+            {
+                "condition-0": DO_ROWS["condition-0"],
+                "condition-1": DO_ROWS["condition-0"],
+            },
+            {"condition-0": "v0"},
+        ),
     ],
 )
 def test_dataset_rejects_missing_or_extra_binding(rows, bindings) -> None:
@@ -60,7 +65,9 @@ def test_dataset_rejects_missing_or_extra_binding(rows, bindings) -> None:
 
 def test_dataset_rejects_unknown_target_and_invalid_rows() -> None:
     with pytest.raises(DiscoveryContractError, match="target"):
-        InterventionDataset.create(VARIABLES, CONTROL, DO_ROWS, {"condition-0": "missing"})
+        InterventionDataset.create(
+            VARIABLES, CONTROL, DO_ROWS, {"condition-0": "missing"}
+        )
     with pytest.raises(DiscoveryContractError, match="finite"):
         InterventionDataset.create(
             VARIABLES,

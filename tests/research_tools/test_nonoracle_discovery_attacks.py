@@ -23,19 +23,26 @@ CALIBRATION = StabilityCalibration(
 )
 
 
-def _semantic(values: tuple[DirectedAncestryHypothesis, ...]) -> tuple[tuple[object, ...], ...]:
+def _semantic(
+    values: tuple[DirectedAncestryHypothesis, ...],
+) -> tuple[tuple[object, ...], ...]:
     return tuple(
         (item.source, item.target, item.signed_effect_micros, item.stability_micros)
         for item in values
     )
 
 
-def _rename_dataset(dataset: InterventionDataset, mapping: dict[str, str]) -> InterventionDataset:
+def _rename_dataset(
+    dataset: InterventionDataset, mapping: dict[str, str]
+) -> InterventionDataset:
     return InterventionDataset.create(
         tuple(mapping[item] for item in dataset.variable_ids),
         dataset.control_rows,
         {condition.condition_id: condition.rows for condition in dataset.conditions},
-        {condition.condition_id: mapping[condition.target] for condition in dataset.conditions},
+        {
+            condition.condition_id: mapping[condition.target]
+            for condition in dataset.conditions
+        },
     )
 
 
@@ -78,10 +85,14 @@ def test_variable_rename_is_semantically_equivariant() -> None:
     assert _rename_semantic(original, mapping) == _semantic(renamed)
 
 
-def test_missing_duplicate_or_contradictory_intervention_metadata_fails_closed() -> None:
+def test_missing_duplicate_or_contradictory_intervention_metadata_fails_closed() -> (
+    None
+):
     dataset = confounded_indirect_fixture().dataset
     rows = {condition.condition_id: condition.rows for condition in dataset.conditions}
-    bindings = {condition.condition_id: condition.target for condition in dataset.conditions}
+    bindings = {
+        condition.condition_id: condition.target for condition in dataset.conditions
+    }
     with pytest.raises(DiscoveryContractError, match="binding"):
         InterventionDataset.create(dataset.variable_ids, dataset.control_rows, rows, {})
     with pytest.raises(DiscoveryContractError, match="unique target"):
@@ -105,8 +116,14 @@ def test_variable_identifiers_must_be_opaque(identifier: str) -> None:
         InterventionDataset.create(
             (identifier, "v1", "v2"),
             dataset.control_rows,
-            {condition.condition_id: condition.rows for condition in dataset.conditions},
-            {condition.condition_id: condition.target for condition in dataset.conditions},
+            {
+                condition.condition_id: condition.rows
+                for condition in dataset.conditions
+            },
+            {
+                condition.condition_id: condition.target
+                for condition in dataset.conditions
+            },
         )
 
 
@@ -119,7 +136,19 @@ def test_public_source_has_no_real_truth_or_scorer_import() -> None:
         "scoring_referee",
         "hidden_scoring",
     }
-    prohibited_literals = {"Raf", "Mek", "Plcg", "PIP2", "PIP3", "Erk", "Akt", "PKA", "PKC", "P38", "Jnk"}
+    prohibited_literals = {
+        "Raf",
+        "Mek",
+        "Plcg",
+        "PIP2",
+        "PIP3",
+        "Erk",
+        "Akt",
+        "PKA",
+        "PKC",
+        "P38",
+        "Jnk",
+    }
     for path in package.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -131,13 +160,17 @@ def test_public_source_has_no_real_truth_or_scorer_import() -> None:
         }
         assert not prohibited_names.intersection(source.split())
         assert not any(name in source for name in prohibited_literals)
-        assert not any(any(token in imported for token in prohibited_names) for imported in imports)
+        assert not any(
+            any(token in imported for token in prohibited_names) for imported in imports
+        )
 
 
 def test_public_evidence_change_changes_mechanism_output() -> None:
     dataset = confounded_indirect_fixture().dataset
     rows = {condition.condition_id: condition.rows for condition in dataset.conditions}
-    bindings = {condition.condition_id: condition.target for condition in dataset.conditions}
+    bindings = {
+        condition.condition_id: condition.target for condition in dataset.conditions
+    }
     rows["c0"] = dataset.control_rows
     changed = InterventionDataset.create(
         dataset.variable_ids,
@@ -158,4 +191,6 @@ def test_output_cannot_carry_opaque_predictor_or_codec_state() -> None:
         "stability_micros",
         "evidence_digest",
     }
-    assert not fields.intersection({"weights", "embedding", "codec", "payload", "prediction"})
+    assert not fields.intersection(
+        {"weights", "embedding", "codec", "payload", "prediction"}
+    )

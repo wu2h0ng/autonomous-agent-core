@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .baselines import correlation_baseline, finite_screen_baseline, pooled_shift_baseline
+from .baselines import (
+    correlation_baseline,
+    finite_screen_baseline,
+    pooled_shift_baseline,
+)
 from .contracts import InterventionDataset, content_digest
 from .mechanism import StabilityCalibration, discover
 
@@ -40,12 +44,45 @@ class QualificationArmScore:
     f1_micros: int
 
 
+@dataclass(frozen=True, slots=True)
+class QualificationDisposition:
+    status: str
+    reasons: tuple[str, ...]
+
+
+def adjudicate_qualification(
+    *,
+    mechanism_pairs: set[tuple[str, str]],
+    expected: set[tuple[str, str]],
+    matched_k: int,
+    baseline_count: int,
+    attack_gate_passed: bool,
+    calibration_gate_passed: bool,
+    binding_gate_passed: bool,
+) -> QualificationDisposition:
+    reasons: list[str] = []
+    if mechanism_pairs != expected:
+        reasons.append("MECHANISM_HYPOTHESES_NOT_EXACT")
+    if baseline_count != matched_k:
+        reasons.append("BASELINE_NOT_EXACT_K")
+    if not attack_gate_passed:
+        reasons.append("ATTACK_GATE_NOT_PASSED")
+    if not calibration_gate_passed:
+        reasons.append("CALIBRATION_GATE_NOT_PASSED")
+    if not binding_gate_passed:
+        reasons.append("BINDING_GATE_NOT_PASSED")
+    return QualificationDisposition(
+        "QUALIFIED" if not reasons else "REJECT", tuple(reasons)
+    )
+
+
 def confounded_indirect_fixture() -> SyntheticQualificationFixture:
     source_keys = (0.0, 7.0, 1.0, 6.0, 2.0, 5.0, 3.0, 4.0)
-    control = tuple((source_keys[index], float(index), float(index)) for index in range(8))
+    control = tuple(
+        (source_keys[index], float(index), float(index)) for index in range(8)
+    )
     stable = tuple(
-        (float(index), float(index), 8.0 + 0.1 * (index % 2))
-        for index in range(8)
+        (float(index), float(index), 8.0 + 0.1 * (index % 2)) for index in range(8)
     )
     unstable = tuple(
         (
@@ -83,7 +120,9 @@ def _score_arm(
     false_positives = len(hypotheses - expected)
     false_negatives = len(expected - hypotheses)
     denominator = 2 * true_positives + false_positives + false_negatives
-    f1_micros = 0 if denominator == 0 else round(2 * true_positives * 1_000_000 / denominator)
+    f1_micros = (
+        0 if denominator == 0 else round(2 * true_positives * 1_000_000 / denominator)
+    )
     return QualificationArmScore(
         arm_id=arm_id,
         hypotheses=tuple(sorted(hypotheses)),
@@ -121,9 +160,12 @@ def run_synthetic_qualification() -> QualificationReceipt:
         "public_view_digest": fixture.dataset.public_view_digest,
         "calibration_digest": calibration.digest,
         "mechanism_recovers_true_relation": fixture.true_relation in mechanism_pairs,
-        "correlation_selects_confounded_relation": fixture.confounded_relation in correlation_pairs,
-        "pooled_shift_selects_unstable_artifact": fixture.unstable_artifact_relation in pooled_pairs,
-        "mechanism_rejects_unstable_artifact": fixture.unstable_artifact_relation not in mechanism_pairs,
+        "correlation_selects_confounded_relation": fixture.confounded_relation
+        in correlation_pairs,
+        "pooled_shift_selects_unstable_artifact": fixture.unstable_artifact_relation
+        in pooled_pairs,
+        "mechanism_rejects_unstable_artifact": fixture.unstable_artifact_relation
+        not in mechanism_pairs,
         "expected_hypotheses": tuple(sorted(expected)),
         "mechanism_hypotheses": tuple(sorted(mechanism_pairs)),
         "arm_scores": arm_scores,
@@ -144,5 +186,7 @@ def run_synthetic_qualification() -> QualificationReceipt:
     }
     return QualificationReceipt(
         **values,
-        receipt_digest=content_digest("nonoracle-synthetic-qualification/v1", digest_values),
+        receipt_digest=content_digest(
+            "nonoracle-synthetic-qualification/v1", digest_values
+        ),
     )

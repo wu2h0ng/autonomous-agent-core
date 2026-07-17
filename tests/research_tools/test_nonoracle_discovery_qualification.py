@@ -40,15 +40,21 @@ def test_all_baselines_share_public_view_and_hypothesis_contract() -> None:
         finite_screen_baseline(fixture.dataset),
     )
 
-    assert all(all(isinstance(item, DirectedAncestryHypothesis) for item in arm) for arm in arms)
+    assert all(
+        all(isinstance(item, DirectedAncestryHypothesis) for item in arm)
+        for arm in arms
+    )
     assert all(arm for arm in arms)
-    assert len(arms[2]) == len(fixture.dataset.conditions) * (len(fixture.dataset.variable_ids) - 1)
+    assert len(arms[2]) == len(fixture.dataset.conditions) * (
+        len(fixture.dataset.variable_ids) - 1
+    )
 
 
 def test_correlation_and_pooled_shift_fail_in_declared_distinct_ways() -> None:
     fixture = confounded_indirect_fixture()
     correlation_pairs = {
-        (item.source, item.target) for item in correlation_baseline(fixture.dataset, k=1)
+        (item.source, item.target)
+        for item in correlation_baseline(fixture.dataset, k=1)
     }
     pooled_pairs = {
         (item.source, item.target)
@@ -63,13 +69,71 @@ def test_correlation_and_pooled_shift_fail_in_declared_distinct_ways() -> None:
 def test_matched_k_correlation_is_tie_inclusive_not_name_selected() -> None:
     fixture = confounded_indirect_fixture()
     values = correlation_baseline(fixture.dataset, k=1)
-    cutoff = values[0].stability_micros
-
-    assert all(item.stability_micros >= cutoff for item in values)
-    assert len(values) > 1
+    assert len(values) == 1
 
 
-def test_qualification_receipt_is_deterministic_and_contains_no_result_verdict() -> None:
+def test_extra_or_wrong_mechanism_hypothesis_fails_disposition() -> None:
+    from research_tools.nonoracle_discovery.qualification import (
+        adjudicate_qualification,
+    )
+
+    receipt = run_synthetic_qualification()
+    expected = set(receipt.expected_hypotheses)
+    assert (
+        adjudicate_qualification(
+            mechanism_pairs=expected | {("v1", "v0")},
+            expected=expected,
+            matched_k=1,
+            baseline_count=1,
+            attack_gate_passed=True,
+            calibration_gate_passed=True,
+            binding_gate_passed=True,
+        ).status
+        == "REJECT"
+    )
+    assert (
+        adjudicate_qualification(
+            mechanism_pairs={("v1", "v0")},
+            expected=expected,
+            matched_k=1,
+            baseline_count=1,
+            attack_gate_passed=True,
+            calibration_gate_passed=True,
+            binding_gate_passed=True,
+        ).status
+        == "REJECT"
+    )
+
+
+def test_missing_fairness_attack_calibration_or_binding_gate_fails_disposition() -> (
+    None
+):
+    from research_tools.nonoracle_discovery.qualification import (
+        adjudicate_qualification,
+    )
+
+    common = {
+        "mechanism_pairs": {("v0", "v2")},
+        "expected": {("v0", "v2")},
+        "matched_k": 1,
+        "baseline_count": 1,
+        "attack_gate_passed": True,
+        "calibration_gate_passed": True,
+        "binding_gate_passed": True,
+    }
+    for changed in (
+        {"baseline_count": 2},
+        {"attack_gate_passed": False},
+        {"calibration_gate_passed": False},
+        {"binding_gate_passed": False},
+    ):
+        assert adjudicate_qualification(**(common | changed)).status == "REJECT"
+    assert adjudicate_qualification(**common).status == "QUALIFIED"
+
+
+def test_qualification_receipt_is_deterministic_and_contains_no_result_verdict() -> (
+    None
+):
     first = run_synthetic_qualification()
     second = run_synthetic_qualification()
 

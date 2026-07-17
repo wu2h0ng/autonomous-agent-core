@@ -45,7 +45,9 @@ def _row(value: Sequence[object], width: int, field: str) -> tuple[float, ...]:
     return tuple(converted)
 
 
-def _rows(value: Sequence[Sequence[object]], width: int, field: str) -> tuple[tuple[float, ...], ...]:
+def _rows(
+    value: Sequence[Sequence[object]], width: int, field: str
+) -> tuple[tuple[float, ...], ...]:
     if isinstance(value, (str, bytes)) or len(value) < 4:
         raise DiscoveryContractError(f"{field} requires at least four rows")
     return tuple(_row(row, width, field) for row in value)
@@ -62,7 +64,9 @@ def canonical_bytes(value: object) -> bytes:
 
 
 def content_digest(label: str, value: object) -> str:
-    return hashlib.sha256(label.encode("utf-8") + b"\x00" + canonical_bytes(value)).hexdigest()
+    return hashlib.sha256(
+        label.encode("utf-8") + b"\x00" + canonical_bytes(value)
+    ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,11 +103,17 @@ class InterventionDataset:
                 "variable ids must use opaque lower-letter-plus-digits identifiers"
             )
         if len(variables) < 2 or len(variables) != len(set(variables)):
-            raise DiscoveryContractError("variable ids must be at least two unique names")
+            raise DiscoveryContractError(
+                "variable ids must be at least two unique names"
+            )
         if set(intervention_rows) != set(intervention_targets):
-            raise DiscoveryContractError("intervention rows and binding identities must match")
+            raise DiscoveryContractError(
+                "intervention rows and binding identities must match"
+            )
         if not intervention_rows:
-            raise DiscoveryContractError("at least one intervention binding is required")
+            raise DiscoveryContractError(
+                "at least one intervention binding is required"
+            )
         target_values = tuple(intervention_targets.values())
         if len(target_values) != len(set(target_values)):
             raise DiscoveryContractError(
@@ -116,12 +126,18 @@ class InterventionDataset:
             condition = _name(condition_id, "condition id")
             target = _name(intervention_targets[condition_id], "intervention target")
             if target not in variables:
-                raise DiscoveryContractError("intervention target is not a declared variable")
+                raise DiscoveryContractError(
+                    "intervention target is not a declared variable"
+                )
             conditions.append(
                 InterventionCondition(
                     condition,
                     target,
-                    _rows(intervention_rows[condition_id], width, f"intervention {condition}"),
+                    _rows(
+                        intervention_rows[condition_id],
+                        width,
+                        f"intervention {condition}",
+                    ),
                 )
             )
         return cls(variables, controls, tuple(conditions))
@@ -146,10 +162,14 @@ class InterventionDataset:
             _closed(item, frozenset({"condition_id", "target", "rows"}), "condition")
             condition_id = _name(item["condition_id"], "condition id")
             if condition_id in row_map:
-                raise DiscoveryContractError("condition binding identities must be unique")
+                raise DiscoveryContractError(
+                    "condition binding identities must be unique"
+                )
             row_map[condition_id] = item["rows"]
             binding_map[condition_id] = item["target"]
-        return cls.create(raw["variable_ids"], raw["control_rows"], row_map, binding_map)  # type: ignore[arg-type]
+        return cls.create(
+            raw["variable_ids"], raw["control_rows"], row_map, binding_map
+        )  # type: ignore[arg-type]
 
     def condition(self, condition_id: str) -> InterventionCondition:
         for condition in self.conditions:
@@ -195,13 +215,22 @@ class DirectedAncestryHypothesis:
                 raise DiscoveryContractError(f"{field} must be an integer")
         if self.stability_micros < 0:
             raise DiscoveryContractError("stability must be non-negative")
-        if not isinstance(self.evidence_digest, str) or _DIGEST.fullmatch(self.evidence_digest) is None:
+        if (
+            not isinstance(self.evidence_digest, str)
+            or _DIGEST.fullmatch(self.evidence_digest) is None
+        ):
             raise DiscoveryContractError("evidence digest must be lowercase SHA-256")
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> DirectedAncestryHypothesis:
         fields = frozenset(
-            {"source", "target", "signed_effect_micros", "stability_micros", "evidence_digest"}
+            {
+                "source",
+                "target",
+                "signed_effect_micros",
+                "stability_micros",
+                "evidence_digest",
+            }
         )
         _closed(raw, fields, "directed ancestry hypothesis")
         return cls(**raw)
