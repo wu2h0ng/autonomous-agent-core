@@ -49,6 +49,7 @@ class ArmId(str, Enum):
 
 @dataclass(frozen=True)
 class UnitCustodyReceipt:
+    """Local byte-integrity receipt; not independent freezer custody."""
     unit_id: str
     public_state_digest: str
     public_manifest_root_digest: str
@@ -70,7 +71,7 @@ class UnitCustodyReceipt:
 
 
 class TrustedFrozenUnitLoader:
-    """Load and MAC an exact-byte unit; no public constructor grants custody."""
+    """Load and MAC exact local bytes; this is not independent freeze custody."""
 
     _MANIFEST_KEYS = frozenset(
         {
@@ -352,6 +353,7 @@ class DeterministicProviderUsageProbe:
 
 @dataclass(frozen=True)
 class UsageReceipt:
+    """Local probe-delta integrity only, not independent cost or usage truth."""
     probe_digest: str
     before_snapshot_digest: str
     after_snapshot_digest: str
@@ -402,6 +404,7 @@ class EffectFreeSandboxGate:
 
 @dataclass(frozen=True)
 class OperatorBurdenReceipt:
+    """Locally provenance-bound annotation, not independently adjudicated HCW."""
     unit_id: str
     rater_id: str
     transcript_digest: str
@@ -516,6 +519,7 @@ class ScorerIsolation(str, Enum):
 
 @dataclass(frozen=True)
 class ScoredDecisionReceipt:
+    """Port-binding integrity; independent scoring needs subprocess custody."""
     slot_token: str
     custody_token: str
     scorer_process_digest: str
@@ -569,6 +573,11 @@ class EvaluationReport:
     metrics: Mapping[ArmId, ArmMetrics]
     admissible: bool
     inadmissible_reasons: tuple[str, ...]
+    execution_mode: EvaluationExecutionMode
+
+
+class EvaluationExecutionMode(str, Enum):
+    TEST_ONLY_IN_PROCESS = "TEST_ONLY_IN_PROCESS"
 
 
 @dataclass(frozen=True)
@@ -586,7 +595,7 @@ class NormalizedDecision:
 
 @dataclass(frozen=True)
 class BlindedDecision:
-    """Opaque scorer input; the arm-to-slot mapping stays inside the harness."""
+    """Local metadata minimization; not independent scorer blindness proof."""
 
     slot_token: str
     normalized_digest: str
@@ -810,6 +819,7 @@ class MatchedBudgetLedger:
 
 @dataclass(frozen=True)
 class SrlCompositionBindingReceipt:
+    """Local exact-object binding checked before and after each SRL decision."""
     application_digest: str
     steward_digest: str
     admission_receipt_id: str
@@ -860,6 +870,7 @@ class SrlCompositionBindingVerifier:
             "steward_digest": content_digest(
                 {
                     "type": f"{type(steward).__module__}.{type(steward).__qualname__}",
+                    "local_object_identity": id(steward),
                     "principal_id": scope.principal_id,
                     "tenant_id": scope.tenant_id,
                     "workspace_id": scope.workspace_id,
@@ -878,6 +889,22 @@ class SrlCompositionBindingVerifier:
             content_digest=content_digest(payload),
         )
 
+    @classmethod
+    def verify(
+        cls,
+        *,
+        application: AgentOSApplication,
+        admission_receipt: EnvironmentEventAdmissionReceipt,
+        expected: SrlCompositionBindingReceipt,
+    ) -> SrlCompositionBindingReceipt:
+        current = cls.bind(
+            application=application,
+            admission_receipt=admission_receipt,
+        )
+        if current != expected:
+            raise ValueError("SRL composition identity changed")
+        return current
+
 
 class SituatedStewardController:
     """Evaluation wrapper over the real proposal-only Product entry point."""
@@ -891,6 +918,7 @@ class SituatedStewardController:
         if not isinstance(application, AgentOSApplication):
             raise TypeError("application must be a real AgentOSApplication")
         self._application = application
+        self._admission_receipt = admission_receipt
         self.composition_receipt = SrlCompositionBindingVerifier.bind(
             application=application,
             admission_receipt=admission_receipt,
@@ -902,6 +930,11 @@ class SituatedStewardController:
     def decide(
         self, unit: FrozenEvaluationUnit
     ) -> DecisionCandidate:
+        SrlCompositionBindingVerifier.verify(
+            application=self._application,
+            admission_receipt=self._admission_receipt,
+            expected=self.composition_receipt,
+        )
         custody = unit.custody_receipt
         if custody is None:
             raise ValueError("SRL controller requires trusted unit custody")
@@ -921,6 +954,11 @@ class SituatedStewardController:
             unit.event_id,
             unit.projection_id,
             unit.admission_receipt_id,
+        )
+        SrlCompositionBindingVerifier.verify(
+            application=self._application,
+            admission_receipt=self._admission_receipt,
+            expected=self.composition_receipt,
         )
         payload = self._candidate_payload(unit, proposal)
         payload["candidate_digest"] = decision_candidate_digest(payload)
@@ -1028,6 +1066,21 @@ class SrlE2EFalsifierHarness:
         *,
         burdens: Mapping[ArmId, OperatorBurdenReceipt],
     ) -> EvaluationReport:
+        """Public result path; unavailable until exact subprocess custody exists."""
+
+        raise RuntimeError(
+            "independent subprocess custody adapter is not implemented; "
+            "public evaluation is fail-closed"
+        )
+
+    def _evaluate_test_only_in_process(
+        self,
+        unit: FrozenEvaluationUnit,
+        *,
+        burdens: Mapping[ArmId, OperatorBurdenReceipt],
+    ) -> EvaluationReport:
+        """Local integrity exercise only; never independent evidence or a result run."""
+
         custody = self._unit_loader.verify(unit)
         if set(burdens) != set(ArmId):
             raise ValueError("operator burden is required for every arm")
@@ -1203,6 +1256,7 @@ class SrlE2EFalsifierHarness:
             metrics=dict(metrics),
             admissible=not inadmissible_reasons,
             inadmissible_reasons=tuple(inadmissible_reasons),
+            execution_mode=EvaluationExecutionMode.TEST_ONLY_IN_PROCESS,
         )
 
 
@@ -1218,6 +1272,7 @@ __all__ = [
     "DeterministicProviderUsageProbe",
     "EffectFreeSandboxGate",
     "EffectFreeSandboxReceipt",
+    "EvaluationExecutionMode",
     "EvaluationReport",
     "FrozenEvaluationUnit",
     "HiddenScore",

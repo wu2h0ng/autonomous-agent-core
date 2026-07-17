@@ -41,6 +41,7 @@ from product_evals.srl_e2e_falsifier.harness import (
     ControllerBindingConfig,
     DeterministicProviderUsageProbe,
     EffectFreeSandboxGate,
+    EvaluationExecutionMode,
     FrozenEvaluationUnit,
     HiddenScore,
     HiddenScorerPort,
@@ -206,6 +207,21 @@ class _SilentController:
     def decide(self, unit: FrozenEvaluationUnit) -> DecisionCandidate:
         assert unit.public_state.state_digest == self.candidate.public_state_digest
         return self.candidate
+
+
+class _ExternalMarkerController(_Controller):
+    def __init__(
+        self,
+        candidate: DecisionCandidate,
+        probe: _Probe,
+        marker: list[str],
+    ) -> None:
+        super().__init__(candidate, probe)
+        self.marker = marker
+
+    def decide(self, unit: FrozenEvaluationUnit) -> DecisionCandidate:
+        self.marker.append("controller-called")
+        return super().decide(unit)
 
 
 class _TamperedBindingRunner(MeteredControllerRunner):
@@ -426,7 +442,7 @@ def test_harness_seals_three_matched_arms_before_hidden_scoring(
         unit_loader=loader,
     )
 
-    report = harness.evaluate_unit(
+    report = harness._evaluate_test_only_in_process(
         unit,
         burdens={
             arm: seal_operator_burden(
@@ -472,6 +488,7 @@ def test_harness_seals_three_matched_arms_before_hidden_scoring(
     )
     assert len(provider.decision_requests) == 1
     assert report.admissible is False
+    assert report.execution_mode is EvaluationExecutionMode.TEST_ONLY_IN_PROCESS
     assert "SCORER_NOT_INDEPENDENT_PROCESS" in report.inadmissible_reasons
 
 
@@ -604,8 +621,80 @@ def test_harness_rejects_controller_binding_receipt_drift_before_scoring(
     }
 
     with pytest.raises(ValueError, match="controller binding receipt"):
-        harness.evaluate_unit(unit, burdens=burdens)
+        harness._evaluate_test_only_in_process(unit, burdens=burdens)
     assert scorer.calls == []
+
+
+def test_public_evaluate_fails_before_any_controller_or_provider_call(
+    tmp_path: Path,
+) -> None:
+    srl, unit, provider, loader = _real_srl_controller(tmp_path)
+    candidate = _candidate(unit.public_state, candidate_id="baseline")
+    direct_probe = _Probe()
+    workflow_probe = _Probe()
+    external_marker: list[str] = []
+    harness = SrlE2EFalsifierHarness(
+        runners={
+            ArmId.DIRECT: _runner(
+                _ExternalMarkerController(candidate, direct_probe, external_marker),
+                direct_probe,
+                baseline=True,
+            ),
+            ArmId.WORKFLOW: _runner(
+                _Controller(candidate, workflow_probe), workflow_probe, baseline=True
+            ),
+            ArmId.SRL: srl,
+        },
+        hidden_scorer=_Scorer(),
+        budget_ledger=MatchedBudgetLedger(),
+        blinding_nonce_digest="c" * 64,
+        unit_loader=loader,
+    )
+    burden = seal_operator_burden(
+        unit_id=unit.unit_id,
+        rater_id="blind-rater-1",
+        transcript_digest="7" * 64,
+        window_started_at=NOW,
+        window_ended_at=NOW,
+        hcw_minutes=1.0,
+        auth_minutes=0.0,
+        help_minutes=0.0,
+        help_count=0,
+        latency_ms=1,
+    )
+
+    with pytest.raises(RuntimeError, match="independent subprocess custody"):
+        harness.evaluate_unit(unit, burdens={arm: burden for arm in ArmId})
+    assert direct_probe.calls == 0
+    assert workflow_probe.calls == 0
+    assert external_marker == []
+    assert provider.decision_requests == []
+
+
+def test_srl_controller_rechecks_exact_steward_identity_after_call(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runner, unit, provider, _ = _real_srl_controller(tmp_path)
+    controller = runner.controller
+    assert isinstance(controller, SituatedStewardController)
+    application = controller._application
+    original = application.propose_situated_work
+
+    def swap_after_call(
+        event_id: str,
+        projection_id: str,
+        admission_receipt_id: str,
+    ) -> object:
+        result = original(event_id, projection_id, admission_receipt_id)
+        application._mandate_steward = object()  # type: ignore[assignment]
+        return result
+
+    monkeypatch.setattr(application, "propose_situated_work", swap_after_call)
+
+    with pytest.raises(TypeError, match="concrete MandateSteward"):
+        runner.run(unit)
+    assert len(provider.decision_requests) == 1
 
 
 def test_metered_runner_rejects_controller_without_observable_usage(
@@ -715,5 +804,7 @@ def test_operator_burden_receipt_drift_fails_before_any_controller(
     )
 
     with pytest.raises(ValueError, match="burden receipt provenance"):
-        harness.evaluate_unit(unit, burdens={arm: forged for arm in ArmId})
+        harness._evaluate_test_only_in_process(
+            unit, burdens={arm: forged for arm in ArmId}
+        )
     assert all(probe.calls == 0 for probe in probes.values())
