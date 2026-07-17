@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import hashlib
+import json
 import sqlite3
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +21,7 @@ from agent_os_core import (
 )
 from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
 from apps.api_server.data_agent_situated_bootstrap import DataAgentAdmissionFacade
+from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedRuntime
 from agent_os_core import MandateSteward
 from tests.product.test_data_agent_situated_http import TRACE_ID, _situated_app
 
@@ -122,13 +124,17 @@ def _admission_count(tmp_path: Path) -> int:
     if not database.exists():
         return 0
     with sqlite3.connect(database) as connection:
-        tables = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%receipt%'"
-        ).fetchall()
-        return sum(
-            connection.execute(f'SELECT COUNT(*) FROM "{name}"').fetchone()[0]
-            for (name,) in tables
-        )
+        exists = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='srl_event_admission_receipts'
+            """
+        ).fetchone()
+        if exists is None:
+            return 0
+        return connection.execute(
+            "SELECT COUNT(*) FROM srl_event_admission_receipts"
+        ).fetchone()[0]
 
 
 def test_authenticated_envelope_uses_real_situated_chain(tmp_path: Path) -> None:
@@ -296,7 +302,8 @@ def test_exact_replay_survives_restart_and_binds_durable_auth_chain(
             """
             SELECT principal_id, tenant_id, workspace_id, source_binding_id,
                    protocol, protocol_message_id, envelope_digest,
-                   authorization_digest, receipt_json
+                   authorization_digest, binding_digest, admission_receipt_id,
+                   outcome_kind, receipt_digest, receipt_json
             FROM protocol_ingress_receipts
             """
         ).fetchone()
@@ -311,7 +318,23 @@ def test_exact_replay_survives_restart_and_binds_durable_auth_chain(
     )
     assert row[6] == first.envelope_digest
     assert row[7] == first.source_binding_authorization_digest
-    assert contracts.ProtocolIngressReceipt.model_validate_json(row[8]) == first
+    assert row[8] == first.binding_digest
+    assert row[9] == first.admission_receipt_id
+    assert row[10] == first.outcome_kind
+    assert row[11] == first.receipt_digest
+    assert contracts.ProtocolIngressReceipt.model_validate_json(row[12]) == first
+    assert first.receipt_id == f"protocol-ingress:{first.receipt_digest}"
+    assert (
+        first.principal_id,
+        first.tenant_id,
+        first.workspace_id,
+        first.source_binding_id,
+    ) == (
+        "user:local",
+        "tenant:local",
+        "workspace:local",
+        "binding:data-agent-reports",
+    )
 
 
 def test_same_scoped_protocol_id_digest_drift_is_typed_conflict_without_admission(
@@ -343,12 +366,21 @@ def test_same_scoped_protocol_id_digest_drift_is_typed_conflict_without_admissio
     assert _admission_count(tmp_path) == before
 
 
+_IDENTITY_MATRIX = {
+    "PrincipalRef": ("principal_id", "user:local"),
+    "ActorRef": ("actor_id", "service:data-agent"),
+    "WorkloadRef": ("workload_id", "workload:data-agent-report-ingress"),
+    "DelegationRef": ("delegation_id", "delegation:data-agent-report-ingress"),
+}
+
+
 @pytest.mark.parametrize(
     ("contract_name", "field", "replacement"),
     [
-        ("ActorRef", "actor_id", "workload:data-agent-report-ingress"),
-        ("WorkloadRef", "workload_id", "service:data-agent"),
-        ("DelegationRef", "delegation_id", "service:data-agent"),
+        (target, _IDENTITY_MATRIX[target][0], _IDENTITY_MATRIX[source][1])
+        for target in _IDENTITY_MATRIX
+        for source in _IDENTITY_MATRIX
+        if target != source
     ],
 )
 def test_identity_kinds_cannot_be_replaced_or_aliased(
@@ -363,6 +395,84 @@ def test_identity_kinds_cannot_be_replaced_or_aliased(
 
     with pytest.raises(ValidationError):
         getattr(contracts, contract_name).model_validate(payload)
+
+
+def test_durable_receipt_json_tamper_fails_closed(tmp_path: Path) -> None:
+    registration = _registration()
+    app = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(registration,),
+    )
+    app.propose_authenticated_protocol_envelope(
+        _cloud_event("tamper-receipt"), "workload-secret"
+    )
+    database = tmp_path / "agent-os.sqlite3.admission.sqlite3"
+    with sqlite3.connect(database) as connection:
+        raw = connection.execute(
+            "SELECT receipt_json FROM protocol_ingress_receipts"
+        ).fetchone()[0]
+        payload = json.loads(raw)
+        payload["admission_receipt_id"] = "event-admission:tampered"
+        connection.execute(
+            "UPDATE protocol_ingress_receipts SET receipt_json = ?",
+            (json.dumps(payload, sort_keys=True, separators=(",", ":")),),
+        )
+
+    restarted = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(registration,),
+    )
+    with pytest.raises(core.ProtocolIngressConflict):
+        restarted.propose_authenticated_protocol_envelope(
+            _cloud_event("tamper-receipt"), "workload-secret"
+        )
+
+
+def test_post_admission_failure_keeps_binding_and_drift_never_reuses_id(
+    tmp_path: Path,
+) -> None:
+    registration = _registration()
+    app = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(registration,),
+    )
+    envelope = _cloud_event("post-admission-failure")
+    with (
+        patch.object(
+            DataAgentSituatedRuntime,
+            "propose",
+            side_effect=RuntimeError("injected post-admission failure"),
+        ),
+        pytest.raises(RuntimeError, match="post-admission failure"),
+    ):
+        app.propose_authenticated_protocol_envelope(envelope, "workload-secret")
+
+    assert _admission_count(tmp_path) == 1
+    database = tmp_path / "agent-os.sqlite3.admission.sqlite3"
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            """
+            SELECT status, envelope_digest
+            FROM protocol_ingress_receipts
+            WHERE protocol_message_id = 'post-admission-failure'
+            """
+        ).fetchone()
+    assert row == ("FAILED", EventEnvelopeAdapter.parse(envelope).envelope_digest)
+
+    drifted = dict(envelope)
+    drifted["extension"] = "must-conflict-forever"
+    with pytest.raises(core.ProtocolIngressConflict):
+        app.propose_authenticated_protocol_envelope(drifted, "workload-secret")
+    assert _admission_count(tmp_path) == 1
+
+    recovered = app.propose_authenticated_protocol_envelope(
+        envelope, "workload-secret"
+    )
+    assert recovered.outcome_kind == "TASK_DRAFT"
+    assert _admission_count(tmp_path) == 1
 
 
 @pytest.mark.parametrize(

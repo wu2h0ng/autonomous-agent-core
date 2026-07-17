@@ -346,7 +346,9 @@ class DataAgentSituatedRuntime:
                 admission.receipt_id,
             )
         except Exception:
-            self._protocol_ingress_store.abandon(authorization, envelope)
+            # Conservative boundary: once reserved, every uncertain failure is
+            # durable FAILED state. Never delete even if no effect is yet proven.
+            self._protocol_ingress_store.fail(authorization, envelope)
             raise
         if isinstance(proposal, TaskDraftProposal):
             outcome_kind = "TASK_DRAFT"
@@ -360,15 +362,33 @@ class DataAgentSituatedRuntime:
             outcome_kind = "NO_PROPOSAL"
             task_draft = None
             help_request = None
-        receipt_id = "protocol-ingress:" + content_digest(
-            {
-                "binding_digest": authorization.binding_digest,
-                "admission_receipt_id": admission.receipt_id,
-                "outcome_kind": outcome_kind,
-            }
-        )
+        receipt_payload = {
+            "schema_version": "1.0",
+            "principal_id": authorization.principal.principal_id,
+            "tenant_id": authorization.principal.tenant_id,
+            "workspace_id": authorization.principal.workspace_id,
+            "source_binding_id": authorization.source_binding_id,
+            "protocol": envelope.protocol,
+            "protocol_message_id": envelope.protocol_message_id,
+            "binding_digest": authorization.binding_digest,
+            "envelope_digest": envelope.envelope_digest,
+            "source_binding_authorization_digest": content_digest(authorization),
+            "admission_receipt_id": admission.receipt_id,
+            "outcome_kind": outcome_kind,
+            "task_draft": task_draft,
+            "help_request": help_request,
+            "activation_authorized": False,
+            "capability_grant_authorized": False,
+            "external_effects_authorized": False,
+        }
+        receipt_digest = content_digest(receipt_payload)
         receipt = ProtocolIngressReceipt(
-            receipt_id=receipt_id,
+            receipt_id=f"protocol-ingress:{receipt_digest}",
+            receipt_digest=receipt_digest,
+            principal_id=authorization.principal.principal_id,
+            tenant_id=authorization.principal.tenant_id,
+            workspace_id=authorization.principal.workspace_id,
+            source_binding_id=authorization.source_binding_id,
             protocol=envelope.protocol,
             protocol_message_id=envelope.protocol_message_id,
             binding_digest=authorization.binding_digest,

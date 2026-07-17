@@ -147,6 +147,10 @@ class SQLiteProtocolIngressStore:
                     protocol_message_id TEXT NOT NULL,
                     envelope_digest TEXT NOT NULL,
                     authorization_digest TEXT NOT NULL,
+                    binding_digest TEXT,
+                    admission_receipt_id TEXT,
+                    outcome_kind TEXT,
+                    receipt_digest TEXT,
                     status TEXT NOT NULL,
                     receipt_json BLOB,
                     PRIMARY KEY (
@@ -176,6 +180,32 @@ class SQLiteProtocolIngressStore:
             envelope.protocol_message_id,
         )
 
+    @classmethod
+    def _validate_receipt_binding(
+        cls,
+        authorization: SourceBindingAuthorizationReceipt,
+        envelope: ExternalEnvelopeAssertion,
+        receipt: ProtocolIngressReceipt,
+    ) -> None:
+        key = cls._key(authorization, envelope)
+        authorization_digest = content_digest(authorization)
+        receipt_key = (
+            receipt.principal_id,
+            receipt.tenant_id,
+            receipt.workspace_id,
+            receipt.source_binding_id,
+            receipt.protocol,
+            receipt.protocol_message_id,
+        )
+        if receipt_key != key:
+            raise ProtocolIngressConflict("receipt scoped key mismatch")
+        if receipt.envelope_digest != envelope.envelope_digest:
+            raise ProtocolIngressConflict("receipt envelope binding mismatch")
+        if receipt.binding_digest != authorization.binding_digest:
+            raise ProtocolIngressConflict("receipt source binding mismatch")
+        if receipt.source_binding_authorization_digest != authorization_digest:
+            raise ProtocolIngressConflict("receipt auth chain mismatch")
+
     def replay_or_reserve(
         self,
         authorization: SourceBindingAuthorizationReceipt,
@@ -188,7 +218,9 @@ class SQLiteProtocolIngressStore:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 """
-                SELECT envelope_digest, authorization_digest, status, receipt_json
+                SELECT envelope_digest, authorization_digest, binding_digest,
+                       admission_receipt_id, outcome_kind, receipt_digest,
+                       status, receipt_json
                 FROM protocol_ingress_receipts
                 WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
                   AND source_binding_id = ? AND protocol = ?
@@ -201,13 +233,58 @@ class SQLiteProtocolIngressStore:
                     raise ProtocolIngressConflict(
                         "scoped protocol message id conflicts with durable binding"
                     )
-                if row[2] != "COMPLETED" or row[3] is None:
+                if row[6] == "FAILED":
+                    connection.execute(
+                        """
+                        UPDATE protocol_ingress_receipts SET status = 'PENDING'
+                        WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                          AND source_binding_id = ? AND protocol = ?
+                          AND protocol_message_id = ? AND status = 'FAILED'
+                        """,
+                        key,
+                    )
+                    connection.commit()
+                    return None
+                if row[6] != "COMPLETED" or row[7] is None:
                     raise ProtocolIngressConflict(
                         "scoped protocol message is already pending"
                     )
-                receipt = ProtocolIngressReceipt.model_validate_json(row[3], strict=True)
-                if receipt.source_binding_authorization_digest != authorization_digest:
-                    raise ProtocolIngressConflict("durable receipt auth chain mismatch")
+                try:
+                    receipt = ProtocolIngressReceipt.model_validate_json(
+                        row[7], strict=True
+                    )
+                except Exception:
+                    raise ProtocolIngressConflict(
+                        "durable protocol receipt is invalid or unsealed"
+                    ) from None
+                self._validate_receipt_binding(authorization, envelope, receipt)
+                expected_fields = (
+                    receipt.principal_id,
+                    receipt.tenant_id,
+                    receipt.workspace_id,
+                    receipt.source_binding_id,
+                    receipt.protocol,
+                    receipt.protocol_message_id,
+                    receipt.envelope_digest,
+                    receipt.source_binding_authorization_digest,
+                    receipt.binding_digest,
+                    receipt.admission_receipt_id,
+                    receipt.outcome_kind,
+                    receipt.receipt_digest,
+                )
+                durable_fields = (
+                    *key,
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                )
+                if expected_fields != durable_fields:
+                    raise ProtocolIngressConflict(
+                        "durable receipt fields do not match scoped replay binding"
+                    )
                 connection.rollback()
                 return receipt
             connection.execute(
@@ -236,42 +313,57 @@ class SQLiteProtocolIngressStore:
     ) -> ProtocolIngressReceipt:
         key = self._key(authorization, envelope)
         authorization_digest = content_digest(authorization)
-        if receipt.source_binding_authorization_digest != authorization_digest:
-            raise ProtocolIngressConflict("receipt does not bind authenticated chain")
+        self._validate_receipt_binding(authorization, envelope, receipt)
         payload = canonical_json(receipt).encode("utf-8")
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 """
                 UPDATE protocol_ingress_receipts
-                SET status = 'COMPLETED', receipt_json = ?
+                SET status = 'COMPLETED', receipt_json = ?, binding_digest = ?,
+                    admission_receipt_id = ?, outcome_kind = ?, receipt_digest = ?
                 WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
                   AND source_binding_id = ? AND protocol = ?
                   AND protocol_message_id = ? AND envelope_digest = ?
                   AND authorization_digest = ? AND status = 'PENDING'
                 """,
-                (payload, *key, envelope.envelope_digest, authorization_digest),
+                (
+                    payload,
+                    receipt.binding_digest,
+                    receipt.admission_receipt_id,
+                    receipt.outcome_kind,
+                    receipt.receipt_digest,
+                    *key,
+                    envelope.envelope_digest,
+                    authorization_digest,
+                ),
             )
             if cursor.rowcount != 1:
                 raise ProtocolIngressConflict("protocol replay reservation changed")
         return receipt
 
-    def abandon(
+    def fail(
         self,
         authorization: SourceBindingAuthorizationReceipt,
         envelope: ExternalEnvelopeAssertion,
     ) -> None:
         key = self._key(authorization, envelope)
+        authorization_digest = content_digest(authorization)
         with self._connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
-                DELETE FROM protocol_ingress_receipts
+                UPDATE protocol_ingress_receipts SET status = 'FAILED'
                 WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
                   AND source_binding_id = ? AND protocol = ?
-                  AND protocol_message_id = ? AND status = 'PENDING'
+                  AND protocol_message_id = ? AND envelope_digest = ?
+                  AND authorization_digest = ? AND status = 'PENDING'
                 """,
-                key,
+                (*key, envelope.envelope_digest, authorization_digest),
             )
+            if cursor.rowcount != 1:
+                raise ProtocolIngressConflict(
+                    "failed protocol reservation is not durably bound"
+                )
 
 
 __all__ = [

@@ -11,8 +11,20 @@ from .situated import HelpRequest, TaskDraftProposal
 
 class PrincipalRef(ContractModel):
     principal_id: NonEmptyStr
+    principal_kind: Literal["USER", "SERVICE", "ORGANIZATION"] = "USER"
     tenant_id: NonEmptyStr
     workspace_id: NonEmptyStr
+
+    @model_validator(mode="after")
+    def validate_principal_kind(self) -> PrincipalRef:
+        prefixes = {
+            "USER": "user:",
+            "SERVICE": "principal-service:",
+            "ORGANIZATION": "organization:",
+        }
+        if not self.principal_id.startswith(prefixes[self.principal_kind]):
+            raise ValueError("principal id is not valid for principal kind")
+        return self
 
 
 class ActorRef(ContractModel):
@@ -117,6 +129,11 @@ class SourceBindingAuthorizationReceipt(ContractModel):
 
 class ProtocolIngressReceipt(ContractModel):
     receipt_id: NonEmptyStr
+    receipt_digest: Sha256Digest
+    principal_id: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    source_binding_id: NonEmptyStr
     protocol: Literal["CLOUDEVENTS", "A2A", "MCP"]
     protocol_message_id: NonEmptyStr
     binding_digest: Sha256Digest
@@ -136,4 +153,12 @@ class ProtocolIngressReceipt(ContractModel):
             raise ValueError("task draft must match outcome kind")
         if (self.help_request is not None) != (self.outcome_kind == "HELP_REQUEST"):
             raise ValueError("help request must match outcome kind")
+        payload = self.model_dump(
+            mode="json", exclude={"receipt_id", "receipt_digest"}
+        )
+        expected_digest = content_digest(payload)
+        if self.receipt_digest != expected_digest:
+            raise ValueError("receipt digest does not seal canonical receipt content")
+        if self.receipt_id != f"protocol-ingress:{expected_digest}":
+            raise ValueError("receipt id does not match sealed receipt digest")
         return self
