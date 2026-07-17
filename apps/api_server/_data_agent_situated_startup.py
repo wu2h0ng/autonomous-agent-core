@@ -16,6 +16,7 @@ import os
 import stat
 from collections.abc import Callable
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Final, Literal, NoReturn, TypeVar
 from urllib.parse import urlsplit
@@ -37,6 +38,7 @@ from agent_os_contracts import (
     NonEmptyStr,
     PrincipalIdentity,
     PrincipalRole,
+    ProviderInvocationBinding,
     ProviderRelevancePolicy,
     Sha256Digest,
     canonical_json,
@@ -765,6 +767,30 @@ def _provider_endpoint_is_secure(base_url: str) -> bool:
         return False
 
 
+def _canonical_provider_temperature(
+    invocation: ProviderInvocationBinding,
+) -> int | float:
+    """Return the constructor value that preserves the ratified binding bytes."""
+    if type(invocation) is not ProviderInvocationBinding:
+        _fail(_RUNTIME_BINDING)
+    temperature = invocation.temperature
+    if not isinstance(temperature, Decimal) or not temperature.is_finite():
+        _fail(_RUNTIME_BINDING)
+    candidate: int | float
+    if temperature.as_tuple().exponent == 0:
+        candidate = int(temperature)
+    else:
+        candidate = float(temperature)
+        if not math.isfinite(candidate):
+            _fail(_RUNTIME_BINDING)
+    reconstructed = invocation.model_copy(
+        update={"temperature": Decimal(str(candidate))}
+    )
+    if content_digest(reconstructed) != content_digest(invocation):
+        _fail(_RUNTIME_BINDING)
+    return candidate
+
+
 def _build_data_agent_situated_application(
     config_path: str | Path,
     *,
@@ -814,6 +840,7 @@ def _build_data_agent_situated_application(
     if not _provider_endpoint_is_secure(invocation.base_url):
         _fail(_RUNTIME_BINDING)
     try:
+        provider_temperature = _canonical_provider_temperature(invocation)
         source_reader = provisioned.source_credentials()
         source_credential = source_reader.resolve_credential(
             provisioned.source_credential.credential_ref_id
@@ -870,10 +897,10 @@ def _build_data_agent_situated_application(
             credential=provider_credential,
             credentials=_LiveProviderCredentialFileBroker(provider_reader, clock=clock),
             timeout_seconds=invocation.request_timeout_seconds,
-            temperature=float(invocation.temperature),
+            temperature=provider_temperature,
             provider_profile=invocation.provider_profile,
         )
-        if provider.invocation_binding != invocation:
+        if content_digest(provider.invocation_binding) != content_digest(invocation):
             _fail(_RUNTIME_BINDING)
         assessor = ProviderRelevanceAssessor(
             provider=provider,
