@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-18T17:30:00+08:00"
+updated: "2026-07-18T18:40:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main"
-status: "Agent OS remote main is `c35e92120682f5dc40734cc8da5b1d8d01f73b26`; product code at `fff0250` provides durable scoped `RATIFIED` Mandate intake with 1402 Product tests passed/1 skipped, but no runtime authority. The first observation-authorization bridge candidate `d9f71fe` passed 1419 Product tests/1 skipped yet received independent `REVISE`: a legacy bare `RatifiedMandateRef` path could still produce a real TaskDraft, HTTP admin identity was process-global, situated Mandates were not tenant/workspace-keyed, and row tamper checks were incomplete. Red-test remediation is active and the candidate is not merged. The non-oracle discovery qualification candidate is pushed only on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718` at `7946089` after exact-head `APPROVE`; it remains `QUALIFICATION_ONLY / NOT_FROZEN / NOT_RUN`. The continual-learning candidate `b16b135` received independent `REVISE` because its slow store was not behaviorally load-bearing and budget/custody could be forged; it is being recast and remains `NOT_FROZEN / NOT_RUN`. No release, production activation, Agent OS Alpha completion, research result, general intelligence, or Autonomy(S,E,O,V,T) is established. Older entries below remain inventory and do not override this status line."
+status: "Agent OS remote main is `f1e7215f09bb32636c01369a65342a55ff5d70f7`. It includes durable scoped `RATIFIED` Mandate intake plus the independently approved observation-authorization bridge: a request-authenticated tenant admin can bind an exact observation source/assessor/context, atomically project verified authority into the existing situated Runtime, admit a real Data Agent report, produce proposal-only `TaskDraft / HelpRequest / NoProposal`, and replay across restart without a second provider assessment. Product verification covered 1423 passed/1 skipped; the post-merge attack subset passed 59 tests with Ruff and Pyright clean. The path rejects bare or forged `RatifiedMandateRef`, missing/tampered authorization rows, cross-tenant same-ID confusion, unscoped correction, HTTP missing/wrong admin credentials and descriptor/index drift. It still cannot activate Tasks, grant capabilities or cause external effects, and it is not released. Non-oracle discovery `7946089` remains an isolated approved qualification candidate only. Continual learning remains an unpushed `QUALIFICATION_CANDIDATE / NOT_FROZEN / NOT_RUN`; its successor is replacing profiler-based measurement with executor-owned transitions. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,8 +25,8 @@ identity:
 
 current_phase:
   product:
-    label: "bounded local Agent OS spine plus durable RATIFIED Mandate Workspace input; continuing Mandate/SRL loop incomplete"
-    status: "LOCAL_SLICES_VERIFIED / REMOTE_MAIN_AT_FFF0250 / NOT_RELEASED"
+    label: "durable RATIFIED Mandate input plus authenticated observation authorization and proposal-only situated consumption; continuing Mandate/SRL loop incomplete"
+    status: "LOCAL_SLICES_VERIFIED / REMOTE_MAIN_AT_F1E7215 / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
     status: "MIXED_EVIDENCE / NO_GENERAL_AUTONOMY_CLAIM"
@@ -55,6 +55,29 @@ verified_capabilities:
       product_suite: "1402 passed, 1 skipped"
       quality: "Ruff clean; Pyright 0 errors/0 warnings; independent OpenCode review APPROVE"
     boundary: "No EnvironmentBinding authorization, MandateSteward consumption, TaskDraft formation, active perception, TaskActivation, external effect, release or autonomy claim."
+  mandate_observation_runtime_binding:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / PROPOSAL_ONLY / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A separately authenticated operator can let a ratified high-level Mandate observe an exact real environment source and receive a durable proposal without silently authorizing work or effects."
+    real_entry_points:
+      - "POST /v1/mandates/{mandate_id}/environment-bindings:authorize"
+      - "GET /v1/mandates/{mandate_id}/observation-authorizations"
+      - "DataAgentSituatedBootstrap over authenticated external report admission"
+    verified_properties:
+      - "server-side opaque credential resolves the tenant-admin principal per request; missing or wrong credentials fail"
+      - "workspace, authorization receipt, environment binding, assessor, context and scoped situated projection are joined and revalidated at Runtime consumption"
+      - "bare/forged refs, deleted/tampered authorization rows, command/index drift and cross-tenant same-ID confusion fail closed"
+      - "pause/revoke/correction and active resolution use principal+tenant+workspace+mandate scope"
+      - "restart replay reuses the durable assessment and performs no second provider assessment"
+      - "TaskDraft remains non-executing; task activation, capability grant and external effects are literal false"
+    dated_verification:
+      date: "2026-07-18"
+      reviewed_head: "0026277299f4ce2095d29cf430cf85a308a87c48"
+      integration_head: "f1e7215f09bb32636c01369a65342a55ff5d70f7"
+      product_suite: "1423 passed, 1 skipped"
+      post_merge_attack_subset: "59 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; independent exact-head review APPROVE"
+    boundary: "No active perception scheduler, goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility or autonomy claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
