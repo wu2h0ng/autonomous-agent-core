@@ -17,11 +17,14 @@ from agent_os_contracts import (
     CapabilityGrantStatus,
     CapabilitySpec,
     CorrectionEpochVector,
+    ExternalPolicyAdvice,
+    ExternalPolicyQuery,
     PolicyDecision,
     PolicyVerdict,
     PrincipalIdentity,
     content_digest,
 )
+from pydantic import ValidationError
 
 
 POLICY_KERNEL_V1_SPEC = {
@@ -62,6 +65,15 @@ class CorrectionGuard(Protocol):
         capability_id: str,
         observed_epochs: CorrectionEpochVector,
     ) -> AbstractContextManager[bool]: ...
+
+
+class ExternalPolicyBackend(Protocol):
+    """OPA/Cedar-shaped enforcement backend without policy-root authority."""
+
+    backend_id: str
+    version: int
+
+    def evaluate(self, query: ExternalPolicyQuery) -> object: ...
 
 
 class CorrectionAuthority:
@@ -173,9 +185,19 @@ class PolicyInput:
 class PolicyKernel:
     """Deterministic authority gate; provider/model output is never consulted."""
 
-    def __init__(self, correction: CorrectionAuthority, policy_version: str = "policy-1") -> None:
+    def __init__(
+        self,
+        correction: CorrectionAuthority,
+        policy_version: str = "policy-1",
+        external_backend: ExternalPolicyBackend | None = None,
+    ) -> None:
+        if external_backend is not None and (
+            not external_backend.backend_id.strip() or external_backend.version < 1
+        ):
+            raise ValueError("external policy backend identity is invalid")
         self.correction = correction
         self.policy_version = policy_version
+        self.external_backend = external_backend
 
     def decide(self, action: ActionContract, context: PolicyInput) -> PolicyDecision:
         now = context.now or datetime.now(timezone.utc)
@@ -219,7 +241,7 @@ class PolicyKernel:
             verdict, reasons = PolicyVerdict.DENY, ["GRANT_EXPIRED"]
         else:
             reasons = ["ADMITTED"]
-        return PolicyDecision(
+        internal = PolicyDecision(
             decision_id=f"decision-{uuid4()}",
             action_id=action.action_id,
             action_digest=action.action_digest(),
@@ -235,6 +257,57 @@ class PolicyKernel:
             approval_id=context.approval.approval_id if context.approval else "approval:none",
             evaluated_at=now,
         )
+        if internal.verdict is not PolicyVerdict.ALLOW or self.external_backend is None:
+            return internal
+        assert context.grant is not None
+        query = ExternalPolicyQuery(
+            backend_id=self.external_backend.backend_id,
+            backend_version=self.external_backend.version,
+            action_id=action.action_id,
+            action_digest=action.action_digest(),
+            task_id=action.task_id,
+            run_id=action.run_id,
+            principal_id=action.principal_id,
+            tenant_id=action.tenant_id,
+            workspace_id=action.workspace_id,
+            capability_id=action.capability_id,
+            capability_version=action.capability_version,
+            grant_id=context.grant.grant_id,
+            policy_version=self.policy_version,
+            risk_tier=action.risk_tier,
+            correction_epochs=internal.correction_epochs,
+        )
+
+        def external_denial(reason: str) -> PolicyDecision:
+            return internal.model_copy(
+                update={
+                    "decision_id": f"decision-{uuid4()}",
+                    "verdict": PolicyVerdict.DENY,
+                    "reason_codes": (reason,),
+                }
+            )
+
+        try:
+            raw_advice = self.external_backend.evaluate(query)
+        except Exception:
+            return external_denial("EXTERNAL_POLICY_UNAVAILABLE")
+        try:
+            advice = ExternalPolicyAdvice.model_validate(raw_advice)
+        except (TypeError, ValidationError, ValueError):
+            return external_denial("EXTERNAL_POLICY_MALFORMED")
+        exact = (
+            advice.backend_id == query.backend_id,
+            advice.backend_version == query.backend_version,
+            advice.action_id == query.action_id,
+            advice.principal_id == query.principal_id,
+            advice.tenant_id == query.tenant_id,
+            advice.workspace_id == query.workspace_id,
+        )
+        if not all(exact):
+            return external_denial("EXTERNAL_POLICY_SCOPE_MISMATCH")
+        if advice.verdict == "DENY":
+            return external_denial("EXTERNAL_POLICY_DENY")
+        return internal
 
     def permit(self, action: ActionContract, decision: PolicyDecision, grant: CapabilityGrant, lease_fence: int, now: datetime | None = None) -> ActionPermit:
         issued = now or datetime.now(timezone.utc)

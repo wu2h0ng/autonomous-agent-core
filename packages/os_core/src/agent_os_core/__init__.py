@@ -39,12 +39,19 @@ from .errors import (
     TaskConfigurationScopeMismatch,
 )
 from .event_store import InMemoryTaskEventStore, TaskEventStore
+from .external_boundary import (
+    DurableExecutionBackend,
+    DurableExecutionBoundary,
+    TraceExportBoundary,
+    TraceExporterBackend,
+)
 from .persistence import SQLiteTaskEventStore
 from .postgres import PostgresTaskEventStore
 from .governance import (
     POLICY_KERNEL_V1_DIGEST,
     POLICY_KERNEL_V1_SPEC,
     CorrectionAuthority,
+    ExternalPolicyBackend,
     PolicyInput,
     PolicyKernel,
 )
@@ -254,6 +261,7 @@ __all__ = [
     "CorrectionAuthority",
     "PolicyInput",
     "PolicyKernel",
+    "ExternalPolicyBackend",
     "CredentialUnavailable",
     "DeterministicProvider",
     "EnvCredentialBroker",
@@ -276,6 +284,10 @@ __all__ = [
     "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",
     "MAX_TRUSTED_WORKING_SET_CANDIDATES",
     "MAX_TRUSTED_WORKING_SET_TOTAL_BYTES",
+    "DurableExecutionBackend",
+    "DurableExecutionBoundary",
+    "TraceExportBoundary",
+    "TraceExporterBackend",
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",

@@ -189,6 +189,15 @@ from .workflow import (
     NodeSpec,
     WorkflowGraph,
 )
+from .external_boundary import (
+    BoundaryDisposition,
+    ExecutionCheckpointCandidate,
+    ExternalBoundaryReceipt,
+    ExternalExecutionResourceRef,
+    ExternalPolicyAdvice,
+    ExternalPolicyQuery,
+    RedactedTraceExportRecord,
+)
 from .working_set import (
     AuthorizedExternalStateCandidateRef,
     ExternalStateCandidateRef,
@@ -351,6 +360,13 @@ __all__ = [
     "UtcDateTime",
     "WaitCondition",
     "WorkflowGraph",
+    "BoundaryDisposition",
+    "ExecutionCheckpointCandidate",
+    "ExternalBoundaryReceipt",
+    "ExternalExecutionResourceRef",
+    "ExternalPolicyAdvice",
+    "ExternalPolicyQuery",
+    "RedactedTraceExportRecord",
     "ExternalStateCandidateRef",
     "ExternalStateAuthorizationReceipt",
     "AuthorizedExternalStateCandidateRef",
