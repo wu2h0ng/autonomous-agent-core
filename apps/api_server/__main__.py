@@ -5,7 +5,11 @@ import json
 import os
 from pathlib import Path
 
-from agent_os_contracts import ObservationBindingDescriptor, PrincipalIdentity
+from agent_os_contracts import (
+    ObservationBindingDescriptor,
+    PrincipalIdentity,
+    canonical_json,
+)
 
 from . import _data_agent_situated_startup as situated_startup
 from .app import AgentOSApplication
@@ -22,6 +26,8 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--data-agent-situated-config")
     parser.add_argument("--observation-admin-config")
+    parser.add_argument("--perception-once", action="store_true")
+    parser.add_argument("--perception-worker-id", default="agent-os-cli")
     args = parser.parse_args()
     application = (
         situated_startup._build_data_agent_situated_application(
@@ -56,6 +62,15 @@ def main() -> None:
             principal=principal,
             observation_binding_descriptors=descriptors,
         )
+    if args.perception_once:
+        try:
+            receipt = application.run_active_perception_once(
+                worker_id=args.perception_worker_id
+            )
+            print(canonical_json(receipt))
+        finally:
+            application.store.close()
+        return
     if admin_applications:
         serve(
             application,

@@ -102,6 +102,10 @@ from .data_agent_report_adapter import (
     TrustedObservationBundle,
 )
 from .data_agent_situated_bootstrap import DataAgentSituatedRuntime
+from .mandate_active_perception import (
+    ActivePerceptionReceipt,
+    MandateActivePerceptionService,
+)
 
 
 def _utc_now() -> datetime:
@@ -117,6 +121,7 @@ class AgentOSApplication:
         *,
         situated_runtime: DataAgentSituatedRuntime,
         principal: PrincipalIdentity,
+        active_perception_service: MandateActivePerceptionService | None = None,
         database: str | Path = ":memory:",
         workspace: str | Path = ".",
         clock: Clock = _utc_now,
@@ -152,6 +157,10 @@ class AgentOSApplication:
             **application_options,
         )
         application._data_agent_situated_runtime = situated_runtime
+        if active_perception_service is not None:
+            if active_perception_service._runtime is not situated_runtime:
+                raise TypeError("active perception must use the bound situated runtime")
+            application._mandate_active_perception_service = active_perception_service
         return application
 
     @classmethod
@@ -165,9 +174,7 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
-        observation_binding_descriptors: tuple[
-            ObservationBindingDescriptor, ...
-        ] = (),
+        observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
         **application_options: Any,
     ) -> AgentOSApplication:
         """Bind one pre-composed, scope-authenticated steward to the application."""
@@ -209,9 +216,7 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
-        observation_binding_descriptors: tuple[
-            ObservationBindingDescriptor, ...
-        ] = (),
+        observation_binding_descriptors: tuple[ObservationBindingDescriptor, ...] = (),
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -260,6 +265,9 @@ class AgentOSApplication:
             )
         self.data_agent_reports = data_agent_reports
         self._data_agent_situated_runtime: DataAgentSituatedRuntime | None = None
+        self._mandate_active_perception_service: (
+            MandateActivePerceptionService | None
+        ) = None
         self._mandate_steward: MandateSteward | None = None
         self.sandbox = WorkspaceSandbox(workspace, idempotency_store=self.store)
         self.tasks.bind_artifact_reader(self.sandbox.read_artifact_bytes)
@@ -588,7 +596,10 @@ class AgentOSApplication:
         if model_revision_digest is not None and (
             not isinstance(model_revision_digest, str)
             or len(model_revision_digest) != 64
-            or any(character not in "0123456789abcdef" for character in model_revision_digest)
+            or any(
+                character not in "0123456789abcdef"
+                for character in model_revision_digest
+            )
         ):
             raise ValueError("model_revision_digest must be a lowercase SHA-256 digest")
         api_key = payload.get("api_key")
@@ -665,7 +676,9 @@ class AgentOSApplication:
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
 
-    def create_mandate_workspace_record(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_mandate_workspace_record(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         command = CreateMandateCommand.model_validate(payload)
         record = self.mandate_workspace.create(command, self.principal, self._clock())
         return record.model_dump(mode="json")
@@ -750,6 +763,15 @@ class AgentOSApplication:
             raise RuntimeError("Data Agent external report source is not configured")
         return self.data_agent_reports.poll_once(limit=limit)
 
+    def run_active_perception_once(
+        self,
+        *,
+        worker_id: str,
+    ) -> ActivePerceptionReceipt:
+        if self._mandate_active_perception_service is None:
+            raise RuntimeError("Mandate active perception is not configured")
+        return self._mandate_active_perception_service.run_due_once(worker_id=worker_id)
+
     def propose_situated_work(
         self,
         event_id: str,
@@ -795,9 +817,11 @@ class AgentOSApplication:
         """Public ingress with transport parsing separated from workload authority."""
         if self._data_agent_situated_runtime is None:
             raise RuntimeError("Data Agent situated runtime is not configured")
-        return self._data_agent_situated_runtime.propose_authenticated_protocol_envelope(
-            raw_envelope,
-            workload_assertion,
+        return (
+            self._data_agent_situated_runtime.propose_authenticated_protocol_envelope(
+                raw_envelope,
+                workload_assertion,
+            )
         )
 
     def commit_task(self, task_id: str, payload: dict[str, Any]):

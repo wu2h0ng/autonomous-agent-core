@@ -201,9 +201,7 @@ def _authorized_control(
     assessor: _Assessor,
 ) -> SQLiteSituatedAssessmentStore:
     authority_database = tmp_path / "authority.sqlite3"
-    create_workspace_record(
-        authority_database, tmp_path, adapter=adapter, now=NOW
-    )
+    create_workspace_record(authority_database, tmp_path, adapter=adapter, now=NOW)
     authorize_workspace_observation(
         authority_database,
         tmp_path,
@@ -275,11 +273,32 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     )
     assert set(name for name in dir(runtime) if not name.startswith("_")) == {
         "admit_event",
-            "observe_report",
-            "principal_scope",
+        "assert_observation_authority",
+        "observe_report",
+        "principal_scope",
             "propose",
-            "propose_authenticated_protocol_envelope",
-        }
+            "propose_record",
+        "propose_authenticated_protocol_envelope",
+    }
+
+
+def test_active_perception_authority_snapshot_fails_after_live_pause(
+    tmp_path: Path,
+) -> None:
+    runtime, _, _, control = _compose(tmp_path)
+    before = runtime.assert_observation_authority()
+    assert len(before) == 64
+
+    control.pause(
+        "mandate:agent-os",
+        expected_epoch=0,
+        principal_id="principal:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
+
+    with pytest.raises(SituationalTrustDenied):
+        runtime.assert_observation_authority()
     assert runtime.principal_scope == (
         "principal:local",
         "tenant:local",

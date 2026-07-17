@@ -147,6 +147,7 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
                 sorted(
                     (
                         "reports:read",
+                        "report-events:read",
                         f"data-agent-origin:{source_origin}",
                         "data-agent-tenant:upstream-tenant-9",
                     )
@@ -197,6 +198,15 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
     write_canonical(tmp_path / "provider-policy.json", policy)
     write_canonical(tmp_path / "relevance-context.json", context)
     config = valid_config_data()
+    config["config_contract"] = "agent-os.data-agent-situated-startup-config.v3"
+    config["active_perception"] = {
+        "interval_seconds": 60,
+        "budget_window_seconds": 3600,
+        "wake_budget_per_window": 8,
+        "query_budget_per_window": 8,
+        "feed_limit": 10,
+        "lease_seconds": 30,
+    }
     config["authority_database"] = str(authority_database)
     config["expected_mandate_version"] = 1
     config["expected_mandate_digest"] = content_digest(workspace_record.mandate)
@@ -266,6 +276,7 @@ def test_canonical_startup_runs_real_http_proposal_without_invocation_drift(
     )
     runtime = application._data_agent_situated_runtime
     assert runtime is not None
+    assert application._mandate_active_perception_service is not None
     constructed_provider = runtime._steward._proposal_service._assessor._provider
     assert content_digest(constructed_provider.invocation_binding) == content_digest(
         policy.provider_invocation

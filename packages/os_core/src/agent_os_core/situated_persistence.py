@@ -105,6 +105,10 @@ class SituatedAssessmentStore(Protocol):
         self, input_binding_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
+    def record_by_result_digest(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
     def replay_if_active(
         self,
         mandate: RatifiedMandateRef,
@@ -128,6 +132,10 @@ class ScopedSituatedAssessmentReader(Protocol):
 
     def record_by_input_binding(
         self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
+    def record_by_result_digest(
+        self, result_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
 
@@ -191,6 +199,16 @@ class _ScopedSituatedAssessmentFacade:
                 "durable assessment scope conflicts with ratified mandate"
             )
         return record
+
+    def record_by_result_digest(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        scoped_lookup = getattr(self._store, "_record_by_result_digest_scoped", None)
+        if scoped_lookup is None:
+            raise SituationalPersistenceConflict(
+                "durable assessment store lacks scoped result lookup capability"
+            )
+        return scoped_lookup(result_digest, scope=self.scope)
 
 
 def scoped_situated_assessment_reader(
@@ -781,6 +799,27 @@ class SQLiteSituatedAssessmentStore:
             )
         return matches[0] if matches else None
 
+    def record_by_result_digest(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM situated_assessment_records"
+            ).fetchall()
+        finally:
+            connection.close()
+        matches = tuple(
+            record
+            for record in (self._decode_and_validate_record(row) for row in rows)
+            if content_digest(record) == result_digest
+        )
+        if len(matches) > 1:
+            raise SituationalPersistenceConflict(
+                "result digest maps to multiple durable assessment records"
+            )
+        return matches[0] if matches else None
+
     @classmethod
     def _decode_and_validate_record(
         cls, row: sqlite3.Row
@@ -846,6 +885,34 @@ class SQLiteSituatedAssessmentStore:
                 "durable situated assessment principal conflicts with authority"
             )
         return record
+
+    def _record_by_result_digest_scoped(
+        self,
+        result_digest: str,
+        *,
+        scope: LedgerAccessScope,
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT * FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                """,
+                (scope.principal_id, scope.tenant_id, scope.workspace_id),
+            ).fetchall()
+        finally:
+            connection.close()
+        matches = tuple(
+            record
+            for record in (self._decode_and_validate_record(row) for row in rows)
+            if content_digest(record) == result_digest
+        )
+        if len(matches) > 1:
+            raise SituationalPersistenceConflict(
+                "scoped result digest maps to multiple durable assessment records"
+            )
+        return matches[0] if matches else None
 
     def scoped_reader(
         self, scope: LedgerAccessScope

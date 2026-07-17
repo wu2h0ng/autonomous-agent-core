@@ -17,6 +17,7 @@ from agent_os_contracts import (
     TaskDraftProposal,
     HelpRequest,
     ProtocolIngressReceipt,
+    SituatedAssessmentRecord,
     WorkloadIdentityRegistration,
     canonical_json,
     content_digest,
@@ -91,6 +92,55 @@ class _AdmissionState:
     writer: Any
     required_scopes: frozenset[str]
     clock: Clock
+
+
+@dataclass(frozen=True)
+class _ObservationAuthorityGuard:
+    control: SQLiteSituatedAssessmentStore
+    descriptor: Any
+    assessor_ref: Any
+    context_ref: Any
+    scope: LedgerAccessScope
+    clock: Clock
+
+    def snapshot(self) -> str:
+        mandate, binding = self.control.resolve_observation_authority(
+            self.descriptor.mandate_id,
+            self.descriptor.environment_binding_id,
+            principal_id=self.scope.principal_id,
+            tenant_id=self.scope.tenant_id,
+            workspace_id=self.scope.workspace_id,
+            evaluated_at=self.clock(),
+            source_descriptor_digest=self.descriptor.policy_digest,
+            relevance_assessor=self.assessor_ref,
+            relevance_context=self.context_ref,
+        )
+        if (
+            mandate.relevance_assessor != self.assessor_ref
+            or mandate.relevance_context != self.context_ref
+            or binding.environment_binding_id != self.descriptor.environment_binding_id
+        ):
+            raise SituationalTrustDenied(
+                "current observation authority differs from active perception binding"
+            )
+        return content_digest(
+            {
+                "mandate_id": mandate.mandate_id,
+                "mandate_version": mandate.version,
+                "mandate_digest": mandate.mandate_digest,
+                "correction_epoch": mandate.correction_epoch,
+                "observation_authorization_id": mandate.observation_authorization_id,
+                "observation_authorization_receipt_digest": (
+                    mandate.observation_authorization_receipt_digest
+                ),
+                "workspace_record_digest": mandate.workspace_record_digest,
+                "environment_binding": binding,
+                "source_descriptor_digest": self.descriptor.policy_digest,
+                "relevance_assessor": self.assessor_ref,
+                "relevance_context": self.context_ref,
+                "scope": self.scope,
+            }
+        )
 
 
 def _canonical_authorization(value: object) -> CredentialAuthorizationSnapshot:
@@ -248,6 +298,7 @@ class DataAgentSituatedRuntime:
         "_protocol_ingress_store",
         "_workload_identity_adapter",
         "_steward",
+        "_observation_authority_guard",
     )
 
     def __init__(self) -> None:
@@ -263,6 +314,7 @@ class DataAgentSituatedRuntime:
         envelope_adapter: EventEnvelopeAdapter,
         protocol_ingress_store: SQLiteProtocolIngressStore,
         workload_identity_adapter: WorkloadIdentityAdapter,
+        observation_authority_guard: _ObservationAuthorityGuard | None = None,
         composition_seal: object | None = None,
     ) -> DataAgentSituatedRuntime:
         if (
@@ -293,6 +345,8 @@ class DataAgentSituatedRuntime:
             or admission._writer is not steward._trace_writer
         ):
             raise TypeError("runtime composition reader chain is inconsistent")
+        if type(observation_authority_guard) is not _ObservationAuthorityGuard:
+            raise TypeError("runtime requires an observation authority guard")
         self = object.__new__(cls)
         self._adapter = adapter
         self._admission = admission
@@ -300,6 +354,7 @@ class DataAgentSituatedRuntime:
         self._envelope_adapter = envelope_adapter
         self._protocol_ingress_store = protocol_ingress_store
         self._workload_identity_adapter = workload_identity_adapter
+        self._observation_authority_guard = observation_authority_guard
         self._principal_scope = principal_scope
         self._composition_seal = composition_seal
         return self
@@ -317,6 +372,9 @@ class DataAgentSituatedRuntime:
     def admit_event(self, event_id: str) -> EnvironmentEventAdmissionReceipt:
         return self._admission.admit_event(event_id)
 
+    def assert_observation_authority(self) -> str:
+        return self._observation_authority_guard.snapshot()
+
     def propose(
         self,
         event_id: str,
@@ -324,6 +382,14 @@ class DataAgentSituatedRuntime:
         receipt_id: str,
     ) -> ProposalResult:
         return self._steward.observe_event(event_id, projection_id, receipt_id)
+
+    def propose_record(
+        self,
+        event_id: str,
+        projection_id: str,
+        receipt_id: str,
+    ) -> SituatedAssessmentRecord:
+        return self._steward.observe_event_record(event_id, projection_id, receipt_id)
 
     def propose_authenticated_protocol_envelope(
         self,
@@ -334,9 +400,7 @@ class DataAgentSituatedRuntime:
         authorization = self._workload_identity_adapter.authenticate(
             workload_assertion, envelope, self._principal_scope
         )
-        replay = self._protocol_ingress_store.replay_or_reserve(
-            authorization, envelope
-        )
+        replay = self._protocol_ingress_store.replay_or_reserve(authorization, envelope)
         if replay is not None:
             return replay
         try:
@@ -405,9 +469,7 @@ class DataAgentSituatedRuntime:
             task_draft=task_draft,
             help_request=help_request,
         )
-        return self._protocol_ingress_store.complete(
-            authorization, envelope, receipt
-        )
+        return self._protocol_ingress_store.complete(authorization, envelope, receipt)
 
 
 class DataAgentSituatedBootstrap:
@@ -540,6 +602,14 @@ class DataAgentSituatedBootstrap:
             envelope_adapter=EventEnvelopeAdapter(),
             protocol_ingress_store=SQLiteProtocolIngressStore(admission_database),
             workload_identity_adapter=WorkloadIdentityAdapter(workload_identities),
+            observation_authority_guard=_ObservationAuthorityGuard(
+                control=control,
+                descriptor=descriptor,
+                assessor_ref=assessor.ref,
+                context_ref=context_ref,
+                scope=scope,
+                clock=clock,
+            ),
             composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )
 

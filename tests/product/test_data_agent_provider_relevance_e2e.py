@@ -40,6 +40,12 @@ from apps.api_server.data_agent_report_adapter import (
     SQLiteDataAgentReportStateStore,
 )
 from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from apps.api_server.mandate_active_perception import (
+    ActivePerceptionDisposition,
+    MandateActivePerceptionConfig,
+    MandateActivePerceptionService,
+    SQLiteMandateActivePerceptionStore,
+)
 from tests.product.test_data_agent_external_report_adapter import (
     NOW,
     TRACE_ID,
@@ -304,6 +310,89 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     assert len(revoked_transport.requests) == 0
     assert revoked_provider.decision_requests == []
     assert replay_control.record_by_input_binding(input_digest) == persisted
+
+
+def test_active_perception_completed_replay_does_not_call_provider_again(
+    tmp_path: Path,
+) -> None:
+    report_database = tmp_path / "reports.sqlite3"
+    credential = _data_credential(
+        scopes=(
+            "reports:read",
+            "report-events:read",
+            "data-agent-origin:http://127.0.0.1:8765",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    cursor = "cursor-active-1"
+    adapter, _, _ = _adapter(
+        response=_response(
+            _feed_bytes([_feed_event(cursor)], next_cursor=cursor),
+            final_url="http://127.0.0.1:8765/external/report-events?limit=1",
+        ),
+        config=_config(credential=credential),
+        state_store=SQLiteDataAgentReportStateStore(report_database),
+    )
+    policy = _provider_policy()
+    provider = _provider(policy)
+    control = SQLiteSituatedAssessmentStore(tmp_path / "situated.sqlite3")
+    app = _application(
+        task_database=tmp_path / "agent-os.sqlite3",
+        workspace=tmp_path,
+        adapter=adapter,
+        control=control,
+        provider=provider,
+        policy=policy,
+        credential=credential,
+    )
+    runtime = app._data_agent_situated_runtime
+    assert runtime is not None
+    config = MandateActivePerceptionConfig(
+        schedule_id="schedule:provider-active",
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-reports",
+        interval_seconds=60,
+        budget_window_seconds=3600,
+        wake_budget_per_window=4,
+        query_budget_per_window=4,
+        feed_limit=1,
+        lease_seconds=30,
+    )
+    store = SQLiteMandateActivePerceptionStore(tmp_path / "perception.sqlite3")
+    service = MandateActivePerceptionService(
+        config=config,
+        store=store,
+        adapter=adapter,
+        runtime=runtime,
+        clock=lambda: NOW,
+    )
+    service.ensure_schedule(first_wake_at=NOW)
+
+    first = service.run_due_once(worker_id="worker-1")
+    service.reschedule(next_wake_at=NOW + timedelta(hours=1))
+    replay = service.run_due_once(worker_id="worker-2")
+
+    assert first.disposition is ActivePerceptionDisposition.COMPLETED
+    assert first.proposal_count == 1
+    assert replay.disposition is ActivePerceptionDisposition.NOT_DUE
+    assert len(provider.decision_requests) == 1
+    assert adapter.pending_dispatches() == ()
+    with sqlite3.connect(report_database) as connection:
+        outcome_record_id, outcome_digest = connection.execute(
+            """
+            SELECT outcome_record_id, outcome_digest
+            FROM data_agent_report_dispatch_outbox WHERE status = 'COMPLETED'
+            """
+        ).fetchone()
+    durable_record = control.record_by_result_digest(outcome_digest)
+    assert durable_record is not None
+    assert outcome_record_id == durable_record.assessment_record_id
+    assert outcome_digest == content_digest(durable_record)
+    assert app.store.list_task_ids() == ()
+    app.store.close()
 
 
 def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
