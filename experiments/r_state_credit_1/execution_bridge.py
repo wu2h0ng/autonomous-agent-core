@@ -27,9 +27,13 @@ from experiments.r_state_credit_1.recast_scorer import RawRecastScorer
 from experiments.r_state_credit_1.run_contracts import CheckpointId, HELD_OUT_SEEDS
 
 
-SCHEMA_VERSION = "r-state-credit-1-execution-admission-v1"
+SCHEMA_VERSION = "r-state-credit-1-execution-admission-v2"
 ROUTE_ID = "R-STATE-CREDIT-1"
-TARGET_HEAD = "96eb79e1292d6b8f36ad990d3f97c554a9c33f3b"
+# This is the independently reviewed mechanism baseline, not the Git HEAD of
+# this execution adapter.  Execution bytes are anchored by the active manifest
+# and component digests; requiring this module to contain its own future commit
+# hash would create an impossible self-reference.
+MECHANISM_BASELINE_HEAD = "96eb79e1292d6b8f36ad990d3f97c554a9c33f3b"
 EXPECTED_PROVIDER_CALLS = 2240
 ARK_BASE_URL_PROFILE = "https://ark.cn-beijing.volces.com/api/plan/v3"
 ARK_MODEL_SNAPSHOT = "glm-5-2-260617"
@@ -63,8 +67,22 @@ def _sha256(value: bytes) -> str:
 
 
 def _require_sha256(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) != 64 or any(c not in _HEX for c in value):
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(c not in _HEX for c in value)
+    ):
         raise ExecutionBridgeViolation(f"{label} must be a lowercase SHA-256")
+    return value
+
+
+def _require_git_head(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 40
+        or any(c not in _HEX for c in value)
+    ):
+        raise ExecutionBridgeViolation(f"{label} must be a lowercase 40-hex Git HEAD")
     return value
 
 
@@ -92,7 +110,10 @@ def component_digests(root: Path) -> dict[str, str]:
         "scorer_sha256": "experiments/r_state_credit_1/recast_scorer.py",
         "integrity_sha256": "experiments/r_state_credit_1/statistical_integrity.py",
     }
-    return {name: _sha256((root / relative).read_bytes()) for name, relative in paths.items()}
+    return {
+        name: _sha256((root / relative).read_bytes())
+        for name, relative in paths.items()
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +135,9 @@ class ProviderAdmissionBinding:
             or result.model_revision != ARK_MODEL_SNAPSHOT
             or result.credential_env_ref != ARK_CREDENTIAL_ENV_REF
         ):
-            raise ExecutionBridgeViolation("provider must use the pinned immutable snapshot")
+            raise ExecutionBridgeViolation(
+                "provider must use the pinned immutable snapshot"
+            )
         _require_text(result.provider_id, "provider_id")
         _require_sha256(result.canary_receipt_sha256, "canary_receipt_sha256")
         return result
@@ -168,7 +191,9 @@ class WorkflowReservation:
 
     @classmethod
     def from_mapping(cls, value: object) -> WorkflowReservation:
-        raw = _closed(value, {field.name for field in fields(cls)}, "workflow_reservation")
+        raw = _closed(
+            value, {field.name for field in fields(cls)}, "workflow_reservation"
+        )
         result = cls(**raw)  # type: ignore[arg-type]
         _require_text(result.reservation_id, "reservation_id")
         _require_sha256(result.reservation_token_sha256, "reservation_token_sha256")
@@ -197,7 +222,9 @@ class ExecutionBudget:
         for field in fields(result):
             _require_positive_int(getattr(result, field.name), f"budget.{field.name}")
         if result.max_provider_calls != EXPECTED_PROVIDER_CALLS:
-            raise ExecutionBridgeViolation("provider call budget must equal exact 2240 coverage")
+            raise ExecutionBridgeViolation(
+                "provider call budget must equal exact 2240 coverage"
+            )
         return result
 
     def to_mapping(self) -> dict[str, int]:
@@ -212,7 +239,8 @@ class ExecutionAdmission:
     freeze_subject_digest: str
     freeze_receipt_id: str
     run_authorization_receipt_id: str
-    target_head: str
+    mechanism_head: str
+    execution_code_head: str
     active_manifest_sha256: str
     provider_binding: ProviderAdmissionBinding
     c7_binding: C7Binding
@@ -225,11 +253,13 @@ class ExecutionAdmission:
 
     @classmethod
     def from_mapping(cls, value: object) -> ExecutionAdmission:
-        raw = _closed(value, {field.name for field in fields(cls)}, "execution admission envelope")
+        raw = _closed(
+            value, {field.name for field in fields(cls)}, "execution admission envelope"
+        )
         if raw["schema_version"] != SCHEMA_VERSION or raw["route_id"] != ROUTE_ID:
             raise ExecutionBridgeViolation("execution admission route/schema drift")
-        if raw["target_head"] != TARGET_HEAD:
-            raise ExecutionBridgeViolation("target HEAD drift")
+        if raw["mechanism_head"] != MECHANISM_BASELINE_HEAD:
+            raise ExecutionBridgeViolation("mechanism baseline HEAD drift")
         components = _closed(
             raw["components"],
             {"executor_sha256", "scorer_sha256", "integrity_sha256"},
@@ -252,22 +282,35 @@ class ExecutionAdmission:
             schema_version=cast(str, raw["schema_version"]),
             route_id=cast(str, raw["route_id"]),
             run_id=_require_text(raw["run_id"], "run_id"),
-            freeze_subject_digest=_require_sha256(raw["freeze_subject_digest"], "freeze_subject_digest"),
-            freeze_receipt_id=_require_text(raw["freeze_receipt_id"], "freeze_receipt_id"),
+            freeze_subject_digest=_require_sha256(
+                raw["freeze_subject_digest"], "freeze_subject_digest"
+            ),
+            freeze_receipt_id=_require_text(
+                raw["freeze_receipt_id"], "freeze_receipt_id"
+            ),
             run_authorization_receipt_id=_require_text(
                 raw["run_authorization_receipt_id"], "run_authorization_receipt_id"
             ),
-            target_head=cast(str, raw["target_head"]),
+            mechanism_head=cast(str, raw["mechanism_head"]),
+            execution_code_head=_require_git_head(
+                raw["execution_code_head"], "execution_code_head"
+            ),
             active_manifest_sha256=_require_sha256(
                 raw["active_manifest_sha256"], "active_manifest_sha256"
             ),
-            provider_binding=ProviderAdmissionBinding.from_mapping(raw["provider_binding"]),
+            provider_binding=ProviderAdmissionBinding.from_mapping(
+                raw["provider_binding"]
+            ),
             c7_binding=C7Binding.from_mapping(raw["c7_binding"]),
-            workflow_reservation=WorkflowReservation.from_mapping(raw["workflow_reservation"]),
+            workflow_reservation=WorkflowReservation.from_mapping(
+                raw["workflow_reservation"]
+            ),
             components=parsed_components,
             budget=ExecutionBudget.from_mapping(raw["budget"]),
             six_receipt_digests=receipt_digests,
-            envelope_core_sha256=_require_sha256(raw["envelope_core_sha256"], "envelope_core_sha256"),
+            envelope_core_sha256=_require_sha256(
+                raw["envelope_core_sha256"], "envelope_core_sha256"
+            ),
             envelope_sha256=_require_sha256(raw["envelope_sha256"], "envelope_sha256"),
         )
         if result.recompute_core_sha256() != result.envelope_core_sha256:
@@ -283,7 +326,9 @@ class ExecutionAdmission:
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise ExecutionBridgeViolation("execution admission must be JSON") from exc
         if canonical_json(raw).encode() != encoded:
-            raise ExecutionBridgeViolation("execution admission must be strict canonical JSON")
+            raise ExecutionBridgeViolation(
+                "execution admission must be strict canonical JSON"
+            )
         return cls.from_mapping(raw)
 
     def to_mapping(self) -> dict[str, object]:
@@ -294,7 +339,8 @@ class ExecutionAdmission:
             "freeze_subject_digest": self.freeze_subject_digest,
             "freeze_receipt_id": self.freeze_receipt_id,
             "run_authorization_receipt_id": self.run_authorization_receipt_id,
-            "target_head": self.target_head,
+            "mechanism_head": self.mechanism_head,
+            "execution_code_head": self.execution_code_head,
             "active_manifest_sha256": self.active_manifest_sha256,
             "provider_binding": {
                 field.name: getattr(self.provider_binding, field.name)
@@ -359,7 +405,9 @@ class ReservationTerminalReceipt:
 
 
 class AuthorityVerifier(Protocol):
-    def verify(self, kind: ReceiptKind, receipt_bytes: bytes) -> ReceiptVerification: ...
+    def verify(
+        self, kind: ReceiptKind, receipt_bytes: bytes
+    ) -> ReceiptVerification: ...
 
     def claim(
         self,
@@ -384,9 +432,7 @@ class AuthorityVerifier(Protocol):
         terminal_sha256: str,
     ) -> ReservationTerminalReceipt: ...
 
-    def query_terminal(
-        self, claim_id: str
-    ) -> ReservationTerminalReceipt | None: ...
+    def query_terminal(self, claim_id: str) -> ReservationTerminalReceipt | None: ...
 
 
 class C7Probe(Protocol):
@@ -398,9 +444,16 @@ class C7Probe(Protocol):
 
 
 class WorkspaceProbe(Protocol):
-    def admit(self, target_head: str, expected_components: dict[str, str]) -> str: ...
+    def admit(
+        self,
+        mechanism_head: str,
+        execution_code_head: str,
+        expected_components: dict[str, str],
+    ) -> str: ...
 
-    def revalidate(self, anchor_head: str, expected_components: dict[str, str]) -> None: ...
+    def revalidate(
+        self, anchor_head: str, expected_components: dict[str, str]
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,17 +527,38 @@ class _BudgetLedger:
 
     def reserve(self) -> None:
         if self.calls + 1 > self.budget.max_provider_calls:
-            raise ExecutionBridgeViolation("remaining provider call budget is exhausted")
+            raise ExecutionBridgeViolation(
+                "remaining provider call budget is exhausted"
+            )
         checks = (
-            (self.input_tokens, self.budget.max_input_tokens_per_call, self.budget.max_total_input_tokens, "input token"),
-            (self.output_tokens, self.budget.max_output_tokens_per_call, self.budget.max_total_output_tokens, "output token"),
-            (self.cost_microusd, self.budget.max_cost_microusd_per_call, self.budget.max_total_cost_microusd, "cost"),
+            (
+                self.input_tokens,
+                self.budget.max_input_tokens_per_call,
+                self.budget.max_total_input_tokens,
+                "input token",
+            ),
+            (
+                self.output_tokens,
+                self.budget.max_output_tokens_per_call,
+                self.budget.max_total_output_tokens,
+                "output token",
+            ),
+            (
+                self.cost_microusd,
+                self.budget.max_cost_microusd_per_call,
+                self.budget.max_total_cost_microusd,
+                "cost",
+            ),
         )
         for used, reservation, total, label in checks:
             if used + reservation > total:
-                raise ExecutionBridgeViolation(f"remaining {label} budget cannot cover per-call reserve")
+                raise ExecutionBridgeViolation(
+                    f"remaining {label} budget cannot cover per-call reserve"
+                )
 
-    def settle(self, *, input_tokens: int, output_tokens: int, cost_microusd: int) -> None:
+    def settle(
+        self, *, input_tokens: int, output_tokens: int, cost_microusd: int
+    ) -> None:
         actual = (input_tokens, output_tokens, cost_microusd)
         caps = (
             self.budget.max_input_tokens_per_call,
@@ -492,7 +566,9 @@ class _BudgetLedger:
             self.budget.max_cost_microusd_per_call,
         )
         if any(value > cap for value, cap in zip(actual, caps, strict=True)):
-            raise ExecutionBridgeViolation("provider usage exceeded the reserved per-call cap")
+            raise ExecutionBridgeViolation(
+                "provider usage exceeded the reserved per-call cap"
+            )
         self.calls += 1
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
@@ -568,7 +644,10 @@ class ExecutionBridge:
     def admit(self, envelope: ExecutionAdmission) -> None:
         if set(self.receipt_documents) != set(ReceiptKind):
             raise ExecutionBridgeViolation("exact six receipt documents are required")
-        if _sha256(self.active_manifest.read_bytes()) != envelope.active_manifest_sha256:
+        if (
+            _sha256(self.active_manifest.read_bytes())
+            != envelope.active_manifest_sha256
+        ):
             raise ExecutionBridgeViolation("active manifest digest drift")
         actual_components = component_digests(self.root)
         if actual_components != envelope.components:
@@ -588,7 +667,10 @@ class ExecutionBridge:
         ):
             raise ExecutionBridgeViolation("C7 binding drift")
         for kind in ReceiptKind:
-            if _sha256(self.receipt_documents[kind]) != envelope.six_receipt_digests[kind]:
+            if (
+                _sha256(self.receipt_documents[kind])
+                != envelope.six_receipt_digests[kind]
+            ):
                 raise ExecutionBridgeViolation(f"{kind.value} receipt digest drift")
         payloads = {kind: self._receipt_payload(kind) for kind in ReceiptKind}
         expected_subjects = {
@@ -611,9 +693,7 @@ class ExecutionBridge:
         if len(set(receipt_digests)) != len(ReceiptKind):
             raise ExecutionBridgeViolation("receipt digests must be globally unique")
         if (
-            payloads[ReceiptKind.RUN_AUTHORIZATION][
-                "authorization_context_sha256"
-            ]
+            payloads[ReceiptKind.RUN_AUTHORIZATION]["authorization_context_sha256"]
             != envelope.envelope_core_sha256
         ):
             raise ExecutionBridgeViolation(
@@ -624,7 +704,10 @@ class ExecutionBridge:
             encoded = self.receipt_documents[kind]
             digest = _sha256(encoded)
             payload = payloads[kind]
-            if payload["kind"] != kind.value or payload["subject_sha256"] != expected_subjects[kind]:
+            if (
+                payload["kind"] != kind.value
+                or payload["subject_sha256"] != expected_subjects[kind]
+            ):
                 raise ExecutionBridgeViolation(f"{kind.value} receipt subject drift")
             verification = self.receipt_verifier.verify(kind, encoded)
             role, purpose = _RECEIPT_ROLES[kind]
@@ -633,14 +716,20 @@ class ExecutionBridge:
                 or verification.role != role
                 or verification.purpose != purpose
             ):
-                raise ExecutionBridgeViolation("external receipt signature role/purpose verification failed")
+                raise ExecutionBridgeViolation(
+                    "external receipt signature role/purpose verification failed"
+                )
             if (
                 verification.subject_sha256 != expected_subjects[kind]
                 or verification.artifact_sha256 != digest
             ):
-                raise ExecutionBridgeViolation("external receipt signature binding drift")
+                raise ExecutionBridgeViolation(
+                    "external receipt signature binding drift"
+                )
             if verification.principal_id in principals:
-                raise ExecutionBridgeViolation("receipt principals must be role-distinct")
+                raise ExecutionBridgeViolation(
+                    "receipt principals must be role-distinct"
+                )
             principals.add(verification.principal_id)
         if payloads[ReceiptKind.FREEZE]["receipt_id"] != envelope.freeze_receipt_id:
             raise ExecutionBridgeViolation("freeze receipt id drift")
@@ -654,7 +743,11 @@ class ExecutionBridge:
             != envelope.six_receipt_digests[ReceiptKind.PROVIDER_CANARY]
         ):
             raise ExecutionBridgeViolation("provider canary receipt binding drift")
-        self._anchor_head = self.workspace_probe.admit(TARGET_HEAD, envelope.components)
+        self._anchor_head = self.workspace_probe.admit(
+            envelope.mechanism_head,
+            envelope.execution_code_head,
+            envelope.components,
+        )
 
     def _write_exclusive(self, path: Path, payload: object) -> None:
         encoded = (canonical_json(payload) + "\n").encode()
@@ -663,9 +756,7 @@ class ExecutionBridge:
             raise ExecutionBridgeViolation("execution attempt is permanently consumed")
         temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
-            descriptor = os.open(
-                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         except FileExistsError as exc:
             raise ExecutionBridgeViolation("atomic seal temporary path exists") from exc
         with os.fdopen(descriptor, "wb") as handle:
@@ -693,9 +784,7 @@ class ExecutionBridge:
         temporary = self.journal_path.with_name(
             f".{self.journal_path.name}.{os.getpid()}.tmp"
         )
-        descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-        )
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(encoded)
             handle.flush()
@@ -822,8 +911,7 @@ class ExecutionBridge:
             or intent["run_id"] != envelope.run_id
             or intent["envelope_sha256"] != envelope.envelope_sha256
             or intent["reservation_id"] != expected.reservation_id
-            or intent["reservation_token_sha256"]
-            != expected.reservation_token_sha256
+            or intent["reservation_token_sha256"] != expected.reservation_token_sha256
             or intent["attempt_epoch"] != expected.attempt_epoch
             or intent["cas_epoch"] != expected.cas_epoch
         ):
@@ -937,13 +1025,13 @@ class ExecutionBridge:
                 payload={
                     "run_id": envelope.run_id,
                     "envelope_sha256": envelope.envelope_sha256,
-                    "artifact_sha256": _sha256(
-                        self.claim_intent_path.read_bytes()
-                    ),
+                    "artifact_sha256": _sha256(self.claim_intent_path.read_bytes()),
                     "recovery_reason": "INCOMPLETE_CLAIM_OR_EXECUTION_STATE",
                 },
             )
-        raise ExecutionBridgeViolation("execution custody was reconciled without provider")
+        raise ExecutionBridgeViolation(
+            "execution custody was reconciled without provider"
+        )
 
     def execute(self, envelope: ExecutionAdmission) -> ExecutionReceipt:
         self.admit(envelope)
@@ -1026,7 +1114,9 @@ class ExecutionBridge:
                                     self._check_c7()
                                     ledger.reserve()
                                     if self._anchor_head is None:
-                                        raise ExecutionBridgeViolation("workspace anchor is absent")
+                                        raise ExecutionBridgeViolation(
+                                            "workspace anchor is absent"
+                                        )
                                     self.workspace_probe.revalidate(
                                         self._anchor_head, envelope.components
                                     )
@@ -1071,11 +1161,16 @@ class ExecutionBridge:
                                     actor_response = self.actor.act(call.request)
                                     provider_settled = True
                                     receipt = actor_response.receipt
-                                    if receipt.provider_receipt_id in provider_receipt_ids:
+                                    if (
+                                        receipt.provider_receipt_id
+                                        in provider_receipt_ids
+                                    ):
                                         raise ExecutionBridgeViolation(
                                             "provider receipt id must be globally unique"
                                         )
-                                    provider_receipt_ids.add(receipt.provider_receipt_id)
+                                    provider_receipt_ids.add(
+                                        receipt.provider_receipt_id
+                                    )
                                     ledger.settle(
                                         input_tokens=receipt.input_tokens,
                                         output_tokens=receipt.output_tokens,
@@ -1141,7 +1236,10 @@ class ExecutionBridge:
                             episode.step(episode._default_policy(observation, episode))
                     finally:
                         episode.cleanup()
-            if ledger.calls != EXPECTED_PROVIDER_CALLS or len(rows) != EXPECTED_PROVIDER_CALLS:
+            if (
+                ledger.calls != EXPECTED_PROVIDER_CALLS
+                or len(rows) != EXPECTED_PROVIDER_CALLS
+            ):
                 raise ExecutionBridgeViolation("exact 2240-call/row coverage drift")
             expected: set[tuple[object, object, object, object]] = {
                 (family.value, seed, checkpoint.value, arm.value)

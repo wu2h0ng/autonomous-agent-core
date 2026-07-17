@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -33,7 +35,8 @@ from experiments.r_state_credit_1.recast_provider_actor import (
 )
 
 
-_TARGET_HEAD = "96eb79e1292d6b8f36ad990d3f97c554a9c33f3b"
+_MECHANISM_HEAD = "96eb79e1292d6b8f36ad990d3f97c554a9c33f3b"
+_EXECUTION_CODE_HEAD = "38f850e73da5a4fd41f0418e15d156939731e046"
 
 
 class _Transport:
@@ -95,7 +98,10 @@ class _ExternalVerifier:
         self.kinds.append(kind)
         receipt = json.loads(receipt_bytes)
         roles = {
-            ReceiptKind.PROVIDER_CANARY: ("provider-canary-attestor", "PROVIDER_CANARY_ACCEPTANCE"),
+            ReceiptKind.PROVIDER_CANARY: (
+                "provider-canary-attestor",
+                "PROVIDER_CANARY_ACCEPTANCE",
+            ),
             ReceiptKind.C7: ("c7-owner", "C7_BINDING_ACCEPTANCE"),
             ReceiptKind.EXECUTOR: ("executor-reviewer", "EXECUTOR_ACCEPTANCE"),
             ReceiptKind.INTEGRITY: ("integrity-reviewer", "INTEGRITY_ACCEPTANCE"),
@@ -210,9 +216,7 @@ class _ExternalVerifier:
         self.terminal_receipts[claim.claim_id] = receipt
         return receipt
 
-    def query_terminal(
-        self, claim_id: str
-    ) -> ReservationTerminalReceipt | None:
+    def query_terminal(self, claim_id: str) -> ReservationTerminalReceipt | None:
         return self.terminal_receipts.get(claim_id)
 
 
@@ -249,15 +253,19 @@ class _WorkspaceProbe:
         self.revalidations = 0
         self.expected_components: dict[str, str] | None = None
 
-    def admit(self, target_head: str, expected_components: dict[str, str]) -> str:
-        assert target_head == _TARGET_HEAD
+    def admit(
+        self,
+        mechanism_head: str,
+        execution_code_head: str,
+        expected_components: dict[str, str],
+    ) -> str:
+        assert mechanism_head == _MECHANISM_HEAD
+        assert execution_code_head == _EXECUTION_CODE_HEAD
         assert expected_components == component_digests(self.root)
         self.expected_components = dict(expected_components)
         return "implementation-head-test"
 
-    def revalidate(
-        self, anchor_head: str, expected_components: dict[str, str]
-    ) -> None:
+    def revalidate(self, anchor_head: str, expected_components: dict[str, str]) -> None:
         assert anchor_head == "implementation-head-test"
         assert expected_components == self.expected_components
         self.revalidations += 1
@@ -272,6 +280,7 @@ class _CrashHook:
         if stage == self.stage and not self.triggered:
             self.triggered = True
             raise RuntimeError(f"simulated crash at {stage}")
+
 
 def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
@@ -368,13 +377,14 @@ def _envelope_bytes(
     }
     budget.update(budget_changes)
     payload: dict[str, object] = {
-        "schema_version": "r-state-credit-1-execution-admission-v1",
+        "schema_version": "r-state-credit-1-execution-admission-v2",
         "route_id": "R-STATE-CREDIT-1",
         "run_id": "run-bridge-test-1",
         "freeze_subject_digest": "a" * 64,
         "freeze_receipt_id": "freeze-receipt-1",
         "run_authorization_receipt_id": "run-authorization-receipt-1",
-        "target_head": _TARGET_HEAD,
+        "mechanism_head": _MECHANISM_HEAD,
+        "execution_code_head": _EXECUTION_CODE_HEAD,
         "active_manifest_sha256": _sha(active_manifest.read_bytes()),
         "provider_binding": {
             "provider_id": "volcengine-ark-agent-plan",
@@ -406,9 +416,7 @@ def _envelope_bytes(
     core_payload = dict(payload)
     core_payload.pop("envelope_core_sha256")
     core_payload.pop("envelope_sha256")
-    core_receipts = dict(
-        cast(dict[str, str], core_payload["six_receipt_digests"])
-    )
+    core_receipts = dict(cast(dict[str, str], core_payload["six_receipt_digests"]))
     core_receipts.pop(ReceiptKind.RUN_AUTHORIZATION.value)
     core_payload["six_receipt_digests"] = core_receipts
     core_sha256 = _sha(canonical_json(core_payload).encode())
@@ -432,13 +440,18 @@ def _envelope_bytes(
 
 
 @pytest.fixture
-def admission_inputs(tmp_path: Path) -> tuple[Path, Path, dict[ReceiptKind, bytes], bytes]:
+def admission_inputs(
+    tmp_path: Path,
+) -> tuple[Path, Path, dict[ReceiptKind, bytes], bytes]:
     root = Path(__file__).resolve().parents[1]
     active_manifest = tmp_path / ACTIVE_MANIFEST_FILENAME
     active_manifest.write_bytes(b'{"status":"ACTIVE_TEST_AUTHORITY"}\n')
     receipts = _receipt_documents(root)
-    return root, active_manifest, receipts, _envelope_bytes(
-        root, active_manifest, receipts
+    return (
+        root,
+        active_manifest,
+        receipts,
+        _envelope_bytes(root, active_manifest, receipts),
     )
 
 
@@ -447,7 +460,8 @@ def test_execution_admission_is_closed_canonical_and_pinned(
 ) -> None:
     root, active_manifest, receipts, encoded = admission_inputs
     envelope = ExecutionAdmission.from_canonical_json(encoded)
-    assert envelope.target_head == _TARGET_HEAD
+    assert envelope.mechanism_head == _MECHANISM_HEAD
+    assert envelope.execution_code_head == _EXECUTION_CODE_HEAD
     assert envelope.budget.max_provider_calls == 2240
     assert envelope.envelope_core_sha256
 
@@ -468,6 +482,135 @@ def test_execution_admission_is_closed_canonical_and_pinned(
         ExecutionAdmission.from_canonical_json(canonical_json(floating).encode())
 
     assert active_manifest.is_file() and len(receipts) == 6 and root.is_dir()
+
+
+def test_execution_admission_cli_emits_parse_only_machine_receipt(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+) -> None:
+    root, _active_manifest, _receipts, encoded = admission_inputs
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "experiments.r_state_credit_1.execution_bridge_cli",
+            "validate-admission",
+        ],
+        cwd=root,
+        input=encoded,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stderr == b""
+    receipt = json.loads(completed.stdout)
+    assert completed.stdout == (canonical_json(receipt) + "\n").encode()
+    assert set(receipt) == {
+        "authority_verified",
+        "envelope_core_sha256",
+        "envelope_sha256",
+        "execution_code_head",
+        "mechanism_head",
+        "route_id",
+        "run_id",
+        "schema_version",
+        "status",
+    }
+    assert receipt["schema_version"] == "r-state-credit-1-admission-parse-receipt-v1"
+    assert receipt["status"] == "PARSED_ONLY"
+    assert receipt["authority_verified"] is False
+    assert receipt["mechanism_head"] == _MECHANISM_HEAD
+    assert receipt["execution_code_head"] == _EXECUTION_CODE_HEAD
+    assert (
+        receipt["envelope_sha256"]
+        == ExecutionAdmission.from_canonical_json(encoded).envelope_sha256
+    )
+
+
+def test_execution_admission_cli_fails_closed_without_stdout(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+) -> None:
+    root, _active_manifest, _receipts, encoded = admission_inputs
+    noncanonical = json.dumps(json.loads(encoded), indent=2).encode()
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "experiments.r_state_credit_1.execution_bridge_cli",
+            "validate-admission",
+        ],
+        cwd=root,
+        input=noncanonical,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    diagnostic = json.loads(completed.stderr)
+    assert completed.stderr == (canonical_json(diagnostic) + "\n").encode()
+    assert diagnostic == {
+        "error_code": "EXECUTION_ADMISSION_REJECTED",
+        "message": "execution admission must be strict canonical JSON",
+        "schema_version": "r-state-credit-1-execution-cli-error-v1",
+    }
+
+
+@pytest.mark.parametrize("arguments", [[], ["run"], ["validate-admission", "extra"]])
+def test_execution_admission_cli_rejects_every_other_command(
+    arguments: list[str],
+) -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "experiments.r_state_credit_1.execution_bridge_cli",
+            *arguments,
+        ],
+        cwd=root,
+        input=b"{}",
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    diagnostic = json.loads(completed.stderr)
+    assert diagnostic == {
+        "error_code": "CLI_USAGE_REJECTED",
+        "message": "expected exactly: validate-admission",
+        "schema_version": "r-state-credit-1-execution-cli-error-v1",
+    }
+
+
+def test_execution_admission_cli_rejects_oversized_stdin() -> None:
+    root = Path(__file__).resolve().parents[1]
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "experiments.r_state_credit_1.execution_bridge_cli",
+            "validate-admission",
+        ],
+        cwd=root,
+        input=b"x" * (1024 * 1024 + 1),
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    diagnostic = json.loads(completed.stderr)
+    assert diagnostic == {
+        "error_code": "EXECUTION_ADMISSION_REJECTED",
+        "message": "execution admission exceeds 1048576 bytes",
+        "schema_version": "r-state-credit-1-execution-cli-error-v1",
+    }
 
 
 def test_admission_rejects_component_manifest_receipt_and_external_signature_drift(
@@ -648,9 +791,8 @@ def test_run_authority_subject_binds_core_without_a_hash_cycle(
     assert authorization["authorization_context_sha256"] == (
         envelope.envelope_core_sha256
     )
-    assert (
-        envelope.six_receipt_digests[ReceiptKind.RUN_AUTHORIZATION]
-        == _sha(receipts[ReceiptKind.RUN_AUTHORIZATION])
+    assert envelope.six_receipt_digests[ReceiptKind.RUN_AUTHORIZATION] == _sha(
+        receipts[ReceiptKind.RUN_AUTHORIZATION]
     )
     assert envelope.recompute_core_sha256() == envelope.envelope_core_sha256
     assert envelope.recompute_envelope_sha256() == envelope.envelope_sha256
