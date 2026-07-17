@@ -1008,6 +1008,222 @@ class SituatedStewardController:
         }
 
 
+@dataclass(frozen=True)
+class ControlledExecutionReceipt:
+    """Typed receipt binding harness and executor digests.
+
+    Every digest cross-validates; any inconsistency fails before scoring.
+    This receipt carries no authority, effect or independence claim.
+    """
+
+    unit_id: str
+    arm_id: ArmId
+    unit_digest: str
+    arm_digest: str
+    controller_digest: str
+    prompt_digest: str
+    model_digest: str
+    tool_catalog_digest: str
+    public_state_digest: str
+    budget_configuration_digest: str
+    provider_probe_digest: str
+    docker_execution_receipt_digest: str
+    image_identity: str
+    resolved_image_id: str
+    policy_digest: str
+    worker_artifact_sha256: str
+    content_digest: str
+
+    def __post_init__(self) -> None:
+        if any(
+            not isinstance(value, str) or not value.strip()
+            for value in (
+                self.unit_id,
+                self.unit_digest,
+                self.arm_digest,
+                self.controller_digest,
+                self.prompt_digest,
+                self.model_digest,
+                self.tool_catalog_digest,
+                self.public_state_digest,
+                self.budget_configuration_digest,
+                self.provider_probe_digest,
+                self.docker_execution_receipt_digest,
+                self.image_identity,
+                self.resolved_image_id,
+                self.policy_digest,
+                self.worker_artifact_sha256,
+                self.content_digest,
+            )
+        ):
+            raise ValueError("controlled execution receipt fields must be nonempty")
+
+    def to_mapping(
+        self, *, exclude_content_digest: bool = False
+    ) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "unit_id": self.unit_id,
+            "arm_id": self.arm_id.value,
+            "unit_digest": self.unit_digest,
+            "arm_digest": self.arm_digest,
+            "controller_digest": self.controller_digest,
+            "prompt_digest": self.prompt_digest,
+            "model_digest": self.model_digest,
+            "tool_catalog_digest": self.tool_catalog_digest,
+            "public_state_digest": self.public_state_digest,
+            "budget_configuration_digest": self.budget_configuration_digest,
+            "provider_probe_digest": self.provider_probe_digest,
+            "docker_execution_receipt_digest": self.docker_execution_receipt_digest,
+            "image_identity": self.image_identity,
+            "resolved_image_id": self.resolved_image_id,
+            "policy_digest": self.policy_digest,
+            "worker_artifact_sha256": self.worker_artifact_sha256,
+        }
+        if not exclude_content_digest:
+            payload["content_digest"] = self.content_digest
+        return payload
+
+
+def seal_controlled_execution_receipt(
+    *,
+    unit_id: str,
+    arm_id: ArmId | str,
+    public_state_digest: str,
+    controller_digest: str,
+    prompt_digest: str,
+    model_digest: str,
+    tool_catalog_digest: str,
+    budget_configuration_digest: str,
+    provider_probe_digest: str,
+    docker_execution_receipt_digest: str,
+    docker_image_identity: str,
+    docker_resolved_image_id: str,
+    docker_policy_digest: str,
+    docker_worker_artifact_sha256: str,
+    docker_receipt_public_state_digest: str,
+    docker_receipt_image_identity: str,
+    docker_receipt_resolved_image_id: str,
+    docker_receipt_policy_digest: str,
+    docker_receipt_worker_artifact_sha256: str,
+    docker_receipt_receipt_digest: str,
+) -> ControlledExecutionReceipt:
+    """Produce a controlled execution receipt with cross-field validation.
+
+    All Docker-derived digests must match the corresponding fields from
+    the DockerExecutionReceipt.  Any inconsistency fails before scoring.
+    """
+    if isinstance(arm_id, str):
+        arm_id = ArmId(arm_id)
+    if not isinstance(arm_id, ArmId):
+        raise ValueError("arm_id must be a member of ArmId")
+    _validate_nonempty("unit_id", unit_id)
+    _validate_sha256_digest("public_state_digest", public_state_digest)
+    _validate_sha256_digest("controller_digest", controller_digest)
+    _validate_sha256_digest("prompt_digest", prompt_digest)
+    _validate_sha256_digest("model_digest", model_digest)
+    _validate_sha256_digest("tool_catalog_digest", tool_catalog_digest)
+    _validate_sha256_digest("budget_configuration_digest", budget_configuration_digest)
+    _validate_sha256_digest("provider_probe_digest", provider_probe_digest)
+    _validate_sha256_digest(
+        "docker_execution_receipt_digest", docker_execution_receipt_digest
+    )
+    _validate_nonempty("docker_image_identity", docker_image_identity)
+    _validate_image_id("docker_resolved_image_id", docker_resolved_image_id)
+    _validate_sha256_digest("docker_policy_digest", docker_policy_digest)
+    _validate_sha256_digest("docker_worker_artifact_sha256", docker_worker_artifact_sha256)
+
+    if public_state_digest != docker_receipt_public_state_digest:
+        raise ValueError(
+            "harness public state digest does not match docker receipt public state"
+        )
+    if docker_image_identity != docker_receipt_image_identity:
+        raise ValueError(
+            "harness image identity does not match docker receipt image identity"
+        )
+    if docker_resolved_image_id != docker_receipt_resolved_image_id:
+        raise ValueError(
+            "harness resolved image id does not match docker receipt resolved image id"
+        )
+    if docker_policy_digest != docker_receipt_policy_digest:
+        raise ValueError(
+            "harness policy digest does not match docker receipt policy digest"
+        )
+    if docker_worker_artifact_sha256 != docker_receipt_worker_artifact_sha256:
+        raise ValueError(
+            "harness worker digest does not match docker receipt worker digest"
+        )
+    if docker_execution_receipt_digest != docker_receipt_receipt_digest:
+        raise ValueError(
+            "harness receipt digest does not match docker receipt digest"
+        )
+
+    unit_digest = content_digest(
+        {"unit_id": unit_id, "public_state_digest": public_state_digest}
+    )
+    arm_digest = content_digest({"arm_id": arm_id.value})
+    payload: dict[str, object] = {
+        "unit_id": unit_id,
+        "arm_id": arm_id.value,
+        "unit_digest": unit_digest,
+        "arm_digest": arm_digest,
+        "controller_digest": controller_digest,
+        "prompt_digest": prompt_digest,
+        "model_digest": model_digest,
+        "tool_catalog_digest": tool_catalog_digest,
+        "public_state_digest": public_state_digest,
+        "budget_configuration_digest": budget_configuration_digest,
+        "provider_probe_digest": provider_probe_digest,
+        "docker_execution_receipt_digest": docker_execution_receipt_digest,
+        "image_identity": docker_image_identity,
+        "resolved_image_id": docker_resolved_image_id,
+        "policy_digest": docker_policy_digest,
+        "worker_artifact_sha256": docker_worker_artifact_sha256,
+    }
+    receipt_digest = content_digest(payload)
+    return ControlledExecutionReceipt(
+        unit_id=unit_id,
+        arm_id=arm_id,
+        unit_digest=unit_digest,
+        arm_digest=arm_digest,
+        controller_digest=controller_digest,
+        prompt_digest=prompt_digest,
+        model_digest=model_digest,
+        tool_catalog_digest=tool_catalog_digest,
+        public_state_digest=public_state_digest,
+        budget_configuration_digest=budget_configuration_digest,
+        provider_probe_digest=provider_probe_digest,
+        docker_execution_receipt_digest=docker_execution_receipt_digest,
+        image_identity=docker_image_identity,
+        resolved_image_id=docker_resolved_image_id,
+        policy_digest=docker_policy_digest,
+        worker_artifact_sha256=docker_worker_artifact_sha256,
+        content_digest=receipt_digest,
+    )
+
+
+def _validate_nonempty(name: str, value: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a nonempty string")
+
+
+def _validate_sha256_digest(name: str, digest: str) -> None:
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError(f"{name} must be a 64-character sha256 hex digest")
+    try:
+        bytes.fromhex(digest)
+    except ValueError:
+        raise ValueError(f"{name} must be a lowercase sha256 hex digest") from None
+
+
+def _validate_image_id(name: str, value: str) -> None:
+    if not isinstance(value, str) or not value.startswith("sha256:") or len(value) != 71:
+        raise ValueError(f"{name} must be a valid sha256: image id")
+    try:
+        bytes.fromhex(value[7:])
+    except ValueError:
+        raise ValueError(f"{name} must be a valid sha256: image id") from None
+
+
 class SrlE2EFalsifierHarness:
     """Seal D/W/S decisions, then expose only sealed candidates to the scorer."""
 
@@ -1269,6 +1485,7 @@ __all__ = [
     "BudgetReceipt",
     "BudgetUsage",
     "ControllerBindingConfig",
+    "ControlledExecutionReceipt",
     "DeterministicProviderUsageProbe",
     "EffectFreeSandboxGate",
     "EffectFreeSandboxReceipt",
@@ -1293,6 +1510,7 @@ __all__ = [
     "UsageProbePort",
     "UsageReceipt",
     "UsageSnapshot",
+    "seal_controlled_execution_receipt",
     "seal_hidden_score",
     "seal_operator_burden",
 ]

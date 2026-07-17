@@ -36,7 +36,7 @@ include = [
     "packages/os_core/src",
     "product_evals/srl_e2e_falsifier",
     "tests/product",
-    "tests/product_eval/test_srl_e2e_contracts.py",
+    "tests/product_eval",
     "tests/research/r_srl_1",
 ]
 extraPaths = [
