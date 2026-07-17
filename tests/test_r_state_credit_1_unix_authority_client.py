@@ -517,6 +517,76 @@ def test_client_half_closes_request_before_reading_signed_response(
         assert client.abort_requested() is False
 
 
+@pytest.mark.parametrize("second_epoch", [1, 2])
+def test_c7_abort_is_sticky_and_cannot_be_cleared_by_a_signed_response(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+    second_epoch: int,
+) -> None:
+    private_key, public_key, public_digest = keypair
+    admission = _admission(public_digest)
+    socket_path = _socket_path(f"sticky-{second_epoch}")
+
+    def c7_response(request: dict[str, object], abort: bool, epoch: int) -> bytes:
+        return _response(
+            request,
+            {
+                "abort_requested": abort,
+                "owner_id": admission.c7_binding.owner_id,
+                "policy_sha256": admission.c7_binding.policy_sha256,
+                "correction_epoch": admission.c7_binding.correction_epoch,
+                "c7_epoch": epoch,
+            },
+            private_key,
+            public_digest,
+        )
+
+    handlers = [
+        lambda request: c7_response(request, True, 1),
+        lambda request: c7_response(request, False, second_epoch),
+    ]
+    with _Server(socket_path, handlers):
+        client = _client(admission, socket_path, public_key)
+        assert client.abort_requested() is True
+        with pytest.raises(ExecutionBridgeViolation, match="cannot be cleared"):
+            client.abort_requested()
+
+
+def test_c7_state_cannot_change_inside_one_signed_epoch(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+) -> None:
+    private_key, public_key, public_digest = keypair
+    admission = _admission(public_digest)
+    socket_path = _socket_path("epoch-drift")
+
+    def response(request: dict[str, object], abort: bool) -> bytes:
+        return _response(
+            request,
+            {
+                "abort_requested": abort,
+                "owner_id": admission.c7_binding.owner_id,
+                "policy_sha256": admission.c7_binding.policy_sha256,
+                "correction_epoch": admission.c7_binding.correction_epoch,
+                "c7_epoch": 7,
+            },
+            private_key,
+            public_digest,
+        )
+
+    with _Server(
+        socket_path,
+        [
+            lambda request: response(request, False),
+            lambda request: response(request, True),
+        ],
+    ):
+        client = _client(admission, socket_path, public_key)
+        assert client.abort_requested() is False
+        with pytest.raises(ExecutionBridgeViolation, match="state drift"):
+            client.abort_requested()
+
+
 def test_terminalize_rejects_a_claim_from_another_run_before_transport(
     tmp_path: Path,
     keypair: tuple[Path, Path, str],

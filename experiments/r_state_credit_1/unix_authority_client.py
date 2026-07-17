@@ -128,6 +128,7 @@ class UnixAuthorityClient:
         self.policy_sha256 = admission.c7_binding.policy_sha256
         self.correction_epoch = admission.c7_binding.correction_epoch
         self._last_c7_epoch = 0
+        self._last_abort_requested: bool | None = None
         self._claimant_nonces: dict[str, str] = {}
 
         try:
@@ -418,8 +419,18 @@ class UnixAuthorityClient:
         epoch = _positive_int(raw["c7_epoch"], "c7_epoch")
         if epoch < self._last_c7_epoch:
             raise ExecutionBridgeViolation("C7 epoch regressed")
+        abort_requested = _boolean(raw["abort_requested"], "abort_requested")
+        if self._last_abort_requested is True and not abort_requested:
+            raise ExecutionBridgeViolation("C7 abort cannot be cleared")
+        if (
+            epoch == self._last_c7_epoch
+            and self._last_abort_requested is not None
+            and abort_requested != self._last_abort_requested
+        ):
+            raise ExecutionBridgeViolation("C7 state drift inside one epoch")
         self._last_c7_epoch = epoch
-        return _boolean(raw["abort_requested"], "abort_requested")
+        self._last_abort_requested = abort_requested
+        return abort_requested
 
     def _terminal_payload(self, payload: object) -> ReservationTerminalReceipt:
         raw = _closed(payload, _TERMINAL_FIELDS, "reservation terminal receipt")
