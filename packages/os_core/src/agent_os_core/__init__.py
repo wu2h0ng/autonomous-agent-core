@@ -38,6 +38,19 @@ from .errors import (
     TaskConfigurationScopeMismatch,
 )
 from .event_store import InMemoryTaskEventStore, TaskEventStore
+from .evaluator_authority import (
+    DeterministicEvaluatorAdapter,
+    EvaluationAuthorityDenied,
+    EvaluationBindingDrift,
+    EvaluatorAdapter,
+    EvaluatorAuthorityError,
+    EvaluatorBackendMalformed,
+    EvaluatorBackendTimeout,
+    EvaluatorBackendUnavailable,
+    EvaluatorMeasurementCandidate,
+    EvaluatorRegistry,
+    ExternalEvaluatorAdapter,
+)
 from .persistence import SQLiteTaskEventStore
 from .postgres import PostgresTaskEventStore
 from .governance import (
@@ -174,6 +187,17 @@ __all__ = [
     "ConcurrentWriteError",
     "Clock",
     "DuplicateEventError",
+    "DeterministicEvaluatorAdapter",
+    "EvaluationAuthorityDenied",
+    "EvaluationBindingDrift",
+    "EvaluatorAdapter",
+    "EvaluatorAuthorityError",
+    "EvaluatorBackendMalformed",
+    "EvaluatorBackendTimeout",
+    "EvaluatorBackendUnavailable",
+    "EvaluatorMeasurementCandidate",
+    "EvaluatorRegistry",
+    "ExternalEvaluatorAdapter",
     "EventStreamError",
     "InMemoryTaskEventStore",
     "SQLiteTaskEventStore",
