@@ -396,6 +396,23 @@ def test_same_mandate_id_is_isolated_by_tenant_and_workspace(tmp_path) -> None:
         evaluated_at=NOW,
     )
     assert first[0].tenant_id != second[0].tenant_id
+    store = SQLiteSituatedAssessmentStore(database)
+    paused = store.pause(
+        "mandate:build-agent-os",
+        expected_epoch=0,
+        principal_id="principal:owner",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
+    assert paused.status.value == "PAUSED"
+    assert store.resolve_active(
+        "mandate:build-agent-os",
+        "binding:data-agent-report:v1",
+        principal_id="principal:owner-2",
+        tenant_id="tenant:second",
+        workspace_id="workspace:second",
+        evaluated_at=NOW,
+    )[0] == second[0]
 
 
 def test_missing_expired_or_digest_drifted_workspace_record_fails_closed(
@@ -732,6 +749,19 @@ def test_real_data_agent_observation_replays_without_second_provider_assessment(
     assert replay_app.list_tasks() == []
 
     with sqlite3.connect(authority_database) as connection:
+        connection.execute(
+            "UPDATE mandate_observation_authorizations "
+            "SET environment_binding_id = ?",
+            ("binding:tampered",),
+        )
+    with pytest.raises(SituationalTrustDenied, match="observation authorization"):
+        compose(replay_adapter, replay_provider)
+    with sqlite3.connect(authority_database) as connection:
+        connection.execute(
+            "UPDATE mandate_observation_authorizations "
+            "SET environment_binding_id = ?",
+            ("binding:data-agent-reports",),
+        )
         connection.execute("DELETE FROM mandate_observation_authorizations")
     with pytest.raises(SituationalTrustDenied, match="observation authorization"):
         compose(replay_adapter, replay_provider)
