@@ -134,11 +134,13 @@ from .situated import (
 )
 from .mandate import (
     AgentInstanceRef,
+    CreateMandateCommand,
     EvaluationPrinciple,
     Mandate,
     MandateEnvelope,
     MandateRatificationReceipt,
     MandateStatus,
+    MandateWorkspaceRecord,
     StandingMission,
 )
 from .srl_environment import (
@@ -340,9 +342,11 @@ __all__ = [
     "MaterializationOutcome",
     "ModelInvocationRef",
     "Mandate",
+    "CreateMandateCommand",
     "MandateEnvelope",
     "MandateOperationalStatus",
     "MandateRatificationReceipt",
+    "MandateWorkspaceRecord",
     "MandateStatus",
     "EvaluationPrinciple",
     "StandingMission",

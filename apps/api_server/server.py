@@ -28,6 +28,9 @@ from agent_os_core import (
     TaskConfigurationNotBound,
     TaskConfigurationNotFound,
     TaskConfigurationScopeMismatch,
+    MandateWorkspaceNotFound,
+    MandateWorkspaceConflict,
+    MandateWorkspacePersistenceConflict,
     TaskNotFoundError,
 )
 
@@ -65,6 +68,8 @@ def _uses_generic_http_idempotency(path: str) -> bool:
     if _match_situated_proposal(path) is not None:
         return False
     parsed_path = urlparse(path).path
+    if parsed_path == "/v1/mandates":
+        return False
     return not parsed_path.endswith(
         (
             "/domain-candidates:seal",
@@ -100,6 +105,8 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             TaskConfigurationConflict,
             TaskConfigurationDrift,
             TaskConfigurationNotBound,
+            MandateWorkspaceConflict,
+            MandateWorkspacePersistenceConflict,
         ),
     ):
         return 409
@@ -110,6 +117,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             CandidateEvaluationNotFound,
             CandidatePromotionNotFound,
             TaskConfigurationNotFound,
+            MandateWorkspaceNotFound,
         ),
     ):
         return 404
@@ -169,6 +177,21 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/v1/tasks":
             self._json(200, {"tasks": self.application.list_tasks()})
             return
+        if parsed.path == "/v1/mandates":
+            self._json(200, {"mandates": self.application.list_mandate_workspace_records()})
+            return
+        mandate_prefix = "/v1/mandates/"
+        if parsed.path.startswith(mandate_prefix) and not parsed.query:
+            mandate_id = parsed.path[len(mandate_prefix) :]
+            if mandate_id and "/" not in mandate_id:
+                try:
+                    self._json(200, self.application.get_mandate_workspace_record(mandate_id))
+                except Exception as exc:
+                    self._json(
+                        _error_status(exc, default=404),
+                        {"error": type(exc).__name__, "message": str(exc)},
+                    )
+                return
         if parsed.path == "/v1/workspace":
             self._json(200, self.application.workspace_status())
             return
@@ -374,6 +397,10 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/v1/tasks":
                 task = self.application.create_task(body)
                 self._json(201, self.application.task_json(task.task_id))
+                return
+            if parsed.path == "/v1/mandates":
+                record = self.application.create_mandate_workspace_record(body)
+                self._json(201, record)
                 return
             parts = parsed.path.strip("/").split("/")
             if (

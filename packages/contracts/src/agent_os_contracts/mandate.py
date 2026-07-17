@@ -39,6 +39,22 @@ class MandateEnvelope(ContractModel):
     escalation_conditions: tuple[NonEmptyStr, ...] = Field(min_length=1)
 
 
+class CreateMandateCommand(ContractModel):
+    mandate_id: NonEmptyStr
+    mission_statement: NonEmptyStr
+    desired_outcomes: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    permanent_constraints: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    authority_envelope: MandateEnvelope
+    environment_binding_classes: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    time_horizon: NonEmptyStr
+    review_cadence_seconds: int = Field(ge=1)
+    expires_at: UtcDateTime
+    revocation_conditions: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    agent_instance_ref_id: NonEmptyStr
+    outcome_criteria_refs: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    principal_attestation: NonEmptyStr
+
+
 class Mandate(ContractModel):
     mandate_id: NonEmptyStr
     tenant_id: NonEmptyStr
@@ -101,3 +117,17 @@ class StandingMission(ContractModel):
     parent_mandate_digest: NonEmptyStr
     correction_epoch: int = Field(ge=0)
     ratification_receipt_digest: NonEmptyStr
+
+
+class MandateWorkspaceRecord(ContractModel):
+    mandate: Mandate
+    ratification_receipt: MandateRatificationReceipt
+    standing_mission: StandingMission
+    task_activation_authorized: bool = False
+    capability_grant_authorized: bool = False
+
+    @model_validator(mode="after")
+    def _cannot_authorize_execution(self) -> "MandateWorkspaceRecord":
+        if self.task_activation_authorized or self.capability_grant_authorized:
+            raise ValueError("Mandate Workspace record cannot authorize execution")
+        return self

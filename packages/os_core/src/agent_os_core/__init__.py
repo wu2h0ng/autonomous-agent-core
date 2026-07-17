@@ -106,6 +106,12 @@ from .srl_working_set import (
     WORKING_SET_SELECTION_POLICY_DIGEST,
 )
 from .mandate_steward import MandateSteward
+from .mandate_workspace import (
+    MandateWorkspaceConflict,
+    MandateWorkspaceNotFound,
+    MandateWorkspacePersistenceConflict,
+    SQLiteMandateWorkspaceStore,
+)
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
@@ -323,6 +329,10 @@ __all__ = [
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",
+    "MandateWorkspaceNotFound",
+    "MandateWorkspaceConflict",
+    "MandateWorkspacePersistenceConflict",
+    "SQLiteMandateWorkspaceStore",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",

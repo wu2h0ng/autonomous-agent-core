@@ -23,6 +23,7 @@ from agent_os_contracts import (
     CandidatePromotionDecision,
     CandidatePromotionResult,
     Commitment,
+    CreateMandateCommand,
     CredentialRef,
     CredentialStatus,
     DomainCandidate,
@@ -71,6 +72,7 @@ from agent_os_core import (
     SQLiteCandidateEvaluationStore,
     SQLiteCandidatePromotionStore,
     SQLiteTaskEventStore,
+    SQLiteMandateWorkspaceStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -214,6 +216,7 @@ class AgentOSApplication:
         self._promotion_grant_override = promotion_grant
         self._configuration_lock = RLock()
         self.store = SQLiteTaskEventStore(database)
+        self.mandate_workspace = SQLiteMandateWorkspaceStore(database)
         self.tasks = TaskService(self.store, clock=self._clock)
         if (
             situational_trust is not None
@@ -641,6 +644,21 @@ class AgentOSApplication:
 
     def create_task(self, payload: dict[str, Any]):
         return self.tasks.create_task(Goal.model_validate(payload))
+
+    def create_mandate_workspace_record(self, payload: dict[str, Any]) -> dict[str, Any]:
+        command = CreateMandateCommand.model_validate(payload)
+        record = self.mandate_workspace.create(command, self.principal, self._clock())
+        return record.model_dump(mode="json")
+
+    def get_mandate_workspace_record(self, mandate_id: str) -> dict[str, Any]:
+        record = self.mandate_workspace.get(mandate_id, self.principal)
+        return record.model_dump(mode="json")
+
+    def list_mandate_workspace_records(self) -> list[dict[str, Any]]:
+        return [
+            record.model_dump(mode="json")
+            for record in self.mandate_workspace.list(self.principal)
+        ]
 
     def project_task_trajectory(
         self,
