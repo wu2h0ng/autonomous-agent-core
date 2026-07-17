@@ -14,15 +14,27 @@ class EvaluationFailureCode(str, Enum):
     UNSUPPORTED = "UNSUPPORTED"
 
 
+class EvaluationArtifactRole(str, Enum):
+    CONFIG = "CONFIG"
+    RUBRIC = "RUBRIC"
+    PROMPT = "PROMPT"
+    CHECKPOINT = "CHECKPOINT"
+    HIDDEN_SET = "HIDDEN_SET"
+    EVIDENCE = "EVIDENCE"
+
+
 class EvaluatorIdentity(ContractModel):
     evaluator_id: NonEmptyStr
     principal_id: NonEmptyStr
     implementation_id: NonEmptyStr
     implementation_version: NonEmptyStr
+    config_artifact_ref: NonEmptyStr
     config_digest: Sha256Digest
     provider_id: NonEmptyStr
     model_id: NonEmptyStr
+    prompt_artifact_ref: NonEmptyStr
     prompt_digest: Sha256Digest
+    checkpoint_artifact_ref: NonEmptyStr
     checkpoint_digest: Sha256Digest
 
     def canonical_digest(self) -> Sha256Digest:
@@ -32,6 +44,7 @@ class EvaluatorIdentity(ContractModel):
 class RubricRef(ContractModel):
     rubric_id: NonEmptyStr
     rubric_version: NonEmptyStr
+    artifact_ref: NonEmptyStr
     rubric_digest: Sha256Digest
 
     def canonical_digest(self) -> Sha256Digest:
@@ -74,7 +87,32 @@ class EvidenceManifest(ContractModel):
         return content_digest(self)
 
 
+class EvaluatorRegistration(ContractModel):
+    registration_id: NonEmptyStr
+    registration_version: NonEmptyStr
+    registry_writer_principal_id: NonEmptyStr
+    identity: EvaluatorIdentity
+    adapter_id: NonEmptyStr
+    adapter_version: NonEmptyStr
+    adapter_binding_digest: Sha256Digest
+    rubric: RubricRef
+    hidden_set: HiddenSetManifest
+    evidence: EvidenceManifest
+    registered_at: UtcDateTime
+
+    @model_validator(mode="after")
+    def _separate_writer_and_evaluator(self) -> EvaluatorRegistration:
+        if self.registry_writer_principal_id == self.identity.principal_id:
+            raise ValueError("registry writer must differ from evaluator principal")
+        return self
+
+    def canonical_digest(self) -> Sha256Digest:
+        return content_digest(self)
+
+
 class EvaluatorInput(ContractModel):
+    """Caller input references authority; it cannot define evaluator authority."""
+
     evaluation_id: NonEmptyStr
     proposal_id: NonEmptyStr
     proposer_principal_id: NonEmptyStr
@@ -82,10 +120,8 @@ class EvaluatorInput(ContractModel):
     workspace_id: NonEmptyStr
     task_id: NonEmptyStr
     run_id: NonEmptyStr
-    identity: EvaluatorIdentity
-    rubric: RubricRef
-    hidden_set: HiddenSetManifest
-    evidence: EvidenceManifest
+    registration_id: NonEmptyStr
+    registration_version: NonEmptyStr
     requested_at: UtcDateTime
 
     def canonical_digest(self) -> Sha256Digest:
@@ -122,13 +158,22 @@ class FailureReason(ContractModel):
     retriable: bool
 
 
+class EvaluationConsumptionEntry(ContractModel):
+    role: EvaluationArtifactRole
+    artifact_ref: NonEmptyStr
+    content_digest: Sha256Digest
+
+
 class EvaluatorMeasurementCandidate(ContractModel):
     """Untrusted backend measurement. It carries no outcome or receipt authority."""
 
     input_digest: Sha256Digest
+    registration_digest: Sha256Digest
     score: EvaluationScore
     uncertainty: Uncertainty
     failure_reasons: tuple[FailureReason, ...] = ()
+    consumption_manifest: tuple[EvaluationConsumptionEntry, ...] = Field(min_length=1)
+    trace_digest: Sha256Digest
 
 
 class EvaluationReceipt(ContractModel):
@@ -140,6 +185,9 @@ class EvaluationReceipt(ContractModel):
     task_id: NonEmptyStr
     run_id: NonEmptyStr
     input_digest: Sha256Digest
+    registration_id: NonEmptyStr
+    registration_version: NonEmptyStr
+    registration_digest: Sha256Digest
     evaluator_identity_digest: Sha256Digest
     rubric_digest: Sha256Digest
     hidden_set_manifest_digest: Sha256Digest
@@ -147,11 +195,21 @@ class EvaluationReceipt(ContractModel):
     score: EvaluationScore
     uncertainty: Uncertainty
     failure_reasons: tuple[FailureReason, ...] = ()
+    consumption_manifest: tuple[EvaluationConsumptionEntry, ...] = Field(min_length=1)
+    trace_digest: Sha256Digest
     sealed_at: UtcDateTime
+    store_namespace: NonEmptyStr
+    store_sequence: int = Field(ge=1)
     receipt_digest: Sha256Digest
+    store_seal: Sha256Digest
 
     def canonical_digest(self) -> Sha256Digest:
-        return content_digest(self.model_dump(mode="json", exclude={"receipt_digest"}))
+        return content_digest(
+            self.model_dump(
+                mode="json",
+                exclude={"receipt_digest", "store_seal"},
+            )
+        )
 
     @model_validator(mode="after")
     def _valid_receipt_digest(self) -> EvaluationReceipt:

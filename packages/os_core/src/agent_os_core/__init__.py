@@ -42,6 +42,8 @@ from .evaluator_authority import (
     DeterministicEvaluatorAdapter,
     EvaluationAuthorityDenied,
     EvaluationBindingDrift,
+    EvaluationInProgress,
+    EvaluationReceiptStore,
     EvaluatorAdapter,
     EvaluatorAuthorityError,
     EvaluatorBackendMalformed,
@@ -50,6 +52,8 @@ from .evaluator_authority import (
     EvaluatorMeasurementCandidate,
     EvaluatorRegistry,
     ExternalEvaluatorAdapter,
+    TrustedEvaluatorRegistrationRegistry,
+    VerifiedEvaluatorInputs,
 )
 from .persistence import SQLiteTaskEventStore
 from .postgres import PostgresTaskEventStore
@@ -190,6 +194,8 @@ __all__ = [
     "DeterministicEvaluatorAdapter",
     "EvaluationAuthorityDenied",
     "EvaluationBindingDrift",
+    "EvaluationInProgress",
+    "EvaluationReceiptStore",
     "EvaluatorAdapter",
     "EvaluatorAuthorityError",
     "EvaluatorBackendMalformed",
@@ -198,6 +204,8 @@ __all__ = [
     "EvaluatorMeasurementCandidate",
     "EvaluatorRegistry",
     "ExternalEvaluatorAdapter",
+    "TrustedEvaluatorRegistrationRegistry",
+    "VerifiedEvaluatorInputs",
     "EventStreamError",
     "InMemoryTaskEventStore",
     "SQLiteTaskEventStore",
