@@ -45,6 +45,10 @@ class SituationalPersistenceConflict(SituationalProposalError):
     pass
 
 
+class ProtocolIngressConflict(SituationalPersistenceConflict):
+    pass
+
+
 class TaskNotFoundError(AgentOSCoreError):
     pass
 

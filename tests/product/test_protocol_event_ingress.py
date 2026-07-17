@@ -4,10 +4,13 @@ import inspect
 import hashlib
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 import agent_os_contracts as contracts
+import agent_os_core as core
 from agent_os_contracts import RelevanceDisposition, content_digest
 from agent_os_core import (
     EventEnvelopeAdapter,
@@ -16,6 +19,8 @@ from agent_os_core import (
     WorkloadIdentityAdapter,
 )
 from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from apps.api_server.data_agent_situated_bootstrap import DataAgentAdmissionFacade
+from agent_os_core import MandateSteward
 from tests.product.test_data_agent_situated_http import TRACE_ID, _situated_app
 
 
@@ -247,3 +252,172 @@ def test_same_protocol_id_is_scoped_and_foreign_tenant_cannot_alias(
             _cloud_event("shared-external-id"), "foreign-secret"
         )
     assert _admission_count(tmp_path) == before
+
+
+def test_exact_replay_survives_restart_and_binds_durable_auth_chain(
+    tmp_path: Path,
+) -> None:
+    registration = _registration()
+    first_app = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(registration,),
+    )
+    first = first_app.propose_authenticated_protocol_envelope(
+        _cloud_event("durable-replay"), "workload-secret"
+    )
+    count_after_first = _admission_count(tmp_path)
+
+    restarted_app = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(registration,),
+    )
+    with (
+        patch.object(
+            DataAgentAdmissionFacade,
+            "admit_event",
+            side_effect=AssertionError("exact replay must not re-admit"),
+        ),
+        patch.object(
+            MandateSteward,
+            "observe_event",
+            side_effect=AssertionError("exact replay must not re-propose"),
+        ),
+    ):
+        replay = restarted_app.propose_authenticated_protocol_envelope(
+            _cloud_event("durable-replay"), "workload-secret"
+        )
+
+    assert replay == first
+    assert _admission_count(tmp_path) == count_after_first
+    with sqlite3.connect(tmp_path / "agent-os.sqlite3.admission.sqlite3") as connection:
+        row = connection.execute(
+            """
+            SELECT principal_id, tenant_id, workspace_id, source_binding_id,
+                   protocol, protocol_message_id, envelope_digest,
+                   authorization_digest, receipt_json
+            FROM protocol_ingress_receipts
+            """
+        ).fetchone()
+    assert row is not None
+    assert row[:6] == (
+        "user:local",
+        "tenant:local",
+        "workspace:local",
+        "binding:data-agent-reports",
+        "CLOUDEVENTS",
+        "durable-replay",
+    )
+    assert row[6] == first.envelope_digest
+    assert row[7] == first.source_binding_authorization_digest
+    assert contracts.ProtocolIngressReceipt.model_validate_json(row[8]) == first
+
+
+def test_same_scoped_protocol_id_digest_drift_is_typed_conflict_without_admission(
+    tmp_path: Path,
+) -> None:
+    assert hasattr(core, "ProtocolIngressConflict")
+    app = _situated_app(
+        tmp_path,
+        RelevanceDisposition.CREATE_TASK,
+        workload_identities=(_registration(),),
+    )
+    app.propose_authenticated_protocol_envelope(
+        _cloud_event("drift-conflict"), "workload-secret"
+    )
+    before = _admission_count(tmp_path)
+    drifted = _cloud_event("drift-conflict")
+    drifted["extension"] = "changed-envelope"
+
+    with (
+        patch.object(
+            DataAgentAdmissionFacade,
+            "admit_event",
+            side_effect=AssertionError("drift conflict must precede admission"),
+        ),
+        pytest.raises(core.ProtocolIngressConflict),
+    ):
+        app.propose_authenticated_protocol_envelope(drifted, "workload-secret")
+
+    assert _admission_count(tmp_path) == before
+
+
+@pytest.mark.parametrize(
+    ("contract_name", "field", "replacement"),
+    [
+        ("ActorRef", "actor_id", "workload:data-agent-report-ingress"),
+        ("WorkloadRef", "workload_id", "service:data-agent"),
+        ("DelegationRef", "delegation_id", "service:data-agent"),
+    ],
+)
+def test_identity_kinds_cannot_be_replaced_or_aliased(
+    contract_name: str,
+    field: str,
+    replacement: str,
+) -> None:
+    registration = _registration()
+    contract = getattr(registration, contract_name.removesuffix("Ref").lower())
+    payload = contract.model_dump(mode="python")
+    payload[field] = replacement
+
+    with pytest.raises(ValidationError):
+        getattr(contracts, contract_name).model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    ("disposition", "outcome_kind", "trace_reason"),
+    [
+        (RelevanceDisposition.CREATE_TASK, "TASK_DRAFT", "TASK_DRAFT"),
+        (RelevanceDisposition.HELP, "HELP_REQUEST", "HELP_REQUEST"),
+        (RelevanceDisposition.IGNORE, "NO_PROPOSAL", "NO_PROPOSAL"),
+    ],
+)
+def test_protocol_ingress_persists_complete_task6_evidence_chain(
+    tmp_path: Path,
+    disposition: RelevanceDisposition,
+    outcome_kind: str,
+    trace_reason: str,
+) -> None:
+    app = _situated_app(
+        tmp_path,
+        disposition,
+        workload_identities=(_registration(),),
+    )
+    receipt = app.propose_authenticated_protocol_envelope(
+        _cloud_event(f"task6-{outcome_kind.lower()}"), "workload-secret"
+    )
+
+    assert receipt.outcome_kind == outcome_kind
+    admission_db = tmp_path / "agent-os.sqlite3.admission.sqlite3"
+    with sqlite3.connect(admission_db) as connection:
+        admission_rows = connection.execute(
+            "SELECT COUNT(*) FROM srl_event_admission_receipts"
+        ).fetchone()[0]
+        trace = connection.execute(
+            """
+            SELECT status, reason, delegation_attempt_count, canonical_json
+            FROM srl_situated_evaluation_traces
+            """
+        ).fetchone()
+    assert admission_rows == 1
+    assert trace is not None
+    assert trace[:3] == ("COMPLETED", trace_reason, 1)
+    trace_contract = contracts.SituatedEvaluationTrace.model_validate_json(trace[3])
+    assert trace_contract.admission_receipt_digest
+    assert trace_contract.result_binding_digest
+
+    with sqlite3.connect(tmp_path / "situated.sqlite3") as connection:
+        assessment_row = connection.execute(
+            "SELECT source_binding_digest, record_json FROM situated_assessment_records"
+        ).fetchone()
+    assert assessment_row is not None
+    assessment = contracts.SituatedAssessmentRecord.model_validate_json(
+        assessment_row[1]
+    ).assessment
+    assert assessment.provider_call_attempted is True
+    assert assessment.expected_provider_invocation_binding_digest
+    assert assessment.provider_invocation_receipt_digest
+    if receipt.task_draft is not None:
+        assert receipt.task_draft.source_binding_digest == assessment_row[0]
+    assert app.list_tasks() == []

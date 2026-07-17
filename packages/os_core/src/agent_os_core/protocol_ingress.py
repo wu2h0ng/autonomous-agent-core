@@ -1,18 +1,25 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 from agent_os_contracts import (
     ExternalEnvelopeAssertion,
     SourceBindingAuthorizationReceipt,
+    ProtocolIngressReceipt,
     WorkloadIdentityRegistration,
     canonical_json,
     content_digest,
 )
 
-from .errors import SituationalScopeMismatch, SituationalTrustDenied
+from .errors import (
+    ProtocolIngressConflict,
+    SituationalScopeMismatch,
+    SituationalTrustDenied,
+)
 
 
 def _sha256(value: Any) -> str:
@@ -102,6 +109,9 @@ class WorkloadIdentityAdapter:
                 "protocol_message_id": envelope.protocol_message_id,
                 "envelope_digest": envelope.envelope_digest,
                 "registration_id": registration.registration_id,
+                "actor_ref_digest": content_digest(registration.actor),
+                "workload_ref_digest": content_digest(registration.workload),
+                "delegation_ref_digest": content_digest(registration.delegation),
             }
         )
         return SourceBindingAuthorizationReceipt(
@@ -117,4 +127,155 @@ class WorkloadIdentityAdapter:
         )
 
 
-__all__ = ["EventEnvelopeAdapter", "WorkloadIdentityAdapter"]
+class SQLiteProtocolIngressStore:
+    """Scoped replay binding in the existing situated admission database."""
+
+    __slots__ = ("_database",)
+
+    def __init__(self, database: str | Path) -> None:
+        self._database = str(database)
+        with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS protocol_ingress_receipts (
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    source_binding_id TEXT NOT NULL,
+                    protocol TEXT NOT NULL,
+                    protocol_message_id TEXT NOT NULL,
+                    envelope_digest TEXT NOT NULL,
+                    authorization_digest TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    receipt_json BLOB,
+                    PRIMARY KEY (
+                        principal_id, tenant_id, workspace_id, source_binding_id,
+                        protocol, protocol_message_id
+                    )
+                )
+                """
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self._database, timeout=10.0)
+        connection.execute("PRAGMA busy_timeout = 10000")
+        return connection
+
+    @staticmethod
+    def _key(
+        authorization: SourceBindingAuthorizationReceipt,
+        envelope: ExternalEnvelopeAssertion,
+    ) -> tuple[str, str, str, str, str, str]:
+        return (
+            authorization.principal.principal_id,
+            authorization.principal.tenant_id,
+            authorization.principal.workspace_id,
+            authorization.source_binding_id,
+            envelope.protocol,
+            envelope.protocol_message_id,
+        )
+
+    def replay_or_reserve(
+        self,
+        authorization: SourceBindingAuthorizationReceipt,
+        envelope: ExternalEnvelopeAssertion,
+    ) -> ProtocolIngressReceipt | None:
+        key = self._key(authorization, envelope)
+        authorization_digest = content_digest(authorization)
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT envelope_digest, authorization_digest, status, receipt_json
+                FROM protocol_ingress_receipts
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND source_binding_id = ? AND protocol = ?
+                  AND protocol_message_id = ?
+                """,
+                key,
+            ).fetchone()
+            if row is not None:
+                if row[0] != envelope.envelope_digest or row[1] != authorization_digest:
+                    raise ProtocolIngressConflict(
+                        "scoped protocol message id conflicts with durable binding"
+                    )
+                if row[2] != "COMPLETED" or row[3] is None:
+                    raise ProtocolIngressConflict(
+                        "scoped protocol message is already pending"
+                    )
+                receipt = ProtocolIngressReceipt.model_validate_json(row[3], strict=True)
+                if receipt.source_binding_authorization_digest != authorization_digest:
+                    raise ProtocolIngressConflict("durable receipt auth chain mismatch")
+                connection.rollback()
+                return receipt
+            connection.execute(
+                """
+                INSERT INTO protocol_ingress_receipts (
+                    principal_id, tenant_id, workspace_id, source_binding_id,
+                    protocol, protocol_message_id, envelope_digest,
+                    authorization_digest, status, receipt_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', NULL)
+                """,
+                (*key, envelope.envelope_digest, authorization_digest),
+            )
+            connection.commit()
+            return None
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise ProtocolIngressConflict("protocol replay persistence failed") from exc
+        finally:
+            connection.close()
+
+    def complete(
+        self,
+        authorization: SourceBindingAuthorizationReceipt,
+        envelope: ExternalEnvelopeAssertion,
+        receipt: ProtocolIngressReceipt,
+    ) -> ProtocolIngressReceipt:
+        key = self._key(authorization, envelope)
+        authorization_digest = content_digest(authorization)
+        if receipt.source_binding_authorization_digest != authorization_digest:
+            raise ProtocolIngressConflict("receipt does not bind authenticated chain")
+        payload = canonical_json(receipt).encode("utf-8")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE protocol_ingress_receipts
+                SET status = 'COMPLETED', receipt_json = ?
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND source_binding_id = ? AND protocol = ?
+                  AND protocol_message_id = ? AND envelope_digest = ?
+                  AND authorization_digest = ? AND status = 'PENDING'
+                """,
+                (payload, *key, envelope.envelope_digest, authorization_digest),
+            )
+            if cursor.rowcount != 1:
+                raise ProtocolIngressConflict("protocol replay reservation changed")
+        return receipt
+
+    def abandon(
+        self,
+        authorization: SourceBindingAuthorizationReceipt,
+        envelope: ExternalEnvelopeAssertion,
+    ) -> None:
+        key = self._key(authorization, envelope)
+        with self._connect() as connection:
+            connection.execute(
+                """
+                DELETE FROM protocol_ingress_receipts
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND source_binding_id = ? AND protocol = ?
+                  AND protocol_message_id = ? AND status = 'PENDING'
+                """,
+                key,
+            )
+
+
+__all__ = [
+    "EventEnvelopeAdapter",
+    "SQLiteProtocolIngressStore",
+    "WorkloadIdentityAdapter",
+]

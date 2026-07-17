@@ -23,6 +23,7 @@ from .errors import (
     ScopeMismatchError,
     SituationalProposalError,
     SituationalPersistenceConflict,
+    ProtocolIngressConflict,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SignalMismatchError,
@@ -54,7 +55,11 @@ from .provider import (
     OpenAICompatibleProvider,
     ProviderPort,
 )
-from .protocol_ingress import EventEnvelopeAdapter, WorkloadIdentityAdapter
+from .protocol_ingress import (
+    EventEnvelopeAdapter,
+    SQLiteProtocolIngressStore,
+    WorkloadIdentityAdapter,
+)
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
@@ -189,6 +194,7 @@ __all__ = [
     "ScopeMismatchError",
     "SituationalProposalError",
     "SituationalPersistenceConflict",
+    "ProtocolIngressConflict",
     "SituationalScopeMismatch",
     "SituationalTrustDenied",
     "SignalMismatchError",
@@ -244,6 +250,7 @@ __all__ = [
     "OpenAICompatibleProvider",
     "ProviderPort",
     "EventEnvelopeAdapter",
+    "SQLiteProtocolIngressStore",
     "WorkloadIdentityAdapter",
     "build_recovery_snapshot",
     "CanonicalCredentialLeaseRegistry",

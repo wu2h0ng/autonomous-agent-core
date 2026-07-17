@@ -360,6 +360,7 @@ def test_situated_runtime_composition_rejects_mixed_reader_chain(
             admission=second._admission,
             steward=first._steward,
             envelope_adapter=first._envelope_adapter,
+            protocol_ingress_store=first._protocol_ingress_store,
             workload_identity_adapter=first._workload_identity_adapter,
             composition_seal=bootstrap_module._RUNTIME_COMPOSITION_SEAL,
         )

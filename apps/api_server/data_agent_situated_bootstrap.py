@@ -30,6 +30,7 @@ from agent_os_core import (
     OperationalProposalService,
     RelevanceAssessorPort,
     ScopedEventAdmissionReader,
+    SQLiteProtocolIngressStore,
     ScopedSituatedAssessmentReader,
     SituationalTrustDenied,
     WorkloadIdentityAdapter,
@@ -238,6 +239,7 @@ class DataAgentSituatedRuntime:
         "_composition_seal",
         "_principal_scope",
         "_envelope_adapter",
+        "_protocol_ingress_store",
         "_workload_identity_adapter",
         "_steward",
     )
@@ -253,6 +255,7 @@ class DataAgentSituatedRuntime:
         admission: DataAgentAdmissionFacade,
         steward: MandateSteward,
         envelope_adapter: EventEnvelopeAdapter,
+        protocol_ingress_store: SQLiteProtocolIngressStore,
         workload_identity_adapter: WorkloadIdentityAdapter,
         composition_seal: object | None = None,
     ) -> DataAgentSituatedRuntime:
@@ -262,6 +265,7 @@ class DataAgentSituatedRuntime:
             or type(admission) is not DataAgentAdmissionFacade
             or type(steward) is not MandateSteward
             or type(envelope_adapter) is not EventEnvelopeAdapter
+            or type(protocol_ingress_store) is not SQLiteProtocolIngressStore
             or type(workload_identity_adapter) is not WorkloadIdentityAdapter
         ):
             raise TypeError("runtime requires deployment-internal composition")
@@ -288,6 +292,7 @@ class DataAgentSituatedRuntime:
         self._admission = admission
         self._steward = steward
         self._envelope_adapter = envelope_adapter
+        self._protocol_ingress_store = protocol_ingress_store
         self._workload_identity_adapter = workload_identity_adapter
         self._principal_scope = principal_scope
         self._composition_seal = composition_seal
@@ -323,17 +328,26 @@ class DataAgentSituatedRuntime:
         authorization = self._workload_identity_adapter.authenticate(
             workload_assertion, envelope, self._principal_scope
         )
-        bundle = self.observe_report(envelope.trace_id)
-        if bundle.event.environment_binding_id != authorization.source_binding_id:
-            raise SituationalTrustDenied(
-                "authenticated workload is not bound to observed environment"
-            )
-        admission = self.admit_event(bundle.event.environment_event_id)
-        proposal = self.propose(
-            bundle.event.environment_event_id,
-            bundle.projection.projection_id,
-            admission.receipt_id,
+        replay = self._protocol_ingress_store.replay_or_reserve(
+            authorization, envelope
         )
+        if replay is not None:
+            return replay
+        try:
+            bundle = self.observe_report(envelope.trace_id)
+            if bundle.event.environment_binding_id != authorization.source_binding_id:
+                raise SituationalTrustDenied(
+                    "authenticated workload is not bound to observed environment"
+                )
+            admission = self.admit_event(bundle.event.environment_event_id)
+            proposal = self.propose(
+                bundle.event.environment_event_id,
+                bundle.projection.projection_id,
+                admission.receipt_id,
+            )
+        except Exception:
+            self._protocol_ingress_store.abandon(authorization, envelope)
+            raise
         if isinstance(proposal, TaskDraftProposal):
             outcome_kind = "TASK_DRAFT"
             task_draft = proposal
@@ -353,16 +367,20 @@ class DataAgentSituatedRuntime:
                 "outcome_kind": outcome_kind,
             }
         )
-        return ProtocolIngressReceipt(
+        receipt = ProtocolIngressReceipt(
             receipt_id=receipt_id,
             protocol=envelope.protocol,
             protocol_message_id=envelope.protocol_message_id,
             binding_digest=authorization.binding_digest,
             envelope_digest=envelope.envelope_digest,
+            source_binding_authorization_digest=content_digest(authorization),
             admission_receipt_id=admission.receipt_id,
             outcome_kind=outcome_kind,
             task_draft=task_draft,
             help_request=help_request,
+        )
+        return self._protocol_ingress_store.complete(
+            authorization, envelope, receipt
         )
 
 
@@ -442,6 +460,7 @@ class DataAgentSituatedBootstrap:
             admission=admission,
             steward=steward,
             envelope_adapter=EventEnvelopeAdapter(),
+            protocol_ingress_store=SQLiteProtocolIngressStore(admission_database),
             workload_identity_adapter=WorkloadIdentityAdapter(workload_identities),
             composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )

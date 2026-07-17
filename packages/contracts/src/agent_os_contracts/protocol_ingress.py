@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .common import ContractModel, NonEmptyStr, content_digest
 from .evidence import Sha256Digest
@@ -20,11 +20,25 @@ class ActorRef(ContractModel):
     actor_kind: Literal["HUMAN", "SERVICE", "AGENT"]
     principal_ref_digest: Sha256Digest
 
+    @model_validator(mode="after")
+    def validate_actor_kind(self) -> ActorRef:
+        prefixes = {"HUMAN": "user:", "SERVICE": "service:", "AGENT": "agent:"}
+        if not self.actor_id.startswith(prefixes[self.actor_kind]):
+            raise ValueError("actor id is not valid for actor kind")
+        return self
+
 
 class WorkloadRef(ContractModel):
     workload_id: NonEmptyStr
     trust_domain: NonEmptyStr
     principal_ref_digest: Sha256Digest
+
+    @field_validator("workload_id")
+    @classmethod
+    def validate_workload_id(cls, value: str) -> str:
+        if not value.startswith("workload:"):
+            raise ValueError("workload id must use workload namespace")
+        return value
 
 
 class DelegationRef(ContractModel):
@@ -34,8 +48,17 @@ class DelegationRef(ContractModel):
     workload_ref_digest: Sha256Digest
     allowed_source_binding_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
 
+    @field_validator("delegation_id")
+    @classmethod
+    def validate_delegation_id(cls, value: str) -> str:
+        if not value.startswith("delegation:"):
+            raise ValueError("delegation id must use delegation namespace")
+        return value
+
 
 class WorkloadIdentityRegistration(ContractModel):
+    """Static local binding; it is not production SPIFFE/SVID attestation."""
+
     registration_id: NonEmptyStr
     workload_assertion_digest: Sha256Digest
     principal: PrincipalRef
@@ -44,6 +67,7 @@ class WorkloadIdentityRegistration(ContractModel):
     delegation: DelegationRef
     source_id: NonEmptyStr
     source_binding_id: NonEmptyStr
+    identity_assurance: Literal["STATIC_LOCAL_ONLY"] = "STATIC_LOCAL_ONLY"
 
     @model_validator(mode="after")
     def validate_reference_chain(self) -> WorkloadIdentityRegistration:
@@ -60,6 +84,14 @@ class WorkloadIdentityRegistration(ContractModel):
             raise ValueError("delegation workload reference mismatch")
         if self.source_binding_id not in self.delegation.allowed_source_binding_ids:
             raise ValueError("source binding is outside delegation")
+        stable_ids = {
+            self.principal.principal_id,
+            self.actor.actor_id,
+            self.workload.workload_id,
+            self.delegation.delegation_id,
+        }
+        if len(stable_ids) != 4:
+            raise ValueError("principal, actor, workload, and delegation ids cannot alias")
         return self
 
 
@@ -89,6 +121,7 @@ class ProtocolIngressReceipt(ContractModel):
     protocol_message_id: NonEmptyStr
     binding_digest: Sha256Digest
     envelope_digest: Sha256Digest
+    source_binding_authorization_digest: Sha256Digest
     admission_receipt_id: NonEmptyStr
     outcome_kind: Literal["TASK_DRAFT", "HELP_REQUEST", "NO_PROPOSAL"]
     task_draft: TaskDraftProposal | None = None
