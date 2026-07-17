@@ -5,7 +5,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -154,8 +154,8 @@ class InterventionDataset:
         conditions = raw["conditions"]
         if not isinstance(conditions, list):
             raise DiscoveryContractError("conditions must be a list")
-        row_map: dict[str, object] = {}
-        binding_map: dict[str, object] = {}
+        row_map: dict[str, Sequence[Sequence[object]]] = {}
+        binding_map: dict[str, str] = {}
         for item in conditions:
             if not isinstance(item, dict):
                 raise DiscoveryContractError("condition must be an object")
@@ -165,11 +165,20 @@ class InterventionDataset:
                 raise DiscoveryContractError(
                     "condition binding identities must be unique"
                 )
-            row_map[condition_id] = item["rows"]
-            binding_map[condition_id] = item["target"]
-        return cls.create(
-            raw["variable_ids"], raw["control_rows"], row_map, binding_map
-        )  # type: ignore[arg-type]
+            rows_value = item["rows"]
+            if not isinstance(rows_value, list):
+                raise DiscoveryContractError("condition rows must be a list")
+            row_map[condition_id] = cast(Sequence[Sequence[object]], rows_value)
+            binding_map[condition_id] = _name(item["target"], "intervention target")
+        variable_ids_value = raw["variable_ids"]
+        control_rows_value = raw["control_rows"]
+        if not isinstance(variable_ids_value, list):
+            raise DiscoveryContractError("variable ids must be a list")
+        if not isinstance(control_rows_value, list):
+            raise DiscoveryContractError("control rows must be a list")
+        variable_ids = cast(Sequence[str], variable_ids_value)
+        control_rows = cast(Sequence[Sequence[object]], control_rows_value)
+        return cls.create(variable_ids, control_rows, row_map, binding_map)
 
     def condition(self, condition_id: str) -> InterventionCondition:
         for condition in self.conditions:

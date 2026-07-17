@@ -112,23 +112,34 @@ def test_missing_fairness_attack_calibration_or_binding_gate_fails_disposition()
         adjudicate_qualification,
     )
 
-    common = {
-        "mechanism_pairs": {("v0", "v2")},
-        "expected": {("v0", "v2")},
-        "matched_k": 1,
-        "baseline_count": 1,
-        "attack_gate_passed": True,
-        "calibration_gate_passed": True,
-        "binding_gate_passed": True,
-    }
-    for changed in (
-        {"baseline_count": 2},
-        {"attack_gate_passed": False},
-        {"calibration_gate_passed": False},
-        {"binding_gate_passed": False},
+    def assess(
+        *,
+        baseline_count: int = 1,
+        attack_gate_passed: bool = True,
+        calibration_gate_passed: bool = True,
+        binding_gate_passed: bool = True,
     ):
-        assert adjudicate_qualification(**(common | changed)).status == "REJECT"
-    assert adjudicate_qualification(**common).status == "QUALIFIED"
+        return adjudicate_qualification(
+            mechanism_pairs={("v0", "v2")},
+            expected={("v0", "v2")},
+            matched_k=1,
+            baseline_count=baseline_count,
+            attack_gate_passed=attack_gate_passed,
+            calibration_gate_passed=calibration_gate_passed,
+            binding_gate_passed=binding_gate_passed,
+        )
+
+    rejected = (
+        assess(baseline_count=2),
+        assess(attack_gate_passed=False),
+        assess(calibration_gate_passed=False),
+        assess(binding_gate_passed=False),
+    )
+    assert all(item.status == "REJECT" for item in rejected)
+    local = assess()
+    assert local.status == "LOCAL_CONDITIONS_MET_NOT_FREEZE_AUTHORITY"
+    assert local.freeze_authorized is False
+    assert local.run_authorized is False
 
 
 def test_qualification_receipt_is_deterministic_and_contains_no_result_verdict() -> (

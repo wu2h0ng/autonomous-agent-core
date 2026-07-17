@@ -91,6 +91,10 @@ both cheap baselines; it is not result evidence.
   changes, preventing a constant or finite-screen implementation from passing.
 - Qualification disposition rejects any missing, extra or wrong hypothesis,
   non-exact-k comparator, or missing attack/calibration/binding gate.
+- Even when all local conditions are met, the only positive disposition is
+  `LOCAL_CONDITIONS_MET_NOT_FREEZE_AUTHORITY`; it always carries
+  `freeze_authorized=false` and `run_authorized=false`. Caller-supplied local
+  gate assessments cannot mint review, freeze or run authority.
 
 ## Freeze and claim boundary
 

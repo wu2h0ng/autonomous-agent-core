@@ -48,6 +48,8 @@ class QualificationArmScore:
 class QualificationDisposition:
     status: str
     reasons: tuple[str, ...]
+    freeze_authorized: bool = False
+    run_authorized: bool = False
 
 
 def adjudicate_qualification(
@@ -72,7 +74,8 @@ def adjudicate_qualification(
     if not binding_gate_passed:
         reasons.append("BINDING_GATE_NOT_PASSED")
     return QualificationDisposition(
-        "QUALIFIED" if not reasons else "REJECT", tuple(reasons)
+        "LOCAL_CONDITIONS_MET_NOT_FREEZE_AUTHORITY" if not reasons else "REJECT",
+        tuple(reasons),
     )
 
 
