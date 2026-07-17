@@ -1,0 +1,20 @@
+{
+  "artifact_id": "CLS-F1-QUALIFICATION",
+  "status": ["FREEZE_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
+  "active_freeze_input": false,
+  "artifact_sha256": {
+    "experiments/continual_retention_f1/__init__.py": "925f0ea4946f87618424c53f50c8fca629d67ad34114fd3e2755e6d0bc9cbb16",
+    "experiments/continual_retention_f1/baselines.py": "40f9b91065a665ce4f4145580348ac4485772ed796293e01b711c393f86f4f26",
+    "experiments/continual_retention_f1/contracts.py": "dbcdff66ab55f90990161fd90dde8848b8cc3a504362131ecd365e72591903ae",
+    "experiments/continual_retention_f1/dual_store.py": "164610270de1ae87ffad4f418b1027bebb9f8463261ba2b690fef8785497e491",
+    "experiments/continual_retention_f1/fixture.py": "c378ecd295c2d2737b79276d379967a8f66d6016c7b361e28edba2bbc214c246",
+    "experiments/continual_retention_f1/harness.py": "5ce66cc408fc5669fe7a8d3358d5a3e3975f04ae470f3ef997ff1e466c285a24",
+    "experiments/continual_retention_f1/oracle.py": "c4979b5a1b91440d8db9126ca714342d7a8e3d15451f9f629bbb91343521fb63",
+    "experiments/continual_retention_f1/scorer.py": "9e394a7709699124f1482ef6f8b257c6ca015359cc1fd10804ea7a3471d9e5c1",
+    "tests/test_continual_retention_f1.py": "a5fead9dd185b7806fc9655b65e2a838c123dea36d100069d2e80924c41734c6",
+    "tests/test_cls_f1_qualification_freeze_candidate.py": "c743a80d8f146c139222c02e6bcf7b730e24f8391d0467b688fa7b7165dad62f",
+    "docs/superpowers/specs/2026-07-18-cls-f1-qualification-design.md": "35a201fac6201a1ae27d58835aef8d9cf71e090e214ba1b6fb3e6f87d44bf2ac",
+    "docs/superpowers/plans/2026-07-18-cls-f1-qualification.md": "83b5ae4a8cc17f8615155ce62a82e6c5051578b70d03e7f811cccc2ca945a305",
+    "docs/pre_spec/CLS-F1-QUALIFICATION.PREREG-CANDIDATE-2026-07-18.json": "3579779fb6c1654ccd22c4fa4bcde9b15b3ab480ff424c8e55ba80dee5591425"
+  }
+}

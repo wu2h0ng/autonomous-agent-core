@@ -1,0 +1,47 @@
+{
+  "artifact_id": "CLS-F1-QUALIFICATION",
+  "status": ["FREEZE_CANDIDATE", "NOT_FROZEN", "NOT_RUN"],
+  "track": "Research",
+  "claim_ceiling": "Qualification instrument only; no continual-learning or autonomy result",
+  "environment": {
+    "sequence": ["A1", "B", "A2"],
+    "contexts": 8,
+    "actions": 4,
+    "changed_contexts": 4,
+    "unchanged_contexts": 4,
+    "feedback_delay": 2,
+    "hidden_per_seed_bijections": ["feature_dimension", "feature_value", "action_token"],
+    "arm_visible_context_id": false,
+    "arm_visible_phase": false
+  },
+  "arms": {
+    "candidate": "dual-store retention",
+    "strongest_cheap": "single-store reservoir replay plus functional stability",
+    "cheap": ["reset-on-public-error", "recency", "static", "WSLS diagnostic"],
+    "ceiling_only": "evaluator oracle"
+  },
+  "fairness": {
+    "identical_environment": true,
+    "identical_update_budget": true,
+    "identical_replay_budget": true,
+    "qualification_seed_tuning_only": true,
+    "result_seed_retuning": false
+  },
+  "metrics": [
+    "adaptation_speed", "return_A_retention", "negative_transfer",
+    "correction_safety", "rollback_safety", "operation_cost", "state_bytes"
+  ],
+  "kill_rules": {
+    "K1": "kill TC1 when strongest cheap baseline is within one context cycle capped at 10 percent B horizon and retention difference is at most 0.03",
+    "K2": "NO_ADOPT on worse speed or retention, negative transfer, correction, rollback, or unsafe action",
+    "K3": "OVERHEAD above 2x cost without at least 0.05 retention gain",
+    "K4": "INVALID on oracle leak, phase or task leak, correction failure, or budget mismatch",
+    "K5": "TRIVIAL_INVALID when cheap quality is at least 0.95 or oracle gap is at most 0.03"
+  },
+  "authority": {
+    "active_freeze_input": false,
+    "result_run_authorized": false,
+    "freeze_receipt_present": false,
+    "result_receipt_present": false
+  }
+}
