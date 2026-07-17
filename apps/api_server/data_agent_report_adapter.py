@@ -272,6 +272,9 @@ class DataAgentReportDispatch:
     outcome_kind: str | None = None
     outcome_digest: str | None = None
     completed_at: datetime | None = None
+    consumer_id: str | None = None
+    authority_snapshot_digest: str | None = None
+    completion_digest: str | None = None
     activation_authorized: bool = False
     capability_grant_authorized: bool = False
     external_effects_authorized: bool = False
@@ -366,6 +369,8 @@ class DataAgentReportStateStore(Protocol):
         outcome_kind: str,
         outcome_digest: str,
         completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
     ) -> DataAgentReportDispatch: ...
 
     def get_dispatch(
@@ -379,7 +384,7 @@ class SQLiteDataAgentReportStateStore:
     """Durable first-seen identity and exact-byte store shared across processes."""
 
     durable = True
-    _SCHEMA_VERSION = 3
+    _SCHEMA_VERSION = 4
     _SCHEMA_COMPONENT = "data-agent-report-adapter"
     _OBJECT_KINDS = frozenset({"artifact", "evidence", "event", "projection"})
 
@@ -617,12 +622,30 @@ class SQLiteDataAgentReportStateStore:
                 outcome_kind TEXT,
                 outcome_digest TEXT,
                 completed_at TEXT,
+                consumer_id TEXT,
+                authority_snapshot_digest TEXT,
+                completion_digest TEXT,
                 activation_authorized INTEGER NOT NULL,
                 capability_grant_authorized INTEGER NOT NULL,
                 external_effects_authorized INTEGER NOT NULL
             )
             """
         )
+        outbox_columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(data_agent_report_dispatch_outbox)"
+            )
+        }
+        for column in (
+            "consumer_id",
+            "authority_snapshot_digest",
+            "completion_digest",
+        ):
+            if column not in outbox_columns:
+                connection.execute(
+                    f"ALTER TABLE data_agent_report_dispatch_outbox ADD COLUMN {column} TEXT"
+                )
         cls._require_table_contract(
             cls._table_contract(connection, "data_agent_report_dispatch_outbox"),
             {
@@ -643,6 +666,9 @@ class SQLiteDataAgentReportStateStore:
                 "outcome_kind": ("TEXT", 0, 0),
                 "outcome_digest": ("TEXT", 0, 0),
                 "completed_at": ("TEXT", 0, 0),
+                "consumer_id": ("TEXT", 0, 0),
+                "authority_snapshot_digest": ("TEXT", 0, 0),
+                "completion_digest": ("TEXT", 0, 0),
                 "activation_authorized": ("INTEGER", 1, 0),
                 "capability_grant_authorized": ("INTEGER", 1, 0),
                 "external_effects_authorized": ("INTEGER", 1, 0),
@@ -1009,6 +1035,24 @@ class SQLiteDataAgentReportStateStore:
                     observation_key,
                 ),
             ).fetchone()
+            if observation_row is not None and observation_key.startswith("feed:"):
+                committed = connection.execute(
+                    """
+                    SELECT 1 FROM data_agent_report_dispatch_outbox
+                    WHERE namespace_digest = ? AND source_id = ?
+                      AND source_tenant_id = ? AND environment_event_id = ?
+                      AND projection_id = ?
+                    """,
+                    (
+                        namespace_digest,
+                        source_id,
+                        source_tenant_id,
+                        str(observation_row[2]),
+                        str(observation_row[3]),
+                    ),
+                ).fetchone()
+                if committed is None:
+                    return None
         if observation_row is None:
             raise DataAgentReportAdapterError(
                 "durable external report object index target is unavailable"
@@ -1305,6 +1349,9 @@ class SQLiteDataAgentReportStateStore:
                     dispatch.outcome_kind,
                     dispatch.outcome_digest,
                     dispatch.completed_at,
+                    dispatch.consumer_id,
+                    dispatch.authority_snapshot_digest,
+                    dispatch.completion_digest,
                 )
             ):
                 raise DataAgentReportAdapterError(
@@ -1315,6 +1362,22 @@ class SQLiteDataAgentReportStateStore:
             or dispatch.outcome_digest is None
             or re.fullmatch(r"[0-9a-f]{64}", dispatch.outcome_digest) is None
             or dispatch.completed_at is None
+            or dispatch.consumer_id is None
+            or not dispatch.consumer_id.strip()
+            or dispatch.authority_snapshot_digest is None
+            or re.fullmatch(r"[0-9a-f]{64}", dispatch.authority_snapshot_digest) is None
+            or dispatch.completion_digest
+            != content_digest(
+                {
+                    "dispatch_id": dispatch.dispatch_id,
+                    "dispatch_digest": dispatch.dispatch_digest,
+                    "outcome_kind": dispatch.outcome_kind,
+                    "outcome_digest": dispatch.outcome_digest,
+                    "completed_at": dispatch.completed_at,
+                    "consumer_id": dispatch.consumer_id,
+                    "authority_snapshot_digest": (dispatch.authority_snapshot_digest),
+                }
+            )
         ):
             raise DataAgentReportAdapterError(
                 "durable external report dispatch state is invalid"
@@ -1349,15 +1412,20 @@ class SQLiteDataAgentReportStateStore:
                 outcome_kind=None if row[14] is None else str(row[14]),
                 outcome_digest=None if row[15] is None else str(row[15]),
                 completed_at=completed_at,
-                activation_authorized=bool(row[17]),
-                capability_grant_authorized=bool(row[18]),
-                external_effects_authorized=bool(row[19]),
+                consumer_id=None if row[17] is None else str(row[17]),
+                authority_snapshot_digest=(None if row[18] is None else str(row[18])),
+                completion_digest=None if row[19] is None else str(row[19]),
+                activation_authorized=bool(row[20]),
+                capability_grant_authorized=bool(row[21]),
+                external_effects_authorized=bool(row[22]),
             )
         except (TypeError, ValueError):
             raise DataAgentReportAdapterError(
                 "durable external report dispatch encoding is invalid"
             ) from None
-        if any(type(row[index]) is not int or row[index] != 0 for index in (17, 18, 19)):
+        if any(
+            type(row[index]) is not int or row[index] != 0 for index in (20, 21, 22)
+        ):
             raise DataAgentReportAdapterError(
                 "durable external report dispatch authority is invalid"
             )
@@ -1371,10 +1439,50 @@ class SQLiteDataAgentReportStateStore:
                    source_tenant_id, principal_id, tenant_id, workspace_id,
                    mandate_id, environment_binding_id, environment_event_id,
                    projection_id, bundle_digest, status, outcome_kind,
-                   outcome_digest, completed_at, activation_authorized,
+                   outcome_digest, completed_at, consumer_id,
+                   authority_snapshot_digest, completion_digest,
+                   activation_authorized,
                    capability_grant_authorized, external_effects_authorized
             FROM data_agent_report_dispatch_outbox
         """
+
+    def _validate_dispatch_observation(
+        self,
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+    ) -> None:
+        observation = connection.execute(
+            """
+            SELECT bundle_json FROM data_agent_report_observations
+            WHERE namespace_digest = ? AND source_id = ?
+              AND source_tenant_id = ? AND event_id = ? AND projection_id = ?
+            """,
+            (
+                dispatch.namespace_digest,
+                dispatch.source_id,
+                dispatch.source_tenant_id,
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+            ),
+        ).fetchone()
+        if observation is None:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch observation is unavailable"
+            )
+        bundle = self._deserialize(str(observation[0]))
+        if (
+            bundle.event.environment_event_id != dispatch.environment_event_id
+            or bundle.event.tenant_id != dispatch.tenant_id
+            or bundle.event.workspace_id != dispatch.workspace_id
+            or bundle.event.mandate_id != dispatch.mandate_id
+            or bundle.event.environment_binding_id != dispatch.environment_binding_id
+            or bundle.projection.projection_id != dispatch.projection_id
+            or content_digest({"event": bundle.event, "projection": bundle.projection})
+            != dispatch.bundle_digest
+        ):
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch bundle is invalid"
+            )
 
     def stage_feed_dispatches(
         self,
@@ -1434,32 +1542,7 @@ class SQLiteDataAgentReportStateStore:
                         raise DataAgentReportAdapterError(
                             "durable external report dispatch scope is invalid"
                         )
-                    observation = connection.execute(
-                        """
-                        SELECT bundle_json FROM data_agent_report_observations
-                        WHERE namespace_digest = ? AND source_id = ?
-                          AND source_tenant_id = ? AND event_id = ?
-                          AND projection_id = ?
-                        """,
-                        (
-                            namespace_digest,
-                            source_id,
-                            source_tenant_id,
-                            dispatch.environment_event_id,
-                            dispatch.projection_id,
-                        ),
-                    ).fetchone()
-                    if observation is None:
-                        raise DataAgentReportAdapterError(
-                            "durable external report dispatch observation is unavailable"
-                        )
-                    bundle = self._deserialize(str(observation[0]))
-                    if content_digest(
-                        {"event": bundle.event, "projection": bundle.projection}
-                    ) != dispatch.bundle_digest:
-                        raise DataAgentReportAdapterError(
-                            "durable external report dispatch bundle is invalid"
-                        )
+                    self._validate_dispatch_observation(connection, dispatch)
                     connection.execute(
                         """
                         INSERT INTO data_agent_report_dispatch_outbox (
@@ -1468,10 +1551,12 @@ class SQLiteDataAgentReportStateStore:
                             workspace_id, mandate_id, environment_binding_id,
                             environment_event_id, projection_id, bundle_digest,
                             status, outcome_kind, outcome_digest, completed_at,
+                            consumer_id, authority_snapshot_digest,
+                            completion_digest,
                             activation_authorized, capability_grant_authorized,
                             external_effects_authorized
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                                  NULL, NULL, NULL, 0, 0, 0)
+                                  NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0)
                         ON CONFLICT(dispatch_id) DO NOTHING
                         """,
                         (
@@ -1554,11 +1639,13 @@ class SQLiteDataAgentReportStateStore:
                     + " WHERE namespace_digest = ? AND status = ? ORDER BY dispatch_id",
                     (namespace_digest, status),
                 ).fetchall()
+                dispatches = tuple(self._dispatch_from_row(row) for row in rows)
+                for dispatch in dispatches:
+                    self._validate_dispatch_observation(connection, dispatch)
         except sqlite3.Error:
             raise DataAgentReportAdapterError(
                 "durable external report dispatch state is unavailable"
             ) from None
-        dispatches = tuple(self._dispatch_from_row(row) for row in rows)
         if any(
             item.source_id != source_id
             or item.source_tenant_id != source_tenant_id
@@ -1577,12 +1664,23 @@ class SQLiteDataAgentReportStateStore:
         outcome_kind: str,
         outcome_digest: str,
         completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
     ) -> DataAgentReportDispatch:
         self._validate_dispatch(dispatch)
         if dispatch.status != "PENDING":
             raise DataAgentReportAdapterError(
                 "durable external report dispatch is not pending"
             )
+        completion_payload = {
+            "dispatch_id": dispatch.dispatch_id,
+            "dispatch_digest": dispatch.dispatch_digest,
+            "outcome_kind": outcome_kind,
+            "outcome_digest": outcome_digest,
+            "completed_at": _utc(completed_at),
+            "consumer_id": consumer_id,
+            "authority_snapshot_digest": authority_snapshot_digest,
+        }
         completed = DataAgentReportDispatch(
             **{
                 **dispatch.__dict__,
@@ -1590,6 +1688,9 @@ class SQLiteDataAgentReportStateStore:
                 "outcome_kind": outcome_kind,
                 "outcome_digest": outcome_digest,
                 "completed_at": _utc(completed_at),
+                "consumer_id": consumer_id,
+                "authority_snapshot_digest": authority_snapshot_digest,
+                "completion_digest": content_digest(completion_payload),
             }
         )
         self._validate_dispatch(completed)
@@ -1605,6 +1706,7 @@ class SQLiteDataAgentReportStateStore:
                         "durable external report dispatch is unavailable"
                     )
                 current = self._dispatch_from_row(row)
+                self._validate_dispatch_observation(connection, current)
                 if current.status == "COMPLETED":
                     if current == completed:
                         return current
@@ -1619,13 +1721,17 @@ class SQLiteDataAgentReportStateStore:
                     """
                     UPDATE data_agent_report_dispatch_outbox
                     SET status = 'COMPLETED', outcome_kind = ?, outcome_digest = ?,
-                        completed_at = ?
+                        completed_at = ?, consumer_id = ?,
+                        authority_snapshot_digest = ?, completion_digest = ?
                     WHERE dispatch_id = ? AND status = 'PENDING'
                     """,
                     (
                         outcome_kind,
                         outcome_digest,
                         _utc(completed_at).isoformat(),
+                        consumer_id,
+                        authority_snapshot_digest,
+                        completed.completion_digest,
                         dispatch.dispatch_id,
                     ),
                 )
@@ -1649,11 +1755,14 @@ class SQLiteDataAgentReportStateStore:
                     + " WHERE namespace_digest = ? AND dispatch_id = ?",
                     (namespace_digest, dispatch_id),
                 ).fetchone()
+                if row is not None:
+                    dispatch = self._dispatch_from_row(row)
+                    self._validate_dispatch_observation(connection, dispatch)
         except sqlite3.Error:
             raise DataAgentReportAdapterError(
                 "durable external report dispatch state is unavailable"
             ) from None
-        return None if row is None else self._dispatch_from_row(row)
+        return None if row is None else dispatch
 
 
 class _InMemoryDataAgentReportStateStore:
@@ -1846,12 +1955,19 @@ class _InMemoryDataAgentReportStateStore:
         outcome_kind: str,
         outcome_digest: str,
         completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
     ) -> DataAgentReportDispatch:
         current = self._dispatches.get(dispatch.dispatch_id)
-        if current != dispatch:
-            raise DataAgentReportConflict(
-                "durable external report dispatch changed concurrently"
-            )
+        completion_payload = {
+            "dispatch_id": dispatch.dispatch_id,
+            "dispatch_digest": dispatch.dispatch_digest,
+            "outcome_kind": outcome_kind,
+            "outcome_digest": outcome_digest,
+            "completed_at": _utc(completed_at),
+            "consumer_id": consumer_id,
+            "authority_snapshot_digest": authority_snapshot_digest,
+        }
         completed = DataAgentReportDispatch(
             **{
                 **dispatch.__dict__,
@@ -1859,9 +1975,18 @@ class _InMemoryDataAgentReportStateStore:
                 "outcome_kind": outcome_kind,
                 "outcome_digest": outcome_digest,
                 "completed_at": _utc(completed_at),
+                "consumer_id": consumer_id,
+                "authority_snapshot_digest": authority_snapshot_digest,
+                "completion_digest": content_digest(completion_payload),
             }
         )
         SQLiteDataAgentReportStateStore._validate_dispatch(completed)
+        if current == completed:
+            return current
+        if current != dispatch:
+            raise DataAgentReportConflict(
+                "durable external report dispatch changed concurrently"
+            )
         self._dispatches[dispatch.dispatch_id] = completed
         return completed
 
@@ -2149,6 +2274,8 @@ class DataAgentReportAdapter:
         outcome_kind: str,
         outcome_digest: str,
         completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
     ) -> DataAgentReportDispatch:
         if (
             dispatch.namespace_digest != self._state_namespace
@@ -2168,6 +2295,8 @@ class DataAgentReportAdapter:
             outcome_kind=outcome_kind,
             outcome_digest=outcome_digest,
             completed_at=completed_at,
+            consumer_id=consumer_id,
+            authority_snapshot_digest=authority_snapshot_digest,
         )
 
     def _dispatch_for_bundle(
@@ -2406,6 +2535,7 @@ class DataAgentReportAdapter:
                         body=body,
                         raw_digest=actual_digest,
                         observed_at=now,
+                        register=False,
                     )
                 )
             dispatches = tuple(self._dispatch_for_bundle(bundle) for bundle in bundles)
@@ -2420,6 +2550,15 @@ class DataAgentReportAdapter:
             ):
                 raise DataAgentReportConflict(
                     "external report feed cursor changed concurrently"
+                )
+            for event, bundle in zip(events, bundles, strict=True):
+                raw_digest = event["content_sha256"]
+                self._register_atomically(
+                    f"feed:{event['trace_id']}:{raw_digest}",
+                    event["trace_id"],
+                    raw_digest,
+                    canonical_json(event["report"]).encode("utf-8"),
+                    bundle,
                 )
             return DataAgentReportPollResult(
                 bundles=tuple(bundles),
@@ -2548,6 +2687,7 @@ class DataAgentReportAdapter:
         body: bytes,
         raw_digest: str,
         observed_at: datetime,
+        register: bool = True,
     ) -> TrustedObservationBundle:
         with self._registry_lock:
             previous_digest = self._digests_by_observation.get(observation_key)
@@ -2574,13 +2714,14 @@ class DataAgentReportAdapter:
                     raise DataAgentReportConflict(
                         "external report changed for an already observed identity"
                     )
-                self._register_atomically(
-                    stored.observation_key,
-                    stored.report_trace_id,
-                    stored.raw_digest,
-                    stored.body,
-                    stored.bundle,
-                )
+                if register:
+                    self._register_atomically(
+                        stored.observation_key,
+                        stored.report_trace_id,
+                        stored.raw_digest,
+                        stored.body,
+                        stored.bundle,
+                    )
                 return stored.bundle
 
             candidate = self._build_bundle(trace_id, body, raw_digest, observed_at)
@@ -2614,13 +2755,14 @@ class DataAgentReportAdapter:
                 raise DataAgentReportConflict(
                     "external report changed during durable registration"
                 )
-            self._register_atomically(
-                canonical.observation_key,
-                canonical.report_trace_id,
-                canonical.raw_digest,
-                canonical.body,
-                canonical.bundle,
-            )
+            if register:
+                self._register_atomically(
+                    canonical.observation_key,
+                    canonical.report_trace_id,
+                    canonical.raw_digest,
+                    canonical.body,
+                    canonical.bundle,
+                )
             return canonical.bundle
 
     def _validate_http_response(
