@@ -741,34 +741,18 @@ def _load_receipts(directory: Path) -> dict[ReceiptKind, bytes]:
     }
 
 
-def canonical_child_command(arguments: argparse.Namespace) -> tuple[str, ...]:
-    """Return the one production command shape sealed by Workflow authority."""
-    return (
-        str(Path(sys.executable).resolve()),
-        "-m",
-        "experiments.r_state_credit_1.execution_run_cli",
-        "--admission",
-        str(arguments.admission),
-        "--receipt-dir",
-        str(arguments.receipt_dir),
-        "--active-manifest",
-        str(arguments.active_manifest),
-        "--run-dir",
-        str(arguments.run_dir),
-        "--authority-socket",
-        str(arguments.authority_socket),
-        "--authority-public-key",
-        str(arguments.authority_public_key),
-        "--reservation-token-fd",
-        str(arguments.reservation_token_fd),
-        "--usage-ledger",
-        str(arguments.usage_ledger),
-    )
+def canonical_child_command() -> tuple[str, ...]:
+    """Return the actual process command sealed by Workflow authority."""
+    original = tuple(sys.orig_argv)
+    if len(original) < 2:
+        raise ExecutionBridgeViolation("runtime child command is unavailable")
+    interpreter = str(Path(original[0]).resolve())
+    if interpreter != str(Path(sys.executable).resolve()):
+        raise ExecutionBridgeViolation("runtime command interpreter drift")
+    return (interpreter, *original[1:])
 
 
-def _verify_runtime_isolation(
-    arguments: argparse.Namespace, admission: ExecutionAdmission
-) -> None:
+def _verify_runtime_isolation(admission: ExecutionAdmission) -> None:
     interpreter = Path(sys.executable).resolve()
     binding = admission.isolation_binding
     if binding.interpreter_path != str(interpreter):
@@ -778,9 +762,7 @@ def _verify_runtime_isolation(
     )
     if _sha256(interpreter_bytes) != binding.interpreter_sha256:
         raise ExecutionBridgeViolation("runtime interpreter digest drift")
-    command_sha256 = _sha256(
-        canonical_json(list(canonical_child_command(arguments))).encode()
-    )
+    command_sha256 = _sha256(canonical_json(list(canonical_child_command())).encode())
     if command_sha256 != binding.child_command_sha256:
         raise ExecutionBridgeViolation("runtime child command digest drift")
 
@@ -814,7 +796,7 @@ def _execute(
         arguments.admission, "execution admission", 1024 * 1024
     )
     admission = ExecutionAdmission.from_canonical_json(admission_bytes)
-    _verify_runtime_isolation(arguments, admission)
+    _verify_runtime_isolation(admission)
     receipts = _load_receipts(arguments.receipt_dir)
     _regular_bytes(arguments.active_manifest, "active manifest", 8 * 1024 * 1024)
     _regular_bytes(arguments.authority_public_key, "authority public key", 64 * 1024)

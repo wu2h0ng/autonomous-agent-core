@@ -444,6 +444,7 @@ def test_cli_argv_is_fixed_and_has_no_fake_switch(tmp_path: Path) -> None:
 
 def test_runtime_isolation_binds_interpreter_and_exact_child_command(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parsed = _parse_args(
         [
@@ -465,11 +466,32 @@ def test_runtime_isolation_binds_interpreter_and_exact_child_command(
             str(tmp_path / "usage.jsonl"),
         ]
     )
-    admission = _admission("6" * 64)
     interpreter = Path(sys.executable).resolve()
-    child_sha256 = _sha(
-        canonical_json(list(cli.canonical_child_command(parsed))).encode()
+    monkeypatch.setattr(
+        sys,
+        "orig_argv",
+        [
+            str(interpreter),
+            "-m",
+            "experiments.r_state_credit_1.execution_run_cli",
+            *[
+                item
+                for pair in (
+                    ("--admission", str(parsed.admission)),
+                    ("--receipt-dir", str(parsed.receipt_dir)),
+                    ("--active-manifest", str(parsed.active_manifest)),
+                    ("--run-dir", str(parsed.run_dir)),
+                    ("--authority-socket", str(parsed.authority_socket)),
+                    ("--authority-public-key", str(parsed.authority_public_key)),
+                    ("--reservation-token-fd", str(parsed.reservation_token_fd)),
+                    ("--usage-ledger", str(parsed.usage_ledger)),
+                )
+                for item in pair
+            ],
+        ],
     )
+    admission = _admission("6" * 64)
+    child_sha256 = _sha(canonical_json(list(cli.canonical_child_command())).encode())
     bound = replace(
         admission,
         isolation_binding=replace(
@@ -480,10 +502,9 @@ def test_runtime_isolation_binds_interpreter_and_exact_child_command(
         ),
     )
 
-    cli._verify_runtime_isolation(parsed, bound)
+    cli._verify_runtime_isolation(bound)
     with pytest.raises(ExecutionBridgeViolation, match="child command digest"):
         cli._verify_runtime_isolation(
-            parsed,
             replace(
                 bound,
                 isolation_binding=replace(
