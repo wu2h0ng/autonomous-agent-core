@@ -327,7 +327,7 @@ def _expected_policy() -> DockerPolicyCeiling:
 
 
 def trusted_docker_executor() -> DockerArmExecutor:
-    """Mint the fixed local policy; callers cannot select image or authority."""
+    """Mint the fixed local ceiling; caller input cannot choose image or authority."""
 
     policy = _expected_policy()
     return DockerArmExecutor(
@@ -351,14 +351,14 @@ class DockerArmExecutor:
     ) -> None:
         if _factory_token is not _TRUSTED_FACTORY_TOKEN:
             raise TypeError("DockerArmExecutor requires the trusted factory")
-        self.policy = policy
+        self.execution_ceiling = policy
         self.worker_bytes = worker_bytes
         self._local_receipt_key = local_receipt_key
 
     def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
         request = DockerExecutionRequest.from_mapping(request.to_mapping())
         expected_policy = _expected_policy()
-        if self.policy != expected_policy or self.worker_bytes != _WORKER:
+        if self.execution_ceiling != expected_policy or self.worker_bytes != _WORKER:
             raise DockerExecutionFailed("trusted policy or worker artifact changed")
         if (
             type(self._local_receipt_key) is not bytes
@@ -823,7 +823,7 @@ for _ in range(100):
  try: pid=os.fork()
  except OSError: break
  if pid == 0:
-  time.sleep(.2); os._exit(0)
+  time.sleep(.2); raise SystemExit(0)
  n += 1
 print(n)
 """,
@@ -867,7 +867,7 @@ def _run_fixed_policy_probe(
     container_id = executor._create_container(
         container_name=f"agent-os-srl-probe-{uuid.uuid4().hex}",
         discovery_label=uuid.uuid4().hex,
-        expected_policy=executor.policy,
+        expected_policy=executor.execution_ceiling,
         worker=source.encode("utf-8"),
         arguments=arguments,
     )

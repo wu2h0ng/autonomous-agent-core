@@ -8,7 +8,7 @@ SRL arm is deliberately hard-bound to the real admission-required
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import Enum
 import hashlib
@@ -254,7 +254,7 @@ class TrustedFrozenUnitLoader:
             raise ValueError("evaluation unit lacks trusted custody")
         payload = {
             key: value
-            for key, value in receipt.__dict__.items()
+            for key, value in asdict(receipt).items()
             if key != "custody_mac"
         }
         expected = hmac.new(
@@ -543,7 +543,7 @@ def seal_hidden_score(
         "slot_token": decision.slot_token,
         "custody_token": custody_token,
         "scorer_process_digest": scorer_process_digest,
-        "score": score.__dict__,
+        "score": asdict(score),
     }
     return ScoredDecisionReceipt(
         slot_token=decision.slot_token,
@@ -739,7 +739,7 @@ class MeteredControllerRunner:
             "probe_digest": self._usage_probe.probe_digest,
             "before_snapshot_digest": before.snapshot_digest,
             "after_snapshot_digest": after.snapshot_digest,
-            "usage": usage.__dict__,
+            "usage": asdict(usage),
             "duration_ms": duration_ms,
             "observed_at": observed_at,
         }
@@ -1236,7 +1236,7 @@ def execute_and_seal_controlled_arm(
         binding = ControllerBindingReceipt.model_validate(
             decision.binding_receipt.model_dump(mode="json")
         )
-        usage = BudgetUsage(**decision.usage.__dict__)
+        usage = BudgetUsage(**asdict(decision.usage))
     except (AttributeError, TypeError, ValueError):
         raise ValueError(
             "controlled execution binding receipt integrity failed"
@@ -1262,7 +1262,7 @@ def execute_and_seal_controlled_arm(
         "probe_digest": usage_receipt.probe_digest,
         "before_snapshot_digest": usage_receipt.before_snapshot_digest,
         "after_snapshot_digest": usage_receipt.after_snapshot_digest,
-        "usage": usage.__dict__,
+        "usage": asdict(usage),
         "duration_ms": usage_receipt.duration_ms,
         "observed_at": usage_receipt.observed_at,
     }
@@ -1482,7 +1482,7 @@ class SrlE2EFalsifierHarness:
         for burden in burdens.values():
             payload = {
                 key: value
-                for key, value in burden.__dict__.items()
+                for key, value in asdict(burden).items()
                 if key != "content_digest"
             }
             if (
@@ -1502,7 +1502,7 @@ class SrlE2EFalsifierHarness:
                 "probe_digest": usage_receipt.probe_digest,
                 "before_snapshot_digest": usage_receipt.before_snapshot_digest,
                 "after_snapshot_digest": usage_receipt.after_snapshot_digest,
-                "usage": usage.__dict__,
+                "usage": asdict(usage),
                 "duration_ms": usage_receipt.duration_ms,
                 "observed_at": usage_receipt.observed_at,
             }
@@ -1603,7 +1603,7 @@ class SrlE2EFalsifierHarness:
                 "slot_token": scored.slot_token,
                 "custody_token": scored.custody_token,
                 "scorer_process_digest": scored.scorer_process_digest,
-                "score": scored.score.__dict__,
+                "score": asdict(scored.score),
             }
             if (
                 scored.slot_token != slot

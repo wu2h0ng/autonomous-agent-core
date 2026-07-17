@@ -82,7 +82,7 @@ def test_input_schema_rejects_unknown_nonfinite_and_oversized_values() -> None:
 
 def test_policy_ceiling_is_fixed_and_contains_no_host_authority() -> None:
     executor = trusted_docker_executor()
-    args = executor.policy.docker_security_args
+    args = executor.execution_ceiling.docker_security_args
     joined = " ".join(args)
     for required in (
         "--network none",
@@ -110,8 +110,8 @@ def test_policy_ceiling_is_fixed_and_contains_no_host_authority() -> None:
         "--mount",
     ):
         assert forbidden not in joined
-    assert executor.policy.environment == ()
-    assert executor.policy.worker_artifact_sha256 == hashlib.sha256(
+    assert executor.execution_ceiling.environment == ()
+    assert executor.execution_ceiling.worker_artifact_sha256 == hashlib.sha256(
         executor.worker_bytes
     ).hexdigest()
 
@@ -122,7 +122,7 @@ def test_real_pure_worker_success_is_exactly_bound_and_container_removed() -> No
     receipt = executor.execute(request)
     assert receipt.request_digest == request.request_digest
     assert receipt.candidate == request.candidate
-    assert receipt.image_identity == executor.policy.allowed_image_identity
+    assert receipt.image_identity == executor.execution_ceiling.allowed_image_identity
     assert receipt.image_identity == (
         "python@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf"
     )
@@ -131,7 +131,10 @@ def test_real_pure_worker_success_is_exactly_bound_and_container_removed() -> No
     assert receipt.rootfs_read_only is True
     assert receipt.environment_empty is True
     assert receipt.no_external_effect is True
-    assert receipt.worker_artifact_sha256 == executor.policy.worker_artifact_sha256
+    assert (
+        receipt.worker_artifact_sha256
+        == executor.execution_ceiling.worker_artifact_sha256
+    )
     assert receipt.receipt_digest == content_digest(
         receipt.to_mapping(exclude_digest=True)
     )
@@ -241,10 +244,11 @@ def test_output_cap_rejects_before_receipt_parse() -> None:
 def test_policy_worker_and_receipt_mutation_fail_closed() -> None:
     executor = trusted_docker_executor()
     mutated = replace(
-        executor.policy,
-        docker_security_args=executor.policy.docker_security_args + ("--privileged",),
+        executor.execution_ceiling,
+        docker_security_args=executor.execution_ceiling.docker_security_args
+        + ("--privileged",),
     )
-    object.__setattr__(executor, "policy", mutated)
+    object.__setattr__(executor, "execution_ceiling", mutated)
     with pytest.raises(DockerExecutionFailed, match="policy or worker"):
         executor.execute(_request())
 

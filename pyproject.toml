@@ -37,6 +37,9 @@ include = [
     "product_evals/srl_e2e_falsifier",
     "tests/product",
     "tests/product_eval/test_srl_e2e_contracts.py",
+    "tests/product_eval/test_srl_e2e_harness.py",
+    "tests/product_eval/test_srl_docker_exec.py",
+    "tests/product_eval/test_srl_e2e_falsifier_docker_exec_wiring.py",
     "tests/research/r_srl_1",
 ]
 extraPaths = [
