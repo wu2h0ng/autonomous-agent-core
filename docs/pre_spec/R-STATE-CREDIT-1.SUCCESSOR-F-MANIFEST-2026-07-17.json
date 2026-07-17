@@ -6,10 +6,10 @@
   "artifact_sha256": {
     "docs/pre_spec/R-STATE-CREDIT-1.SUCCESSOR-F-CANDIDATE-2026-07-17.json": "7aea201bdaefa89aca225d0c73eef04791490b24b83a81111dfd8b01f5dcd137",
     "docs/research/R-STATE-CREDIT-1-successor-f-amendment-2026-07-17.md": "fdb7bbcd6fc3b7cb04bdb8a3169c66175bb5384bd3e495c95be9723b21ca1f81",
-    "experiments/r_state_credit_1/recast_freeze_contracts.py": "a4960ad3f84c2c8b45c42fe3022150d8b7196a3f547d4dd7cc535e64771ce5a5",
+    "experiments/r_state_credit_1/recast_freeze_contracts.py": "40033f9db86cb6fd54e5ecf5580baa2b0d052dde236ea2593d7d89b6ff5f6e61",
     "experiments/r_state_credit_1/recast_provider_actor.py": "fe88c3ba5df5a2f9405577d71f1465d3c34d5cdd4da32dfdd2d5a6f82ba3041e",
     "experiments/r_state_credit_1/recast_result_runner.py": "04b8bc5f9b21e3813258b0870075f156cd5ce6728e18b31d1dbbc5102a52aad9",
     "experiments/r_state_credit_1/recast_scorer.py": "5aa7fa0c7fb5375deb8f1013e5d0e2943044b7f22cbb15f50e2c1a3c39ba1f82",
-    "tests/test_r_state_credit_1_successor_f.py": "5e183316d8a9bc2a8cb7a6a28dcbdf25c2472682ad9e17ffcc3c27500099e489"
+    "tests/test_r_state_credit_1_successor_f.py": "48dc611f14b004def1ef9221a63a4bbdf1d45b84f481322d2d4b7e80db5d6337"
   }
 }

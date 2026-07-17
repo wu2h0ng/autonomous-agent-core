@@ -372,6 +372,25 @@ def test_provider_self_claim_cannot_close_readiness_without_verified_canary() ->
     assert "verified PROVIDER_CANARY receipt absent" in readiness.blockers
 
 
+def test_provider_and_c7_receipts_cannot_share_a_subject() -> None:
+    bundle, artifacts, receipts = _authorized_context()
+    collided_bundle = replace(bundle, c7_schema_sha256=bundle.provider_binding_sha256)
+    collided_receipts = tuple(
+        replace(item, subject_sha256=bundle.provider_binding_sha256)
+        if item.kind is ReceiptKind.C7
+        else item
+        for item in receipts
+    )
+    readiness = SuccessorReadiness.evaluate(
+        collided_bundle,
+        artifacts=artifacts,
+        receipts=collided_receipts,
+        receipt_verifier=_ReceiptVerifier(),
+    )
+    assert readiness.status == "NOT_READY"
+    assert "receipt subjects must be globally distinct" in readiness.blockers
+
+
 def test_successor_candidate_is_separate_not_ready_and_exactly_manifested() -> None:
     root = Path(__file__).resolve().parents[1]
     candidate_path = (

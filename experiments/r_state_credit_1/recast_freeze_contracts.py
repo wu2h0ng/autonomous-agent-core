@@ -197,6 +197,8 @@ class SuccessorReadiness:
                 blockers.append(f"verified {kind.value} receipt absent")
         if len({item.receipt_sha256 for item in receipts}) != len(receipts):
             blockers.append("receipt digests must be distinct")
+        if len({item.subject_sha256 for item in receipts}) != len(receipts):
+            blockers.append("receipt subjects must be globally distinct")
         if len({item.signer_id for item in receipts}) != len(receipts):
             blockers.append("receipt signers must be role-distinct")
         if receipt_verifier is None:
