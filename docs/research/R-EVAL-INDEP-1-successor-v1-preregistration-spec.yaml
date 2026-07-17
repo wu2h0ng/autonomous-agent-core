@@ -1,0 +1,108 @@
+{
+  "prereg_id": "R-EVAL-INDEP-1-SUCCESSOR-V1",
+  "schema_version": "r-eval-indep-1-successor-prereg-v1",
+  "track": "Research",
+  "candidate_status": "NOT_READY",
+  "base_candidate": {
+    "head": "ebf094346267c63cc5375a1a0e1fb62d0afb81bc",
+    "predecessor_prereg": "docs/research/R-EVAL-INDEP-1-preregistration-spec.yaml",
+    "predecessor_exact_manifest_sha256": "8415e35b0ccf4d074702d3eae38f5ea68af4844927877cb99d29604cd130dabe",
+    "mutation_corpus": {
+      "harmful_cases": 60,
+      "clean_cases": 14,
+      "total_cases": 74,
+      "corpus_manifest_sha256": "a261aeccfea46b1fd4b28525ba7d20acf32c76b36fd2c587f6ebf8a82ec81bc0"
+    }
+  },
+  "claim_boundary": {
+    "ceiling": "MEASURED_REVIEWER_ROUTING_ON_FROZEN_MUTATION_CORPUS",
+    "excluded": [
+      "general_cognitive_independence",
+      "model_superiority",
+      "autonomy",
+      "product_capability",
+      "promotion_authority"
+    ]
+  },
+  "native_arm_plan": {
+    "freeze_object": "ROLE_RELATIONSHIPS_NOT_VENDOR_NAMES",
+    "arms": [
+      {"arm_id": "A0", "role": "MECHANICAL_RULE", "sample_count": 0, "aggregation": "MECHANICAL"},
+      {"arm_id": "A1", "role": "SAME_CHECKPOINT_PROMPT_VARIANT", "sample_count": 1, "aggregation": "SINGLE"},
+      {"arm_id": "A2", "role": "SAME_CHECKPOINT_AGGREGATE", "sample_count": 3, "aggregation": "MAJORITY"},
+      {"arm_id": "A3", "role": "SAME_FAMILY_DIFFERENT_CHECKPOINT", "sample_count": 1, "aggregation": "SINGLE"},
+      {"arm_id": "A4", "role": "CROSS_LINEAGE", "sample_count": 1, "aggregation": "SINGLE"}
+    ],
+    "binding_rule": "Concrete provider, immutable model revision, prompt, tool schema, decoding, endpoint origin and credential reference must be bound before freeze. Mutable aliases and fallback are forbidden."
+  },
+  "counts": {
+    "cases": 74,
+    "arms": 5,
+    "evaluation_rows": 370,
+    "provider_attempt_rows": 444,
+    "provider_success_rows_if_complete": 444,
+    "mechanical_rows": 74,
+    "aggregate_rows": 74
+  },
+  "run_budget_candidate": {
+    "status": "CONSERVATIVE_FIXTURE_REQUIRES_ONE_PRE_FREEZE_FOUNDER_ACCEPTANCE",
+    "per_call_input_tokens": 32000,
+    "per_call_output_tokens": 8000,
+    "per_call_cost_microusd": 5000000,
+    "per_call_latency_ms": 180000,
+    "total_input_tokens": 14208000,
+    "total_output_tokens": 3552000,
+    "total_cost_microusd": 2220000000,
+    "total_latency_ms": 79920000,
+    "wallclock_ms": 86400000,
+    "concurrency": 1,
+    "retry_count": 0,
+    "post_freeze_change": "FORBIDDEN"
+  },
+  "collection_protocol": {
+    "single_run_sequence": 1,
+    "row_types": ["EVALUATION", "PROVIDER_ATTEMPT", "PROVIDER_SUCCESS", "MECHANICAL", "AGGREGATE"],
+    "append_only_hash_chain": true,
+    "seal_complete_or_partial": true,
+    "provider_fallback": "FORBIDDEN",
+    "retry": "FORBIDDEN",
+    "refill": "FORBIDDEN",
+    "timeout_after_accept": "AMBIGUOUS_EFFECT_AND_INVALID_INCOMPLETE_PERMANENTLY_CONSUMED",
+    "c7_halt": "SEAL_PARTIAL_INVALID_INCOMPLETE_NO_REFILL",
+    "collector_truth_access": "FORBIDDEN",
+    "truth_join": "SEPARATE_REFEREE_SIDE_AFTER_COLLECTION"
+  },
+  "scoring": {
+    "descriptive_only": true,
+    "raw_verdict": null,
+    "intervals": "WILSON_95_PERCENT",
+    "paired_test": "EXACT_MCNEMAR",
+    "bootstrap": "CLASS_STRATIFIED_FIXED_SEED",
+    "bootstrap_seed": 20260717,
+    "bootstrap_repetitions": 10000,
+    "sensitivity": "LEAVE_ONE_MUTATION_CLASS_OUT_HARMFUL_MISS"
+  },
+  "routing_policy": {
+    "eligibility": "ZERO_HARMFUL_FALSE_ACCEPTS_AND_ZERO_HARMFUL_MISSES_AND_ZERO_EACH_LOCO_HARMFUL_MISS",
+    "selection": "MAX_CLEAN_ACCEPT_THEN_MIN_COST_THEN_MIN_LATENCY_THEN_ARM_ID",
+    "no_eligible_model_arm": "MECHANICAL_ONLY_IF_A0_ELIGIBLE_ELSE_ABSTAIN",
+    "secondary_metric_rescue": "FORBIDDEN"
+  },
+  "external_bindings": {
+    "provider_bank": [],
+    "provider_bank_exact_coverage": null,
+    "oracle_custody": null,
+    "c7_authority": null,
+    "independent_architecture_review": null,
+    "independent_code_review": null,
+    "freezer_identity": null,
+    "run_authority": null,
+    "founder_budget_acceptance": null
+  },
+  "readiness_rule": "NOT_READY until every external binding is non-null, the exact provider bank covers A1-A4 with immutable revisions and frozen relationships, the exact successor manifest is independently accepted, and the external freezer issues a separate freeze receipt.",
+  "gates": {
+    "freeze_status": "NOT_FROZEN",
+    "run_status": "NOT_RUN",
+    "evidence_status": "NOT_EVIDENCE"
+  }
+}
