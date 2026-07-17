@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-16T23:12:00+08:00"
+updated: "2026-07-17T11:10:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715"
-status: "Canonical convergence at c8f0d1b (full R-SRL-1 hidden-scorer coverage at f79ee6c; updated independent methodology review request at c8f0d1b). SRL V1 contract amendments are implemented: SrlRelevanceAssessment gains assessor_policy_digest, provider_invocation_receipt_digest, proposed_goal_statement, minimum_external_input and proposed_task_class with disposition-specific validators; StandingMission gains correction_epoch and ratification_receipt_digest; SrlHelpResponse/SrlHelpResponseKind provide typed operator response. A-SRL-1 threat model invariants are now expressible as contract-level RED tests. R-SRL-1 evaluation harness adds test/build gateway, matched-arm budget ledger (calls, tokens, retries, tool invocations, wall seconds) with hard-stop BudgetExceeded, and baseline arm capability envelopes that prevent Arms 1/2/4 from emitting SRL-internal structures, and a realistic repository fixture for u00 with project metadata, src-layout package, meaningful tests and an xfail target for the NEW_FAILING_TEST event, and a HelpBurdenLedger, HcwRecorder with rater CLI prototype, standardized operator protocols, a restart-state comparator (commitment portfolio digest, active goals, pending HelpRequests, belief checksums), and real-time wall-clock budget enforcement. Product suite: 742 passed, 1 skipped; R-SRL-1 harness: 93 passed; ruff/pyright clean. P0-4/P0-5 (hidden scorer / deterministic outcome evaluator integration) now closed; P2-1/2/3 remain open. DEV-REAL-OUTCOME-1 outcome-truth fix, ADM-P1/P2/P3/P4 inert adaptation infrastructure, materialization clock-drift fix, and Data Agent provider relevance restart/rehydration integration remain on the canonical branch. Production ADM-P3 policy V1 remains all-DEFER; no evaluator execution, materializer acquisition, adaptive competence claim, SRL Runtime integration or activation. No remaining P0/P1 issues from the internal self-attack review. Harness is awaiting independent methodology review; review request package is committed with manifest hashes and verification commands. Environment/scorer freeze pending reviewer acceptance. SPINE-E2E-4 remains a bounded PASS and E2E-1/2/3 INVALID; LH successor PARK. Agent OS alpha, general autonomy, SPINE-1 migration and production release remain incomplete or gated."
+status: "Canonical convergence is at 5ab33b2 after an exact 44-commit fast-forward from a8c71b1. The integrated Product path now includes typed event admission, authenticated source/binding registry, persistent event and budget ledgers, provider-backed relevance assessment, proposal-only MandateSteward, separate TaskActivation, Data Agent situated startup/CLI/HTTP/full-stack composition, trace redaction and credential-reference boundaries. Fresh integrated verification: 1260 Product tests passed, 1 skipped; Ruff, Pyright and diff-check clean. This closes the prior canonical-admission blocker for P-SRL-RUNTIME-1 through Task6 only. It does not establish independent scorer custody, a result-bearing R-SRL-1 run, W1/W2 learning effectiveness, production identity/tenancy/KMS, SPINE-1 migration, main merge, release, general autonomy or Agent OS Alpha. R-SRL-1 and newer W1/W2/Docker executor candidates remain isolated evidence until their own gates pass."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,7 +25,7 @@ identity:
 
 current_phase:
   product:
-    label: "SPINE-0 bounded developer slice, bounded local long-horizon slice, ADM-P1/P2/P3 inert adaptation infrastructure and ADM-P4 immutable Task configuration/reference binding; broader Agent OS alpha incomplete"
+    label: "SPINE-0 plus canonical situated Data Agent/SRL Task6 slice, bounded local long-horizon slice and inert ADM infrastructure; broader Agent OS alpha incomplete"
     status: "LOCAL_SLICES_VERIFIED / NO_PRODUCT_ALPHA_CLAIM"
   research:
     label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
@@ -205,9 +205,9 @@ active_work:
     source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
   - id: "MANDATE-SRL-V0"
     track: "product_architecture"
-    status: "P_MANDATE_1_P_SRL_ENV_1_P_SRL_HELP_1_V0_V1_CONTRACTS_IMPLEMENTED_LOCAL / A_SRL_1_CONDITIONAL_APPROVE_CLOSED / V0_V1_CONTRACT_RED_TESTS_IMPLEMENTED / R_SRL_1_PREREG_FROZEN / M0_RUNTIME_CANDIDATE_VERIFIED_ISOLATED / NO_CANONICAL_INTEGRATION / NO_ACTIVATION"
+    status: "P_MANDATE_1_P_SRL_ENV_1_P_SRL_HELP_1_CONTRACTS_AND_TASK6_RUNTIME_INTEGRATED_CANONICAL_AT_5AB33B2 / PROPOSAL_ONLY_STEWARD / SEPARATE_TASK_ACTIVATION / NO_PRODUCTION_ACTIVATION"
     purpose: "Provide typed Mandate, environment/relevance and HelpRequest contracts plus a threat model so that a future SRL Runtime can be built with machine-testable authority invariants rather than ad-hoc checks."
-    boundary: "Contracts and threat model are integrated on canonical-convergence. P-SRL-RUNTIME-1 M0 is a separately verified isolated implementation candidate at 6e06b4f, not integrated or activated; M1-M4 and the propose_goal accepted-assessment provenance seam remain open. R-SRL-1 preregistration is frozen pending independent methodology review and its own environment/scorer freeze. No provider-backed SRL assessment, persistent Runtime, TaskService/C7 activation, result run, production claim, main merge or release."
+    boundary: "Contracts, event admission, provider assessment, persistence, proposal-only stewardship and separate TaskActivation are integrated on canonical-convergence at 5ab33b2 and verified locally. The steward cannot directly activate work or grant authority. This is not a production activation or autonomy result; independent scorer custody, real three-arm falsification, W1/W2 outcome-driven effectiveness, production identity/tenancy/KMS, main merge and release remain open."
     source:
       - "packages/contracts/src/agent_os_contracts/mandate.py"
       - "packages/contracts/src/agent_os_contracts/srl_environment.py"
@@ -219,9 +219,9 @@ active_work:
       - "docs/architecture/A-SRL-1-threat-model-review.md"
   - id: "P-SRL-RUNTIME-1"
     track: "product"
-    status: "M0_IMPLEMENTED_VERIFIED_ISOLATED / INDEPENDENT_APPROVE / NOT_INTEGRATED / NO_RUNTIME_ACTIVATION / M1_M4_NOT_IMPLEMENTED"
+    status: "M0_THROUGH_TASK6_INTEGRATED_CANONICAL_AT_5AB33B2 / INDEPENDENT_APPROVE / 1260_PRODUCT_PASSED_1_SKIPPED / NO_PRODUCTION_ACTIVATION"
     purpose: "Bridge the ratified Mandate/SRL contracts to the existing Task/Run/Action spine with a minimal fail-closed Runtime that enforces the RT invariants from A-SRL-1."
-    boundary: "Design remains at 63a247d. The hardened M0 implementation is on clean isolated branch codex/p-srl-runtime-1-m0-hardening-20260716 at 6e06b4f6b8f156284745d6f39ec3a6c8b1f46087. Exact-head verification: 39 focused invariants; full Product 781 passed, 1 skipped; scoped Ruff/Pyright and diff clean; Kimi final verdict APPROVE with no P0/P1. It closes caller-minted authority, forged outcome, foreign binding/gap, frozen clock, budget bypass, ledger-poisoning and false-positive test defects within M0. propose_goal accepted-assessment provenance is an explicit P2 gap. No canonical integration, provider, persistence, TaskService/C7 activation, result run, push, release or M1-M4 claim."
+    boundary: "The independently approved exact range a8c71b1..5ab33b2 was fast-forwarded into canonical-convergence. It contains event admission and immutable persistence, authenticated binding/source registry, provider relevance assessment receipts, budget and audit ledgers, proposal-only MandateSteward, separate TaskActivation and Data Agent situated startup/CLI/HTTP/full-stack entry paths. Fresh integrated gates are 1260 passed/1 skipped plus clean Ruff/Pyright/diff. No main merge, push, release, production activation, independent scorer custody, result run, W1/W2 effectiveness or autonomy claim."
     source:
       - "docs/architecture/P-SRL-RUNTIME-1-design-2026-07-16.md"
       - "docs/architecture/A-SRL-1-threat-model-and-authority-invariants.md"
@@ -408,7 +408,7 @@ recently_completed:
 
 blockers:
   product:
-    - "No complete personal and Data Agent paths on the same Agent OS spine."
+    - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
     - "Production identity, tenancy, encrypted credentials, policy administration, deployment/SLO, backup/restore and incident evidence are incomplete."
@@ -424,6 +424,7 @@ blockers:
   repository:
     - "ADR-0057 and ADM-P1/P2/P3 remain in the ancestry of codex/adm-p4-task-configuration-snapshot-20260715; ADM-P4 is contained on that isolated branch. Its first exact-head Kimi review timed out without verdict after identifying a stale-clock blocker; the fix is locally verified and awaits same-reviewer exact-head rereview. No push, main merge or release is implied."
     - "Task 7 is integrated on this canonical feature branch. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
+    - "Canonical convergence is locally integrated at 5ab33b2 but is not merged to main, pushed or released. New M0c Docker, W1/W2 custody and active-discovery actor candidates remain separate worktrees."
 
 claim_boundaries:
   product:
@@ -445,13 +446,13 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Complete the same-reviewer read-only Kimi technical rereview of the exact ADM-P4 remediation head and require literal TECHNICAL_APPROVE; keep ADM-P1/P2/P3/P4 branch-contained and HOLD on any push/merge/release. Any prior application/activation remains a separately reviewed successor, with same-run activation forbidden."
+    action: "Close the M0c falsifier execution boundary: wire the bounded Docker arm executor without opening public evaluation until an independently custodied scorer and hidden-unit resolver exist; then attack-review the exact candidate."
   - priority: 2
-    action: "Support the parent R-EVAL-INDEP-1, R-STATE-CREDIT-1 and R-ACTIVE-DISCOVERY-1 research lanes only through stable contracts or isolated Research paths; do not import their mechanisms into Product Runtime."
+    action: "Implement and independently review the W1/W2 external run-authorization and trusted-score consumption substrate; preserve NOT_FROZEN/NO_RESULT_RUN until external custody and exact preregistration are real."
   - priority: 3
-    action: "Keep full successor LH parked and preserve the completed B1 baseline and RTM-1 resource-v4 verdicts; new accelerated lanes do not rewrite them."
+    action: "For active discovery, add only the missing public-information actor loop and reduction audit for black-box behavior identification. Keep real-world causal-structure discovery unresolved and do not repeat the settled Sachs/GSE42528 routes."
   - priority: 4
-    action: "Keep SPINE-1 unexecuted until every ADR-0054 gate and explicit founder push/merge authorization are present."
+    action: "Keep SPINE-1, main merge, push, release and production activation gated; do not add new architecture breadth until one of the three execution/evidence gaps above closes."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
@@ -496,11 +497,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-16T23:12:00+08:00"
+  checked_at: "2026-07-17T11:10:00+08:00"
   branch: "codex/canonical-convergence-20260715"
-  canonical_head: "b77587fc95f1d85b0a7a83f1ff6deb8f6153ad44"
-  prior_canonical_head: "c8f0d1bf0ff031463086fe1fa8e365c632f5755a"
+  canonical_head: "5ab33b2ec28bf20a28035f94aab33a76e2de4f60"
+  prior_canonical_head: "a8c71b152b57ab78720ce8bd09f1ab2f7eed78e9"
   merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
-  commit_state: "P_SRL_RUNTIME_1_DESIGN_CANDIDATE / R_SRL_1_INDEPENDENT_REVIEW_REQUEST_UPDATED / R_SRL_1_EVAL_HARNESS_FULL_HIDDEN_SCORER_COVERAGE_COMMITTED / R_SRL_1_EVAL_HARNESS_REAL_TIME_BUDGET_ENFORCEMENT_COMMITTED / R_SRL_1_EVAL_HARNESS_RESTART_STATE_COMPARATOR_COMMITTED / R_SRL_1_EVAL_HARNESS_OPERATOR_PROTOCOLS_COMMITTED / R_SRL_1_EVAL_HARNESS_HCW_RECORDER_COMMITTED / R_SRL_1_EVAL_HARNESS_HELP_BURDEN_LEDGER_COMMITTED / R_SRL_1_EVAL_HARNESS_REAL_REPOSITORY_FIXTURE_COMMITTED / R_SRL_1_EVAL_HARNESS_BASELINE_ARM_ENVELOPE_COMMITTED / R_SRL_1_EVAL_HARNESS_TEST_BUILD_GATEWAY_AND_BUDGET_LEDGER_COMMITTED / R_SRL_1_EVAL_HARNESS_HIDDEN_SCORER_IMPLEMENTED / R_SRL_1_EVAL_HARNESS_SELF_ATTACK_REVIEW_P0_P1_CLOSED / R_SRL_1_EVAL_HARNESS_SKELETON_IMPLEMENTED / R_SRL_1_EVAL_HARNESS_DESIGN_CANDIDATE / V0_V1_CONTRACT_RED_TESTS_IMPLEMENTED / R_SRL_1_PREREG_FROZEN / A_SRL_1_CONDITIONAL_APPROVE_CLOSED / SRL_V1_AMENDMENTS_INTEGRATED / DEV-REAL-OUTCOME-1_AND_DATA_AGENT_RELEVANCE_PRESERVED / CURRENT_STATE_UPDATED / NOT_PUSHED_NOT_MERGED_TO_MAIN"
+  commit_state: "TASK6_SITUATED_RUNTIME_AND_DATA_AGENT_PATH_INTEGRATED_CANONICAL / PRODUCT_1260_PASSED_1_SKIPPED / RUFF_PYRIGHT_DIFF_CLEAN / PROPOSAL_ONLY_STEWARD / SEPARATE_TASK_ACTIVATION / NOT_PUSHED_NOT_MERGED_TO_MAIN_NOT_RELEASED"
   merge_scope: "Adds SRL V1 contract amendments, frozen R-SRL-1 preregistration, contract-level RED tests for V0/V1 A-SRL-1 invariants, an R-SRL-1 evaluation harness design candidate with implemented skeleton, internal self-attack review, full 9 event-type hidden scorer plugin coverage (TEST_FIXED, DECOY, INTERFACE_ADAPTED, CONFLICT_RESOLVED, RESTART_EQUIVALENT, UNCERTAINTY_RESOLVED, BELIEF_UPDATED, COMMITMENT_MET, HELP_ESCALATED), fail-closed outcome evaluator dispatched through the plugin map, updated independent methodology review request with refreshed manifest hashes, test/build gateway with matched-arm budget ledger, and a P-SRL-RUNTIME-1 design candidate mapping RT invariants to a minimal Runtime vertical. P0-4/P0-5 now closed; P2-1/2/3 remain open. Awaiting independent methodology review and environment/scorer freeze. RT invariants remain pending SRL Runtime implementation. Preserves ADM-P1/P2/P3/P4 inert adaptation infrastructure, materialization clock-drift fix, DEV-REAL-OUTCOME-1 durable outcome truth enforcement, and Data Agent provider relevance restart/rehydration. No production activation, no SRL Runtime integration, no Data Agent migration, no Research mechanism import, no result run, no main merge or release."
-  evidence_separation: "SRL V0/V1 contracts and A-SRL-1 are integrated typed contracts and threat-model evidence. P-SRL-RUNTIME-1 M0 is separately implemented and verified at exact isolated commit 6e06b4f, but is not integrated, activated or provider-backed; M1-M4 remain unimplemented. R-SRL-1 is a frozen research preregistration whose harness is implemented but awaiting independent methodology review; it is not a result. DEVH-AOC-002 separately freezes only a real-history evaluator substrate under root .agent_runs; result-run and training authority remain DENIED. ADM-P1/P2/P3/P4 remain Product implementation evidence with policy V1 all-DEFER. DEV-REAL-OUTCOME-1 closes the false-VERIFIED defect on canonical-convergence only. Data Agent relevance integration is proposal-only Product behavior. None is a release, migration, benchmark result, D2 or general-autonomy claim."
+  evidence_separation: "Task6 is integrated Product implementation evidence on a local canonical feature branch. R-SRL-1/M0c, W1/W2 and active-discovery successors remain isolated research or product-eval candidates and are not results. ADM all-DEFER remains inert W3/W4 infrastructure. None of these facts is a release, migration, production activation, customer outcome, general cognition or Autonomy(S,E,O,V,T) result."
