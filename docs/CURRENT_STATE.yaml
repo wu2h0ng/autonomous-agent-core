@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-17T19:02:00+08:00"
+updated: "2026-07-17T20:05:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "main (remote head 0097336; local convergence worktree retained for state finalization)"
-status: "The independently approved canonical convergence train is on remote main through state head 76f9204, and Integration Window 3 is approved at local merge head b95ae7c pending this state push. Window 3 adds snapshot-bound provider execution receipts and a read-only event-store trajectory API; evidence is 16 focused tests, 1392 Product tests passed/1 skipped, clean Ruff/Pyright/diff and APPROVE_INTEGRATION_WINDOW_3. Earlier windows contain P-SRL-RUNTIME-M1-plus, Evaluator Authority V0 and Trajectory/Credit V0. Provider/trajectory provenance does not activate W1/W2, ADM or C7 writes. Main integration is not a release and does not establish a result-bearing run, learning effectiveness, production identity/KMS/cross-host custody, Agent OS Alpha or Autonomy(S,E,O,V,T)."
+branch: "main (remote head 121dfc5; local convergence worktree retained for state finalization)"
+status: "The independently approved canonical convergence train is on remote main through state head 121dfc5. Window 3 adds snapshot-bound provider execution receipts and a read-only event-store trajectory API; evidence is 16 focused tests, 1392 Product tests passed/1 skipped, clean Ruff/Pyright/diff and APPROVE_INTEGRATION_WINDOW_3. The isolated R-EVAL successor is pushed at 6c3fdab after two independent APPROVE verdicts and 13 focused tests, but remains NOT_READY / NOT_FROZEN / NOT_RUN pending real external provider, oracle, C7, freezer and run-authority bindings. Provider/trajectory provenance does not activate W1/W2, ADM or C7 writes. Main integration is not a release and does not establish a result-bearing run, learning effectiveness, production identity/KMS/cross-host custody, Agent OS Alpha or Autonomy(S,E,O,V,T)."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -264,6 +264,16 @@ parked_work:
     source: "../docs/research/founder-decision-2026-07-14-governed-core-evolution.md"
 
 recently_completed:
+  - id: "R-EVAL-INDEP-1-SUCCESSOR-V1"
+    track: "research_infrastructure"
+    status: "IMPLEMENTED_AND_DUAL_INDEPENDENTLY_APPROVED_AT_6C3FDAB / ISOLATED_REMOTE_BRANCH / NOT_READY / NOT_FROZEN / NOT_RUN"
+    result: "The successor now resolves receipt identities through a trusted registry, binds pairwise-distinct collection/run/C7/oracle authorities and public keys, verifies provider canary and oracle custody against the permit, and uses the route canonical JSON serializer. OpenCode/DeepSeek and a separate exact-head reviewer both returned APPROVE_R_EVAL_SUCCESSOR with P0/P1=0; the focused successor suite passed 13 tests and the worktree/diff were clean."
+    boundary: "Approval establishes only an isolated research-instrument candidate. No real provider canary, oracle custody, C7 owner, external freezer, run authority, freeze receipt, result-bearing execution, routing table, Product capability or autonomy evidence exists."
+    source:
+      - "docs/research/R-EVAL-INDEP-1-successor-v1-preregistration-spec.yaml"
+      - "docs/research/R-EVAL-INDEP-1-successor-v1-exact-manifest.json"
+      - "experiments/r_eval_indep_1/freeze_run_context.py"
+      - "tests/test_r_eval_indep_1_successor_v1_review_pocs.py"
   - id: "P-PROVIDER-TRAJECTORY-BINDING-0"
     track: "product_and_translational"
     status: "IMPLEMENTED_REVIEWED_AND_APPROVED_IN_INTEGRATION_WINDOW_3_AT_B95AE7C / READ_ONLY_PROVENANCE / NO_W1_W2_ADAPTATION"
@@ -487,7 +497,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Close and independently review the R-EVAL successor: exact corpus/provider/permit/freeze/budget custody, one-shot C7 checks, partial-result sealing and tie-as-ABSTAIN; do not freeze or run until real external bindings exist."
+    action: "Bind the approved isolated R-EVAL successor to real external provider canaries, oracle custody, distinct C7 authority, external freezer and exact one-shot run authorization; do not freeze or run while any binding remains absent."
   - priority: 2
     action: "Implement and independently review the W1/W2 external run-authorization and trusted-score consumption substrate; preserve NOT_FROZEN/NO_RESULT_RUN until external custody and exact preregistration are real."
   - priority: 3
