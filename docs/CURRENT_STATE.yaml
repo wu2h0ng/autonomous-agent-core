@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-17T20:05:00+08:00"
+updated: "2026-07-18T16:00:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "main (remote head 121dfc5; local convergence worktree retained for state finalization)"
-status: "The independently approved canonical convergence train is on remote main through state head 121dfc5. Window 3 adds snapshot-bound provider execution receipts and a read-only event-store trajectory API; evidence is 16 focused tests, 1392 Product tests passed/1 skipped, clean Ruff/Pyright/diff and APPROVE_INTEGRATION_WINDOW_3. The isolated R-EVAL successor is pushed at 6c3fdab after two independent APPROVE verdicts and 13 focused tests, but remains NOT_READY / NOT_FROZEN / NOT_RUN pending real external provider, oracle, C7, freezer and run-authority bindings. Provider/trajectory provenance does not activate W1/W2, ADM or C7 writes. Main integration is not a release and does not establish a result-bearing run, learning effectiveness, production identity/KMS/cross-host custody, Agent OS Alpha or Autonomy(S,E,O,V,T)."
+branch: "main"
+status: "Agent OS remote main is `fff02501a586e48b549a7bea2ca5f5c03e2708bc`. The bounded local Task/Run/provider/capability/evidence/correction spine remains available, and main now also exposes a durable scoped Mandate Workspace API whose records are `RATIFIED` but explicitly cannot activate Tasks, grant capabilities, or cause external effects. The exact-head Product suite passed 1402 tests with 1 skipped; Ruff and Pyright passed; an independent technical review returned APPROVE. This is high-level responsibility intake, not a continuing responsibility loop: EnvironmentBinding authorization, MandateSteward consumption, active perception, goal portfolio formation and Founder Cognitive Load validation remain incomplete. Separate non-oracle discovery and A-to-B-to-A continual-learning branches remain qualification/freeze candidates only and are `NOT_FROZEN / NOT_RUN`. No release, production activation, Agent OS Alpha completion, general intelligence, or Autonomy(S,E,O,V,T) is established. Older entries below remain implementation/evidence inventory and do not override this status line."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,8 +25,8 @@ identity:
 
 current_phase:
   product:
-    label: "SPINE-0 plus canonical situated Data Agent/SRL Task6 slice, bounded local long-horizon slice and inert ADM infrastructure; broader Agent OS alpha incomplete"
-    status: "LOCAL_SLICES_VERIFIED / NO_PRODUCT_ALPHA_CLAIM"
+    label: "bounded local Agent OS spine plus durable RATIFIED Mandate Workspace input; continuing Mandate/SRL loop incomplete"
+    status: "LOCAL_SLICES_VERIFIED / REMOTE_MAIN_AT_FFF0250 / NOT_RELEASED"
   research:
     label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
     status: "MIXED_EVIDENCE / NO_GENERAL_AUTONOMY_CLAIM"
@@ -35,6 +35,26 @@ current_phase:
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
 
 verified_capabilities:
+  mandate_workspace_input:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / NOT_RUNTIME_ACTIVE / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "An authenticated operator can submit, replay and inspect a durable high-level Mandate without that intake silently becoming execution authority."
+    real_entry_points:
+      - "POST /v1/mandates"
+      - "GET /v1/mandates"
+      - "GET /v1/mandates/{mandate_id}"
+    verified_properties:
+      - "principal, tenant and workspace scope are server-bound and isolated"
+      - "exact replay is idempotent; same-id conflicting content fails closed"
+      - "SQLite schema, command digest and record digest drift fail closed across restart"
+      - "status remains RATIFIED and task_activation_authorized/capability_grant_authorized remain false"
+      - "no Task, provider, capability or MandateSteward side effect occurs from intake"
+    dated_verification:
+      date: "2026-07-18"
+      exact_head: "fff02501a586e48b549a7bea2ca5f5c03e2708bc"
+      product_suite: "1402 passed, 1 skipped"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; independent OpenCode review APPROVE"
+    boundary: "No EnvironmentBinding authorization, MandateSteward consumption, TaskDraft formation, active perception, TaskActivation, external effect, release or autonomy claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
