@@ -6,10 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from agent_os_contracts import content_digest
+from agent_os_contracts import (
+    RelevanceAssessment,
+    RelevanceAssessorRef,
+    RelevanceDisposition,
+    RelevanceUrgency,
+    SituatedAssessmentOutcomeKind,
+    SituatedAssessmentRecord,
+    content_digest,
+)
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     DataAgentReportAdapterError,
+    DataAgentReportDispatch,
     DataAgentReportHttpResponse,
     SQLiteDataAgentReportStateStore,
     _InMemoryDataAgentReportStateStore,
@@ -48,6 +57,53 @@ def _feed_adapter(
         state_store=SQLiteDataAgentReportStateStore(database),
     )
     return adapter
+
+
+def _outcome_record(
+    adapter: DataAgentReportAdapter,
+    dispatch: DataAgentReportDispatch,
+) -> SituatedAssessmentRecord:
+    event = adapter.resolve_event(dispatch.environment_event_id)
+    projection = adapter.resolve_projection(dispatch.projection_id)
+    assert event is not None and projection is not None
+    source_binding_digest = "b" * 64
+    assessment = RelevanceAssessment(
+        assessment_id=f"assessment:{dispatch.dispatch_id}",
+        environment_event_id=event.environment_event_id,
+        event_observation_digest=event.observation.content_digest,
+        projection_id=projection.projection_id,
+        projection_digest=projection.projection_artifact.content_digest,
+        mandate_id=event.mandate_id,
+        mandate_version=1,
+        mandate_digest="c" * 64,
+        environment_binding_id=event.environment_binding_id,
+        environment_binding_version=1,
+        environment_binding_digest="e" * 64,
+        correction_epoch=0,
+        assessor=RelevanceAssessorRef(
+            assessor_id="assessor:test", version=1, policy_digest="d" * 64
+        ),
+        input_binding_digest="e" * 64,
+        tenant_id=event.tenant_id,
+        workspace_id=event.workspace_id,
+        disposition=RelevanceDisposition.IGNORE,
+        uncertainty_summary="bounded test assessment",
+        urgency=RelevanceUrgency.LOW,
+        expected_loss_of_delay="none",
+        attention_budget_seconds=1,
+        rationale="no proposal required",
+        evidence_ids=(event.observation.artifact_id,),
+        assessed_at=NOW,
+    )
+    return SituatedAssessmentRecord(
+        assessment_record_id=f"situated-assessment:{source_binding_digest}",
+        source_binding_digest=source_binding_digest,
+        tenant_id=event.tenant_id,
+        workspace_id=event.workspace_id,
+        assessment=assessment,
+        outcome_kind=SituatedAssessmentOutcomeKind.NO_PROPOSAL,
+        recorded_at=NOW,
+    )
 
 
 def test_feed_page_commits_pending_dispatch_cursor_and_history_atomically(
@@ -97,6 +153,66 @@ def test_outbox_failure_leaves_feed_observation_inert_and_cursor_unadvanced(
     assert _feed_adapter(database).resolve_event(event_id) is None
 
 
+def test_self_consistent_isolated_outbox_row_cannot_unlock_inert_feed_observation(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "reports.sqlite3"
+    adapter = _feed_adapter(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_dispatch BEFORE INSERT
+            ON data_agent_report_dispatch_outbox
+            BEGIN SELECT RAISE(ABORT, 'reject dispatch'); END
+            """
+        )
+    with pytest.raises(DataAgentReportAdapterError):
+        adapter.poll_once(limit=1)
+
+    reference = _feed_adapter(tmp_path / "reference.sqlite3")
+    result = reference.poll_once(limit=1)
+    forged = reference.pending_dispatches()[0]
+    with sqlite3.connect(database) as connection:
+        connection.execute("DROP TRIGGER reject_dispatch")
+        connection.execute(
+            """
+            INSERT INTO data_agent_report_dispatch_outbox (
+                dispatch_id, dispatch_digest, namespace_digest, source_id,
+                source_tenant_id, principal_id, tenant_id, workspace_id,
+                mandate_id, environment_binding_id, environment_event_id,
+                projection_id, bundle_digest, status, outcome_kind,
+                outcome_digest, completed_at, consumer_id,
+                authority_snapshot_digest, completion_digest,
+                activation_authorized, capability_grant_authorized,
+                external_effects_authorized
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING',
+                      NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0)
+            """,
+            (
+                forged.dispatch_id,
+                forged.dispatch_digest,
+                forged.namespace_digest,
+                forged.source_id,
+                forged.source_tenant_id,
+                forged.principal_id,
+                forged.tenant_id,
+                forged.workspace_id,
+                forged.mandate_id,
+                forged.environment_binding_id,
+                forged.environment_event_id,
+                forged.projection_id,
+                forged.bundle_digest,
+            ),
+        )
+
+    restarted = _feed_adapter(database)
+    event_id = result.bundles[0].event.environment_event_id
+    with pytest.raises(DataAgentReportAdapterError, match="page"):
+        restarted.resolve_event(event_id)
+    with pytest.raises(DataAgentReportAdapterError, match="page"):
+        restarted.pending_dispatches()
+
+
 def test_pending_survives_restart_and_completion_receipt_is_durable(
     tmp_path: Path,
 ) -> None:
@@ -109,8 +225,7 @@ def test_pending_survives_restart_and_completion_receipt_is_durable(
 
     completed = restarted.complete_dispatch(
         pending,
-        outcome_kind="TASK_DRAFT",
-        outcome_digest="d" * 64,
+        outcome_record=_outcome_record(restarted, pending),
         completed_at=NOW,
         consumer_id="worker-1",
         authority_snapshot_digest="a" * 64,
@@ -119,6 +234,25 @@ def test_pending_survives_restart_and_completion_receipt_is_durable(
     assert restarted.pending_dispatches() == ()
     assert completed.completion_digest is not None
     assert _feed_adapter(database).completed_dispatch(pending.dispatch_id) == completed
+
+
+def test_completion_rejects_self_reported_outcome_without_durable_record(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "reports.sqlite3"
+    adapter = _feed_adapter(database)
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+
+    with pytest.raises(DataAgentReportAdapterError, match="durable outcome"):
+        adapter.complete_dispatch(
+            dispatch,
+            outcome_kind="NO_PROPOSAL",
+            outcome_digest="d" * 64,
+            completed_at=NOW,
+            consumer_id="worker-1",
+            authority_snapshot_digest="a" * 64,
+        )
 
 
 @pytest.mark.parametrize(
@@ -194,10 +328,10 @@ def test_recomputed_principal_tamper_cannot_unlock_pending_or_resolver(
             ),
         )
 
-    with pytest.raises(DataAgentReportAdapterError, match="scope"):
+    with pytest.raises(DataAgentReportAdapterError, match="page|scope"):
         adapter.pending_dispatches()
     restarted = _feed_adapter(database)
-    with pytest.raises(DataAgentReportAdapterError, match="scope"):
+    with pytest.raises(DataAgentReportAdapterError, match="page|scope"):
         restarted.resolve_event(result.bundles[0].event.environment_event_id)
 
 
@@ -208,8 +342,7 @@ def test_completion_receipt_tamper_fails_closed(tmp_path: Path) -> None:
     dispatch = adapter.pending_dispatches()[0]
     adapter.complete_dispatch(
         dispatch,
-        outcome_kind="NO_PROPOSAL",
-        outcome_digest="d" * 64,
+        outcome_record=_outcome_record(adapter, dispatch),
         completed_at=NOW,
         consumer_id="worker-1",
         authority_snapshot_digest="a" * 64,
@@ -246,8 +379,7 @@ def test_in_memory_completion_replay_matches_sqlite_idempotency() -> None:
     adapter.poll_once(limit=1)
     dispatch = adapter.pending_dispatches()[0]
     kwargs = {
-        "outcome_kind": "NO_PROPOSAL",
-        "outcome_digest": "d" * 64,
+        "outcome_record": _outcome_record(adapter, dispatch),
         "completed_at": NOW,
         "consumer_id": "worker-1",
         "authority_snapshot_digest": "a" * 64,
@@ -296,8 +428,7 @@ def test_cross_tenant_same_ids_cannot_complete_foreign_dispatch(
     with pytest.raises(DataAgentReportAdapterError, match="scope"):
         foreign.complete_dispatch(
             owner.pending_dispatches()[0],
-            outcome_kind="NO_PROPOSAL",
-            outcome_digest="d" * 64,
+            outcome_record=_outcome_record(owner, owner.pending_dispatches()[0]),
             completed_at=NOW,
             consumer_id="worker-foreign",
             authority_snapshot_digest="a" * 64,
