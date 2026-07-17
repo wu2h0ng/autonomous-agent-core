@@ -20,12 +20,13 @@ from experiments.r_state_credit_1.interactive_env import (
 from experiments.r_state_credit_1.prereg_candidate import (
     build_stage_a_prereg_candidate,
 )
+from tests.support.git_reference import git_blob
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RECAST_REFERENCE_HEAD = "0ca38aa3491161fa115c0b58685cf408e5be106b"
 LEGACY_PREREG = (
-    REPO_ROOT
-    / "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREGISTRATION-2026-07-15.yaml"
+    REPO_ROOT / "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.PREREGISTRATION-2026-07-15.yaml"
 )
 RECAST_PREREG = (
     REPO_ROOT
@@ -64,7 +65,9 @@ def test_development_seed_recovery_grammar_has_both_deterministic_routes(
     }
 
 
-def test_wrong_recovery_choice_is_not_mislabeled_as_effect_replay(tmp_path: Path) -> None:
+def test_wrong_recovery_choice_is_not_mislabeled_as_effect_replay(
+    tmp_path: Path,
+) -> None:
     found = False
     for seed_id in range(200):
         episode = InteractiveEpisode("TEST_FAMILY", seed_id, tmp_path / str(seed_id))
@@ -99,12 +102,12 @@ def test_candidate_trajectory_driver_exercises_all_arms_without_result_authority
         run_checkpointed_episode,
     )
 
-    episode, records = run_checkpointed_episode(
-        "TEST_FAMILY", 101, tmp_path / "driver"
-    )
+    episode, records = run_checkpointed_episode("TEST_FAMILY", 101, tmp_path / "driver")
     try:
         assert len(records) == 4
-        assert all(set(record.resolved_actions) == set(record.arm_ids) for record in records)
+        assert all(
+            set(record.resolved_actions) == set(record.arm_ids) for record in records
+        )
         assert all(record.correct_action in ALL_ACTIONS for record in records)
     finally:
         episode.cleanup()
@@ -122,9 +125,14 @@ def test_legacy_formal_prereg_is_retired_and_recast_candidate_is_separate() -> N
     assert recast["mechanism"]["trajectory_driver"] == (
         "experiments.r_state_credit_1.trajectory_driver.run_checkpointed_episode"
     )
-    assert recast["mechanism"]["trajectory_driver_sha256"] == hashlib.sha256(
-        (REPO_ROOT / "experiments/r_state_credit_1/trajectory_driver.py").read_bytes()
-    ).hexdigest()
+    assert (
+        recast["mechanism"]["trajectory_driver_sha256"]
+        == hashlib.sha256(
+            (
+                REPO_ROOT / "experiments/r_state_credit_1/trajectory_driver.py"
+            ).read_bytes()
+        ).hexdigest()
+    )
     files = set(recast["mechanism"]["files"])
     assert "experiments/r_state_credit_1/trajectory_driver.py" in files
     assert "experiments/r_state_credit_1/result_runner.py" not in files
@@ -140,5 +148,12 @@ def test_recast_exact_manifest_binds_every_declared_candidate_byte() -> None:
         RECAST_PREREG.relative_to(REPO_ROOT).as_posix()
     }
     for relative_path, expected in hashes.items():
-        actual = hashlib.sha256((REPO_ROOT / relative_path).read_bytes()).hexdigest()
+        actual = hashlib.sha256(
+            git_blob(REPO_ROOT, RECAST_REFERENCE_HEAD, relative_path)
+        ).hexdigest()
         assert actual == expected, relative_path
+    assert RECAST_PREREG.read_bytes() == git_blob(
+        REPO_ROOT,
+        RECAST_REFERENCE_HEAD,
+        RECAST_PREREG.relative_to(REPO_ROOT).as_posix(),
+    )

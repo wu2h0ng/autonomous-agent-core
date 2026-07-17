@@ -31,6 +31,10 @@ from experiments.r_state_credit_1.recast_result_runner import (
 )
 from experiments.r_state_credit_1.recast_scorer import RawRecastScorer
 from experiments.r_state_credit_1.run_contracts import CheckpointId, HELD_OUT_SEEDS
+from tests.support.git_reference import git_blob, materialize_git_files
+
+
+SUCCESSOR_REFERENCE_HEAD = "96eb79e"
 
 
 class _Transport:
@@ -128,11 +132,25 @@ def _bundle(**changes: object) -> ExecutionBundle:
     return ExecutionBundle(**values)  # type: ignore[arg-type]
 
 
-def _authorized_context() -> tuple[
-    ExecutionBundle, ExactSuccessorArtifacts, tuple[VerifiedReceipt, ...]
-]:
+def _historical_artifacts(tmp_path: Path) -> ExactSuccessorArtifacts:
     root = Path(__file__).resolve().parents[1]
-    artifacts = ExactSuccessorArtifacts.load(root)
+    manifest_relative = (
+        "docs/pre_spec/R-STATE-CREDIT-1.SUCCESSOR-F-MANIFEST-2026-07-17.json"
+    )
+    manifest = json.loads(git_blob(root, SUCCESSOR_REFERENCE_HEAD, manifest_relative))
+    historical_root = materialize_git_files(
+        root,
+        SUCCESSOR_REFERENCE_HEAD,
+        list(manifest["artifact_sha256"]) + [manifest_relative],
+        tmp_path,
+    )
+    return ExactSuccessorArtifacts.load(historical_root)
+
+
+def _authorized_context(
+    tmp_path: Path,
+) -> tuple[ExecutionBundle, ExactSuccessorArtifacts, tuple[VerifiedReceipt, ...]]:
+    artifacts = _historical_artifacts(tmp_path)
     receipt_digests = {
         kind: hashlib.sha256(f"verified-{kind.value}".encode()).hexdigest()
         for kind in ReceiptKind
@@ -213,8 +231,10 @@ def test_runner_never_runs_without_future_freeze_bound_authorization() -> None:
         ResultRunner(_bundle(), _C7([False])).run(())
 
 
-def test_runner_checks_c7_before_and_after_and_lock_is_terminal() -> None:
-    bundle, artifacts, receipts = _authorized_context()
+def test_runner_checks_c7_before_and_after_and_lock_is_terminal(
+    tmp_path: Path,
+) -> None:
+    bundle, artifacts, receipts = _authorized_context(tmp_path)
     runner = ResultRunner(
         bundle,
         _C7([False, True]),
@@ -241,7 +261,7 @@ def test_runner_rejects_hidden_truth_payload_before_provider() -> None:
         )
 
 
-def test_runner_rejects_nested_hidden_truth_and_untyped_rows() -> None:
+def test_runner_rejects_nested_hidden_truth_and_untyped_rows(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="closed public row schema"):
         PublicResultRow.from_mapping(
             {
@@ -252,7 +272,7 @@ def test_runner_rejects_nested_hidden_truth_and_untyped_rows() -> None:
                 "metadata": {"referee": {"correct_action": "REVIEW"}},
             }
         )
-    bundle, artifacts, receipts = _authorized_context()
+    bundle, artifacts, receipts = _authorized_context(tmp_path)
     untyped_rows = cast(
         tuple[PublicResultRow, ...],
         ({"family": "x", "payload": {"loss_by_action": {}}},),
@@ -267,8 +287,10 @@ def test_runner_rejects_nested_hidden_truth_and_untyped_rows() -> None:
         ).run(untyped_rows)
 
 
-def test_runner_rejects_missing_or_duplicate_exact_rows_and_budget_drift() -> None:
-    bundle, artifacts, receipts = _authorized_context()
+def test_runner_rejects_missing_or_duplicate_exact_rows_and_budget_drift(
+    tmp_path: Path,
+) -> None:
+    bundle, artifacts, receipts = _authorized_context(tmp_path)
     rows = _public_rows()
     with pytest.raises(RunNotReady, match="coverage"):
         ResultRunner(
@@ -345,7 +367,9 @@ def test_successor_contract_closes_family_overclaim_and_integrity_umbrella() -> 
     assert SuccessorReadiness.evaluate(drifted).status == "NOT_READY"
 
 
-def test_placeholder_digests_budgets_and_same_receipt_never_become_ready() -> None:
+def test_placeholder_digests_budgets_and_same_receipt_never_become_ready(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(ValueError, match="token budgets"):
         _bundle(
             provider_binding_sha256="a" * 64,
@@ -357,8 +381,7 @@ def test_placeholder_digests_budgets_and_same_receipt_never_become_ready() -> No
             max_total_output_tokens=1,
         )
     bundle = _bundle()
-    root = Path(__file__).resolve().parents[1]
-    artifacts = ExactSuccessorArtifacts.load(root)
+    artifacts = _historical_artifacts(tmp_path)
     receipts = tuple(
         VerifiedReceipt(
             kind=kind,
@@ -376,17 +399,18 @@ def test_placeholder_digests_budgets_and_same_receipt_never_become_ready() -> No
     assert "receipt digests must be distinct" in readiness.blockers
 
 
-def test_provider_self_claim_cannot_close_readiness_without_verified_canary() -> None:
+def test_provider_self_claim_cannot_close_readiness_without_verified_canary(
+    tmp_path: Path,
+) -> None:
     bundle = _bundle()
-    root = Path(__file__).resolve().parents[1]
-    artifacts = ExactSuccessorArtifacts.load(root)
+    artifacts = _historical_artifacts(tmp_path)
     readiness = SuccessorReadiness.evaluate(bundle, artifacts=artifacts, receipts=())
     assert readiness.status == "NOT_READY"
     assert "verified PROVIDER_CANARY receipt absent" in readiness.blockers
 
 
-def test_provider_and_c7_receipts_cannot_share_a_subject() -> None:
-    bundle, artifacts, receipts = _authorized_context()
+def test_provider_and_c7_receipts_cannot_share_a_subject(tmp_path: Path) -> None:
+    bundle, artifacts, receipts = _authorized_context(tmp_path)
     collided_bundle = replace(bundle, c7_schema_sha256=bundle.provider_binding_sha256)
     collided_receipts = tuple(
         replace(item, subject_sha256=bundle.provider_binding_sha256)
@@ -430,4 +454,24 @@ def test_successor_candidate_is_separate_not_ready_and_exactly_manifested() -> N
     assert candidate["run_authorization"]["receipt_sha256"] is None
     hashes = manifest["artifact_sha256"]
     for relative, expected in hashes.items():
-        assert hashlib.sha256((root / relative).read_bytes()).hexdigest() == expected
+        assert (
+            hashlib.sha256(
+                git_blob(root, SUCCESSOR_REFERENCE_HEAD, relative)
+            ).hexdigest()
+            == expected
+        )
+    assert candidate_path.read_bytes() == git_blob(
+        root, SUCCESSOR_REFERENCE_HEAD, candidate_path.relative_to(root).as_posix()
+    )
+    assert manifest_path.read_bytes() == git_blob(
+        root, SUCCESSOR_REFERENCE_HEAD, manifest_path.relative_to(root).as_posix()
+    )
+
+
+def test_historical_successor_cannot_be_active_on_current_execution_head() -> None:
+    root = Path(__file__).resolve().parents[1]
+    with pytest.raises(ValueError, match="successor artifact digest drift"):
+        ExactSuccessorArtifacts.load(root)
+    readiness = SuccessorReadiness.evaluate(_bundle(), artifacts=None, receipts=())
+    assert readiness.status == "NOT_READY"
+    assert "exact successor artifact bundle absent" in readiness.blockers

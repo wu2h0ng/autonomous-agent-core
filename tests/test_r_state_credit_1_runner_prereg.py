@@ -61,6 +61,7 @@ from experiments.r_state_credit_1.result_runner import (
     verify_raw_result_content_digest,
 )
 from experiments.r_state_credit_1 import result_runner as result_runner_module
+from tests.support.git_reference import git_blob, materialize_git_files
 
 
 SHA_A = "a" * 64
@@ -1242,6 +1243,24 @@ RECAST_FORMAL_PREREG = Path(
 RECAST_EXACT_CONTENT_MANIFEST = Path(
     "docs/pre_spec/R-STATE-CREDIT-1.STAGE-A.RECAST-EXACT-CONTENT-MANIFEST-2026-07-17.json"
 )
+RECAST_REFERENCE_HEAD = "0ca38aa3491161fa115c0b58685cf408e5be106b"
+
+
+def _historical_recast_root(repo_root: Path, destination: Path) -> Path:
+    manifest = json.loads(
+        git_blob(
+            repo_root,
+            RECAST_REFERENCE_HEAD,
+            RECAST_EXACT_CONTENT_MANIFEST.as_posix(),
+        )
+    )
+    return materialize_git_files(
+        repo_root,
+        RECAST_REFERENCE_HEAD,
+        list(manifest["mechanism_artifact_hashes"])
+        + [RECAST_EXACT_CONTENT_MANIFEST.as_posix()],
+        destination,
+    )
 
 
 def _workflow_root(repo_root: Path) -> Path:
@@ -1326,9 +1345,14 @@ def test_legacy_prereg_is_never_routed_to_native_freezer() -> None:
     assert spec["retirement"]["active_freeze_input"] is False
 
 
-def test_native_workflow_runner_computes_recast_candidate_digest_without_writes() -> None:
+def test_native_workflow_runner_computes_historical_recast_digest_without_writes(
+    tmp_path: Path,
+) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     workflow = _workflow_root(repo_root)
+    historical_root = _historical_recast_root(
+        repo_root, tmp_path / "historical-recast-digest"
+    )
     script = """
 import json
 import sys
@@ -1343,8 +1367,8 @@ print(json.dumps(compute_freeze_digest(workspace_root=root, spec_path=spec, targ
             _workflow_python(workflow),
             "-c",
             script,
-            str(repo_root),
-            str(repo_root / RECAST_FORMAL_PREREG),
+            str(historical_root),
+            str(historical_root / RECAST_FORMAL_PREREG),
         ],
         cwd=workflow,
         env=_workflow_env(workflow),
@@ -1354,7 +1378,7 @@ print(json.dumps(compute_freeze_digest(workspace_root=root, spec_path=spec, targ
     )
     digest = json.loads(completed.stdout)
     manifest = json.loads(
-        (repo_root / RECAST_EXACT_CONTENT_MANIFEST).read_text(encoding="utf-8")
+        (historical_root / RECAST_EXACT_CONTENT_MANIFEST).read_text(encoding="utf-8")
     )
     contract_relative = RECAST_FORMAL_PREREG.as_posix()
     expected = dict(manifest["mechanism_artifact_hashes"])
@@ -1363,9 +1387,14 @@ print(json.dumps(compute_freeze_digest(workspace_root=root, spec_path=spec, targ
     assert digest["mechanism_file_hashes"] == expected
 
 
-def test_native_manifest_verifier_accepts_recast_candidate_exact_bytes() -> None:
+def test_native_manifest_verifier_accepts_historical_recast_exact_bytes(
+    tmp_path: Path,
+) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     workflow = _workflow_root(repo_root)
+    historical_root = _historical_recast_root(
+        repo_root, tmp_path / "historical-recast-manifest"
+    )
     script = """
 import json
 import sys
@@ -1380,8 +1409,8 @@ print(json.dumps(verify_exact_content_manifest(workspace_root=root, manifest_pat
             _workflow_python(workflow),
             "-c",
             script,
-            str(repo_root),
-            str(repo_root / RECAST_EXACT_CONTENT_MANIFEST),
+            str(historical_root),
+            str(historical_root / RECAST_EXACT_CONTENT_MANIFEST),
         ],
         cwd=workflow,
         env=_workflow_env(workflow),

@@ -13,9 +13,11 @@ from pathlib import Path
 import pytest
 
 from experiments.r_state_credit_1.contracts import ArmId, ScenarioFamily
+from tests.support.git_reference import git_blob, materialize_git_files
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STAGE_A_REFERENCE_HEAD = "0ca38aa3491161fa115c0b58685cf408e5be106b"
 
 
 def _prereg_module():
@@ -54,10 +56,10 @@ def test_stage_a_candidate_declares_complete_non_authorizing_protocol() -> None:
         family.value for family in ScenarioFamily
     }
     assert candidate["scenario_protocol"]["held_out_episode_count"] == 140
-    assert (
-        candidate["scenario_protocol"]["episode_length_turns_range_inclusive"]
-        == [20, 60]
-    )
+    assert candidate["scenario_protocol"]["episode_length_turns_range_inclusive"] == [
+        20,
+        60,
+    ]
     assert candidate["scenario_protocol"]["checkpoint_protocol"]["count"] == 4
     assert (
         candidate["scenario_protocol"]["checkpoint_protocol"]["selection_algorithm"]
@@ -93,14 +95,32 @@ def test_stage_a_candidate_declares_complete_non_authorizing_protocol() -> None:
     }
 
 
-def test_committed_candidate_matches_generator_and_validates_exact_bytes() -> None:
+def test_committed_candidate_matches_reference_generator_and_exact_bytes(
+    tmp_path: Path,
+) -> None:
     module = _prereg_module()
-    candidate_path = REPO_ROOT / module.DEFAULT_CANDIDATE_RELATIVE_PATH
-    raw = candidate_path.read_text(encoding="utf-8")
-    expected = module.canonical_candidate_json(_candidate()) + "\n"
+    candidate_relative = module.DEFAULT_CANDIDATE_RELATIVE_PATH
+    reference_raw = git_blob(REPO_ROOT, STAGE_A_REFERENCE_HEAD, candidate_relative)
+    candidate = json.loads(reference_raw)
+    historical_root = materialize_git_files(
+        REPO_ROOT,
+        STAGE_A_REFERENCE_HEAD,
+        [item["path"] for item in candidate["source_manifest"]] + [candidate_relative],
+        tmp_path / "historical-stage-a",
+    )
+    candidate_path = historical_root / candidate_relative
+    expected = (
+        module.canonical_candidate_json(
+            module.build_stage_a_prereg_candidate(historical_root)
+        )
+        + "\n"
+    )
 
-    assert raw == expected
-    receipt = module.validate_stage_a_prereg_candidate_file(candidate_path)
+    assert reference_raw == expected.encode()
+    assert (REPO_ROOT / candidate_relative).read_bytes() == reference_raw
+    receipt = module.validate_stage_a_prereg_candidate_file(
+        candidate_path, repo_root=historical_root
+    )
     assert receipt.status is module.CandidateValidationStatus.VALID_CANDIDATE_ONLY
 
 
@@ -199,9 +219,22 @@ def test_validator_rejects_source_manifest_drift() -> None:
 
 def test_validator_cli_checks_only_and_emits_non_authorizing_receipt(
     capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _prereg_module()
-    candidate_path = REPO_ROOT / module.DEFAULT_CANDIDATE_RELATIVE_PATH
+    candidate_relative = module.DEFAULT_CANDIDATE_RELATIVE_PATH
+    candidate = json.loads(
+        git_blob(REPO_ROOT, STAGE_A_REFERENCE_HEAD, candidate_relative)
+    )
+    historical_root = materialize_git_files(
+        REPO_ROOT,
+        STAGE_A_REFERENCE_HEAD,
+        [item["path"] for item in candidate["source_manifest"]] + [candidate_relative],
+        tmp_path / "historical-stage-a-cli",
+    )
+    candidate_path = historical_root / candidate_relative
+    monkeypatch.setattr(module, "_default_repo_root", lambda: historical_root)
 
     assert module.main(["--check", str(candidate_path)]) == 0
     receipt = json.loads(capsys.readouterr().out)
