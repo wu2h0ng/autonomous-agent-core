@@ -1,0 +1,40 @@
+{
+  "schema_version": "r-state-credit-1-successor-f-candidate-v1",
+  "status": "NOT_READY_NOT_FROZEN_NOT_RUN",
+  "active_freeze_input": false,
+  "reviewed_mechanism_base": "0ca38aa3491161fa115c0b58685cf408e5be106b",
+  "review_artifact_commit": "a98e3600a1cb7df9032cc2fbe3ed58872e854c8c",
+  "historical_candidate_mutated": false,
+  "action_grammar": [
+    "REVIEW",
+    "VERIFY_EFFECT",
+    "ABSTAIN",
+    "CONTINUE",
+    "RECOVER_ROLLBACK",
+    "RECOVER_ROLL_FORWARD"
+  ],
+  "provider_contract": {
+    "binding_status": "NOT_BOUND",
+    "stub_fallback": "FORBIDDEN",
+    "model_alias": "FORBIDDEN",
+    "confirmed_immutable_revision": "REQUIRED",
+    "typed_receipt": "REQUIRED"
+  },
+  "execution_contract": {
+    "expected_provider_calls": 2240,
+    "max_total_input_tokens": 2240000,
+    "max_total_output_tokens": 1120000,
+    "c7_checks": ["PRE", "POST"],
+    "same_lock_retry_after_interrupt": "FORBIDDEN",
+    "hidden_truth_in_public_runner": "FORBIDDEN"
+  },
+  "family_perturbation_contract": "GENERATED_PER_FAMILY_NOT_EVERY_INSTANCE",
+  "integrity_umbrella": "INTEGRITY_VALID",
+  "run_authorization": {
+    "must_reference_future_freeze": true,
+    "receipt_sha256": null
+  },
+  "freeze_authority": false,
+  "run_authority": false,
+  "result_authority": false
+}
