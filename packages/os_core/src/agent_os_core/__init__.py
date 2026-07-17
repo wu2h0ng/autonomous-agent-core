@@ -72,7 +72,9 @@ from .srl_event_authority import (
 from .srl_event_admission import EnvironmentEventAdmissionService
 from .srl_event_store import ScopedEventAdmissionReader
 from .srl_working_set import (
+    ExternalStateAuthorizationRegistry,
     ExternalStateSourceAdapter,
+    InMemoryExternalStateAuthorizationRegistry,
     MAX_EXTERNAL_STATE_CANDIDATE_BYTES,
     MAX_TRUSTED_WORKING_SET_CANDIDATES,
     MAX_TRUSTED_WORKING_SET_TOTAL_BYTES,
@@ -269,6 +271,8 @@ __all__ = [
     "EnvironmentEventAdmissionService",
     "ScopedEventAdmissionReader",
     "ExternalStateSourceAdapter",
+    "ExternalStateAuthorizationRegistry",
+    "InMemoryExternalStateAuthorizationRegistry",
     "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",
     "MAX_TRUSTED_WORKING_SET_CANDIDATES",
     "MAX_TRUSTED_WORKING_SET_TOTAL_BYTES",

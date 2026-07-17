@@ -4,7 +4,9 @@ import hashlib
 from typing import Protocol
 
 from agent_os_contracts import (
+    AuthorizedExternalStateCandidateRef,
     ExternalStateCandidateRef,
+    ExternalStateAuthorizationReceipt,
     SelectionManifest,
     SelectionReceipt,
     TrustedWorkingSet,
@@ -44,15 +46,58 @@ class ExternalStateSourceAdapter(Protocol):
     ) -> tuple[tuple[ExternalStateCandidateRef, bytes], ...]: ...
 
 
+class ExternalStateAuthorizationRegistry(Protocol):
+    """Trusted authority for source/resource read scope; never adapter-owned."""
+
+    def resolve(
+        self, source_adapter_id: str, source_adapter_version: int, resource_id: str
+    ) -> ExternalStateAuthorizationReceipt | None: ...
+
+
+class InMemoryExternalStateAuthorizationRegistry:
+    __slots__ = ("_receipts",)
+
+    def __init__(
+        self, receipts: tuple[ExternalStateAuthorizationReceipt, ...] = ()
+    ) -> None:
+        indexed: dict[
+            tuple[str, int, str], ExternalStateAuthorizationReceipt
+        ] = {}
+        for receipt in receipts:
+            if type(receipt) is not ExternalStateAuthorizationReceipt:
+                raise TypeError("external state authorization receipt is not closed")
+            key = (
+                receipt.source_adapter_id,
+                receipt.source_adapter_version,
+                receipt.resource_id,
+            )
+            if key in indexed:
+                raise ValueError("external state resource authorization must be unique")
+            indexed[key] = receipt
+        self._receipts = indexed
+
+    def resolve(
+        self, source_adapter_id: str, source_adapter_version: int, resource_id: str
+    ) -> ExternalStateAuthorizationReceipt | None:
+        return self._receipts.get(
+            (source_adapter_id, source_adapter_version, resource_id)
+        )
+
+
 class TrustedWorkingSetAssembler:
     """Deterministically select inferred candidates under internal anchors."""
 
-    __slots__ = ("_adapters", "_selection_policy_digest")
+    __slots__ = (
+        "_adapters",
+        "_authorization_registry",
+        "_selection_policy_digest",
+    )
 
     def __init__(
         self,
         *,
         adapters: tuple[ExternalStateSourceAdapter, ...] = (),
+        authorization_registry: ExternalStateAuthorizationRegistry | None = None,
         selection_policy_digest: str,
     ) -> None:
         if len(selection_policy_digest) != 64:
@@ -66,6 +111,13 @@ class TrustedWorkingSetAssembler:
                 raise ValueError("external state adapter identities must be unique")
             indexed[key] = adapter
         self._adapters = tuple(indexed[key] for key in sorted(indexed))
+        if authorization_registry is None:
+            if self._adapters:
+                raise ValueError(
+                    "external state adapters require an authorization registry"
+                )
+            authorization_registry = InMemoryExternalStateAuthorizationRegistry()
+        self._authorization_registry = authorization_registry
         self._selection_policy_digest = selection_policy_digest
 
     @property
@@ -75,7 +127,14 @@ class TrustedWorkingSetAssembler:
     def assemble(self, request: WorkingSetRequest) -> TrustedWorkingSet:
         if request.selection_policy_digest != self._selection_policy_digest:
             raise SituationalTrustDenied("working set selection policy mismatch")
-        loaded: dict[str, tuple[ExternalStateCandidateRef, bytes]] = {}
+        loaded: dict[
+            str,
+            tuple[
+                AuthorizedExternalStateCandidateRef,
+                bytes,
+                ExternalStateAuthorizationReceipt,
+            ],
+        ] = {}
         loaded_count = 0
         loaded_bytes = 0
         for adapter in self._adapters:
@@ -123,32 +182,78 @@ class TrustedWorkingSetAssembler:
                     raise SituationalTrustDenied(
                         "external state candidate content digest mismatch"
                     )
+                try:
+                    authorization = self._authorization_registry.resolve(
+                        adapter.adapter_id,
+                        adapter.version,
+                        candidate.resource_id,
+                    )
+                except Exception:
+                    raise SituationalTrustDenied(
+                        "external state authorization registry is unavailable"
+                    ) from None
+                if authorization is None:
+                    raise SituationalTrustDenied(
+                        "external state resource authorization is unavailable"
+                    )
+                if (
+                    authorization.source_adapter_id != adapter.adapter_id
+                    or authorization.source_adapter_version != adapter.version
+                    or authorization.resource_id != candidate.resource_id
+                    or authorization.content_digest != candidate.content_digest
+                ):
+                    raise SituationalTrustDenied(
+                        "external state resource authorization binding mismatch"
+                    )
+                authorized = AuthorizedExternalStateCandidateRef(
+                    candidate_id=candidate.candidate_id,
+                    source_kind=candidate.source_kind,
+                    source_adapter_id=candidate.source_adapter_id,
+                    source_adapter_version=candidate.source_adapter_version,
+                    resource_id=candidate.resource_id,
+                    principal_id=authorization.principal_id,
+                    tenant_id=authorization.tenant_id,
+                    workspace_id=authorization.workspace_id,
+                    authorization_scope_digest=(
+                        authorization.authorization_scope_digest
+                    ),
+                    authorization_receipt_digest=(
+                        authorization.authorization_receipt_digest
+                    ),
+                    observed_correction_epoch=candidate.observed_correction_epoch,
+                    media_type=candidate.media_type,
+                    content_digest=candidate.content_digest,
+                )
+                loaded_item = (authorized, payload, authorization)
                 existing = loaded.get(candidate.candidate_id)
-                if existing is not None and existing != item:
+                if existing is not None and existing != loaded_item:
                     raise SituationalTrustDenied(
                         "external state candidate identity conflicts"
                     )
-                loaded[candidate.candidate_id] = (candidate, payload)
+                loaded[candidate.candidate_id] = loaded_item
 
-        selected: list[tuple[ExternalStateCandidateRef, bytes]] = []
+        selected: list[tuple[AuthorizedExternalStateCandidateRef, bytes]] = []
         excluded: list[str] = []
         for candidate_id in sorted(loaded):
-            candidate, payload = loaded[candidate_id]
+            candidate, payload, _authorization = loaded[candidate_id]
             if candidate.principal_id != request.principal_id:
-                excluded.append(f"{candidate_id}:PRINCIPAL_MISMATCH")
-                continue
+                raise SituationalTrustDenied(
+                    "external state resource authorization principal mismatch"
+                )
             if (
                 candidate.authorization_scope_digest
                 != request.authorization_scope_digest
             ):
-                excluded.append(f"{candidate_id}:AUTHORIZATION_SCOPE_MISMATCH")
-                continue
+                raise SituationalTrustDenied(
+                    "external state resource authorization scope mismatch"
+                )
             if (
                 candidate.tenant_id != request.tenant_id
                 or candidate.workspace_id != request.workspace_id
             ):
-                excluded.append(f"{candidate_id}:SCOPE_MISMATCH")
-                continue
+                raise SituationalTrustDenied(
+                    "external state resource authorization workspace mismatch"
+                )
             if candidate.observed_correction_epoch != request.correction_epoch:
                 excluded.append(f"{candidate_id}:CORRECTION_EPOCH_MISMATCH")
                 continue
@@ -161,6 +266,10 @@ class TrustedWorkingSetAssembler:
             ),
             "candidate_digests": tuple(
                 content_digest(loaded[candidate_id][0])
+                for candidate_id in sorted(loaded)
+            ),
+            "candidate_authorization_receipt_digests": tuple(
+                loaded[candidate_id][2].authorization_receipt_digest
                 for candidate_id in sorted(loaded)
             ),
             "selected_candidate_ids": tuple(item[0].candidate_id for item in selected),
@@ -216,6 +325,8 @@ class TrustedWorkingSetAssembler:
 
 __all__ = [
     "ExternalStateSourceAdapter",
+    "ExternalStateAuthorizationRegistry",
+    "InMemoryExternalStateAuthorizationRegistry",
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MAX_EXTERNAL_STATE_CANDIDATE_BYTES",

@@ -111,6 +111,7 @@ def _situated_app(
     *,
     workload_identities: tuple[WorkloadIdentityRegistration, ...] = (),
     external_state_adapters: tuple[Any, ...] = (),
+    external_state_authorization_receipts: tuple[Any, ...] = (),
     provider_sink: list[DeterministicProvider] | None = None,
     control_sink: list[SQLiteSituatedAssessmentStore] | None = None,
 ) -> AgentOSApplication:
@@ -151,6 +152,9 @@ def _situated_app(
     compose_options: dict[str, Any] = {}
     if external_state_adapters:
         compose_options["external_state_adapters"] = external_state_adapters
+        compose_options["external_state_authorization_receipts"] = (
+            external_state_authorization_receipts
+        )
     runtime = DataAgentSituatedBootstrap.compose(
         adapter=adapter,
         material_store=SQLiteDataAgentReportAdmissionMaterialStore(

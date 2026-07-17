@@ -92,10 +92,6 @@ def _candidate(
     source_kind: Literal[
         "SESSION", "MEMORY", "LEARNED_GRAPH", "EXTERNAL_STATE"
     ] = "MEMORY",
-    tenant_id: str = "tenant:local",
-    workspace_id: str = "workspace:local",
-    principal_id: str = "user:local",
-    authorization_scope_digest: str = AUTHORIZATION_SCOPE_DIGEST,
     correction_epoch: int = 0,
     adapter_id: str = "external-state:test",
     adapter_version: int = 1,
@@ -108,10 +104,7 @@ def _candidate(
         source_kind=source_kind,
         source_adapter_id=adapter_id,
         source_adapter_version=adapter_version,
-        tenant_id=tenant_id,
-        workspace_id=workspace_id,
-        principal_id=principal_id,
-        authorization_scope_digest=authorization_scope_digest,
+        resource_id=f"resource:{marker}",
         observed_correction_epoch=correction_epoch,
         media_type="application/json",
         content_digest=hashlib.sha256(payload).hexdigest(),
@@ -145,13 +138,42 @@ class _Adapter:
 def _assembler(adapter: _Adapter):
     _require_m1b()
     return core.TrustedWorkingSetAssembler(
-        adapters=(adapter,), selection_policy_digest=POLICY_DIGEST
+        adapters=(adapter,),
+        authorization_registry=core.InMemoryExternalStateAuthorizationRegistry(
+            _authorizations(adapter)
+        ),
+        selection_policy_digest=POLICY_DIGEST,
     )
+
+
+def _authorization(
+    candidate: ExternalStateCandidateRef,
+    *,
+    principal_id: str = "user:local",
+    tenant_id: str = "tenant:local",
+    workspace_id: str = "workspace:local",
+    authorization_scope_digest: str = AUTHORIZATION_SCOPE_DIGEST,
+):
+    return contracts.ExternalStateAuthorizationReceipt.create(
+        source_adapter_id=candidate.source_adapter_id,
+        source_adapter_version=candidate.source_adapter_version,
+        resource_id=candidate.resource_id,
+        content_digest=candidate.content_digest,
+        principal_id=principal_id,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        authorization_scope_digest=authorization_scope_digest,
+        issued_by="trusted-resource-registry/v1",
+    )
+
+
+def _authorizations(adapter: _Adapter):
+    return tuple(_authorization(candidate) for candidate, _ in adapter._candidates)
 
 
 def test_valid_candidate_is_selected_and_reject_all_cannot_fake_green() -> None:
     selected = _candidate("selected-marker")
-    foreign = _candidate("foreign-marker", tenant_id="tenant:foreign")
+    foreign = _candidate("foreign-marker", correction_epoch=1)
 
     working_set = _assembler(_Adapter((selected, foreign))).assemble(_request())
 
@@ -166,7 +188,7 @@ def test_valid_candidate_is_selected_and_reject_all_cannot_fake_green() -> None:
         "candidate:selected-marker:SCOPE_AND_CORRECTION_MATCH",
     )
     assert working_set.manifest.excluded_reasons == (
-        "candidate:foreign-marker:SCOPE_MISMATCH",
+        "candidate:foreign-marker:CORRECTION_EPOCH_MISMATCH",
     )
     assert working_set.receipt.selection_manifest_digest == content_digest(
         working_set.manifest
@@ -216,7 +238,18 @@ def test_agent_memory_cannot_override_manifest_and_session_is_not_truth_root() -
     ).epistemic_status == "INFERRED"
 
 
-@pytest.mark.parametrize("field", ["mandatory", "authority", "truth"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "mandatory",
+        "authority",
+        "truth",
+        "principal_id",
+        "tenant_id",
+        "workspace_id",
+        "authorization_scope_digest",
+    ],
+)
 def test_candidate_contract_rejects_malicious_authority_fields(field: str) -> None:
     candidate, _ = _candidate("malicious")
     payload = candidate.model_dump(mode="python")
@@ -231,8 +264,9 @@ def test_selected_candidate_changes_real_task6_receipt_and_unselected_stays_out(
     candidate = _candidate("selected-provider-marker")
     excluded = _candidate(
         "excluded-provider-marker",
-        workspace_id="workspace:foreign",
+        correction_epoch=1,
     )
+    candidate_adapter = _Adapter((candidate, excluded))
     provider_sink: list[Any] = []
     candidate_dir = tmp_path / "candidate"
     baseline_dir = tmp_path / "baseline"
@@ -242,7 +276,8 @@ def test_selected_candidate_changes_real_task6_receipt_and_unselected_stays_out(
         candidate_dir,
         RelevanceDisposition.CREATE_TASK,
         workload_identities=(_registration(),),
-        external_state_adapters=(_Adapter((candidate, excluded)),),
+        external_state_adapters=(candidate_adapter,),
+        external_state_authorization_receipts=_authorizations(candidate_adapter),
         provider_sink=provider_sink,
     )
     baseline_app = _situated_app(
@@ -279,6 +314,7 @@ def test_scope_or_correction_drift_fails_before_provider(tmp_path: Path) -> None
         RelevanceDisposition.CREATE_TASK,
         workload_identities=(_registration(),),
         external_state_adapters=(adapter,),
+        external_state_authorization_receipts=_authorizations(adapter),
         provider_sink=provider_sink,
         control_sink=control_sink,
     )
@@ -363,20 +399,19 @@ def test_empty_working_sets_from_different_adapter_versions_do_not_collide(
 
 
 def test_private_candidate_requires_exact_principal_and_authorization_scope() -> None:
-    wrong_principal = _candidate("wrong-principal", principal_id="user:other")
-    wrong_authorization = _candidate(
-        "wrong-authorization", authorization_scope_digest="f" * 64
+    wrong_principal = _candidate("wrong-principal")
+    adapter = _Adapter((wrong_principal,))
+    registry = core.InMemoryExternalStateAuthorizationRegistry(
+        (_authorization(wrong_principal[0], principal_id="user:other"),)
+    )
+    assembler = core.TrustedWorkingSetAssembler(
+        adapters=(adapter,),
+        authorization_registry=registry,
+        selection_policy_digest=POLICY_DIGEST,
     )
 
-    working_set = _assembler(
-        _Adapter((wrong_principal, wrong_authorization))
-    ).assemble(_request())
-
-    assert working_set.selected_candidates == ()
-    assert working_set.manifest.excluded_reasons == (
-        "candidate:wrong-authorization:AUTHORIZATION_SCOPE_MISMATCH",
-        "candidate:wrong-principal:PRINCIPAL_MISMATCH",
-    )
+    with pytest.raises(SituationalTrustDenied, match="authorization principal"):
+        assembler.assemble(_request())
 
 
 def test_external_candidate_budgets_fail_closed() -> None:
@@ -402,3 +437,41 @@ def test_external_candidate_budgets_fail_closed() -> None:
     )
     with pytest.raises(SituationalTrustDenied, match="budget"):
         _assembler(_Adapter(excessive_total)).assemble(_request())
+
+
+def test_adapter_echoed_scope_cannot_authorize_other_principal_resource() -> None:
+    assert hasattr(contracts, "ExternalStateAuthorizationReceipt")
+    assert hasattr(core, "InMemoryExternalStateAuthorizationRegistry")
+    assert "authorization_registry" in inspect.signature(
+        core.TrustedWorkingSetAssembler
+    ).parameters
+
+    payload = json.dumps(
+        {
+            "principal_id": "user:local",
+            "authorization_scope_digest": AUTHORIZATION_SCOPE_DIGEST,
+            "private_fact": "belongs-to-user-other",
+        },
+        sort_keys=True,
+    ).encode()
+    candidate = _candidate("relabelled-private-resource", content=payload)
+    authorization = contracts.ExternalStateAuthorizationReceipt.create(
+        source_adapter_id="external-state:test",
+        source_adapter_version=1,
+        resource_id="resource:relabelled-private-resource",
+        content_digest=hashlib.sha256(payload).hexdigest(),
+        principal_id="user:other",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        authorization_scope_digest="f" * 64,
+        issued_by="trusted-resource-registry/v1",
+    )
+    registry = core.InMemoryExternalStateAuthorizationRegistry((authorization,))
+    assembler = core.TrustedWorkingSetAssembler(
+        adapters=(_Adapter((candidate,)),),
+        authorization_registry=registry,
+        selection_policy_digest=POLICY_DIGEST,
+    )
+
+    with pytest.raises(SituationalTrustDenied, match="authorization"):
+        assembler.assemble(_request())

@@ -190,7 +190,9 @@ from .workflow import (
     WorkflowGraph,
 )
 from .working_set import (
+    AuthorizedExternalStateCandidateRef,
     ExternalStateCandidateRef,
+    ExternalStateAuthorizationReceipt,
     SelectionManifest,
     SelectionReceipt,
     TrustedWorkingSet,
@@ -350,6 +352,8 @@ __all__ = [
     "WaitCondition",
     "WorkflowGraph",
     "ExternalStateCandidateRef",
+    "ExternalStateAuthorizationReceipt",
+    "AuthorizedExternalStateCandidateRef",
     "WorkingSetRequest",
     "SelectionManifest",
     "SelectionReceipt",

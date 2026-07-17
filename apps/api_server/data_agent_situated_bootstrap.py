@@ -10,6 +10,7 @@ from agent_os_contracts import (
     CredentialAuthorizationSnapshot,
     CredentialLeaseRef,
     EnvironmentEventAdmissionReceipt,
+    ExternalStateAuthorizationReceipt,
     LedgerAccessScope,
     PayloadAdmissionAttestation,
     EventOriginRegistration,
@@ -27,6 +28,7 @@ from agent_os_core import (
     EnvironmentEventAdmissionService,
     EventEnvelopeAdapter,
     ExternalStateSourceAdapter,
+    InMemoryExternalStateAuthorizationRegistry,
     MandateSteward,
     OperationalProposalService,
     RelevanceAssessorPort,
@@ -422,6 +424,9 @@ class DataAgentSituatedBootstrap:
         clock: Clock,
         workload_identities: tuple[WorkloadIdentityRegistration, ...] = (),
         external_state_adapters: tuple[ExternalStateSourceAdapter, ...] = (),
+        external_state_authorization_receipts: tuple[
+            ExternalStateAuthorizationReceipt, ...
+        ] = (),
     ) -> DataAgentSituatedRuntime:
         if type(adapter) is not DataAgentReportAdapter:
             raise TypeError("composition requires the concrete Data Agent adapter")
@@ -458,6 +463,9 @@ class DataAgentSituatedBootstrap:
             admission_reader=reader,
             working_set_assembler=TrustedWorkingSetAssembler(
                 adapters=external_state_adapters,
+                authorization_registry=InMemoryExternalStateAuthorizationRegistry(
+                    external_state_authorization_receipts
+                ),
                 selection_policy_digest=WORKING_SET_SELECTION_POLICY_DIGEST,
             ),
         )
