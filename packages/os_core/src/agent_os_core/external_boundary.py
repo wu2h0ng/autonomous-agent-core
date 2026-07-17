@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Protocol
+from typing import Protocol, cast
 
 from agent_os_contracts import (
     BoundaryDisposition,
@@ -12,6 +12,9 @@ from agent_os_contracts import (
     PrincipalIdentity,
     RedactedTraceExportRecord,
     SituatedEvaluationTrace,
+    SituatedTraceReason,
+    SituatedTraceStatus,
+    TaskEventType,
     content_digest,
 )
 from pydantic import ValidationError
@@ -177,6 +180,12 @@ class TraceExportBoundary:
     _GITHUB_TOKEN = re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}")
     _AWS_ACCESS_KEY = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}")
     _JWT = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+    _STATUS_VALUES = frozenset(item.value for item in SituatedTraceStatus)
+    _EVENT_TYPE_VALUES = frozenset(item.value for item in TaskEventType)
+    _REASON_CODE_VALUES = frozenset(item.value for item in SituatedTraceReason)
+    _RESOURCE_KIND_VALUES = frozenset(
+        {"ACTION", "EVENT", "RUN", "SITUATED_TRACE", "TASK"}
+    )
 
     @classmethod
     def _looks_secret_value(cls, value: str) -> bool:
@@ -204,6 +213,24 @@ class TraceExportBoundary:
             )
         )
         return classes >= 3 and len(set(stripped)) / len(stripped) >= 0.45
+
+    @classmethod
+    def _attribute_value_is_valid(cls, key: str, value: object) -> bool:
+        if key == "status":
+            return type(value) is str and value in cls._STATUS_VALUES
+        if key == "event_type":
+            return type(value) is str and value in cls._EVENT_TYPE_VALUES
+        if key == "reason_code":
+            return type(value) is str and value in cls._REASON_CODE_VALUES
+        if key == "resource_kind":
+            return type(value) is str and value in cls._RESOURCE_KIND_VALUES
+        if key == "provider_call_attempted":
+            return type(value) is bool
+        if key in {"input_tokens", "output_tokens"}:
+            return type(value) is int and 0 <= value <= 10_000_000
+        if key == "duration_ms":
+            return type(value) is int and 0 <= value <= 86_400_000
+        return False
 
     def __init__(self, exporter: TraceExporterBackend) -> None:
         if not exporter.exporter_id.strip() or exporter.version < 1:
@@ -263,11 +290,9 @@ class TraceExportBoundary:
                 sanitized[key] = "[REDACTED]"
                 redacted.append(key)
                 continue
-            if value is not None and not isinstance(
-                value, (str, int, float, bool)
-            ):
-                return denied("TRACE_ATTRIBUTE_MALFORMED")
-            sanitized[key] = value
+            if not self._attribute_value_is_valid(normalized, value):
+                return denied("TRACE_ATTRIBUTE_VALUE_INVALID")
+            sanitized[key] = cast(str | int | float | bool | None, value)
         record_payload = {
             "schema_version": "1.0",
             "exporter_id": self._exporter.exporter_id,

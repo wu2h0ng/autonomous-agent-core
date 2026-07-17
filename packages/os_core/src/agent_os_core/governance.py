@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -190,6 +190,7 @@ class PolicyKernel:
         correction: CorrectionAuthority,
         policy_version: str = "policy-1",
         external_backend: ExternalPolicyBackend | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if external_backend is not None and (
             not external_backend.backend_id.strip() or external_backend.version < 1
@@ -198,9 +199,10 @@ class PolicyKernel:
         self.correction = correction
         self.policy_version = policy_version
         self.external_backend = external_backend
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
 
     def decide(self, action: ActionContract, context: PolicyInput) -> PolicyDecision:
-        now = context.now or datetime.now(timezone.utc)
+        now = context.now or self._clock()
         reasons: list[str] = []
         verdict = PolicyVerdict.ALLOW
         if action.policy_version != self.policy_version:
@@ -297,6 +299,7 @@ class PolicyKernel:
             raw_advice = self.external_backend.evaluate(query)
         except Exception:
             return external_denial("EXTERNAL_POLICY_UNAVAILABLE")
+        returned_at = self._clock()
         try:
             advice = ExternalPolicyAdvice.model_validate(raw_advice)
         except (TypeError, ValidationError, ValueError):
@@ -311,13 +314,17 @@ class PolicyKernel:
         )
         if not all(exact):
             return external_denial("EXTERNAL_POLICY_SCOPE_MISMATCH")
+        if not (
+            query.issued_at <= returned_at < query.expires_at
+            and advice.issued_at <= returned_at < advice.expires_at
+        ):
+            return external_denial("EXTERNAL_POLICY_EXPIRED_ON_RETURN")
         binding = (
             advice.policy_query_digest == query.query_digest(),
             advice.policy_request_id == query.policy_request_id,
             advice.nonce == query.nonce,
             advice.issued_at == query.issued_at,
             advice.expires_at == query.expires_at,
-            advice.issued_at <= now < advice.expires_at,
         )
         if not all(binding):
             return external_denial("EXTERNAL_POLICY_BINDING_MISMATCH")

@@ -278,10 +278,14 @@ def test_external_policy_is_fail_closed_and_cannot_expand_or_validate_outcome() 
         }
     )
 
-    timeout = PolicyKernel(correction, external_backend=timeout_backend).decide(
+    timeout = PolicyKernel(
+        correction, external_backend=timeout_backend, clock=lambda: NOW
+    ).decide(
         action, context
     )
-    malformed = PolicyKernel(correction, external_backend=malformed_backend).decide(
+    malformed = PolicyKernel(
+        correction, external_backend=malformed_backend, clock=lambda: NOW
+    ).decide(
         action, context
     )
 
@@ -296,7 +300,9 @@ def test_external_policy_allow_cannot_override_internal_scope_denial() -> None:
     backend = _PolicyBackend(response=_allow_advice)
     foreign_action = action.model_copy(update={"tenant_id": "tenant-other"})
 
-    decision = PolicyKernel(correction, external_backend=backend).decide(
+    decision = PolicyKernel(
+        correction, external_backend=backend, clock=lambda: NOW
+    ).decide(
         foreign_action, context
     )
 
@@ -321,7 +327,7 @@ def test_external_policy_advice_cannot_replay_across_action_digest_change() -> N
             return self.cached
 
     backend = _ReplayBackend()
-    policy = PolicyKernel(correction, external_backend=backend)
+    policy = PolicyKernel(correction, external_backend=backend, clock=lambda: NOW)
     first = policy.decide(action, context)
     changed = action.model_copy(
         update={"arguments_json": '{"path":"other"}', "idempotency_key": "key-2"}
@@ -331,6 +337,31 @@ def test_external_policy_advice_cannot_replay_across_action_digest_change() -> N
     assert first.verdict.value == "ALLOW"
     assert replay.verdict.value == "DENY"
     assert replay.reason_codes == ("EXTERNAL_POLICY_BINDING_MISMATCH",)
+
+
+def test_external_policy_advice_expired_while_backend_was_running_is_denied() -> None:
+    action, context, correction = _policy_material()
+
+    class _Clock:
+        current = NOW
+
+        def __call__(self) -> datetime:
+            return self.current
+
+    clock = _Clock()
+
+    def delayed_advice(query: ExternalPolicyQuery) -> dict[str, object]:
+        clock.current = query.expires_at
+        return _allow_advice(query)
+
+    decision = PolicyKernel(
+        correction,
+        external_backend=_PolicyBackend(response=delayed_advice),
+        clock=clock,
+    ).decide(action, context)
+
+    assert decision.verdict.value == "DENY"
+    assert decision.reason_codes == ("EXTERNAL_POLICY_EXPIRED_ON_RETURN",)
 
 
 def _trace() -> SituatedEvaluationTrace:
@@ -445,6 +476,24 @@ def test_trace_unknown_attributes_are_default_denied(
 
     assert receipt.disposition is BoundaryDisposition.DENIED
     assert receipt.reason_code == "TRACE_ATTRIBUTE_NOT_ALLOWLISTED"
+    assert exporter.records == []
+
+
+@pytest.mark.parametrize("field", ["status", "reason_code"])
+def test_trace_allowlisted_code_fields_reject_opaque_lowercase_secret(
+    field: str,
+) -> None:
+    exporter = _TraceExporter()
+    receipt = TraceExportBoundary(exporter).export_situated_trace(
+        _trace(),
+        _principal(),
+        resource_id="trace-resource-1",
+        credential_ref=_credential_ref(),
+        attributes={field: "abcdefghijklmnopqrstuvwx"},
+    )
+
+    assert receipt.disposition is BoundaryDisposition.DENIED
+    assert receipt.reason_code == "TRACE_ATTRIBUTE_VALUE_INVALID"
     assert exporter.records == []
 
 
