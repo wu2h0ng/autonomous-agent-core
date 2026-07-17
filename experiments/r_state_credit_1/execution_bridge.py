@@ -12,7 +12,7 @@ import json
 import os
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Mapping, Protocol, cast
+from typing import Callable, Mapping, Protocol, cast
 
 from experiments.r_state_credit_1.action_grammar import ALL_ACTIONS
 from experiments.r_state_credit_1.arm_blinding import ArmBlinding
@@ -366,12 +366,23 @@ class AuthorityVerifier(Protocol):
         envelope_sha256: str,
     ) -> ReservationClaimReceipt: ...
 
+    def query_claim(
+        self,
+        reservation: dict[str, object],
+        run_id: str,
+        envelope_sha256: str,
+    ) -> ReservationClaimReceipt | None: ...
+
     def terminalize(
         self,
         claim: ReservationClaimReceipt,
         state: str,
         terminal_sha256: str,
     ) -> ReservationTerminalReceipt: ...
+
+    def query_terminal(
+        self, claim_id: str
+    ) -> ReservationTerminalReceipt | None: ...
 
 
 class C7Probe(Protocol):
@@ -506,6 +517,7 @@ class ExecutionBridge:
         workspace_probe: WorkspaceProbe,
         c7: C7Probe,
         actor: ProviderActor,
+        fault_hook: Callable[[str], None] | None = None,
     ) -> None:
         self.root = root
         self.active_manifest = active_manifest
@@ -515,11 +527,16 @@ class ExecutionBridge:
         self.workspace_probe = workspace_probe
         self.c7 = c7
         self.actor = actor
+        self._fault_hook = fault_hook
         self.lock_path = run_dir / "execution.lock.json"
         self.journal_path = run_dir / "execution.journal.jsonl"
         self.raw_path = run_dir / "rfinal.raw.json"
         self.partial_path = run_dir / "rfinal.partial.json"
-        self.terminal_path = run_dir / "execution.terminal.json"
+        self.claim_intent_path = run_dir / "execution.claim-intent.json"
+        self.claim_ack_path = run_dir / "execution.claim-ack.json"
+        self.terminal_intent_path = run_dir / "execution.terminal-intent.json"
+        self.terminal_ack_path = run_dir / "execution.terminal-ack.json"
+        self.terminal_path = self.terminal_ack_path
         self._anchor_head: str | None = None
         self._claim: ReservationClaimReceipt | None = None
 
@@ -634,31 +651,6 @@ class ExecutionBridge:
         ):
             raise ExecutionBridgeViolation("provider canary receipt binding drift")
         self._anchor_head = self.workspace_probe.admit(TARGET_HEAD, envelope.components)
-        reservation = self.receipt_verifier.claim(
-            envelope.workflow_reservation.to_mapping(),
-            envelope.run_id,
-            envelope.envelope_sha256,
-        )
-        expected_reservation = envelope.workflow_reservation
-        if (
-            not isinstance(reservation, ReservationClaimReceipt)
-            or not reservation.registry_verified
-            or not reservation.claimed
-            or reservation.reservation_id != expected_reservation.reservation_id
-            or reservation.reservation_token_sha256 != expected_reservation.reservation_token_sha256
-            or reservation.attempt_epoch != expected_reservation.attempt_epoch
-            or reservation.cas_epoch != expected_reservation.cas_epoch
-            or reservation.run_id != envelope.run_id
-            or reservation.envelope_sha256 != envelope.envelope_sha256
-        ):
-            message = (
-                "workflow reservation already claimed"
-                if isinstance(reservation, ReservationClaimReceipt)
-                and not reservation.claimed
-                else "workflow reservation registry/CAS claim failed"
-            )
-            raise ExecutionBridgeViolation(message)
-        self._claim = reservation
 
     def _write_exclusive(self, path: Path, payload: object) -> None:
         encoded = (canonical_json(payload) + "\n").encode()
@@ -676,10 +668,14 @@ class ExecutionBridge:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
-        if path.exists():
+        try:
+            os.link(temporary, path)
+        except FileExistsError as exc:
+            raise ExecutionBridgeViolation(
+                "execution attempt is permanently consumed"
+            ) from exc
+        finally:
             temporary.unlink(missing_ok=True)
-            raise ExecutionBridgeViolation("execution attempt is permanently consumed")
-        os.rename(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(directory)
@@ -748,39 +744,174 @@ class ExecutionBridge:
         if aborted:
             raise ExecutionBridgeViolation("C7 interrupted execution")
 
-    def _seal_terminal(self, *, state: str, payload: dict[str, object]) -> None:
-        if self._claim is None:
-            raise ExecutionBridgeViolation("reservation claim is absent at terminal")
-        terminal = {
-            "schema_version": "r-state-credit-1-execution-final-state-v1",
-            "state": state,
-            **payload,
+    def _fault(self, stage: str) -> None:
+        if self._fault_hook is not None:
+            self._fault_hook(stage)
+
+    def _validate_claim(
+        self, claim: ReservationClaimReceipt, envelope: ExecutionAdmission
+    ) -> None:
+        expected = envelope.workflow_reservation
+        if (
+            not isinstance(claim, ReservationClaimReceipt)
+            or not claim.registry_verified
+            or not claim.claimed
+            or claim.reservation_id != expected.reservation_id
+            or claim.reservation_token_sha256 != expected.reservation_token_sha256
+            or claim.attempt_epoch != expected.attempt_epoch
+            or claim.cas_epoch != expected.cas_epoch
+            or claim.run_id != envelope.run_id
+            or claim.envelope_sha256 != envelope.envelope_sha256
+        ):
+            raise ExecutionBridgeViolation("workflow reservation claim binding failed")
+
+    def _claim_intent(self, envelope: ExecutionAdmission) -> dict[str, object]:
+        return {
+            "schema_version": "r-state-credit-1-claim-intent-v1",
+            "run_id": envelope.run_id,
+            "envelope_sha256": envelope.envelope_sha256,
+            "reservation_id": envelope.workflow_reservation.reservation_id,
+            "reservation_token_sha256": (
+                envelope.workflow_reservation.reservation_token_sha256
+            ),
+            "attempt_epoch": envelope.workflow_reservation.attempt_epoch,
+            "cas_epoch": envelope.workflow_reservation.cas_epoch,
         }
-        self._write_exclusive(self.terminal_path, terminal)
-        terminal_sha256 = _sha256(self.terminal_path.read_bytes())
-        receipt = self.receipt_verifier.terminalize(
-            self._claim, state, terminal_sha256
-        )
+
+    def _reconcile_terminal_intent(self) -> None:
+        if self._claim is None:
+            raise ExecutionBridgeViolation("claim is absent during terminal reconcile")
+        intent = json.loads(self.terminal_intent_path.read_text(encoding="utf-8"))
+        state = _require_text(intent.get("state"), "terminal intent state")
+        intent_sha256 = _sha256(self.terminal_intent_path.read_bytes())
+        receipt = self.receipt_verifier.query_terminal(self._claim.claim_id)
+        if receipt is None:
+            receipt = self.receipt_verifier.terminalize(
+                self._claim, state, intent_sha256
+            )
         if not isinstance(receipt, ReservationTerminalReceipt) or (
             not receipt.registry_verified
             or not receipt.terminalized
             or receipt.claim_id != self._claim.claim_id
             or receipt.state != state
-            or receipt.terminal_sha256 != terminal_sha256
+            or receipt.terminal_sha256 != intent_sha256
         ):
-            raise ExecutionBridgeViolation("reservation terminalization failed")
+            raise ExecutionBridgeViolation("reservation terminal reconcile failed")
+        self._fault("after_external_terminalize_before_ack")
+        if not self.terminal_ack_path.exists():
+            self._write_exclusive(
+                self.terminal_ack_path,
+                {
+                    "schema_version": "r-state-credit-1-terminal-ack-v1",
+                    "state": state,
+                    "claim_id": self._claim.claim_id,
+                    "terminal_intent_sha256": intent_sha256,
+                    "registry_verified": True,
+                },
+            )
         self._journal(
             {
                 "state": state,
                 "event": "RESERVATION_TERMINALIZED",
-                "terminal_sha256": terminal_sha256,
+                "terminal_intent_sha256": intent_sha256,
             }
         )
 
+    def _seal_terminal(self, *, state: str, payload: dict[str, object]) -> None:
+        if self._claim is None:
+            raise ExecutionBridgeViolation("reservation claim is absent at terminal")
+        artifact_sha256 = payload.get(
+            "artifact_sha256",
+            payload.get("raw_sha256", payload.get("partial_sha256")),
+        )
+        _require_sha256(artifact_sha256, "terminal artifact_sha256")
+        terminal_intent = {
+            "schema_version": "r-state-credit-1-terminal-intent-v1",
+            "state": state,
+            "claim_id": self._claim.claim_id,
+            "reservation_token_sha256": self._claim.reservation_token_sha256,
+            "attempt_epoch": self._claim.attempt_epoch,
+            "cas_epoch": self._claim.cas_epoch,
+            "artifact_sha256": artifact_sha256,
+            **payload,
+        }
+        if not self.terminal_intent_path.exists():
+            self._write_exclusive(self.terminal_intent_path, terminal_intent)
+        self._fault("after_terminal_intent_before_external_terminalize")
+        self._reconcile_terminal_intent()
+
+    def _query_claim(
+        self, envelope: ExecutionAdmission
+    ) -> ReservationClaimReceipt | None:
+        return self.receipt_verifier.query_claim(
+            envelope.workflow_reservation.to_mapping(),
+            envelope.run_id,
+            envelope.envelope_sha256,
+        )
+
+    def _reconcile_existing(self, envelope: ExecutionAdmission) -> None:
+        if self.terminal_ack_path.exists():
+            raise ExecutionBridgeViolation(
+                "execution attempt is permanently consumed and already reconciled"
+            )
+        if not (
+            self.claim_intent_path.exists()
+            or self.claim_ack_path.exists()
+            or self.terminal_intent_path.exists()
+            or self.lock_path.exists()
+        ):
+            return
+        claim = self._query_claim(envelope)
+        if claim is None:
+            claim = self.receipt_verifier.claim(
+                envelope.workflow_reservation.to_mapping(),
+                envelope.run_id,
+                envelope.envelope_sha256,
+            )
+        self._validate_claim(claim, envelope)
+        self._claim = claim
+        if self.terminal_intent_path.exists():
+            self._reconcile_terminal_intent()
+        else:
+            self._seal_terminal(
+                state="INVALID_TERMINAL",
+                payload={
+                    "run_id": envelope.run_id,
+                    "envelope_sha256": envelope.envelope_sha256,
+                    "artifact_sha256": (
+                        _sha256(self.claim_intent_path.read_bytes())
+                        if self.claim_intent_path.exists()
+                        else "0" * 64
+                    ),
+                    "recovery_reason": "INCOMPLETE_CLAIM_OR_EXECUTION_STATE",
+                },
+            )
+        raise ExecutionBridgeViolation("execution custody was reconciled without provider")
+
     def execute(self, envelope: ExecutionAdmission) -> ExecutionReceipt:
-        if self.lock_path.exists():
-            raise ExecutionBridgeViolation("execution attempt is permanently consumed")
         self.admit(envelope)
+        self._reconcile_existing(envelope)
+        prior_claim = self._query_claim(envelope)
+        if prior_claim is not None:
+            raise ExecutionBridgeViolation("workflow reservation already claimed")
+        self._write_exclusive(self.claim_intent_path, self._claim_intent(envelope))
+        claim = self.receipt_verifier.claim(
+            envelope.workflow_reservation.to_mapping(),
+            envelope.run_id,
+            envelope.envelope_sha256,
+        )
+        self._validate_claim(claim, envelope)
+        self._claim = claim
+        self._fault("after_claim_before_lock")
+        self._write_exclusive(
+            self.claim_ack_path,
+            {
+                "schema_version": "r-state-credit-1-claim-ack-v1",
+                "claim_id": claim.claim_id,
+                "claim_intent_sha256": _sha256(self.claim_intent_path.read_bytes()),
+                "registry_verified": True,
+            },
+        )
         self._write_exclusive(
             self.lock_path,
             {

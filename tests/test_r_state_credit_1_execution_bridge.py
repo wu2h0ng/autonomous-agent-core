@@ -85,6 +85,8 @@ class _ExternalVerifier:
         self.accepted = accepted
         self.kinds: list[ReceiptKind] = []
         self.claimed: set[tuple[str, str, int]] = set()
+        self.claim_receipts: dict[tuple[str, str, int], ReservationClaimReceipt] = {}
+        self.terminal_receipts: dict[str, ReservationTerminalReceipt] = {}
         self.terminal_states: list[str] = []
 
     def verify(self, kind: ReceiptKind, receipt_bytes: bytes) -> ReceiptVerification:
@@ -120,9 +122,12 @@ class _ExternalVerifier:
             str(reservation["reservation_token_sha256"]),
             cast(int, reservation["attempt_epoch"]),
         )
+        prior = self.claim_receipts.get(key)
+        if prior is not None:
+            return prior
         claimed = key not in self.claimed
         self.claimed.add(key)
-        return ReservationClaimReceipt(
+        receipt = ReservationClaimReceipt(
             registry_verified=self.accepted,
             claimed=claimed,
             claim_id=f"claim:{run_id}:1",
@@ -133,6 +138,23 @@ class _ExternalVerifier:
             run_id=run_id,
             envelope_sha256=envelope_sha256,
         )
+        self.claim_receipts[key] = receipt
+        return receipt
+
+    def query_claim(
+        self,
+        reservation: dict[str, object],
+        run_id: str,
+        envelope_sha256: str,
+    ) -> ReservationClaimReceipt | None:
+        _ = envelope_sha256
+        return self.claim_receipts.get(
+            (
+                run_id,
+                str(reservation["reservation_token_sha256"]),
+                cast(int, reservation["attempt_epoch"]),
+            )
+        )
 
     def terminalize(
         self,
@@ -141,13 +163,24 @@ class _ExternalVerifier:
         terminal_sha256: str,
     ) -> ReservationTerminalReceipt:
         self.terminal_states.append(state)
-        return ReservationTerminalReceipt(
+        prior = self.terminal_receipts.get(claim.claim_id)
+        if prior is not None:
+            assert prior.state == state and prior.terminal_sha256 == terminal_sha256
+            return prior
+        receipt = ReservationTerminalReceipt(
             registry_verified=self.accepted,
             claim_id=claim.claim_id,
             state=state,
             terminal_sha256=terminal_sha256,
             terminalized=True,
         )
+        self.terminal_receipts[claim.claim_id] = receipt
+        return receipt
+
+    def query_terminal(
+        self, claim_id: str
+    ) -> ReservationTerminalReceipt | None:
+        return self.terminal_receipts.get(claim_id)
 
 
 class _WorkspaceProbe:
@@ -168,6 +201,17 @@ class _WorkspaceProbe:
         assert anchor_head == "implementation-head-test"
         assert expected_components == self.expected_components
         self.revalidations += 1
+
+
+class _CrashHook:
+    def __init__(self, stage: str) -> None:
+        self.stage = stage
+        self.triggered = False
+
+    def __call__(self, stage: str) -> None:
+        if stage == self.stage and not self.triggered:
+            self.triggered = True
+            raise RuntimeError(f"simulated crash at {stage}")
 
 def _sha(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
@@ -569,6 +613,8 @@ def test_atomic_reservation_claim_rejects_same_envelope_in_a_new_run_dir(
         c7=_C7(abort_at_probe=1),
         actor=_actor(_Transport()),
     )
+    first.admit(envelope)
+    assert authority.claim_receipts == {}
     with pytest.raises(ExecutionBridgeViolation, match="C7 interrupted"):
         first.execute(envelope)
     second = ExecutionBridge(
@@ -583,6 +629,57 @@ def test_atomic_reservation_claim_rejects_same_envelope_in_a_new_run_dir(
     )
     with pytest.raises(ExecutionBridgeViolation, match="already claimed"):
         second.execute(envelope)
+
+
+@pytest.mark.parametrize(
+    ("stage", "abort_at_probe"),
+    (
+        ("after_claim_before_lock", None),
+        ("after_terminal_intent_before_external_terminalize", 1),
+        ("after_external_terminalize_before_ack", 1),
+    ),
+)
+def test_crash_recovery_only_reconciles_and_never_calls_provider(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+    stage: str,
+    abort_at_probe: int | None,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+    envelope = ExecutionAdmission.from_canonical_json(encoded)
+    authority = _ExternalVerifier()
+    transport = _Transport()
+    run_dir = tmp_path / stage
+    crashing = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=run_dir,
+        receipt_documents=receipts,
+        receipt_verifier=authority,
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(abort_at_probe=abort_at_probe),
+        actor=_actor(transport),
+        fault_hook=_CrashHook(stage),
+    )
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        crashing.execute(envelope)
+    assert transport.calls == 0
+
+    recovering = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=run_dir,
+        receipt_documents=receipts,
+        receipt_verifier=authority,
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(),
+        actor=_actor(transport),
+    )
+    with pytest.raises(ExecutionBridgeViolation, match="reconciled"):
+        recovering.execute(envelope)
+    assert transport.calls == 0
+    assert recovering.terminal_intent_path.is_file()
+    assert recovering.terminal_ack_path.is_file()
 
 
 def test_internal_raw_rows_are_closed_and_recursively_reject_route_fields() -> None:
