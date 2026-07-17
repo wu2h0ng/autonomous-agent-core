@@ -234,6 +234,8 @@ class ProviderExecutionReceipt(ContractModel):
     """
 
     schema_version: Literal["1.0"] = "1.0"  # pyright: ignore[reportIncompatibleVariableOverride]
+    source_event_id: NonEmptyStr
+    node_id: NonEmptyStr
     task_id: NonEmptyStr
     run_id: NonEmptyStr
     tenant_id: NonEmptyStr
@@ -249,7 +251,8 @@ class ProviderExecutionReceipt(ContractModel):
     response_digest: Sha256Digest
     invocation_binding_digest: Sha256Digest
     working_set_ref: WorkingSetRef
-    observed_correction_epochs: CorrectionEpochVector
+    pre_correction_epochs: CorrectionEpochVector
+    post_correction_epochs: CorrectionEpochVector
     correction_epoch: int = Field(ge=0)
     missing_fields: tuple[NonEmptyStr, ...] = ()
     receipt_digest: Sha256Digest
@@ -268,10 +271,12 @@ class ProviderExecutionReceipt(ContractModel):
             expected_missing.add("working_set_digest")
         if set(self.missing_fields) != expected_missing:
             raise ValueError("provider receipt missing fields are not explicit")
+        if self.pre_correction_epochs != self.post_correction_epochs:
+            raise ValueError("provider correction epochs changed during invocation")
         expected_epoch = max(
-            self.observed_correction_epochs.task_epoch,
-            self.observed_correction_epochs.run_epoch,
-            self.observed_correction_epochs.capability_epoch,
+            self.pre_correction_epochs.task_epoch,
+            self.pre_correction_epochs.run_epoch,
+            self.pre_correction_epochs.capability_epoch,
         )
         if self.correction_epoch != expected_epoch:
             raise ValueError("provider receipt correction epoch mismatch")

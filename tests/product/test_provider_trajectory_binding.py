@@ -23,6 +23,8 @@ from agent_os_contracts import (
     ProviderExecutionReceipt,
     ProviderInvocationBinding,
     ProviderProfile,
+    ProviderRequest,
+    ProviderResponse,
     ProviderToolProposal,
     TaskEventDraft,
     TaskEventType,
@@ -217,18 +219,28 @@ def _copy_stream_with_receipt(
     app: AgentOSApplication,
     task_id: str,
     receipt_payload: dict[str, object],
+    *,
+    provider_event_id: str | None = None,
+    provider_node_id: str | None = None,
 ) -> InMemoryTaskEventStore:
     copied = InMemoryTaskEventStore()
     for event in app.store.read(task_id):
         payload = event.decoded_payload()
         if event.event_type is TaskEventType.PROVIDER_RESPONDED:
             payload["provider_execution_receipt"] = receipt_payload
+            if provider_node_id is not None:
+                payload["node_id"] = provider_node_id
         copied.append(
             task_id,
             expected_sequence=len(copied.read(task_id)),
             drafts=(
                 TaskEventDraft.build(
-                    event_id=event.event_id,
+                    event_id=(
+                        provider_event_id
+                        if event.event_type is TaskEventType.PROVIDER_RESPONDED
+                        and provider_event_id is not None
+                        else event.event_id
+                    ),
                     task_id=event.task_id,
                     event_type=event.event_type,
                     payload=payload,
@@ -259,6 +271,8 @@ def test_bound_developer_run_emits_typed_provider_receipt_and_read_only_projecti
     )
     assert receipt.task_id == task_id
     assert receipt.run_id == run_id
+    assert receipt.source_event_id == provider_events[0].event_id
+    assert receipt.node_id == "provider"
     assert receipt.provider_profile_id == _profile().profile_id
     assert receipt.provider_profile_digest == snapshot.provider_profile_digest
     assert receipt.provider_id == _profile().provider_id
@@ -371,6 +385,99 @@ def test_tampered_provider_receipt_digest_is_rejected_by_projection(tmp_path) ->
 @pytest.mark.parametrize(
     ("field", "value"),
     (
+        ("provider_id", "provider:rewritten"),
+        ("model_id", "model:rewritten"),
+        ("model_revision_digest", "d" * 64),
+    ),
+)
+def test_self_consistent_provider_identity_rewrite_cannot_escape_sealed_profile(
+    tmp_path, field: str, value: str
+) -> None:
+    app = _bound_app(tmp_path)
+    task_id = _committed_task(app)
+    run_id, _ = _run_bound(app, task_id)
+    receipt = dict(
+        next(
+            event.decoded_payload()["provider_execution_receipt"]
+            for event in app.store.read(task_id)
+            if event.event_type is TaskEventType.PROVIDER_RESPONDED
+        )
+    )
+    receipt[field] = value
+    receipt["receipt_digest"] = provider_execution_receipt_digest(receipt)
+    ProviderExecutionReceipt.model_validate(receipt)
+    rewritten = _copy_stream_with_receipt(app, task_id, receipt)
+
+    with pytest.raises(ScopeMismatchError, match="configuration.*binding"):
+        TrajectoryProjector().project(rewritten, task_id, run_id)
+
+
+@pytest.mark.parametrize(
+    ("event_id", "node_id"),
+    (
+        ("event:provider-replayed", "provider"),
+        (None, "provider-replayed"),
+    ),
+)
+def test_valid_receipt_cannot_be_replayed_on_another_provider_event_or_node(
+    tmp_path, event_id: str | None, node_id: str
+) -> None:
+    app = _bound_app(tmp_path)
+    task_id = _committed_task(app)
+    run_id, _ = _run_bound(app, task_id)
+    receipt = dict(
+        next(
+            event.decoded_payload()["provider_execution_receipt"]
+            for event in app.store.read(task_id)
+            if event.event_type is TaskEventType.PROVIDER_RESPONDED
+        )
+    )
+    replayed = _copy_stream_with_receipt(
+        app,
+        task_id,
+        receipt,
+        provider_event_id=event_id,
+        provider_node_id=node_id,
+    )
+
+    with pytest.raises(ScopeMismatchError, match="source event|node"):
+        TrajectoryProjector().project(replayed, task_id, run_id)
+
+
+def test_correction_during_provider_call_prevents_response_persistence(tmp_path) -> None:
+    app = _bound_app(tmp_path)
+    profile = app.provider_profile
+
+    class CorrectingProvider(DeterministicProvider):
+        def complete(self, request: ProviderRequest) -> ProviderResponse:
+            app.correction.correct("task", request.task_id, "during provider call")
+            return super().complete(request)
+
+    provider = CorrectingProvider(
+        text="SENSITIVE_RESPONSE_BODY",
+        tool_proposals=app.provider.tool_proposals,  # type: ignore[attr-defined]
+        invocation_binding=_binding(profile),
+    )
+    app.provider = provider
+    task_id = _committed_task(app)
+    snapshot = app.seal_task_configuration(task_id, {})
+
+    with pytest.raises(RunExecutionError, match="correction.*changed|halted"):
+        app.run_task(
+            task_id,
+            {"target_path": "fixture.txt"},
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+    assert len(provider.requests) == 1
+    assert all(
+        event.event_type is not TaskEventType.PROVIDER_RESPONDED
+        for event in app.store.read(task_id)
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
         ("tenant_id", "tenant:other"),
         ("workspace_id", "workspace:other"),
         ("run_id", "run:other"),
@@ -391,9 +498,10 @@ def test_provider_receipt_scope_or_epoch_confusion_is_rejected(
     changed = dict(receipt_payload)
     changed[field] = value
     if field == "correction_epoch":
-        epochs = dict(changed["observed_correction_epochs"])
-        epochs["task_epoch"] = value
-        changed["observed_correction_epochs"] = epochs
+        for epoch_field in ("pre_correction_epochs", "post_correction_epochs"):
+            epochs = dict(changed[epoch_field])
+            epochs["task_epoch"] = value
+            changed[epoch_field] = epochs
     changed["receipt_digest"] = provider_execution_receipt_digest(changed)
     ProviderExecutionReceipt.model_validate(changed)
     confused = _copy_stream_with_receipt(app, task_id, changed)

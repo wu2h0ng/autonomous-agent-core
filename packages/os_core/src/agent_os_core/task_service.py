@@ -31,6 +31,7 @@ from agent_os_contracts import (
     OutcomeStatus,
     PolicyDecision,
     PolicyVerdict,
+    ProviderExecutionReceipt,
     ReceiptStatus,
 )
 
@@ -336,6 +337,50 @@ class TaskService:
             payload,
             correlation_id=correlation_id,
         )
+
+    def record_provider_response(
+        self,
+        task_id: str,
+        *,
+        node_id: str,
+        provider_output: dict[str, object],
+        receipt: ProviderExecutionReceipt,
+    ) -> TaskAggregate:
+        """Append one receipt-anchored provider response through a typed writer."""
+
+        aggregate = self.get_task(task_id)
+        run = aggregate.run
+        if run is None:
+            raise InvalidTransitionError("provider response requires an active Run")
+        if (
+            receipt.source_event_id == aggregate.last_event_id
+            or receipt.node_id != node_id
+            or receipt.task_id != task_id
+            or receipt.run_id != run.run_id
+            or receipt.tenant_id != run.tenant_id
+            or receipt.workspace_id != run.workspace_id
+            or receipt.provider_profile_id != run.provider_profile_id
+        ):
+            raise InvalidTransitionError("provider response receipt binding mismatch")
+        draft = TaskEventDraft.build(
+            event_id=receipt.source_event_id,
+            task_id=task_id,
+            event_type=TaskEventType.PROVIDER_RESPONDED,
+            payload={
+                "node_id": node_id,
+                "provider_output": provider_output,
+                "provider_execution_receipt": receipt.model_dump(mode="json"),
+            },
+            occurred_at=self._clock(),
+            correlation_id=run.run_id,
+            causation_id=aggregate.last_event_id,
+        )
+        self._event_store.append(
+            task_id,
+            expected_sequence=aggregate.sequence,
+            drafts=(draft,),
+        )
+        return self.get_task(task_id)
 
     def _append_event(
         self,

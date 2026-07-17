@@ -15,6 +15,8 @@ from agent_os_contracts import (
     ModelInvocationRef,
     OutcomeLink,
     ProviderExecutionReceipt,
+    ProviderProfile,
+    TaskConfigurationSnapshot,
     TaskEvent,
     TaskEventType,
     TrajectoryProjection,
@@ -131,9 +133,7 @@ class TrajectoryProjector:
         working_set_ref = self._working_set_ref(selected)
         correction_epoch = self._correction_epoch(selected)
         self._validate_correction_epoch_use(selected)
-        sealed_provider_profile_id, sealed_provider_profile_digest = (
-            self._sealed_provider_binding(selected)
-        )
+        sealed_provider_profile = self._sealed_provider_profile(selected)
 
         missing: list[str] = []
         if workflow_digest is None:
@@ -165,8 +165,7 @@ class TrajectoryProjector:
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
                 correction_epoch=correction_epoch,
-                sealed_provider_profile_id=sealed_provider_profile_id,
-                sealed_provider_profile_digest=sealed_provider_profile_digest,
+                sealed_provider_profile=sealed_provider_profile,
             )
             capability_ref = self._capability_ref(
                 event, payload, policy_version, policy_digest
@@ -360,9 +359,9 @@ class TrajectoryProjector:
         )
 
     @staticmethod
-    def _sealed_provider_binding(
+    def _sealed_provider_profile(
         events: tuple[TaskEvent, ...],
-    ) -> tuple[str | None, str | None]:
+    ) -> ProviderProfile | None:
         for event in events:
             if (
                 event.event_type
@@ -373,12 +372,12 @@ class TrajectoryProjector:
             snapshot = _mapping(payload.get("configuration_snapshot"))
             if not snapshot:
                 snapshot = _mapping(payload.get("snapshot"))
-            profile = _mapping(snapshot.get("provider_profile"))
-            return (
-                _optional_str(profile.get("profile_id")),
-                _optional_str(snapshot.get("provider_profile_digest")),
-            )
-        return None, None
+            if not snapshot:
+                raise EventStreamError(
+                    "configuration snapshot event lacks typed snapshot payload"
+                )
+            return TaskConfigurationSnapshot.model_validate(snapshot).provider_profile
+        return None
 
     @staticmethod
     def _correction_epoch(events: tuple[TaskEvent, ...]) -> int:
@@ -411,7 +410,15 @@ class TrajectoryProjector:
                     )
                 current[scope] = epoch
                 continue
-            vectors = _all_values(payload, "observed_correction_epochs")
+            vectors = tuple(
+                value
+                for key in (
+                    "observed_correction_epochs",
+                    "pre_correction_epochs",
+                    "post_correction_epochs",
+                )
+                for value in _all_values(payload, key)
+            )
             for value in vectors:
                 vector = _mapping(value)
                 for scope, field in (
@@ -438,8 +445,7 @@ class TrajectoryProjector:
         tenant_id: str,
         workspace_id: str,
         correction_epoch: int,
-        sealed_provider_profile_id: str | None,
-        sealed_provider_profile_digest: str | None,
+        sealed_provider_profile: ProviderProfile | None,
     ) -> ModelInvocationRef | None:
         if event.event_type is not TaskEventType.PROVIDER_RESPONDED:
             return None
@@ -457,10 +463,21 @@ class TrajectoryProjector:
                 raise ScopeMismatchError(
                     "provider execution receipt scope or correction epoch mismatch"
                 )
-            if sealed_provider_profile_id is not None and (
-                receipt.provider_profile_id != sealed_provider_profile_id
+            event_node_id = _optional_str(payload.get("node_id"))
+            if receipt.source_event_id != event.event_id:
+                raise ScopeMismatchError(
+                    "provider receipt source event binding mismatch"
+                )
+            if receipt.node_id != event_node_id:
+                raise ScopeMismatchError("provider receipt node binding mismatch")
+            if sealed_provider_profile is not None and (
+                receipt.provider_profile_id != sealed_provider_profile.profile_id
                 or receipt.provider_profile_digest
-                != sealed_provider_profile_digest
+                != content_digest(sealed_provider_profile)
+                or receipt.provider_id != sealed_provider_profile.provider_id
+                or receipt.model_id != sealed_provider_profile.model_id
+                or receipt.model_revision_digest
+                != sealed_provider_profile.model_revision_digest
             ):
                 raise ScopeMismatchError(
                     "provider execution receipt configuration binding mismatch"

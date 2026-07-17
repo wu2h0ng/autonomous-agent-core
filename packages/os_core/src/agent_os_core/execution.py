@@ -356,27 +356,26 @@ class RunCoordinator:
                 raise
             try:
                 if node.kind is NodeKind.PROVIDER:
+                    provider_event_id = f"event:provider-response:{uuid4()}"
                     provider_output, provider_receipt = self._call_provider(
                         run.run_id,
                         task_id,
                         node.capability or "provider",
+                        node.node_id,
+                        provider_event_id,
                         context,
                     )
                     context[node.node_id] = provider_output
-                    provider_event_payload: dict[str, Any] = {
-                        "node_id": node.node_id,
-                        "provider_output": provider_output,
-                    }
-                    if provider_receipt is not None:
-                        provider_event_payload["provider_execution_receipt"] = (
-                            provider_receipt.model_dump(mode="json")
+                    if provider_receipt is None:
+                        self.tasks.append_event(
+                            task_id,
+                            TaskEventType.PROVIDER_RESPONDED,
+                            {
+                                "node_id": node.node_id,
+                                "provider_output": provider_output,
+                            },
+                            correlation_id=run.run_id,
                         )
-                    self.tasks.append_event(
-                        task_id,
-                        TaskEventType.PROVIDER_RESPONDED,
-                        provider_event_payload,
-                        correlation_id=run.run_id,
-                    )
                     for proposal in provider_output["tool_proposals"]:
                         capability_id = str(proposal["capability_id"])
                         arguments = json.loads(str(proposal["arguments_json"]))
@@ -1030,6 +1029,8 @@ class RunCoordinator:
         run_id: str,
         task_id: str,
         capability: str,
+        node_id: str,
+        source_event_id: str,
         context: dict[str, Any],
     ) -> tuple[dict[str, Any], ProviderExecutionReceipt | None]:
         aggregate = self.tasks.get_task(task_id)
@@ -1097,6 +1098,13 @@ class RunCoordinator:
             timeout_seconds=self.provider_profile.request_timeout_seconds,
             created_at=datetime.now(timezone.utc),
         )
+        pre_correction_epochs = None
+        if snapshot is not None:
+            pre_correction_epochs = self.correction.snapshot(
+                task_id, run_id, capability
+            )
+            if self.correction.halted(task_id, run_id, capability):
+                raise RunExecutionError("provider invocation is correction halted")
         response = self.provider.complete(request)
         if isinstance(response, ProviderFailure):
             raise RunExecutionError(f"provider {response.code.value}: {response.safe_message}")
@@ -1154,16 +1162,18 @@ class RunCoordinator:
         if snapshot is None:
             return provider_output, None
         assert invocation_binding_digest is not None
+        assert pre_correction_epochs is not None
         working_set_ref = WorkingSetRef(
             status=BindingStatus.MISSING,
             gap_reason="developer provider path has no TrustedWorkingSet binding",
         )
-        observed_epochs = self.correction.snapshot(task_id, run_id, capability)
         missing_fields: list[str] = ["working_set_digest"]
         if self.provider_profile.model_revision_digest is None:
             missing_fields.append("model_revision_digest")
         receipt_payload = {
             "schema_version": "1.0",
+            "source_event_id": source_event_id,
+            "node_id": node_id,
             "task_id": task_id,
             "run_id": run_id,
             "tenant_id": run.tenant_id,
@@ -1179,18 +1189,45 @@ class RunCoordinator:
             "response_digest": content_digest(response),
             "invocation_binding_digest": invocation_binding_digest,
             "working_set_ref": working_set_ref.model_dump(mode="json"),
-            "observed_correction_epochs": observed_epochs.model_dump(mode="json"),
+            "pre_correction_epochs": pre_correction_epochs.model_dump(mode="json"),
+            "post_correction_epochs": pre_correction_epochs.model_dump(mode="json"),
             "correction_epoch": max(
-                observed_epochs.task_epoch,
-                observed_epochs.run_epoch,
-                observed_epochs.capability_epoch,
+                pre_correction_epochs.task_epoch,
+                pre_correction_epochs.run_epoch,
+                pre_correction_epochs.capability_epoch,
             ),
             "missing_fields": tuple(sorted(missing_fields)),
         }
-        receipt = ProviderExecutionReceipt(
-            **receipt_payload,
-            receipt_digest=provider_execution_receipt_digest(receipt_payload),
-        )
+        with self.correction.guard_unchanged(
+            task_id,
+            run_id,
+            capability,
+            pre_correction_epochs,
+        ) as unchanged:
+            if not unchanged:
+                raise RunExecutionError(
+                    "provider correction epoch changed or became halted during invocation"
+                )
+            post_correction_epochs = self.correction.snapshot(
+                task_id, run_id, capability
+            )
+            if post_correction_epochs != pre_correction_epochs:
+                raise RunExecutionError(
+                    "provider correction epoch changed during invocation"
+                )
+            receipt_payload["post_correction_epochs"] = (
+                post_correction_epochs.model_dump(mode="json")
+            )
+            receipt = ProviderExecutionReceipt(
+                **receipt_payload,
+                receipt_digest=provider_execution_receipt_digest(receipt_payload),
+            )
+            self.tasks.record_provider_response(
+                task_id,
+                node_id=node_id,
+                provider_output=provider_output,
+                receipt=receipt,
+            )
         return provider_output, receipt
 
     def _call_tool(self, task_id: str, run_id: str, node_id: str, capability_id: str, principal: PrincipalIdentity, args: Any, expected: ExpectedOutcome, envelope_id: str, approval: Any = None, risk_tier: int = 0, proposed_action: Any = None) -> CapabilityResult:
