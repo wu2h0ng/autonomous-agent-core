@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-17T13:21:00+08:00"
+updated: "2026-07-17T16:30:05+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715"
-status: "Canonical convergence is clean at merge head 2024f8a after integrating the independently approved M0c successor e6abe0d on top of Task6. The integrated Product path now includes typed event admission, authenticated source/binding registry, persistent event/budget/audit state, provider relevance assessment, proposal-only MandateSteward, separate TaskActivation, situated Data Agent entry paths, and local custody-bound proposal-only Docker falsifier execution. Post-merge gates are 233 focused tests passed, 1260 Product tests passed/1 skipped, Product-eval 907 passed with exactly the same three pre-existing baseline failures as before integration, plus clean Ruff/Pyright/diff and no residual Docker containers. Public evaluation and independent scorer/freezer custody remain closed. Actor transport c72375a remains an isolated approved Research-infrastructure candidate. Nothing here establishes semantic grounding, a result-bearing run, W1/W2 learning effectiveness, production identity/tenancy/KMS, SPINE-1 migration, main release or Agent OS Alpha."
+status: "Canonical convergence is clean at independently approved integration head efc59c8 after merging P-SRL-RUNTIME-M1-plus and Evaluator Authority V0. The Product path now includes authenticated protocol admission, separated principal/actor/workload/delegation identities, durable replay/conflict handling, trusted resource authorization and Working Set assembly, proposal-only MandateSteward, external durable/policy/telemetry adapter boundaries, and a provider-neutral evaluator registry with durable local sealed receipts but no Outcome authority. Post-merge evidence is 270 focused tests passed, 1340 Product tests passed/1 skipped, clean Ruff/Pyright/diff and an independent APPROVE_INTEGRATION_WINDOW. Trajectory/Credit V0 was deliberately excluded from this integration window pending its next-window review. Nothing here establishes a result-bearing run, W1/W2 learning effectiveness, production identity/KMS/cross-host custody, main release, Agent OS Alpha or Autonomy(S,E,O,V,T)."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -205,9 +205,9 @@ active_work:
     source: "docs/adr/ADR-0057-adaptive-domain-materialization-and-optional-priors.md"
   - id: "MANDATE-SRL-V0"
     track: "product_architecture"
-    status: "P_MANDATE_1_P_SRL_ENV_1_P_SRL_HELP_1_CONTRACTS_AND_TASK6_RUNTIME_INTEGRATED_CANONICAL_AT_5AB33B2 / PROPOSAL_ONLY_STEWARD / SEPARATE_TASK_ACTIVATION / NO_PRODUCTION_ACTIVATION"
+    status: "TASK6_AND_M1_PLUS_INTEGRATED_CANONICAL_AT_EFC59C8 / PROPOSAL_ONLY_STEWARD / TRUSTED_WORKING_SET / SEPARATE_TASK_ACTIVATION / NO_PRODUCTION_ACTIVATION"
     purpose: "Provide typed Mandate, environment/relevance and HelpRequest contracts plus a threat model so that a future SRL Runtime can be built with machine-testable authority invariants rather than ad-hoc checks."
-    boundary: "Contracts, event admission, provider assessment, persistence, proposal-only stewardship and separate TaskActivation are integrated on canonical-convergence at 5ab33b2 and verified locally. The steward cannot directly activate work or grant authority. This is not a production activation or autonomy result; independent scorer custody, real three-arm falsification, W1/W2 outcome-driven effectiveness, production identity/tenancy/KMS, main merge and release remain open."
+    boundary: "Contracts, authenticated protocol admission, durable replay, trusted external-resource authorization, Working Set assembly, provider assessment, proposal-only stewardship and separate TaskActivation are integrated on canonical-convergence at efc59c8 and verified locally. External memory/session/graph remain INFERRED/CANDIDATE and external backends cannot activate work, grant authority or verify Outcome. This is not a production activation or autonomy result; real three-arm falsification, W1/W2 outcome-driven effectiveness, production identity/KMS, main merge and release remain open."
     source:
       - "packages/contracts/src/agent_os_contracts/mandate.py"
       - "packages/contracts/src/agent_os_contracts/srl_environment.py"
@@ -219,9 +219,9 @@ active_work:
       - "docs/architecture/A-SRL-1-threat-model-review.md"
   - id: "P-SRL-RUNTIME-1"
     track: "product"
-    status: "M0_THROUGH_TASK6_INTEGRATED_CANONICAL_AT_5AB33B2 / INDEPENDENT_APPROVE / 1260_PRODUCT_PASSED_1_SKIPPED / NO_PRODUCTION_ACTIVATION"
+    status: "M0_THROUGH_M1_PLUS_INTEGRATED_CANONICAL_AT_EFC59C8 / INDEPENDENT_APPROVE_INTEGRATION_WINDOW / 1340_PRODUCT_PASSED_1_SKIPPED / NO_PRODUCTION_ACTIVATION"
     purpose: "Bridge the ratified Mandate/SRL contracts to the existing Task/Run/Action spine with a minimal fail-closed Runtime that enforces the RT invariants from A-SRL-1."
-    boundary: "The independently approved exact range a8c71b1..5ab33b2 was fast-forwarded into canonical-convergence. It contains event admission and immutable persistence, authenticated binding/source registry, provider relevance assessment receipts, budget and audit ledgers, proposal-only MandateSteward, separate TaskActivation and Data Agent situated startup/CLI/HTTP/full-stack entry paths. Fresh integrated gates are 1260 passed/1 skipped plus clean Ruff/Pyright/diff. No main merge, push, release, production activation, independent scorer custody, result run, W1/W2 effectiveness or autonomy claim."
+    boundary: "The independently approved M1-plus range through 9a9eadf was merged into canonical-convergence at 63889d6 and combined with Evaluator Authority V0 at integration head efc59c8. It adds authenticated envelope admission, typed identity separation, scope-bound replay, trusted Working Set/resource authorization, external checkpoint/policy/trace fail-closed boundaries and protocol bypass tests while keeping MandateSteward proposal-only and TaskActivation separate. Fresh integrated gates are 270 focused and 1340 Product passed/1 skipped plus clean Ruff/Pyright/diff. No main merge, push, release, production activation, result run, W1/W2 effectiveness or autonomy claim."
     source:
       - "docs/architecture/P-SRL-RUNTIME-1-design-2026-07-16.md"
       - "docs/architecture/A-SRL-1-threat-model-and-authority-invariants.md"
@@ -264,6 +264,16 @@ parked_work:
     source: "../docs/research/founder-decision-2026-07-14-governed-core-evolution.md"
 
 recently_completed:
+  - id: "P-EVALUATOR-AUTHORITY-1-V0"
+    track: "product_and_architecture"
+    status: "IMPLEMENTED_REVIEWED_AND_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_EFC59C8 / LOCAL_PROCESS_ISOLATED_CUSTODY / NO_OUTCOME_AUTHORITY"
+    result: "EvaluatorRegistry.evaluate now resolves immutable trusted registrations, verifies exact rubric/config/prompt/checkpoint/hidden/evidence bytes, calls a provider-neutral adapter, and persists canonical sealed receipts through an atomic SQLite reservation/CAS store with restart, concurrency, drift and replay checks. The integration window passed 1340 Product tests/1 skipped with clean Ruff/Pyright/diff."
+    boundary: "The receipt has no ObservedOutcome VERIFIED or Task mutation authority. Local HMAC/store isolation is not protection from malicious same-process code, production KMS or cross-host evaluator independence."
+    source:
+      - "packages/contracts/src/agent_os_contracts/evaluator.py"
+      - "packages/os_core/src/agent_os_core/evaluator_authority.py"
+      - "tests/product/test_evaluator_authority.py"
+      - "tests/product/test_evaluator_authority_durable.py"
   - id: "DEV-REAL-OUTCOME-1"
     track: "product_truth_and_user_outcome"
     status: "IMPLEMENTED_TESTED_AND_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6"
