@@ -1,0 +1,36 @@
+{
+  "artifact_id": "R-CLS-F3-INDEPENDENT-CUSTODY-1",
+  "status": [
+    "QUALIFICATION_ONLY",
+    "NOT_FROZEN",
+    "NOT_RUN"
+  ],
+  "claim_ceiling": "Evaluator/arm process-boundary qualification only; no continual-learning, retention, autonomy, custody-independence, or result claim",
+  "architecture": {
+    "evaluator": "exact CLI process owns hidden plan, authoritative reward/cost/correction/state, a mode-0600 temporary ledger, and pure replay scoring",
+    "arm": "fresh stateless subprocess per call; receives public projection plus feedback/correction only; returns closed ActionProposal or TransitionBatch",
+    "excluded": [
+      "RunHandle",
+      "process-global run registry",
+      "child summary",
+      "self-reported reward or cost",
+      "daemon",
+      "database",
+      "socket",
+      "PKI"
+    ]
+  },
+  "exact_content": {
+    "experiments/continual_retention_f1/contracts.py": "d1f45f9af898f1bda1fb36c593d7182f06c63aee3001a143e15e29c1a79ec795",
+    "experiments/continual_retention_f1/fixture.py": "2905159fa558f7589eb2f09feb8f2270dca2c9d852e4e6820cadb29e803b885b",
+    "experiments/continual_retention_f3/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "experiments/continual_retention_f3/protocol.py": "30844b63a13c00d33b128ddd389f611d9706f4103e16147752ca3e81a76fcaaf",
+    "experiments/continual_retention_f3/arm_worker.py": "21d82cc7f6690b6c9d1899e5ba5c6fc1ac59aa50bc766b9e1369d026059a6dc4",
+    "experiments/continual_retention_f3/evaluator.py": "6f3966cd98d627277da230e58a1fc27b7971388fa9e9ad6b9a94ee8727fa0f66",
+    "tests/test_cls_f3_independent_custody.py": "ed3f8fdff1300df3ca74ac768252b17bb4be159b90161193afeef2e36ab8b48b"
+  },
+  "authority": {
+    "freeze_authorized": false,
+    "result_run_authorized": false
+  }
+}

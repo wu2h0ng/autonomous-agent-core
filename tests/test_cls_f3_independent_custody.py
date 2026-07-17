@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib
 import json
 import subprocess
@@ -138,8 +139,8 @@ def test_budget_is_checked_before_any_transition_is_applied() -> None:
         ("import time; time.sleep(2)\n", "timeout"),
         (
             "import sys; sys.stdin.readline(); sys.stderr.write('leak')\n"
-            "print('{\"kind\":\"action_proposal\",\"state_version\":0,"
-            "\"action\":\"a0\"}')\n",
+            'print(\'{"kind":"action_proposal","state_version":0,'
+            '"action":"a0"}\')\n',
             "stderr",
         ),
         (
@@ -148,9 +149,7 @@ def test_budget_is_checked_before_any_transition_is_applied() -> None:
         ),
     ],
 )
-def test_worker_transport_fails_closed(
-    tmp_path: Path, body: str, message: str
-) -> None:
+def test_worker_transport_fails_closed(tmp_path: Path, body: str, message: str) -> None:
     evaluator = _evaluator()
     command = _worker_script(tmp_path, body)
     with pytest.raises(evaluator.EvaluationError, match=message):
@@ -173,6 +172,20 @@ def test_fresh_worker_process_does_not_reuse_module_globals(tmp_path: Path) -> N
     second = evaluator.invoke_fresh_worker(command, _request(), timeout_seconds=1)
     assert first == second
     assert first["action"] == "a0"
+
+
+def test_exact_worker_path_rejects_a_symlinked_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evaluator = _evaluator()
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "arm_worker.py").write_text("raise SystemExit(0)\n")
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr(evaluator, "__file__", str(alias / "evaluator.py"))
+    with pytest.raises(evaluator.EvaluationError, match="symlink"):
+        evaluator._worker_command("candidate")
 
 
 def test_evaluator_owns_reward_cost_correction_and_private_ledger() -> None:
@@ -232,3 +245,33 @@ def test_candidate_and_baseline_consume_the_same_hidden_plan() -> None:
     assert candidate.summary.turns == baseline.summary.turns
     assert candidate.summary.arm_id == "candidate"
     assert baseline.summary.arm_id == "baseline"
+
+
+def test_exact_manifest_covers_every_consumed_source_and_test() -> None:
+    root = Path(__file__).parents[1]
+    manifest_path = (
+        root
+        / "docs/pre_spec/CLS-F3-INDEPENDENT-CUSTODY-1.QUALIFICATION-MANIFEST-2026-07-18.json"
+    )
+    manifest = json.loads(manifest_path.read_text())
+    expected = {
+        "experiments/continual_retention_f1/contracts.py",
+        "experiments/continual_retention_f1/fixture.py",
+        "experiments/continual_retention_f3/__init__.py",
+        "experiments/continual_retention_f3/protocol.py",
+        "experiments/continual_retention_f3/arm_worker.py",
+        "experiments/continual_retention_f3/evaluator.py",
+        "tests/test_cls_f3_independent_custody.py",
+    }
+    artifacts = manifest["exact_content"]
+    assert set(artifacts) == expected
+    for relative, digest in artifacts.items():
+        raw_path = root / relative
+        assert not any(path.is_symlink() for path in (raw_path, *raw_path.parents))
+        path = raw_path.resolve(strict=True)
+        assert path.is_relative_to(root.resolve())
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+    assert manifest["authority"] == {
+        "freeze_authorized": False,
+        "result_run_authorized": False,
+    }
