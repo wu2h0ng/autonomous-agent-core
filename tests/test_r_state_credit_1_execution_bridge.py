@@ -46,19 +46,24 @@ class _Transport:
         *,
         input_tokens: int = 1,
         output_tokens: int = 1,
-        cost_microusd: int = 1,
+        cost_status: str = "UNAVAILABLE_NOT_GUESSED",
+        cost_amount_microunits: int | None = None,
+        cost_currency: str | None = None,
         fail_on_call: int | None = None,
     ) -> None:
         self.calls = 0
         self.input_tokens = input_tokens
         self.output_tokens = output_tokens
-        self.cost_microusd = cost_microusd
+        self.cost_status = cost_status
+        self.cost_amount_microunits = cost_amount_microunits
+        self.cost_currency = cost_currency
         self.fail_on_call = fail_on_call
 
     def complete(self, request: ActorRequest) -> dict[str, object]:
         self.calls += 1
         if self.calls == self.fail_on_call:
             raise TimeoutError("ambiguous provider effect")
+        actor_request_sha256 = _sha(request.to_canonical_json().encode())
         return {
             "action": "CONTINUE",
             "notes": None,
@@ -66,8 +71,33 @@ class _Transport:
             "model_revision": ARK_MODEL_SNAPSHOT,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
-            "cost_microusd": self.cost_microusd,
+            "total_tokens": self.input_tokens + self.output_tokens,
+            "cost_status": self.cost_status,
+            "cost_amount_microunits": self.cost_amount_microunits,
+            "cost_currency": self.cost_currency,
+            "actor_request_sha256": actor_request_sha256,
+            "provider_request_sha256": _sha(
+                f"provider-request:{actor_request_sha256}".encode()
+            ),
+            "provider_response_sha256": _sha(
+                f"provider-response:{self.calls}".encode()
+            ),
+            "raw_output_sha256": _sha(b'{"action":"CONTINUE","notes":null}'),
+            "latency_ms": 1,
+            "timeout_seconds": 120,
         }
+
+
+class _MixedCostTransport(_Transport):
+    def complete(self, request: ActorRequest) -> dict[str, object]:
+        result = super().complete(request)
+        if self.calls == 2:
+            result.update(
+                cost_status="PROVIDER_REPORTED",
+                cost_amount_microunits=1,
+                cost_currency="USD",
+            )
+        return result
 
 
 class _C7:
@@ -377,14 +407,23 @@ def _envelope_bytes(
         "max_provider_calls": EXPECTED_PROVIDER_CALLS,
         "max_total_input_tokens": EXPECTED_PROVIDER_CALLS + 10,
         "max_total_output_tokens": EXPECTED_PROVIDER_CALLS + 10,
-        "max_total_cost_microusd": EXPECTED_PROVIDER_CALLS + 10,
+        "max_total_tokens": EXPECTED_PROVIDER_CALLS * 2 + 20,
         "max_input_tokens_per_call": 1,
         "max_output_tokens_per_call": 1,
-        "max_cost_microusd_per_call": 1,
+        "max_total_tokens_per_call": 2,
     }
     budget.update(budget_changes)
+    isolation_binding = {
+        "schema_version": "r-state-credit-1-isolation-binding-v1",
+        "interpreter_path": "/usr/bin/python3",
+        "interpreter_sha256": "4" * 64,
+        "sandbox_profile_sha256": "3" * 64,
+        "required_deny_set_sha256": "2" * 64,
+        "authority_public_key_sha256": "6" * 64,
+        "child_command_sha256": "1" * 64,
+    }
     payload: dict[str, object] = {
-        "schema_version": "r-state-credit-1-execution-admission-v2",
+        "schema_version": "r-state-credit-1-execution-admission-v3",
         "route_id": "R-STATE-CREDIT-1",
         "run_id": "run-bridge-test-1",
         "freeze_subject_digest": "a" * 64,
@@ -411,7 +450,11 @@ def _envelope_bytes(
             "protocol_version": "r-state-authority-v1",
             "response_public_key_sha256": "6" * 64,
             "server_nonce_sha256": "5" * 64,
+            "isolation_binding_sha256": _sha(
+                canonical_json(isolation_binding).encode()
+            ),
         },
+        "isolation_binding": isolation_binding,
         "workflow_reservation": {
             "reservation_id": "workflow-reservation-1",
             "reservation_token_sha256": "8" * 64,
@@ -489,6 +532,11 @@ def test_execution_admission_is_closed_canonical_and_pinned(
     with pytest.raises(ExecutionBridgeViolation, match="closed"):
         ExecutionAdmission.from_mapping(extra)
 
+    missing_isolation = json.loads(encoded)
+    missing_isolation.pop("isolation_binding")
+    with pytest.raises(ExecutionBridgeViolation, match="closed"):
+        ExecutionAdmission.from_mapping(missing_isolation)
+
     floating = json.loads(encoded)
     floating["provider_binding"]["model_id"] = "ark-code-latest"
     floating.pop("envelope_sha256")
@@ -510,6 +558,23 @@ def test_authority_binding_mutation_invalidates_run_authorization_context(
     with pytest.raises(ExecutionBridgeViolation, match="core digest drift"):
         ExecutionAdmission.from_mapping(mutated)
 
+    assert (
+        json.loads(receipts[ReceiptKind.RUN_AUTHORIZATION])[
+            "authorization_context_sha256"
+        ]
+        == original.envelope_core_sha256
+    )
+
+
+def test_isolation_binding_mutation_invalidates_run_authorization_context(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+) -> None:
+    _root, _active_manifest, receipts, encoded = admission_inputs
+    original = ExecutionAdmission.from_canonical_json(encoded)
+    mutated = json.loads(encoded)
+    mutated["isolation_binding"]["sandbox_profile_sha256"] = "0" * 64
+    with pytest.raises(ExecutionBridgeViolation, match="core digest drift"):
+        ExecutionAdmission.from_mapping(mutated)
     assert (
         json.loads(receipts[ReceiptKind.RUN_AUTHORIZATION])[
             "authorization_context_sha256"
@@ -795,13 +860,7 @@ def test_real_2240_call_loop_seals_raw_output_without_route_verdicts(
     tmp_path: Path,
 ) -> None:
     root, active_manifest, receipts, encoded = admission_inputs
-    encoded = _envelope_bytes(
-        root,
-        active_manifest,
-        receipts,
-        max_total_cost_microusd=EXPECTED_PROVIDER_CALLS * 10,
-        max_cost_microusd_per_call=10,
-    )
+    encoded = _envelope_bytes(root, active_manifest, receipts)
     transport = _Transport()
     verifier = _ExternalVerifier()
     bridge = ExecutionBridge(
@@ -826,9 +885,35 @@ def test_real_2240_call_loop_seals_raw_output_without_route_verdicts(
     payload = json.loads(raw)
     assert payload["raw_metrics"]["row_count"] == EXPECTED_PROVIDER_CALLS
     assert len(payload["rows"]) == EXPECTED_PROVIDER_CALLS
-    assert payload["usage"]["cost_microusd"] == EXPECTED_PROVIDER_CALLS
+    assert payload["usage"]["cost_status"] == "UNAVAILABLE_NOT_GUESSED"
+    assert payload["usage"]["cost_amount_microunits"] is None
     assert set(verifier.kinds) == set(ReceiptKind)
     assert verifier.terminal_states == ["SEALED_RAW"]
+    assert bridge.terminal_path.is_file()
+
+
+def test_mixed_provider_cost_status_fails_closed_and_seals_partial(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+    transport = _MixedCostTransport()
+    bridge = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=tmp_path / "mixed-cost",
+        receipt_documents=receipts,
+        receipt_verifier=_ExternalVerifier(),
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(),
+        actor=_actor(transport),
+    )
+
+    with pytest.raises(ExecutionBridgeViolation, match="mixed provider cost status"):
+        bridge.execute(ExecutionAdmission.from_canonical_json(encoded))
+
+    assert transport.calls == 2
+    assert bridge.partial_path.is_file()
     assert bridge.terminal_path.is_file()
 
 
@@ -1080,14 +1165,21 @@ def test_internal_raw_rows_are_closed_and_recursively_reject_route_fields() -> N
         "seed": 1009,
         "checkpoint_id": "BEFORE_PERTURBATION",
         "arm_id": "A0_FULL_LOG",
-        "request_sha256": "1" * 64,
+        "actor_request_sha256": "1" * 64,
+        "provider_request_sha256": "4" * 64,
         "provider_receipt_id": "p",
         "provider_receipt_sha256": "2" * 64,
-        "response_sha256": "3" * 64,
+        "provider_response_sha256": "3" * 64,
+        "raw_output_sha256": "5" * 64,
         "model_revision": ARK_MODEL_SNAPSHOT,
         "input_tokens": 1,
         "output_tokens": 1,
-        "cost_microusd": 1,
+        "total_tokens": 2,
+        "cost_status": "UNAVAILABLE_NOT_GUESSED",
+        "cost_amount_microunits": None,
+        "cost_currency": None,
+        "latency_ms": 1,
+        "timeout_seconds": 120,
         "action": "CONTINUE",
         "loss_code": "CORRECT",
         "loss_weight": 0,

@@ -35,6 +35,9 @@ from experiments.r_state_credit_1.run_contracts import CheckpointId, HELD_OUT_SE
 
 class _Transport:
     def complete(self, request: ActorRequest) -> dict[str, object]:
+        actor_request_sha256 = hashlib.sha256(
+            request.to_canonical_json().encode()
+        ).hexdigest()
         return {
             "action": "CONTINUE",
             "notes": "bounded answer",
@@ -42,7 +45,16 @@ class _Transport:
             "model_revision": "revision-2026-07-17",
             "input_tokens": 10,
             "output_tokens": 2,
-            "cost_microusd": 1,
+            "total_tokens": 12,
+            "cost_status": "PROVIDER_REPORTED",
+            "cost_amount_microunits": 1,
+            "cost_currency": "USD",
+            "actor_request_sha256": actor_request_sha256,
+            "provider_request_sha256": "1" * 64,
+            "provider_response_sha256": "2" * 64,
+            "raw_output_sha256": "3" * 64,
+            "latency_ms": 1,
+            "timeout_seconds": 120,
         }
 
 
@@ -188,10 +200,10 @@ def test_provider_emits_typed_revision_bound_receipt() -> None:
     assert response.response.action is ActorAction.CONTINUE
     assert response.receipt.model_revision == "revision-2026-07-17"
     assert (
-        response.receipt.request_sha256
+        response.receipt.actor_request_sha256
         == hashlib.sha256(_request().to_canonical_json().encode()).hexdigest()
     )
-    assert response.receipt.response_sha256
+    assert response.receipt.provider_response_sha256
 
 
 def test_runner_never_runs_without_future_freeze_bound_authorization() -> None:

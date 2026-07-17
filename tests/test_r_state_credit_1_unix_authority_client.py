@@ -196,8 +196,17 @@ def keypair(tmp_path: Path) -> tuple[Path, Path, str]:
 
 
 def _admission(public_key_sha256: str) -> ExecutionAdmission:
+    isolation_binding = {
+        "schema_version": "r-state-credit-1-isolation-binding-v1",
+        "interpreter_path": "/usr/bin/python3",
+        "interpreter_sha256": "4" * 64,
+        "sandbox_profile_sha256": "3" * 64,
+        "required_deny_set_sha256": "2" * 64,
+        "authority_public_key_sha256": public_key_sha256,
+        "child_command_sha256": "1" * 64,
+    }
     mapping: dict[str, object] = {
-        "schema_version": "r-state-credit-1-execution-admission-v2",
+        "schema_version": "r-state-credit-1-execution-admission-v3",
         "route_id": "R-STATE-CREDIT-1",
         "run_id": "run-authority-client-1",
         "freeze_subject_digest": "a" * 64,
@@ -224,7 +233,11 @@ def _admission(public_key_sha256: str) -> ExecutionAdmission:
             "protocol_version": PROTOCOL,
             "response_public_key_sha256": public_key_sha256,
             "server_nonce_sha256": SERVER_NONCE,
+            "isolation_binding_sha256": hashlib.sha256(
+                canonical_json(isolation_binding).encode()
+            ).hexdigest(),
         },
+        "isolation_binding": isolation_binding,
         "workflow_reservation": {
             "reservation_id": "reservation-1",
             "reservation_token_sha256": hashlib.sha256(TOKEN).hexdigest(),
@@ -240,10 +253,10 @@ def _admission(public_key_sha256: str) -> ExecutionAdmission:
             "max_provider_calls": 2240,
             "max_total_input_tokens": 1,
             "max_total_output_tokens": 1,
-            "max_total_cost_microusd": 1,
+            "max_total_tokens": 2,
             "max_input_tokens_per_call": 1,
             "max_output_tokens_per_call": 1,
-            "max_cost_microusd_per_call": 1,
+            "max_total_tokens_per_call": 2,
         },
         "six_receipt_digests": {
             kind.value: str(index) * 64

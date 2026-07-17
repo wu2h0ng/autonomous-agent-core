@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol, cast
 
 from experiments.r_state_credit_1.action_grammar import ALL_ACTIONS, ActorAction
@@ -17,6 +18,11 @@ from experiments.r_state_credit_1.actor_interface import ActorRequest, ActorResp
 
 class ProviderNotReady(RuntimeError):
     """The provider binding cannot enter a result-bearing path."""
+
+
+class ProviderCostStatus(str, Enum):
+    PROVIDER_REPORTED = "PROVIDER_REPORTED"
+    UNAVAILABLE_NOT_GUESSED = "UNAVAILABLE_NOT_GUESSED"
 
 
 def _digest(value: bytes) -> str:
@@ -55,11 +61,18 @@ class ProviderReceipt:
     provider_id: str
     model_id: str
     model_revision: str
-    request_sha256: str
-    response_sha256: str
+    actor_request_sha256: str
+    provider_request_sha256: str
+    provider_response_sha256: str
+    raw_output_sha256: str
     input_tokens: int
     output_tokens: int
-    cost_microusd: int
+    total_tokens: int
+    cost_status: ProviderCostStatus
+    cost_amount_microunits: int | None
+    cost_currency: str | None
+    latency_ms: int
+    timeout_seconds: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +114,16 @@ class ProviderActor:
             "model_revision",
             "input_tokens",
             "output_tokens",
-            "cost_microusd",
+            "total_tokens",
+            "cost_status",
+            "cost_amount_microunits",
+            "cost_currency",
+            "actor_request_sha256",
+            "provider_request_sha256",
+            "provider_response_sha256",
+            "raw_output_sha256",
+            "latency_ms",
+            "timeout_seconds",
         }
         if set(raw) != required:
             raise ProviderNotReady("provider response schema drift")
@@ -117,19 +139,69 @@ class ProviderActor:
         if notes is not None and not isinstance(notes, str):
             raise ProviderNotReady("provider notes schema drift")
         response = ActorResponse(action=action, notes=notes)
-        response_bytes = json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
-        input_tokens, output_tokens, cost_microusd = (
+        input_tokens, output_tokens, total_tokens = (
             raw["input_tokens"],
             raw["output_tokens"],
-            raw["cost_microusd"],
+            raw["total_tokens"],
         )
         if any(
             not isinstance(v, int) or isinstance(v, bool) or v < 0
-            for v in (input_tokens, output_tokens, cost_microusd)
+            for v in (input_tokens, output_tokens, total_tokens)
         ):
-            raise ProviderNotReady("provider usage/cost schema drift")
+            raise ProviderNotReady("provider usage schema drift")
         input_token_count = cast(int, input_tokens)
         output_token_count = cast(int, output_tokens)
+        total_token_count = cast(int, total_tokens)
+        if total_token_count != input_token_count + output_token_count:
+            raise ProviderNotReady("provider total token usage drift")
+        try:
+            cost_status = ProviderCostStatus(raw["cost_status"])
+        except (TypeError, ValueError) as exc:
+            raise ProviderNotReady("provider cost status drift") from exc
+        cost_amount = raw["cost_amount_microunits"]
+        cost_currency = raw["cost_currency"]
+        if cost_status is ProviderCostStatus.UNAVAILABLE_NOT_GUESSED:
+            if cost_amount is not None or cost_currency is not None:
+                raise ProviderNotReady("unknown provider cost must remain null")
+        elif (
+            not isinstance(cost_amount, int)
+            or isinstance(cost_amount, bool)
+            or cost_amount < 0
+            or not isinstance(cost_currency, str)
+            or not cost_currency
+        ):
+            raise ProviderNotReady("reported provider cost schema drift")
+        digests = {
+            name: raw[name]
+            for name in (
+                "actor_request_sha256",
+                "provider_request_sha256",
+                "provider_response_sha256",
+                "raw_output_sha256",
+            )
+        }
+        for name, digest in digests.items():
+            if not isinstance(digest, str):
+                raise ProviderNotReady(f"{name} must be text")
+            try:
+                _sha256(digest, name)
+            except ValueError as exc:
+                raise ProviderNotReady(f"{name} drift") from exc
+        if digests["actor_request_sha256"] != _digest(
+            request.to_canonical_json().encode()
+        ):
+            raise ProviderNotReady("actor request digest drift")
+        latency_ms = raw["latency_ms"]
+        timeout_seconds = raw["timeout_seconds"]
+        if (
+            not isinstance(latency_ms, int)
+            or isinstance(latency_ms, bool)
+            or latency_ms < 0
+            or not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or timeout_seconds <= 0
+        ):
+            raise ProviderNotReady("provider latency/timeout schema drift")
         receipt_id = raw["provider_receipt_id"]
         if not isinstance(receipt_id, str) or not receipt_id:
             raise ProviderNotReady("provider receipt id is missing")
@@ -140,10 +212,17 @@ class ProviderActor:
                 provider_id=self.binding.provider_id,
                 model_id=self.binding.model_id,
                 model_revision=self.binding.model_revision,
-                request_sha256=_digest(request.to_canonical_json().encode()),
-                response_sha256=_digest(response_bytes),
+                actor_request_sha256=cast(str, digests["actor_request_sha256"]),
+                provider_request_sha256=cast(str, digests["provider_request_sha256"]),
+                provider_response_sha256=cast(str, digests["provider_response_sha256"]),
+                raw_output_sha256=cast(str, digests["raw_output_sha256"]),
                 input_tokens=input_token_count,
                 output_tokens=output_token_count,
-                cost_microusd=cast(int, cost_microusd),
+                total_tokens=total_token_count,
+                cost_status=cost_status,
+                cost_amount_microunits=cast(int | None, cost_amount),
+                cost_currency=cast(str | None, cost_currency),
+                latency_ms=cast(int, latency_ms),
+                timeout_seconds=float(timeout_seconds),
             ),
         )

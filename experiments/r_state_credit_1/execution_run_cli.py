@@ -11,6 +11,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -46,6 +47,11 @@ from experiments.r_state_credit_1.unix_authority_client import UnixAuthorityClie
 ARK_RESPONSES_URL = f"{ARK_BASE_URL_PROFILE}/responses"
 MAX_PROVIDER_RESPONSE_BYTES = 1024 * 1024
 MAX_STDOUT_BYTES = 16_384
+ARK_ACTION_INSTRUCTION = (
+    "Return only one canonical JSON object with exactly the keys action and notes. "
+    "Use no markdown, code fence, prefix, suffix, or explanation. action must be one "
+    "of the supplied valid_actions; notes must be null or a non-empty string."
+)
 _HEX = frozenset("0123456789abcdef")
 _RAW_TOP_FIELDS = {
     "schema_version",
@@ -67,19 +73,34 @@ _RAW_ROW_FIELDS = {
     "seed",
     "checkpoint_id",
     "arm_id",
-    "request_sha256",
+    "actor_request_sha256",
+    "provider_request_sha256",
     "provider_receipt_id",
     "provider_receipt_sha256",
-    "response_sha256",
+    "provider_response_sha256",
+    "raw_output_sha256",
     "model_revision",
     "input_tokens",
     "output_tokens",
-    "cost_microusd",
+    "total_tokens",
+    "cost_status",
+    "cost_amount_microunits",
+    "cost_currency",
+    "latency_ms",
+    "timeout_seconds",
     "action",
     "loss_code",
     "loss_weight",
 }
-_USAGE_FIELDS = {"provider_calls", "input_tokens", "output_tokens", "cost_microusd"}
+_USAGE_FIELDS = {
+    "provider_calls",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cost_status",
+    "cost_amount_microunits",
+    "cost_currency",
+}
 _TERMINAL_FIELDS = {
     "schema_version",
     "state",
@@ -234,6 +255,7 @@ class ArkSixActionTransport:
     def _request_body(self, request: ActorRequest) -> bytes:
         actor_input = canonical_json(
             {
+                "instruction": ARK_ACTION_INSTRUCTION,
                 "request": request.to_mapping(),
                 "response_contract": {
                     "action": [action.value for action in ALL_ACTIONS],
@@ -261,13 +283,15 @@ class ArkSixActionTransport:
         credential = self._environ.get(ARK_CREDENTIAL_ENV_REF)
         if not isinstance(credential, str) or not credential:
             raise ProviderNotReady("ARK_API_KEY is missing")
+        request_body = self._request_body(request)
+        started = time.monotonic_ns()
         response = self._http.post(
             url=ARK_RESPONSES_URL,
             headers={
                 "Authorization": f"Bearer {credential}",
                 "Content-Type": "application/json",
             },
-            body=self._request_body(request),
+            body=request_body,
             timeout_seconds=self._timeout_seconds,
         )
         if not 200 <= response.status < 300:
@@ -347,30 +371,47 @@ class ArkSixActionTransport:
         notes = action["notes"]
         if notes is not None and (not isinstance(notes, str) or not notes.strip()):
             raise ProviderNotReady("provider notes contract drift")
-        if not isinstance(top["usage"], dict) or "cost_microusd" not in top["usage"]:
-            raise ProviderNotReady("provider cost is missing and cannot be guessed")
-        try:
-            usage = _closed(
-                top["usage"],
-                {
-                    "input_tokens",
-                    "input_tokens_details",
-                    "output_tokens",
-                    "output_tokens_details",
-                    "total_tokens",
-                    "cost_microusd",
-                },
-                "provider usage",
-            )
-        except ExecutionBridgeViolation as exc:
-            raise ProviderNotReady("provider usage schema drift") from exc
+        if not isinstance(top["usage"], dict):
+            raise ProviderNotReady("provider usage schema drift")
+        usage_fields = {
+            "input_tokens",
+            "input_tokens_details",
+            "output_tokens",
+            "output_tokens_details",
+            "total_tokens",
+        }
+        if set(top["usage"]) not in (usage_fields, usage_fields | {"cost"}):
+            raise ProviderNotReady("provider usage schema drift")
+        usage = cast(dict[str, object], top["usage"])
         input_tokens = _nonnegative_int(usage["input_tokens"], "input_tokens")
         output_tokens = _nonnegative_int(usage["output_tokens"], "output_tokens")
         if _nonnegative_int(usage["total_tokens"], "total_tokens") != (
             input_tokens + output_tokens
         ):
             raise ProviderNotReady("provider total token usage drift")
-        cost = _nonnegative_int(usage["cost_microusd"], "provider cost")
+        raw_cost = usage.get("cost")
+        if raw_cost is None:
+            cost_status = "UNAVAILABLE_NOT_GUESSED"
+            cost_amount: int | None = None
+            cost_currency: str | None = None
+        else:
+            cost = _closed(
+                raw_cost,
+                {"status", "amount_microunits", "currency"},
+                "provider cost",
+            )
+            if cost["status"] != "PROVIDER_REPORTED":
+                raise ProviderNotReady("provider cost status drift")
+            cost_status = "PROVIDER_REPORTED"
+            cost_amount = _nonnegative_int(
+                cost["amount_microunits"], "provider cost amount"
+            )
+            cost_currency = _text(cost["currency"], "provider cost currency")
+        actor_request_sha256 = _sha256(request.to_canonical_json().encode())
+        provider_request_sha256 = _sha256(request_body)
+        provider_response_sha256 = _sha256(response.body)
+        raw_output_sha256 = _sha256(output_text["text"].encode())
+        latency_ms = max(0, (time.monotonic_ns() - started) // 1_000_000)
         return {
             "action": action["action"],
             "notes": notes,
@@ -378,7 +419,16 @@ class ArkSixActionTransport:
             "model_revision": ARK_MODEL_SNAPSHOT,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "cost_microusd": cost,
+            "total_tokens": input_tokens + output_tokens,
+            "cost_status": cost_status,
+            "cost_amount_microunits": cost_amount,
+            "cost_currency": cost_currency,
+            "actor_request_sha256": actor_request_sha256,
+            "provider_request_sha256": provider_request_sha256,
+            "provider_response_sha256": provider_response_sha256,
+            "raw_output_sha256": raw_output_sha256,
+            "latency_ms": latency_ms,
+            "timeout_seconds": self._timeout_seconds,
         }
 
 
@@ -501,7 +551,10 @@ def validate_and_publish_result(
     if not isinstance(ordered, list) or len(ordered) != EXPECTED_PROVIDER_CALLS:
         raise ExecutionBridgeViolation("ordered provider receipt coverage drift")
     usage = _closed(raw["usage"], _USAGE_FIELDS, "sealed raw usage")
-    totals = {field: 0 for field in _USAGE_FIELDS if field != "provider_calls"}
+    token_totals = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    aggregate_cost_status: str | None = None
+    aggregate_cost_amount: int | None = None
+    aggregate_cost_currency: str | None = None
     receipt_ids: set[str] = set()
     receipt_digests: set[str] = set()
     ledger_lines: list[bytes] = []
@@ -531,12 +584,53 @@ def validate_and_publish_result(
             "output_tokens": _nonnegative_int(
                 row["output_tokens"], "row output_tokens"
             ),
-            "cost_microusd": _nonnegative_int(
-                row["cost_microusd"], "row cost_microusd"
-            ),
+            "total_tokens": _nonnegative_int(row["total_tokens"], "row total_tokens"),
         }
+        if (
+            amounts["total_tokens"]
+            != amounts["input_tokens"] + amounts["output_tokens"]
+        ):
+            raise ExecutionBridgeViolation("sealed raw row total token drift")
         for name, amount in amounts.items():
-            totals[name] += amount
+            token_totals[name] += amount
+        cost_status = _text(row["cost_status"], "row cost_status")
+        if cost_status not in {"PROVIDER_REPORTED", "UNAVAILABLE_NOT_GUESSED"}:
+            raise ExecutionBridgeViolation("sealed raw row cost status drift")
+        if aggregate_cost_status is not None and aggregate_cost_status != cost_status:
+            raise ExecutionBridgeViolation("mixed provider cost status is forbidden")
+        aggregate_cost_status = cost_status
+        cost_amount = row["cost_amount_microunits"]
+        cost_currency = row["cost_currency"]
+        if cost_status == "UNAVAILABLE_NOT_GUESSED":
+            if cost_amount is not None or cost_currency is not None:
+                raise ExecutionBridgeViolation("unknown provider cost must remain null")
+        else:
+            amount = _nonnegative_int(cost_amount, "row cost_amount_microunits")
+            currency = _text(cost_currency, "row cost_currency")
+            if (
+                aggregate_cost_currency is not None
+                and aggregate_cost_currency != currency
+            ):
+                raise ExecutionBridgeViolation(
+                    "mixed provider cost currency is forbidden"
+                )
+            aggregate_cost_currency = currency
+            aggregate_cost_amount = (aggregate_cost_amount or 0) + amount
+        for digest_field in (
+            "actor_request_sha256",
+            "provider_request_sha256",
+            "provider_response_sha256",
+            "raw_output_sha256",
+        ):
+            _digest(row[digest_field], f"row {digest_field}")
+        _nonnegative_int(row["latency_ms"], "row latency_ms")
+        timeout_seconds = row["timeout_seconds"]
+        if (
+            not isinstance(timeout_seconds, (int, float))
+            or isinstance(timeout_seconds, bool)
+            or timeout_seconds <= 0
+        ):
+            raise ExecutionBridgeViolation("row timeout_seconds must be positive")
         ledger_row = {
             "call_index": offset,
             "run_id": admission.run_id,
@@ -545,10 +639,19 @@ def validate_and_publish_result(
             "attempt_epoch": reservation.attempt_epoch,
             "cas_epoch": reservation.cas_epoch,
             **amounts,
+            "cost_status": cost_status,
+            "cost_amount_microunits": cost_amount,
+            "cost_currency": cost_currency,
             "provider_receipt_sha256": receipt_digest,
         }
         ledger_lines.append((canonical_json(ledger_row) + "\n").encode())
-    expected_usage = {"provider_calls": EXPECTED_PROVIDER_CALLS, **totals}
+    expected_usage = {
+        "provider_calls": EXPECTED_PROVIDER_CALLS,
+        **token_totals,
+        "cost_status": aggregate_cost_status,
+        "cost_amount_microunits": aggregate_cost_amount,
+        "cost_currency": aggregate_cost_currency,
+    }
     if usage != expected_usage:
         raise ExecutionBridgeViolation("sealed raw usage aggregate drift")
 
@@ -590,9 +693,12 @@ def validate_and_publish_result(
         "raw_result_sha256": raw_sha256,
         "row_count": EXPECTED_PROVIDER_CALLS,
         "provider_calls": EXPECTED_PROVIDER_CALLS,
-        "input_tokens": totals["input_tokens"],
-        "output_tokens": totals["output_tokens"],
-        "cost_microusd": totals["cost_microusd"],
+        "input_tokens": token_totals["input_tokens"],
+        "output_tokens": token_totals["output_tokens"],
+        "total_tokens": token_totals["total_tokens"],
+        "cost_status": aggregate_cost_status,
+        "cost_amount_microunits": aggregate_cost_amount,
+        "cost_currency": aggregate_cost_currency,
         "usage_ledger_sha256": usage_sha256,
         "reservation_id": reservation.reservation_id,
         "reservation_token_sha256": reservation.reservation_token_sha256,
@@ -635,6 +741,50 @@ def _load_receipts(directory: Path) -> dict[ReceiptKind, bytes]:
     }
 
 
+def canonical_child_command(arguments: argparse.Namespace) -> tuple[str, ...]:
+    """Return the one production command shape sealed by Workflow authority."""
+    return (
+        str(Path(sys.executable).resolve()),
+        "-m",
+        "experiments.r_state_credit_1.execution_run_cli",
+        "--admission",
+        str(arguments.admission),
+        "--receipt-dir",
+        str(arguments.receipt_dir),
+        "--active-manifest",
+        str(arguments.active_manifest),
+        "--run-dir",
+        str(arguments.run_dir),
+        "--authority-socket",
+        str(arguments.authority_socket),
+        "--authority-public-key",
+        str(arguments.authority_public_key),
+        "--reservation-token-fd",
+        str(arguments.reservation_token_fd),
+        "--usage-ledger",
+        str(arguments.usage_ledger),
+    )
+
+
+def _verify_runtime_isolation(
+    arguments: argparse.Namespace, admission: ExecutionAdmission
+) -> None:
+    interpreter = Path(sys.executable).resolve()
+    binding = admission.isolation_binding
+    if binding.interpreter_path != str(interpreter):
+        raise ExecutionBridgeViolation("runtime interpreter path drift")
+    interpreter_bytes = _regular_bytes(
+        interpreter, "runtime interpreter", 1024 * 1024 * 1024
+    )
+    if _sha256(interpreter_bytes) != binding.interpreter_sha256:
+        raise ExecutionBridgeViolation("runtime interpreter digest drift")
+    command_sha256 = _sha256(
+        canonical_json(list(canonical_child_command(arguments))).encode()
+    )
+    if command_sha256 != binding.child_command_sha256:
+        raise ExecutionBridgeViolation("runtime child command digest drift")
+
+
 def _production_actor(_: ExecutionAdmission) -> ProviderActor:
     action_digest = _sha256(
         json.dumps(
@@ -664,6 +814,7 @@ def _execute(
         arguments.admission, "execution admission", 1024 * 1024
     )
     admission = ExecutionAdmission.from_canonical_json(admission_bytes)
+    _verify_runtime_isolation(arguments, admission)
     receipts = _load_receipts(arguments.receipt_dir)
     _regular_bytes(arguments.active_manifest, "active manifest", 8 * 1024 * 1024)
     _regular_bytes(arguments.authority_public_key, "authority public key", 64 * 1024)

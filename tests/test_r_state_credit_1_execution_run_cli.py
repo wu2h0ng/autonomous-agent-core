@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
+from dataclasses import replace
 from pathlib import Path
 import pytest
 
@@ -39,14 +41,21 @@ def _row(index: int, run_id: str) -> dict[str, object]:
         "seed": 1009,
         "checkpoint_id": "BEFORE_PERTURBATION",
         "arm_id": "A0_FULL_LOG",
-        "request_sha256": f"{index:064x}",
+        "actor_request_sha256": f"{index:064x}",
+        "provider_request_sha256": f"{index + 1000:064x}",
         "provider_receipt_id": f"provider-receipt-{index}",
         "provider_receipt_sha256": f"{index + 3000:064x}",
-        "response_sha256": f"{index + 6000:064x}",
+        "provider_response_sha256": f"{index + 6000:064x}",
+        "raw_output_sha256": f"{index + 9000:064x}",
         "model_revision": "glm-5-2-260617",
         "input_tokens": 2,
         "output_tokens": 1,
-        "cost_microusd": 3,
+        "total_tokens": 3,
+        "cost_status": "UNAVAILABLE_NOT_GUESSED",
+        "cost_amount_microunits": None,
+        "cost_currency": None,
+        "latency_ms": 1,
+        "timeout_seconds": 120,
         "action": "CONTINUE",
         "loss_code": "CORRECT",
         "loss_weight": 0,
@@ -66,7 +75,10 @@ def _artifacts(
         "provider_calls": row_count,
         "input_tokens": row_count * 2,
         "output_tokens": row_count,
-        "cost_microusd": row_count * 3,
+        "total_tokens": row_count * 3,
+        "cost_status": "UNAVAILABLE_NOT_GUESSED",
+        "cost_amount_microunits": None,
+        "cost_currency": None,
     }
     raw = {
         "schema_version": "r-state-credit-1-execution-raw-v1",
@@ -148,7 +160,10 @@ def test_result_validation_publishes_exact_workflow_usage_contract(
         "provider_calls",
         "input_tokens",
         "output_tokens",
-        "cost_microusd",
+        "total_tokens",
+        "cost_status",
+        "cost_amount_microunits",
+        "cost_currency",
         "usage_ledger_sha256",
         "reservation_id",
         "reservation_token_sha256",
@@ -162,6 +177,21 @@ def test_result_validation_publishes_exact_workflow_usage_contract(
     assert first["call_index"] == 0
     assert last["call_index"] == 2239
     assert first["provider_receipt_sha256"] == f"{3001:064x}"
+    assert set(first) == {
+        "call_index",
+        "run_id",
+        "reservation_id",
+        "reservation_token_sha256",
+        "attempt_epoch",
+        "cas_epoch",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cost_status",
+        "cost_amount_microunits",
+        "cost_currency",
+        "provider_receipt_sha256",
+    }
     assert lines[0] == (canonical_json(first) + "\n").encode()
     assert result["usage_ledger_sha256"] == _sha(usage_path.read_bytes())
 
@@ -266,7 +296,9 @@ class _Http:
         return ResponsesHttpResponse(status=200, body=self.body)
 
 
-def _provider_payload(*, include_cost: bool = True) -> bytes:
+def _provider_payload(
+    *, include_cost: bool = True, output_text: str | None = None
+) -> bytes:
     usage: dict[str, object] = {
         "input_tokens": 4,
         "input_tokens_details": {"cached_tokens": 0},
@@ -275,7 +307,11 @@ def _provider_payload(*, include_cost: bool = True) -> bytes:
         "total_tokens": 6,
     }
     if include_cost:
-        usage["cost_microusd"] = 7
+        usage["cost"] = {
+            "status": "PROVIDER_REPORTED",
+            "amount_microunits": 7,
+            "currency": "USD",
+        }
     return canonical_json(
         {
             "caching": None,
@@ -300,9 +336,9 @@ def _provider_payload(*, include_cost: bool = True) -> bytes:
                     "content": [
                         {
                             "type": "output_text",
-                            "text": canonical_json(
-                                {"action": "CONTINUE", "notes": None}
-                            ),
+                            "text": output_text
+                            if output_text is not None
+                            else canonical_json({"action": "CONTINUE", "notes": None}),
                         }
                     ],
                 },
@@ -329,17 +365,56 @@ def test_bound_provider_fixture_parses_observed_topology_with_explicit_cost() ->
         "model_revision": "glm-5-2-260617",
         "input_tokens": 4,
         "output_tokens": 2,
-        "cost_microusd": 7,
+        "total_tokens": 6,
+        "cost_status": "PROVIDER_REPORTED",
+        "cost_amount_microunits": 7,
+        "cost_currency": "USD",
+        "actor_request_sha256": result["actor_request_sha256"],
+        "provider_request_sha256": result["provider_request_sha256"],
+        "provider_response_sha256": result["provider_response_sha256"],
+        "raw_output_sha256": result["raw_output_sha256"],
+        "latency_ms": result["latency_ms"],
+        "timeout_seconds": 120,
     }
 
 
-def test_observed_live_topology_fails_closed_when_provider_cost_is_missing() -> None:
+def test_provider_request_contains_fixed_canonical_json_instruction() -> None:
+    transport = ArkSixActionTransport(environ={"ARK_API_KEY": "test-only-secret"})
+    body = json.loads(
+        transport._request_body(ActorRequest("state", ALL_ACTIONS, "neutral-session"))
+    )
+    actor_input = json.loads(body["input"])
+    assert actor_input["instruction"] == cli.ARK_ACTION_INSTRUCTION
+    assert "only one canonical JSON object" in actor_input["instruction"]
+
+
+@pytest.mark.parametrize(
+    "output_text",
+    (
+        'Explanation: {"action":"CONTINUE","notes":null}',
+        '{"notes":null, "action":"CONTINUE"}',
+    ),
+)
+def test_provider_rejects_explanation_or_noncanonical_action_output(
+    output_text: str,
+) -> None:
+    transport = ArkSixActionTransport(
+        http_transport=_Http(_provider_payload(output_text=output_text)),
+        environ={"ARK_API_KEY": "test-only-secret"},
+    )
+    with pytest.raises(ProviderNotReady):
+        transport.complete(ActorRequest("state", ALL_ACTIONS, "neutral-session"))
+
+
+def test_observed_live_topology_preserves_unknown_cost_without_guessing() -> None:
     transport = ArkSixActionTransport(
         http_transport=_Http(_provider_payload(include_cost=False)),
         environ={"ARK_API_KEY": "test-only-secret"},
     )
-    with pytest.raises(ProviderNotReady, match="cost"):
-        transport.complete(ActorRequest("state", ALL_ACTIONS, "neutral-session"))
+    result = transport.complete(ActorRequest("state", ALL_ACTIONS, "neutral-session"))
+    assert result["cost_status"] == "UNAVAILABLE_NOT_GUESSED"
+    assert result["cost_amount_microunits"] is None
+    assert result["cost_currency"] is None
 
 
 def test_cli_argv_is_fixed_and_has_no_fake_switch(tmp_path: Path) -> None:
@@ -365,6 +440,57 @@ def test_cli_argv_is_fixed_and_has_no_fake_switch(tmp_path: Path) -> None:
     assert parsed.reservation_token_fd == 9
     with pytest.raises(SystemExit):
         _parse_args([*arguments, "--fake-provider"])
+
+
+def test_runtime_isolation_binds_interpreter_and_exact_child_command(
+    tmp_path: Path,
+) -> None:
+    parsed = _parse_args(
+        [
+            "--admission",
+            str(tmp_path / "admission.json"),
+            "--receipt-dir",
+            str(tmp_path / "receipts"),
+            "--active-manifest",
+            str(tmp_path / "active.json"),
+            "--run-dir",
+            str(tmp_path / "run"),
+            "--authority-socket",
+            str(tmp_path / "authority.sock"),
+            "--authority-public-key",
+            str(tmp_path / "authority.pem"),
+            "--reservation-token-fd",
+            "9",
+            "--usage-ledger",
+            str(tmp_path / "usage.jsonl"),
+        ]
+    )
+    admission = _admission("6" * 64)
+    interpreter = Path(sys.executable).resolve()
+    child_sha256 = _sha(
+        canonical_json(list(cli.canonical_child_command(parsed))).encode()
+    )
+    bound = replace(
+        admission,
+        isolation_binding=replace(
+            admission.isolation_binding,
+            interpreter_path=str(interpreter),
+            interpreter_sha256=_sha(interpreter.read_bytes()),
+            child_command_sha256=child_sha256,
+        ),
+    )
+
+    cli._verify_runtime_isolation(parsed, bound)
+    with pytest.raises(ExecutionBridgeViolation, match="child command digest"):
+        cli._verify_runtime_isolation(
+            parsed,
+            replace(
+                bound,
+                isolation_binding=replace(
+                    bound.isolation_binding, child_command_sha256="0" * 64
+                ),
+            ),
+        )
 
 
 def test_git_workspace_probe_binds_clean_head_and_component_bytes(
@@ -435,7 +561,10 @@ def test_main_emits_only_one_strict_subprocess_result(
         "provider_calls": 2240,
         "input_tokens": 1,
         "output_tokens": 1,
-        "cost_microusd": 1,
+        "total_tokens": 2,
+        "cost_status": "UNAVAILABLE_NOT_GUESSED",
+        "cost_amount_microunits": None,
+        "cost_currency": None,
         "usage_ledger_sha256": "2" * 64,
         "reservation_id": "reservation-1",
         "reservation_token_sha256": "3" * 64,

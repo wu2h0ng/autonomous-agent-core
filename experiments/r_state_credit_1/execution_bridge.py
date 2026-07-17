@@ -24,12 +24,15 @@ from experiments.r_state_credit_1.episode_generator import EpisodeGenerator
 from experiments.r_state_credit_1.interactive_env import EpisodeStatus
 from experiments.r_state_credit_1.recast_arms import ArmRoster
 from experiments.r_state_credit_1.recast_freeze_contracts import ReceiptKind
-from experiments.r_state_credit_1.recast_provider_actor import ProviderActor
+from experiments.r_state_credit_1.recast_provider_actor import (
+    ProviderActor,
+    ProviderCostStatus,
+)
 from experiments.r_state_credit_1.recast_scorer import RawRecastScorer
 from experiments.r_state_credit_1.run_contracts import CheckpointId, HELD_OUT_SEEDS
 
 
-SCHEMA_VERSION = "r-state-credit-1-execution-admission-v2"
+SCHEMA_VERSION = "r-state-credit-1-execution-admission-v3"
 ROUTE_ID = "R-STATE-CREDIT-1"
 # This is the independently reviewed mechanism baseline, not the Git HEAD of
 # this execution adapter.  Execution bytes are anchored by the active manifest
@@ -190,6 +193,7 @@ class AuthorityBinding:
     protocol_version: str
     response_public_key_sha256: str
     server_nonce_sha256: str
+    isolation_binding_sha256: str
 
     @classmethod
     def from_mapping(cls, value: object) -> AuthorityBinding:
@@ -203,10 +207,50 @@ class AuthorityBinding:
             "authority response_public_key_sha256",
         )
         _require_sha256(result.server_nonce_sha256, "authority server_nonce_sha256")
+        _require_sha256(
+            result.isolation_binding_sha256, "authority isolation_binding_sha256"
+        )
         return result
 
     def to_mapping(self) -> dict[str, object]:
         return {field.name: getattr(self, field.name) for field in fields(self)}
+
+
+@dataclass(frozen=True, slots=True)
+class IsolationBinding:
+    schema_version: str
+    interpreter_path: str
+    interpreter_sha256: str
+    sandbox_profile_sha256: str
+    required_deny_set_sha256: str
+    authority_public_key_sha256: str
+    child_command_sha256: str
+
+    @classmethod
+    def from_mapping(cls, value: object) -> IsolationBinding:
+        raw = _closed(value, {field.name for field in fields(cls)}, "isolation_binding")
+        result = cls(**raw)  # type: ignore[arg-type]
+        if result.schema_version != "r-state-credit-1-isolation-binding-v1":
+            raise ExecutionBridgeViolation("isolation binding schema drift")
+        if not result.interpreter_path.startswith("/"):
+            raise ExecutionBridgeViolation(
+                "isolation interpreter_path must be absolute"
+            )
+        for field_name in (
+            "interpreter_sha256",
+            "sandbox_profile_sha256",
+            "required_deny_set_sha256",
+            "authority_public_key_sha256",
+            "child_command_sha256",
+        ):
+            _require_sha256(getattr(result, field_name), f"isolation {field_name}")
+        return result
+
+    def to_mapping(self) -> dict[str, object]:
+        return {field.name: getattr(self, field.name) for field in fields(self)}
+
+    def subject_sha256(self) -> str:
+        return _sha256(canonical_json(self.to_mapping()).encode())
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,10 +281,10 @@ class ExecutionBudget:
     max_provider_calls: int
     max_total_input_tokens: int
     max_total_output_tokens: int
-    max_total_cost_microusd: int
+    max_total_tokens: int
     max_input_tokens_per_call: int
     max_output_tokens_per_call: int
-    max_cost_microusd_per_call: int
+    max_total_tokens_per_call: int
 
     @classmethod
     def from_mapping(cls, value: object) -> ExecutionBudget:
@@ -272,6 +316,7 @@ class ExecutionAdmission:
     provider_binding: ProviderAdmissionBinding
     c7_binding: C7Binding
     authority_binding: AuthorityBinding
+    isolation_binding: IsolationBinding
     workflow_reservation: WorkflowReservation
     components: dict[str, str]
     budget: ExecutionBudget
@@ -331,6 +376,7 @@ class ExecutionAdmission:
             ),
             c7_binding=C7Binding.from_mapping(raw["c7_binding"]),
             authority_binding=AuthorityBinding.from_mapping(raw["authority_binding"]),
+            isolation_binding=IsolationBinding.from_mapping(raw["isolation_binding"]),
             workflow_reservation=WorkflowReservation.from_mapping(
                 raw["workflow_reservation"]
             ),
@@ -346,6 +392,16 @@ class ExecutionAdmission:
             raise ExecutionBridgeViolation("envelope core digest drift")
         if result.recompute_envelope_sha256() != result.envelope_sha256:
             raise ExecutionBridgeViolation("envelope digest drift")
+        if (
+            result.isolation_binding.authority_public_key_sha256
+            != result.authority_binding.response_public_key_sha256
+        ):
+            raise ExecutionBridgeViolation("isolation authority public key drift")
+        if (
+            result.isolation_binding.subject_sha256()
+            != result.authority_binding.isolation_binding_sha256
+        ):
+            raise ExecutionBridgeViolation("authority isolation binding digest drift")
         return result
 
     @classmethod
@@ -377,6 +433,7 @@ class ExecutionAdmission:
             },
             "c7_binding": self.c7_binding.to_mapping(),
             "authority_binding": self.authority_binding.to_mapping(),
+            "isolation_binding": self.isolation_binding.to_mapping(),
             "workflow_reservation": self.workflow_reservation.to_mapping(),
             "components": dict(self.components),
             "budget": self.budget.to_mapping(),
@@ -501,14 +558,21 @@ _RAW_ROW_FIELDS = {
     "seed",
     "checkpoint_id",
     "arm_id",
-    "request_sha256",
+    "actor_request_sha256",
+    "provider_request_sha256",
     "provider_receipt_id",
     "provider_receipt_sha256",
-    "response_sha256",
+    "provider_response_sha256",
+    "raw_output_sha256",
     "model_revision",
     "input_tokens",
     "output_tokens",
-    "cost_microusd",
+    "total_tokens",
+    "cost_status",
+    "cost_amount_microunits",
+    "cost_currency",
+    "latency_ms",
+    "timeout_seconds",
     "action",
     "loss_code",
     "loss_weight",
@@ -553,7 +617,10 @@ class _BudgetLedger:
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
-    cost_microusd: int = 0
+    total_tokens: int = 0
+    cost_status: ProviderCostStatus | None = None
+    cost_amount_microunits: int | None = None
+    cost_currency: str | None = None
 
     def reserve(self) -> None:
         if self.calls + 1 > self.budget.max_provider_calls:
@@ -574,10 +641,10 @@ class _BudgetLedger:
                 "output token",
             ),
             (
-                self.cost_microusd,
-                self.budget.max_cost_microusd_per_call,
-                self.budget.max_total_cost_microusd,
-                "cost",
+                self.total_tokens,
+                self.budget.max_total_tokens_per_call,
+                self.budget.max_total_tokens,
+                "total token",
             ),
         )
         for used, reservation, total, label in checks:
@@ -587,29 +654,73 @@ class _BudgetLedger:
                 )
 
     def settle(
-        self, *, input_tokens: int, output_tokens: int, cost_microusd: int
+        self,
+        *,
+        input_tokens: int,
+        output_tokens: int,
+        total_tokens: int,
+        cost_status: ProviderCostStatus,
+        cost_amount_microunits: int | None,
+        cost_currency: str | None,
     ) -> None:
-        actual = (input_tokens, output_tokens, cost_microusd)
+        actual = (input_tokens, output_tokens, total_tokens)
         caps = (
             self.budget.max_input_tokens_per_call,
             self.budget.max_output_tokens_per_call,
-            self.budget.max_cost_microusd_per_call,
+            self.budget.max_total_tokens_per_call,
         )
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in actual
+        ):
+            raise ExecutionBridgeViolation("provider token usage is invalid")
+        if total_tokens != input_tokens + output_tokens:
+            raise ExecutionBridgeViolation("provider total token usage drift")
         if any(value > cap for value, cap in zip(actual, caps, strict=True)):
             raise ExecutionBridgeViolation(
                 "provider usage exceeded the reserved per-call cap"
             )
+        if self.cost_status is not None and self.cost_status is not cost_status:
+            raise ExecutionBridgeViolation("mixed provider cost status is forbidden")
         self.calls += 1
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
-        self.cost_microusd += cost_microusd
+        self.total_tokens += total_tokens
+        self.cost_status = cost_status
+        if cost_status is ProviderCostStatus.UNAVAILABLE_NOT_GUESSED:
+            if cost_amount_microunits is not None or cost_currency is not None:
+                raise ExecutionBridgeViolation("unknown provider cost must remain null")
+        else:
+            if cost_amount_microunits is None or cost_currency is None:
+                raise ExecutionBridgeViolation("reported provider cost is incomplete")
+            if (
+                not isinstance(cost_amount_microunits, int)
+                or isinstance(cost_amount_microunits, bool)
+                or cost_amount_microunits < 0
+                or not isinstance(cost_currency, str)
+                or not cost_currency
+            ):
+                raise ExecutionBridgeViolation("reported provider cost is invalid")
+            if self.cost_currency is not None and self.cost_currency != cost_currency:
+                raise ExecutionBridgeViolation(
+                    "mixed provider cost currency is forbidden"
+                )
+            self.cost_currency = cost_currency
+            self.cost_amount_microunits = (
+                self.cost_amount_microunits or 0
+            ) + cost_amount_microunits
 
-    def to_mapping(self) -> dict[str, int]:
+    def to_mapping(self) -> dict[str, object]:
         return {
             "provider_calls": self.calls,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
-            "cost_microusd": self.cost_microusd,
+            "total_tokens": self.total_tokens,
+            "cost_status": (
+                self.cost_status.value if self.cost_status is not None else None
+            ),
+            "cost_amount_microunits": self.cost_amount_microunits,
+            "cost_currency": self.cost_currency,
         }
 
 
@@ -1192,11 +1303,11 @@ class ExecutionBridge:
                                             "state": "RESERVED",
                                             "call_index": last_call_index,
                                             "identity": identity,
-                                            "request_sha256": request_digest,
+                                            "actor_request_sha256": request_digest,
                                             "reserve": {
                                                 "input_tokens": envelope.budget.max_input_tokens_per_call,
                                                 "output_tokens": envelope.budget.max_output_tokens_per_call,
-                                                "cost_microusd": envelope.budget.max_cost_microusd_per_call,
+                                                "total_tokens": envelope.budget.max_total_tokens_per_call,
                                             },
                                         }
                                     )
@@ -1204,7 +1315,7 @@ class ExecutionBridge:
                                         {
                                             "state": "STARTED",
                                             "call_index": last_call_index,
-                                            "request_sha256": request_digest,
+                                            "actor_request_sha256": request_digest,
                                         }
                                     )
                                     provider_started = True
@@ -1225,18 +1336,30 @@ class ExecutionBridge:
                                     ledger.settle(
                                         input_tokens=receipt.input_tokens,
                                         output_tokens=receipt.output_tokens,
-                                        cost_microusd=receipt.cost_microusd,
+                                        total_tokens=receipt.total_tokens,
+                                        cost_status=receipt.cost_status,
+                                        cost_amount_microunits=(
+                                            receipt.cost_amount_microunits
+                                        ),
+                                        cost_currency=receipt.cost_currency,
                                     )
                                     receipt_mapping = {
                                         "provider_receipt_id": receipt.provider_receipt_id,
                                         "provider_id": receipt.provider_id,
                                         "model_id": receipt.model_id,
                                         "model_revision": receipt.model_revision,
-                                        "request_sha256": receipt.request_sha256,
-                                        "response_sha256": receipt.response_sha256,
+                                        "actor_request_sha256": receipt.actor_request_sha256,
+                                        "provider_request_sha256": receipt.provider_request_sha256,
+                                        "provider_response_sha256": receipt.provider_response_sha256,
+                                        "raw_output_sha256": receipt.raw_output_sha256,
                                         "input_tokens": receipt.input_tokens,
                                         "output_tokens": receipt.output_tokens,
-                                        "cost_microusd": receipt.cost_microusd,
+                                        "total_tokens": receipt.total_tokens,
+                                        "cost_status": receipt.cost_status.value,
+                                        "cost_amount_microunits": receipt.cost_amount_microunits,
+                                        "cost_currency": receipt.cost_currency,
+                                        "latency_ms": receipt.latency_ms,
+                                        "timeout_seconds": receipt.timeout_seconds,
                                         "run_id": envelope.run_id,
                                         "call_index": last_call_index,
                                     }
@@ -1269,14 +1392,21 @@ class ExecutionBridge:
                                             "seed": seed,
                                             "checkpoint_id": checkpoint.value,
                                             "arm_id": arm_id.value,
-                                            "request_sha256": request_digest,
+                                            "actor_request_sha256": request_digest,
+                                            "provider_request_sha256": receipt.provider_request_sha256,
                                             "provider_receipt_id": receipt.provider_receipt_id,
                                             "provider_receipt_sha256": receipt_digest,
-                                            "response_sha256": receipt.response_sha256,
+                                            "provider_response_sha256": receipt.provider_response_sha256,
+                                            "raw_output_sha256": receipt.raw_output_sha256,
                                             "model_revision": receipt.model_revision,
                                             "input_tokens": receipt.input_tokens,
                                             "output_tokens": receipt.output_tokens,
-                                            "cost_microusd": receipt.cost_microusd,
+                                            "total_tokens": receipt.total_tokens,
+                                            "cost_status": receipt.cost_status.value,
+                                            "cost_amount_microunits": receipt.cost_amount_microunits,
+                                            "cost_currency": receipt.cost_currency,
+                                            "latency_ms": receipt.latency_ms,
+                                            "timeout_seconds": receipt.timeout_seconds,
                                             "action": resolved.action.value,
                                             "loss_code": loss.value,
                                             "loss_weight": weight,
