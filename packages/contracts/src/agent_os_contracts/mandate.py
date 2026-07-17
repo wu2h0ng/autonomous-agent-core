@@ -120,6 +120,7 @@ class StandingMission(ContractModel):
 
 
 class MandateWorkspaceRecord(ContractModel):
+    source_command_digest: NonEmptyStr
     mandate: Mandate
     ratification_receipt: MandateRatificationReceipt
     standing_mission: StandingMission

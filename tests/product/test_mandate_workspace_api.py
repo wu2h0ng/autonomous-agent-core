@@ -11,6 +11,7 @@ from http.server import ThreadingHTTPServer
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler
 from agent_os_contracts import (
+    CreateMandateCommand,
     MandateStatus,
     MandateWorkspaceRecord,
     PrincipalIdentity,
@@ -104,8 +105,11 @@ def test_high_level_mandate_is_durable_without_activating_a_task(tmp_path) -> No
         )
         assert status == 201
         record = MandateWorkspaceRecord.model_validate(created)
-        assert record.mandate.status is MandateStatus.ACTIVE
+        assert record.mandate.status is MandateStatus.RATIFIED
         assert record.mandate.principal_id == "user:local"
+        assert record.source_command_digest == content_digest(
+            CreateMandateCommand.model_validate(payload)
+        )
         assert record.ratification_receipt.mandate_digest == content_digest(
             record.mandate
         )
@@ -320,3 +324,52 @@ def test_durable_mandate_tampering_fails_closed(tmp_path) -> None:
         assert type(exc).__name__ == "MandateWorkspacePersistenceConflict"
     else:
         raise AssertionError("tampered durable Mandate must fail closed")
+
+
+def test_existing_mandate_workspace_schema_drift_fails_closed(tmp_path) -> None:
+    database = tmp_path / "agent-os.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            CREATE TABLE mandate_workspace_records (
+                mandate_id TEXT PRIMARY KEY,
+                record_json TEXT
+            )
+            """
+        )
+
+    try:
+        AgentOSApplication(database=database, workspace=tmp_path)
+    except Exception as exc:
+        assert type(exc).__name__ == "MandateWorkspacePersistenceConflict"
+    else:
+        raise AssertionError("invalid Mandate Workspace schema must fail closed")
+
+
+def test_durable_command_digest_tampering_fails_closed(tmp_path) -> None:
+    database = tmp_path / "agent-os.sqlite3"
+    app = AgentOSApplication(database=database, workspace=tmp_path)
+    app.create_mandate_workspace_record(_payload())
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            UPDATE mandate_workspace_records SET command_digest = ?
+            WHERE principal_id = ? AND tenant_id = ?
+              AND workspace_id = ? AND mandate_id = ?
+            """,
+            (
+                "f" * 64,
+                "user:local",
+                "tenant:local",
+                "workspace:local",
+                "mandate:build-agent-os",
+            ),
+        )
+
+    restarted = AgentOSApplication(database=database, workspace=tmp_path)
+    try:
+        restarted.get_mandate_workspace_record("mandate:build-agent-os")
+    except Exception as exc:
+        assert type(exc).__name__ == "MandateWorkspacePersistenceConflict"
+    else:
+        raise AssertionError("tampered source command digest must fail closed")
