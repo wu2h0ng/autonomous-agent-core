@@ -175,6 +175,27 @@ class UnixAuthorityClient:
         ):
             raise ExecutionBridgeViolation("authority public key digest drift")
         self._public_key = public_key
+        self._closed = True
+        self._private_verifier_context = self._private_verifier_copy()
+        context_entered = False
+        try:
+            self._private_verifier_path = self._private_verifier_context.__enter__()
+            context_entered = True
+            private_stat = self._private_verifier_path.lstat()
+            self._private_verifier_identity = (
+                private_stat.st_dev,
+                private_stat.st_ino,
+                private_stat.st_size,
+                private_stat.st_mtime_ns,
+                private_stat.st_ctime_ns,
+            )
+        except BaseException as exc:
+            if context_entered:
+                self._private_verifier_context.__exit__(
+                    type(exc), exc, exc.__traceback__
+                )
+            raise
+        self._closed = False
 
     def _open_verified_verifier_binary(self) -> int:
         path = self._verifier_binary_path
@@ -231,7 +252,7 @@ class UnixAuthorityClient:
 
     @contextmanager
     def _private_verifier_copy(self) -> Iterator[Path]:
-        source = self._open_verified_verifier_binary()
+        source: int | None = self._open_verified_verifier_binary()
         try:
             with tempfile.TemporaryDirectory(
                 prefix="r-state-verifier-copy-"
@@ -304,9 +325,51 @@ class UnixAuthorityClient:
                     raise ExecutionBridgeViolation(
                         "private verifier confirmation digest drift"
                     )
+                os.close(source)
+                source = None
                 yield destination
         finally:
-            os.close(source)
+            if source is not None:
+                os.close(source)
+
+    def _assert_private_verifier_intact(self) -> Path:
+        if self._closed:
+            raise ExecutionBridgeViolation("authority verifier client is closed")
+        try:
+            current = self._private_verifier_path.lstat()
+        except OSError as exc:
+            raise ExecutionBridgeViolation(
+                "private verifier copy is unavailable"
+            ) from exc
+        identity = (
+            current.st_dev,
+            current.st_ino,
+            current.st_size,
+            current.st_mtime_ns,
+            current.st_ctime_ns,
+        )
+        if (
+            not stat.S_ISREG(current.st_mode)
+            or stat.S_ISLNK(current.st_mode)
+            or stat.S_IMODE(current.st_mode) != 0o500
+            or identity != self._private_verifier_identity
+        ):
+            raise ExecutionBridgeViolation("private verifier copy identity drift")
+        return self._private_verifier_path
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._private_verifier_context.__exit__(None, None, None)
+
+    def __enter__(self) -> UnixAuthorityClient:
+        if self._closed:
+            raise ExecutionBridgeViolation("authority verifier client is closed")
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
 
     def _read_exact(self, stream: socket.socket, count: int) -> bytes:
         chunks: list[bytes] = []
@@ -325,11 +388,9 @@ class UnixAuthorityClient:
         return b"".join(chunks)
 
     def _verify_ed25519(self, message: bytes, signature: bytes) -> None:
+        verifier = self._assert_private_verifier_intact()
         try:
-            with (
-                self._private_verifier_copy() as verifier,
-                tempfile.TemporaryDirectory(prefix="r-state-authority-verify-") as raw,
-            ):
+            with tempfile.TemporaryDirectory(prefix="r-state-authority-verify-") as raw:
                 directory = Path(raw)
                 public_key = directory / "response-public.pem"
                 signature_path = directory / "response.sig"

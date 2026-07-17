@@ -582,21 +582,24 @@ def test_verifier_binary_path_hash_and_symlink_fail_closed(
         _client(missing_admission, _socket_path("missing-verifier"), public_key)
 
 
-def test_verifier_binary_bytes_are_rechecked_before_every_signature(
+def test_source_binary_bytes_drift_cannot_change_initialized_private_copy(
     tmp_path: Path,
     keypair: tuple[Path, Path, str],
 ) -> None:
-    _private_key, public_key, public_digest = keypair
+    private_key, public_key, public_digest = keypair
     verifier = tmp_path / "openssl-copy"
     shutil.copy2(_openssl_binary(), verifier)
     verifier.chmod(verifier.stat().st_mode | stat.S_IWUSR)
     admission = _admission(public_digest, verifier_binary_path=verifier)
     client = _client(admission, _socket_path("verifier-drift"), public_key)
+    message_payload = {"probe": "source-bytes-drift"}
+    message = canonical_json(message_payload).encode()
+    signature = _sign(private_key, message_payload)
 
     verifier.write_bytes(verifier.read_bytes() + b"drift")
 
-    with pytest.raises(ExecutionBridgeViolation, match="verifier binary digest"):
-        client._verify_ed25519(b"message", b"signature")
+    client._verify_ed25519(message, signature)
+    client.close()
 
 
 def test_path_replacement_cannot_change_signed_verifier(
@@ -681,7 +684,72 @@ def test_verified_private_copy_survives_source_swap_and_sanitizes_environment(
     assert observed["directory_mode"] == 0o700
     assert observed["binary_mode"] == 0o500
     assert observed["binary_sha256"] == signed_digest
+    assert executed.exists()
+    client.close()
+    client.close()
     assert not executed.exists()
+
+
+def test_private_verifier_copy_is_reused_and_context_cleans_on_exception(
+    keypair: tuple[Path, Path, str],
+) -> None:
+    private_key, public_key, public_digest = keypair
+    descriptor_count_before = len(os.listdir("/dev/fd"))
+    client = _client(_admission(public_digest), _socket_path("copy-reuse"), public_key)
+    private_copy = client._private_verifier_path
+    message_payload = {"probe": "reuse-private-copy"}
+    message = canonical_json(message_payload).encode()
+    signature = _sign(private_key, message_payload)
+
+    with pytest.raises(RuntimeError, match="simulated caller failure"):
+        with client:
+            client._verify_ed25519(message, signature)
+            assert client._private_verifier_path == private_copy
+            client._verify_ed25519(message, signature)
+            assert client._private_verifier_path == private_copy
+            raise RuntimeError("simulated caller failure")
+
+    assert not private_copy.exists()
+    client.close()
+    assert len(os.listdir("/dev/fd")) == descriptor_count_before
+    with pytest.raises(ExecutionBridgeViolation, match="client is closed"):
+        client._verify_ed25519(message, signature)
+
+
+def test_private_verifier_identity_initialization_failure_cleans_context_and_fd(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _private_key, public_key, public_digest = keypair
+    private_directory = tmp_path / "simulated-private-verifier"
+    missing_path = private_directory / "missing-after-enter"
+
+    class FailingIdentityContext:
+        exited = False
+
+        def __enter__(self) -> Path:
+            private_directory.mkdir()
+            return missing_path
+
+        def __exit__(self, *_args: object) -> None:
+            self.exited = True
+            shutil.rmtree(private_directory)
+
+    context = FailingIdentityContext()
+    monkeypatch.setattr(
+        UnixAuthorityClient,
+        "_private_verifier_copy",
+        lambda _self: context,
+    )
+    descriptor_count_before = len(os.listdir("/dev/fd"))
+
+    with pytest.raises(OSError):
+        _client(_admission(public_digest), _socket_path("init-failure"), public_key)
+
+    assert context.exited is True
+    assert not private_directory.exists()
+    assert len(os.listdir("/dev/fd")) == descriptor_count_before
 
 
 def test_client_half_closes_request_before_reading_signed_response(

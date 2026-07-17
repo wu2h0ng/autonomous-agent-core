@@ -816,27 +816,30 @@ def _execute(
         verifier_binary_path=Path(admission.isolation_binding.verifier_binary_path),
         verifier_binary_sha256=(admission.isolation_binding.verifier_binary_sha256),
     )
-    actor = (actor_factory or _production_actor)(admission)
-    if not isinstance(actor, ProviderActor):
-        raise ExecutionBridgeViolation("actor factory must return ProviderActor")
-    bridge = ExecutionBridge(
-        root=root,
-        active_manifest=arguments.active_manifest,
-        run_dir=arguments.run_dir,
-        receipt_documents=receipts,
-        receipt_verifier=authority,
-        workspace_probe=cast(WorkspaceProbe, GitWorkspaceProbe(root)),
-        c7=authority,
-        actor=actor,
-    )
-    execution_receipt = bridge.execute(admission)
-    return validate_and_publish_result(
-        admission=admission,
-        execution_receipt=execution_receipt,
-        terminal_intent_path=arguments.run_dir / "execution.terminal-intent.json",
-        terminal_ack_path=arguments.run_dir / "execution.terminal-ack.json",
-        usage_ledger_path=arguments.usage_ledger,
-    )
+    try:
+        actor = (actor_factory or _production_actor)(admission)
+        if not isinstance(actor, ProviderActor):
+            raise ExecutionBridgeViolation("actor factory must return ProviderActor")
+        bridge = ExecutionBridge(
+            root=root,
+            active_manifest=arguments.active_manifest,
+            run_dir=arguments.run_dir,
+            receipt_documents=receipts,
+            receipt_verifier=authority,
+            workspace_probe=cast(WorkspaceProbe, GitWorkspaceProbe(root)),
+            c7=authority,
+            actor=actor,
+        )
+        execution_receipt = bridge.execute(admission)
+        return validate_and_publish_result(
+            admission=admission,
+            execution_receipt=execution_receipt,
+            terminal_intent_path=arguments.run_dir / "execution.terminal-intent.json",
+            terminal_ack_path=arguments.run_dir / "execution.terminal-ack.json",
+            usage_ledger_path=arguments.usage_ledger,
+        )
+    finally:
+        authority.close()
 
 
 def main(

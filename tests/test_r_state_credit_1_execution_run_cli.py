@@ -691,3 +691,54 @@ def test_main_rejects_dependency_forged_stdout(
     assert output.out == ""
     diagnostic = json.loads(output.err)
     assert diagnostic["message"] == "execution dependency wrote forged stdout"
+
+
+def test_execute_closes_authority_client_when_actor_factory_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    arguments = _parse_args(
+        [
+            "--admission",
+            str(tmp_path / "admission.json"),
+            "--receipt-dir",
+            str(tmp_path / "receipts"),
+            "--active-manifest",
+            str(tmp_path / "active.json"),
+            "--run-dir",
+            str(run_dir),
+            "--authority-socket",
+            str(tmp_path / "authority.sock"),
+            "--authority-public-key",
+            str(tmp_path / "authority.pem"),
+            "--reservation-token-fd",
+            "9",
+            "--usage-ledger",
+            str(tmp_path / "usage.jsonl"),
+        ]
+    )
+    admission = _admission("6" * 64)
+
+    class FakeAuthority:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    authority = FakeAuthority()
+    monkeypatch.setattr(cli, "_regular_bytes", lambda *_args, **_kwargs: b"{}")
+    monkeypatch.setattr(cli, "_load_receipts", lambda *_args: {})
+    monkeypatch.setattr(cli, "_verify_runtime_isolation", lambda *_args: None)
+    monkeypatch.setattr(
+        cli.ExecutionAdmission,
+        "from_canonical_json",
+        lambda _encoded: admission,
+    )
+    monkeypatch.setattr(cli, "UnixAuthorityClient", lambda **_kwargs: authority)
+
+    with pytest.raises(ExecutionBridgeViolation, match="actor factory"):
+        cli._execute(arguments, actor_factory=lambda _admission: object())
+
+    assert authority.closed is True
