@@ -54,6 +54,7 @@ from .provider import (
     OpenAICompatibleProvider,
     ProviderPort,
 )
+from .protocol_ingress import EventEnvelopeAdapter, WorkloadIdentityAdapter
 from .recovery import build_recovery_snapshot
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
@@ -242,6 +243,8 @@ __all__ = [
     "EnvCredentialBroker",
     "OpenAICompatibleProvider",
     "ProviderPort",
+    "EventEnvelopeAdapter",
+    "WorkloadIdentityAdapter",
     "build_recovery_snapshot",
     "CanonicalCredentialLeaseRegistry",
     "CanonicalCredentialAuthorizationReader",

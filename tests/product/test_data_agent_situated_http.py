@@ -18,6 +18,7 @@ from agent_os_contracts import (
     ProviderRelevancePolicy,
     RatifiedMandateRef,
     RelevanceDisposition,
+    WorkloadIdentityRegistration,
     content_digest,
 )
 from agent_os_core import (
@@ -106,6 +107,8 @@ def _mandate(policy: ProviderRelevancePolicy) -> RatifiedMandateRef:
 def _situated_app(
     tmp_path: Path,
     disposition: RelevanceDisposition,
+    *,
+    workload_identities: tuple[WorkloadIdentityRegistration, ...] = (),
 ) -> AgentOSApplication:
     report_database = tmp_path / "reports.sqlite3"
     situated_database = tmp_path / "situated.sqlite3"
@@ -152,6 +155,7 @@ def _situated_app(
             f"{task_database.name}.admission.sqlite3"
         ),
         clock=lambda: NOW,
+        workload_identities=workload_identities,
     )
     principal = PrincipalIdentity(
         principal_id=adapter.principal_scope[0],

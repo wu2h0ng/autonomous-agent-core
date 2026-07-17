@@ -78,6 +78,16 @@ from .provider import (
     ProviderToolProposal,
     ProviderUsage,
 )
+from .protocol_ingress import (
+    ActorRef,
+    DelegationRef,
+    ExternalEnvelopeAssertion,
+    PrincipalRef,
+    ProtocolIngressReceipt,
+    SourceBindingAuthorizationReceipt,
+    WorkloadIdentityRegistration,
+    WorkloadRef,
+)
 from .resource import ResourceBudget, RiskTier
 from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
 from .situated import (
@@ -273,6 +283,14 @@ __all__ = [
     "PolicyDecision",
     "PolicyVerdict",
     "PrincipalIdentity",
+    "PrincipalRef",
+    "ActorRef",
+    "WorkloadRef",
+    "DelegationRef",
+    "WorkloadIdentityRegistration",
+    "ExternalEnvelopeAssertion",
+    "SourceBindingAuthorizationReceipt",
+    "ProtocolIngressReceipt",
     "PrincipalRole",
     "ProviderErrorCode",
     "ProviderFailure",

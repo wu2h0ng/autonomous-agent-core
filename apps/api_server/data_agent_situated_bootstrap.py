@@ -15,19 +15,24 @@ from agent_os_contracts import (
     EventOriginRegistration,
     TaskDraftProposal,
     HelpRequest,
+    ProtocolIngressReceipt,
+    WorkloadIdentityRegistration,
     canonical_json,
+    content_digest,
     credential_lease_digest,
 )
 from agent_os_core import (
     CanonicalCredentialLeaseRegistry,
     CredentialAuthorizationReader,
     EnvironmentEventAdmissionService,
+    EventEnvelopeAdapter,
     MandateSteward,
     OperationalProposalService,
     RelevanceAssessorPort,
     ScopedEventAdmissionReader,
     ScopedSituatedAssessmentReader,
     SituationalTrustDenied,
+    WorkloadIdentityAdapter,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_store import _create_event_admission_store
@@ -232,6 +237,8 @@ class DataAgentSituatedRuntime:
         "_adapter",
         "_composition_seal",
         "_principal_scope",
+        "_envelope_adapter",
+        "_workload_identity_adapter",
         "_steward",
     )
 
@@ -245,6 +252,8 @@ class DataAgentSituatedRuntime:
         adapter: DataAgentReportAdapter,
         admission: DataAgentAdmissionFacade,
         steward: MandateSteward,
+        envelope_adapter: EventEnvelopeAdapter,
+        workload_identity_adapter: WorkloadIdentityAdapter,
         composition_seal: object | None = None,
     ) -> DataAgentSituatedRuntime:
         if (
@@ -252,6 +261,8 @@ class DataAgentSituatedRuntime:
             or type(adapter) is not DataAgentReportAdapter
             or type(admission) is not DataAgentAdmissionFacade
             or type(steward) is not MandateSteward
+            or type(envelope_adapter) is not EventEnvelopeAdapter
+            or type(workload_identity_adapter) is not WorkloadIdentityAdapter
         ):
             raise TypeError("runtime requires deployment-internal composition")
         principal_scope = tuple(adapter.principal_scope)
@@ -276,6 +287,8 @@ class DataAgentSituatedRuntime:
         self._adapter = adapter
         self._admission = admission
         self._steward = steward
+        self._envelope_adapter = envelope_adapter
+        self._workload_identity_adapter = workload_identity_adapter
         self._principal_scope = principal_scope
         self._composition_seal = composition_seal
         return self
@@ -301,6 +314,57 @@ class DataAgentSituatedRuntime:
     ) -> ProposalResult:
         return self._steward.observe_event(event_id, projection_id, receipt_id)
 
+    def propose_authenticated_protocol_envelope(
+        self,
+        raw_envelope: dict[str, Any],
+        workload_assertion: str,
+    ) -> ProtocolIngressReceipt:
+        envelope = self._envelope_adapter.parse(raw_envelope)
+        authorization = self._workload_identity_adapter.authenticate(
+            workload_assertion, envelope, self._principal_scope
+        )
+        bundle = self.observe_report(envelope.trace_id)
+        if bundle.event.environment_binding_id != authorization.source_binding_id:
+            raise SituationalTrustDenied(
+                "authenticated workload is not bound to observed environment"
+            )
+        admission = self.admit_event(bundle.event.environment_event_id)
+        proposal = self.propose(
+            bundle.event.environment_event_id,
+            bundle.projection.projection_id,
+            admission.receipt_id,
+        )
+        if isinstance(proposal, TaskDraftProposal):
+            outcome_kind = "TASK_DRAFT"
+            task_draft = proposal
+            help_request = None
+        elif isinstance(proposal, HelpRequest):
+            outcome_kind = "HELP_REQUEST"
+            task_draft = None
+            help_request = proposal
+        else:
+            outcome_kind = "NO_PROPOSAL"
+            task_draft = None
+            help_request = None
+        receipt_id = "protocol-ingress:" + content_digest(
+            {
+                "binding_digest": authorization.binding_digest,
+                "admission_receipt_id": admission.receipt_id,
+                "outcome_kind": outcome_kind,
+            }
+        )
+        return ProtocolIngressReceipt(
+            receipt_id=receipt_id,
+            protocol=envelope.protocol,
+            protocol_message_id=envelope.protocol_message_id,
+            binding_digest=authorization.binding_digest,
+            envelope_digest=envelope.envelope_digest,
+            admission_receipt_id=admission.receipt_id,
+            outcome_kind=outcome_kind,
+            task_draft=task_draft,
+            help_request=help_request,
+        )
+
 
 class DataAgentSituatedBootstrap:
     """Deployment-internal composition for the receipt-required Data Agent slice."""
@@ -315,6 +379,7 @@ class DataAgentSituatedBootstrap:
         assessor: RelevanceAssessorPort,
         admission_database: str | Path,
         clock: Clock,
+        workload_identities: tuple[WorkloadIdentityRegistration, ...] = (),
     ) -> DataAgentSituatedRuntime:
         if type(adapter) is not DataAgentReportAdapter:
             raise TypeError("composition requires the concrete Data Agent adapter")
@@ -376,6 +441,8 @@ class DataAgentSituatedBootstrap:
             adapter=adapter,
             admission=admission,
             steward=steward,
+            envelope_adapter=EventEnvelopeAdapter(),
+            workload_identity_adapter=WorkloadIdentityAdapter(workload_identities),
             composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )
 

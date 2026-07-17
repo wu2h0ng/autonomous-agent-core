@@ -238,10 +238,11 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     )
     assert set(name for name in dir(runtime) if not name.startswith("_")) == {
         "admit_event",
-        "observe_report",
-        "principal_scope",
-        "propose",
-    }
+            "observe_report",
+            "principal_scope",
+            "propose",
+            "propose_authenticated_protocol_envelope",
+        }
     assert runtime.principal_scope == (
         "principal:local",
         "tenant:local",
