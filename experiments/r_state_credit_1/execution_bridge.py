@@ -335,22 +335,43 @@ class ReceiptVerification:
 
 
 @dataclass(frozen=True, slots=True)
-class ReservationVerification:
+class ReservationClaimReceipt:
     registry_verified: bool
+    claimed: bool
+    claim_id: str
     reservation_id: str
     reservation_token_sha256: str
     attempt_epoch: int
     cas_epoch: int
     run_id: str
-    active: bool
+    envelope_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReservationTerminalReceipt:
+    registry_verified: bool
+    claim_id: str
+    state: str
+    terminal_sha256: str
+    terminalized: bool
 
 
 class AuthorityVerifier(Protocol):
     def verify(self, kind: ReceiptKind, receipt_bytes: bytes) -> ReceiptVerification: ...
 
-    def verify_reservation(
-        self, reservation: dict[str, object], run_id: str
-    ) -> ReservationVerification: ...
+    def claim(
+        self,
+        reservation: dict[str, object],
+        run_id: str,
+        envelope_sha256: str,
+    ) -> ReservationClaimReceipt: ...
+
+    def terminalize(
+        self,
+        claim: ReservationClaimReceipt,
+        state: str,
+        terminal_sha256: str,
+    ) -> ReservationTerminalReceipt: ...
 
 
 class C7Probe(Protocol):
@@ -372,6 +393,60 @@ class ExecutionReceipt:
     raw_path: Path
     raw_sha256: str
     row_count: int
+
+
+_RAW_ROW_FIELDS = {
+    "run_id",
+    "call_index",
+    "episode_id",
+    "family",
+    "seed",
+    "checkpoint_id",
+    "arm_id",
+    "request_sha256",
+    "provider_receipt_id",
+    "provider_receipt_sha256",
+    "response_sha256",
+    "model_revision",
+    "input_tokens",
+    "output_tokens",
+    "cost_microusd",
+    "action",
+    "loss_code",
+    "loss_weight",
+}
+_FORBIDDEN_RAW_FIELDS = {"met", "not_met", "verdict", "promotion"}
+
+
+def assert_raw_only(value: object) -> None:
+    """Recursively reject route-adjudication fields or scalar values."""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if isinstance(key, str) and key.casefold() in _FORBIDDEN_RAW_FIELDS:
+                raise ExecutionBridgeViolation("raw output contains route adjudication")
+            assert_raw_only(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            assert_raw_only(item)
+    elif isinstance(value, str) and value.casefold() in _FORBIDDEN_RAW_FIELDS:
+        raise ExecutionBridgeViolation("raw output contains route adjudication")
+
+
+@dataclass(frozen=True, slots=True)
+class InternalSealedRawRow:
+    """Runner-internal closed raw row; never a public actor input."""
+
+    values: dict[str, object]
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> InternalSealedRawRow:
+        if set(value) != _RAW_ROW_FIELDS:
+            raise ExecutionBridgeViolation("internal sealed raw row must be closed")
+        assert_raw_only(value)
+        return cls(values=dict(value))
+
+    def to_mapping(self) -> dict[str, object]:
+        return dict(self.values)
 
 
 @dataclass(slots=True)
@@ -444,7 +519,9 @@ class ExecutionBridge:
         self.journal_path = run_dir / "execution.journal.jsonl"
         self.raw_path = run_dir / "rfinal.raw.json"
         self.partial_path = run_dir / "rfinal.partial.json"
+        self.terminal_path = run_dir / "execution.terminal.json"
         self._anchor_head: str | None = None
+        self._claim: ReservationClaimReceipt | None = None
 
     def _receipt_payload(self, kind: ReceiptKind) -> dict[str, object]:
         encoded = self.receipt_documents[kind]
@@ -454,7 +531,18 @@ class ExecutionBridge:
             raise ExecutionBridgeViolation("receipt must be canonical JSON") from exc
         if canonical_json(raw).encode() != encoded:
             raise ExecutionBridgeViolation("receipt must be canonical JSON")
-        return _closed(raw, {"kind", "receipt_id", "subject_sha256"}, f"{kind.value} receipt")
+        expected = {"kind", "receipt_id", "subject_sha256"}
+        if kind is ReceiptKind.RUN_AUTHORIZATION:
+            expected.add("authorization_context_sha256")
+        payload = _closed(raw, expected, f"{kind.value} receipt")
+        _require_text(payload["receipt_id"], f"{kind.value} receipt_id")
+        _require_sha256(payload["subject_sha256"], f"{kind.value} subject_sha256")
+        if kind is ReceiptKind.RUN_AUTHORIZATION:
+            _require_sha256(
+                payload["authorization_context_sha256"],
+                "RUN_AUTHORIZATION authorization_context_sha256",
+            )
+        return payload
 
     def admit(self, envelope: ExecutionAdmission) -> None:
         if set(self.receipt_documents) != set(ReceiptKind):
@@ -488,8 +576,28 @@ class ExecutionBridge:
             ReceiptKind.EXECUTOR: envelope.components["executor_sha256"],
             ReceiptKind.INTEGRITY: envelope.components["integrity_sha256"],
             ReceiptKind.FREEZE: envelope.freeze_subject_digest,
-            ReceiptKind.RUN_AUTHORIZATION: envelope.envelope_core_sha256,
+            ReceiptKind.RUN_AUTHORIZATION: envelope.six_receipt_digests[
+                ReceiptKind.FREEZE
+            ],
         }
+        receipt_ids = [payloads[kind]["receipt_id"] for kind in ReceiptKind]
+        receipt_subjects = [payloads[kind]["subject_sha256"] for kind in ReceiptKind]
+        receipt_digests = [envelope.six_receipt_digests[kind] for kind in ReceiptKind]
+        if len(set(cast(list[str], receipt_ids))) != len(ReceiptKind):
+            raise ExecutionBridgeViolation("receipt ids must be globally unique")
+        if len(set(cast(list[str], receipt_subjects))) != len(ReceiptKind):
+            raise ExecutionBridgeViolation("receipt subjects must be globally unique")
+        if len(set(receipt_digests)) != len(ReceiptKind):
+            raise ExecutionBridgeViolation("receipt digests must be globally unique")
+        if (
+            payloads[ReceiptKind.RUN_AUTHORIZATION][
+                "authorization_context_sha256"
+            ]
+            != envelope.envelope_core_sha256
+        ):
+            raise ExecutionBridgeViolation(
+                "run authorization context does not bind the envelope core"
+            )
         principals: set[str] = set()
         for kind in ReceiptKind:
             encoded = self.receipt_documents[kind]
@@ -525,33 +633,53 @@ class ExecutionBridge:
             != envelope.six_receipt_digests[ReceiptKind.PROVIDER_CANARY]
         ):
             raise ExecutionBridgeViolation("provider canary receipt binding drift")
-        reservation = self.receipt_verifier.verify_reservation(
-            envelope.workflow_reservation.to_mapping(), envelope.run_id
+        self._anchor_head = self.workspace_probe.admit(TARGET_HEAD, envelope.components)
+        reservation = self.receipt_verifier.claim(
+            envelope.workflow_reservation.to_mapping(),
+            envelope.run_id,
+            envelope.envelope_sha256,
         )
         expected_reservation = envelope.workflow_reservation
         if (
-            not reservation.registry_verified
-            or not reservation.active
+            not isinstance(reservation, ReservationClaimReceipt)
+            or not reservation.registry_verified
+            or not reservation.claimed
             or reservation.reservation_id != expected_reservation.reservation_id
             or reservation.reservation_token_sha256 != expected_reservation.reservation_token_sha256
             or reservation.attempt_epoch != expected_reservation.attempt_epoch
             or reservation.cas_epoch != expected_reservation.cas_epoch
             or reservation.run_id != envelope.run_id
+            or reservation.envelope_sha256 != envelope.envelope_sha256
         ):
-            raise ExecutionBridgeViolation("workflow reservation registry/CAS verification failed")
-        self._anchor_head = self.workspace_probe.admit(TARGET_HEAD, envelope.components)
+            message = (
+                "workflow reservation already claimed"
+                if isinstance(reservation, ReservationClaimReceipt)
+                and not reservation.claimed
+                else "workflow reservation registry/CAS claim failed"
+            )
+            raise ExecutionBridgeViolation(message)
+        self._claim = reservation
 
     def _write_exclusive(self, path: Path, payload: object) -> None:
         encoded = (canonical_json(payload) + "\n").encode()
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            raise ExecutionBridgeViolation("execution attempt is permanently consumed")
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         try:
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            descriptor = os.open(
+                temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
         except FileExistsError as exc:
-            raise ExecutionBridgeViolation("execution attempt is permanently consumed") from exc
+            raise ExecutionBridgeViolation("atomic seal temporary path exists") from exc
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        if path.exists():
+            temporary.unlink(missing_ok=True)
+            raise ExecutionBridgeViolation("execution attempt is permanently consumed")
+        os.rename(temporary, path)
         directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
             os.fsync(directory)
@@ -559,16 +687,28 @@ class ExecutionBridge:
             os.close(directory)
 
     def _journal(self, payload: object) -> None:
-        encoded = (canonical_json(payload) + "\n").encode()
-        descriptor = os.open(
-            self.journal_path,
-            os.O_WRONLY | os.O_APPEND | os.O_CREAT,
-            0o600,
+        prior = self.journal_path.read_bytes() if self.journal_path.exists() else b""
+        encoded = prior + (canonical_json(payload) + "\n").encode()
+        self.journal_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.journal_path.with_name(
+            f".{self.journal_path.name}.{os.getpid()}.tmp"
         )
-        with os.fdopen(descriptor, "ab") as handle:
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+        )
+        with os.fdopen(descriptor, "wb") as handle:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        os.rename(temporary, self.journal_path)
+        directory = os.open(
+            self.journal_path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
     def _terminal_payload(
         self,
@@ -608,7 +748,38 @@ class ExecutionBridge:
         if aborted:
             raise ExecutionBridgeViolation("C7 interrupted execution")
 
+    def _seal_terminal(self, *, state: str, payload: dict[str, object]) -> None:
+        if self._claim is None:
+            raise ExecutionBridgeViolation("reservation claim is absent at terminal")
+        terminal = {
+            "schema_version": "r-state-credit-1-execution-final-state-v1",
+            "state": state,
+            **payload,
+        }
+        self._write_exclusive(self.terminal_path, terminal)
+        terminal_sha256 = _sha256(self.terminal_path.read_bytes())
+        receipt = self.receipt_verifier.terminalize(
+            self._claim, state, terminal_sha256
+        )
+        if not isinstance(receipt, ReservationTerminalReceipt) or (
+            not receipt.registry_verified
+            or not receipt.terminalized
+            or receipt.claim_id != self._claim.claim_id
+            or receipt.state != state
+            or receipt.terminal_sha256 != terminal_sha256
+        ):
+            raise ExecutionBridgeViolation("reservation terminalization failed")
+        self._journal(
+            {
+                "state": state,
+                "event": "RESERVATION_TERMINALIZED",
+                "terminal_sha256": terminal_sha256,
+            }
+        )
+
     def execute(self, envelope: ExecutionAdmission) -> ExecutionReceipt:
+        if self.lock_path.exists():
+            raise ExecutionBridgeViolation("execution attempt is permanently consumed")
         self.admit(envelope)
         self._write_exclusive(
             self.lock_path,
@@ -704,6 +875,7 @@ class ExecutionBridge:
                                     provider_started = True
                                     provider_settled = False
                                     actor_response = self.actor.act(call.request)
+                                    provider_settled = True
                                     receipt = actor_response.receipt
                                     if receipt.provider_receipt_id in provider_receipt_ids:
                                         raise ExecutionBridgeViolation(
@@ -713,7 +885,7 @@ class ExecutionBridge:
                                     ledger.settle(
                                         input_tokens=receipt.input_tokens,
                                         output_tokens=receipt.output_tokens,
-                                        cost_microusd=envelope.budget.max_cost_microusd_per_call,
+                                        cost_microusd=receipt.cost_microusd,
                                     )
                                     receipt_mapping = {
                                         "provider_receipt_id": receipt.provider_receipt_id,
@@ -724,7 +896,7 @@ class ExecutionBridge:
                                         "response_sha256": receipt.response_sha256,
                                         "input_tokens": receipt.input_tokens,
                                         "output_tokens": receipt.output_tokens,
-                                        "cost_microusd": envelope.budget.max_cost_microusd_per_call,
+                                        "cost_microusd": receipt.cost_microusd,
                                         "run_id": envelope.run_id,
                                         "call_index": last_call_index,
                                     }
@@ -741,7 +913,6 @@ class ExecutionBridge:
                                             "usage": ledger.to_mapping(),
                                         }
                                     )
-                                    provider_settled = True
                                     self._check_c7()
                                     arm_id, resolved = blinding.resolve_response(
                                         ordinal,
@@ -749,7 +920,7 @@ class ExecutionBridge:
                                         call.session_label,
                                     )
                                     loss, weight = episode.score_action(resolved.action)
-                                    rows.append(
+                                    row = InternalSealedRawRow.from_mapping(
                                         {
                                             "run_id": envelope.run_id,
                                             "call_index": last_call_index,
@@ -765,12 +936,13 @@ class ExecutionBridge:
                                             "model_revision": receipt.model_revision,
                                             "input_tokens": receipt.input_tokens,
                                             "output_tokens": receipt.output_tokens,
-                                            "cost_microusd": envelope.budget.max_cost_microusd_per_call,
+                                            "cost_microusd": receipt.cost_microusd,
                                             "action": resolved.action.value,
                                             "loss_code": loss.value,
                                             "loss_weight": weight,
                                         }
-                                    )
+                                    ).to_mapping()
+                                    rows.append(row)
                                     provider_started = False
                             episode.step(episode._default_policy(observation, episode))
                     finally:
@@ -801,6 +973,7 @@ class ExecutionBridge:
                 "raw_metrics": raw_metrics,
                 "rows": rows,
             }
+            assert_raw_only(payload)
             self._write_exclusive(self.raw_path, payload)
             self._journal(
                 {
@@ -808,6 +981,15 @@ class ExecutionBridge:
                     "row_count": len(rows),
                     "raw_sha256": _sha256(self.raw_path.read_bytes()),
                 }
+            )
+            self._seal_terminal(
+                state="SEALED_RAW",
+                payload={
+                    "run_id": envelope.run_id,
+                    "envelope_sha256": envelope.envelope_sha256,
+                    "row_count": len(rows),
+                    "raw_sha256": _sha256(self.raw_path.read_bytes()),
+                },
             )
             return ExecutionReceipt(
                 raw_path=self.raw_path,
@@ -837,5 +1019,14 @@ class ExecutionBridge:
                     "row_count": len(rows),
                     "partial_sha256": _sha256(self.partial_path.read_bytes()),
                 }
+            )
+            self._seal_terminal(
+                state=state,
+                payload={
+                    "run_id": envelope.run_id,
+                    "envelope_sha256": envelope.envelope_sha256,
+                    "row_count": len(rows),
+                    "partial_sha256": _sha256(self.partial_path.read_bytes()),
+                },
             )
             raise

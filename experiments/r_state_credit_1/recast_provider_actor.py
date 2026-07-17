@@ -59,6 +59,7 @@ class ProviderReceipt:
     response_sha256: str
     input_tokens: int
     output_tokens: int
+    cost_microusd: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +101,7 @@ class ProviderActor:
             "model_revision",
             "input_tokens",
             "output_tokens",
+            "cost_microusd",
         }
         if set(raw) != required:
             raise ProviderNotReady("provider response schema drift")
@@ -116,12 +118,16 @@ class ProviderActor:
             raise ProviderNotReady("provider notes schema drift")
         response = ActorResponse(action=action, notes=notes)
         response_bytes = json.dumps(raw, sort_keys=True, separators=(",", ":")).encode()
-        input_tokens, output_tokens = raw["input_tokens"], raw["output_tokens"]
+        input_tokens, output_tokens, cost_microusd = (
+            raw["input_tokens"],
+            raw["output_tokens"],
+            raw["cost_microusd"],
+        )
         if any(
             not isinstance(v, int) or isinstance(v, bool) or v < 0
-            for v in (input_tokens, output_tokens)
+            for v in (input_tokens, output_tokens, cost_microusd)
         ):
-            raise ProviderNotReady("provider usage schema drift")
+            raise ProviderNotReady("provider usage/cost schema drift")
         input_token_count = cast(int, input_tokens)
         output_token_count = cast(int, output_tokens)
         receipt_id = raw["provider_receipt_id"]
@@ -138,5 +144,6 @@ class ProviderActor:
                 response_sha256=_digest(response_bytes),
                 input_tokens=input_token_count,
                 output_tokens=output_token_count,
+                cost_microusd=cast(int, cost_microusd),
             ),
         )

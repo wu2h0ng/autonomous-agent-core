@@ -42,6 +42,7 @@ class _Transport:
             "model_revision": "revision-2026-07-17",
             "input_tokens": 10,
             "output_tokens": 2,
+            "cost_microusd": 1,
         }
 
 

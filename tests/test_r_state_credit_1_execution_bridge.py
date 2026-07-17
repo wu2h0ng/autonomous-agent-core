@@ -18,9 +18,12 @@ from experiments.r_state_credit_1.execution_bridge import (
     ExecutionAdmission,
     ExecutionBridge,
     ExecutionBridgeViolation,
+    InternalSealedRawRow,
     ReceiptVerification,
     ReceiptKind,
-    ReservationVerification,
+    ReservationClaimReceipt,
+    ReservationTerminalReceipt,
+    assert_raw_only,
     canonical_json,
     component_digests,
 )
@@ -59,6 +62,7 @@ class _Transport:
             "model_revision": ARK_MODEL_SNAPSHOT,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "cost_microusd": self.cost_microusd,
         }
 
 
@@ -80,6 +84,8 @@ class _ExternalVerifier:
     def __init__(self, accepted: bool = True) -> None:
         self.accepted = accepted
         self.kinds: list[ReceiptKind] = []
+        self.claimed: set[tuple[str, str, int]] = set()
+        self.terminal_states: list[str] = []
 
     def verify(self, kind: ReceiptKind, receipt_bytes: bytes) -> ReceiptVerification:
         assert receipt_bytes
@@ -103,17 +109,44 @@ class _ExternalVerifier:
             artifact_sha256=_sha(receipt_bytes),
         )
 
-    def verify_reservation(
-        self, reservation: dict[str, object], run_id: str
-    ) -> ReservationVerification:
-        return ReservationVerification(
+    def claim(
+        self,
+        reservation: dict[str, object],
+        run_id: str,
+        envelope_sha256: str,
+    ) -> ReservationClaimReceipt:
+        key = (
+            run_id,
+            str(reservation["reservation_token_sha256"]),
+            cast(int, reservation["attempt_epoch"]),
+        )
+        claimed = key not in self.claimed
+        self.claimed.add(key)
+        return ReservationClaimReceipt(
             registry_verified=self.accepted,
+            claimed=claimed,
+            claim_id=f"claim:{run_id}:1",
             reservation_id=str(reservation["reservation_id"]),
             reservation_token_sha256=str(reservation["reservation_token_sha256"]),
             attempt_epoch=cast(int, reservation["attempt_epoch"]),
             cas_epoch=cast(int, reservation["cas_epoch"]),
             run_id=run_id,
-            active=True,
+            envelope_sha256=envelope_sha256,
+        )
+
+    def terminalize(
+        self,
+        claim: ReservationClaimReceipt,
+        state: str,
+        terminal_sha256: str,
+    ) -> ReservationTerminalReceipt:
+        self.terminal_states.append(state)
+        return ReservationTerminalReceipt(
+            registry_verified=self.accepted,
+            claim_id=claim.claim_id,
+            state=state,
+            terminal_sha256=terminal_sha256,
+            terminalized=True,
         )
 
 
@@ -204,6 +237,7 @@ def _receipt_documents(root: Path) -> dict[ReceiptKind, bytes]:
         ).encode()
     documents[ReceiptKind.RUN_AUTHORIZATION] = canonical_json(
         {
+            "authorization_context_sha256": "0" * 64,
             "kind": ReceiptKind.RUN_AUTHORIZATION.value,
             "receipt_id": "run-authorization-receipt-1",
             "subject_sha256": _sha(documents[ReceiptKind.FREEZE]),
@@ -277,9 +311,10 @@ def _envelope_bytes(
     payload["envelope_core_sha256"] = core_sha256
     receipts[ReceiptKind.RUN_AUTHORIZATION] = canonical_json(
         {
+            "authorization_context_sha256": core_sha256,
             "kind": ReceiptKind.RUN_AUTHORIZATION.value,
             "receipt_id": "run-authorization-receipt-1",
-            "subject_sha256": core_sha256,
+            "subject_sha256": _sha(receipts[ReceiptKind.FREEZE]),
         }
     ).encode()
     receipt_digests = dict(cast(dict[str, str], payload["six_receipt_digests"]))
@@ -384,6 +419,13 @@ def test_real_2240_call_loop_seals_raw_output_without_route_verdicts(
     tmp_path: Path,
 ) -> None:
     root, active_manifest, receipts, encoded = admission_inputs
+    encoded = _envelope_bytes(
+        root,
+        active_manifest,
+        receipts,
+        max_total_cost_microusd=EXPECTED_PROVIDER_CALLS * 10,
+        max_cost_microusd_per_call=10,
+    )
     transport = _Transport()
     verifier = _ExternalVerifier()
     bridge = ExecutionBridge(
@@ -408,7 +450,10 @@ def test_real_2240_call_loop_seals_raw_output_without_route_verdicts(
     payload = json.loads(raw)
     assert payload["raw_metrics"]["row_count"] == EXPECTED_PROVIDER_CALLS
     assert len(payload["rows"]) == EXPECTED_PROVIDER_CALLS
+    assert payload["usage"]["cost_microusd"] == EXPECTED_PROVIDER_CALLS
     assert set(verifier.kinds) == set(ReceiptKind)
+    assert verifier.terminal_states == ["SEALED_RAW"]
+    assert bridge.terminal_path.is_file()
 
 
 def test_failure_or_exhausted_budget_atomically_seals_partial_and_consumes_lock(
@@ -495,13 +540,77 @@ def test_run_authority_subject_binds_core_without_a_hash_cycle(
     _, _, receipts, encoded = admission_inputs
     envelope = ExecutionAdmission.from_canonical_json(encoded)
     authorization = json.loads(receipts[ReceiptKind.RUN_AUTHORIZATION])
-    assert authorization["subject_sha256"] == envelope.envelope_core_sha256
+    assert authorization["subject_sha256"] == _sha(receipts[ReceiptKind.FREEZE])
+    assert authorization["authorization_context_sha256"] == (
+        envelope.envelope_core_sha256
+    )
     assert (
         envelope.six_receipt_digests[ReceiptKind.RUN_AUTHORIZATION]
         == _sha(receipts[ReceiptKind.RUN_AUTHORIZATION])
     )
     assert envelope.recompute_core_sha256() == envelope.envelope_core_sha256
     assert envelope.recompute_envelope_sha256() == envelope.envelope_sha256
+
+
+def test_atomic_reservation_claim_rejects_same_envelope_in_a_new_run_dir(
+    admission_inputs: tuple[Path, Path, dict[ReceiptKind, bytes], bytes],
+    tmp_path: Path,
+) -> None:
+    root, active_manifest, receipts, encoded = admission_inputs
+    authority = _ExternalVerifier()
+    envelope = ExecutionAdmission.from_canonical_json(encoded)
+    first = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=tmp_path / "claim-a",
+        receipt_documents=receipts,
+        receipt_verifier=authority,
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(abort_at_probe=1),
+        actor=_actor(_Transport()),
+    )
+    with pytest.raises(ExecutionBridgeViolation, match="C7 interrupted"):
+        first.execute(envelope)
+    second = ExecutionBridge(
+        root=root,
+        active_manifest=active_manifest,
+        run_dir=tmp_path / "claim-b",
+        receipt_documents=receipts,
+        receipt_verifier=authority,
+        workspace_probe=_WorkspaceProbe(root),
+        c7=_C7(),
+        actor=_actor(_Transport()),
+    )
+    with pytest.raises(ExecutionBridgeViolation, match="already claimed"):
+        second.execute(envelope)
+
+
+def test_internal_raw_rows_are_closed_and_recursively_reject_route_fields() -> None:
+    row = {
+        "run_id": "r",
+        "call_index": 1,
+        "episode_id": "e",
+        "family": "CONTRADICTION",
+        "seed": 1009,
+        "checkpoint_id": "BEFORE_PERTURBATION",
+        "arm_id": "A0_FULL_LOG",
+        "request_sha256": "1" * 64,
+        "provider_receipt_id": "p",
+        "provider_receipt_sha256": "2" * 64,
+        "response_sha256": "3" * 64,
+        "model_revision": ARK_MODEL_SNAPSHOT,
+        "input_tokens": 1,
+        "output_tokens": 1,
+        "cost_microusd": 1,
+        "action": "CONTINUE",
+        "loss_code": "CORRECT",
+        "loss_weight": 0,
+    }
+    assert InternalSealedRawRow.from_mapping(row).to_mapping() == row
+    with pytest.raises(ExecutionBridgeViolation, match="closed"):
+        InternalSealedRawRow.from_mapping({**row, "extra": True})
+    with pytest.raises(ExecutionBridgeViolation, match="route adjudication"):
+        assert_raw_only({"nested": {"verdict": "MET"}})
 
 
 def test_missing_workflow_reservation_or_role_retagging_fails_before_effect(
