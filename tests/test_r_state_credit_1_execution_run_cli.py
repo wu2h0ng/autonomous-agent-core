@@ -514,6 +514,64 @@ def test_runtime_isolation_binds_interpreter_and_exact_child_command(
         )
 
 
+@pytest.mark.parametrize(
+    "tail",
+    (
+        (
+            "-m",
+            "experiments.r_state_credit_1.execution_run_cli",
+            "--admission",
+            "/tmp/admission.json",
+        ),
+        (
+            "-I",
+            "/sealed/tests/support/r_state_fake_execution_launcher.py",
+            "--admission",
+            "/tmp/admission.json",
+        ),
+    ),
+)
+def test_canonical_child_command_preserves_module_script_and_python_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    tail: tuple[str, ...],
+) -> None:
+    interpreter = str(Path(sys.executable).resolve())
+    monkeypatch.setattr(sys, "orig_argv", [interpreter, *tail])
+
+    assert cli.canonical_child_command() == (interpreter, *tail)
+
+
+def test_canonical_child_command_rejects_interpreter_path_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alien_interpreter = tmp_path / "python"
+    monkeypatch.setattr(
+        sys,
+        "orig_argv",
+        [
+            str(alien_interpreter),
+            "-m",
+            "experiments.r_state_credit_1.execution_run_cli",
+        ],
+    )
+
+    with pytest.raises(ExecutionBridgeViolation, match="command interpreter drift"):
+        cli.canonical_child_command()
+
+
+def test_python_flag_mutation_changes_child_command_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    interpreter = str(Path(sys.executable).resolve())
+    tail = ("/sealed/tests/support/r_state_fake_execution_launcher.py",)
+    monkeypatch.setattr(sys, "orig_argv", [interpreter, *tail])
+    plain = _sha(canonical_json(list(cli.canonical_child_command())).encode())
+    monkeypatch.setattr(sys, "orig_argv", [interpreter, "-I", *tail])
+    isolated = _sha(canonical_json(list(cli.canonical_child_command())).encode())
+
+    assert plain != isolated
+
+
 def test_git_workspace_probe_binds_clean_head_and_component_bytes(
     tmp_path: Path,
 ) -> None:
