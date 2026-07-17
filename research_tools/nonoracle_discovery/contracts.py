@@ -99,6 +99,11 @@ class InterventionDataset:
             raise DiscoveryContractError("intervention rows and binding identities must match")
         if not intervention_rows:
             raise DiscoveryContractError("at least one intervention binding is required")
+        target_values = tuple(intervention_targets.values())
+        if len(target_values) != len(set(target_values)):
+            raise DiscoveryContractError(
+                "intervention binding requires one unique target per condition"
+            )
         width = len(variables)
         controls = _rows(control_rows, width, "control")
         conditions: list[InterventionCondition] = []
