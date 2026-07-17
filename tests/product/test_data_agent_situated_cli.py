@@ -376,19 +376,19 @@ class TestBuilder:
         assert "authority resolution" in str(excinfo.value)
 
     @pytest.mark.parametrize(
-        "mut,label",
+        "mandate,label",
         [
-            ({"version": 4}, "version"),
-            ({"mandate_digest": "c" * 64}, "digest"),
-            ({"correction_epoch": 5}, "epoch"),
+            (_mandate(version=4), "version"),
+            (_mandate(mandate_digest="c" * 64), "digest"),
+            (_mandate(correction_epoch=5), "epoch"),
         ],
         ids=lambda x: str(x) if isinstance(x, str) else None,
     )
     def test_field_mismatch_fails(
-        self, tmp_path: Path, mut: dict[str, object], label: str
+        self, tmp_path: Path, mandate: RatifiedMandateRef, label: str
     ) -> None:
         config = _setup(tmp_path)
-        _seed(tmp_path / "authority.sqlite3", [_mandate(**mut)])
+        _seed(tmp_path / "authority.sqlite3", [mandate])
         with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
             _build()(
                 config_path=config,
