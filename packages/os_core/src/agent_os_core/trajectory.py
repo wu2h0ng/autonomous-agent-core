@@ -347,7 +347,7 @@ class TrajectoryProjector:
         )
 
     @staticmethod
-    def _correction_epoch(events: tuple[TaskEvent, ...]) -> int | None:
+    def _correction_epoch(events: tuple[TaskEvent, ...]) -> int:
         epochs: list[int] = []
         for event in events:
             payload = event.decoded_payload()
@@ -355,11 +355,11 @@ class TrajectoryProjector:
                 value = _find_first(payload, "epoch")
                 if isinstance(value, int) and value >= 0:
                     epochs.append(value)
-        return max(epochs) if epochs else None
+        return max(epochs, default=0)
 
     @staticmethod
     def _validate_correction_epoch_use(events: tuple[TaskEvent, ...]) -> None:
-        current: dict[str, int] = {}
+        current: dict[str, int] = {"TASK": 0, "RUN": 0, "CAPABILITY": 0}
         for event in events:
             payload = event.decoded_payload()
             if event.event_type is TaskEventType.CORRECTION_WRITTEN:
@@ -595,7 +595,8 @@ class CreditLedger:
         with self._lock:
             self._verify_chain_in_transaction()
             row = self._db.execute(
-                "SELECT assignment_json, assignment_digest "
+                "SELECT tenant_id, workspace_id, task_id, run_id, credit_id, "
+                "assignment_json, assignment_digest "
                 "FROM credit_assignments WHERE tenant_id = ? "
                 "AND workspace_id = ? AND task_id = ? AND run_id = ? "
                 "AND credit_id = ?",
@@ -621,7 +622,8 @@ class CreditLedger:
         with self._lock:
             self._verify_chain_in_transaction()
             rows = self._db.execute(
-                "SELECT assignment_json, assignment_digest "
+                "SELECT tenant_id, workspace_id, task_id, run_id, credit_id, "
+                "assignment_json, assignment_digest "
                 "FROM credit_assignments WHERE tenant_id = ? AND workspace_id = ? "
                 "AND task_id = ? AND run_id = ? "
                 "ORDER BY sequence",
@@ -699,7 +701,7 @@ class CreditLedger:
         for row in rows:
             if int(row["sequence"]) != expected_sequence:
                 raise EventStreamError("credit ledger sequence gap")
-            assignment = self._validated_row(row)
+            self._validated_row(row)
             if str(row["previous_record_digest"]) != expected_previous:
                 raise EventStreamError("credit ledger hash-chain predecessor mismatch")
             expected_record = content_digest(
@@ -709,7 +711,7 @@ class CreditLedger:
                     "workspace_id": str(row["workspace_id"]),
                     "task_id": str(row["task_id"]),
                     "run_id": str(row["run_id"]),
-                    "credit_id": assignment.credit_id,
+                    "credit_id": str(row["credit_id"]),
                     "assignment_digest": str(row["assignment_digest"]),
                     "previous_record_digest": expected_previous,
                 }
@@ -728,6 +730,19 @@ class CreditLedger:
     @staticmethod
     def _validated_row(row: sqlite3.Row) -> CreditAssignment:
         assignment = CreditAssignment.model_validate_json(str(row["assignment_json"]))
+        keys = set(row.keys())
+        relational = {
+            "tenant_id": assignment.tenant_id,
+            "workspace_id": assignment.workspace_id,
+            "task_id": assignment.task_id,
+            "run_id": assignment.run_id,
+            "credit_id": assignment.credit_id,
+        }
+        for field, canonical in relational.items():
+            if field in keys and str(row[field]) != canonical:
+                raise EventStreamError(
+                    f"credit ledger relational {field} binding mismatch"
+                )
         if content_digest(assignment) != str(row["assignment_digest"]):
             raise EventStreamError("credit ledger assignment digest mismatch")
         return assignment

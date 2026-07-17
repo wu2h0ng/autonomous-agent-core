@@ -131,7 +131,8 @@ def test_projector_records_missing_bindings_as_gaps_without_fabrication() -> Non
 
     assert episode.manifest.workflow_digest == "a" * 64
     assert episode.manifest.policy_version == "policy-1"
-    assert episode.manifest.correction_epoch_status.value == "MISSING"
+    assert episode.manifest.correction_epoch_status.value == "BOUND"
+    assert episode.manifest.correction_epoch == 0
     assert episode.manifest.working_set_ref.status.value == "MISSING"
     invocation = episode.steps[3].model_invocation
     assert invocation is not None
@@ -237,6 +238,31 @@ def test_action_before_later_correction_does_not_retroactively_fail_epoch() -> N
 
     episode = TrajectoryProjector().project(store, "task-1", "run-1")
     assert episode.manifest.correction_epoch == 1
+
+
+def test_pre_correction_action_cannot_claim_a_future_authority_epoch() -> None:
+    store = _event_store()
+    _append(
+        store,
+        TaskEventType.ACTION_PROPOSED,
+        {
+            "action": {
+                "task_id": "task-1",
+                "run_id": "run-1",
+                "tenant_id": "tenant-1",
+                "workspace_id": "workspace-1",
+                "observed_correction_epochs": {
+                    "task_epoch": 1,
+                    "run_epoch": 0,
+                    "capability_epoch": 0,
+                },
+            }
+        },
+        event_id="event-6",
+    )
+
+    with pytest.raises(ScopeMismatchError, match="stale or future-dated"):
+        TrajectoryProjector().project(store, "task-1", "run-1")
 
 
 def test_projector_reads_the_existing_flat_correction_event_shape() -> None:
@@ -600,6 +626,32 @@ def test_credit_ledger_hash_chain_detects_truncation() -> None:
 
     with pytest.raises(EventStreamError, match="head count mismatch"):
         ledger.read("credit-1", projection)
+
+
+@pytest.mark.parametrize(
+    ("column", "tampered", "lookup_credit_id"),
+    (
+        ("credit_id", "credit-attacker", "credit-attacker"),
+        ("tenant_id", "tenant-attacker", "credit-1"),
+        ("workspace_id", "workspace-attacker", "credit-1"),
+        ("task_id", "task-attacker", "credit-1"),
+        ("run_id", "run-attacker", "credit-1"),
+    ),
+)
+def test_credit_ledger_detects_relational_scope_key_drift(
+    column: str, tampered: str, lookup_credit_id: str
+) -> None:
+    projection = _projection()
+    ledger = CreditLedger()
+    ledger.append(_credit(projection), projection)
+    ledger._db.execute(
+        f"UPDATE credit_assignments SET {column} = ? WHERE credit_id = ?",  # noqa: S608
+        (tampered, "credit-1"),
+    )
+    ledger._db.commit()
+
+    with pytest.raises(EventStreamError):
+        ledger.read(lookup_credit_id, projection)
 
 
 def test_credit_has_no_authority_fields_or_mutation_methods() -> None:
