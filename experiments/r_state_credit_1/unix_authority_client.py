@@ -243,6 +243,7 @@ class UnixAuthorityClient:
                 stream.settimeout(self._timeout_seconds)
                 stream.connect(str(self._socket_path))
                 stream.sendall(struct.pack(">I", len(encoded)) + encoded)
+                stream.shutdown(socket.SHUT_WR)
                 size = struct.unpack(">I", self._read_exact(stream, 4))[0]
                 if not 0 < size <= MAX_FRAME_BYTES:
                     raise ExecutionBridgeViolation("authority response exceeds 64KiB")

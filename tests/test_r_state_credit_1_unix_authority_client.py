@@ -115,9 +115,11 @@ class _Server:
         self,
         path: Path,
         handlers: list[Callable[[dict[str, object]], _WireReply]],
+        require_request_eof: bool = False,
     ) -> None:
         self.path = path
         self.handlers = handlers
+        self.require_request_eof = require_request_eof
         self.requests: list[dict[str, object]] = []
         self.error: BaseException | None = None
         self.ready = threading.Event()
@@ -147,6 +149,8 @@ class _Server:
                     request = json.loads(encoded)
                     assert encoded == canonical_json(request).encode()
                     self.requests.append(request)
+                    if self.require_request_eof:
+                        assert connection.recv(1) == b""
                     reply = handler(request)
                     declared_size, body = (
                         reply if isinstance(reply, tuple) else (len(reply), reply)
@@ -484,6 +488,33 @@ def test_public_key_and_token_are_pinned_not_trusted_by_locator(
             response_public_key_path=public_key,
             reservation_token_fd=read_fd,
         )
+
+
+def test_client_half_closes_request_before_reading_signed_response(
+    tmp_path: Path,
+    keypair: tuple[Path, Path, str],
+) -> None:
+    private_key, public_key, public_digest = keypair
+    admission = _admission(public_digest)
+    socket_path = _socket_path("half-close")
+
+    def handler(request: dict[str, object]) -> bytes:
+        return _response(
+            request,
+            {
+                "abort_requested": False,
+                "owner_id": admission.c7_binding.owner_id,
+                "policy_sha256": admission.c7_binding.policy_sha256,
+                "correction_epoch": admission.c7_binding.correction_epoch,
+                "c7_epoch": 1,
+            },
+            private_key,
+            public_digest,
+        )
+
+    with _Server(socket_path, [handler], require_request_eof=True):
+        client = _client(admission, socket_path, public_key)
+        assert client.abort_requested() is False
 
 
 def test_terminalize_rejects_a_claim_from_another_run_before_transport(
