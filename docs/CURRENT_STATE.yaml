@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-17T17:32:00+08:00"
+updated: "2026-07-17T19:02:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main (remote head 0097336; local convergence worktree retained for state finalization)"
-status: "The independently approved canonical convergence train was fast-forwarded to remote main at 0097336. It includes P-SRL-RUNTIME-M1-plus, Evaluator Authority V0 and Trajectory/Credit V0; Window-2 evidence is 196 focused tests passed, 1376 Product tests passed/1 skipped, clean Ruff/Pyright/diff and APPROVE_INTEGRATION_WINDOW_2. The Product path now includes authenticated protocol admission, typed identity separation, durable replay/conflict handling, trusted resource authorization and Working Set assembly, proposal-only MandateSteward, external durable/policy/telemetry adapter boundaries, a provider-neutral evaluator registry with durable local sealed receipts but no Outcome authority, and deterministic read-only task-event trajectory projection with a scoped append-only credit ledger. Trajectory/Credit remains an offline data contract with no W1/W2 mutation or activation entry. Main integration is not a release and does not establish a result-bearing run, learning effectiveness, production identity/KMS/cross-host custody, Agent OS Alpha or Autonomy(S,E,O,V,T)."
+status: "The independently approved canonical convergence train is on remote main through state head 76f9204, and Integration Window 3 is approved at local merge head b95ae7c pending this state push. Window 3 adds snapshot-bound provider execution receipts and a read-only event-store trajectory API; evidence is 16 focused tests, 1392 Product tests passed/1 skipped, clean Ruff/Pyright/diff and APPROVE_INTEGRATION_WINDOW_3. Earlier windows contain P-SRL-RUNTIME-M1-plus, Evaluator Authority V0 and Trajectory/Credit V0. Provider/trajectory provenance does not activate W1/W2, ADM or C7 writes. Main integration is not a release and does not establish a result-bearing run, learning effectiveness, production identity/KMS/cross-host custody, Agent OS Alpha or Autonomy(S,E,O,V,T)."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -264,6 +264,16 @@ parked_work:
     source: "../docs/research/founder-decision-2026-07-14-governed-core-evolution.md"
 
 recently_completed:
+  - id: "P-PROVIDER-TRAJECTORY-BINDING-0"
+    track: "product_and_translational"
+    status: "IMPLEMENTED_REVIEWED_AND_APPROVED_IN_INTEGRATION_WINDOW_3_AT_B95AE7C / READ_ONLY_PROVENANCE / NO_W1_W2_ADAPTATION"
+    result: "Snapshot-bound provider execution now emits a typed sealed receipt binding provider profile, provider/model/revision-or-MISSING, request/response/invocation digests, source event/node, scope and correction epochs. Trajectory projection re-reads durable events, validates the receipt against the sealed TaskConfigurationSnapshot and exposes a digest/ref-only HTTP read path. Provider correction changes during invocation fail without a PROVIDER_RESPONDED event. Window-3 verification passed 16 focused and 1392 Product tests/1 skipped with clean Ruff/Pyright/diff."
+    boundary: "No ProviderProfile selector, policy update, ADM prior, W1/W2 outcome consumer, C7 write, raw prompt/credential exposure, release or adaptation-effectiveness claim exists. Missing immutable model revision or TrustedWorkingSet remains explicit MISSING."
+    source:
+      - "packages/contracts/src/agent_os_contracts/provider.py"
+      - "packages/os_core/src/agent_os_core/execution.py"
+      - "packages/os_core/src/agent_os_core/trajectory.py"
+      - "tests/product/test_provider_trajectory_binding.py"
   - id: "P-TRAJECTORY-CREDIT-CONTRACT-0"
     track: "product_and_translational"
     status: "IMPLEMENTED_REVIEWED_AND_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_BD56FF4 / OFFLINE_DATA_CONTRACT_ONLY / NO_W1_W2_ACTIVATION"
@@ -528,11 +538,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-17T17:32:00+08:00"
+  checked_at: "2026-07-17T19:02:00+08:00"
   branch: "main"
-  canonical_head: "0097336"
+  canonical_head: "b95ae7c"
   prior_canonical_head: "a8c71b152b57ab78720ce8bd09f1ab2f7eed78e9"
   merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
-  commit_state: "CANONICAL_INTEGRATION_WINDOW_2_FAST_FORWARDED_REMOTE_MAIN / FOCUSED_196 / PRODUCT_1376_PASSED_1_SKIPPED / RUFF_PYRIGHT_DIFF_CLEAN / APPROVE_INTEGRATION_WINDOW_2 / NOT_RELEASED"
+  commit_state: "CANONICAL_INTEGRATION_WINDOW_3_APPROVED_PENDING_STATE_PUSH / FOCUSED_16 / PRODUCT_1392_PASSED_1_SKIPPED / RUFF_PYRIGHT_DIFF_CLEAN / APPROVE_INTEGRATION_WINDOW_3 / NOT_RELEASED"
   merge_scope: "Remote main 0097336 contains the approved canonical Product train through P-SRL-RUNTIME-M1-plus, M0c bounded execution infrastructure, Evaluator Authority V0 and Trajectory/Credit V0, together with their exact historical documentation and tests. R-SRL-1 remains an unfrozen harness; actor transport, R-EVAL and R-STATE successors remain isolated Research candidates. No production activation, Data Agent migration, result run or release follows from the main integration."
   evidence_separation: "Task6, M0c successor e6abe0d, M1-plus, Evaluator Authority V0 and Trajectory/Credit V0 are integrated Product/Product-eval infrastructure on remote main 0097336. M0c remains proposal-only with public evaluation closed; Trajectory/Credit remains offline and cannot mutate W1/W2. Actor transport c72375a remains isolated Research infrastructure with no semantic-grounding claim. None is a release, customer outcome, general cognition or Autonomy(S,E,O,V,T) result."
