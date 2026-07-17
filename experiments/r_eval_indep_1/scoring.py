@@ -17,7 +17,13 @@ from typing import Mapping, Sequence
 
 from .contracts import CaseTruth, canonical_digest
 from .corpus_contracts import RefereeCaseManifest
-from .freeze_run_context import ReceiptVerifier, SignedReceipt, VerifiedFreezeRunContext
+from .freeze_run_context import (
+    ReceiptVerifier,
+    SignedReceipt,
+    VerifiedFreezeRunContext,
+    VerifiedReceiptIdentity,
+    verify_receipt_identity,
+)
 from .runner import verify_sealed_run
 
 
@@ -47,6 +53,7 @@ class VerifiedTruthCustody:
     truth: Mapping[str, str]
     strata: Mapping[str, str]
     custody_receipt: SignedReceipt
+    verified_identity: VerifiedReceiptIdentity
     _token: object
 
     @classmethod
@@ -58,6 +65,7 @@ class VerifiedTruthCustody:
         truth: Mapping[str, str],
         strata: Mapping[str, str],
         custody_receipt: SignedReceipt,
+        verified_identity: VerifiedReceiptIdentity,
     ) -> VerifiedTruthCustody:
         instance = object.__new__(cls)
         object.__setattr__(instance, "corpus_manifest_sha256", corpus_manifest_sha256)
@@ -69,6 +77,7 @@ class VerifiedTruthCustody:
             instance, "strata", MappingProxyType(dict(sorted(strata.items())))
         )
         object.__setattr__(instance, "custody_receipt", custody_receipt)
+        object.__setattr__(instance, "verified_identity", verified_identity)
         object.__setattr__(instance, "_token", _VERIFIED_TRUTH)
         return instance
 
@@ -130,15 +139,16 @@ def verify_truth_custody(
     if (
         custody_receipt.role != "ORACLE_CUSTODIAN"
         or custody_receipt.subject_sha256 != subject
-        or not verifier.verify(custody_receipt)
     ):
         raise ValueError("truth custody receipt verification failed")
+    verified_identity = verify_receipt_identity(verifier, custody_receipt)
     return VerifiedTruthCustody._create(
         corpus_manifest_sha256=corpus_manifest_sha256,
         referee_cases_sha256=referee_cases_sha256,
         truth=truth,
         strata=strata,
         custody_receipt=custody_receipt,
+        verified_identity=verified_identity,
     )
 
 
@@ -334,16 +344,16 @@ def score_successor_run(
 ) -> SuccessorScoreReport:
     freeze_run.assert_verified()
     truth_custody.assert_verified()
-    authority_ids = {
-        freeze_run.collection_receipt.signer_id,
-        freeze_run.execution_receipt.signer_id,
-        freeze_run.collection_permit.run_authority_id,
-        freeze_run.collection_permit.c7_authority_id,
-    }
-    if truth_custody.custody_receipt.signer_id in authority_ids:
-        raise ValueError("truth custody is not independent from run authorities")
-    result = verify_sealed_run(run_dir)
     permit = freeze_run.execution_permit
+    oracle_identity = truth_custody.verified_identity
+    if (
+        oracle_identity.signer_id != permit.oracle_custodian_id
+        or oracle_identity.public_key_sha256
+        != permit.oracle_custodian_public_key_sha256
+        or oracle_identity.trust_registry_sha256 != permit.trust_registry_sha256
+    ):
+        raise ValueError("truth custody is not independent or freeze-bound")
+    result = verify_sealed_run(run_dir)
     if result.status != "RAW_NOT_ADJUDICATED" or result.effect_status != "COMPLETE":
         raise ValueError("scorer requires a verified COMPLETE sealed archive")
     if (

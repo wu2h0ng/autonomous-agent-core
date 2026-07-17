@@ -8,7 +8,12 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 
 from .contracts import canonical_digest
-from .freeze_run_context import ReceiptVerifier, SignedReceipt
+from .freeze_run_context import (
+    ReceiptVerifier,
+    SignedReceipt,
+    VerifiedReceiptIdentity,
+    verify_receipt_identity,
+)
 from .native_arm_plan import NativeArmPlan
 
 
@@ -125,6 +130,7 @@ _VERIFIED_BANK = object()
 class VerifiedProviderBank:
     bindings: Mapping[str, ArmProviderBinding]
     canaries: Mapping[str, ProviderCanaryReceipt]
+    identities: Mapping[str, VerifiedReceiptIdentity]
     sha256: str
     _token: object
 
@@ -133,10 +139,12 @@ class VerifiedProviderBank:
         cls,
         bindings: Mapping[str, ArmProviderBinding],
         canaries: Mapping[str, ProviderCanaryReceipt],
+        identities: Mapping[str, VerifiedReceiptIdentity],
     ) -> VerifiedProviderBank:
         instance = object.__new__(cls)
         frozen_bindings = MappingProxyType(dict(sorted(bindings.items())))
         frozen_canaries = MappingProxyType(dict(sorted(canaries.items())))
+        frozen_identities = MappingProxyType(dict(sorted(identities.items())))
         digest = canonical_digest(
             {
                 "bindings": {
@@ -146,6 +154,7 @@ class VerifiedProviderBank:
                     arm: {
                         **item.subject_mapping(),
                         "signed_receipt_sha256": item.signed_receipt.digest(),
+                        "verified_identity": frozen_identities[arm].to_mapping(),
                     }
                     for arm, item in frozen_canaries.items()
                 },
@@ -153,6 +162,7 @@ class VerifiedProviderBank:
         )
         object.__setattr__(instance, "bindings", frozen_bindings)
         object.__setattr__(instance, "canaries", frozen_canaries)
+        object.__setattr__(instance, "identities", frozen_identities)
         object.__setattr__(instance, "sha256", digest)
         object.__setattr__(instance, "_token", _VERIFIED_BANK)
         return instance
@@ -227,6 +237,7 @@ def verify_provider_bank(
         raise ValueError("provider bank requires exact A1-A4 coverage")
     if len(canary_bank) != len(canaries) or set(canary_bank) != expected:
         raise ValueError("provider canaries require exact A1-A4 coverage")
+    identities: dict[str, VerifiedReceiptIdentity] = {}
     for arm_id, binding in bank.items():
         canary = canary_bank[arm_id]
         if canary.binding_sha256 != binding.digest():
@@ -237,8 +248,7 @@ def verify_provider_bank(
             or receipt.subject_sha256 != canary.digest()
         ):
             raise ValueError("provider canary receipt subject/role drift")
-        if not verifier.verify(receipt):
-            raise ValueError("provider canary receipt signature invalid")
+        identities[arm_id] = verify_receipt_identity(verifier, receipt)
         if (
             canary.served_provider,
             canary.served_model_immutable_revision,
@@ -276,4 +286,4 @@ def verify_provider_bank(
         raise ValueError("A3 canary must prove same-family different-checkpoint")
     if a4.served_model_lineage == a1.served_model_lineage:
         raise ValueError("A4 canary must prove cross-lineage")
-    return VerifiedProviderBank._create(bank, canary_bank)
+    return VerifiedProviderBank._create(bank, canary_bank, identities)

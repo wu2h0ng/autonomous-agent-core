@@ -17,6 +17,7 @@
     }
   },
   "remediation_base_head": "bdead02dc3b1145c6c78df1557ac4b623a8e5bee",
+  "exact_review_remediation_base_head": "19eb054394174d95dafbe4b206efbcffc624c477",
   "claim_boundary": {
     "ceiling": "MEASURED_REVIEWER_ROUTING_ON_FROZEN_MUTATION_CORPUS",
     "excluded": [
@@ -36,7 +37,7 @@
       {"arm_id": "A3", "role": "SAME_FAMILY_DIFFERENT_CHECKPOINT", "sample_count": 1, "aggregation": "SINGLE"},
       {"arm_id": "A4", "role": "CROSS_LINEAGE", "sample_count": 1, "aggregation": "SINGLE"}
     ],
-    "binding_rule": "Concrete provider, immutable model revision, family, lineage, prompt, tool schema, decoding, endpoint origin and credential reference must be proven by externally verified provider-bank canary receipts before freeze. Caller strings, mutable aliases and fallback are insufficient and forbidden."
+    "binding_rule": "Concrete provider, immutable model revision, family, lineage, prompt, tool schema, decoding, endpoint origin and credential reference must be proven by provider-bank canary receipts resolved to canonical signer identities and public keys through the freeze-bound external trust registry. Caller strings, self-reported signer/key fields, mutable aliases and fallback are insufficient and forbidden."
   },
   "counts": {
     "cases": 74,
@@ -69,6 +70,7 @@
     "single_run_sequence": 1,
     "row_types": ["EVALUATION", "PROVIDER_ATTEMPT", "PROVIDER_SUCCESS", "MECHANICAL", "AGGREGATE", "C7_CHECK"],
     "append_only_hash_chain": true,
+    "canonical_serialization": "experiments.r_eval_indep_1.contracts.canonical_json_bytes",
     "seal_complete_or_partial": true,
     "provider_fallback": "FORBIDDEN",
     "retry": "FORBIDDEN",
@@ -101,6 +103,7 @@
   "external_bindings": {
     "provider_bank": [],
     "provider_bank_canary_receipts": [],
+    "trusted_signer_registry": null,
     "provider_bank_exact_coverage": null,
     "oracle_custody": null,
     "c7_authority": null,
@@ -110,7 +113,7 @@
     "run_authority": null,
     "founder_budget_acceptance": null
   },
-  "readiness_rule": "NOT_READY until every external binding is non-null, signed CollectionPermit and RunExecutionPermit bind prereg/manifest/freeze subject/global sequence/correction epoch/corpus/provider bank/budget, exact provider canary receipts prove A1-A4 immutable served identities and relationships, independent truth custody binds the exact 60/14 digests, the exact successor manifest is independently accepted, and the external freezer issues a separate freeze receipt.",
+  "readiness_rule": "NOT_READY until every external binding is non-null, the trusted signer registry resolves every receipt to a canonical signer identity/public key, signed CollectionPermit and RunExecutionPermit bind prereg/manifest/freeze subject/global sequence/correction epoch/corpus/provider bank/budget plus pairwise-distinct collection/run/C7/oracle authority keys, exact provider canary receipts prove A1-A4 immutable served identities and relationships, independent truth custody binds the exact 60/14 digests with signer identity and key isolated from collection/run/C7, the exact successor manifest is independently accepted, and the external freezer issues a separate freeze receipt.",
   "gates": {
     "freeze_status": "NOT_FROZEN",
     "run_status": "NOT_RUN",

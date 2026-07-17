@@ -11,6 +11,7 @@ from experiments.r_eval_indep_1.corpus_registry import compile_corpus_dev
 from experiments.r_eval_indep_1.freeze_run_context import (
     RunExecutionPermit,
     SignedReceipt,
+    VerifiedReceiptIdentity,
     verify_freeze_run_context,
 )
 from experiments.r_eval_indep_1.native_arm_plan import build_native_arm_plan
@@ -42,23 +43,37 @@ SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
 SHA_D = "d" * 64
+COLLECTION_KEY = "1" * 64
+RUN_KEY = "2" * 64
+C7_KEY = "3" * 64
+ORACLE_KEY = "4" * 64
+TRUST_REGISTRY = "5" * 64
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class AcceptAllVerifier:
-    def verify(self, receipt: SignedReceipt) -> bool:
-        return bool(receipt.signature_sha256)
+    def verify(self, receipt: SignedReceipt) -> VerifiedReceiptIdentity | None:
+        if not receipt.signature_sha256:
+            return None
+        return VerifiedReceiptIdentity(
+            receipt_sha256=receipt.digest(),
+            signer_id=receipt.signer_id,
+            public_key_sha256=receipt.public_key_sha256,
+            trust_registry_sha256=TRUST_REGISTRY,
+        )
 
 
 VERIFIER = AcceptAllVerifier()
 
 
-def _signed(role: str, subject: str, signer: str) -> SignedReceipt:
+def _signed(
+    role: str, subject: str, signer: str, *, public_key: str = SHA_A
+) -> SignedReceipt:
     return SignedReceipt(
         role=role,
         subject_sha256=subject,
         signer_id=signer,
-        public_key_sha256=SHA_A,
+        public_key_sha256=public_key,
         signature_sha256=SHA_B,
     )
 
@@ -177,14 +192,29 @@ def _freeze_context(public_corpus, provider_bank, budget=DEFAULT_RUN_BUDGET):
         budget_sha256=budget.digest(),
         freeze_receipt_sha256=SHA_B,
         run_authority_receipt_sha256=SHA_C,
+        collection_authority_id="collection-authority",
+        collection_authority_public_key_sha256=COLLECTION_KEY,
+        run_authority_public_key_sha256=RUN_KEY,
+        c7_authority_public_key_sha256=C7_KEY,
+        oracle_custodian_id="oracle-custodian",
+        oracle_custodian_public_key_sha256=ORACLE_KEY,
+        trust_registry_sha256=TRUST_REGISTRY,
     )
     return verify_freeze_run_context(
         collection_permit=collection,
         collection_receipt=_signed(
-            "COLLECTION_AUTHORITY", collection.digest(), "collection-authority"
+            "COLLECTION_AUTHORITY",
+            collection.digest(),
+            "collection-authority",
+            public_key=COLLECTION_KEY,
         ),
         execution_permit=execution,
-        execution_receipt=_signed("RUN_AUTHORITY", execution.digest(), "run-authority"),
+        execution_receipt=_signed(
+            "RUN_AUTHORITY",
+            execution.digest(),
+            "run-authority",
+            public_key=RUN_KEY,
+        ),
         verifier=VERIFIER,
     )
 
@@ -195,7 +225,7 @@ class AllowC7:
 
     def check(self, *, freeze_run, phase: str, request_sha256: str) -> SignedC7Decision:
         self.calls.append((phase, request_sha256))
-        placeholder = _signed("C7_AUTHORITY", SHA_A, "c7-authority")
+        placeholder = _signed("C7_AUTHORITY", SHA_A, "c7-authority", public_key=C7_KEY)
         decision = SignedC7Decision(
             decision="ALLOW",
             phase=phase,
@@ -207,7 +237,10 @@ class AllowC7:
         return replace(
             decision,
             signed_receipt=_signed(
-                "C7_AUTHORITY", decision.subject_digest(), "c7-authority"
+                "C7_AUTHORITY",
+                decision.subject_digest(),
+                "c7-authority",
+                public_key=C7_KEY,
             ),
         )
 
@@ -428,7 +461,12 @@ class SuccessorReviewRemediationTests(unittest.TestCase):
     def test_scorer_requires_verified_complete_archive_and_truth_custody(self) -> None:
         bank = _verified_bank()
         context = _freeze_context(self.public_corpus, bank)
-        placeholder = _signed("ORACLE_CUSTODIAN", SHA_A, "oracle-custodian")
+        placeholder = _signed(
+            "ORACLE_CUSTODIAN",
+            SHA_A,
+            "oracle-custodian",
+            public_key=ORACLE_KEY,
+        )
         truth = {
             case.case_id: case.case_truth.value
             for case in self.compiled.manifest.referee_cases

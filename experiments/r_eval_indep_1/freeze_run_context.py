@@ -52,8 +52,44 @@ class SignedReceipt:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class VerifiedReceiptIdentity:
+    receipt_sha256: str
+    signer_id: str
+    public_key_sha256: str
+    trust_registry_sha256: str
+
+    def __post_init__(self) -> None:
+        if not self.signer_id.strip():
+            raise ValueError("verified signer is required")
+        for field in (
+            "receipt_sha256",
+            "public_key_sha256",
+            "trust_registry_sha256",
+        ):
+            _sha(getattr(self, field), field)
+
+    def to_mapping(self) -> dict[str, str]:
+        return {field: getattr(self, field) for field in self.__dataclass_fields__}
+
+
 class ReceiptVerifier(Protocol):
-    def verify(self, receipt: SignedReceipt) -> bool: ...
+    def verify(self, receipt: SignedReceipt) -> VerifiedReceiptIdentity | None: ...
+
+
+def verify_receipt_identity(
+    verifier: ReceiptVerifier, receipt: SignedReceipt
+) -> VerifiedReceiptIdentity:
+    identity = verifier.verify(receipt)
+    if not isinstance(identity, VerifiedReceiptIdentity):
+        raise ValueError("receipt signature or trusted signer verification failed")
+    if (
+        identity.receipt_sha256 != receipt.digest()
+        or identity.signer_id != receipt.signer_id
+        or identity.public_key_sha256 != receipt.public_key_sha256
+    ):
+        raise ValueError("receipt trusted identity does not match signed receipt")
+    return identity
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +108,13 @@ class RunExecutionPermit:
     budget_sha256: str
     freeze_receipt_sha256: str
     run_authority_receipt_sha256: str
+    collection_authority_id: str
+    collection_authority_public_key_sha256: str
+    run_authority_public_key_sha256: str
+    c7_authority_public_key_sha256: str
+    oracle_custodian_id: str
+    oracle_custodian_public_key_sha256: str
+    trust_registry_sha256: str
 
     def __post_init__(self) -> None:
         if self.route_id != "R-EVAL-INDEP-1":
@@ -82,6 +125,12 @@ class RunExecutionPermit:
             raise ValueError("only global sequence 1 is permitted")
         if self.correction_epoch < 0:
             raise ValueError("correction epoch cannot be negative")
+        authority_ids = (
+            self.collection_authority_id,
+            self.oracle_custodian_id,
+        )
+        if any(not authority_id.strip() for authority_id in authority_ids):
+            raise ValueError("permit authority identities are required")
         for field in (
             "collection_permit_sha256",
             "prereg_spec_sha256",
@@ -93,8 +142,27 @@ class RunExecutionPermit:
             "budget_sha256",
             "freeze_receipt_sha256",
             "run_authority_receipt_sha256",
+            "collection_authority_public_key_sha256",
+            "run_authority_public_key_sha256",
+            "c7_authority_public_key_sha256",
+            "oracle_custodian_public_key_sha256",
+            "trust_registry_sha256",
         ):
             _sha(getattr(self, field), field)
+        bound_ids = (
+            self.collection_authority_id,
+            self.oracle_custodian_id,
+        )
+        if len(set(bound_ids)) != len(bound_ids):
+            raise ValueError("permit authority identities must be distinct")
+        bound_keys = (
+            self.collection_authority_public_key_sha256,
+            self.run_authority_public_key_sha256,
+            self.c7_authority_public_key_sha256,
+            self.oracle_custodian_public_key_sha256,
+        )
+        if len(set(bound_keys)) != len(bound_keys):
+            raise ValueError("permit authority public keys must be distinct")
 
     def to_mapping(self) -> dict[str, object]:
         return {field: getattr(self, field) for field in self.__dataclass_fields__}
@@ -113,6 +181,8 @@ class VerifiedFreezeRunContext:
     verifier: ReceiptVerifier
     collection_receipt: SignedReceipt
     execution_receipt: SignedReceipt
+    collection_identity: VerifiedReceiptIdentity
+    execution_identity: VerifiedReceiptIdentity
     _token: object
 
     @classmethod
@@ -124,6 +194,8 @@ class VerifiedFreezeRunContext:
         verifier: ReceiptVerifier,
         collection_receipt: SignedReceipt,
         execution_receipt: SignedReceipt,
+        collection_identity: VerifiedReceiptIdentity,
+        execution_identity: VerifiedReceiptIdentity,
     ) -> VerifiedFreezeRunContext:
         instance = object.__new__(cls)
         object.__setattr__(instance, "collection_permit", collection_permit)
@@ -131,6 +203,8 @@ class VerifiedFreezeRunContext:
         object.__setattr__(instance, "verifier", verifier)
         object.__setattr__(instance, "collection_receipt", collection_receipt)
         object.__setattr__(instance, "execution_receipt", execution_receipt)
+        object.__setattr__(instance, "collection_identity", collection_identity)
+        object.__setattr__(instance, "execution_identity", execution_identity)
         object.__setattr__(instance, "_token", _VERIFIED)
         return instance
 
@@ -147,10 +221,8 @@ def verify_freeze_run_context(
     execution_receipt: SignedReceipt,
     verifier: ReceiptVerifier,
 ) -> VerifiedFreezeRunContext:
-    if not verifier.verify(collection_receipt) or not verifier.verify(
-        execution_receipt
-    ):
-        raise ValueError("permit signature verification failed")
+    collection_identity = verify_receipt_identity(verifier, collection_receipt)
+    execution_identity = verify_receipt_identity(verifier, execution_receipt)
     if collection_receipt.role != "COLLECTION_AUTHORITY":
         raise ValueError("collection permit receipt has wrong role")
     if execution_receipt.role != "RUN_AUTHORITY":
@@ -159,6 +231,26 @@ def verify_freeze_run_context(
         raise ValueError("collection and run authority must be distinct")
     if execution_receipt.signer_id != collection_permit.run_authority_id:
         raise ValueError("execution receipt signer is not the bound run authority")
+    if (
+        collection_identity.signer_id != execution_permit.collection_authority_id
+        or collection_identity.public_key_sha256
+        != execution_permit.collection_authority_public_key_sha256
+        or execution_identity.public_key_sha256
+        != execution_permit.run_authority_public_key_sha256
+        or collection_identity.trust_registry_sha256
+        != execution_permit.trust_registry_sha256
+        or execution_identity.trust_registry_sha256
+        != execution_permit.trust_registry_sha256
+    ):
+        raise ValueError("permit authority identity/registry binding drift")
+    authority_ids = {
+        collection_identity.signer_id,
+        collection_permit.run_authority_id,
+        collection_permit.c7_authority_id,
+        execution_permit.oracle_custodian_id,
+    }
+    if len(authority_ids) != 4:
+        raise ValueError("collection/run/C7/oracle authority identities must differ")
     if collection_receipt.subject_sha256 != collection_permit.digest():
         raise ValueError("collection permit receipt subject drift")
     if execution_receipt.subject_sha256 != execution_permit.digest():
@@ -187,4 +279,6 @@ def verify_freeze_run_context(
         verifier=verifier,
         collection_receipt=collection_receipt,
         execution_receipt=execution_receipt,
+        collection_identity=collection_identity,
+        execution_identity=execution_identity,
     )

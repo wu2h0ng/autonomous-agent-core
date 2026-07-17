@@ -10,9 +10,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Mapping, Protocol
 
-from .contracts import canonical_digest
+from .contracts import canonical_digest, canonical_json_bytes
 from .corpus_contracts import PublicCaseManifest
-from .freeze_run_context import SignedReceipt, VerifiedFreezeRunContext
+from .freeze_run_context import (
+    SignedReceipt,
+    VerifiedFreezeRunContext,
+    verify_receipt_identity,
+)
 from .native_arm_plan import NativeArmPlan
 from .provider_adapter import (
     AmbiguousEffectError,
@@ -120,9 +124,7 @@ RawRunResult = SuccessorRawResult
 
 
 def _canonical(value: object) -> bytes:
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode()
+    return canonical_json_bytes(value)
 
 
 class _Archive:
@@ -188,6 +190,11 @@ class NativeSuccessorRunner:
             raise ValueError("public corpus is not freeze-bound")
         if provider_bank.sha256 != permit.provider_bank_sha256:
             raise ValueError("provider bank is not freeze-bound")
+        if any(
+            identity.trust_registry_sha256 != permit.trust_registry_sha256
+            for identity in provider_bank.identities.values()
+        ):
+            raise ValueError("provider bank trusted registry is not freeze-bound")
         if budget.digest() != permit.budget_sha256:
             raise ValueError("run budget is not freeze-bound")
 
@@ -397,6 +404,12 @@ class NativeSuccessorRunner:
             freeze_run=freeze_run, phase=phase, request_sha256=request_sha256
         )
         permit = freeze_run.execution_permit
+        try:
+            verified_identity = verify_receipt_identity(
+                freeze_run.verifier, decision.signed_receipt
+            )
+        except ValueError as error:
+            raise C7Halt("invalid C7 custody receipt") from error
         if (
             decision.phase != phase
             or decision.request_sha256 != request_sha256
@@ -405,8 +418,10 @@ class NativeSuccessorRunner:
             or decision.signed_receipt.role != "C7_AUTHORITY"
             or decision.signed_receipt.signer_id
             != freeze_run.collection_permit.c7_authority_id
+            or verified_identity.public_key_sha256
+            != permit.c7_authority_public_key_sha256
+            or verified_identity.trust_registry_sha256 != permit.trust_registry_sha256
             or decision.signed_receipt.subject_sha256 != decision.subject_digest()
-            or not freeze_run.verifier.verify(decision.signed_receipt)
         ):
             raise C7Halt("invalid C7 custody receipt")
         archive.append(
