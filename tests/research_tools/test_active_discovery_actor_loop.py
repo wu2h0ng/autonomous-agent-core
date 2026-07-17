@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 import subprocess
 from typing import Any, cast
 
 import pytest
+
+import research_tools.active_discovery.actor_loop as actor_loop_module
 
 from research_tools.active_discovery.actor_loop import (
     ActorLoopReceipt,
@@ -305,8 +308,8 @@ def test_actor_uses_fresh_hardened_containers_and_public_projection_only() -> No
 
     assert tuple(bundle.prefix_index for bundle in receipt.prefix_bundles) == tuple(range(5))
     assert receipt.selected_probe_ids == ("probe-0", "probe-1", "probe-2", "probe-3")
-    assert len(receipt.actor_invocation_receipts) == 18
-    assert len({item.container_id for item in receipt.actor_invocation_receipts}) == 18
+    assert len(receipt.actor_invocation_receipts) == 10
+    assert len({item.container_id for item in receipt.actor_invocation_receipts}) == 10
     assert all(
         item.actor_artifact_digest == port.actor_artifact_digest
         and item.resolved_image_id == port.resolved_image_id
@@ -343,7 +346,7 @@ def test_raw_observation_channels_are_not_projected_to_actor() -> None:
     assert receipt.selected_probe_ids == ("probe-0", "probe-1", "probe-2", "probe-3")
 
 
-def test_actor_rejects_stale_constant_and_same_length_transcript_ignorance() -> None:
+def test_actor_rejects_stale_and_constant_transcript_claims_only() -> None:
     descriptor = _descriptor()
     catalogue = _challenge_catalogue(descriptor)
     candidates = _candidates(environment_hypothesis_prefix="environment")
@@ -357,11 +360,15 @@ def test_actor_rejects_stale_constant_and_same_length_transcript_ignorance() -> 
             actor_port=_port(_actor_source(catalogue, constant_material_update=True)),
         )
 
-    with pytest.raises(ActorLoopError, match="same-length counterfactual"):
-        _run(
-            candidates=candidates,
-            actor_port=_port(_actor_source(catalogue, length_only_update=True)),
-        )
+    receipt = _run(
+        candidates=candidates,
+        actor_port=_port(_actor_source(catalogue, length_only_update=True)),
+    )
+    assert receipt.semantic_grounding_claim == "NO_SEMANTIC_GROUNDING_CLAIM"
+    assert (
+        receipt.approval_ceiling
+        == "HARDENED_DOCKER_ACTOR_TRANSPORT_AND_CLOSED_PUBLIC_PROJECTION"
+    )
 
 
 def test_docker_policy_is_fixed_has_no_host_mount_and_cleanup_is_real() -> None:
@@ -393,11 +400,92 @@ def test_docker_policy_is_fixed_has_no_host_mount_and_cleanup_is_real() -> None:
     )
     assert all(item.cleanup_absent for item in run_receipt.actor_invocation_receipts)
     for item in run_receipt.actor_invocation_receipts:
+        assert item.full_policy_verified is True
+        assert item.user == "65532:65532"
+        assert item.tmpfs_digest == content_digest(
+            "docker-actor-tmpfs/v1",
+            {"/tmp": "rw,noexec,nosuid,nodev,size=8m,mode=1777"},
+        )
+        assert item.ulimits_digest == content_digest(
+            "docker-actor-ulimits/v1",
+            [
+                {"Name": "fsize", "Hard": 1_048_576, "Soft": 1_048_576},
+                {"Name": "nofile", "Hard": 64, "Soft": 64},
+            ],
+        )
+        assert item.log_driver == "none"
+        assert item.caller_environment_empty is True
+        assert item.actor_command_digest == content_digest(
+            "docker-actor-command/v1",
+            {
+                "entrypoint": ["python"],
+                "cmd": ["-I", "-c", _actor_source(catalogue).decode("utf-8")],
+            },
+        )
+        assert item.custody_boundary == "LOCAL_IN_PROCESS_NON_INDEPENDENT"
         assert subprocess.run(
             ["docker", "container", "inspect", item.container_id],
             capture_output=True,
             check=False,
         ).returncode != 0
+
+
+@pytest.mark.parametrize("cidfile_failure", ["read-error", "invalid-id"])
+def test_create_success_cleans_up_when_cidfile_cannot_be_trusted(
+    monkeypatch: pytest.MonkeyPatch, cidfile_failure: str
+) -> None:
+    descriptor = _descriptor()
+    catalogue = _challenge_catalogue(descriptor)
+    port = _port(_actor_source(catalogue))
+    original_read_text = Path.read_text
+
+    def fail_cidfile(path: Path, *args: Any, **kwargs: Any) -> str:
+        if path.name == "container.cid":
+            if cidfile_failure == "read-error":
+                raise OSError("forced cidfile read failure")
+            return "not-a-container-id"
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_cidfile)
+    with pytest.raises(ActorLoopError, match="cidfile"):
+        port.invoke(b"{}")
+
+    assert subprocess.run(
+        ["docker", "container", "ls", "-aq", "--filter", "name=active-actor-"],
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip() == ""
+
+
+def test_cleanup_uses_name_and_label_fallback_after_id_remove_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_docker_run = actor_loop_module._docker_run
+    failed_once = False
+
+    def fail_first_id_remove(
+        args: list[str], *, timeout: int = 10
+    ) -> subprocess.CompletedProcess[str]:
+        nonlocal failed_once
+        if (
+            not failed_once
+            and args[:4] == ["docker", "container", "rm", "--force"]
+            and len(args[-1]) == 64
+        ):
+            failed_once = True
+            return subprocess.CompletedProcess(args, 1, "", "forced id remove failure")
+        return original_docker_run(args, timeout=timeout)
+
+    monkeypatch.setattr(actor_loop_module, "_docker_run", fail_first_id_remove)
+    receipt = _run(
+        candidates=_candidates(environment_hypothesis_prefix="environment"),
+        actor_port=_port(_actor_source(_challenge_catalogue(_descriptor()))),
+    )
+
+    assert failed_once is True
+    assert all(item.cleanup_absent for item in receipt.actor_invocation_receipts)
+    assert all(item.cleanup_diagnostic_digest for item in receipt.actor_invocation_receipts)
 
 
 def _domain_manifest(configuration_digests: tuple[str, ...]) -> ExhaustiveConfigurationDomainManifest:

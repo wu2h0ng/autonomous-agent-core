@@ -165,9 +165,34 @@ def _public_text(value: str) -> str:
 class DockerActorPolicy:
     image_identity: str
     resolved_image_id: str
+    image_default_environment: tuple[str, ...]
     docker_security_args: tuple[str, ...]
     timeout_seconds: int
     policy_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class DockerInspectEvidence:
+    inspect_digest: str
+    network_mode: str
+    rootfs_read_only: bool
+    cap_drop_all: bool
+    no_new_privileges: bool
+    user: str
+    tmpfs_digest: str
+    ulimits_digest: str
+    log_driver: str
+    image_environment_digest: str
+    caller_environment_empty: bool
+    actor_command_digest: str
+    full_policy_verified: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DockerCleanupEvidence:
+    cleanup_remove_exit_code: int
+    cleanup_absent: bool
+    cleanup_diagnostic_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,8 +212,18 @@ class ActorInvocationReceipt:
     rootfs_read_only: bool
     cap_drop_all: bool
     no_new_privileges: bool
+    user: str
+    tmpfs_digest: str
+    ulimits_digest: str
+    log_driver: str
+    image_environment_digest: str
+    caller_environment_empty: bool
+    actor_command_digest: str
+    full_policy_verified: bool
     cleanup_remove_exit_code: int
     cleanup_absent: bool
+    cleanup_diagnostic_digest: str
+    custody_boundary: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,7 +244,7 @@ def _docker_run(args: list[str], *, timeout: int = 10) -> subprocess.CompletedPr
     return result
 
 
-def _resolve_fixed_image() -> tuple[str, str]:
+def _resolve_fixed_image() -> tuple[str, str, tuple[str, ...]]:
     inspected = _docker_run(["docker", "image", "inspect", _FIXED_IMAGE_REFERENCE])
     if inspected.returncode != 0:
         raise ActorLoopError("fixed Docker image is unavailable")
@@ -217,15 +252,18 @@ def _resolve_fixed_image() -> tuple[str, str]:
         values = json.loads(inspected.stdout)
         resolved = values[0]["Id"]
         repo_digests = values[0]["RepoDigests"]
+        environment = values[0]["Config"]["Env"]
     except (json.JSONDecodeError, IndexError, KeyError, TypeError) as exc:
         raise ActorLoopError("fixed Docker image inspection is invalid") from exc
     if (
         len(values) != 1
         or resolved != _FIXED_IMAGE_ID
         or _FIXED_IMAGE_REFERENCE not in repo_digests
+        or not isinstance(environment, list)
+        or not all(isinstance(item, str) for item in environment)
     ):
         raise ActorLoopError("fixed Docker image identity drifted")
-    return _FIXED_IMAGE_REFERENCE, _FIXED_IMAGE_ID
+    return _FIXED_IMAGE_REFERENCE, _FIXED_IMAGE_ID, tuple(environment)
 
 
 def trusted_docker_actor_port(*, actor_artifact_bytes: bytes) -> DockerActorPort:
@@ -235,7 +273,7 @@ def trusted_docker_actor_port(*, actor_artifact_bytes: bytes) -> DockerActorPort
         actor_artifact_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ActorLoopError("actor artifact must be UTF-8 source bytes") from exc
-    identity, resolved = _resolve_fixed_image()
+    identity, resolved, image_environment = _resolve_fixed_image()
     security_args = (
         "--network", "none",
         "--read-only",
@@ -254,12 +292,18 @@ def trusted_docker_actor_port(*, actor_artifact_bytes: bytes) -> DockerActorPort
     payload = {
         "image_identity": identity,
         "resolved_image_id": resolved,
+        "image_default_environment": list(image_environment),
         "docker_security_args": list(security_args),
         "timeout_seconds": 5,
         "allowed_projection_digest": ALLOWED_PROJECTION_DIGEST,
     }
     policy = DockerActorPolicy(
-        identity, resolved, security_args, 5, content_digest("docker-actor-policy/v1", payload)
+        identity,
+        resolved,
+        image_environment,
+        security_args,
+        5,
+        content_digest("docker-actor-policy/v1", payload),
     )
     return DockerActorPort(policy, actor_artifact_bytes, _FACTORY_TOKEN)
 
@@ -303,7 +347,9 @@ class DockerActorPort:
             },
         )
 
-    def _inspect(self, container_id: str, *, expected_status: str) -> str:
+    def _inspect(
+        self, container_id: str, *, expected_status: str, expected_label: str
+    ) -> DockerInspectEvidence:
         result = _docker_run(["docker", "container", "inspect", container_id])
         if result.returncode != 0:
             raise ActorLoopError("Docker container inspection failed")
@@ -311,27 +357,84 @@ class DockerActorPort:
             values = json.loads(result.stdout)
             value = values[0]
             host = value["HostConfig"]
+            config = value["Config"]
             status = value["State"]["Status"]
         except (json.JSONDecodeError, IndexError, KeyError, TypeError) as exc:
             raise ActorLoopError("Docker container inspection is invalid") from exc
-        if (
+        expected_tmpfs = {"/tmp": "rw,noexec,nosuid,nodev,size=8m,mode=1777"}
+        expected_ulimits = [
+            {"Name": "fsize", "Hard": 1_048_576, "Soft": 1_048_576},
+            {"Name": "nofile", "Hard": 64, "Soft": 64},
+        ]
+        expected_command = {
+            "entrypoint": ["python"],
+            "cmd": ["-I", "-c", self.actor_artifact_bytes.decode("utf-8")],
+        }
+        cap_drop_all = host.get("CapDrop") == ["ALL"]
+        no_new_privileges = "no-new-privileges" in (host.get("SecurityOpt") or [])
+        caller_environment_empty = config.get("Env") == list(
+            self.policy.image_default_environment
+        )
+        full_policy_verified = not (
             len(values) != 1
             or value["Id"] != container_id
             or value["Image"] != self.policy.resolved_image_id
             or status != expected_status
             or host["NetworkMode"] != "none"
             or host["ReadonlyRootfs"] is not True
-            or host.get("CapDrop") != ["ALL"]
-            or "no-new-privileges" not in (host.get("SecurityOpt") or [])
+            or not cap_drop_all
+            or not no_new_privileges
             or host["PidsLimit"] != 32
             or host["Memory"] != 64 * 1024 * 1024
             or host["MemorySwap"] != 64 * 1024 * 1024
             or host["NanoCpus"] != 500_000_000
+            or host.get("Tmpfs") != expected_tmpfs
+            or host.get("Ulimits") != expected_ulimits
+            or host.get("LogConfig") != {"Type": "none", "Config": {}}
             or value.get("Mounts") != []
             or host.get("Binds") not in (None, [])
-        ):
+            or host.get("VolumesFrom") not in (None, [])
+            or host.get("CapAdd") not in (None, [])
+            or host.get("Devices") != []
+            or host.get("DeviceRequests") not in (None, [])
+            or host.get("Privileged") is not False
+            or host.get("PublishAllPorts") is not False
+            or host.get("PortBindings") != {}
+            or host.get("RestartPolicy") != {"Name": "no", "MaximumRetryCount": 0}
+            or host.get("AutoRemove") is not False
+            or config.get("User") != "65532:65532"
+            or config.get("Image") != self.policy.image_identity
+            or config.get("Entrypoint") != expected_command["entrypoint"]
+            or config.get("Cmd") != expected_command["cmd"]
+            or config.get("OpenStdin") is not True
+            or config.get("AttachStdin") is not True
+            or config.get("AttachStdout") is not True
+            or config.get("AttachStderr") is not True
+            or config.get("Tty") is not False
+            or config.get("Labels") != {"active-actor-token": expected_label}
+            or not caller_environment_empty
+        )
+        if not full_policy_verified:
             raise ActorLoopError("Docker runtime policy inspection failed")
-        return content_digest("docker-actor-inspect/v1", value)
+        return DockerInspectEvidence(
+            inspect_digest=content_digest("docker-actor-inspect/v2", value),
+            network_mode=host["NetworkMode"],
+            rootfs_read_only=host["ReadonlyRootfs"],
+            cap_drop_all=cap_drop_all,
+            no_new_privileges=no_new_privileges,
+            user=config["User"],
+            tmpfs_digest=content_digest("docker-actor-tmpfs/v1", host["Tmpfs"]),
+            ulimits_digest=content_digest("docker-actor-ulimits/v1", host["Ulimits"]),
+            log_driver=host["LogConfig"]["Type"],
+            image_environment_digest=content_digest(
+                "docker-actor-image-environment/v1", config["Env"]
+            ),
+            caller_environment_empty=caller_environment_empty,
+            actor_command_digest=content_digest(
+                "docker-actor-command/v1", expected_command
+            ),
+            full_policy_verified=full_policy_verified,
+        )
 
     def _start_bounded(
         self, container_id: str, request_bytes: bytes
@@ -380,14 +483,73 @@ class DockerActorPort:
                 raise
         return bytes(chunks["stdout"]), bytes(chunks["stderr"]), return_code
 
-    def _cleanup(self, container_id: str) -> tuple[int, bool]:
-        removed = _docker_run(
-            ["docker", "container", "rm", "--force", container_id]
+    def _cleanup(
+        self, *, container_id: str, name: str, label: str
+    ) -> DockerCleanupEvidence:
+        diagnostics: list[dict[str, object]] = []
+
+        def attempt(args: list[str]) -> subprocess.CompletedProcess[str] | None:
+            try:
+                result = _docker_run(args)
+            except Exception as exc:
+                diagnostics.append(
+                    {
+                        "command_digest": content_digest("docker-cleanup-command/v1", args),
+                        "error_digest": content_digest(
+                            "docker-cleanup-error/v1", type(exc).__name__
+                        ),
+                    }
+                )
+                return None
+            diagnostics.append(
+                {
+                    "command_digest": content_digest("docker-cleanup-command/v1", args),
+                    "returncode": result.returncode,
+                    "stdout_digest": _bytes_digest(result.stdout.encode()),
+                    "stderr_digest": _bytes_digest(result.stderr.encode()),
+                }
+            )
+            return result
+
+        targets = [item for item in (container_id, name) if item]
+        for target in targets:
+            attempt(["docker", "container", "rm", "--force", target])
+        labelled = attempt(
+            [
+                "docker", "container", "ls", "-aq", "--filter",
+                f"label=active-actor-token={label}",
+            ]
         )
-        absent = _docker_run(["docker", "container", "inspect", container_id]).returncode != 0
-        if removed.returncode != 0 or not absent:
-            raise ActorLoopError("Docker actor cleanup failed closed")
-        return removed.returncode, absent
+        if labelled is not None and labelled.returncode == 0:
+            for matched_id in labelled.stdout.splitlines():
+                if _CONTAINER_ID_RE.fullmatch(matched_id):
+                    attempt(["docker", "container", "rm", "--force", matched_id])
+
+        id_absent = True
+        if container_id:
+            inspected_id = attempt(["docker", "container", "inspect", container_id])
+            id_absent = inspected_id is not None and inspected_id.returncode != 0
+        inspected_name = attempt(["docker", "container", "inspect", name])
+        name_absent = inspected_name is not None and inspected_name.returncode != 0
+        remaining = attempt(
+            [
+                "docker", "container", "ls", "-aq", "--filter",
+                f"label=active-actor-token={label}",
+            ]
+        )
+        label_absent = (
+            remaining is not None
+            and remaining.returncode == 0
+            and not remaining.stdout.strip()
+        )
+        diagnostic_digest = content_digest("docker-actor-cleanup/v2", diagnostics)
+        absent = id_absent and name_absent and label_absent
+        if not absent:
+            raise ActorLoopError(
+                "Docker actor cleanup failed closed; "
+                f"diagnostic_digest={diagnostic_digest}"
+            )
+        return DockerCleanupEvidence(0, True, diagnostic_digest)
 
     def invoke(self, request_bytes: bytes) -> IsolatedActorResponse:
         expected = trusted_docker_actor_port(actor_artifact_bytes=self.actor_artifact_bytes)
@@ -405,38 +567,51 @@ class DockerActorPort:
         label = uuid.uuid4().hex
         container_id = ""
         run_error: Exception | None = None
-        execution: tuple[bytes, bytes, int, str, str] | None = None
+        execution: tuple[
+            bytes, bytes, int, DockerInspectEvidence, DockerInspectEvidence
+        ] | None = None
+        cleanup: DockerCleanupEvidence | None = None
         with tempfile.TemporaryDirectory(prefix="active-actor-cid-") as directory:
             cidfile = Path(directory) / "container.cid"
-            create = _docker_run(
-                [
-                    "docker", "create", "--interactive", "--pull", "never", "--cidfile", str(cidfile),
-                    "--name", name, "--label", f"active-actor-token={label}",
-                    *self.policy.docker_security_args,
-                    "--entrypoint", "python", self.policy.image_identity,
-                    "-I", "-c", self.actor_artifact_bytes.decode("utf-8"),
-                ]
-            )
-            if create.returncode != 0:
-                raise ActorLoopError("Docker actor container creation failed")
             try:
-                container_id = cidfile.read_text(encoding="ascii").strip()
-            except OSError as exc:
-                raise ActorLoopError("Docker actor cidfile is unavailable") from exc
-            if _CONTAINER_ID_RE.fullmatch(container_id) is None:
-                _docker_run(["docker", "container", "rm", "--force", name])
-                raise ActorLoopError("Docker actor cidfile identity is invalid")
-            try:
-                pre = self._inspect(container_id, expected_status="created")
+                create = _docker_run(
+                    [
+                        "docker", "create", "--interactive", "--pull", "never",
+                        "--cidfile", str(cidfile), "--name", name, "--label",
+                        f"active-actor-token={label}", *self.policy.docker_security_args,
+                        "--entrypoint", "python", self.policy.image_identity,
+                        "-I", "-c", self.actor_artifact_bytes.decode("utf-8"),
+                    ]
+                )
+                if create.returncode != 0:
+                    raise ActorLoopError("Docker actor container creation failed")
+                try:
+                    container_id = cidfile.read_text(encoding="ascii").strip()
+                except OSError as exc:
+                    raise ActorLoopError("Docker actor cidfile is unavailable") from exc
+                if _CONTAINER_ID_RE.fullmatch(container_id) is None:
+                    raise ActorLoopError("Docker actor cidfile identity is invalid")
+                pre = self._inspect(
+                    container_id, expected_status="created", expected_label=label
+                )
                 stdout, stderr, exit_code = self._start_bounded(container_id, request_bytes)
-                post = self._inspect(container_id, expected_status="exited")
+                post = self._inspect(
+                    container_id, expected_status="exited", expected_label=label
+                )
                 execution = (stdout, stderr, exit_code, pre, post)
             except Exception as exc:
                 run_error = exc
-            cleanup_code, cleanup_absent = self._cleanup(container_id)
+            try:
+                cleanup = self._cleanup(
+                    container_id=container_id, name=name, label=label
+                )
+            except Exception as cleanup_error:
+                if run_error is not None:
+                    raise cleanup_error from run_error
+                raise
         if run_error is not None:
             raise run_error
-        if execution is None:
+        if execution is None or cleanup is None:
             raise ActorLoopError("Docker actor produced no execution")
         stdout, stderr, exit_code, pre, post = execution
         if exit_code != 0 or stderr:
@@ -459,15 +634,25 @@ class DockerActorPort:
             allowed_projection_digest=self.allowed_projection_digest,
             request_digest=_bytes_digest(request_bytes),
             response_digest=_bytes_digest(stdout),
-            pre_start_inspect_digest=pre,
-            post_start_inspect_digest=post,
+            pre_start_inspect_digest=pre.inspect_digest,
+            post_start_inspect_digest=post.inspect_digest,
             exit_code=exit_code,
-            network_mode="none",
-            rootfs_read_only=True,
-            cap_drop_all=True,
-            no_new_privileges=True,
-            cleanup_remove_exit_code=cleanup_code,
-            cleanup_absent=cleanup_absent,
+            network_mode=pre.network_mode,
+            rootfs_read_only=pre.rootfs_read_only,
+            cap_drop_all=pre.cap_drop_all,
+            no_new_privileges=pre.no_new_privileges,
+            user=pre.user,
+            tmpfs_digest=pre.tmpfs_digest,
+            ulimits_digest=pre.ulimits_digest,
+            log_driver=pre.log_driver,
+            image_environment_digest=pre.image_environment_digest,
+            caller_environment_empty=pre.caller_environment_empty,
+            actor_command_digest=pre.actor_command_digest,
+            full_policy_verified=pre.full_policy_verified and post.full_policy_verified,
+            cleanup_remove_exit_code=cleanup.cleanup_remove_exit_code,
+            cleanup_absent=cleanup.cleanup_absent,
+            cleanup_diagnostic_digest=cleanup.cleanup_diagnostic_digest,
+            custody_boundary="LOCAL_IN_PROCESS_NON_INDEPENDENT",
         )
         return IsolatedActorResponse(stdout, receipt)
 
@@ -711,14 +896,6 @@ class ActorModelOutput:
             },
         )
 
-    @property
-    def posterior_digest(self) -> str:
-        return content_digest(
-            "active-actor-posterior/v1",
-            [item.to_mapping() for item in self.hypotheses],
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class ActorLoopReceipt:
     prefix_bundles: tuple[DiscoveryScoreBundle, ...]
@@ -726,6 +903,8 @@ class ActorLoopReceipt:
     observations: tuple[ProbeObservation, ...]
     decision_digests: tuple[str, ...]
     actor_invocation_receipts: tuple[ActorInvocationReceipt, ...]
+    approval_ceiling: str
+    semantic_grounding_claim: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1032,62 +1211,6 @@ def run_actor_loop(
         elif output.evidence_binding.update_disposition == "MATERIAL_UPDATE":
             if output.evidence_state_digest == prior_evidence_state_digest:
                 raise ActorLoopError("claimed material update ignored transcript evidence")
-
-            counterfactual_observations = [dict(item) for item in public_observations]
-            changed = counterfactual_observations[-1]
-            changed["outcome_label"] = (
-                "STATUS_NONZERO"
-                if changed["outcome_label"] == "STATUS_ZERO"
-                else "STATUS_ZERO"
-            )
-            changed_without_digest = dict(changed)
-            del changed_without_digest["public_observation_digest"]
-            changed["public_observation_digest"] = content_digest(
-                "active-actor-public-observation/v1", changed_without_digest
-            )
-            counterfactual_digest = content_digest(
-                "active-actor-public-transcript/v1", counterfactual_observations
-            )
-            counterfactual_request = {
-                **request,
-                "prefix_observations": counterfactual_observations,
-                "transcript_prefix_digest": counterfactual_digest,
-            }
-            counterfactual_bytes = canonical_json(counterfactual_request).encode()
-            counterfactual_first = actor_port.invoke(counterfactual_bytes)
-            counterfactual_second = actor_port.invoke(counterfactual_bytes)
-            if (
-                counterfactual_first.canonical_response_bytes
-                != counterfactual_second.canonical_response_bytes
-            ):
-                raise ActorLoopError("counterfactual actor replay is non-deterministic")
-            for invocation in (
-                counterfactual_first.receipt,
-                counterfactual_second.receipt,
-            ):
-                if invocation.container_id in container_ids:
-                    raise ActorLoopError("Docker actor container identity was reused")
-                container_ids.add(invocation.container_id)
-                invocation_receipts.append(invocation)
-            counterfactual_raw = json.loads(
-                counterfactual_first.canonical_response_bytes
-            )
-            if not isinstance(counterfactual_raw, Mapping):
-                raise ActorLoopError("counterfactual actor response must be an object")
-            counterfactual_output = ActorModelOutput.from_mapping(counterfactual_raw)
-            if (
-                counterfactual_output.evidence_binding.transcript_prefix_digest
-                != counterfactual_digest
-            ):
-                raise ActorLoopError("counterfactual transcript evidence binding mismatch")
-            if (
-                counterfactual_output.evidence_binding.update_disposition
-                == "MATERIAL_UPDATE"
-                and counterfactual_output.posterior_digest == output.posterior_digest
-            ):
-                raise ActorLoopError(
-                    "same-length counterfactual produced the same material posterior"
-                )
         elif output.evidence_state_digest != prior_evidence_state_digest:
             raise ActorLoopError("abstention cannot mutate the evidence state")
         prior_evidence_state_digest = output.evidence_state_digest
@@ -1150,4 +1273,8 @@ def run_actor_loop(
         observations=tuple(observations),
         decision_digests=tuple(decision_digests),
         actor_invocation_receipts=tuple(invocation_receipts),
+        approval_ceiling=(
+            "HARDENED_DOCKER_ACTOR_TRANSPORT_AND_CLOSED_PUBLIC_PROJECTION"
+        ),
+        semantic_grounding_claim="NO_SEMANTIC_GROUNDING_CLAIM",
     )
