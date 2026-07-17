@@ -9,6 +9,7 @@ from typing import Any, Mapping, Sequence
 
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_OPAQUE_VARIABLE_ID = re.compile(r"^[a-z][0-9]+$")
 
 
 class DiscoveryContractError(ValueError):
@@ -93,6 +94,10 @@ class InterventionDataset:
         intervention_targets: Mapping[str, str],
     ) -> InterventionDataset:
         variables = tuple(_name(value, "variable id") for value in variable_ids)
+        if any(_OPAQUE_VARIABLE_ID.fullmatch(value) is None for value in variables):
+            raise DiscoveryContractError(
+                "variable ids must use opaque lower-letter-plus-digits identifiers"
+            )
         if len(variables) < 2 or len(variables) != len(set(variables)):
             raise DiscoveryContractError("variable ids must be at least two unique names")
         if set(intervention_rows) != set(intervention_targets):

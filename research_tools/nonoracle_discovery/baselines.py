@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import math
 import statistics
 
-from .contracts import DirectedAncestryHypothesis, InterventionDataset, content_digest
-from .mechanism import _signed_standardized_shift
+from .contracts import (
+    DirectedAncestryHypothesis,
+    DiscoveryContractError,
+    InterventionDataset,
+    content_digest,
+)
 
 
 _MICROS = 1_000_000
@@ -11,6 +16,21 @@ _MICROS = 1_000_000
 
 def _column(rows: tuple[tuple[float, ...], ...], index: int) -> tuple[float, ...]:
     return tuple(row[index] for row in rows)
+
+
+def _baseline_signed_standardized_shift(
+    control: tuple[float, ...], treated: tuple[float, ...]
+) -> float:
+    if not control or not treated:
+        raise DiscoveryContractError("baseline effect requires both samples")
+    difference = statistics.mean(treated) - statistics.mean(control)
+    scale = statistics.pstdev(control + treated)
+    if scale <= 1e-12:
+        return 0.0
+    effect = difference / scale
+    if not math.isfinite(effect):
+        raise DiscoveryContractError("baseline effect produced a non-finite value")
+    return effect
 
 
 def _hypothesis(
@@ -69,10 +89,11 @@ def correlation_baseline(
                     stability_micros=round(abs(correlation) * _MICROS),
                 )
             )
-    candidates.sort(
-        key=lambda item: (-item.stability_micros, item.source, item.target)
-    )
-    return tuple(candidates[: min(k, len(candidates))])
+    candidates.sort(key=lambda item: -item.stability_micros)
+    if not candidates:
+        return ()
+    cutoff = candidates[min(k, len(candidates)) - 1].stability_micros
+    return tuple(item for item in candidates if item.stability_micros >= cutoff)
 
 
 def pooled_shift_baseline(
@@ -92,7 +113,7 @@ def pooled_shift_baseline(
         for target_index, target in enumerate(dataset.variable_ids):
             if source_index == target_index:
                 continue
-            effect = _signed_standardized_shift(
+            effect = _baseline_signed_standardized_shift(
                 _column(dataset.control_rows, target_index),
                 _column(condition.rows, target_index),
             )
@@ -130,4 +151,3 @@ def finite_screen_baseline(dataset: InterventionDataset) -> tuple[DirectedAncest
                 )
             )
     return tuple(values)
-

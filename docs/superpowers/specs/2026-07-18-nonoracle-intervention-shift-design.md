@@ -1,6 +1,6 @@
 # R-NONORACLE-INTERVENTION-SHIFT-1 Design
 
-> Status: `DESIGN_APPROVED / IMPLEMENTATION_NOT_STARTED / NOT_FROZEN / NOT_RUN`
+> Status: `DESIGN_APPROVED / IMPLEMENTED / QUALIFICATION_ONLY / NOT_FROZEN / NOT_RUN`
 > Track: `Research`
 > Base: `c72375acb71c6a60cb0287cbd185ff07a196e0bd`
 
@@ -70,7 +70,8 @@ both cheap baselines; it is not result evidence.
 
 ## Leakage and shortcut attacks
 
-- Mutating any hidden gold object cannot change mechanism bytes.
+- The public API has no gold input, and exact source validation rejects truth,
+  scorer, file-I/O and dynamic-import channels.
 - A bijective variable-ID rename produces an equivalently renamed output.
 - Row order and within-condition order cannot change output.
 - Removing, duplicating or contradicting intervention metadata fails closed.
@@ -88,4 +89,3 @@ real Sachs data, read the Sachs consensus graph, write a result artifact, or
 claim discovery performance. Completion state remains
 `IMPLEMENTED / QUALIFICATION_ONLY / NOT_FROZEN / NOT_RUN` until independent
 review, exact-manifest acceptance, founder freeze and separate run authority.
-

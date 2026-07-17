@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from research_tools.nonoracle_discovery.freeze_candidate import (
     FreezeCandidateError,
+    _manifest_payload,
     build_freeze_candidate,
     verify_freeze_candidate,
 )
+from research_tools.nonoracle_discovery.contracts import content_digest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,7 +45,7 @@ def test_manifest_binds_every_mechanism_baseline_qualification_and_attack_file()
         "OBSERVATIONAL_ABS_CORRELATION_MATCHED_K",
     )
     assert "VARIABLE_RENAME_EQUIVARIANCE" in manifest.attack_ids
-    assert "HIDDEN_GOLD_MUTATION_INVARIANCE" in manifest.attack_ids
+    assert "NO_GOLD_INPUT_OR_IO_CHANNEL" in manifest.attack_ids
 
 
 def _copy_bound_tree(destination: Path) -> None:
@@ -72,3 +75,59 @@ def test_builder_rejects_symlinked_bound_file(tmp_path: Path) -> None:
 
     with pytest.raises(FreezeCandidateError, match="regular non-symlink"):
         build_freeze_candidate(tmp_path)
+
+
+def test_builder_rejects_truth_import_bypass(tmp_path: Path) -> None:
+    _copy_bound_tree(tmp_path)
+    target = tmp_path / "research_tools/nonoracle_discovery/mechanism.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nfrom experiments.sachs_task import GROUND_TRUTH\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FreezeCandidateError, match="oracle channel"):
+        build_freeze_candidate(tmp_path)
+
+
+def test_builder_rejects_file_io_bypass(tmp_path: Path) -> None:
+    _copy_bound_tree(tmp_path)
+    target = tmp_path / "research_tools/nonoracle_discovery/mechanism.py"
+    target.write_text(
+        target.read_text(encoding="utf-8")
+        + "\nLEAKED = open('/tmp/hidden-gold.json').read()\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FreezeCandidateError, match="oracle channel"):
+        build_freeze_candidate(tmp_path)
+
+
+def _resign(manifest, *, calibration_digest=None, file_bindings=None):
+    calibration = calibration_digest or manifest.calibration_digest
+    bindings = file_bindings or manifest.file_bindings
+    payload = _manifest_payload(calibration, bindings)
+    return replace(
+        manifest,
+        calibration_digest=calibration,
+        file_bindings=bindings,
+        manifest_digest=content_digest(
+            "nonoracle-discovery-freeze-candidate/v1", payload
+        ),
+    )
+
+
+def test_verifier_rejects_self_signed_calibration_substitution() -> None:
+    manifest = build_freeze_candidate(REPO_ROOT)
+    resigned = _resign(manifest, calibration_digest="9" * 64)
+
+    with pytest.raises(FreezeCandidateError, match="calibration"):
+        verify_freeze_candidate(resigned, REPO_ROOT)
+
+
+def test_verifier_rejects_self_signed_binding_deletion() -> None:
+    manifest = build_freeze_candidate(REPO_ROOT)
+    resigned = _resign(manifest, file_bindings=manifest.file_bindings[:-1])
+
+    with pytest.raises(FreezeCandidateError, match="exact bound paths"):
+        verify_freeze_candidate(resigned, REPO_ROOT)

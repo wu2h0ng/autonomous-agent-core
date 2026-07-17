@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import statistics
 from dataclasses import dataclass
+from itertools import combinations
 
 from .contracts import (
     DirectedAncestryHypothesis,
@@ -17,17 +18,23 @@ _MICROS = 1_000_000
 
 @dataclass(frozen=True, slots=True)
 class StabilityCalibration:
-    permutation_offsets: tuple[int, ...]
+    exact_null_quantile_micros: int
+    max_exact_combinations: int
     minimum_effect_micros: int
 
     def __post_init__(self) -> None:
         if (
-            len(self.permutation_offsets) < 2
-            or len(self.permutation_offsets) != len(set(self.permutation_offsets))
-            or any(isinstance(value, bool) or not isinstance(value, int) or value <= 0
-                   for value in self.permutation_offsets)
+            isinstance(self.exact_null_quantile_micros, bool)
+            or not isinstance(self.exact_null_quantile_micros, int)
+            or not 0 < self.exact_null_quantile_micros <= _MICROS
         ):
-            raise DiscoveryContractError("permutation offsets require unique positive integers")
+            raise DiscoveryContractError("exact null quantile must be in (0, 1]")
+        if (
+            isinstance(self.max_exact_combinations, bool)
+            or not isinstance(self.max_exact_combinations, int)
+            or self.max_exact_combinations <= 0
+        ):
+            raise DiscoveryContractError("exact combination cap must be positive")
         if (
             isinstance(self.minimum_effect_micros, bool)
             or not isinstance(self.minimum_effect_micros, int)
@@ -40,18 +47,20 @@ class StabilityCalibration:
         return content_digest(
             "intervention-stability-calibration/v1",
             {
-                "permutation_offsets": list(self.permutation_offsets),
+                "exact_null_quantile_micros": self.exact_null_quantile_micros,
+                "max_exact_combinations": self.max_exact_combinations,
                 "minimum_effect_micros": self.minimum_effect_micros,
             },
         )
 
 
-def _canonical_rows(rows: tuple[tuple[float, ...], ...]) -> tuple[tuple[float, ...], ...]:
-    return tuple(sorted(rows))
-
-
-def _halves(rows: tuple[tuple[float, ...], ...]) -> tuple[tuple[tuple[float, ...], ...], ...]:
-    ordered = _canonical_rows(rows)
+def _partition_rows(
+    rows: tuple[tuple[float, ...], ...], key_index: int
+) -> tuple[tuple[tuple[float, ...], ...], ...]:
+    keys = tuple(row[key_index] for row in rows)
+    if len(keys) != len(set(keys)):
+        raise DiscoveryContractError("partition covariate must uniquely identify public rows")
+    ordered = tuple(sorted(rows, key=lambda row: row[key_index]))
     return ordered[::2], ordered[1::2]
 
 
@@ -72,20 +81,24 @@ def _column(rows: tuple[tuple[float, ...], ...], index: int) -> tuple[float, ...
     return tuple(row[index] for row in rows)
 
 
-def _permutation_null(
+def _exact_permutation_null(
     control: tuple[tuple[float, ...], ...],
     treated: tuple[tuple[float, ...], ...],
     target_index: int,
-    offsets: tuple[int, ...],
-) -> float:
-    combined = tuple(sorted(control + treated))
+    calibration: StabilityCalibration,
+) -> tuple[float, int]:
+    combined = control + treated
+    control_size = len(control)
+    combination_count = math.comb(len(combined), control_size)
+    if combination_count > calibration.max_exact_combinations:
+        raise DiscoveryContractError("exact permutation space exceeds frozen cap")
     nulls: list[float] = []
-    for offset in offsets:
-        pseudo_control = tuple(
-            row for index, row in enumerate(combined) if (index + offset) % 4 < 2
-        )
+    all_indices = frozenset(range(len(combined)))
+    for chosen in combinations(range(len(combined)), control_size):
+        control_indices = frozenset(chosen)
+        pseudo_control = tuple(combined[index] for index in chosen)
         pseudo_treated = tuple(
-            row for index, row in enumerate(combined) if (index + offset) % 4 >= 2
+            combined[index] for index in sorted(all_indices - control_indices)
         )
         nulls.append(
             abs(
@@ -95,19 +108,23 @@ def _permutation_null(
                 )
             )
         )
-    return max(nulls, default=0.0)
+    ordered = sorted(nulls)
+    rank = math.ceil(
+        calibration.exact_null_quantile_micros * len(ordered) / _MICROS
+    )
+    return ordered[max(0, rank - 1)], combination_count
 
 
 def discover(
     dataset: InterventionDataset,
     calibration: StabilityCalibration,
 ) -> tuple[DirectedAncestryHypothesis, ...]:
-    controls = _halves(dataset.control_rows)
     accepted: list[DirectedAncestryHypothesis] = []
     minimum = calibration.minimum_effect_micros / _MICROS
     for condition in dataset.conditions:
-        treated = _halves(condition.rows)
         source_index = dataset.variable_ids.index(condition.target)
+        controls = _partition_rows(dataset.control_rows, source_index)
+        treated = _partition_rows(condition.rows, source_index)
         for target_index, target in enumerate(dataset.variable_ids):
             if target_index == source_index:
                 continue
@@ -122,11 +139,11 @@ def discover(
                 continue
             if math.copysign(1.0, half_effects[0]) != math.copysign(1.0, half_effects[1]):
                 continue
-            null = _permutation_null(
+            null, permutation_count = _exact_permutation_null(
                 dataset.control_rows,
                 condition.rows,
                 target_index,
-                calibration.permutation_offsets,
+                calibration,
             )
             threshold = max(minimum, null)
             stability = min(abs(value) for value in half_effects)
@@ -147,6 +164,7 @@ def discover(
                     "half_effects_micros": [round(value * _MICROS) for value in half_effects],
                     "pooled_effect_micros": round(pooled * _MICROS),
                     "permutation_null_micros": round(null * _MICROS),
+                    "exact_permutation_count": permutation_count,
                 },
             )
             accepted.append(

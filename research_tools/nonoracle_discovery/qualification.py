@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .baselines import correlation_baseline, pooled_shift_baseline
+from .baselines import correlation_baseline, finite_screen_baseline, pooled_shift_baseline
 from .contracts import InterventionDataset, content_digest
 from .mechanism import StabilityCalibration, discover
 
@@ -24,25 +24,32 @@ class QualificationReceipt:
     correlation_selects_confounded_relation: bool
     pooled_shift_selects_unstable_artifact: bool
     mechanism_rejects_unstable_artifact: bool
+    expected_hypotheses: tuple[tuple[str, str], ...]
+    mechanism_hypotheses: tuple[tuple[str, str], ...]
+    arm_scores: tuple[QualificationArmScore, ...]
     receipt_digest: str
 
 
+@dataclass(frozen=True, slots=True)
+class QualificationArmScore:
+    arm_id: str
+    hypotheses: tuple[tuple[str, str], ...]
+    true_positives: int
+    false_positives: int
+    false_negatives: int
+    f1_micros: int
+
+
 def confounded_indirect_fixture() -> SyntheticQualificationFixture:
-    control = tuple(
-        (
-            -1.0 if index % 2 == 0 else 1.0,
-            float(index),
-            float(index),
-        )
-        for index in range(8)
-    )
+    source_keys = (0.0, 7.0, 1.0, 6.0, 2.0, 5.0, 3.0, 4.0)
+    control = tuple((source_keys[index], float(index), float(index)) for index in range(8))
     stable = tuple(
         (float(index), float(index), 8.0 + 0.1 * (index % 2))
         for index in range(8)
     )
     unstable = tuple(
         (
-            float(index),
+            source_keys[index],
             float(index),
             10.0 if index % 2 == 0 else float(index),
         )
@@ -51,8 +58,8 @@ def confounded_indirect_fixture() -> SyntheticQualificationFixture:
     dataset = InterventionDataset.create(
         ("v0", "v1", "v2"),
         control,
-        {"condition-v0": stable, "condition-v1": unstable},
-        {"condition-v0": "v0", "condition-v1": "v1"},
+        {"c0": stable, "c1": unstable},
+        {"c0": "v0", "c1": "v1"},
     )
     return SyntheticQualificationFixture(
         dataset=dataset,
@@ -66,16 +73,48 @@ def _pairs(values: tuple[object, ...]) -> set[tuple[str, str]]:
     return {(item.source, item.target) for item in values}  # type: ignore[attr-defined]
 
 
+def _score_arm(
+    arm_id: str,
+    values: tuple[object, ...],
+    expected: set[tuple[str, str]],
+) -> QualificationArmScore:
+    hypotheses = _pairs(values)
+    true_positives = len(hypotheses & expected)
+    false_positives = len(hypotheses - expected)
+    false_negatives = len(expected - hypotheses)
+    denominator = 2 * true_positives + false_positives + false_negatives
+    f1_micros = 0 if denominator == 0 else round(2 * true_positives * 1_000_000 / denominator)
+    return QualificationArmScore(
+        arm_id=arm_id,
+        hypotheses=tuple(sorted(hypotheses)),
+        true_positives=true_positives,
+        false_positives=false_positives,
+        false_negatives=false_negatives,
+        f1_micros=f1_micros,
+    )
+
+
 def run_synthetic_qualification() -> QualificationReceipt:
     fixture = confounded_indirect_fixture()
     calibration = StabilityCalibration(
-        permutation_offsets=(1, 3, 5),
+        exact_null_quantile_micros=950_000,
+        max_exact_combinations=20_000,
         minimum_effect_micros=500_000,
     )
-    mechanism_pairs = _pairs(discover(fixture.dataset, calibration))
-    correlation_pairs = _pairs(correlation_baseline(fixture.dataset, k=1))
-    pooled_pairs = _pairs(
-        pooled_shift_baseline(fixture.dataset, threshold_micros=500_000)
+    mechanism = discover(fixture.dataset, calibration)
+    matched_k = max(1, len(mechanism))
+    correlation = correlation_baseline(fixture.dataset, k=matched_k)
+    pooled = pooled_shift_baseline(fixture.dataset, threshold_micros=500_000)
+    finite = finite_screen_baseline(fixture.dataset)
+    mechanism_pairs = _pairs(mechanism)
+    correlation_pairs = _pairs(correlation)
+    pooled_pairs = _pairs(pooled)
+    expected = {fixture.true_relation}
+    arm_scores = (
+        _score_arm("INTERVENTION_STABILITY", mechanism, expected),
+        _score_arm("OBSERVATIONAL_ABS_CORRELATION_MATCHED_K", correlation, expected),
+        _score_arm("FIXED_THRESHOLD_POOLED_MEAN_SHIFT", pooled, expected),
+        _score_arm("FINITE_SCREEN_ALL_LEGAL_PAIRS", finite, expected),
     )
     values = {
         "mode": "SYNTHETIC_QUALIFICATION_NOT_EVIDENCE",
@@ -85,8 +124,25 @@ def run_synthetic_qualification() -> QualificationReceipt:
         "correlation_selects_confounded_relation": fixture.confounded_relation in correlation_pairs,
         "pooled_shift_selects_unstable_artifact": fixture.unstable_artifact_relation in pooled_pairs,
         "mechanism_rejects_unstable_artifact": fixture.unstable_artifact_relation not in mechanism_pairs,
+        "expected_hypotheses": tuple(sorted(expected)),
+        "mechanism_hypotheses": tuple(sorted(mechanism_pairs)),
+        "arm_scores": arm_scores,
+    }
+    digest_values = {
+        **values,
+        "arm_scores": [
+            {
+                "arm_id": arm.arm_id,
+                "hypotheses": arm.hypotheses,
+                "true_positives": arm.true_positives,
+                "false_positives": arm.false_positives,
+                "false_negatives": arm.false_negatives,
+                "f1_micros": arm.f1_micros,
+            }
+            for arm in arm_scores
+        ],
     }
     return QualificationReceipt(
         **values,
-        receipt_digest=content_digest("nonoracle-synthetic-qualification/v1", values),
+        receipt_digest=content_digest("nonoracle-synthetic-qualification/v1", digest_values),
     )

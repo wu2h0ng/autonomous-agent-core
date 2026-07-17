@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,7 +32,7 @@ BASELINE_IDS = (
 ATTACK_IDS = (
     "CONTRADICTORY_BINDING_FAIL_CLOSED",
     "DUPLICATE_TARGET_BINDING_FAIL_CLOSED",
-    "HIDDEN_GOLD_MUTATION_INVARIANCE",
+    "NO_GOLD_INPUT_OR_IO_CHANNEL",
     "OPAQUE_PREDICTOR_CODEC_STATE_FORBIDDEN",
     "PUBLIC_EVIDENCE_SENSITIVITY",
     "REAL_TRUTH_IMPORT_SCAN",
@@ -65,12 +67,89 @@ class FreezeCandidateManifest:
 
 
 def _binding(repo_root: Path, relative_path: str) -> FileBinding:
+    relative = Path(relative_path)
+    if relative.is_absolute() or ".." in relative.parts or relative.as_posix() != relative_path:
+        raise FreezeCandidateError(f"unsafe bound path: {relative_path}")
     path = repo_root / relative_path
     if path.is_symlink() or not path.is_file():
         raise FreezeCandidateError(
             f"bound file must be a regular non-symlink: {relative_path}"
         )
     return FileBinding(relative_path, hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+_SOURCE_PATHS = (
+    "research_tools/nonoracle_discovery/contracts.py",
+    "research_tools/nonoracle_discovery/mechanism.py",
+    "research_tools/nonoracle_discovery/baselines.py",
+)
+_ALLOWED_IMPORTS = {
+    "research_tools/nonoracle_discovery/contracts.py": frozenset(
+        {"__future__", "hashlib", "json", "math", "re", "dataclasses", "typing"}
+    ),
+    "research_tools/nonoracle_discovery/mechanism.py": frozenset(
+        {"__future__", "math", "statistics", "dataclasses", "itertools", "contracts"}
+    ),
+    "research_tools/nonoracle_discovery/baselines.py": frozenset(
+        {"__future__", "math", "statistics", "contracts"}
+    ),
+}
+_PROHIBITED_TOKENS = frozenset(
+    {
+        "groundtruth", "sachstask", "scoringreferee", "hiddenscoring",
+        "raf", "mek", "plcg", "pip2", "pip3", "erk", "akt", "pka",
+        "pkc", "p38", "jnk",
+    }
+)
+_PROHIBITED_CALLS = frozenset(
+    {"open", "exec", "eval", "compile", "__import__", "getattr", "readtext", "readbytes"}
+)
+
+
+def _normalized(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _validate_oracle_deleted_source(repo_root: Path) -> None:
+    for relative_path in _SOURCE_PATHS:
+        source = (repo_root / relative_path).read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=relative_path)
+        tokens: set[str] = set()
+        imports: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                tokens.add(_normalized(node.id))
+            elif isinstance(node, ast.Attribute):
+                tokens.add(_normalized(node.attr))
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                tokens.add(_normalized(node.value))
+            elif isinstance(node, ast.Import):
+                tokens.update(_normalized(alias.name) for alias in node.names)
+                imports.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module is not None:
+                tokens.add(_normalized(node.module))
+                tokens.update(_normalized(alias.name) for alias in node.names)
+                imports.add(node.module)
+        direct_calls = {
+            _normalized(node.func.id)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        io_attributes = {
+            _normalized(node.func.attr)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        }
+        prohibited_reference = any(
+            prohibited in token
+            for token in tokens
+            for prohibited in _PROHIBITED_TOKENS
+        )
+        unauthorized_imports = imports - _ALLOWED_IMPORTS[relative_path]
+        if unauthorized_imports or prohibited_reference or direct_calls & _PROHIBITED_CALLS or io_attributes & {
+            "readtext", "readbytes"
+        }:
+            raise FreezeCandidateError(f"oracle channel present in {relative_path}")
 
 
 def _manifest_payload(
@@ -98,9 +177,11 @@ def build_freeze_candidate(repo_root: Path) -> FreezeCandidateManifest:
     root = repo_root.resolve()
     if len(BOUND_PATHS) != len(set(BOUND_PATHS)):
         raise FreezeCandidateError("bound file paths must be unique")
+    _validate_oracle_deleted_source(root)
     bindings = tuple(_binding(root, relative) for relative in BOUND_PATHS)
     calibration = StabilityCalibration(
-        permutation_offsets=(1, 3, 5),
+        exact_null_quantile_micros=950_000,
+        max_exact_combinations=20_000,
         minimum_effect_micros=500_000,
     )
     payload = _manifest_payload(calibration.digest, bindings)
@@ -126,6 +207,11 @@ def verify_freeze_candidate(
     manifest: FreezeCandidateManifest,
     repo_root: Path,
 ) -> bool:
+    expected_calibration = StabilityCalibration(
+        exact_null_quantile_micros=950_000,
+        max_exact_combinations=20_000,
+        minimum_effect_micros=500_000,
+    )
     if (
         manifest.schema_version != "nonoracle-discovery-freeze-candidate/v1"
         or manifest.route_id != ROUTE_ID
@@ -138,6 +224,13 @@ def verify_freeze_candidate(
         or manifest.attack_ids != ATTACK_IDS
     ):
         raise FreezeCandidateError("freeze-candidate authority boundary drift")
+    if manifest.calibration_digest != expected_calibration.digest:
+        raise FreezeCandidateError("freeze-candidate calibration drift")
+    if tuple(item.path for item in manifest.file_bindings) != BOUND_PATHS:
+        raise FreezeCandidateError("freeze-candidate exact bound paths drift")
+    if len(manifest.file_bindings) != len(set(item.path for item in manifest.file_bindings)):
+        raise FreezeCandidateError("freeze-candidate duplicate bound paths")
+    _validate_oracle_deleted_source(repo_root.resolve())
     current = tuple(_binding(repo_root.resolve(), item.path) for item in manifest.file_bindings)
     if current != manifest.file_bindings:
         raise FreezeCandidateError("freeze-candidate file digest drift")
