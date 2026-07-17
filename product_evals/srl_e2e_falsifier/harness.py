@@ -39,7 +39,11 @@ from .contracts import (
     StaticBudgetConfiguration,
     decision_candidate_digest,
 )
-from .docker_exec import DockerExecutionReceipt, DockerExecutionRequest
+from .docker_exec import (
+    DockerArmExecutor,
+    DockerExecutionReceipt,
+    DockerExecutionRequest,
+)
 
 
 class ArmId(str, Enum):
@@ -1202,17 +1206,9 @@ def seal_controlled_execution_receipt(
     )
 
 
-class DockerArmExecutorPort(Protocol):
-    """Narrow local execution port; it grants no scoring or evaluation authority."""
-
-    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt: ...
-
-    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None: ...
-
-
 def execute_and_seal_controlled_arm(
     *,
-    executor: DockerArmExecutorPort,
+    executor: DockerArmExecutor,
     unit: FrozenEvaluationUnit,
     arm_id: ArmId,
     decision: BoundControllerDecision,
@@ -1221,6 +1217,8 @@ def execute_and_seal_controlled_arm(
 ) -> ControlledExecutionReceipt:
     """Execute one bound proposal-only arm, verify its raw receipt, then seal it."""
 
+    if type(executor) is not DockerArmExecutor:
+        raise TypeError("controlled execution requires a trusted DockerArmExecutor")
     if type(arm_id) is not ArmId:
         raise ValueError("arm binding must use an exact ArmId")
     _validate_sha256_digest("provider_probe_digest", provider_probe_digest)

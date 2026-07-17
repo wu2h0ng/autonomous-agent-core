@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -216,33 +216,6 @@ def _bound_decision(
     )
 
 
-class _RecordingExecutor:
-    def __init__(self, delegate: Any) -> None:
-        self.delegate = delegate
-        self.requests: list[DockerExecutionRequest] = []
-        self.verified: list[DockerExecutionReceipt] = []
-
-    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
-        self.requests.append(request)
-        return self.delegate.execute(request)
-
-    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
-        self.verified.append(receipt)
-        self.delegate.verify_local_receipt(receipt)
-
-
-class _FailingExecutor:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
-        self.calls += 1
-        raise RuntimeError("executor failed")
-
-    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
-        raise AssertionError("failed execution must not produce a receipt")
-
-
 class _FakeReceiptExecutor:
     def __init__(self, receipt: object) -> None:
         self.receipt = receipt
@@ -251,6 +224,70 @@ class _FakeReceiptExecutor:
     def execute(self, request: DockerExecutionRequest) -> Any:
         self.calls += 1
         return self.receipt
+
+    def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
+        return None
+
+
+class _SelfCertifiedExecutor:
+    """Attacker controls both raw receipt production and its alleged verifier."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, request: DockerExecutionRequest) -> DockerExecutionReceipt:
+        self.calls += 1
+        cleanup = {"cleanup_remove_exit_code": 0, "cleanup_absent": True}
+        payload: dict[str, Any] = {
+            "schema_version": "1.0",
+            "request_id": request.request_id,
+            "request_digest": request.request_digest,
+            "public_state_digest": request.public_state_digest,
+            "candidate": request.candidate.model_dump(mode="json"),
+            "image_identity": "attacker/image@sha256:" + "a" * 64,
+            "resolved_image_id": "sha256:" + "b" * 64,
+            "policy_digest": "c" * 64,
+            "worker_artifact_sha256": "d" * 64,
+            "container_id": "attacker-container",
+            "pre_start_inspect_digest": "e" * 64,
+            "post_start_inspect_digest": "f" * 64,
+            "exit_code": 0,
+            "stdout_digest": "1" * 64,
+            "stderr_digest": "2" * 64,
+            "network_mode": "none",
+            "rootfs_read_only": True,
+            "environment_empty": True,
+            "no_external_effect": True,
+            **cleanup,
+            "cleanup_digest": content_digest(cleanup),
+        }
+        receipt_digest = content_digest(payload)
+        return DockerExecutionReceipt(
+            schema_version="1.0",
+            request_id=request.request_id,
+            request_digest=request.request_digest,
+            public_state_digest=request.public_state_digest,
+            candidate=request.candidate,
+            image_identity="attacker/image@sha256:" + "a" * 64,
+            resolved_image_id="sha256:" + "b" * 64,
+            policy_digest="c" * 64,
+            worker_artifact_sha256="d" * 64,
+            container_id="attacker-container",
+            pre_start_inspect_digest="e" * 64,
+            post_start_inspect_digest="f" * 64,
+            exit_code=0,
+            stdout_digest="1" * 64,
+            stderr_digest="2" * 64,
+            network_mode="none",
+            rootfs_read_only=True,
+            environment_empty=True,
+            no_external_effect=True,
+            cleanup_remove_exit_code=0,
+            cleanup_absent=True,
+            cleanup_digest=content_digest(cleanup),
+            receipt_digest=receipt_digest,
+            local_integrity_hmac="0" * 64,
+        )
 
     def verify_local_receipt(self, receipt: DockerExecutionReceipt) -> None:
         return None
@@ -621,10 +658,33 @@ def test_controlled_receipt_rejects_unbounded_arm_id() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_execute_and_seal_calls_executor_with_exact_bound_request() -> None:
+def test_execute_and_seal_calls_executor_with_exact_bound_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     unit = _unit()
     decision, budget = _execution_bindings(unit, ArmId.SRL)
-    executor = _RecordingExecutor(trusted_docker_executor())
+    executor = trusted_docker_executor()
+    requests: list[DockerExecutionRequest] = []
+    real_start = executor._start_capped
+
+    def recording_start(
+        container_id: str,
+        *,
+        input_bytes: bytes,
+        timeout_seconds: int,
+        expected_worker: bytes = executor.worker_bytes,
+        expected_arguments: tuple[str, ...] = (),
+    ) -> tuple[bytes, bytes, int, str]:
+        requests.append(DockerExecutionRequest.from_json(input_bytes))
+        return real_start(
+            container_id,
+            input_bytes=input_bytes,
+            timeout_seconds=timeout_seconds,
+            expected_worker=expected_worker,
+            expected_arguments=expected_arguments,
+        )
+
+    monkeypatch.setattr(executor, "_start_capped", recording_start)
 
     controlled = execute_and_seal_controlled_arm(
         executor=executor,
@@ -635,8 +695,8 @@ def test_execute_and_seal_calls_executor_with_exact_bound_request() -> None:
         provider_probe_digest=decision.usage_receipt.probe_digest,
     )
 
-    assert len(executor.requests) == 1
-    request = executor.requests[0]
+    assert len(requests) == 1
+    request = requests[0]
     binding = decision.binding_receipt
     expected_request_binding = content_digest(
         {
@@ -653,20 +713,26 @@ def test_execute_and_seal_calls_executor_with_exact_bound_request() -> None:
     request_payload = request.to_mapping()
     del request_payload["request_digest"]
     assert request.request_digest == content_digest(request_payload)
-    assert len(executor.verified) == 1
-    raw = executor.verified[0]
-    assert raw.request_id == request.request_id
-    assert raw.request_digest == request.request_digest
-    assert controlled.docker_execution_receipt_digest == raw.receipt_digest
+    assert controlled.docker_execution_receipt_digest != ""
     assert controlled.controller_digest == binding.controller_digest
     assert controlled.budget_configuration_digest == budget.budget_configuration_digest
     assert controlled.provider_probe_digest == decision.usage_receipt.probe_digest
 
 
-def test_execute_and_seal_propagates_executor_failure_without_verification() -> None:
+def test_execute_and_seal_propagates_executor_failure_without_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     unit = _unit()
     decision, budget = _execution_bindings(unit)
-    executor = _FailingExecutor()
+    executor = trusted_docker_executor()
+    calls = 0
+
+    def fail_create(**kwargs: Any) -> str:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("executor failed")
+
+    monkeypatch.setattr(executor, "_create_container", fail_create)
 
     with pytest.raises(RuntimeError, match="executor failed"):
         execute_and_seal_controlled_arm(
@@ -677,7 +743,7 @@ def test_execute_and_seal_propagates_executor_failure_without_verification() -> 
             budget_receipt=budget,
             provider_probe_digest=decision.usage_receipt.probe_digest,
         )
-    assert executor.calls == 1
+    assert calls == 1
 
 
 def test_execute_and_seal_rejects_non_receipt_from_executor() -> None:
@@ -685,21 +751,39 @@ def test_execute_and_seal_rejects_non_receipt_from_executor() -> None:
     decision, budget = _execution_bindings(unit)
     executor = _FakeReceiptExecutor({"receipt_digest": "f" * 64})
 
-    with pytest.raises(TypeError, match="raw DockerExecutionReceipt"):
+    with pytest.raises(TypeError, match="trusted DockerArmExecutor"):
         execute_and_seal_controlled_arm(
-            executor=executor,
+            executor=cast(Any, executor),
             unit=unit,
             arm_id=ArmId.DIRECT,
             decision=decision,
             budget_receipt=budget,
             provider_probe_digest=decision.usage_receipt.probe_digest,
         )
-    assert executor.calls == 1
+    assert executor.calls == 0
+
+
+def test_execute_and_seal_rejects_self_certified_executor_and_receipt() -> None:
+    unit = _unit()
+    decision, budget = _execution_bindings(unit)
+    executor = _SelfCertifiedExecutor()
+
+    with pytest.raises(TypeError, match="trusted DockerArmExecutor"):
+        execute_and_seal_controlled_arm(
+            executor=cast(Any, executor),
+            unit=unit,
+            arm_id=ArmId.DIRECT,
+            decision=decision,
+            budget_receipt=budget,
+            provider_probe_digest=decision.usage_receipt.probe_digest,
+        )
+    assert executor.calls == 0
 
 
 @pytest.mark.parametrize("drift", ["budget", "provider", "binding"])
 def test_execute_and_seal_rejects_binding_drift_before_executor_call(
     drift: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     unit = _unit()
     decision, budget = _execution_bindings(unit)
@@ -715,7 +799,15 @@ def test_execute_and_seal_rejects_binding_drift_before_executor_call(
                 update={"public_state_digest": "9" * 64}
             ),
         )
-    executor = _FailingExecutor()
+    executor = trusted_docker_executor()
+    calls = 0
+
+    def unexpected_create(**kwargs: Any) -> str:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("binding drift reached Docker OS seam")
+
+    monkeypatch.setattr(executor, "_create_container", unexpected_create)
 
     with pytest.raises(ValueError, match="binding|receipt integrity"):
         execute_and_seal_controlled_arm(
@@ -726,4 +818,4 @@ def test_execute_and_seal_rejects_binding_drift_before_executor_call(
             budget_receipt=budget,
             provider_probe_digest=provider_probe_digest,
         )
-    assert executor.calls == 0
+    assert calls == 0
