@@ -1641,7 +1641,7 @@ def test_legacy_sqlite_observation_schema_migrates_for_id_rehydration(tmp_path) 
         "event_id",
         "projection_id",
     } <= columns
-    assert version_row == (2,)
+    assert version_row == (3,)
 
 
 def test_invalid_legacy_row_rolls_back_schema_migration(tmp_path) -> None:
