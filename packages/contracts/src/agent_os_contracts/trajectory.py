@@ -176,6 +176,12 @@ class CreditUncertainty(ContractModel):
         return self
 
 
+class CreditEvidenceRef(ContractModel):
+    evidence_id: NonEmptyStr
+    evidence_digest: Sha256Digest
+    evidence_kind: NonEmptyStr
+
+
 class CreditAssignment(ContractModel):
     credit_id: NonEmptyStr
     episode_digest: Sha256Digest
@@ -187,7 +193,7 @@ class CreditAssignment(ContractModel):
     target_step_ids: tuple[NonEmptyStr, ...] = Field(min_length=1)
     method: CreditMethod
     value: float = Field(ge=-1, le=1)
-    evidence_refs: tuple[NonEmptyStr, ...]
+    evidence_refs: tuple[CreditEvidenceRef, ...] = Field(min_length=1)
     uncertainty: CreditUncertainty
     assigned_at: UtcDateTime
 
@@ -198,24 +204,28 @@ class CreditAssignment(ContractModel):
             raise ValueError("credit value must be finite")
         return value
 
-    @field_validator("target_step_ids", "evidence_refs", mode="after")
+    @field_validator("target_step_ids", mode="after")
     @classmethod
     def _normalize_refs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(sorted(set(values)))
 
+    @field_validator("evidence_refs", mode="after")
+    @classmethod
+    def _normalize_evidence_refs(
+        cls, values: tuple[CreditEvidenceRef, ...]
+    ) -> tuple[CreditEvidenceRef, ...]:
+        by_key = {(item.evidence_id, item.evidence_digest): item for item in values}
+        if len(by_key) != len(values):
+            raise ValueError("credit evidence refs must be unique")
+        return tuple(by_key[key] for key in sorted(by_key))
+
     @model_validator(mode="after")
     def _prevent_false_causal_certainty(self) -> CreditAssignment:
-        deterministic = (
+        if (
             self.uncertainty.kind is CreditUncertaintyKind.NONE
             or self.uncertainty.confidence == 1
-        )
-        if deterministic and (
-            self.method not in {CreditMethod.COUNTERFACTUAL, CreditMethod.ABLATION}
-            or not self.evidence_refs
         ):
-            raise ValueError(
-                "deterministic credit requires counterfactual/ablation causal evidence"
-            )
+            raise ValueError("V0 forbids deterministic credit")
         return self
 
 

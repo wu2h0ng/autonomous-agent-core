@@ -22,8 +22,6 @@ from agent_os_contracts import (
     canonical_json,
     content_digest,
 )
-from agent_os_contracts.evidence import Sha256Digest
-
 from .errors import DuplicateEventError, EventStreamError, ScopeMismatchError
 from .event_store import TaskEventStore
 
@@ -91,17 +89,17 @@ class TrajectoryProjector:
         if tenant_id is None or workspace_id is None:
             raise ScopeMismatchError("run lacks tenant/workspace authority scope")
 
-        selected = tuple(
-            event
-            for event in stream
-            if event.sequence <= run_event.sequence
-            and (event.event_type in _SETUP_EVENTS or event is run_event)
-            or event.sequence > run_event.sequence
-            and event.correlation_id == run_id
-        )
+        selected = self._select_events(stream, run_event, task_id, run_id)
         if not selected:
             raise EventStreamError("trajectory selected no events")
         self._validate_scopes(
+            selected,
+            task_id=task_id,
+            run_id=run_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+        )
+        self._validate_truth_event_bindings(
             selected,
             task_id=task_id,
             run_id=run_id,
@@ -131,7 +129,7 @@ class TrajectoryProjector:
                 break
         working_set_ref = self._working_set_ref(selected)
         correction_epoch = self._correction_epoch(selected)
-        self._validate_correction_epoch_use(selected, correction_epoch)
+        self._validate_correction_epoch_use(selected)
 
         missing: list[str] = []
         if workflow_digest is None:
@@ -207,7 +205,7 @@ class TrajectoryProjector:
             workspace_id=workspace_id,
             task_id=task_id,
             run_id=run_id,
-            source_stream_last_sequence=selected[-1].sequence,
+            source_stream_last_sequence=stream[-1].sequence,
             workflow_digest=workflow_digest,
             workflow_status=(
                 BindingStatus.BOUND
@@ -243,6 +241,31 @@ class TrajectoryProjector:
             correction_links=tuple(corrections),
             trajectory_digest=content_digest(digest_payload),
         )
+
+    @staticmethod
+    def _select_events(
+        stream: tuple[TaskEvent, ...],
+        run_event: TaskEvent,
+        task_id: str,
+        run_id: str,
+    ) -> tuple[TaskEvent, ...]:
+        selected: list[TaskEvent] = []
+        for event in stream:
+            if event.sequence <= run_event.sequence:
+                if event.event_type in _SETUP_EVENTS or event is run_event:
+                    selected.append(event)
+                continue
+            if event.correlation_id == run_id:
+                selected.append(event)
+                continue
+            if event.event_type in {
+                TaskEventType.OUTCOME_OBSERVED,
+                TaskEventType.CORRECTION_WRITTEN,
+            }:
+                raise ScopeMismatchError(
+                    "relevant truth event has missing or mismatched correlation"
+                )
+        return tuple(selected)
 
     @staticmethod
     def _find_run(
@@ -283,6 +306,30 @@ class TrajectoryProjector:
                         )
 
     @staticmethod
+    def _validate_truth_event_bindings(
+        events: tuple[TaskEvent, ...],
+        *,
+        task_id: str,
+        run_id: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> None:
+        expected = {
+            "task_id": task_id,
+            "run_id": run_id,
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+        }
+        for event in events:
+            if event.event_type is not TaskEventType.OUTCOME_OBSERVED:
+                continue
+            outcome = _mapping(event.decoded_payload().get("outcome"))
+            if any(outcome.get(field) != value for field, value in expected.items()):
+                raise ScopeMismatchError(
+                    "outcome payload scope is missing or mismatched"
+                )
+
+    @staticmethod
     def _working_set_ref(events: tuple[TaskEvent, ...]) -> WorkingSetRef:
         for event in reversed(events):
             payload = event.decoded_payload()
@@ -311,21 +358,39 @@ class TrajectoryProjector:
         return max(epochs) if epochs else None
 
     @staticmethod
-    def _validate_correction_epoch_use(
-        events: tuple[TaskEvent, ...], current_epoch: int | None
-    ) -> None:
-        if current_epoch is None:
-            return
+    def _validate_correction_epoch_use(events: tuple[TaskEvent, ...]) -> None:
+        current: dict[str, int] = {}
         for event in events:
             payload = event.decoded_payload()
-            vectors = _all_values(payload, "observed_correction_epochs")
-            for value in vectors:
-                vector = _mapping(value)
-                task_epoch = vector.get("task_epoch")
-                if isinstance(task_epoch, int) and task_epoch < current_epoch:
+            if event.event_type is TaskEventType.CORRECTION_WRITTEN:
+                correction = _mapping(payload.get("correction")) or payload
+                scope = _optional_str(correction.get("scope")) or "TASK"
+                epoch = correction.get("epoch")
+                if not isinstance(epoch, int) or epoch < 0:
+                    raise ScopeMismatchError(
+                        "trajectory correction epoch is missing or invalid"
+                    )
+                previous = current.get(scope)
+                if previous is not None and epoch < previous:
                     raise ScopeMismatchError(
                         "trajectory correction epoch regressed within the source stream"
                     )
+                current[scope] = epoch
+                continue
+            vectors = _all_values(payload, "observed_correction_epochs")
+            for value in vectors:
+                vector = _mapping(value)
+                for scope, field in (
+                    ("TASK", "task_epoch"),
+                    ("RUN", "run_epoch"),
+                    ("CAPABILITY", "capability_epoch"),
+                ):
+                    expected = current.get(scope)
+                    observed = vector.get(field)
+                    if expected is not None and observed != expected:
+                        raise ScopeMismatchError(
+                            "trajectory correction epoch is stale or future-dated"
+                        )
 
     @staticmethod
     def _model_ref(
@@ -417,64 +482,248 @@ class TrajectoryProjector:
 
 
 class CreditLedger:
-    """Append-only credit evidence ledger; it has no policy/authority write port."""
+    """Projection-bound append-only credit ledger with scoped CAS and hash chain.
+
+    This ledger records uncertain offline attribution only.  It intentionally
+    exposes no policy, grant, evaluator, Task, or adaptation write port.
+    """
+
+    _GENESIS = "0" * 64
 
     def __init__(self, path: str | Path = ":memory:") -> None:
         self._db = sqlite3.connect(str(path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._lock = RLock()
-        self._db.execute(
+        self._db.executescript(
             """
             CREATE TABLE IF NOT EXISTS credit_assignments (
-              credit_id TEXT PRIMARY KEY,
+              tenant_id TEXT NOT NULL,
+              workspace_id TEXT NOT NULL,
+              task_id TEXT NOT NULL,
+              run_id TEXT NOT NULL,
+              credit_id TEXT NOT NULL,
+              sequence INTEGER NOT NULL UNIQUE,
               assignment_json TEXT NOT NULL,
-              assignment_digest TEXT NOT NULL UNIQUE
+              assignment_digest TEXT NOT NULL,
+              previous_record_digest TEXT NOT NULL,
+              record_digest TEXT NOT NULL UNIQUE,
+              PRIMARY KEY (tenant_id, workspace_id, task_id, run_id, credit_id)
+            );
+            CREATE TABLE IF NOT EXISTS credit_ledger_head (
+              singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+              record_count INTEGER NOT NULL,
+              head_digest TEXT NOT NULL
             )
             """
         )
+        self._db.execute(
+            "INSERT OR IGNORE INTO credit_ledger_head"
+            "(singleton, record_count, head_digest) VALUES (1, 0, ?)",
+            (self._GENESIS,),
+        )
         self._db.commit()
 
-    def append(self, assignment: CreditAssignment) -> CreditAssignment:
+    def append(
+        self,
+        assignment: CreditAssignment,
+        projection: TrajectoryProjection,
+    ) -> CreditAssignment:
+        assignment = CreditAssignment.model_validate(assignment.model_dump())
+        self._validate_projection(projection)
+        self._validate_assignment_binding(assignment, projection)
         encoded = canonical_json(assignment)
         digest = content_digest(assignment)
         with self._lock:
             try:
+                self._db.execute("BEGIN IMMEDIATE")
+                count, head = self._verify_chain_in_transaction()
+                sequence = count + 1
+                record_digest = content_digest(
+                    {
+                        "sequence": sequence,
+                        "tenant_id": assignment.tenant_id,
+                        "workspace_id": assignment.workspace_id,
+                        "task_id": assignment.task_id,
+                        "run_id": assignment.run_id,
+                        "credit_id": assignment.credit_id,
+                        "assignment_digest": digest,
+                        "previous_record_digest": head,
+                    }
+                )
                 self._db.execute(
                     "INSERT INTO credit_assignments"
-                    "(credit_id, assignment_json, assignment_digest) VALUES (?, ?, ?)",
-                    (assignment.credit_id, encoded, digest),
+                    "(tenant_id, workspace_id, task_id, run_id, credit_id, sequence, "
+                    "assignment_json, assignment_digest, previous_record_digest, "
+                    "record_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        assignment.tenant_id,
+                        assignment.workspace_id,
+                        assignment.task_id,
+                        assignment.run_id,
+                        assignment.credit_id,
+                        sequence,
+                        encoded,
+                        digest,
+                        head,
+                        record_digest,
+                    ),
                 )
+                updated = self._db.execute(
+                    "UPDATE credit_ledger_head SET record_count = ?, head_digest = ? "
+                    "WHERE singleton = 1 AND record_count = ? AND head_digest = ?",
+                    (sequence, record_digest, count, head),
+                )
+                if updated.rowcount != 1:
+                    raise EventStreamError("credit ledger head CAS failed")
                 self._db.commit()
             except sqlite3.IntegrityError as exc:
                 self._db.rollback()
                 raise DuplicateEventError(
                     f"credit replay or overwrite rejected: {assignment.credit_id}"
                 ) from exc
+            except Exception:
+                if self._db.in_transaction:
+                    self._db.rollback()
+                raise
         return assignment
 
-    def read(self, credit_id: str) -> CreditAssignment | None:
+    def read(
+        self, credit_id: str, projection: TrajectoryProjection
+    ) -> CreditAssignment | None:
+        self._validate_projection(projection)
+        manifest = projection.manifest
         with self._lock:
+            self._verify_chain_in_transaction()
             row = self._db.execute(
                 "SELECT assignment_json, assignment_digest "
-                "FROM credit_assignments WHERE credit_id = ?",
-                (credit_id,),
+                "FROM credit_assignments WHERE tenant_id = ? "
+                "AND workspace_id = ? AND task_id = ? AND run_id = ? "
+                "AND credit_id = ?",
+                (
+                    manifest.tenant_id,
+                    manifest.workspace_id,
+                    manifest.task_id,
+                    manifest.run_id,
+                    credit_id,
+                ),
             ).fetchone()
         if row is None:
             return None
-        return self._validated_row(row)
+        assignment = self._validated_row(row)
+        self._validate_assignment_binding(assignment, projection)
+        return assignment
 
     def list_for_episode(
-        self, episode_digest: Sha256Digest
+        self, projection: TrajectoryProjection
     ) -> tuple[CreditAssignment, ...]:
+        self._validate_projection(projection)
+        manifest = projection.manifest
         with self._lock:
+            self._verify_chain_in_transaction()
             rows = self._db.execute(
                 "SELECT assignment_json, assignment_digest "
-                "FROM credit_assignments ORDER BY rowid"
+                "FROM credit_assignments WHERE tenant_id = ? AND workspace_id = ? "
+                "AND task_id = ? AND run_id = ? "
+                "ORDER BY sequence",
+                (
+                    manifest.tenant_id,
+                    manifest.workspace_id,
+                    manifest.task_id,
+                    manifest.run_id,
+                ),
             ).fetchall()
         assignments = tuple(self._validated_row(row) for row in rows)
-        return tuple(
-            item for item in assignments if item.episode_digest == episode_digest
+        selected = tuple(
+            item
+            for item in assignments
+            if item.episode_digest == projection.trajectory_digest
         )
+        for item in selected:
+            self._validate_assignment_binding(item, projection)
+        return selected
+
+    @staticmethod
+    def _validate_projection(projection: TrajectoryProjection) -> None:
+        digest_payload = {
+            "manifest": projection.manifest.model_dump(mode="json"),
+            "steps": [step.model_dump(mode="json") for step in projection.steps],
+            "outcome_links": [
+                item.model_dump(mode="json") for item in projection.outcome_links
+            ],
+            "correction_links": [
+                item.model_dump(mode="json") for item in projection.correction_links
+            ],
+        }
+        if content_digest(digest_payload) != projection.trajectory_digest:
+            raise EventStreamError("trajectory projection digest mismatch")
+
+    @staticmethod
+    def _validate_assignment_binding(
+        assignment: CreditAssignment, projection: TrajectoryProjection
+    ) -> None:
+        manifest = projection.manifest
+        expected = (
+            (assignment.episode_digest, projection.trajectory_digest, "episode digest"),
+            (assignment.tenant_id, manifest.tenant_id, "tenant"),
+            (assignment.workspace_id, manifest.workspace_id, "workspace"),
+            (assignment.task_id, manifest.task_id, "task"),
+            (assignment.run_id, manifest.run_id, "run"),
+        )
+        for actual, trusted, label in expected:
+            if actual != trusted:
+                raise ScopeMismatchError(f"credit {label} binding mismatch")
+        if manifest.correction_epoch is None:
+            raise EventStreamError(
+                "credit requires a projection with a bound correction epoch"
+            )
+        if assignment.correction_epoch != manifest.correction_epoch:
+            raise ScopeMismatchError("credit correction epoch binding mismatch")
+        step_ids = {step.step_id for step in projection.steps}
+        if not set(assignment.target_step_ids).issubset(step_ids):
+            raise EventStreamError("credit targets a step outside the projection")
+
+    def _verify_chain_in_transaction(self) -> tuple[int, str]:
+        head_row = self._db.execute(
+            "SELECT record_count, head_digest FROM credit_ledger_head "
+            "WHERE singleton = 1"
+        ).fetchone()
+        if head_row is None:
+            raise EventStreamError("credit ledger head is missing")
+        expected_previous = self._GENESIS
+        expected_sequence = 1
+        rows = self._db.execute(
+            "SELECT tenant_id, workspace_id, task_id, run_id, credit_id, sequence, "
+            "assignment_json, assignment_digest, previous_record_digest, record_digest "
+            "FROM credit_assignments ORDER BY sequence"
+        ).fetchall()
+        for row in rows:
+            if int(row["sequence"]) != expected_sequence:
+                raise EventStreamError("credit ledger sequence gap")
+            assignment = self._validated_row(row)
+            if str(row["previous_record_digest"]) != expected_previous:
+                raise EventStreamError("credit ledger hash-chain predecessor mismatch")
+            expected_record = content_digest(
+                {
+                    "sequence": expected_sequence,
+                    "tenant_id": str(row["tenant_id"]),
+                    "workspace_id": str(row["workspace_id"]),
+                    "task_id": str(row["task_id"]),
+                    "run_id": str(row["run_id"]),
+                    "credit_id": assignment.credit_id,
+                    "assignment_digest": str(row["assignment_digest"]),
+                    "previous_record_digest": expected_previous,
+                }
+            )
+            if expected_record != str(row["record_digest"]):
+                raise EventStreamError("credit ledger record digest mismatch")
+            expected_previous = expected_record
+            expected_sequence += 1
+        count = expected_sequence - 1
+        if int(head_row["record_count"]) != count:
+            raise EventStreamError("credit ledger head count mismatch")
+        if str(head_row["head_digest"]) != expected_previous:
+            raise EventStreamError("credit ledger head digest mismatch")
+        return count, expected_previous
 
     @staticmethod
     def _validated_row(row: sqlite3.Row) -> CreditAssignment:
