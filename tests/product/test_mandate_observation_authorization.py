@@ -471,7 +471,13 @@ def test_pause_or_correction_epoch_invalidates_old_authorization(tmp_path) -> No
         "mandate:build-agent-os", _command()
     )
     authority = SQLiteSituatedAssessmentStore(database)
-    authority.pause("mandate:build-agent-os", expected_epoch=0)
+    authority.pause(
+        "mandate:build-agent-os",
+        expected_epoch=0,
+        principal_id="principal:owner",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
 
     with pytest.raises(MandateObservationAuthorizationDenied):
         authorizer.authorize_mandate_observation_binding(

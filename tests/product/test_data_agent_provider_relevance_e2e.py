@@ -279,7 +279,13 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     assert persisted is not None
     replay_app.store.close()
 
-    replay_control.revoke("mandate:build-agent-os", expected_epoch=0)
+    replay_control.revoke(
+        "mandate:build-agent-os",
+        expected_epoch=0,
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
     revoked_adapter, revoked_broker, revoked_transport = _adapter(
         state_store=SQLiteDataAgentReportStateStore(report_database),
     )

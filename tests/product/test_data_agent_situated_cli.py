@@ -343,7 +343,13 @@ class TestBuilder:
     def test_authority_revoked_fails(self, tmp_path: Path) -> None:
         config = _setup(tmp_path)
         s = _seed(tmp_path / "authority.sqlite3", [_mandate()])
-        s.revoke("mandate-situated-42", expected_epoch=2)
+        s.revoke(
+            "mandate-situated-42",
+            expected_epoch=2,
+            principal_id="principal-77",
+            tenant_id="tenant-golden-1",
+            workspace_id="workspace-golden-1",
+        )
         with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
             _build()(
                 config_path=config,
@@ -357,7 +363,13 @@ class TestBuilder:
     def test_authority_paused_fails(self, tmp_path: Path) -> None:
         config = _setup(tmp_path)
         s = _seed(tmp_path / "authority.sqlite3", [_mandate()])
-        s.pause("mandate-situated-42", expected_epoch=2)
+        s.pause(
+            "mandate-situated-42",
+            expected_epoch=2,
+            principal_id="principal-77",
+            tenant_id="tenant-golden-1",
+            workspace_id="workspace-golden-1",
+        )
         with pytest.raises(DataAgentSituatedStartupConfigError) as excinfo:
             _build()(
                 config_path=config,

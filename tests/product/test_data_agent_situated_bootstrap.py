@@ -472,7 +472,13 @@ def test_paused_mandate_denies_admission_before_receipt_or_assessment(
 ) -> None:
     runtime, _, assessor, control = _compose(tmp_path)
     bundle = runtime.observe_report("trace-1")
-    control.pause("mandate:agent-os", expected_epoch=0)
+    control.pause(
+        "mandate:agent-os",
+        expected_epoch=0,
+        principal_id="principal:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+    )
 
     with pytest.raises((DataAgentReportAdmissionError, SituationalTrustDenied)):
         runtime.admit_event(bundle.event.environment_event_id)

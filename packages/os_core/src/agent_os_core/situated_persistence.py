@@ -115,11 +115,6 @@ class SituatedAssessmentStore(Protocol):
         evaluated_at: datetime,
     ) -> SituatedAssessmentRecord | None: ...
 
-    def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
-
-    def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef: ...
-
-
 class ScopedSituatedAssessmentReader(Protocol):
     scope: LedgerAccessScope
 
@@ -549,12 +544,14 @@ class SQLiteSituatedAssessmentStore:
             authorization_rows = connection.execute(
                 """SELECT * FROM mandate_observation_authorizations
                    WHERE tenant_id = ? AND workspace_id = ?
-                     AND mandate_id = ? AND authorization_id = ?""",
+                     AND mandate_id = ? AND authorization_id = ?
+                     AND environment_binding_id = ?""",
                 (
                     tenant_id,
                     workspace_id,
                     mandate_id,
                     mandate.observation_authorization_id,
+                    environment_binding_id,
                 ),
             ).fetchall()
             workspace_rows = connection.execute(
@@ -604,6 +601,8 @@ class SQLiteSituatedAssessmentStore:
             or receipt.authorization_receipt_digest
             != mandate.observation_authorization_receipt_digest
             or receipt.authorization_id != str(authorization_row["authorization_id"])
+            or receipt.environment_binding.environment_binding_id
+            != str(authorization_row["environment_binding_id"])
             or receipt.authorized_by != str(authorization_row["principal_id"])
             or receipt.mandate_id != mandate_id
             or receipt.tenant_id != tenant_id
@@ -916,18 +915,40 @@ class SQLiteSituatedAssessmentStore:
         record = self.assessment_record(assessment_id)
         return record.assessment if record is not None else None
 
-    def pause(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
+    def pause(
+        self,
+        mandate_id: str,
+        *,
+        expected_epoch: int,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> RatifiedMandateRef:
         return self._change_status(
             mandate_id,
             expected_epoch=expected_epoch,
             status=MandateOperationalStatus.PAUSED,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
 
-    def revoke(self, mandate_id: str, *, expected_epoch: int) -> RatifiedMandateRef:
+    def revoke(
+        self,
+        mandate_id: str,
+        *,
+        expected_epoch: int,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> RatifiedMandateRef:
         return self._change_status(
             mandate_id,
             expected_epoch=expected_epoch,
             status=MandateOperationalStatus.REVOKED,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
         )
 
     def _change_status(
@@ -936,11 +957,20 @@ class SQLiteSituatedAssessmentStore:
         *,
         expected_epoch: int,
         status: MandateOperationalStatus,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
     ) -> RatifiedMandateRef:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            current = self._read_mandate(connection, mandate_id)
+            current = self._read_mandate(
+                connection,
+                mandate_id,
+                principal_id=principal_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
             if current.status is MandateOperationalStatus.REVOKED:
                 raise SituationalTrustDenied("revoked mandate status is terminal")
             if current.correction_epoch != expected_epoch:

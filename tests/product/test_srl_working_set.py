@@ -322,7 +322,11 @@ def test_scope_or_correction_drift_fails_before_provider(tmp_path: Path) -> None
         control_sink=control_sink,
     )
     adapter._on_load = lambda: control_sink[0].pause(
-        "mandate:build-agent-os", expected_epoch=0
+        "mandate:build-agent-os",
+        expected_epoch=0,
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
     )
 
     with pytest.raises(SituationalTrustDenied):
