@@ -31,6 +31,9 @@ from agent_os_core import (
     MandateWorkspaceNotFound,
     MandateWorkspaceConflict,
     MandateWorkspacePersistenceConflict,
+    MandateObservationAuthorizationConflict,
+    MandateObservationAuthorizationDenied,
+    MandateObservationAuthorizationPersistenceConflict,
     TaskNotFoundError,
 )
 
@@ -70,6 +73,8 @@ def _uses_generic_http_idempotency(path: str) -> bool:
     parsed_path = urlparse(path).path
     if parsed_path == "/v1/mandates":
         return False
+    if parsed_path.endswith("/environment-bindings:authorize"):
+        return False
     return not parsed_path.endswith(
         (
             "/domain-candidates:seal",
@@ -94,6 +99,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             CandidatePromotionScopeMismatch,
             TaskConfigurationDenied,
             TaskConfigurationScopeMismatch,
+            MandateObservationAuthorizationDenied,
         ),
     ):
         return 403
@@ -107,6 +113,8 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             TaskConfigurationNotBound,
             MandateWorkspaceConflict,
             MandateWorkspacePersistenceConflict,
+            MandateObservationAuthorizationConflict,
+            MandateObservationAuthorizationPersistenceConflict,
         ),
     ):
         return 409
@@ -181,6 +189,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"mandates": self.application.list_mandate_workspace_records()})
             return
         mandate_prefix = "/v1/mandates/"
+        if parsed.path.startswith(mandate_prefix) and not parsed.query:
+            parts = parsed.path.strip("/").split("/")
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "mandates"]
+                and parts[3] == "observation-authorizations"
+            ):
+                try:
+                    self._json(
+                        200,
+                        {
+                            "observation_authorizations": self.application.list_mandate_observation_authorizations(
+                                parts[2]
+                            )
+                        },
+                    )
+                except Exception as exc:
+                    self._json(
+                        _error_status(exc),
+                        {"error": type(exc).__name__, "message": str(exc)},
+                    )
+                return
         if parsed.path.startswith(mandate_prefix) and not parsed.query:
             mandate_id = parsed.path[len(mandate_prefix) :]
             if mandate_id and "/" not in mandate_id:
@@ -403,6 +433,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(201, record)
                 return
             parts = parsed.path.strip("/").split("/")
+            if (
+                len(parts) == 4
+                and parts[:2] == ["v1", "mandates"]
+                and parts[3] == "environment-bindings:authorize"
+            ):
+                receipt = self.application.authorize_mandate_observation_binding(
+                    parts[2], body
+                )
+                self._json(201, receipt)
+                return
             if (
                 len(parts) == 6
                 and parts[:2] == ["v1", "tasks"]

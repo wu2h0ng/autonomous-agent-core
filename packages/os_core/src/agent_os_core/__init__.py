@@ -107,10 +107,14 @@ from .srl_working_set import (
 )
 from .mandate_steward import MandateSteward
 from .mandate_workspace import (
+    MandateObservationAuthorizationConflict,
+    MandateObservationAuthorizationDenied,
+    MandateObservationAuthorizationPersistenceConflict,
     MandateWorkspaceConflict,
     MandateWorkspaceNotFound,
     MandateWorkspacePersistenceConflict,
     SQLiteMandateWorkspaceStore,
+    SQLiteMandateObservationAuthorizationStore,
 )
 from .capability import (
     CapabilityBroker,
@@ -329,10 +333,14 @@ __all__ = [
     "TrustedWorkingSetAssembler",
     "WORKING_SET_SELECTION_POLICY_DIGEST",
     "MandateSteward",
+    "MandateObservationAuthorizationConflict",
+    "MandateObservationAuthorizationDenied",
+    "MandateObservationAuthorizationPersistenceConflict",
     "MandateWorkspaceNotFound",
     "MandateWorkspaceConflict",
     "MandateWorkspacePersistenceConflict",
     "SQLiteMandateWorkspaceStore",
+    "SQLiteMandateObservationAuthorizationStore",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",

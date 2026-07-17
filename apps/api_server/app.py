@@ -34,6 +34,8 @@ from agent_os_contracts import (
     ExternalSignal,
     Goal,
     HelpRequest,
+    MandateObservationAuthorizationCommand,
+    ObservationBindingDescriptor,
     OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
@@ -73,6 +75,7 @@ from agent_os_core import (
     SQLiteCandidatePromotionStore,
     SQLiteTaskEventStore,
     SQLiteMandateWorkspaceStore,
+    SQLiteMandateObservationAuthorizationStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -162,6 +165,9 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
+        observation_binding_descriptors: tuple[
+            ObservationBindingDescriptor, ...
+        ] = (),
         **application_options: Any,
     ) -> AgentOSApplication:
         """Bind one pre-composed, scope-authenticated steward to the application."""
@@ -186,6 +192,7 @@ class AgentOSApplication:
             clock=clock,
             situational_trust=situational_trust,
             data_agent_reports=data_agent_reports,
+            observation_binding_descriptors=observation_binding_descriptors,
             **application_options,
         )
         application._mandate_steward = mandate_steward
@@ -202,6 +209,9 @@ class AgentOSApplication:
         clock: Clock = _utc_now,
         situational_trust: SituationalTrustResolver | None = None,
         data_agent_reports: DataAgentReportAdapter | None = None,
+        observation_binding_descriptors: tuple[
+            ObservationBindingDescriptor, ...
+        ] = (),
     ) -> None:
         self._clock = clock
         now = self._clock()
@@ -217,6 +227,16 @@ class AgentOSApplication:
         self._configuration_lock = RLock()
         self.store = SQLiteTaskEventStore(database)
         self.mandate_workspace = SQLiteMandateWorkspaceStore(database)
+        self.observation_binding_descriptors = observation_binding_descriptors
+        self.mandate_observation_authorizations = (
+            SQLiteMandateObservationAuthorizationStore(
+                database,
+                mandate_workspace=self.mandate_workspace,
+                descriptors=observation_binding_descriptors,
+            )
+            if str(database) != ":memory:" and observation_binding_descriptors
+            else None
+        )
         self.tasks = TaskService(self.store, clock=self._clock)
         if (
             situational_trust is not None
@@ -658,6 +678,39 @@ class AgentOSApplication:
         return [
             record.model_dump(mode="json")
             for record in self.mandate_workspace.list(self.principal)
+        ]
+
+    def authorize_mandate_observation_binding(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.mandate_observation_authorizations is None:
+            raise RuntimeError(
+                "Mandate observation authorization requires durable storage"
+            )
+        command = MandateObservationAuthorizationCommand.model_validate(payload)
+        receipt = self.mandate_observation_authorizations.authorize(
+            mandate_id,
+            command,
+            self.principal,
+            self._clock(),
+        )
+        return receipt.model_dump(mode="json")
+
+    def list_mandate_observation_authorizations(
+        self,
+        mandate_id: str,
+    ) -> list[dict[str, Any]]:
+        if self.mandate_observation_authorizations is None:
+            raise RuntimeError(
+                "Mandate observation authorization requires durable storage"
+            )
+        return [
+            receipt.model_dump(mode="json")
+            for receipt in self.mandate_observation_authorizations.list(
+                mandate_id, self.principal
+            )
         ]
 
     def project_task_trajectory(

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+import threading
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
+from http.server import ThreadingHTTPServer
 
 import pytest
 from pydantic import ValidationError
@@ -9,21 +14,46 @@ from pydantic import ValidationError
 from agent_os_contracts import (
     MandateObservationAuthorizationCommand,
     MandateObservationAuthorizationReceipt,
+    MandateCommitmentContext,
+    MandateOutcomeContext,
+    MandateRelevanceContext,
     MandateRelevanceContextRef,
+    MandateWorkspaceRecord,
     ObservationBindingDescriptor,
     PrincipalIdentity,
     PrincipalRole,
     RelevanceAssessorRef,
+    RelevanceDisposition,
+    TaskDraftProposal,
     content_digest,
 )
 from agent_os_core import (
     MandateObservationAuthorizationConflict,
     MandateObservationAuthorizationDenied,
     MandateObservationAuthorizationPersistenceConflict,
+    DeterministicProvider,
+    InMemoryMandateRelevanceContextRegistry,
+    ProviderRelevanceAssessor,
 )
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.app import AgentOSApplication
+from apps.api_server.data_agent_report_adapter import SQLiteDataAgentReportStateStore
+from apps.api_server.data_agent_report_admission import (
+    SQLiteDataAgentReportAdmissionMaterialStore,
+)
+from apps.api_server.data_agent_situated_bootstrap import DataAgentSituatedBootstrap
+from apps.api_server.server import Handler
+from tests.product.test_data_agent_external_report_adapter import (
+    TRACE_ID,
+    _adapter,
+    _config,
+    _credential,
+)
 from tests.product.test_mandate_workspace_api import _payload
+from tests.product.test_provider_relevance_assessor import (
+    _draft as _provider_draft,
+    _policy as _provider_policy,
+)
 
 
 NOW = datetime(2026, 7, 18, 8, 0, tzinfo=timezone.utc)
@@ -125,7 +155,9 @@ def test_independent_admin_projects_ratified_workspace_record_without_execution(
     receipt = MandateObservationAuthorizationReceipt.model_validate(raw)
 
     workspace_record = owner.get_mandate_workspace_record("mandate:build-agent-os")
-    assert receipt.workspace_record_digest == content_digest(workspace_record)
+    assert receipt.workspace_record_digest == content_digest(
+        MandateWorkspaceRecord.model_validate(workspace_record)
+    )
     assert receipt.owner_principal_id == "principal:owner"
     assert receipt.authorized_by == "principal:security"
     assert receipt.task_activation_authorized is False
@@ -202,7 +234,13 @@ def test_binding_scope_capability_budget_assessor_and_context_fail_closed(
 
 def test_non_admin_owner_and_cross_scope_admin_cannot_authorize(tmp_path) -> None:
     database, owner, _ = _apps(tmp_path)
-    owner.observation_binding_descriptors = (_descriptor(),)
+    owner = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        principal=_principal("principal:owner", role=PrincipalRole.PRINCIPAL),
+        clock=lambda: NOW,
+        observation_binding_descriptors=(_descriptor(),),
+    )
     with pytest.raises(MandateObservationAuthorizationDenied):
         owner.authorize_mandate_observation_binding(
             "mandate:build-agent-os", _command()
@@ -240,6 +278,32 @@ def test_exact_replay_is_idempotent_and_same_ids_with_drift_conflict(tmp_path) -
         )
 
 
+def test_exact_replay_survives_later_request_time_and_second_admin_cannot_rebind(
+    tmp_path,
+) -> None:
+    database, _, authorizer = _apps(tmp_path)
+    first = authorizer.authorize_mandate_observation_binding(
+        "mandate:build-agent-os", _command()
+    )
+    authorizer._clock = lambda: NOW + timedelta(minutes=5)
+    assert authorizer.authorize_mandate_observation_binding(
+        "mandate:build-agent-os", _command()
+    ) == first
+
+    second_admin = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        principal=_principal("principal:security-2", role=PrincipalRole.TENANT_ADMIN),
+        clock=lambda: NOW,
+        observation_binding_descriptors=(_descriptor(),),
+    )
+    with pytest.raises(MandateObservationAuthorizationConflict):
+        second_admin.authorize_mandate_observation_binding(
+            "mandate:build-agent-os",
+            _command(authorization_id="observation-auth:second"),
+        )
+
+
 def test_receipt_or_index_tamper_fails_closed_after_restart(tmp_path) -> None:
     database, _, authorizer = _apps(tmp_path)
     authorizer.authorize_mandate_observation_binding(
@@ -261,6 +325,56 @@ def test_receipt_or_index_tamper_fails_closed_after_restart(tmp_path) -> None:
     with pytest.raises(MandateObservationAuthorizationPersistenceConflict):
         restarted.list_mandate_observation_authorizations(
             "mandate:build-agent-os"
+        )
+
+
+def test_missing_expired_or_digest_drifted_workspace_record_fails_closed(
+    tmp_path,
+) -> None:
+    missing_database = tmp_path / "missing.sqlite3"
+    missing = AgentOSApplication(
+        database=missing_database,
+        workspace=tmp_path,
+        principal=_principal("principal:security", role=PrincipalRole.TENANT_ADMIN),
+        clock=lambda: NOW,
+        observation_binding_descriptors=(_descriptor(),),
+    )
+    with pytest.raises(MandateObservationAuthorizationDenied):
+        missing.authorize_mandate_observation_binding("mandate:missing", _command())
+
+    database = tmp_path / "expired.sqlite3"
+    owner = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        principal=_principal("principal:owner", role=PrincipalRole.PRINCIPAL),
+        clock=lambda: NOW,
+    )
+    owner.create_mandate_workspace_record(
+        _payload(expires_at=NOW + timedelta(seconds=1))
+    )
+    expired = AgentOSApplication(
+        database=database,
+        workspace=tmp_path,
+        principal=_principal("principal:security", role=PrincipalRole.TENANT_ADMIN),
+        clock=lambda: NOW + timedelta(seconds=2),
+        observation_binding_descriptors=(_descriptor(),),
+    )
+    with pytest.raises(MandateObservationAuthorizationDenied):
+        expired.authorize_mandate_observation_binding(
+            "mandate:build-agent-os", _command()
+        )
+
+    drift_dir = tmp_path / "drift"
+    drift_dir.mkdir()
+    drift_database, _, authorizer = _apps(drift_dir)
+    with sqlite3.connect(drift_database) as connection:
+        connection.execute(
+            "UPDATE mandate_workspace_records SET record_digest = ?",
+            ("0" * 64,),
+        )
+    with pytest.raises(MandateObservationAuthorizationPersistenceConflict):
+        authorizer.authorize_mandate_observation_binding(
+            "mandate:build-agent-os", _command()
         )
 
 
@@ -298,3 +412,223 @@ def test_caller_created_ratified_ref_cannot_enter_authorization_api(tmp_path) ->
         authorizer.authorize_mandate_observation_binding(
             "mandate:build-agent-os", payload
         )
+
+
+def test_http_authorize_and_list_observation_authorizations(tmp_path) -> None:
+    _, _, authorizer = _apps(tmp_path)
+    handler = type("ObservationAuthorizationHandler", (Handler,), {"application": authorizer})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    path = "/v1/mandates/mandate:build-agent-os/environment-bindings:authorize"
+    list_path = "/v1/mandates/mandate:build-agent-os/observation-authorizations"
+    try:
+        request = urllib.request.Request(
+            base + path,
+            data=json.dumps(_command()).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "same-http-key",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request) as response:
+            assert response.status == 201
+            created = json.loads(response.read())
+        with urllib.request.urlopen(base + list_path) as response:
+            assert response.status == 200
+            listed = json.loads(response.read())
+        assert listed == {"observation_authorizations": [created]}
+        assert created["task_activation_authorized"] is False
+        assert created["capability_grant_authorized"] is False
+        assert created["external_effects_authorized"] is False
+        conflicting = urllib.request.Request(
+            base + path,
+            data=json.dumps(_command(query_budget_per_window=31)).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Idempotency-Key": "same-http-key",
+            },
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(conflicting)
+        assert excinfo.value.code == 409
+        conflict = json.loads(excinfo.value.read())
+        assert conflict["error"] == "MandateObservationAuthorizationConflict"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_real_data_agent_observation_replays_without_second_provider_assessment(
+    tmp_path,
+) -> None:
+    authority_database = tmp_path / "authority.sqlite3"
+    task_database = tmp_path / "task.sqlite3"
+    report_database = tmp_path / "reports.sqlite3"
+    owner = AgentOSApplication(
+        database=authority_database,
+        workspace=tmp_path,
+        principal=_principal("user:local", role=PrincipalRole.PRINCIPAL),
+        clock=lambda: NOW,
+    )
+    workspace_raw = owner.create_mandate_workspace_record(
+        _payload(expires_at=NOW + timedelta(days=30))
+    )
+    workspace_record = MandateWorkspaceRecord.model_validate(workspace_raw)
+    policy = _provider_policy()
+    context = MandateRelevanceContext(
+        relevance_context_id="context:authorized-data-agent:v1",
+        version=1,
+        mandate_id=workspace_record.mandate.mandate_id,
+        mandate_version=1,
+        mandate_digest=content_digest(workspace_record.mandate),
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        mission_statement=workspace_record.mandate.mission_statement,
+        desired_outcomes=(
+            MandateOutcomeContext(
+                outcome_id="outcome:founder-load",
+                statement="Reduce hidden Founder cognitive load.",
+            ),
+        ),
+        open_commitments=(
+            MandateCommitmentContext(
+                commitment_id="commitment:quality",
+                statement="Protect the verified product quality boundary.",
+                due_at=NOW + timedelta(hours=2),
+            ),
+        ),
+        permanent_constraints=workspace_record.mandate.permanent_constraints,
+    )
+    source_credential = _credential(
+        created_at=NOW - timedelta(days=1),
+        expires_at=NOW + timedelta(days=1),
+    )
+    source_config = _config(credential=source_credential)
+    first_adapter, _, _ = _adapter(
+        config=source_config,
+        state_store=SQLiteDataAgentReportStateStore(report_database),
+        now=NOW,
+    )
+    descriptor = ObservationBindingDescriptor(
+        environment_binding_id="binding:data-agent-reports",
+        environment_binding_class="project-state",
+        version=1,
+        source_descriptor_digest=first_adapter.admission_policy_descriptor.policy_digest,
+        observation_capabilities=("observation.read",),
+        max_wake_budget_per_window=8,
+        max_query_budget_per_window=32,
+        relevance_assessor=policy.assessor_ref(),
+        relevance_context=context.ref(),
+    )
+    admin = AgentOSApplication(
+        database=authority_database,
+        workspace=tmp_path,
+        principal=_principal("principal:security", role=PrincipalRole.TENANT_ADMIN),
+        clock=lambda: NOW,
+        observation_binding_descriptors=(descriptor,),
+    )
+    command = _command(
+        environment_binding_id="binding:data-agent-reports",
+        relevance_assessor=policy.assessor_ref().model_dump(mode="json"),
+        relevance_context=context.ref().model_dump(mode="json"),
+    )
+    admin.authorize_mandate_observation_binding(
+        "mandate:build-agent-os", command
+    )
+
+    drift_adapter, _, _ = _adapter(
+        config=_config(
+            credential=source_credential,
+            scope_ref="mission:drifted-source-policy",
+        ),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "drift-reports.sqlite3"),
+        now=NOW,
+    )
+    drift_assessor = ProviderRelevanceAssessor(
+        provider=DeterministicProvider(
+            text=_provider_draft(RelevanceDisposition.CREATE_TASK),
+            invocation_binding=policy.provider_invocation,
+        ),
+        provider_profile=policy.provider_invocation.provider_profile,
+        policy=policy,
+        trust=drift_adapter,
+        contexts=InMemoryMandateRelevanceContextRegistry((context,)),
+    )
+    with pytest.raises(TypeError, match="exact observation authorization"):
+        DataAgentSituatedBootstrap.compose(
+            adapter=drift_adapter,
+            material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+                tmp_path / "drift-material.sqlite3",
+                principal_id="user:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+            ),
+            credentials=drift_adapter._credential_authorization_reader_for_composition,
+            control=SQLiteSituatedAssessmentStore(authority_database),
+            assessor=drift_assessor,
+            admission_database=tmp_path / "drift-admission.sqlite3",
+            clock=lambda: NOW,
+        )
+
+    def compose(adapter, provider):
+        control = SQLiteSituatedAssessmentStore(authority_database)
+        assessor = ProviderRelevanceAssessor(
+            provider=provider,
+            provider_profile=policy.provider_invocation.provider_profile,
+            policy=policy,
+            trust=adapter,
+            contexts=InMemoryMandateRelevanceContextRegistry((context,)),
+        )
+        runtime = DataAgentSituatedBootstrap.compose(
+            adapter=adapter,
+            material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+                tmp_path / "admission-material.sqlite3",
+                principal_id="user:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+            ),
+            credentials=adapter._credential_authorization_reader_for_composition,
+            control=control,
+            assessor=assessor,
+            admission_database=tmp_path / "event-admission.sqlite3",
+            clock=lambda: NOW,
+        )
+        return AgentOSApplication._with_data_agent_situated_runtime(
+            situated_runtime=runtime,
+            principal=_principal("user:local", role=PrincipalRole.PRINCIPAL),
+            database=task_database,
+            workspace=tmp_path,
+            clock=lambda: NOW,
+        )
+
+    first_provider = DeterministicProvider(
+        text=_provider_draft(RelevanceDisposition.CREATE_TASK),
+        invocation_binding=policy.provider_invocation,
+    )
+    first_app = compose(first_adapter, first_provider)
+    first = first_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
+    assert isinstance(first, TaskDraftProposal)
+    assert first.activation_authorized is False
+    assert first.external_effects_authorized is False
+    assert len(first_provider.decision_requests) == 1
+    assert first_app.list_tasks() == []
+
+    replay_adapter, _, _ = _adapter(
+        config=source_config,
+        state_store=SQLiteDataAgentReportStateStore(report_database),
+        now=NOW,
+    )
+    replay_provider = DeterministicProvider(
+        text=_provider_draft(RelevanceDisposition.HELP),
+        invocation_binding=policy.provider_invocation,
+    )
+    replay_app = compose(replay_adapter, replay_provider)
+    replay = replay_app.observe_admit_and_propose_data_agent_report(TRACE_ID)
+    assert replay == first
+    assert replay_provider.decision_requests == []
+    assert replay_app.list_tasks() == []

@@ -179,6 +179,13 @@ class ProviderRelevanceAssessor:
     def ref(self) -> RelevanceAssessorRef:
         return self._policy.assessor_ref()
 
+    def _resolve_context_for_composition(
+        self, ref: MandateRelevanceContextRef
+    ) -> MandateRelevanceContext | None:
+        """Resolve an exact context only for the trusted runtime composition root."""
+
+        return self._contexts.resolve(ref)
+
     def assess(
         self,
         mandate: RatifiedMandateRef,

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
-from .common import ContractModel, NonEmptyStr, UtcDateTime
+from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
+from .evidence import Sha256Digest
+from .situated import (
+    EnvironmentBindingAuthorization,
+    MandateRelevanceContextRef,
+    RelevanceAssessorRef,
+)
 from .srl_help import HelpBudget
 
 
@@ -131,4 +138,105 @@ class MandateWorkspaceRecord(ContractModel):
     def _cannot_authorize_execution(self) -> "MandateWorkspaceRecord":
         if self.task_activation_authorized or self.capability_grant_authorized:
             raise ValueError("Mandate Workspace record cannot authorize execution")
+        return self
+
+
+class ObservationBindingDescriptor(ContractModel):
+    """Server-provisioned exact observation source and cognition binding."""
+
+    environment_binding_id: NonEmptyStr
+    environment_binding_class: NonEmptyStr
+    version: int = Field(ge=1)
+    source_descriptor_digest: Sha256Digest
+    observation_capabilities: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    max_wake_budget_per_window: int = Field(ge=0)
+    max_query_budget_per_window: int = Field(ge=0)
+    relevance_assessor: RelevanceAssessorRef
+    relevance_context: MandateRelevanceContextRef
+
+
+class MandateObservationAuthorizationCommand(ContractModel):
+    """A request to authorize observation only; authority fields are server-owned."""
+
+    authorization_id: NonEmptyStr
+    environment_binding_id: NonEmptyStr
+    environment_binding_class: NonEmptyStr
+    binding_version: int = Field(ge=1)
+    requested_capabilities: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    wake_budget_per_window: int = Field(ge=0)
+    query_budget_per_window: int = Field(ge=0)
+    relevance_assessor: RelevanceAssessorRef
+    relevance_context: MandateRelevanceContextRef
+
+
+class MandateObservationAuthorizationReceipt(ContractModel):
+    """Sealed projection receipt. It grants observation but no work authority."""
+
+    authorization_receipt_id: NonEmptyStr
+    authorization_receipt_digest: Sha256Digest
+    authorization_id: NonEmptyStr
+    mandate_id: NonEmptyStr
+    mandate_version: int = Field(ge=1)
+    mandate_digest: Sha256Digest
+    workspace_record_digest: Sha256Digest
+    ratification_receipt_id: NonEmptyStr
+    ratification_receipt_digest: Sha256Digest
+    owner_principal_id: NonEmptyStr
+    authorized_by: NonEmptyStr
+    tenant_id: NonEmptyStr
+    workspace_id: NonEmptyStr
+    correction_epoch: int = Field(ge=0)
+    authorized_at: UtcDateTime
+    expires_at: UtcDateTime
+    environment_binding_class: NonEmptyStr
+    source_descriptor_digest: Sha256Digest
+    environment_binding: EnvironmentBindingAuthorization
+    observation_capabilities: tuple[NonEmptyStr, ...] = Field(min_length=1)
+    wake_budget_per_window: int = Field(ge=0)
+    query_budget_per_window: int = Field(ge=0)
+    relevance_assessor: RelevanceAssessorRef
+    relevance_context: MandateRelevanceContextRef
+    task_activation_authorized: Literal[False] = False
+    capability_grant_authorized: Literal[False] = False
+    external_effects_authorized: Literal[False] = False
+
+    @field_validator(
+        "task_activation_authorized",
+        "capability_grant_authorized",
+        "external_effects_authorized",
+        mode="before",
+    )
+    @classmethod
+    def _require_exact_false(cls, value: Any) -> Literal[False]:
+        if value is not False:
+            raise ValueError("observation authorization cannot grant execution")
+        return False
+
+    @classmethod
+    def create(cls, **payload: object) -> "MandateObservationAuthorizationReceipt":
+        sealed_payload = {"schema_version": "1.0", **payload}
+        digest = content_digest(sealed_payload)
+        return cls.model_validate(
+            {
+                "authorization_receipt_id": (
+                    f"mandate-observation-authorization:{digest}"
+                ),
+                "authorization_receipt_digest": digest,
+                **payload,
+            }
+        )
+
+    @model_validator(mode="after")
+    def _validate_seal(self) -> "MandateObservationAuthorizationReceipt":
+        payload = self.model_dump(
+            mode="json",
+            exclude={"authorization_receipt_id", "authorization_receipt_digest"},
+        )
+        expected = content_digest(payload)
+        if self.authorization_receipt_digest != expected:
+            raise ValueError("Mandate observation authorization digest mismatch")
+        if self.authorization_receipt_id != (
+            f"mandate-observation-authorization:{expected}"
+        ):
+            raise ValueError("Mandate observation authorization id mismatch")
         return self

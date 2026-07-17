@@ -31,6 +31,7 @@ from agent_os_core import (
     InMemoryExternalStateAuthorizationRegistry,
     MandateSteward,
     OperationalProposalService,
+    ProviderRelevanceAssessor,
     RelevanceAssessorPort,
     ScopedEventAdmissionReader,
     SQLiteProtocolIngressStore,
@@ -439,6 +440,45 @@ class DataAgentSituatedBootstrap:
         if adapter._credential_authorization_reader_for_composition is not credentials:
             raise TypeError("composition requires one credential authorization reader")
         principal_id, tenant_id, workspace_id = adapter.principal_scope
+        descriptor = adapter.admission_policy_descriptor
+        try:
+            mandate, binding = control.resolve_active(
+                descriptor.mandate_id,
+                descriptor.environment_binding_id,
+                principal_id=principal_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                evaluated_at=clock(),
+            )
+        except Exception:
+            mandate = None
+            binding = None
+        if (
+            mandate is not None
+            and binding is not None
+            and mandate.ratification_receipt_id.startswith("mandate-ratification:")
+        ):
+            context_ref = mandate.relevance_context
+            context = (
+                assessor._resolve_context_for_composition(context_ref)
+                if type(assessor) is ProviderRelevanceAssessor
+                and context_ref is not None
+                else None
+            )
+            if (
+                binding.binding_digest != descriptor.policy_digest
+                or mandate.relevance_assessor != assessor.ref
+                or context is None
+                or context.ref() != context_ref
+                or context.mandate_id != mandate.mandate_id
+                or context.mandate_version != mandate.version
+                or context.mandate_digest != mandate.mandate_digest
+                or context.tenant_id != mandate.tenant_id
+                or context.workspace_id != mandate.workspace_id
+            ):
+                raise TypeError(
+                    "composition requires exact observation authorization"
+                )
         scope = LedgerAccessScope(
             principal_id=principal_id,
             tenant_id=tenant_id,
