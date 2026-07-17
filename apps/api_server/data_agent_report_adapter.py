@@ -1755,14 +1755,15 @@ class SQLiteDataAgentReportStateStore:
                     + " WHERE namespace_digest = ? AND dispatch_id = ?",
                     (namespace_digest, dispatch_id),
                 ).fetchone()
-                if row is not None:
-                    dispatch = self._dispatch_from_row(row)
-                    self._validate_dispatch_observation(connection, dispatch)
+                if row is None:
+                    return None
+                dispatch = self._dispatch_from_row(row)
+                self._validate_dispatch_observation(connection, dispatch)
         except sqlite3.Error:
             raise DataAgentReportAdapterError(
                 "durable external report dispatch state is unavailable"
             ) from None
-        return None if row is None else dispatch
+        return dispatch
 
 
 class _InMemoryDataAgentReportStateStore:
@@ -1982,7 +1983,7 @@ class _InMemoryDataAgentReportStateStore:
         )
         SQLiteDataAgentReportStateStore._validate_dispatch(completed)
         if current == completed:
-            return current
+            return completed
         if current != dispatch:
             raise DataAgentReportConflict(
                 "durable external report dispatch changed concurrently"
