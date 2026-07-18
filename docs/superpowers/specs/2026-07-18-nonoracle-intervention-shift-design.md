@@ -1,6 +1,6 @@
 # R-NONORACLE-INTERVENTION-SHIFT-1 Design
 
-> Status: `DESIGN_APPROVED / IMPLEMENTED / QUALIFICATION_ONLY / NOT_FROZEN / NOT_RUN`
+> Status: `DATA_ACQUIRED / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / DESIGN_PROVENANCE_REVISE / NOT_FROZEN / NOT_RUN`
 > Track: `Research`
 > Base: `c72375acb71c6a60cb0287cbd185ff07a196e0bd`
 
@@ -106,8 +106,9 @@ review, exact-manifest acceptance, founder freeze and separate run authority.
 
 ## 2026-07-18 real-data qualification amendment
 
-> Amendment status: `CHARACTERIZATION_ONLY / DATA_NOT_ACQUIRED / NOT_FROZEN / NOT_RUN`
+> Amendment status: `DATA_ACQUIRED / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / DESIGN_PROVENANCE_REVISE / NOT_FROZEN / NOT_RUN`
 > Package id: `R-NONORACLE-PERTURB-KILL-1`
+> Qualification implementation base: `6204666232683836226d2fe51c970abeb75acb84`
 
 ### Selected source and claim ceiling
 
@@ -147,12 +148,34 @@ cell barcode × donor × physical well × guide × guide target × condition
 ```
 
 The source manifest must bind the GEO matrix, barcodes, features and aggregated
-guide calls plus the Zenodo archive with locally computed SHA-256 digests. It
-must also bind the barcode-suffix-to-well/GSM map, guide-to-target library map,
-Souporcell calls, cross-well donor-label harmonization provenance and the
-stimulated-condition selector. Donor labels are derived analysis outputs, not
-raw GEO metadata. The upstream Zenodo MD5 is transport context only. No hidden
-effect, paper DE, cluster, pathway or activation label may influence eligibility.
+guide calls with locally computed SHA-256 digests. The complete Zenodo ZIP is
+not a required local object and has no invented full-archive SHA requirement.
+Each allowlisted Zenodo member instead uses the selective-member provenance
+manifest below. The manifest also binds the barcode-suffix-to-well/GSM map,
+raw Souporcell status calls, the unique cross-well donor-label rule and the
+stimulated-condition selector. Donor labels are derived opaque analysis blocks,
+not raw GEO metadata. The upstream Zenodo MD5 is transport context only. No
+hidden effect, paper DE, cluster, pathway or activation label may influence
+eligibility.
+
+The qualification builder must not receive or read an outcome/category guide
+map, including the Zenodo `guide-target-categories.txt` member. Guide families
+are derived solely from GEO `CRISPR Guide Capture` feature IDs by removing one
+terminal numeric `-[0-9]+` suffix. The same rule identifies the `NO-TARGET-*`
+control family from those GEO feature bytes. There is no guide-map/category
+parameter in the canonical verifier. Its JSON contains support aggregates and
+source digests only; it emits no target or guide identifiers.
+
+For each allowlisted Zenodo member, provenance must bind all of: record URL,
+archive byte size, upstream MD5, equal before/after HEAD stable fields, a tail
+`Content-Range` ending at the archive size, the unique terminal non-ZIP64 EOCD,
+EOCD central-directory offset/size/entry count, the exact central-directory
+range and full bytes SHA-256, member local-header offset, compression method,
+compressed and uncompressed sizes, CRC32, member range `Content-Range`,
+compressed SHA-256 and uncompressed SHA-256. EOCD offset/size must anchor the
+central-directory bytes to the same archive. The extractor exposes only the
+allowlisted verified uncompressed bytes to the builder and rejects extra,
+encrypted, unsafe-path, multi-disk, ZIP64 or drifted inputs before writing.
 
 The route is immediately `PARK` if the join is ambiguous; fewer than 40 targets
 have two guides and support on both GUIDE sides plus diagnostic subgroups; any aggregate
@@ -169,13 +192,25 @@ exactly one guide
 guide UMI >= 5
 mitochondrial fraction < 25%
 400 < detected features < 6000
-exclude donor doublets and unassigned cells only if the bound author analysis
-object/script proves that exact rule
+retain only rows whose bound raw Souporcell `status` is exactly `singlet`; map
+only raw `assignment` 0/1 through the unique donor rule for that physical well
 ```
+
+The bound raw Souporcell schema is exactly
+`barcode,status,assignment,log_prob_singleton,log_prob_doublet,cluster0,cluster1`.
+Its source barcode must retain raw suffix `-1`. For stimulated wells 5--8, the
+bound donor table must contain exactly one row per well and calls 0/1 must form
+the bijection `{A,B}`. Any `doublet`, `unassigned`, missing, duplicate,
+non-bijective or non-0/1 case is excluded or fails closed as applicable. This
+singlet-only rule was issued before matrix acquisition. It intentionally does
+not reproduce the author R script's fallback that can route a non-call0 value
+to call1. Biological donor identity is neither required nor inferred; `A/B`
+remain opaque blocks.
 
 Pseudobulk within `donor × well × guide`, then apply row-local `log1p(CPM)`.
 Cells are never treated as independent observations. Builder-visible IDs are
-bijective opaque IDs; the authenticated guide-to-target binding remains opaque.
+bijective opaque IDs compiled from the allowed GEO feature-derived family;
+there is no builder-visible outcome/category guide map.
 Gene symbols, guide rank, UMAP, clusters, activation scores, paper DE/FC/p-values,
 SCT slots, cytokine-screen ranking, pathway annotations, hidden split labels and
 scorer outputs are forbidden builder inputs.
@@ -209,6 +244,12 @@ not independent confirmation or formal non-inferiority folds. The builder sees
 only the GUIDE-public rows. DONOR/WELL diagnostics run inside the scorer after
 all GUIDE arm digests are locked; they never expose additional rows or create a
 second builder-visible fold.
+
+The scorer custodian performs the target-guide and NTC HMAC assignments once,
+only after the qualification/source bindings are locked. This package does not
+generate, search, choose, retry or expose an HMAC key. If either NTC side has
+fewer than 25 cells in any `donor x well` block, the route is immediately
+`PARK`; no second key, repartition or retry is permitted.
 
 For each GUIDE side, all HMAC-assigned NTC-guide raw counts are summed within
 each `donor × well` block to create exactly one control pseudobulk. Each target
