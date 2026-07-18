@@ -44,12 +44,14 @@
   "false_attention_denominator": "ALL_FROZEN_NON_GOLD_LINKED_ITEMS",
   "no_imputation": true,
   "missing_freeze_inputs": [
-    "founder_participant_timing",
     "hidden_snapshots",
-    "independent_adjudicator_identity"
+    "frozen_gold_reasons_and_scorer_input_manifests",
+    "frozen_order_assignments",
+    "independent_adjudicator_identity",
+    "founder_participant_timing"
   ],
   "design_artifact_hashes": {
-    "README.md": "d14a5b51d13d1b1f786329e0f8169ec62b295b954af22683ded7bb0d33473f1e",
-    "score.py": "dc319002a064a69ebdc7cf2b5de6b21f5fdd506b0a95fa7d698061eac0606ad4"
+    "README.md": "dcdeb1f413465ec59ae36ee1cb23d567a3ebf8fdb9bfe4c9bcaf73aae0a624a4",
+    "score.py": "e5a038f8f05ad561450da5b44e4b28d93fe59860da2570e43bb23274f0dcdce5"
   }
 }
