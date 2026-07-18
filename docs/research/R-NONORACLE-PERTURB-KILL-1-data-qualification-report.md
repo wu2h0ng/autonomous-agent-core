@@ -1,6 +1,6 @@
 # R-NONORACLE-PERTURB-KILL-1 Data Qualification
 
-> Status: `DATA_ACQUIRED / TARGET_SUPPORT_MET / MARGIN_0 / HMAC_ASSIGNMENT_COMMITTED / SELECTIVE_ZIP_PROVENANCE_BOUND / NOT_FROZEN / NOT_RUN`
+> Status: `DATA_ACQUIRED / TARGET_SUPPORT_MET / MARGIN_0 / PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / SELECTIVE_ZIP_PROVENANCE_BOUND / NOT_FROZEN / NOT_RUN`
 > Scope: pre-freeze data qualification only
 > Base: `6204666232683836226d2fe51c970abeb75acb84`
 
@@ -38,17 +38,21 @@ RNA-only metrics digest above.
    and stimulated-well `1..4` `clusters.tsv`; the outcome/category guide map is
    explicitly forbidden and absent. Independent exact-byte acceptance remains
    a separate pre-freeze review action, not a reason to reopen this data gap.
-3. `NTC_HMAC_SPLIT_PENDING_SCORER_CUSTODY` — **closed as an assignment
-   commitment only** by the custodian's one permitted draw. The public receipt
-   SHA-256 is
+3. `NTC_HMAC_SPLIT_PENDING_SCORER_CUSTODY` — **not closed**. The custodian's
+   one permitted draw passed its technical count gate, and the preserved public
+   receipt SHA-256 is
    `7d679d8f5f98b56f183a0885350fa3d24468920781557eaa55eec0139f64c50a`.
    Its disjoint four-guide NTC sides contain `97..150` retained cells in every
    natural block, above the predeclared `>=25` gate. The public-side NTC A/B
    groups contain two guides each, both cover all eight blocks and expose only
    their `46..93` aggregate cell-count range. This public count projection was
    derived from the already committed assignment without re-keying or retry.
-   The key and all guide/target identities remain scorer-private; the
-   repository contains commitments and aggregate counts only.
+   During independent review, however, an agent-mediated private check emitted
+   the hidden target-identity key set to its tool transcript. No key, NTC
+   identity or NTC-side assignment was emitted. This still violates the
+   predeclared no-hidden-identity custody boundary, so the route is
+   `PARK_HMAC_ASSIGNMENT_COMMITMENT` with no re-key or retry. The original
+   assignment and commitment bytes remain unchanged as negative evidence.
 
 Independent leakage finding/non-negotiable: the builder and canonical verifier
 must never receive an outcome/category guide-map. Target families come only
@@ -56,5 +60,6 @@ from the terminal numeric suffix of GEO guide feature IDs. This finding is not
 counted as a fourth blocker because the API and tests already enforce it.
 
 No mechanism, outcome scorer, baseline, training, freeze or result run is
-authorized or reported here. `HMAC_ASSIGNMENT_COMMITTED` is not split evidence
-and does not authorize the builder to receive the hidden assignment.
+authorized or reported here. The custody incident disposition supersedes the
+preserved receipt's earlier `HMAC_ASSIGNMENT_COMMITTED` status; the split gate
+remains open and the builder is not authorized to receive the hidden assignment.

@@ -1,0 +1,34 @@
+{
+  "binding": {
+    "assignment_commit": "020763a4bed78932ff4e3d3fa1e84a2b01228112",
+    "qualification_head": "075e6df0b831ef0fc39931c8eac9056e0f89c06e",
+    "scorer_algorithm_artifact_sha256": "d56ef0226050d194fa050f3f4e703d87ab1a2a18f2d81b032731bd713a3373a7",
+    "scorer_commitment_receipt_sha256": "7d679d8f5f98b56f183a0885350fa3d24468920781557eaa55eec0139f64c50a"
+  },
+  "claim_boundary": [
+    "CUSTODY_INCIDENT_ONLY",
+    "NOT_FROZEN",
+    "NOT_RUN"
+  ],
+  "disposition": "PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN",
+  "incident_class": "HIDDEN_TARGET_IDENTITY_KEY_SET_EMITTED_TO_AGENT_TOOL_TRANSCRIPT",
+  "package_id": "R-NONORACLE-PERTURB-KILL-1",
+  "review_findings": {
+    "assignment_or_key_changed": false,
+    "hidden_target_identity_disclosure": true,
+    "key_disclosure": false,
+    "ntc_identity_disclosure": false,
+    "ntc_side_disclosure": false,
+    "technical_assignment_count_gate_passed": true
+  },
+  "route_controls": {
+    "delete_or_rewrite_negative_evidence": false,
+    "freeze_authorized": false,
+    "rekey_authorized": false,
+    "retry_authorized": false,
+    "run_authorized": false,
+    "split_gate_closed": false
+  },
+  "schema": "r-nonoracle-perturb-kill-1/custody-incident/v1",
+  "supersedes_public_disposition": "HMAC_ASSIGNMENT_COMMITTED / NOT_FROZEN / NOT_RUN"
+}
