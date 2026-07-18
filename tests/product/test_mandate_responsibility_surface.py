@@ -122,4 +122,3 @@ def test_existing_task_workspace_surface_remains_reachable() -> None:
         "'/v1/tasks'",
     ):
         assert required in page
-

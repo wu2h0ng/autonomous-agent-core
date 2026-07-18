@@ -307,4 +307,3 @@ def test_revoked_mandate_returns_read_only_banner_state(tmp_path) -> None:
     assert status == 200
     assert view["mandate_status"] == "REVOKED"
     assert view["status"] == "REVOKED"
-
