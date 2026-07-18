@@ -58,7 +58,7 @@ def _build_fixture(tmp_path: Path) -> QualificationInputs:
         barcodes.append(barcode)
         guide_rows.append([barcode, "1", "OPAQUE-00-1", "5"])
         metric_rows.append([str(index), "1000", "401", "249"])
-        souporcell_rows.append([core + "-1", "doublet", "0", "-1", "-2", "-1", "-2"])
+        souporcell_rows.append([core + "-1", "doublet", "1/0", "-1", "-2", "-1", "-2"])
         souporcell_path = tmp_path / f"souporcell-well-{well}.tsv"
         _write_gzip_tsv(souporcell_path.with_suffix(".tsv.gz"), souporcell_rows)
         souporcell_paths[well] = souporcell_path.with_suffix(".tsv.gz")
@@ -151,7 +151,7 @@ def test_guide_target_must_come_from_terminal_numeric_suffix(tmp_path: Path) -> 
         qualify_support(inputs)
 
 
-def test_multiguide_pipe_fields_are_rejected_before_umi_or_feature_parsing(tmp_path: Path) -> None:
+def test_valid_multiguide_pipe_fields_are_validated_then_excluded(tmp_path: Path) -> None:
     inputs = _build_fixture(tmp_path)
     with gzip.open(inputs.guidecalls, "rt", encoding="utf-8", newline="") as handle:
         rows = list(csv.reader(handle, delimiter="\t"))
@@ -164,6 +164,46 @@ def test_multiguide_pipe_fields_are_rejected_before_umi_or_feature_parsing(tmp_p
     assert report["eligible_targets"] == 39
 
 
+@pytest.mark.parametrize(
+    ("num_features", "feature_call", "num_umis"),
+    [
+        ("2", "OPAQUE-00-1|OPAQUE-01-2", "5"),
+        ("3", "OPAQUE-00-1|OPAQUE-01-2", "5|6"),
+        ("2", "OPAQUE-00-1|NOT-IN-REGISTRY", "5|6"),
+        ("2", "OPAQUE-00-1|OPAQUE-00-1", "5|6"),
+        ("2", "OPAQUE-00-1|OPAQUE-01-2", "5|-1"),
+        ("2", "OPAQUE-00-1|OPAQUE-01-2", "5|not-an-int"),
+    ],
+)
+def test_multiguide_segments_registry_and_umis_are_strictly_validated(
+    tmp_path: Path,
+    num_features: str,
+    feature_call: str,
+    num_umis: str,
+) -> None:
+    inputs = _build_fixture(tmp_path)
+    with gzip.open(inputs.guidecalls, "rt", encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle, delimiter="\t"))
+    rows[1][1:] = [num_features, feature_call, num_umis]
+    _write_gzip_tsv(inputs.guidecalls, rows)
+
+    with pytest.raises(QualificationError, match="multi-guide"):
+        qualify_support(inputs)
+
+
+def test_zero_guide_is_represented_by_absent_row_not_synthetic_zero_call(
+    tmp_path: Path,
+) -> None:
+    inputs = _build_fixture(tmp_path)
+    with gzip.open(inputs.guidecalls, "rt", encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle, delimiter="\t"))
+    rows[1][1:] = ["0", "", ""]
+    _write_gzip_tsv(inputs.guidecalls, rows)
+
+    with pytest.raises(QualificationError, match="zero-guide"):
+        qualify_support(inputs)
+
+
 def test_souporcell_source_barcode_must_use_raw_suffix_one(tmp_path: Path) -> None:
     inputs = _build_fixture(tmp_path)
     path = inputs.souporcell_by_well[5]
@@ -173,4 +213,43 @@ def test_souporcell_source_barcode_must_use_raw_suffix_one(tmp_path: Path) -> No
     _write_gzip_tsv(path, rows)
 
     with pytest.raises(QualificationError, match="raw suffix 1"):
+        qualify_support(inputs)
+
+
+def test_each_stimulated_well_requires_exact_matrix_souporcell_barcode_cores(
+    tmp_path: Path,
+) -> None:
+    inputs = _build_fixture(tmp_path)
+    path = inputs.souporcell_by_well[5]
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle, delimiter="\t"))
+    rows[1][0] = "FOREIGN-BARCODE-1"
+    _write_gzip_tsv(path, rows)
+
+    with pytest.raises(QualificationError, match="barcode cores"):
+        qualify_support(inputs)
+
+
+@pytest.mark.parametrize(
+    ("status", "assignment"),
+    [
+        ("triplet", "0"),
+        ("singlet", "0/1"),
+        ("doublet", "0"),
+        ("unassigned", "2"),
+    ],
+)
+def test_souporcell_status_and_assignment_format_are_strict(
+    tmp_path: Path,
+    status: str,
+    assignment: str,
+) -> None:
+    inputs = _build_fixture(tmp_path)
+    path = inputs.souporcell_by_well[5]
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle, delimiter="\t"))
+    rows[1][1:3] = [status, assignment]
+    _write_gzip_tsv(path, rows)
+
+    with pytest.raises(QualificationError, match="status or assignment"):
         qualify_support(inputs)

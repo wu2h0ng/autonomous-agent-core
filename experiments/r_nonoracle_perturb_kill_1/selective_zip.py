@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import struct
 import tempfile
 import zlib
@@ -52,6 +53,8 @@ class RangeResponse:
 @dataclass(frozen=True)
 class _CentralEntry:
     name: str
+    creator_system: int
+    external_attributes: int
     flags: int
     method: int
     crc32: int
@@ -69,10 +72,15 @@ def _parse_central_directory(payload: bytes) -> dict[str, _CentralEntry]:
         values = struct.unpack_from("<4s6H3L5H2L", payload, offset)
         if values[0] != b"PK\x01\x02":
             raise ProvenanceError("central directory contains non-entry bytes")
+        creator_system = values[1] >> 8
         flags, method = values[3], values[4]
         crc32, compressed_size, uncompressed_size = values[7], values[8], values[9]
         filename_length, extra_length, comment_length = values[10], values[11], values[12]
-        disk_start, local_header_offset = values[13], values[16]
+        disk_start, external_attributes, local_header_offset = (
+            values[13],
+            values[15],
+            values[16],
+        )
         if disk_start != 0 or 0xFFFFFFFF in (compressed_size, uncompressed_size, local_header_offset):
             raise ProvenanceError("multi-disk or ZIP64 member is outside this tool")
         end = offset + 46 + filename_length + extra_length + comment_length
@@ -88,6 +96,8 @@ def _parse_central_directory(payload: bytes) -> dict[str, _CentralEntry]:
             raise ProvenanceError("central directory filenames must be non-empty and unique")
         entries[name] = _CentralEntry(
             name=name,
+            creator_system=creator_system,
+            external_attributes=external_attributes,
             flags=flags,
             method=method,
             crc32=crc32,
@@ -202,6 +212,15 @@ def _validate_archive(
 def _extract_member(binding: ArchiveBinding, member: MemberBinding, central: _CentralEntry, response: RangeResponse) -> tuple[bytes, dict[str, Any]]:
     if member.name != central.name:
         raise ProvenanceError("member name mismatch")
+    if central.creator_system == 3:
+        unix_mode = (central.external_attributes >> 16) & 0xFFFF
+        is_regular = stat.S_IFMT(unix_mode) == stat.S_IFREG
+    elif central.creator_system == 0:
+        is_regular = central.external_attributes & 0x10 == 0
+    else:
+        is_regular = False
+    if not is_regular:
+        raise ProvenanceError("allowlisted ZIP member must be a regular file")
     expected = (
         central.local_header_offset,
         central.method,

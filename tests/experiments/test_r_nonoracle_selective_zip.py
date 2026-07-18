@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import stat
 import struct
 import zipfile
 import zlib
@@ -18,11 +19,21 @@ from experiments.r_nonoracle_perturb_kill_1.selective_zip import (
 )
 
 
-def _zip_fixture() -> tuple[bytes, bytes, dict[str, zipfile.ZipInfo]]:
+def _regular_info(name: str) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name)
+    info.create_system = 3
+    info.external_attr = (stat.S_IFREG | 0o600) << 16
+    info.compress_type = zipfile.ZIP_DEFLATED
+    return info
+
+
+def _zip_fixture(
+    allowed_info: zipfile.ZipInfo | None = None,
+) -> tuple[bytes, bytes, dict[str, zipfile.ZipInfo]]:
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("allowed/a.txt", b"allowlisted bytes")
-        archive.writestr("forbidden.txt", b"must never reach builder")
+        archive.writestr(allowed_info or _regular_info("allowed/a.txt"), b"allowlisted bytes")
+        archive.writestr(_regular_info("forbidden.txt"), b"must never reach builder")
     payload = stream.getvalue()
     eocd_offset = payload.rfind(b"PK\x05\x06")
     _, _, _, _, _, central_size, central_offset, _ = struct.unpack_from("<4s4H2LH", payload, eocd_offset)
@@ -32,8 +43,10 @@ def _zip_fixture() -> tuple[bytes, bytes, dict[str, zipfile.ZipInfo]]:
     return payload, central_directory, infos
 
 
-def _bindings() -> tuple[ArchiveBinding, RangeResponse, RangeResponse, dict[str, MemberBinding], dict[str, RangeResponse]]:
-    archive, central_directory, infos = _zip_fixture()
+def _bindings(
+    allowed_info: zipfile.ZipInfo | None = None,
+) -> tuple[ArchiveBinding, RangeResponse, RangeResponse, dict[str, MemberBinding], dict[str, RangeResponse]]:
+    archive, central_directory, infos = _zip_fixture(allowed_info)
     eocd_offset = archive.rfind(b"PK\x05\x06")
     _, _, _, _, _, central_size, central_offset, _ = struct.unpack_from("<4s4H2LH", archive, eocd_offset)
     head = {"content_length": str(len(archive)), "last_modified": "stable", "accept_ranges": "bytes", "etag": "opaque"}
@@ -191,3 +204,35 @@ def test_raw_deflate_fixture_is_actually_valid() -> None:
 
     assert zlib.decompress(compressed, -zlib.MAX_WBITS) == b"allowlisted bytes"
     assert archive.archive_size > len(response.body)
+
+
+@pytest.mark.parametrize(
+    ("create_system", "external_attr"),
+    [
+        (3, (stat.S_IFLNK | 0o777) << 16),
+        (0, 0x10),
+    ],
+)
+def test_allowlist_rejects_non_regular_central_directory_entries(
+    tmp_path: Path,
+    create_system: int,
+    external_attr: int,
+) -> None:
+    info = zipfile.ZipInfo("allowed/a.txt")
+    info.create_system = create_system
+    info.external_attr = external_attr
+    info.compress_type = zipfile.ZIP_DEFLATED
+    archive, central_directory, tail, members, ranges = _bindings(info)
+
+    with pytest.raises(ProvenanceError, match="regular file"):
+        extract_allowlisted_members(
+            archive=archive,
+            central_directory=central_directory,
+            archive_tail=tail,
+            members={"allowed/a.txt": members["allowed/a.txt"]},
+            ranges={"allowed/a.txt": ranges["allowed/a.txt"]},
+            allowlist=("allowed/a.txt",),
+            destination=tmp_path / "builder-bytes",
+        )
+
+    assert not (tmp_path / "builder-bytes").exists()

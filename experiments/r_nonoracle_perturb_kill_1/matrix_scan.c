@@ -173,12 +173,35 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    FILE *output = fopen(argv[2], "wx");
-    if (output == NULL) {
+    size_t temporary_length = strlen(argv[2]) + sizeof(".tmp.XXXXXX");
+    char *temporary_path = malloc(temporary_length);
+    if (temporary_path == NULL ||
+        snprintf(temporary_path, temporary_length, "%s.tmp.XXXXXX", argv[2]) < 0) {
         free(total);
         free(detected);
         free(mt);
-        fprintf(stderr, "cannot create output exclusively\n");
+        free(temporary_path);
+        fprintf(stderr, "cannot allocate temporary output path\n");
+        return 2;
+    }
+    int output_fd = mkstemp(temporary_path);
+    if (output_fd < 0) {
+        free(total);
+        free(detected);
+        free(mt);
+        free(temporary_path);
+        fprintf(stderr, "cannot create temporary output\n");
+        return 2;
+    }
+    FILE *output = fdopen(output_fd, "w");
+    if (output == NULL) {
+        close(output_fd);
+        unlink(temporary_path);
+        free(total);
+        free(detected);
+        free(mt);
+        free(temporary_path);
+        fprintf(stderr, "cannot open temporary output stream\n");
         return 2;
     }
     int write_failed = fprintf(output, "cell_index\ttotal_umi\tdetected_features\tmt_umi\n") < 0;
@@ -188,6 +211,12 @@ int main(int argc, char **argv) {
             write_failed = 1;
         }
     }
+    if (!write_failed && fflush(output) != 0) {
+        write_failed = 1;
+    }
+    if (!write_failed && fsync(fileno(output)) != 0) {
+        write_failed = 1;
+    }
     if (fclose(output) != 0) {
         write_failed = 1;
     }
@@ -195,9 +224,24 @@ int main(int argc, char **argv) {
     free(detected);
     free(mt);
     if (write_failed) {
-        unlink(argv[2]);
-        fprintf(stderr, "failed writing metrics output\n");
+        unlink(temporary_path);
+        free(temporary_path);
+        fprintf(stderr, "failed writing or syncing metrics output\n");
         return 2;
     }
+    if (link(temporary_path, argv[2]) != 0) {
+        unlink(temporary_path);
+        free(temporary_path);
+        fprintf(stderr, "cannot publish metrics output without replacement\n");
+        return 2;
+    }
+    if (unlink(temporary_path) != 0) {
+        unlink(argv[2]);
+        unlink(temporary_path);
+        free(temporary_path);
+        fprintf(stderr, "failed removing temporary output link\n");
+        return 2;
+    }
+    free(temporary_path);
     return 0;
 }

@@ -141,16 +141,35 @@ def _read_guidecalls(path: Path, guide_registry: Mapping[str, _Guide]) -> dict[s
                 raise QualificationError("duplicate guidecall barcode")
             if num_features < 0:
                 raise QualificationError("guidecall feature count must be non-negative")
+            if num_features == 0:
+                raise QualificationError(
+                    "zero-guide cells must be represented by an absent guidecall row"
+                )
+            guide_names = guide.split("|")
+            raw_umi_counts = raw_umis.split("|")
+            if (
+                len(guide_names) != num_features
+                or len(raw_umi_counts) != num_features
+                or len(set(guide_names)) != num_features
+                or any(name not in guide_registry for name in guide_names)
+            ):
+                raise QualificationError(
+                    "multi-guide segments must match count and guide registry"
+                )
+            try:
+                umi_counts = [int(value) for value in raw_umi_counts]
+            except ValueError as error:
+                raise QualificationError(
+                    "multi-guide UMI segments must be integers"
+                ) from error
+            if any(value < 0 for value in umi_counts):
+                raise QualificationError(
+                    "multi-guide UMI segments must be non-negative"
+                )
             if num_features != 1:
                 calls[barcode] = (None, num_features, None)
                 continue
-            try:
-                umis = int(raw_umis)
-            except ValueError as error:
-                raise QualificationError("single-guide UMI count must be an integer") from error
-            if "|" in guide or "|" in raw_umis or umis < 0 or guide not in guide_registry:
-                raise QualificationError("single-guide call references invalid feature or count")
-            calls[barcode] = (guide, num_features, umis)
+            calls[barcode] = (guide_names[0], num_features, umi_counts[0])
     return calls
 
 
@@ -208,6 +227,18 @@ def _read_souporcell(path: Path) -> dict[str, tuple[str, str]]:
                 raise QualificationError("Souporcell source barcode must retain raw suffix 1")
             if core in records:
                 raise QualificationError("duplicate Souporcell barcode core")
+            valid_assignment = (
+                (status == "singlet" and assignment in {"0", "1"})
+                or (status == "doublet" and assignment in {"0/1", "1/0"})
+                or (
+                    status == "unassigned"
+                    and assignment in {"0", "1", "0/1", "1/0"}
+                )
+            )
+            if not valid_assignment:
+                raise QualificationError(
+                    "Souporcell status or assignment format is invalid"
+                )
             records[core] = (status, assignment)
     return records
 
@@ -225,6 +256,18 @@ def qualify_support(inputs: QualificationInputs) -> dict[str, Any]:
         raise QualificationError("guidecalls contain barcodes absent from matrix")
     donor_rules = _read_donor_rules(inputs.donor_calls)
     souporcell = {well: _read_souporcell(path) for well, path in inputs.souporcell_by_well.items()}
+    matrix_cores_by_well = {well: set() for well in STIM_WELLS}
+    for barcode in barcodes:
+        core, well = _split_terminal_suffix(barcode)
+        if well in matrix_cores_by_well:
+            matrix_cores_by_well[well].add(core)
+    if any(
+        matrix_cores_by_well[well] != set(souporcell[well])
+        for well in STIM_WELLS
+    ):
+        raise QualificationError(
+            "matrix and Souporcell barcode cores must match exactly per stimulated well"
+        )
 
     stages: Counter[str] = Counter(raw_barcodes=len(barcodes))
     support: Counter[tuple[str, str, int, str]] = Counter()

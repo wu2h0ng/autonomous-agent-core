@@ -10,10 +10,20 @@ import pytest
 PACKAGE = Path(__file__).resolve().parents[2] / "experiments" / "r_nonoracle_perturb_kill_1"
 
 
-def _compile_scanner(tmp_path: Path) -> Path:
+def _compile_scanner(tmp_path: Path, *, fail_fsync: bool = False) -> Path:
     binary = tmp_path / "matrix_scan"
+    command = ["cc", "-O2", "-Wall", "-Wextra", "-Werror"]
+    if fail_fsync:
+        wrapper = tmp_path / "fail_fsync.c"
+        wrapper.write_text(
+            "#include <errno.h>\n"
+            "int test_fsync(int fd) { (void)fd; errno = EIO; return -1; }\n",
+            encoding="ascii",
+        )
+        command.extend(["-Dfsync=test_fsync", str(wrapper)])
+    command.extend([str(PACKAGE / "matrix_scan.c"), "-lz", "-o", str(binary)])
     subprocess.run(
-        ["cc", "-O2", "-Wall", "-Wextra", "-Werror", str(PACKAGE / "matrix_scan.c"), "-lz", "-o", str(binary)],
+        command,
         check=True,
         capture_output=True,
         text=True,
@@ -131,3 +141,31 @@ def test_scanner_rejects_dimension_or_rna_feature_boundary_drift(
     assert result.returncode != 0
     assert message in result.stderr.lower()
     assert not output.exists()
+
+
+def test_scanner_fsync_failure_never_exposes_final_output(tmp_path: Path) -> None:
+    scanner = _compile_scanner(tmp_path, fail_fsync=True)
+    matrix = tmp_path / "matrix.mtx.gz"
+    output = tmp_path / "metrics.tsv"
+    _write_matrix(matrix, ["1 1 10", "2 1 2", "4 1 7", "1 2 5", "3 2 3"])
+
+    result = _run(scanner, matrix, output)
+
+    assert result.returncode != 0
+    assert "sync" in result.stderr.lower()
+    assert not output.exists()
+    assert tuple(tmp_path.glob("metrics.tsv.tmp.*")) == ()
+
+
+def test_scanner_no_replace_publish_preserves_existing_output(tmp_path: Path) -> None:
+    scanner = _compile_scanner(tmp_path)
+    matrix = tmp_path / "matrix.mtx.gz"
+    output = tmp_path / "metrics.tsv"
+    output.write_text("existing\n", encoding="ascii")
+    _write_matrix(matrix, ["1 1 10", "2 1 2", "4 1 7", "1 2 5", "3 2 3"])
+
+    result = _run(scanner, matrix, output)
+
+    assert result.returncode != 0
+    assert output.read_text(encoding="ascii") == "existing\n"
+    assert tuple(tmp_path.glob("metrics.tsv.tmp.*")) == ()
