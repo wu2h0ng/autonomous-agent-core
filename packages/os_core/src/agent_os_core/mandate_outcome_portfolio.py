@@ -18,6 +18,7 @@ from agent_os_contracts import (
     PersistentCommitmentAttachCommand,
     PersistentCommitmentState,
     PrincipalIdentity,
+    PrincipalRole,
     SettlementCommand,
     SettlementRecord,
     SrlHelpRequest,
@@ -398,14 +399,18 @@ class SQLiteMandateOutcomePortfolioStore:
                     (portfolio.portfolio_id,),
                 ).fetchall()
             )
-            help_requests = tuple(
-                OutcomePortfolioHelpRequest.model_validate_json(str(item["payload"]))
-                for item in connection.execute(
-                    f"SELECT * FROM {self._HELP_TABLE} WHERE portfolio_id = ? "
-                    "ORDER BY rowid",
-                    (portfolio.portfolio_id,),
-                ).fetchall()
-            )
+            help_requests: tuple[OutcomePortfolioHelpRequest, ...] = ()
+            if actor.role is PrincipalRole.TENANT_ADMIN:
+                help_requests = tuple(
+                    OutcomePortfolioHelpRequest.model_validate_json(
+                        str(item["payload"])
+                    )
+                    for item in connection.execute(
+                        f"SELECT * FROM {self._HELP_TABLE} WHERE portfolio_id = ? "
+                        "ORDER BY rowid",
+                        (portfolio.portfolio_id,),
+                    ).fetchall()
+                )
             return OutcomePortfolioView(
                 portfolio=portfolio,
                 commitments=commitments,
