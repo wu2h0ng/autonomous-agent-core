@@ -6,10 +6,11 @@ import sys
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pytest
 
+from apps.api_server import data_agent_report_adapter as report_adapter_module
 from agent_os_contracts import (
     CredentialRef,
     RelevanceAssessment,
@@ -49,6 +50,15 @@ from tests.product.test_data_agent_external_report_adapter import (
 from tests.product.test_data_agent_report_dispatch_outbox import _outcome_record
 
 
+@pytest.fixture(autouse=True)
+def _trusted_transaction_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: NOW,
+    )
+
+
 class _CredentialBroker:
     def resolve(self, credential: CredentialRef) -> str:
         del credential
@@ -59,7 +69,7 @@ def _feed_adapter(
     database: Path,
     *,
     cursor: str = "cursor-1",
-    transaction_now: datetime = NOW,
+    adapter_now: datetime = NOW,
 ) -> DataAgentReportAdapter:
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
     adapter, _, _ = _adapter(
@@ -78,7 +88,7 @@ def _feed_adapter(
             )
         ),
         state_store=SQLiteDataAgentReportStateStore(database),
-        now=transaction_now,
+        now=adapter_now,
     )
     return adapter
 
@@ -454,10 +464,16 @@ def test_stale_lease_holder_cannot_complete_after_takeover(tmp_path: Path) -> No
 
 def test_expired_lease_cannot_complete_with_backdated_receipt_time(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database = tmp_path / "runtime.sqlite3"
     transaction_now = NOW + timedelta(seconds=31)
-    adapter = _feed_adapter(database, transaction_now=transaction_now)
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: transaction_now,
+    )
+    adapter = _feed_adapter(database, adapter_now=NOW)
     service, runtime, _ = _service(tmp_path, adapter=adapter)
     adapter.poll_once(limit=1)
     dispatch = adapter.pending_dispatches()[0]
@@ -486,6 +502,51 @@ def test_expired_lease_cannot_complete_with_backdated_receipt_time(
             authority_snapshot_digest=runtime.authority_digest,
         )
     assert adapter.pending_dispatches() == (dispatch,)
+
+
+def _throwing_adapter_clock() -> datetime:
+    raise RuntimeError("adapter clock must not control lease fence")
+
+
+@pytest.mark.parametrize(
+    "adapter_clock",
+    (
+        lambda: datetime(2026, 7, 16, 12, 0),
+        _throwing_adapter_clock,
+    ),
+)
+def test_adapter_clock_cannot_control_lease_fence(
+    tmp_path: Path,
+    adapter_clock: Callable[[], datetime],
+) -> None:
+    service, runtime, adapter = _service(tmp_path)
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-current",
+        now=NOW,
+        force_pending=True,
+    )
+    assert isinstance(lease, ActivePerceptionLease)
+    adapter._clock = adapter_clock
+
+    completed = adapter.complete_active_perception_dispatch(
+        dispatch,
+        outcome_record=runtime.propose_record(
+            dispatch.environment_event_id,
+            dispatch.projection_id,
+            f"receipt:{dispatch.environment_event_id}",
+        ),
+        schedule_id=service.config.schedule_id,
+        config_digest=service.config.config_digest,
+        worker_id=lease.worker_id,
+        lease_fence=lease.fence,
+        completed_at=NOW,
+        authority_snapshot_digest=runtime.authority_digest,
+    )
+
+    assert completed.status == "COMPLETED"
 
 
 def test_due_run_polls_admits_proposes_and_records_no_effect_receipt(

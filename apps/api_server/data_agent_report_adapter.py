@@ -50,6 +50,10 @@ Clock = Callable[[], datetime]
 _TRACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
+def _system_utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class _DataAgentReportFeedEvent(TypedDict):
     cursor: str
     trace_id: str
@@ -2072,13 +2076,12 @@ class SQLiteDataAgentReportStateStore:
         lease_fence: int,
         completed_at: datetime,
         authority_snapshot_digest: str,
-        transaction_clock: Clock,
     ) -> DataAgentReportDispatch:
         completion_time = _utc(completed_at)
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                transaction_now = _utc(transaction_clock())
+                transaction_now = _utc(_system_utc_now())
                 lease = connection.execute(
                     """
                     SELECT config_digest, lease_owner, lease_fence, lease_expires_at
@@ -2748,7 +2751,6 @@ class DataAgentReportAdapter:
             lease_fence=lease_fence,
             completed_at=completed_at,
             authority_snapshot_digest=authority_snapshot_digest,
-            transaction_clock=self._clock,
         )
 
     def _dispatch_for_bundle(
