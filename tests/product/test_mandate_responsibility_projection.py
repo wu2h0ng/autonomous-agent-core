@@ -14,6 +14,7 @@ from agent_os_contracts import (
     IdempotencyMode,
     MandateResponsibilityViewStatus,
     MandateTaskLinkCommand,
+    MandateTaskLinkRevocationCommand,
     ObservedOutcome,
     OutcomeStatus,
     NodeKind,
@@ -30,6 +31,7 @@ from agent_os_contracts import (
     canonical_json,
 )
 from agent_os_core import (
+    MandateResponsibilityDenied,
     MandateResponsibilityPersistenceConflict,
     MandateResponsibilityProjector,
     SQLiteMandateResponsibilityStore,
@@ -417,6 +419,134 @@ def test_schedule_gap_and_optimistic_mandate_guard_are_explicit(tmp_path) -> Non
     with pytest.raises(MandateResponsibilityPersistenceConflict, match="changed"):
         MandateResponsibilityProjector(
             store, DriftingTaskService(), clock=lambda: NOW
+        ).project("mandate:build-agent-os", admin.principal)
+
+
+def test_projection_fails_closed_outside_operational_mandate_time_window(
+    tmp_path,
+) -> None:
+    _, _, admin, task, store = _setup(tmp_path)
+    store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+
+    with pytest.raises(MandateResponsibilityDenied, match="active"):
+        MandateResponsibilityProjector(
+            store,
+            admin.tasks,
+            clock=lambda: NOW + timedelta(days=31),
+        ).project("mandate:build-agent-os", admin.principal)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "UPDATE mandate_responsibility_revocations "
+        "SET record_json = 'not-json' WHERE link_id = ?",
+        "UPDATE mandate_responsibility_revocations "
+        "SET record_digest = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff' "
+        "WHERE link_id = ?",
+        "UPDATE mandate_responsibility_revocations "
+        "SET tenant_id = 'tenant:other' WHERE link_id = ?",
+    ],
+)
+def test_corrupt_revocation_cannot_silently_hide_responsibility_link(
+    tmp_path, mutation
+) -> None:
+    database, _, admin, task, store = _setup(tmp_path)
+    link = store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    store.revoke_link(
+        MandateTaskLinkRevocationCommand(
+            expected_link_digest=link.record_digest,
+            reason="superseded",
+        ),
+        "mandate:build-agent-os",
+        link.link_id,
+        admin.principal,
+    )
+    connection = _connection(database)
+    try:
+        connection.execute(mutation, (link.link_id,))
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(MandateResponsibilityPersistenceConflict, match="revocation"):
+        MandateResponsibilityProjector(
+            store, admin.tasks, clock=lambda: NOW
+        ).project("mandate:build-agent-os", admin.principal)
+
+
+def test_projection_rechecks_active_link_set_after_current_outcome_read(
+    tmp_path,
+) -> None:
+    _, _, admin, task, store = _setup(tmp_path)
+    link = store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+
+    class RevokingTaskService:
+        def get_task(self, task_id: str):
+            return admin.tasks.get_task(task_id)
+
+        def current_outcome(self, task_id: str):
+            outcome = admin.tasks.current_outcome(task_id)
+            store.revoke_link(
+                MandateTaskLinkRevocationCommand(
+                    expected_link_digest=link.record_digest,
+                    reason="concurrent revocation",
+                ),
+                "mandate:build-agent-os",
+                link.link_id,
+                admin.principal,
+            )
+            return outcome
+
+    with pytest.raises(MandateResponsibilityPersistenceConflict, match="source changed"):
+        MandateResponsibilityProjector(
+            store, RevokingTaskService(), clock=lambda: NOW
+        ).project("mandate:build-agent-os", admin.principal)
+
+
+def test_projection_rechecks_task_event_stream_after_current_outcome_read(
+    tmp_path,
+) -> None:
+    database, _, admin, task, store = _setup(tmp_path)
+    store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+
+    class MutatingTaskService:
+        def get_task(self, task_id: str):
+            return admin.tasks.get_task(task_id)
+
+        def current_outcome(self, task_id: str):
+            outcome = admin.tasks.current_outcome(task_id)
+            connection = _connection(database)
+            try:
+                connection.execute(
+                    "UPDATE task_events SET event_id = ? "
+                    "WHERE task_id = ? AND sequence = 1",
+                    ("event:concurrent-replacement", task_id),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            return outcome
+
+    with pytest.raises(MandateResponsibilityPersistenceConflict, match="source changed"):
+        MandateResponsibilityProjector(
+            store, MutatingTaskService(), clock=lambda: NOW
         ).project("mandate:build-agent-os", admin.principal)
 
 

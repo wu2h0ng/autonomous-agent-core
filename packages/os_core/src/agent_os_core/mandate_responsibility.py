@@ -449,23 +449,64 @@ class MandateResponsibilityProjector:
         tenant_id: str,
         workspace_id: str,
         mandate_id: str,
-    ) -> tuple[MandateTaskLink, ...]:
-        rows = connection.execute(
-            f"SELECT links.* FROM {self._store._LINK_TABLE} AS links "
-            f"LEFT JOIN {self._store._REVOCATION_TABLE} AS revocations "
-            "ON revocations.link_id = links.link_id "
-            "WHERE links.principal_id = ? AND links.tenant_id = ? "
-            "AND links.workspace_id = ? AND links.mandate_id = ? "
-            "AND revocations.link_id IS NULL ORDER BY links.rowid",
+    ) -> tuple[tuple[MandateTaskLink, ...], str]:
+        link_rows = connection.execute(
+            f"SELECT * FROM {self._store._LINK_TABLE} "
+            "WHERE principal_id = ? AND tenant_id = ? "
+            "AND workspace_id = ? AND mandate_id = ? ORDER BY rowid",
             (principal_id, tenant_id, workspace_id, mandate_id),
         ).fetchall()
-        links = tuple(self._store._decode_link(row) for row in rows)
-        associations = [link.association_id for link in links]
+        links = tuple(self._store._decode_link(row) for row in link_rows)
+        revocations = self._store._validated_revocations_for_links(
+            connection,
+            links,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            mandate_id=mandate_id,
+        )
+        revoked_link_ids = {revocation.link_id for revocation in revocations}
+        active_links = tuple(
+            link for link in links if link.link_id not in revoked_link_ids
+        )
+        associations = [link.association_id for link in active_links]
         if len(associations) != len(set(associations)):
             raise MandateResponsibilityPersistenceConflict(
                 "multiple active links exist for one responsibility association"
             )
-        return links
+        source_digest = content_digest(
+            {
+                "links": tuple(
+                    (link.link_id, link.record_digest) for link in links
+                ),
+                "revocations": tuple(
+                    (
+                        revocation.revocation_id,
+                        revocation.link_id,
+                        revocation.record_digest,
+                    )
+                    for revocation in revocations
+                ),
+            }
+        )
+        return active_links, source_digest
+
+    @staticmethod
+    def _task_event_source_digest(
+        connection: sqlite3.Connection,
+        task_id: str,
+    ) -> str:
+        rows = connection.execute(
+            "SELECT * FROM task_events WHERE task_id = ? ORDER BY sequence",
+            (task_id,),
+        ).fetchall()
+        return content_digest(
+            {
+                "events": tuple(
+                    {key: row[key] for key in row.keys()} for row in rows
+                )
+            }
+        )
 
     def _project_link(
         self,
@@ -652,13 +693,26 @@ class MandateResponsibilityProjector:
                     now=computed_at,
                 )
             )
-            links = self._read_active_links(
+            if (
+                computed_at < operational.valid_from
+                or computed_at >= operational.expires_at
+            ):
+                raise MandateResponsibilityDenied(
+                    "operational Mandate is not active at projection time"
+                )
+            links, responsibility_source_digest = self._read_active_links(
                 connection,
                 principal_id=workspace.mandate.principal_id,
                 tenant_id=reader.tenant_id,
                 workspace_id=reader.workspace_id,
                 mandate_id=mandate_id,
             )
+            task_source_digests = {
+                link.link_id: self._task_event_source_digest(
+                    connection, link.task_id
+                )
+                for link in links
+            }
             active_perception, schedule_gaps, schedule_digest = self._read_schedule(
                 connection,
                 principal_id=workspace.mandate.principal_id,
@@ -701,9 +755,24 @@ class MandateResponsibilityProjector:
                     mandate_id=mandate_id,
                 )
             )
+            final_links, final_responsibility_source_digest = (
+                self._read_active_links(
+                    final_connection,
+                    principal_id=final_workspace.mandate.principal_id,
+                    tenant_id=reader.tenant_id,
+                    workspace_id=reader.workspace_id,
+                    mandate_id=mandate_id,
+                )
+            )
+            final_task_source_digests = {
+                link.link_id: self._task_event_source_digest(
+                    final_connection, link.task_id
+                )
+                for link in links
+            }
         except MandateResponsibilityPersistenceConflict:
             raise MandateResponsibilityPersistenceConflict(
-                "Mandate authority changed during responsibility projection"
+                "responsibility source changed during projection"
             ) from None
         finally:
             final_connection.close()
@@ -712,9 +781,12 @@ class MandateResponsibilityProjector:
             or final_workspace != workspace
             or final_operational_digest != operational_digest
             or final_operational != operational
+            or final_links != links
+            or final_responsibility_source_digest != responsibility_source_digest
+            or final_task_source_digests != task_source_digests
         ):
             raise MandateResponsibilityPersistenceConflict(
-                "Mandate authority changed during responsibility projection"
+                "responsibility source changed during projection"
             )
         if final_schedule_digest != schedule_digest:
             active_perception = None
@@ -1020,6 +1092,54 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             )
         return revocation
 
+    def _validated_revocations_for_links(
+        self,
+        connection: sqlite3.Connection,
+        links: tuple[MandateTaskLink, ...],
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+    ) -> tuple[MandateTaskLinkRevocation, ...]:
+        scope_clause = (
+            "principal_id = ? AND tenant_id = ? AND workspace_id = ? "
+            "AND mandate_id = ?"
+        )
+        scope_values = (principal_id, tenant_id, workspace_id, mandate_id)
+        if links:
+            placeholders = ",".join("?" for _ in links)
+            rows = connection.execute(
+                f"SELECT * FROM {self._REVOCATION_TABLE} "
+                f"WHERE link_id IN ({placeholders}) OR ({scope_clause}) "
+                "ORDER BY rowid",
+                (*(link.link_id for link in links), *scope_values),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                f"SELECT * FROM {self._REVOCATION_TABLE} "
+                f"WHERE {scope_clause} ORDER BY rowid",
+                scope_values,
+            ).fetchall()
+        revocations = tuple(self._decode_revocation(row) for row in rows)
+        links_by_id = {link.link_id: link for link in links}
+        for revocation in revocations:
+            link = links_by_id.get(revocation.link_id)
+            if link is None or (
+                revocation.association_id != link.association_id
+                or revocation.link_record_digest != link.record_digest
+                or revocation.principal_id != link.principal_id
+                or revocation.tenant_id != link.tenant_id
+                or revocation.workspace_id != link.workspace_id
+                or revocation.mandate_id != link.mandate_id
+                or revocation.task_id != link.task_id
+                or revocation.correction_epoch != link.correction_epoch
+            ):
+                raise MandateResponsibilityPersistenceConflict(
+                    "durable responsibility revocation scope binding is invalid"
+                )
+        return revocations
+
     def create_link(
         self,
         command: MandateTaskLinkCommand,
@@ -1181,22 +1301,17 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
                 ),
             ).fetchall()
             links = tuple(self._decode_link(row) for row in rows)
+            revocations = self._validated_revocations_for_links(
+                connection,
+                links,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=reader.tenant_id,
+                workspace_id=reader.workspace_id,
+                mandate_id=mandate_id,
+            )
             if include_revoked:
                 return links
-            revoked = {
-                str(row["link_id"])
-                for row in connection.execute(
-                    f"SELECT link_id FROM {self._REVOCATION_TABLE} "
-                    "WHERE principal_id = ? AND tenant_id = ? "
-                    "AND workspace_id = ? AND mandate_id = ?",
-                    (
-                        workspace.mandate.principal_id,
-                        reader.tenant_id,
-                        reader.workspace_id,
-                        mandate_id,
-                    ),
-                ).fetchall()
-            }
+            revoked = {revocation.link_id for revocation in revocations}
             return tuple(link for link in links if link.link_id not in revoked)
         finally:
             connection.close()

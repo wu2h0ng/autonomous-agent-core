@@ -305,3 +305,38 @@ def test_stale_digest_and_correction_epoch_drift_fail_closed(tmp_path) -> None:
             "mandate:build-agent-os",
             admin.principal,
         )
+
+
+def test_active_only_list_validates_revocation_before_hiding_link(tmp_path) -> None:
+    database, owner, admin, task, store = _setup(tmp_path)
+    link = store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    store.revoke_link(
+        MandateTaskLinkRevocationCommand(
+            expected_link_digest=link.record_digest,
+            reason="superseded",
+        ),
+        "mandate:build-agent-os",
+        link.link_id,
+        admin.principal,
+    )
+    connection = _connection(database)
+    try:
+        connection.execute(
+            "UPDATE mandate_responsibility_revocations SET record_json = 'not-json' "
+            "WHERE link_id = ?",
+            (link.link_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(MandateResponsibilityPersistenceConflict, match="revocation"):
+        store.list_links(
+            "mandate:build-agent-os",
+            owner.principal,
+            include_revoked=False,
+        )
