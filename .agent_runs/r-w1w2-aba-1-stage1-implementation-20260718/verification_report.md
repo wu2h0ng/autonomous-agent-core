@@ -44,6 +44,11 @@
 | second corrected targeted public scaffold tests | `39 passed` | both public trust boundaries reparse closed canonical contracts |
 | second corrected combined Research regression | `132 passed` | prior `r_srl_1` 93 plus corrected scaffold 39 |
 | second corrected Ruff/Pyright/diff-check | `PASS / 0 errors, 0 warnings / PASS` | exact uv commands and task scope only |
+| second correction re-review at `7219282` | `REVISE`; `P0=0 / P1=1 / P2=0` | canonical objects were created but discarded before root/projection consumption |
+| third correction TDD RED | `1 failed` | stateful manifest qualified with root bound to B and projection read from A |
+| third corrected targeted public scaffold tests | `40 passed` | qualifier consumes only retained canonical snapshots after one mapping capture |
+| third corrected combined Research regression | `133 passed` | prior `r_srl_1` 93 plus corrected scaffold 40 |
+| third corrected Ruff/Pyright/diff-check | `PASS / 0 errors, 0 warnings / PASS` | exact uv commands and task scope only |
 
 ## Pending checks
 

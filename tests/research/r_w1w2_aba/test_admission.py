@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import fields, replace
 from pathlib import Path
 
@@ -269,6 +270,63 @@ def test_qualification_rejects_malformed_direct_bundle_dataclasses() -> None:
 
     assert result.qualification is None
     assert "INVALID_MANIFEST_CONTRACT:B1" in {
+        issue.code for issue in result.issues
+    }
+
+
+def test_qualification_consumes_only_canonical_manifest_snapshot() -> None:
+    manifests, acceptances = _valid_public_bundles()
+    original = manifests[0]
+    later_payload = deepcopy(original.to_mapping())
+    later_children = later_payload["children"]
+    assert isinstance(later_children, list)
+    for child in later_children:
+        assert isinstance(child, dict)
+        if child["child_id"] == "STAGE_SPEC":
+            child["digest"] = _digest(999)
+    later_manifest = parse_bundle_manifest(later_payload)
+
+    class ChangingManifest(BundleManifestV1):
+        def __init__(self) -> None:
+            super().__init__(
+                schema_version=original.schema_version,
+                package_id=original.package_id,
+                bundle_id=original.bundle_id,
+                owner_subject_digest=original.owner_subject_digest,
+                reviewer_subject_digest=original.reviewer_subject_digest,
+                children=original.children,
+            )
+            object.__setattr__(self, "_mapping_calls", 0)
+
+        def to_mapping(self) -> dict[str, object]:
+            calls = self._mapping_calls  # type: ignore[attr-defined]
+            object.__setattr__(self, "_mapping_calls", calls + 1)
+            if calls == 0:
+                return super().to_mapping()
+            return deepcopy(later_manifest.to_mapping())
+
+        def __eq__(self, other: object) -> bool:
+            return True
+
+    manifests[0] = ChangingManifest()
+    acceptances[0] = parse_bundle_acceptance(
+        _acceptance_payload(
+            BundleId.B1,
+            sha256_hex(later_manifest.to_mapping()),
+        )
+    )
+    expected_manifests = [later_manifest, *manifests[1:]]
+
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            expected_manifests, acceptances
+        ),
+    )
+
+    assert result.qualification is None
+    assert "RECEIPT_MANIFEST_DIGEST_MISMATCH:B1" in {
         issue.code for issue in result.issues
     }
 

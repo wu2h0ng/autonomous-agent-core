@@ -189,9 +189,11 @@ def qualify_public_bundles(
     elif _DIGEST.fullmatch(expected_external_acceptance_root_digest) is None:
         issues.append(QualificationIssueV1("INVALID_EXTERNAL_ACCEPTANCE_ROOT", "$"))
 
+    canonical_manifests: list[BundleManifestV1] = []
     for manifest in manifests:
         try:
-            canonical_manifest = parse_bundle_manifest(manifest.to_mapping())
+            raw_manifest = manifest.to_mapping()
+            canonical_manifest = parse_bundle_manifest(raw_manifest)
         except (AttributeError, PublicContractError, TypeError, ValueError) as exc:
             bundle_label = (
                 manifest.bundle_id.value
@@ -209,16 +211,20 @@ def qualify_public_bundles(
                 path = exc.path if isinstance(exc, PublicContractError) else "$"
             issues.append(QualificationIssueV1(code, path))
             continue
-        if canonical_manifest != manifest:
+        if canonical_manifest.to_mapping() != raw_manifest:
             issues.append(
                 QualificationIssueV1(
                     f"NONCANONICAL_MANIFEST:{manifest.bundle_id.value}", "$"
                 )
             )
+            continue
+        canonical_manifests.append(canonical_manifest)
 
+    canonical_acceptances: list[BundleAcceptanceReceiptV1] = []
     for receipt in acceptances:
         try:
-            canonical_receipt = parse_bundle_acceptance(receipt.to_mapping())
+            raw_receipt = receipt.to_mapping()
+            canonical_receipt = parse_bundle_acceptance(raw_receipt)
         except (AttributeError, PublicContractError, TypeError, ValueError) as exc:
             bundle_label = (
                 receipt.bundle_id.value
@@ -232,16 +238,20 @@ def qualify_public_bundles(
                 )
             )
             continue
-        if canonical_receipt != receipt:
+        if canonical_receipt.to_mapping() != raw_receipt:
             issues.append(
                 QualificationIssueV1(
                     f"NONCANONICAL_ACCEPTANCE:{receipt.bundle_id.value}", "$"
                 )
             )
+            continue
+        canonical_acceptances.append(canonical_receipt)
 
     if issues:
         return QualificationResultV1(None, tuple(issues))
 
+    manifests = tuple(canonical_manifests)
+    acceptances = tuple(canonical_acceptances)
     manifest_counts = Counter(manifest.bundle_id for manifest in manifests)
     acceptance_counts = Counter(receipt.bundle_id for receipt in acceptances)
     manifests_by_id = {manifest.bundle_id: manifest for manifest in manifests}
