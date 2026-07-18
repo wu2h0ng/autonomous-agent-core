@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-18T10:58:00+08:00"
+updated: "2026-07-18T11:17:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main"
-status: "Agent OS remote main is `4ba2612f81a02c363d5b0313a89e6a9095dff162`. It extends durable scoped `RATIFIED` Mandate intake and the authenticated observation-authorization bridge with bounded active perception: startup configuration can maintain a durable schedule, poll the already-authorized Data Agent report source in feed-limited batches, produce proposal-only situated assessments, and resume exact completed batches across restart without reassessment. Completion is bound to a live lease/fence, the canonical SQLite assessment and an exact persisted recovery batch; expired, stale, generic-bypass, fake-assessment and sibling-displacement paths fail closed. Fresh exact-head verification covered 1498 Product tests passed/1 skipped, 268 high-risk targeted tests, Ruff clean and Pyright 0; independent review returned APPROVE_ACTIVE_PERCEPTION_INTEGRATION. It still cannot activate Tasks, grant capabilities or cause external effects, and it is not released. R-NONORACLE-PERTURB-KILL-1 data qualification is approved only on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718` at `ee981a0`: 28,412 cells, exactly 40 supported targets, 640 aggregates, MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established. The prior `updated` value carried an eight-hour clock-skew error and is corrected here."
+status: "Agent OS remote main is `6d36f1db65a1a2b441709152a2f1f61dd56fd827`; Product code through `4ba2612` adds independently approved bounded Active Perception above durable scoped `RATIFIED` Mandate intake and authenticated observation authority. It polls the already-authorized Data Agent source in feed-limited batches, emits proposal-only assessments and resumes exact completed batches across restart; lease/fence, canonical assessment and recovery-batch binding fail closed. Fresh evidence is 1498 Product tests passed/1 skipped, 268 high-risk targeted tests, Ruff clean and Pyright 0. It cannot activate Tasks, grant capabilities or cause external effects, and it is not released. R-NONORACLE-PERTURB-KILL-1 data qualification and the real selective-ZIP provenance manifest are independently approved only on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718` at `075e6df`: 28,412 cells, exactly 40 supported targets, 640 aggregates, MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN. The remaining pre-freeze blocker is the one-shot scorer-custodied HMAC GUIDE/NTC assignment; no HMAC, mechanism, freeze or run exists. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -272,13 +272,13 @@ active_work:
       - "docs/superpowers/plans/2026-07-18-mandate-active-perception-review-closure.md"
   - id: "R-NONORACLE-PERTURB-KILL-1"
     track: "research"
-    status: "DATA_QUALIFICATION_FIX_APPROVED_AT_EE981A0 / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN"
+    status: "DATA_QUALIFICATION_AND_SELECTIVE_PROVENANCE_APPROVED_AT_075E6DF / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN"
     purpose: "Test whether a non-oracle procedure can recover intervention-relevant structure under real perturbation shift without outcome-guide leakage or post-hoc route rescue."
-    boundary: "Data qualification only. The exact 40-target gate has zero margin; selective-source provenance and one-shot scorer-custodied HMAC NTC partition must be bound before freeze, and any split side/block below 25 PARKs the route without retry. No mechanism, provider, training, result or product claim is authorized."
+    boundary: "Data qualification and the exact five-member selective-source provenance manifest are approved. The 40-target gate has zero margin; the one-shot scorer-custodied HMAC GUIDE/NTC assignment remains mandatory before freeze, and any NTC split side/block below 25 PARKs the route without retry. No mechanism, provider, training, result or product claim is authorized."
     source:
       - "docs/superpowers/specs/2026-07-18-nonoracle-intervention-shift-design.md"
       - "docs/research/R-NONORACLE-PERTURB-KILL-1-data-qualification-report.md"
-      - "codex/r-nonoracle-intervention-shift-1-20260718@ee981a0194e5c5dd456aa8d5fa5f9610024d7a9b"
+      - "codex/r-nonoracle-intervention-shift-1-20260718@075e6df0b831ef0fc39931c8eac9056e0f89c06e"
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
     status: "ADM_P1_P2_P3_P4_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6 / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
@@ -551,7 +551,7 @@ blockers:
     - "SPINE-1 migration is not executed."
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
-    - "R-NONORACLE-PERTURB-KILL-1 qualifies exactly 40 targets with zero margin, but selective-source provenance and the one-shot scorer-custodied HMAC NTC split are not yet frozen; no mechanism run or non-oracle discovery result exists."
+    - "R-NONORACLE-PERTURB-KILL-1 qualifies exactly 40 targets with zero margin and has an independently approved selective-source provenance manifest, but the one-shot scorer-custodied HMAC GUIDE/NTC assignment is not yet made; no freeze, mechanism run or non-oracle discovery result exists."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
@@ -581,7 +581,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Close the two remaining R-NONORACLE pre-freeze inputs: exact selective-source provenance manifest and one-shot scorer-custodied HMAC NTC guide partition. PARK without retry if either split side/block is below 25; do not implement the mechanism or run while the freeze packet is incomplete."
+    action: "Perform the one-shot scorer-custodied HMAC GUIDE/NTC assignment against exact branch head 075e6df and its accepted source manifest. PARK without retry if either NTC split side/block is below 25; do not implement the mechanism or run while the freeze packet is incomplete."
   - priority: 2
     action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment slice above Active Perception, with explicit settlement against ObservedOutcome and a matched Founder Cognitive Load falsifier; keep it proposal-only until its authority contract is independently accepted."
   - priority: 3
