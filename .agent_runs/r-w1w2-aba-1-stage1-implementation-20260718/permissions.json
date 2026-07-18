@@ -1,0 +1,9 @@
+{
+  "autonomy_cap": "gated",
+  "level": "observe",
+  "mode": "gated",
+  "mode_source": "founder_selected",
+  "policy_source": "ai-agent-engineering-workflow/recipes/autonomy.policy.yaml",
+  "updated_at": "2026-07-18T06:02:31+00:00",
+  "version": 1
+}
