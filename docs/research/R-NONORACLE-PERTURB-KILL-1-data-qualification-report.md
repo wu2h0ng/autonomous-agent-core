@@ -1,6 +1,6 @@
 # R-NONORACLE-PERTURB-KILL-1 Data Qualification
 
-> Status: `DATA_ACQUIRED / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / DESIGN_PROVENANCE_REVISE / NOT_FROZEN / NOT_RUN`
+> Status: `DATA_ACQUIRED / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / SELECTIVE_ZIP_PROVENANCE_BOUND / NOT_FROZEN / NOT_RUN`
 > Scope: pre-freeze data qualification only
 > Base: `6204666232683836226d2fe51c970abeb75acb84`
 
@@ -16,6 +16,12 @@
   from `10` through `77`, inclusive at the observed extrema.
 - The canonical aggregate-only verifier independently reproduced the same
   `28,412 / 40 / 640 / 10..77` qualification and emitted no target IDs.
+- The qualification-only Zenodo allowlist is bound by
+  `R-NONORACLE-PERTURB-KILL-1-selective-zip-provenance.json`: paired stable
+  transport probes, the terminal EOCD, all `148` central-directory entries and
+  five exact local-header-plus-compressed-member ranges were replayed through
+  the fail-closed extractor. The resulting donor-call and four stimulated-well
+  Souporcell files are byte-identical to the qualification inputs.
 
 The earlier provisional value `41` is void. That scan incorrectly included
 `CRISPR Guide Capture` rows in RNA total UMI and detected-feature metrics. The
@@ -23,12 +29,15 @@ authoritative scanner counts only the first `36,601` `Gene Expression` rows and
 uses mitochondrial rows `36,560..36,572`; its output is byte-identical to the
 RNA-only metrics digest above.
 
-## Open blockers
+## Blocker status
 
 1. `SINGLET_AUTHORITY_AMENDMENT_REQUIRED` — closed by the design amendment in
    this patch, pending independent review of exact bytes.
-2. `SELECTIVE_ZIP_PROVENANCE_MANIFEST_REQUIRED` — tooling is implemented, but
-   the real allowlisted-member manifest has not been produced or accepted.
+2. `SELECTIVE_ZIP_PROVENANCE_MANIFEST_REQUIRED` — **closed locally** by the
+   real selective-range manifest. The allowlist contains only `donor_calls.txt`
+   and stimulated-well `1..4` `clusters.tsv`; the outcome/category guide map is
+   explicitly forbidden and absent. Independent exact-byte acceptance remains
+   a separate pre-freeze review action, not a reason to reopen this data gap.
 3. `NTC_HMAC_SPLIT_PENDING_SCORER_CUSTODY` — no key or split was generated.
    The custodian gets one attempt; either side below 25 cells in any block is
    immediate `PARK` with no retry.

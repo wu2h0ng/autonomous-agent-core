@@ -1,0 +1,92 @@
+{
+  "allowlist_policy": "qualification-inputs-only",
+  "archive_content_url": "https://zenodo.org/api/records/5784651/files/CRISPRa-Perturb-seq.zip/content",
+  "archive_file_name": "CRISPRa-Perturb-seq.zip",
+  "archive_size": 3055676205,
+  "central_directory_content_range": "bytes 3055656196-3055676182/3055676205",
+  "central_directory_sha256": "904c79bace240d2e87d5910d09c2950a7a42211a81b68cee09cce02e679b0b9d",
+  "eocd_central_directory_offset": 3055656196,
+  "eocd_central_directory_size": 19987,
+  "eocd_entry_count": 148,
+  "forbidden_member": "Perturb-seq/data/guide-target-categories.txt",
+  "head_stable_fields": {
+    "accept_ranges": "bytes",
+    "content_length": "3055676205",
+    "last_modified": "Sun, 14 Jun 2026 04:34:48 GMT"
+  },
+  "member_count": 5,
+  "members": [
+    {
+      "compressed_sha256": "4a2c34d007dfd236bc0f82a7c3917596d9fcb150e1aa588af20459d2d2fd6741",
+      "compressed_size": 103,
+      "content_range": "bytes 2679932134-2679932355/3055676205",
+      "crc32": "3163e10f",
+      "local_header_offset": 2679932134,
+      "method": 8,
+      "name": "Perturb-seq/data/souporcell_match_vcf_res/donor_calls.txt",
+      "uncompressed_sha256": "c9f32500417ded2d0c430c293d4f61760545a0808fdbd13a0a0336401d84cfdc",
+      "uncompressed_size": 185
+    },
+    {
+      "compressed_sha256": "8cd56af47300e8653d86a04ffe712743f1e2c97d00827bd2a600630e1ebee1f9",
+      "compressed_size": 511019,
+      "content_range": "bytes 3020260909-3020772048/3055676205",
+      "crc32": "ed69de05",
+      "local_header_offset": 3020260909,
+      "method": 8,
+      "name": "Perturb-seq/data/souporcell/stim_well1_results/clusters.tsv",
+      "uncompressed_sha256": "c54a86c434968043370b3fb994a622337c4ec205d2c5ede40e0e69a5d8469f2f",
+      "uncompressed_size": 1414320
+    },
+    {
+      "compressed_sha256": "6627420676b9674e4a65355a793758acbe8a8917389be9a8d03521a6e4fd6b4b",
+      "compressed_size": 496210,
+      "content_range": "bytes 2868136921-2868633251/3055676205",
+      "crc32": "551b716c",
+      "local_header_offset": 2868136921,
+      "method": 8,
+      "name": "Perturb-seq/data/souporcell/stim_well2_results/clusters.tsv",
+      "uncompressed_sha256": "2918767ce026ac8eb18987ea0639adc38f93b219fd09c0ac362a09f0921d97f7",
+      "uncompressed_size": 1368094
+    },
+    {
+      "compressed_sha256": "09300b319bc9a3be8fbddc5ad11d07241b2aeebdf6da3011fc2601a542ce618b",
+      "compressed_size": 480977,
+      "content_range": "bytes 2825629300-2826110397/3055676205",
+      "crc32": "f249ce95",
+      "local_header_offset": 2825629300,
+      "method": 8,
+      "name": "Perturb-seq/data/souporcell/stim_well3_results/clusters.tsv",
+      "uncompressed_sha256": "1e25fb9789e9c149ab9c466a3d264c72f98f65f9d43249133181a06b01cbca49",
+      "uncompressed_size": 1328364
+    },
+    {
+      "compressed_sha256": "10d29469c0b3e1d9a08ec017987091491bb66c0ed989db7c1a1f8773e12431c9",
+      "compressed_size": 471273,
+      "content_range": "bytes 2679935435-2680406828/3055676205",
+      "crc32": "844b8791",
+      "local_header_offset": 2679935435,
+      "method": 8,
+      "name": "Perturb-seq/data/souporcell/stim_well4_results/clusters.tsv",
+      "uncompressed_sha256": "07e4ca55237f6e482b1ade8e463b8900b895c6f47e1814d17154eec82b536653",
+      "uncompressed_size": 1301892
+    }
+  ],
+  "package_id": "R-NONORACLE-PERTURB-KILL-1",
+  "qualification_source_sha256": {
+    "barcodes": "2465729feb9dd448fff059530b5fd732412c7f2c3eeddaa9dbe9a6406586fdf6",
+    "features": "9905919eb3c62529f38122490f8f6472fc6ef36a43f2126ad39e3065355a34e9",
+    "guidecalls": "ffd5a3050a69d013ddc09a43fae63642a7659cdb778f78c865e0829207e17b7c",
+    "matrix": "38113a6099f117ed1449cfde2f9f61bf10379da262af49364308f1a0602e3fc1",
+    "rna_metrics": "701827190ea31d9e3aecb7722e3022b02fe1ebd880e94c483b6d6425f4e58104"
+  },
+  "record_doi": "10.5281/zenodo.5784651",
+  "record_id": 5784651,
+  "record_json_sha256": "f2da030f9577880bdffe38337196e7060ff8b4fa0c5de851dcce32084901c029",
+  "record_url": "https://zenodo.org/records/5784651",
+  "schema": "selective-zip-member-provenance/v1",
+  "tail_content_range": "bytes 3053579053-3055676204/3055676205",
+  "tail_sha256": "8f5f9423492b823229f8b95ebdcc0042d4bb9dbdc87df2bc163c7ff319e64bf2",
+  "transport_probe_protocol": "paired HEAD size/last-modified plus paired bytes=0-0 range capability probes",
+  "upstream_md5": "7e8b8f2c12360272a52dd176801093e4"
+}
