@@ -111,6 +111,8 @@ from .resource import ResourceBudget, RiskTier
 from .outcome_portfolio import (
     OutcomePortfolio,
     OutcomePortfolioCreateCommand,
+    OutcomePortfolioHelpGap,
+    OutcomePortfolioHelpRequest,
     OutcomePortfolioView,
     PersistentCommitment,
     PersistentCommitmentAttachCommand,
@@ -382,6 +384,8 @@ __all__ = [
     "MandateTaskLinkRevocationCommand",
     "OutcomePortfolio",
     "OutcomePortfolioCreateCommand",
+    "OutcomePortfolioHelpGap",
+    "OutcomePortfolioHelpRequest",
     "OutcomePortfolioView",
     "PersistentCommitment",
     "PersistentCommitmentAttachCommand",
