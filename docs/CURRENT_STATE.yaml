@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-18T18:40:00+08:00"
+updated: "2026-07-18T10:58:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main"
-status: "Agent OS remote main is `f1e7215f09bb32636c01369a65342a55ff5d70f7`. It includes durable scoped `RATIFIED` Mandate intake plus the independently approved observation-authorization bridge: a request-authenticated tenant admin can bind an exact observation source/assessor/context, atomically project verified authority into the existing situated Runtime, admit a real Data Agent report, produce proposal-only `TaskDraft / HelpRequest / NoProposal`, and replay across restart without a second provider assessment. Product verification covered 1423 passed/1 skipped; the post-merge attack subset passed 59 tests with Ruff and Pyright clean. The path rejects bare or forged `RatifiedMandateRef`, missing/tampered authorization rows, cross-tenant same-ID confusion, unscoped correction, HTTP missing/wrong admin credentials and descriptor/index drift. It still cannot activate Tasks, grant capabilities or cause external effects, and it is not released. Non-oracle discovery `7946089` remains an isolated approved qualification candidate only. Continual learning remains an unpushed `QUALIFICATION_CANDIDATE / NOT_FROZEN / NOT_RUN`; its successor is replacing profiler-based measurement with executor-owned transitions. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS remote main is `4ba2612f81a02c363d5b0313a89e6a9095dff162`. It extends durable scoped `RATIFIED` Mandate intake and the authenticated observation-authorization bridge with bounded active perception: startup configuration can maintain a durable schedule, poll the already-authorized Data Agent report source in feed-limited batches, produce proposal-only situated assessments, and resume exact completed batches across restart without reassessment. Completion is bound to a live lease/fence, the canonical SQLite assessment and an exact persisted recovery batch; expired, stale, generic-bypass, fake-assessment and sibling-displacement paths fail closed. Fresh exact-head verification covered 1498 Product tests passed/1 skipped, 268 high-risk targeted tests, Ruff clean and Pyright 0; independent review returned APPROVE_ACTIVE_PERCEPTION_INTEGRATION. It still cannot activate Tasks, grant capabilities or cause external effects, and it is not released. R-NONORACLE-PERTURB-KILL-1 data qualification is approved only on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718` at `ee981a0`: 28,412 cells, exactly 40 supported targets, 640 aggregates, MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established. The prior `updated` value carried an eight-hour clock-skew error and is corrected here."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,11 +25,11 @@ identity:
 
 current_phase:
   product:
-    label: "durable RATIFIED Mandate input plus authenticated observation authorization and proposal-only situated consumption; continuing Mandate/SRL loop incomplete"
-    status: "LOCAL_SLICES_VERIFIED / REMOTE_MAIN_AT_F1E7215 / NOT_RELEASED"
+    label: "durable RATIFIED Mandate input, authenticated observation authorization and bounded proposal-only active perception; continuing Mandate/SRL loop incomplete"
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_AT_4BA2612 / PROPOSAL_ONLY / NOT_RELEASED"
   research:
-    label: "mixed bounded evidence; LH-RECOVERY-1A Task 7 accepted, Task 8/v5 execution route REVISE/PARK; B1 harness complete without training; RTM-1 resource-v4 accepted only on a separate branch"
-    status: "MIXED_EVIDENCE / NO_GENERAL_AUTONOMY_CLAIM"
+    label: "mixed bounded evidence; R-NONORACLE-PERTURB-KILL-1 real-data qualification approved on an isolated branch with zero target margin and NTC split pending; no freeze or result run"
+    status: "DATA_QUALIFICATION_APPROVED / MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
@@ -77,7 +77,29 @@ verified_capabilities:
       product_suite: "1423 passed, 1 skipped"
       post_merge_attack_subset: "59 passed"
       quality: "Ruff clean; Pyright 0 errors/0 warnings; independent exact-head review APPROVE"
-    boundary: "No active perception scheduler, goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility or autonomy claim."
+    boundary: "At its recorded f1e7215 integration head this bridge did not include active perception. Active perception is now tracked as a separate capability below; goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility and autonomy claims remain outside both slices."
+  mandate_active_perception:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / PROPOSAL_ONLY / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "A configured Mandate can continue checking its already-authorized environment source in bounded batches across process restarts without requiring the operator to remember each poll or silently authorizing work."
+    real_entry_points:
+      - "DataAgentSituatedStartupActivePerceptionConfig"
+      - "AgentOSApplication.run_active_perception_once"
+      - "API-server startup polling loop"
+    verified_properties:
+      - "durable schedule state uses authoritative leases, monotonic fences, bounded budgets and feed_limit batches"
+      - "generic completion cannot bypass the active schedule; stale or expired workers fail closed"
+      - "completion re-reads and validates the canonical SQLite assessment in the same immediate transaction"
+      - "an exact persisted recovery batch prevents later or sibling completions from replacing crash-replay members"
+      - "restart validates completed batch members without a second assessment and atomically clears recovery state on finish"
+      - "task activation, capability grant and external effects remain literal false"
+    dated_verification:
+      date: "2026-07-18"
+      integration_head: "4ba2612f81a02c363d5b0313a89e6a9095dff162"
+      product_suite: "1498 passed, 1 skipped"
+      high_risk_targeted: "268 passed"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; independent exact-head review APPROVE_ACTIVE_PERCEPTION_INTEGRATION"
+    boundary: "No autonomous goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility, reduced Founder cognitive load evidence or autonomy claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
@@ -239,6 +261,24 @@ research_ledger:
       boundary: "Does not replace RR-0024 Autonomy(S,E,O,V,T) and is not a universal theorem."
 
 active_work:
+  - id: "P-MANDATE-ACTIVE-PERCEPTION-1"
+    track: "product"
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_AT_4BA2612 / PROPOSAL_ONLY / NOT_RELEASED"
+    purpose: "Reduce operator-driven polling by letting a scoped Mandate repeatedly observe an already-authorized source under durable budgets, exact recovery and fail-closed completion authority."
+    boundary: "This closes bounded polling and restart recovery only. It does not form or manage an outcome/commitment portfolio, activate Tasks, grant capabilities, cause external effects, prove reduced Founder cognitive load or establish sustained responsibility/autonomy."
+    source:
+      - "apps/api_server/mandate_active_perception.py"
+      - "tests/product/test_mandate_active_perception.py"
+      - "docs/superpowers/plans/2026-07-18-mandate-active-perception-review-closure.md"
+  - id: "R-NONORACLE-PERTURB-KILL-1"
+    track: "research"
+    status: "DATA_QUALIFICATION_FIX_APPROVED_AT_EE981A0 / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN"
+    purpose: "Test whether a non-oracle procedure can recover intervention-relevant structure under real perturbation shift without outcome-guide leakage or post-hoc route rescue."
+    boundary: "Data qualification only. The exact 40-target gate has zero margin; selective-source provenance and one-shot scorer-custodied HMAC NTC partition must be bound before freeze, and any split side/block below 25 PARKs the route without retry. No mechanism, provider, training, result or product claim is authorized."
+    source:
+      - "docs/superpowers/specs/2026-07-18-nonoracle-intervention-shift-design.md"
+      - "docs/research/R-NONORACLE-PERTURB-KILL-1-data-qualification-report.md"
+      - "codex/r-nonoracle-intervention-shift-1-20260718@ee981a0194e5c5dd456aa8d5fa5f9610024d7a9b"
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
     status: "ADM_P1_P2_P3_P4_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6 / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
@@ -502,6 +542,7 @@ recently_completed:
 
 blockers:
   product:
+    - "Bounded active perception is integrated, but it still produces only proposal artifacts; no durable Outcome Portfolio/Persistent Commitment owner, outcome-truth settlement loop or measured Founder Cognitive Load reduction closes the Mandate-driven Situated Responsibility Loop."
     - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
@@ -510,13 +551,13 @@ blockers:
     - "SPINE-1 migration is not executed."
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
-    - "No non-oracle real-world structure/mechanism discovery result closes the current gap."
+    - "R-NONORACLE-PERTURB-KILL-1 qualifies exactly 40 targets with zero margin, but selective-source provenance and the one-shot scorer-custodied HMAC NTC split are not yet frozen; no mechanism run or non-oracle discovery result exists."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "The approved canonical convergence train through 0097336 is on remote main but is not released. Local main checkouts may lag or contain unrelated dirty work and must not be used as state truth without fetching."
+    - "Active Perception is on remote main at 4ba2612 but is not released. Local main checkouts may lag or contain unrelated dirty work and must not be used as state truth without fetching."
     - "Task 7 is integrated on main. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
     - "Actor transport c72375a remains an approved isolated Research candidate. W1/W2 direct adaptation and independent scorer/freezer custody remain unimplemented."
 
@@ -540,11 +581,11 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Bind the approved isolated R-EVAL successor to real external provider canaries, oracle custody, distinct C7 authority, external freezer and exact one-shot run authorization; do not freeze or run while any binding remains absent."
+    action: "Close the two remaining R-NONORACLE pre-freeze inputs: exact selective-source provenance manifest and one-shot scorer-custodied HMAC NTC guide partition. PARK without retry if either split side/block is below 25; do not implement the mechanism or run while the freeze packet is incomplete."
   - priority: 2
-    action: "Implement and independently review the W1/W2 external run-authorization and trusted-score consumption substrate; preserve NOT_FROZEN/NO_RESULT_RUN until external custody and exact preregistration are real."
+    action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment slice above Active Perception, with explicit settlement against ObservedOutcome and a matched Founder Cognitive Load falsifier; keep it proposal-only until its authority contract is independently accepted."
   - priority: 3
-    action: "Treat c72375a only as hardened actor transport plus closed public projection. Design a separate falsifiable semantic-learning package using predeclared valid paired observations and proper-scoring/likelihood updates; keep real-world non-oracle discovery unresolved and do not repeat the settled Sachs/GSE42528 routes."
+    action: "Implement RStateExecutionBundleV1 as the sole Runtime admission/recovery subject across custody, freeze, envelope, sealed child and settlement; PARK remote CAS, HSM, UI, general DAG recovery and provider run."
   - priority: 4
     action: "Keep SPINE-1, release and production activation gated; do not add new architecture breadth until one of the execution/evidence gaps above closes."
 
