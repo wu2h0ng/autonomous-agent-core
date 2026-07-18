@@ -23,7 +23,7 @@
     {
       "agent_id": "aba_implementation_reviewer",
       "role": "read-only-independent-code-reviewer",
-      "status": "todo"
+      "status": "done"
     }
   ],
   "approval_request_id": "perm_4217fb6d688360bf",
@@ -122,7 +122,7 @@
       "expected_artifacts": [
         "verification_report.md"
       ],
-      "status": "in_progress",
+      "status": "done",
       "task_id": "ABA-QUALIFICATION-SCAFFOLD-TDD"
     },
     {
@@ -133,12 +133,16 @@
       "evidence_refs": [
         "goal_card.md",
         "qualification_cast_review.md",
-        "verification_report.md"
+        "verification_report.md",
+        "implementation_final_review.md"
       ],
       "expected_artifacts": [
-        "implementation_review.md"
+        "implementation_review.md",
+        "implementation_correction_review_1.md",
+        "implementation_correction_review_2.md",
+        "implementation_final_review.md"
       ],
-      "status": "todo",
+      "status": "done",
       "task_id": "ABA-SCAFFOLD-INDEPENDENT-REVIEW"
     }
   ]

@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-18T13:51:50+08:00"
+updated: "2026-07-18T15:23:45+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main"
-status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` is an independently approved design candidate at `76c92c5`, but remains `PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; it fail-closes B1-B5 admission, external acceptance-root integrity and Stage-1 public receipt topology without implementing arms, scorer, freezer, executor or private custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -28,8 +28,8 @@ current_phase:
     label: "durable RATIFIED Mandate input, authenticated observation authority, bounded proposal-only active perception, and a Mandate-scoped read-only responsibility view; continuing Mandate/SRL loop incomplete"
     status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_THROUGH_3C7F524 / READ_ONLY_PROJECTION / NOT_RELEASED"
   research:
-    label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 is an approved route-kill design candidate only; no freeze or result run"
-    status: "NONORACLE_PARK / ABA_DESIGN_CANDIDATE / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
+    label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 has an approved public qualification scaffold only; no B1-B5 acceptance, freeze or result run"
+    status: "NONORACLE_PARK / ABA_QUALIFICATION_SCAFFOLD_APPROVED / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
@@ -241,6 +241,22 @@ verified_capabilities:
     verified: "130 targeted snapshot/binding/adjacent bypass tests passed; full Product suite reached 473 passed and 1 skipped with two named pre-existing fixed-NOW evaluation-API expiry failures outside ADM-P4; ruff clean; pyright 0 errors/0 warnings; compileall and git diff checks passed. Review-remediation tests cover C7 guard-entry expiry races for seal/start, real capability-spec version binding, digest sensitivity, lineage tamper, closed caller fields and every reserved prior/runtime-input key in addition to exact event rehydration, reserved-Run binding, same-lock exclusion, restart reads and HTTP cache bypass. The first exact-head Kimi run was hard-stopped at 15 minutes without verdict after confirming the stale-clock blocker; the exact remediation head requires the same reviewer identity to return literal TECHNICAL_APPROVE."
     boundary: "This is an immutable Product configuration and exact later-Run reference binding only. The optional prior remains inert/reference-only and never reaches provider, policy, capability or tool inputs. Production V1 creates no prior. Provider/grant configuration is point-in-time rather than a durable ledger, so restart/reconfiguration may make bound start fail closed. No prior application/effectiveness, representation mutation, evaluator execution, materializer acquisition, adaptive competence, cross-process atomicity, migration, push, merge or release is established."
     source: "docs/product/PM-ADM-P4-TASK-CONFIGURATION-SNAPSHOT-2026-07-15.md"
+  research_aba_stage1_qualification_scaffold:
+    status: "IMPLEMENTED_TESTED_INDEPENDENTLY_APPROVED / PUBLIC_INTEGRITY_ONLY / EXPERIMENT_IMPLEMENTATION_DENIED / NOT_FROZEN / NOT_RUN"
+    evidence_level: "E1_PUBLIC_PROTOCOL_SCAFFOLD_ONLY"
+    implementation_head: "24280fc46879a2b4a4f9884af6bf10fb179406e7"
+    implemented:
+      - "closed B1-B5 public manifest and acceptance contracts with mandatory semantic children"
+      - "canonical JSON/SHA-256 and separately supplied external acceptance-root equality"
+      - "exact Stage-1 stage-spec, slot-set, block-set and scorer-subject projection into post-seal receipt validation"
+      - "fail-closed Stage-1 disposition precedence and canonical-only trust-boundary consumption"
+    verified: "40 targeted public scaffold tests plus 93 prior r_srl_1 tests = 133 passed; Ruff clean; exact uv Pyright 0 errors/0 warnings; independent APPROVE_QUALIFICATION_SCAFFOLD_IMPLEMENTATION with P0/P1/P2=0/0/0."
+    boundary: "Integrity/qualification scaffold only. It authenticates no root supplier, accepts no B1-B5 bundle, holds no hidden material and implements no real arm, scorer, freezer, curator, executor, provider, signature, freeze or run authority. No W1/W2 effect, REDUCES_TO claim, Product value or autonomy evidence follows."
+    source:
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/implementation_final_review.md"
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/verification_report.md"
+      - "src/aac/r_w1w2_aba"
+      - "tests/research/r_w1w2_aba"
   research_g10:
     status: "MET / NARROW / FINAL_IN_FROZEN_SYNTHETIC_FAMILY"
     statement: "P0 confidence-gated subject-side belief-to-action coupling decisively reduces regret versus named cheap arms in its preregistered family and survived recorded trap tests."
@@ -309,6 +325,16 @@ active_work:
       - "docs/research/R-NONORACLE-PERTURB-KILL-1-data-qualification-report.md"
       - "codex/r-nonoracle-intervention-shift-1-20260718@88cb028687e76a530d629954443958b9cfb52740"
       - "docs/research/R-NONORACLE-PERTURB-KILL-1-negative-map.md"
+  - id: "R-W1W2-ABA-1"
+    track: "research"
+    status: "QUALIFICATION_SCAFFOLD_IMPLEMENTED_TESTED_APPROVED_AT_24280FC / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN"
+    purpose: "Kill or sharply narrow the claim that bounded typed W1 state plus candidate W2 strategy selection adds value beyond W1-only, version-keyed cache, bounded full log and saved workflow under identical information and resources."
+    boundary: "The public scaffold validates future externally pinned B1-B5 commitments and closed post-seal receipts only. B1 is unaccepted and B2-B5 are unbound; external non-LLM transcript-safe custody/scoring, prospective disjoint families, exact five-arm liveness/parity, one-shot execution integrity, preregistration freeze and run authority do not exist."
+    source:
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/preregistration_candidate.md"
+      - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/implementation_final_review.md"
+      - "src/aac/r_w1w2_aba"
+      - "tests/research/r_w1w2_aba"
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
     status: "ADM_P1_P2_P3_P4_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6 / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
@@ -582,7 +608,7 @@ blockers:
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
-    - "R-W1W2-ABA-1 at `76c92c5` is an approved route-kill design candidate only. It still requires an implementation cast, new preregistration, exact external freeze inputs and disjoint units; no implementation, freeze, run, REDUCES_TO claim or mechanism result exists."
+    - "R-W1W2-ABA-1 has an independently approved public qualification scaffold at `24280fc`, but B1 is unaccepted and B2-B5 are unbound. External non-LLM transcript-safe scorer/freezer custody, prospective disjoint units, exact treatment/liveness parity, one-shot execution integrity, new preregistration, freeze and run remain absent; no REDUCES_TO claim or mechanism result exists."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
@@ -612,7 +638,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK with its negative evidence intact and do not re-key or retry. Cast the smallest R-W1W2-ABA-1 implementation/prereg successor from approved design 76c92c5; preserve Stage-1 sample-bound PARK semantics and require external transcript-safe freeze/scoring before any run."
+    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK with its negative evidence intact and do not re-key or retry. For R-W1W2-ABA-1, attempt only external B1-B5 evidence closure against the approved public scaffold: prospective disjoint families, exact five-arm parity/liveness, transcript-safe non-LLM scorer/freezer custody and one-shot execution integrity. If those cannot be independently bound without hidden-material exposure, PARK the route; do not build an executor or run."
   - priority: 2
     action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment owner and explicit ObservedOutcome settlement loop above the read-only responsibility view. Separately freeze the matched Founder Cognitive Load comparison only after hidden snapshots, gold/order receipts, independent adjudicator identity and Founder timing exist."
   - priority: 3
@@ -663,11 +689,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-18T13:51:50+08:00"
+  checked_at: "2026-07-18T15:23:45+08:00"
   branch: "main"
-  canonical_code_head: "3c7f524a4603f53f02f69f41e8af533d1014d3ce"
-  prior_remote_main: "8982cad9617794b6cc161ba1b4e449cc7f87f99b"
-  merge_base: "8982cad9617794b6cc161ba1b4e449cc7f87f99b"
-  commit_state: "APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT / TARGETED_143_25_170 / FULL_2504_PASSED_1_SKIPPED_7_FAILED / FULL_SUITE_NOT_GREEN / RUFF_PYRIGHT_DIFF_CLEAN / NOT_RELEASED"
-  merge_scope: "Main integration adds explicit MandateTaskLink persistence, a Mandate-scoped read-only responsibility projection/API/Agent Surface, and a design-only value falsifier. It adds no TaskActivation, capability grant, provider/tool dispatch, external effect, run result or release."
-  evidence_separation: "Responsibility-view Product implementation is distinct from the NOT_FROZEN/NOT_RUN cognitive-load comparison. R-W1W2-ABA-1 is a separate Research design candidate at 76c92c5, and non-oracle HMAC custody remains PARK at 88cb028. None is customer evidence, sustained responsibility, autonomy or general intelligence."
+  canonical_code_head: "24280fc46879a2b4a4f9884af6bf10fb179406e7"
+  prior_remote_main: "6c94bd8c6f27da6d327a6841fd5c434e8e555206"
+  merge_base: "6c94bd8c6f27da6d327a6841fd5c434e8e555206"
+  commit_state: "APPROVE_QUALIFICATION_SCAFFOLD_IMPLEMENTATION / TARGETED_40 / COMBINED_RESEARCH_133 / RUFF_PYRIGHT_DIFF_CLEAN / EXPERIMENT_IMPLEMENTATION_DENIED / NOT_FROZEN / NOT_RUN / NOT_RELEASED"
+  merge_scope: "Main integration adds the public R-W1W2-ABA-1 qualification integrity scaffold and preserves the earlier responsibility-view Product implementation. It adds no hidden custody, real arm, scorer, freezer, executor, TaskActivation, capability grant, external effect, experiment run, result or release."
+  evidence_separation: "The ABA scaffold is Research protocol/integrity infrastructure, not research evidence or Product capability. Responsibility-view Product implementation remains distinct from its NOT_FROZEN/NOT_RUN cognitive-load comparison. Non-oracle HMAC custody remains PARK at 88cb028. None is customer evidence, sustained responsibility, autonomy or general intelligence."

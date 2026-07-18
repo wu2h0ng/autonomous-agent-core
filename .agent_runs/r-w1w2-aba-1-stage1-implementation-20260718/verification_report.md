@@ -52,7 +52,10 @@
 
 ## Pending checks
 
-- exact correction re-review remains pending after P1/P2 closure.
+- none for the public qualification scaffold implementation at exact reviewed
+  code head `24280fc46879a2b4a4f9884af6bf10fb179406e7`.
+- B1-B5 acceptance, experiment implementation, preregistration freeze and run
+  are separate future gates and remain denied/unbound.
 
 ## Out of scope / explicitly unverified
 
@@ -65,4 +68,4 @@
 
 ## Current verdict
 
-`QUALIFICATION_SCAFFOLD_CORRECTED_AWAITING_EXACT_REVIEW / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`
+`QUALIFICATION_SCAFFOLD_IMPLEMENTATION_APPROVED / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`
