@@ -25,11 +25,11 @@ def _digest(index: int) -> str:
 
 
 _CHILD_IDS = {
-    BundleId.B1: ("DESIGN", "PREREGISTRATION", "ROLE_SEPARATION"),
-    BundleId.B2: ("SAMPLING", "INFORMATION", "CONSTRUCTION"),
+    BundleId.B1: ("DESIGN", "STAGE_SPEC", "PREREGISTRATION", "ROLE_SEPARATION"),
+    BundleId.B2: ("SAMPLING", "INFORMATION", "CONSTRUCTION", "BLOCK_SET"),
     BundleId.B3: ("ARMS", "PARITY", "LIVENESS"),
-    BundleId.B4: ("CUSTODY", "EGRESS", "GLOBAL_SEAL"),
-    BundleId.B5: ("EXECUTION", "C7", "FREEZE_RUN"),
+    BundleId.B4: ("CUSTODY", "EGRESS", "GLOBAL_SEAL", "SCORER_SUBJECT"),
+    BundleId.B5: ("EXECUTION", "C7", "FREEZE_RUN", "OUTPUT_SLOT_SET"),
 }
 
 
@@ -74,6 +74,35 @@ def _valid_public_bundles() -> tuple[
     return manifests, acceptances
 
 
+def _external_acceptance_root(
+    manifests: list[BundleManifestV1],
+    acceptances: list[BundleAcceptanceReceiptV1],
+) -> str:
+    manifests_by_id = {manifest.bundle_id: manifest for manifest in manifests}
+    acceptances_by_id = {receipt.bundle_id: receipt for receipt in acceptances}
+    return sha256_hex(
+        {
+            "package_id": manifests[0].package_id,
+            "manifests": [
+                {
+                    "bundle_id": bundle_id.value,
+                    "manifest_digest": sha256_hex(manifests_by_id[bundle_id].to_mapping()),
+                }
+                for bundle_id in BundleId
+            ],
+            "acceptances": [
+                {
+                    "bundle_id": bundle_id.value,
+                    "acceptance_digest": sha256_hex(
+                        acceptances_by_id[bundle_id].to_mapping()
+                    ),
+                }
+                for bundle_id in BundleId
+            ],
+        }
+    )
+
+
 def test_manifest_rejects_unknown_field() -> None:
     payload = _manifest_payload(BundleId.B1)
     payload["run_authorized"] = True
@@ -87,7 +116,13 @@ def test_manifest_rejects_unknown_field() -> None:
 def test_qualification_rejects_missing_b5_acceptance() -> None:
     manifests, acceptances = _valid_public_bundles()
 
-    result = qualify_public_bundles(manifests, acceptances[:-1])
+    result = qualify_public_bundles(
+        manifests,
+        acceptances[:-1],
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            manifests, acceptances
+        ),
+    )
 
     assert result.qualification is None
     assert "MISSING_ACCEPTANCE:B5" in {issue.code for issue in result.issues}
@@ -99,7 +134,13 @@ def test_qualification_rejects_tampered_child_digest() -> None:
     tampered_payload["children"][0]["digest"] = _digest(999)  # type: ignore[index]
     manifests[3] = parse_bundle_manifest(tampered_payload)
 
-    result = qualify_public_bundles(manifests, acceptances)
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            _valid_public_bundles()[0], acceptances
+        ),
+    )
 
     assert result.qualification is None
     assert "RECEIPT_MANIFEST_DIGEST_MISMATCH:B4" in {
@@ -113,7 +154,13 @@ def test_qualification_rejects_owner_reviewer_collision() -> None:
     manifests, acceptances = _valid_public_bundles()
     manifests[0] = parse_bundle_manifest(payload)
 
-    result = qualify_public_bundles(manifests, acceptances)
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            _valid_public_bundles()[0], acceptances
+        ),
+    )
 
     assert result.qualification is None
     assert "ROLE_COLLISION:B1" in {issue.code for issue in result.issues}
@@ -132,7 +179,13 @@ def test_manifest_rejects_private_path_reference() -> None:
 
 def test_green_qualification_cannot_mint_freeze_or_run() -> None:
     manifests, acceptances = _valid_public_bundles()
-    result = qualify_public_bundles(manifests, acceptances)
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            manifests, acceptances
+        ),
+    )
     payload = _acceptance_payload(BundleId.B1, _digest(1))
     payload["freeze_receipt"] = _digest(2)
 
@@ -143,6 +196,84 @@ def test_green_qualification_cannot_mint_freeze_or_run() -> None:
     with pytest.raises(PublicContractError) as error:
         parse_bundle_acceptance(payload)
     assert error.value.code == "UNKNOWN_FIELD"
+
+
+def test_required_bundle_children_have_no_public_escape_hatch() -> None:
+    payload = _manifest_payload(BundleId.B1)
+    payload["children"] = payload["children"][:1]  # type: ignore[index]
+
+    with pytest.raises(PublicContractError) as error:
+        parse_bundle_manifest(payload)
+    assert error.value.code == "REQUIRED_CHILD_SET_MISMATCH"
+    with pytest.raises(TypeError):
+        parse_bundle_manifest(payload, enforce_required_children=False)  # type: ignore[call-arg]
+
+
+def test_qualification_revalidates_required_children_for_direct_dataclass_input() -> None:
+    manifests, acceptances = _valid_public_bundles()
+    valid = manifests[0]
+    manifests[0] = BundleManifestV1(
+        schema_version=valid.schema_version,
+        package_id=valid.package_id,
+        bundle_id=valid.bundle_id,
+        owner_subject_digest=valid.owner_subject_digest,
+        reviewer_subject_digest=valid.reviewer_subject_digest,
+        children=valid.children[:1],
+    )
+
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            _valid_public_bundles()[0], acceptances
+        ),
+    )
+
+    assert result.qualification is None
+    assert "REQUIRED_CHILD_SET_MISMATCH:B1" in {
+        issue.code for issue in result.issues
+    }
+
+
+def test_qualification_requires_external_acceptance_pin() -> None:
+    manifests, acceptances = _valid_public_bundles()
+
+    result = qualify_public_bundles(manifests, acceptances)
+
+    assert result.qualification is None
+    assert "EXTERNAL_ACCEPTANCE_ROOT_REQUIRED" in {
+        issue.code for issue in result.issues
+    }
+
+
+def test_acceptance_review_tamper_moves_root_and_fails_external_pin() -> None:
+    manifests, acceptances = _valid_public_bundles()
+    expected_root = _external_acceptance_root(manifests, acceptances)
+    tampered_payload = acceptances[2].to_mapping()
+    tampered_payload["review_digest"] = _digest(999)
+    acceptances[2] = parse_bundle_acceptance(tampered_payload)
+
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=expected_root,
+    )
+
+    assert result.qualification is None
+    assert "EXTERNAL_ACCEPTANCE_ROOT_MISMATCH" in {
+        issue.code for issue in result.issues
+    }
+
+
+def test_manifest_child_order_is_canonicalized() -> None:
+    payload = _manifest_payload(BundleId.B2)
+    reordered = {**payload, "children": list(reversed(payload["children"]))}  # type: ignore[arg-type]
+
+    first = parse_bundle_manifest(payload)
+    second = parse_bundle_manifest(reordered)
+
+    assert first.children == second.children
+    assert sha256_hex(first.to_mapping()) == sha256_hex(second.to_mapping())
 
 
 def test_canonical_digest_is_order_invariant_and_tamper_sensitive() -> None:

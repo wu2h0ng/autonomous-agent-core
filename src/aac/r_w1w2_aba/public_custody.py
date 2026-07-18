@@ -220,6 +220,20 @@ def validate_post_seal_receipt(
         raise PublicReceiptError("PACKAGE_MISMATCH", "$.package_id")
     if qualification.bundle_root_digest != seal.bundle_root_digest:
         raise PublicReceiptError("BUNDLE_ROOT_MISMATCH", "$.bundle_root_digest")
+    if qualification.stage_spec_digest != seal.stage_spec_digest:
+        raise PublicReceiptError("STAGE_SPEC_MISMATCH", "$.stage_spec_digest")
+    output_slot_set_digest = sha256_hex(
+        {"slot_ids": sorted(output.slot_id for output in seal.outputs)}
+    )
+    if qualification.output_slot_set_digest != output_slot_set_digest:
+        raise PublicReceiptError("OUTPUT_SLOT_SET_MISMATCH", "$.outputs")
+    block_set_digest = sha256_hex(
+        {"block_ids": sorted(block.block_id for block in receipt.blocks)}
+    )
+    if qualification.block_set_digest != block_set_digest:
+        raise PublicReceiptError("BLOCK_SET_MISMATCH", "$.blocks")
+    if qualification.scorer_subject_digest != receipt.exact_subject_digest:
+        raise PublicReceiptError("EXACT_SUBJECT_MISMATCH", "$.exact_subject_digest")
     if receipt.global_seal_digest != sha256_hex(seal.to_mapping()):
         raise PublicReceiptError("GLOBAL_SEAL_DIGEST_MISMATCH", "$.global_seal_digest")
     return ValidatedStage1EvidenceV1(

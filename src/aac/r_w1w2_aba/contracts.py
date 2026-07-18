@@ -122,9 +122,21 @@ class QualificationIssueV1:
 
 @dataclass(frozen=True)
 class PublicQualificationV1:
+    """Projection bound to a separately supplied, pre-existing acceptance root.
+
+    This value carries no authority and does not authenticate the source of that
+    root. A caller that computes its own expected root has not established
+    independent acceptance or experiment admission.
+    """
+
     package_id: str
     bundle_root_digest: str
     manifest_digests: tuple[str, ...]
+    acceptance_digests: tuple[str, ...]
+    stage_spec_digest: str
+    block_set_digest: str
+    output_slot_set_digest: str
+    scorer_subject_digest: str
 
 
 @dataclass(frozen=True)

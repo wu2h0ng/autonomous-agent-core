@@ -84,7 +84,7 @@ TDD sequence for every interface:
 
 **Mandatory first RED cases:** unknown bundle field, missing bundle acceptance, forbidden disposition, killer match incorrectly advancing, pre-global-seal scoring, unknown closed-output field, Stage 1 receipt relabelled as Stage 2, role collision, private-path reference and green-tests-mint-authority.
 
-**Implemented TDD evidence:** RED was observed as two collection failures because `aac.r_w1w2_aba` did not exist. The minimal five-module implementation then passed 28 targeted tests and 121 combined Research tests, with Ruff and Pyright clean. Numeric scoring, strongest-killer computation, Stage 2 overlap, one-shot CAS and all execution/authority APIs remain `PARK` rather than being invented to satisfy tests.
+**Implemented TDD evidence:** RED was observed as two collection failures because `aac.r_w1w2_aba` did not exist. The minimal five-module implementation then passed 28 targeted tests and 121 combined Research tests, with Ruff and Pyright clean. Independent exact-head review returned `REVISE` (`P0=0 / P1=3 / P2=2`); the correction RED was `28 failed, 8 passed`. The minimal correction removes the required-child escape hatch, independently revalidates B1-B5 structure, binds manifests plus acceptance/review receipts to a separately supplied external root, and projects exact Stage 1 stage-spec/slot/block/scorer-subject digests into post-seal validation. It now passes 37 targeted and 130 combined Research tests. Numeric scoring, strongest-killer computation, Stage 2 overlap, one-shot CAS and all execution/authority APIs remain `PARK` rather than being invented to satisfy tests.
 
 ### Task 4: Freeze and run remain separate future gates
 

@@ -30,12 +30,19 @@
 | targeted public scaffold tests | `28 passed` | public B1-B5 contracts, canonical digest, post-seal receipt and Stage 1 precedence only |
 | combined Research regression | `121 passed` | prior `r_srl_1` 93 plus new 28 |
 | Ruff | `PASS` | five source and two test files |
-| Pyright | `0 errors / 0 warnings` | five source and two test files |
+| Pyright | `0 errors / 0 warnings` | exact command: `uv run --extra product-test pyright src/aac/r_w1w2_aba tests/research/r_w1w2_aba` |
 | forbidden implementation-surface scan | `PASS` | no file/network/provider/runner/executor/authorize/issue/sign/freeze/run API; descriptive docstrings only |
+| independent implementation review at `1792b7b` | `REVISE`; `P0=0 / P1=3 / P2=2` | required-child bypass, unbound acceptance root and unbound seal/subject topology must close |
+| correction TDD RED | `28 failed, 8 passed` | required-child closure, externally pinned acceptance root and exact Stage 1 topology bindings absent before correction |
+| corrected targeted public scaffold tests | `37 passed` | includes direct-dataclass bypass guard, root tamper, canonical child order and exact stage/slot/block/subject mismatch denial |
+| corrected combined Research regression | `130 passed` | prior `r_srl_1` 93 plus corrected scaffold 37 |
+| corrected Ruff | `PASS` | five source and two test files |
+| corrected Pyright | `0 errors / 0 warnings` | exact command: `uv run --extra product-test pyright src/aac/r_w1w2_aba tests/research/r_w1w2_aba` |
+| corrected forbidden implementation-surface scan | `PASS` | no file/network/provider/runner/executor/authorize/issue/sign/freeze/run API; test assertions only |
 
 ## Pending checks
 
-- independent exact-diff implementation review remains pending.
+- exact correction re-review remains pending after P1/P2 closure.
 
 ## Out of scope / explicitly unverified
 
@@ -48,4 +55,4 @@
 
 ## Current verdict
 
-`QUALIFICATION_SCAFFOLD_IMPLEMENTED_AND_TESTED_AWAITING_INDEPENDENT_REVIEW / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`
+`QUALIFICATION_SCAFFOLD_CORRECTED_AWAITING_EXACT_REVIEW / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`

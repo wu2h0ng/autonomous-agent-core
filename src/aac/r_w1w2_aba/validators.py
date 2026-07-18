@@ -23,11 +23,19 @@ _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _PUBLIC_TOKEN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _PACKAGE_ID = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _REQUIRED_CHILD_IDS = {
-    BundleId.B1: frozenset(("DESIGN", "PREREGISTRATION", "ROLE_SEPARATION")),
-    BundleId.B2: frozenset(("SAMPLING", "INFORMATION", "CONSTRUCTION")),
+    BundleId.B1: frozenset(
+        ("DESIGN", "STAGE_SPEC", "PREREGISTRATION", "ROLE_SEPARATION")
+    ),
+    BundleId.B2: frozenset(
+        ("SAMPLING", "INFORMATION", "CONSTRUCTION", "BLOCK_SET")
+    ),
     BundleId.B3: frozenset(("ARMS", "PARITY", "LIVENESS")),
-    BundleId.B4: frozenset(("CUSTODY", "EGRESS", "GLOBAL_SEAL")),
-    BundleId.B5: frozenset(("EXECUTION", "C7", "FREEZE_RUN")),
+    BundleId.B4: frozenset(
+        ("CUSTODY", "EGRESS", "GLOBAL_SEAL", "SCORER_SUBJECT")
+    ),
+    BundleId.B5: frozenset(
+        ("EXECUTION", "C7", "FREEZE_RUN", "OUTPUT_SLOT_SET")
+    ),
 }
 
 
@@ -67,9 +75,7 @@ def _package_id(value: object, path: str) -> str:
     return text
 
 
-def parse_bundle_manifest(
-    payload: Mapping[str, object], *, enforce_required_children: bool = True
-) -> BundleManifestV1:
+def parse_bundle_manifest(payload: Mapping[str, object]) -> BundleManifestV1:
     _closed(
         payload,
         frozenset(
@@ -110,8 +116,9 @@ def parse_bundle_manifest(
     child_ids = [child.child_id for child in children]
     if len(set(child_ids)) != len(child_ids):
         raise PublicContractError("DUPLICATE_CHILD", "$.children")
-    if enforce_required_children and set(child_ids) != _REQUIRED_CHILD_IDS[bundle_id]:
+    if set(child_ids) != _REQUIRED_CHILD_IDS[bundle_id]:
         raise PublicContractError("REQUIRED_CHILD_SET_MISMATCH", "$.children")
+    children.sort(key=lambda child: child.child_id)
     return BundleManifestV1(
         schema_version="1",
         package_id=_package_id(payload["package_id"], "$.package_id"),
@@ -167,8 +174,20 @@ def parse_bundle_acceptance(payload: Mapping[str, object]) -> BundleAcceptanceRe
 def qualify_public_bundles(
     manifests: Sequence[BundleManifestV1],
     acceptances: Sequence[BundleAcceptanceReceiptV1],
+    *,
+    expected_external_acceptance_root_digest: str | None = None,
 ) -> QualificationResultV1:
+    """Validate public bundles against an independently pre-bound root digest.
+
+    Digest equality is an integrity check only. It does not authenticate the
+    root supplier or mint acceptance, freeze, run, or experiment authority.
+    """
+
     issues: list[QualificationIssueV1] = []
+    if expected_external_acceptance_root_digest is None:
+        issues.append(QualificationIssueV1("EXTERNAL_ACCEPTANCE_ROOT_REQUIRED", "$"))
+    elif _DIGEST.fullmatch(expected_external_acceptance_root_digest) is None:
+        issues.append(QualificationIssueV1("INVALID_EXTERNAL_ACCEPTANCE_ROOT", "$"))
     manifest_counts = Counter(manifest.bundle_id for manifest in manifests)
     acceptance_counts = Counter(receipt.bundle_id for receipt in acceptances)
     manifests_by_id = {manifest.bundle_id: manifest for manifest in manifests}
@@ -181,6 +200,28 @@ def qualify_public_bundles(
         if manifest_counts[bundle_id] != 1:
             issues.append(QualificationIssueV1(f"DUPLICATE_MANIFEST:{bundle_id.value}", "$"))
         manifest = manifests_by_id[bundle_id]
+        child_ids = [child.child_id for child in manifest.children]
+        if (
+            set(child_ids) != _REQUIRED_CHILD_IDS[bundle_id]
+            or len(child_ids) != len(set(child_ids))
+        ):
+            issues.append(
+                QualificationIssueV1(
+                    f"REQUIRED_CHILD_SET_MISMATCH:{bundle_id.value}", "$.children"
+                )
+            )
+        if child_ids != sorted(child_ids):
+            issues.append(
+                QualificationIssueV1(
+                    f"NONCANONICAL_CHILD_ORDER:{bundle_id.value}", "$.children"
+                )
+            )
+        if any(_DIGEST.fullmatch(child.digest) is None for child in manifest.children):
+            issues.append(
+                QualificationIssueV1(
+                    f"INVALID_CHILD_DIGEST:{bundle_id.value}", "$.children"
+                )
+            )
         if manifest.owner_subject_digest == manifest.reviewer_subject_digest:
             issues.append(QualificationIssueV1(f"ROLE_COLLISION:{bundle_id.value}", "$"))
         if acceptance_counts[bundle_id] == 0:
@@ -212,6 +253,9 @@ def qualify_public_bundles(
     manifest_digests = tuple(
         sha256_hex(manifests_by_id[bundle_id].to_mapping()) for bundle_id in BundleId
     )
+    acceptance_digests = tuple(
+        sha256_hex(acceptances_by_id[bundle_id].to_mapping()) for bundle_id in BundleId
+    )
     bundle_root_digest = sha256_hex(
         {
             "package_id": package_id,
@@ -219,10 +263,36 @@ def qualify_public_bundles(
                 {"bundle_id": bundle_id.value, "manifest_digest": digest}
                 for bundle_id, digest in zip(BundleId, manifest_digests, strict=True)
             ],
+            "acceptances": [
+                {"bundle_id": bundle_id.value, "acceptance_digest": digest}
+                for bundle_id, digest in zip(BundleId, acceptance_digests, strict=True)
+            ],
         }
     )
+    if bundle_root_digest != expected_external_acceptance_root_digest:
+        return QualificationResultV1(
+            None,
+            (QualificationIssueV1("EXTERNAL_ACCEPTANCE_ROOT_MISMATCH", "$"),),
+        )
+
+    def child_digest(bundle_id: BundleId, child_id: str) -> str:
+        manifest = manifests_by_id[bundle_id]
+        return next(
+            child.digest for child in manifest.children if child.child_id == child_id
+        )
+
     return QualificationResultV1(
-        PublicQualificationV1(package_id, bundle_root_digest, manifest_digests), ()
+        PublicQualificationV1(
+            package_id=package_id,
+            bundle_root_digest=bundle_root_digest,
+            manifest_digests=manifest_digests,
+            acceptance_digests=acceptance_digests,
+            stage_spec_digest=child_digest(BundleId.B1, "STAGE_SPEC"),
+            block_set_digest=child_digest(BundleId.B2, "BLOCK_SET"),
+            output_slot_set_digest=child_digest(BundleId.B5, "OUTPUT_SLOT_SET"),
+            scorer_subject_digest=child_digest(BundleId.B4, "SCORER_SUBJECT"),
+        ),
+        (),
     )
 
 
