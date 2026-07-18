@@ -856,45 +856,61 @@ class SQLiteMandateOutcomePortfolioStore:
             mandate_id, portfolio_id, task_id, gap_kind, details,
             actor.principal_id, now,
         )
-        srl_help = SrlHelpRequest(
-            help_request_id=help_id,
-            mandate_id=mandate_id,
-            tenant_id=actor.tenant_id,
-            workspace_id=actor.workspace_id,
-            standing_mission_id=f"standing-mission:{mandate_id}",
-            commitment_id=None,
-            goal_id=None,
-            help_class=help_class_for_gap(gap_kind),
-            known_facts=(),
-            unknowns=(details,),
-            acquisition_attempts=(
-                "checked MandateTaskLink / Task ExpectedOutcome / ObservedOutcome digests",
-            ),
-            unsafe_boundary=(
-                "outcome portfolio settlement cannot invent missing truth or authority"
-            ),
-            bounded_options=(),
-            minimum_answer=details,
-            continuable_work=(
-                "inspect portfolio view and resolve the named gap before retrying settlement",
-            ),
-            expires_at=now + timedelta(hours=24),
-            cancellation_policy="superseded_by_resolved_gap_or_mandate_revocation",
-            escalation_policy="founder_or_mandate_admin",
-            requested_at=now,
-        )
-        help_req = OutcomePortfolioHelpRequest(
-            portfolio_id=portfolio_id,
-            task_id=task_id,
-            gap_kind=gap_kind,
-            srl_help=srl_help,
-        )
         conn: sqlite3.Connection
+        owns_connection = connection is None
         if connection is not None:
             conn = connection
         else:
             conn = self._connect()
         try:
+            workspace, _, _, _ = self._read_authority(
+                conn,
+                mandate_id,
+                actor,
+                require_admin=False,
+                require_active=False,
+                now=now,
+            )
+            standing_mission_id = workspace.standing_mission.standing_mission_id
+            if standing_mission_id != (
+                f"standing-mission:{workspace.standing_mission.parent_mandate_digest}"
+            ):
+                raise MandateOutcomePortfolioPersistenceConflict(
+                    "standing mission id is not digest-bound"
+                )
+            srl_help = SrlHelpRequest(
+                help_request_id=help_id,
+                mandate_id=mandate_id,
+                tenant_id=actor.tenant_id,
+                workspace_id=actor.workspace_id,
+                standing_mission_id=standing_mission_id,
+                commitment_id=None,
+                goal_id=None,
+                help_class=help_class_for_gap(gap_kind),
+                known_facts=(),
+                unknowns=(details,),
+                acquisition_attempts=(
+                    "checked MandateTaskLink / Task ExpectedOutcome / ObservedOutcome digests",
+                ),
+                unsafe_boundary=(
+                    "outcome portfolio settlement cannot invent missing truth or authority"
+                ),
+                bounded_options=(),
+                minimum_answer=details,
+                continuable_work=(
+                    "inspect portfolio view and resolve the named gap before retrying settlement",
+                ),
+                expires_at=now + timedelta(hours=24),
+                cancellation_policy="superseded_by_resolved_gap_or_mandate_revocation",
+                escalation_policy="founder_or_mandate_admin",
+                requested_at=now,
+            )
+            help_req = OutcomePortfolioHelpRequest(
+                portfolio_id=portfolio_id,
+                task_id=task_id,
+                gap_kind=gap_kind,
+                srl_help=srl_help,
+            )
             conn.execute(
                 f"INSERT OR IGNORE INTO {self._HELP_TABLE} "
                 "(help_request_id, mandate_id, portfolio_id, task_id, tenant_id, "
@@ -906,10 +922,10 @@ class SQLiteMandateOutcomePortfolioStore:
                     content_digest(help_req),
                 ),
             )
-            if connection is None:
+            if owns_connection:
                 conn.commit()
         finally:
-            if connection is None:
+            if owns_connection:
                 conn.close()
 
     def list_help_requests(

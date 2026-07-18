@@ -363,7 +363,7 @@ def test_help_request_rejects_activation_flags() -> None:
         "mandate_id": "mandate:build-agent-os",
         "tenant_id": "tenant:local",
         "workspace_id": "workspace:local",
-        "standing_mission_id": "standing-mission:mandate:build-agent-os",
+        "standing_mission_id": "standing-mission:" + ("a" * 64),
         "help_class": HelpClass.INFORMATION.value,
         "unknowns": ("missing outcome",),
         "acquisition_attempts": ("checked ObservedOutcome",),
@@ -467,6 +467,30 @@ def test_settle_without_observed_outcome_emits_help_request(tmp_path) -> None:
     assert help_requests[0].mandate_id == "mandate:build-agent-os"
     assert help_requests[0].task_id == task.task_id
     assert help_requests[0].authority_granted is False
+    assert help_requests[0].srl_help.standing_mission_id != (
+        "standing-mission:mandate:build-agent-os"
+    )
+    connection = __import__("sqlite3").connect(database)
+    connection.row_factory = __import__("sqlite3").Row
+    try:
+        row = connection.execute(
+            "SELECT record_json FROM mandate_workspace_records "
+            "WHERE mandate_id = ? AND tenant_id = ? AND workspace_id = ?",
+            ("mandate:build-agent-os", "tenant:local", "workspace:local"),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    from agent_os_contracts import MandateWorkspaceRecord
+
+    workspace = MandateWorkspaceRecord.model_validate_json(str(row["record_json"]))
+    assert (
+        help_requests[0].srl_help.standing_mission_id
+        == workspace.standing_mission.standing_mission_id
+    )
+    assert help_requests[0].srl_help.standing_mission_id == (
+        f"standing-mission:{workspace.standing_mission.parent_mandate_digest}"
+    )
 
 
 def test_settle_after_link_revoke_emits_help_request(tmp_path) -> None:
