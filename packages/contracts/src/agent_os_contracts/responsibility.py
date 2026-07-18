@@ -195,6 +195,7 @@ class MandateResponsibilityView(ContractModel):
     global_gaps: tuple[ResponsibilityAttentionReason, ...] = ()
     workspace_record_digest: Sha256Digest
     operational_mandate_ref_digest: Sha256Digest
+    schedule_source_digest: Sha256Digest | None = None
     computed_at: UtcDateTime
     view_digest: Sha256Digest
 

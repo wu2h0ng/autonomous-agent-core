@@ -121,6 +121,7 @@ from .mandate_responsibility import (
     MandateResponsibilityDenied,
     MandateResponsibilityNotFound,
     MandateResponsibilityPersistenceConflict,
+    MandateResponsibilityProjector,
     SQLiteMandateResponsibilityStore,
 )
 from .capability import (
@@ -352,6 +353,7 @@ __all__ = [
     "MandateResponsibilityDenied",
     "MandateResponsibilityNotFound",
     "MandateResponsibilityPersistenceConflict",
+    "MandateResponsibilityProjector",
     "SQLiteMandateResponsibilityStore",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",

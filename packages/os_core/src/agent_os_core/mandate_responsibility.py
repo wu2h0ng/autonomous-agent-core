@@ -4,9 +4,12 @@ import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Protocol
 
 from agent_os_contracts import (
     Goal,
+    MandateResponsibilityView,
+    MandateResponsibilityViewStatus,
     MandateOperationalStatus,
     MandateStatus,
     MandateTaskLink,
@@ -14,14 +17,25 @@ from agent_os_contracts import (
     MandateTaskLinkRevocation,
     MandateTaskLinkRevocationCommand,
     MandateWorkspaceRecord,
+    ObservedOutcome,
+    OutcomeStatus,
     PrincipalIdentity,
     PrincipalRole,
     RatifiedMandateRef,
+    ResponsibilityActivePerceptionSummary,
+    ResponsibilityAttentionReason,
+    ResponsibilityItem,
+    ResponsibilityItemState,
+    RunStatus,
     TaskEvent,
     TaskEventType,
+    TaskStatus,
     canonical_json,
     content_digest,
 )
+
+from .task_aggregate import TaskAggregate
+from .task_service import expected_outcome_contract_error
 
 
 class MandateResponsibilityDenied(PermissionError):
@@ -40,7 +54,13 @@ class MandateResponsibilityPersistenceConflict(RuntimeError):
     pass
 
 
-class SQLiteMandateResponsibilityStore:
+class ResponsibilityTaskReader(Protocol):
+    def get_task(self, task_id: str) -> TaskAggregate: ...
+
+    def current_outcome(self, task_id: str) -> ObservedOutcome | None: ...
+
+
+class _SQLiteMandateResponsibilitySchema:
     """Append-only Mandate/Task association authority without Task mutation."""
 
     _LINK_TABLE = "mandate_responsibility_links"
@@ -146,6 +166,616 @@ class SQLiteMandateResponsibilityStore:
                 )
         finally:
             connection.close()
+
+
+class MandateResponsibilityProjector:
+    """Live read projection over canonical Mandate, Task and outcome truth."""
+
+    def __init__(
+        self,
+        store: SQLiteMandateResponsibilityStore,
+        task_service: ResponsibilityTaskReader,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._store = store
+        self._tasks = task_service
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+
+    @staticmethod
+    def classify(
+        aggregate: TaskAggregate,
+        current_outcome: ObservedOutcome | None,
+        *,
+        computed_at: datetime,
+        completed_at: datetime | None,
+    ) -> tuple[ResponsibilityItemState, tuple[ResponsibilityAttentionReason, ...]]:
+        status = aggregate.status
+        expected = aggregate.expected_outcome
+        commitment = aggregate.commitment
+        run = aggregate.run
+        if status is None or aggregate.goal is None:
+            return (
+                ResponsibilityItemState.UNKNOWN,
+                (ResponsibilityAttentionReason.TASK_SOURCE_MALFORMED,),
+            )
+        if expected is not None and expected_outcome_contract_error(expected) is not None:
+            return (
+                ResponsibilityItemState.UNKNOWN,
+                (ResponsibilityAttentionReason.UNSUPPORTED_EVALUATOR,),
+            )
+        if current_outcome is not None and expected is not None and (
+            current_outcome.task_id != aggregate.task_id
+            or current_outcome.expected_outcome_id != expected.expected_outcome_id
+            or current_outcome.tenant_id != expected.tenant_id
+            or current_outcome.workspace_id != expected.workspace_id
+            or current_outcome.evaluator_type != expected.evaluator_type
+            or current_outcome.evaluator_version != expected.evaluator_version
+        ):
+            return (
+                ResponsibilityItemState.UNKNOWN,
+                (ResponsibilityAttentionReason.TASK_SOURCE_MALFORMED,),
+            )
+
+        reasons: set[ResponsibilityAttentionReason] = set()
+        if current_outcome is not None:
+            outcome_reason = {
+                OutcomeStatus.NOT_MET: ResponsibilityAttentionReason.OUTCOME_NOT_MET,
+                OutcomeStatus.UNRESOLVED: ResponsibilityAttentionReason.OUTCOME_UNRESOLVED,
+                OutcomeStatus.INVALID: ResponsibilityAttentionReason.OUTCOME_INVALID,
+            }.get(current_outcome.status)
+            if outcome_reason is not None:
+                reasons.add(outcome_reason)
+        task_reason = {
+            TaskStatus.FAILED: ResponsibilityAttentionReason.TASK_FAILED,
+            TaskStatus.CANCELLED: ResponsibilityAttentionReason.TASK_CANCELLED,
+            TaskStatus.PAUSED: ResponsibilityAttentionReason.TASK_PAUSED,
+        }.get(status)
+        if task_reason is not None:
+            reasons.add(task_reason)
+        if reasons:
+            return (
+                ResponsibilityItemState.NEEDS_ATTENTION,
+                tuple(sorted(reasons, key=lambda item: item.value)),
+            )
+
+        if status is TaskStatus.WAITING:
+            if run is None:
+                return (
+                    ResponsibilityItemState.UNKNOWN,
+                    (ResponsibilityAttentionReason.WAIT_CONDITION_MISSING,),
+                )
+            if run.status is RunStatus.WAITING_APPROVAL:
+                return (
+                    ResponsibilityItemState.NEEDS_ATTENTION,
+                    (ResponsibilityAttentionReason.WAITING_APPROVAL,),
+                )
+            if run.status is RunStatus.WAITING_EVENT:
+                if run.wait_condition is None:
+                    return (
+                        ResponsibilityItemState.UNKNOWN,
+                        (ResponsibilityAttentionReason.WAIT_CONDITION_MISSING,),
+                    )
+                if computed_at >= run.wait_condition.deadline:
+                    return (
+                        ResponsibilityItemState.NEEDS_ATTENTION,
+                        (ResponsibilityAttentionReason.WAIT_DEADLINE_ARRIVED,),
+                    )
+                return ResponsibilityItemState.TRACKED, ()
+            return (
+                ResponsibilityItemState.UNKNOWN,
+                (ResponsibilityAttentionReason.UNHANDLED_TASK_RUN_STATE,),
+            )
+
+        completed_and_current = (
+            status is TaskStatus.COMPLETED
+            and current_outcome is not None
+            and current_outcome.status is OutcomeStatus.VERIFIED
+            and completed_at is not None
+            and commitment is not None
+            and completed_at <= commitment.expires_at
+        )
+        if (
+            commitment is not None
+            and computed_at >= commitment.expires_at
+            and not completed_and_current
+        ):
+            reasons.add(ResponsibilityAttentionReason.COMMITMENT_EXPIRED)
+
+        if status is TaskStatus.COMPLETED:
+            if current_outcome is None:
+                reasons.add(ResponsibilityAttentionReason.TERMINAL_WITHOUT_OUTCOME)
+            elif current_outcome.status is OutcomeStatus.VERIFIED:
+                if completed_at is None or commitment is None:
+                    return (
+                        ResponsibilityItemState.UNKNOWN,
+                        (ResponsibilityAttentionReason.TASK_SOURCE_MALFORMED,),
+                    )
+                if completed_at <= commitment.expires_at:
+                    return ResponsibilityItemState.DONE_VERIFIED, ()
+                reasons.add(ResponsibilityAttentionReason.COMMITMENT_EXPIRED)
+        if reasons:
+            return (
+                ResponsibilityItemState.NEEDS_ATTENTION,
+                tuple(sorted(reasons, key=lambda item: item.value)),
+            )
+
+        allowed = {
+            TaskStatus.DRAFT: {None},
+            TaskStatus.COMMITTED: {None},
+            TaskStatus.RUNNING: {
+                RunStatus.CREATED,
+                RunStatus.QUEUED,
+                RunStatus.RUNNING,
+            },
+            TaskStatus.VERIFYING: {
+                RunStatus.RUNNING,
+                RunStatus.VERIFYING,
+                RunStatus.SUCCEEDED,
+            },
+        }
+        run_status = None if run is None else run.status
+        if status in allowed and run_status in allowed[status]:
+            return ResponsibilityItemState.TRACKED, ()
+        return (
+            ResponsibilityItemState.UNKNOWN,
+            (ResponsibilityAttentionReason.UNHANDLED_TASK_RUN_STATE,),
+        )
+
+    @staticmethod
+    def _parse_timestamp(value: object) -> datetime:
+        parsed = datetime.fromisoformat(str(value))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("timestamp is not timezone-aware")
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _raw_schedule_fingerprint(rows: tuple[sqlite3.Row, ...]) -> str:
+        return content_digest(
+            {
+                "rows": [
+                    {key: row[key] for key in row.keys()}
+                    for row in rows
+                ]
+            }
+        )
+
+    def _read_schedule(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+    ) -> tuple[
+        ResponsibilityActivePerceptionSummary | None,
+        tuple[ResponsibilityAttentionReason, ...],
+        str,
+    ]:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'mandate_active_perception_schedule'"
+        ).fetchone()
+        if exists is None:
+            return None, (), content_digest({"rows": []})
+        rows = tuple(
+            connection.execute(
+                "SELECT * FROM mandate_active_perception_schedule "
+                "WHERE principal_id = ? AND tenant_id = ? "
+                "AND workspace_id = ? AND mandate_id = ? ORDER BY schedule_id",
+                (principal_id, tenant_id, workspace_id, mandate_id),
+            ).fetchall()
+        )
+        fingerprint = self._raw_schedule_fingerprint(rows)
+        if not rows:
+            return None, (), fingerprint
+        if len(rows) != 1:
+            return (
+                None,
+                (ResponsibilityAttentionReason.SCHEDULE_SOURCE_MALFORMED,),
+                fingerprint,
+            )
+        row = rows[0]
+        try:
+            integer_names = (
+                "interval_seconds",
+                "budget_window_seconds",
+                "wake_budget_per_window",
+                "query_budget_per_window",
+                "feed_limit",
+                "lease_seconds",
+                "wake_used",
+                "query_used",
+                "lease_fence",
+            )
+            integers = {name: row[name] for name in integer_names}
+            if any(type(value) is not int or value < 0 for value in integers.values()):
+                raise ValueError("schedule integer is invalid")
+            if (
+                integers["interval_seconds"] < 1
+                or integers["budget_window_seconds"] < integers["interval_seconds"]
+                or integers["wake_budget_per_window"] < 1
+                or integers["query_budget_per_window"] < 1
+                or not 1 <= integers["feed_limit"] <= 100
+                or integers["lease_seconds"] < 1
+            ):
+                raise ValueError("schedule bounds are invalid")
+            config_payload = {
+                key: row[key]
+                for key in (
+                    "schedule_id",
+                    "principal_id",
+                    "tenant_id",
+                    "workspace_id",
+                    "mandate_id",
+                    "environment_binding_id",
+                    "interval_seconds",
+                    "budget_window_seconds",
+                    "wake_budget_per_window",
+                    "query_budget_per_window",
+                    "feed_limit",
+                    "lease_seconds",
+                )
+            }
+            if content_digest(config_payload) != str(row["config_digest"]):
+                raise ValueError("schedule config digest is invalid")
+            next_wake = self._parse_timestamp(row["next_wake_at"])
+            self._parse_timestamp(row["window_started_at"])
+            lease_owner = row["lease_owner"]
+            lease_expires = row["lease_expires_at"]
+            if (lease_owner is None) != (lease_expires is None):
+                raise ValueError("schedule lease binding is invalid")
+            if lease_expires is not None:
+                self._parse_timestamp(lease_expires)
+            summary = ResponsibilityActivePerceptionSummary(
+                schedule_digest=fingerprint,
+                schedule_status="LEASE_HELD" if lease_owner is not None else "SCHEDULED",
+                next_observation_at=next_wake,
+            )
+        except Exception:
+            return (
+                None,
+                (ResponsibilityAttentionReason.SCHEDULE_SOURCE_MALFORMED,),
+                fingerprint,
+            )
+        return summary, (), fingerprint
+
+    def _read_active_links(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+    ) -> tuple[MandateTaskLink, ...]:
+        rows = connection.execute(
+            f"SELECT links.* FROM {self._store._LINK_TABLE} AS links "
+            f"LEFT JOIN {self._store._REVOCATION_TABLE} AS revocations "
+            "ON revocations.link_id = links.link_id "
+            "WHERE links.principal_id = ? AND links.tenant_id = ? "
+            "AND links.workspace_id = ? AND links.mandate_id = ? "
+            "AND revocations.link_id IS NULL ORDER BY links.rowid",
+            (principal_id, tenant_id, workspace_id, mandate_id),
+        ).fetchall()
+        links = tuple(self._store._decode_link(row) for row in rows)
+        associations = [link.association_id for link in links]
+        if len(associations) != len(set(associations)):
+            raise MandateResponsibilityPersistenceConflict(
+                "multiple active links exist for one responsibility association"
+            )
+        return links
+
+    def _project_link(
+        self,
+        link: MandateTaskLink,
+        *,
+        operational: RatifiedMandateRef,
+        computed_at: datetime,
+    ) -> ResponsibilityItem:
+        if link.correction_epoch != operational.correction_epoch:
+            return ResponsibilityItem(
+                link=link,
+                task_status=None,
+                run_status=None,
+                state=ResponsibilityItemState.UNKNOWN,
+                attention_reasons=(
+                    ResponsibilityAttentionReason.MANDATE_CORRECTION_DRIFT,
+                ),
+            )
+        connection = self._store._connect()
+        try:
+            rows = connection.execute(
+                "SELECT * FROM task_events WHERE task_id = ? ORDER BY sequence",
+                (link.task_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        if not rows:
+            return ResponsibilityItem(
+                link=link,
+                task_status=None,
+                run_status=None,
+                state=ResponsibilityItemState.UNKNOWN,
+                attention_reasons=(ResponsibilityAttentionReason.TASK_SOURCE_MISSING,),
+            )
+        try:
+            events = tuple(TaskEvent.model_validate(dict(row)) for row in rows)
+            raw_aggregate = TaskAggregate.rehydrate(events)
+        except Exception:
+            return ResponsibilityItem(
+                link=link,
+                task_status=None,
+                run_status=None,
+                state=ResponsibilityItemState.UNKNOWN,
+                attention_reasons=(ResponsibilityAttentionReason.TASK_SOURCE_MALFORMED,),
+            )
+        created_digest = content_digest(events[0])
+        if created_digest != link.task_created_event_digest:
+            return ResponsibilityItem(
+                link=link,
+                task_status=None,
+                run_status=None,
+                state=ResponsibilityItemState.UNKNOWN,
+                attention_reasons=(ResponsibilityAttentionReason.TASK_IDENTITY_CHANGED,),
+                task_event_position=events[-1].sequence,
+                task_event_head_digest=content_digest(events[-1]),
+            )
+        try:
+            aggregate = self._tasks.get_task(link.task_id)
+            if aggregate != raw_aggregate:
+                raise ValueError("Task reader disagrees with canonical event stream")
+            current_outcome = self._tasks.current_outcome(link.task_id)
+        except Exception:
+            return ResponsibilityItem(
+                link=link,
+                task_status=None,
+                run_status=None,
+                state=ResponsibilityItemState.UNKNOWN,
+                attention_reasons=(ResponsibilityAttentionReason.TASK_SOURCE_MALFORMED,),
+                task_event_position=events[-1].sequence,
+                task_event_head_digest=content_digest(events[-1]),
+            )
+        completed_at = next(
+            (
+                event.occurred_at
+                for event in reversed(events)
+                if event.event_type is TaskEventType.RUN_SUCCEEDED
+            ),
+            None,
+        )
+        state, reasons = self.classify(
+            aggregate,
+            current_outcome,
+            computed_at=computed_at,
+            completed_at=completed_at,
+        )
+        historical_digest = (
+            None
+            if aggregate.observed_outcome is None
+            else content_digest(aggregate.observed_outcome)
+        )
+        if aggregate.observed_outcome is None and current_outcome is None:
+            validation_status = "NO_OUTCOME"
+            validation_reason = None
+        elif current_outcome == aggregate.observed_outcome:
+            validation_status = "CURRENT_TRUSTED"
+            validation_reason = None
+        else:
+            validation_status = (
+                "CURRENT_DEMOTED:" + current_outcome.status.value
+                if current_outcome is not None
+                else "CURRENT_MISSING"
+            )
+            validation_reason = (
+                None
+                if current_outcome is None
+                else ";".join(current_outcome.unresolved_gaps) or None
+            )
+        return ResponsibilityItem(
+            link=link,
+            goal=aggregate.goal,
+            commitment=aggregate.commitment,
+            expected_outcome=aggregate.expected_outcome,
+            current_outcome=current_outcome,
+            task_status=aggregate.status,
+            run_status=None if aggregate.run is None else aggregate.run.status,
+            wait_condition=None if aggregate.run is None else aggregate.run.wait_condition,
+            state=state,
+            attention_reasons=reasons,
+            task_event_position=events[-1].sequence,
+            task_event_head_digest=content_digest(events[-1]),
+            historical_outcome_digest=historical_digest,
+            outcome_validation_status=validation_status,
+            outcome_validation_reason=validation_reason,
+            completed_at=completed_at,
+        )
+
+    @staticmethod
+    def _view_digest(
+        *,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        mandate_id: str,
+        mandate_status: MandateOperationalStatus,
+        desired_outcomes: tuple[str, ...],
+        status: MandateResponsibilityViewStatus,
+        items: tuple[ResponsibilityItem, ...],
+        active_perception: ResponsibilityActivePerceptionSummary | None,
+        global_gaps: tuple[ResponsibilityAttentionReason, ...],
+        workspace_record_digest: str,
+        operational_mandate_ref_digest: str,
+        schedule_source_digest: str,
+    ) -> str:
+        stable_items = tuple(
+            item.model_dump(mode="json", exclude={"current_outcome"}) for item in items
+        )
+        return content_digest(
+            {
+                "principal_id": principal_id,
+                "tenant_id": tenant_id,
+                "workspace_id": workspace_id,
+                "mandate_id": mandate_id,
+                "mandate_status": mandate_status.value,
+                "desired_outcomes": desired_outcomes,
+                "status": status.value,
+                "items": stable_items,
+                "active_perception": (
+                    None
+                    if active_perception is None
+                    else active_perception.model_dump(mode="json")
+                ),
+                "global_gaps": tuple(reason.value for reason in global_gaps),
+                "workspace_record_digest": workspace_record_digest,
+                "operational_mandate_ref_digest": operational_mandate_ref_digest,
+                "schedule_source_digest": schedule_source_digest,
+            }
+        )
+
+    def project(
+        self,
+        mandate_id: str,
+        reader: PrincipalIdentity,
+    ) -> MandateResponsibilityView:
+        computed_at = self._clock()
+        connection = self._store._connect()
+        try:
+            workspace, workspace_digest, operational, operational_digest = (
+                self._store._read_authority(
+                    connection,
+                    mandate_id,
+                    reader,
+                    require_admin=False,
+                    require_active=False,
+                    now=computed_at,
+                )
+            )
+            links = self._read_active_links(
+                connection,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=reader.tenant_id,
+                workspace_id=reader.workspace_id,
+                mandate_id=mandate_id,
+            )
+            active_perception, schedule_gaps, schedule_digest = self._read_schedule(
+                connection,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=reader.tenant_id,
+                workspace_id=reader.workspace_id,
+                mandate_id=mandate_id,
+            )
+        finally:
+            connection.close()
+        items = tuple(
+            self._project_link(
+                link,
+                operational=operational,
+                computed_at=computed_at,
+            )
+            for link in links
+        )
+
+        final_connection = self._store._connect()
+        try:
+            (
+                final_workspace,
+                final_workspace_digest,
+                final_operational,
+                final_operational_digest,
+            ) = self._store._read_authority(
+                final_connection,
+                mandate_id,
+                reader,
+                require_admin=False,
+                require_active=False,
+                now=computed_at,
+            )
+            final_schedule, final_schedule_gaps, final_schedule_digest = (
+                self._read_schedule(
+                    final_connection,
+                    principal_id=final_workspace.mandate.principal_id,
+                    tenant_id=reader.tenant_id,
+                    workspace_id=reader.workspace_id,
+                    mandate_id=mandate_id,
+                )
+            )
+        except MandateResponsibilityPersistenceConflict:
+            raise MandateResponsibilityPersistenceConflict(
+                "Mandate authority changed during responsibility projection"
+            ) from None
+        finally:
+            final_connection.close()
+        if (
+            final_workspace_digest != workspace_digest
+            or final_workspace != workspace
+            or final_operational_digest != operational_digest
+            or final_operational != operational
+        ):
+            raise MandateResponsibilityPersistenceConflict(
+                "Mandate authority changed during responsibility projection"
+            )
+        if final_schedule_digest != schedule_digest:
+            active_perception = None
+            schedule_gaps = (
+                ResponsibilityAttentionReason.SCHEDULE_SOURCE_MALFORMED,
+            )
+            schedule_digest = content_digest(
+                {
+                    "drifted_from": schedule_digest,
+                    "drifted_to": final_schedule_digest,
+                }
+            )
+        else:
+            active_perception = final_schedule
+            schedule_gaps = final_schedule_gaps
+        global_gaps = tuple(sorted(set(schedule_gaps), key=lambda item: item.value))
+        if operational.status is MandateOperationalStatus.REVOKED:
+            view_status = MandateResponsibilityViewStatus.REVOKED
+        elif global_gaps or any(
+            item.state is ResponsibilityItemState.UNKNOWN for item in items
+        ):
+            view_status = MandateResponsibilityViewStatus.PARTIAL_UNKNOWN
+        else:
+            view_status = MandateResponsibilityViewStatus.COMPLETE
+        desired_outcomes = tuple(sorted(set(workspace.mandate.desired_outcomes)))
+        view_digest = self._view_digest(
+            principal_id=workspace.mandate.principal_id,
+            tenant_id=reader.tenant_id,
+            workspace_id=reader.workspace_id,
+            mandate_id=mandate_id,
+            mandate_status=operational.status,
+            desired_outcomes=desired_outcomes,
+            status=view_status,
+            items=items,
+            active_perception=active_perception,
+            global_gaps=global_gaps,
+            workspace_record_digest=workspace_digest,
+            operational_mandate_ref_digest=operational_digest,
+            schedule_source_digest=schedule_digest,
+        )
+        return MandateResponsibilityView(
+            principal_id=workspace.mandate.principal_id,
+            tenant_id=reader.tenant_id,
+            workspace_id=reader.workspace_id,
+            mandate_id=mandate_id,
+            mandate_status=operational.status,
+            desired_outcomes=desired_outcomes,
+            status=view_status,
+            items=items,
+            active_perception=active_perception,
+            global_gaps=global_gaps,
+            workspace_record_digest=workspace_digest,
+            operational_mandate_ref_digest=operational_digest,
+            schedule_source_digest=schedule_digest,
+            computed_at=computed_at,
+            view_digest=view_digest,
+        )
+
+
+class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
+    """Append-only store plus exact canonical-source validation."""
 
     @staticmethod
     def _decode_workspace_row(row: sqlite3.Row) -> MandateWorkspaceRecord:
