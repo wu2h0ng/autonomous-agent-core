@@ -10,6 +10,8 @@ from agent_os_contracts import (
     ObservedOutcome,
     OutcomePortfolio,
     OutcomePortfolioCreateCommand,
+    OutcomePortfolioHelpGap,
+    OutcomePortfolioHelpRequest,
     OutcomePortfolioView,
     OutcomeStatus,
     PersistentCommitment,
@@ -20,6 +22,7 @@ from agent_os_contracts import (
     SettlementRecord,
     content_digest,
 )
+from agent_os_contracts.outcome_portfolio import _outcome_portfolio_help_request_id
 
 from .mandate_responsibility import (
     MandateResponsibilityDenied,
@@ -66,6 +69,7 @@ class SQLiteMandateOutcomePortfolioStore:
     _PORTFOLIO_TABLE = "mandate_outcome_portfolios"
     _COMMITMENT_TABLE = "mandate_persistent_commitments"
     _SETTLEMENT_TABLE = "mandate_outcome_settlements"
+    _HELP_TABLE = "mandate_outcome_portfolio_help_requests"
 
     def __init__(
         self,
@@ -120,6 +124,16 @@ class SQLiteMandateOutcomePortfolioStore:
                     payload TEXT NOT NULL,
                     record_digest TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS {self._HELP_TABLE} (
+                    help_request_id TEXT PRIMARY KEY,
+                    mandate_id TEXT NOT NULL,
+                    portfolio_id TEXT NOT NULL,
+                    task_id TEXT,
+                    tenant_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    record_digest TEXT NOT NULL
+                );
                 """
             )
             connection.commit()
@@ -164,8 +178,13 @@ class SQLiteMandateOutcomePortfolioStore:
         workspace_digest: str,
         operational_digest: str,
         correction_epoch: int,
+        portfolio_id: str,
+        actor: PrincipalIdentity,
+        help_deferred: list[dict[str, object]] | None = None,
     ) -> None:
         """Fail closed unless an active MandateTaskLink binds task to mandate."""
+        if help_deferred is None:
+            help_deferred = []
         link_rows = connection.execute(
             f"SELECT * FROM {self._authority._LINK_TABLE} "
             "WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ? "
@@ -174,6 +193,12 @@ class SQLiteMandateOutcomePortfolioStore:
         ).fetchall()
         links = tuple(self._authority._decode_link(row) for row in link_rows)
         if not links:
+            help_deferred.append({
+                "mandate_id": mandate_id, "portfolio_id": portfolio_id,
+                "task_id": task_id, "actor": actor,
+                "gap_kind": OutcomePortfolioHelpGap.MISSING_TASK_LINK,
+                "details": "active MandateTaskLink is required for portfolio settlement",
+            })
             raise MandateOutcomePortfolioDenied(
                 "active MandateTaskLink is required for portfolio settlement"
             )
@@ -188,6 +213,12 @@ class SQLiteMandateOutcomePortfolioStore:
         revoked = {revocation.link_id for revocation in revocations}
         active = tuple(link for link in links if link.link_id not in revoked)
         if not active:
+            help_deferred.append({
+                "mandate_id": mandate_id, "portfolio_id": portfolio_id,
+                "task_id": task_id, "actor": actor,
+                "gap_kind": OutcomePortfolioHelpGap.REVOKED_TASK_LINK,
+                "details": "all active MandateTaskLinks for task have been revoked",
+            })
             raise MandateOutcomePortfolioDenied(
                 "active MandateTaskLink is required for portfolio settlement"
             )
@@ -197,6 +228,12 @@ class SQLiteMandateOutcomePortfolioStore:
             )
         link = active[0]
         if link.correction_epoch != correction_epoch:
+            help_deferred.append({
+                "mandate_id": mandate_id, "portfolio_id": portfolio_id,
+                "task_id": task_id, "actor": actor,
+                "gap_kind": OutcomePortfolioHelpGap.CORRECTION_EPOCH_DRIFT,
+                "details": "MandateTaskLink correction epoch drift prevents settlement",
+            })
             raise MandateOutcomePortfolioDenied(
                 "MandateTaskLink correction epoch drift prevents settlement"
             )
@@ -204,6 +241,12 @@ class SQLiteMandateOutcomePortfolioStore:
             link.workspace_record_digest != workspace_digest
             or link.operational_mandate_ref_digest != operational_digest
         ):
+            help_deferred.append({
+                "mandate_id": mandate_id, "portfolio_id": portfolio_id,
+                "task_id": task_id, "actor": actor,
+                "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                "details": "MandateTaskLink authority digest drift prevents settlement",
+            })
             raise MandateOutcomePortfolioDenied(
                 "MandateTaskLink authority digest drift prevents settlement"
             )
@@ -351,10 +394,19 @@ class SQLiteMandateOutcomePortfolioStore:
                     (portfolio.portfolio_id,),
                 ).fetchall()
             )
+            help_requests = tuple(
+                OutcomePortfolioHelpRequest.model_validate_json(str(item["payload"]))
+                for item in connection.execute(
+                    f"SELECT * FROM {self._HELP_TABLE} WHERE portfolio_id = ? "
+                    "ORDER BY rowid",
+                    (portfolio.portfolio_id,),
+                ).fetchall()
+            )
             return OutcomePortfolioView(
                 portfolio=portfolio,
                 commitments=commitments,
                 settlements=settlements,
+                help_requests=help_requests,
             )
         finally:
             connection.close()
@@ -370,6 +422,7 @@ class SQLiteMandateOutcomePortfolioStore:
         now = self._clock()
         command_digest = content_digest(command)
         connection = self._connect()
+        help_deferred: list[dict[str, object]] = []
         try:
             connection.execute("BEGIN IMMEDIATE")
             workspace, workspace_digest, operational, operational_digest = (
@@ -383,7 +436,8 @@ class SQLiteMandateOutcomePortfolioStore:
                 )
             )
             portfolio = self._require_portfolio(
-                connection, mandate_id, actor, workspace_digest, operational_digest
+                connection, mandate_id, actor, workspace_digest, operational_digest,
+                help_deferred=help_deferred,
             )
             self._require_active_task_link(
                 connection,
@@ -395,11 +449,22 @@ class SQLiteMandateOutcomePortfolioStore:
                 workspace_digest=workspace_digest,
                 operational_digest=operational_digest,
                 correction_epoch=operational.correction_epoch,
+                portfolio_id=portfolio.portfolio_id,
+                actor=actor,
+                help_deferred=help_deferred,
             )
             task = self._task_reader.get_task(command.task_id)
             commitment = task.commitment
             expected = task.expected_outcome
             if commitment is None or expected is None:
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": command.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.MISSING_COMMITMENT_OR_EXPECTED,
+                    "details": "Task Commitment and ExpectedOutcome are required",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "Task Commitment and ExpectedOutcome are required"
                 )
@@ -407,6 +472,14 @@ class SQLiteMandateOutcomePortfolioStore:
                 content_digest(commitment) != command.commitment_digest
                 or content_digest(expected) != command.expected_outcome_digest
             ):
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": command.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                    "details": "commitment digests do not match Task truth",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "commitment digests do not match Task truth"
                 )
@@ -415,6 +488,14 @@ class SQLiteMandateOutcomePortfolioStore:
                 or expected.workspace_id != actor.workspace_id
                 or expected.task_id != command.task_id
             ):
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": command.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.SCOPE_MISMATCH,
+                    "details": "Task scope is not authorized",
+                })
                 raise MandateOutcomePortfolioDenied("Task scope is not authorized")
             record_key = content_digest(
                 {
@@ -485,6 +566,7 @@ class SQLiteMandateOutcomePortfolioStore:
             return record
         except Exception:
             connection.rollback()
+            self._flush_help_deferred(help_deferred)
             raise
         finally:
             connection.close()
@@ -500,6 +582,7 @@ class SQLiteMandateOutcomePortfolioStore:
         now = self._clock()
         command_digest = content_digest(command)
         connection = self._connect()
+        help_deferred: list[dict[str, object]] = []
         try:
             connection.execute("BEGIN IMMEDIATE")
             workspace, workspace_digest, operational, operational_digest = (
@@ -513,7 +596,8 @@ class SQLiteMandateOutcomePortfolioStore:
                 )
             )
             portfolio = self._require_portfolio(
-                connection, mandate_id, actor, workspace_digest, operational_digest
+                connection, mandate_id, actor, workspace_digest, operational_digest,
+                help_deferred=help_deferred,
             )
             row = connection.execute(
                 f"SELECT * FROM {self._COMMITMENT_TABLE} "
@@ -542,25 +626,60 @@ class SQLiteMandateOutcomePortfolioStore:
                 workspace_digest=workspace_digest,
                 operational_digest=operational_digest,
                 correction_epoch=operational.correction_epoch,
+                portfolio_id=portfolio.portfolio_id,
+                actor=actor,
+                help_deferred=help_deferred,
             )
             if commitment.state is not PersistentCommitmentState.OPEN:
                 raise MandateOutcomePortfolioConflict(
                     "commitment is not open for settlement"
                 )
             if commitment.expected_outcome_digest != command.expected_outcome_digest:
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": commitment.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                    "details": "expected outcome digest drift prevents settlement",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "expected outcome digest drift prevents settlement"
                 )
             current = self._task_reader.current_outcome(commitment.task_id)
             if current is None:
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": commitment.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME,
+                    "details": "Task current ObservedOutcome is required",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "Task current ObservedOutcome is required"
                 )
             if content_digest(current) != command.observed_outcome_digest:
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": commitment.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                    "details": "observed outcome digest does not match Task current outcome",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "observed outcome digest does not match Task current outcome"
                 )
             if current.status is not command.observed_status:
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": commitment.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                    "details": "observed status does not match Task current outcome",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "observed status does not match Task current outcome"
                 )
@@ -568,6 +687,14 @@ class SQLiteMandateOutcomePortfolioStore:
             if task.expected_outcome is None or content_digest(
                 task.expected_outcome
             ) != command.expected_outcome_digest:
+                help_deferred.append({
+                    "mandate_id": mandate_id,
+                    "portfolio_id": portfolio.portfolio_id,
+                    "task_id": commitment.task_id,
+                    "actor": actor,
+                    "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                    "details": "Task ExpectedOutcome digest drift prevents settlement",
+                })
                 raise MandateOutcomePortfolioDenied(
                     "Task ExpectedOutcome digest drift prevents settlement"
                 )
@@ -655,6 +782,7 @@ class SQLiteMandateOutcomePortfolioStore:
             return settlement
         except Exception:
             connection.rollback()
+            self._flush_help_deferred(help_deferred)
             raise
         finally:
             connection.close()
@@ -666,7 +794,10 @@ class SQLiteMandateOutcomePortfolioStore:
         actor: PrincipalIdentity,
         workspace_digest: str,
         operational_digest: str,
+        help_deferred: list[dict[str, object]] | None = None,
     ) -> OutcomePortfolio:
+        if help_deferred is None:
+            help_deferred = []
         row = connection.execute(
             f"SELECT * FROM {self._PORTFOLIO_TABLE} WHERE mandate_id = ? "
             "AND tenant_id = ? AND workspace_id = ?",
@@ -681,5 +812,104 @@ class SQLiteMandateOutcomePortfolioStore:
             portfolio.workspace_record_digest != workspace_digest
             or portfolio.operational_mandate_ref_digest != operational_digest
         ):
+            help_deferred.append({
+                "mandate_id": mandate_id,
+                "portfolio_id": portfolio.portfolio_id,
+                "task_id": None,
+                "actor": actor,
+                "gap_kind": OutcomePortfolioHelpGap.DIGEST_DRIFT,
+                "details": "portfolio authority digest drift",
+            })
             raise MandateOutcomePortfolioDenied("portfolio authority digest drift")
         return portfolio
+
+    def _flush_help_deferred(
+        self, help_deferred: list[dict[str, object]]
+    ) -> None:
+        for item in help_deferred:
+            self._emit_help_request(
+                mandate_id=str(item["mandate_id"]),
+                portfolio_id=str(item["portfolio_id"]),
+                task_id=item["task_id"] if isinstance(item["task_id"], (str, type(None))) else str(item["task_id"]),
+                actor=item["actor"],  # type: ignore[arg-type]
+                gap_kind=item["gap_kind"],  # type: ignore[arg-type]
+                details=str(item["details"]),
+            )
+
+    def _emit_help_request(
+        self,
+        *,
+        mandate_id: str,
+        portfolio_id: str,
+        task_id: str | None,
+        actor: PrincipalIdentity,
+        gap_kind: OutcomePortfolioHelpGap,
+        details: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> None:
+        now = self._clock()
+        help_id = _outcome_portfolio_help_request_id(
+            mandate_id, portfolio_id, task_id, gap_kind, details,
+            actor.principal_id, now,
+        )
+        help_req = OutcomePortfolioHelpRequest(
+            help_request_id=help_id,
+            mandate_id=mandate_id,
+            portfolio_id=portfolio_id,
+            task_id=task_id,
+            tenant_id=actor.tenant_id,
+            workspace_id=actor.workspace_id,
+            gap_kind=gap_kind,
+            details=details,
+            created_by=actor.principal_id,
+            created_at=now,
+        )
+        conn: sqlite3.Connection
+        if connection is not None:
+            conn = connection
+        else:
+            conn = self._connect()
+        try:
+            conn.execute(
+                f"INSERT OR IGNORE INTO {self._HELP_TABLE} "
+                "(help_request_id, mandate_id, portfolio_id, task_id, tenant_id, "
+                "workspace_id, payload, record_digest) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    help_id, mandate_id, portfolio_id, task_id,
+                    actor.tenant_id, actor.workspace_id,
+                    help_req.model_dump_json(),
+                    content_digest(help_req),
+                ),
+            )
+            if connection is None:
+                conn.commit()
+        finally:
+            if connection is None:
+                conn.close()
+
+    def list_help_requests(
+        self,
+        mandate_id: str,
+        actor: PrincipalIdentity,
+    ) -> tuple[OutcomePortfolioHelpRequest, ...]:
+        connection = self._connect()
+        try:
+            self._read_authority(
+                connection,
+                mandate_id,
+                actor,
+                require_admin=True,
+                require_active=False,
+                now=self._clock(),
+            )
+            rows = connection.execute(
+                f"SELECT * FROM {self._HELP_TABLE} WHERE mandate_id = ? "
+                "AND tenant_id = ? AND workspace_id = ? ORDER BY rowid",
+                (mandate_id, actor.tenant_id, actor.workspace_id),
+            ).fetchall()
+            return tuple(
+                OutcomePortfolioHelpRequest.model_validate_json(str(row["payload"]))
+                for row in rows
+            )
+        finally:
+            connection.close()
