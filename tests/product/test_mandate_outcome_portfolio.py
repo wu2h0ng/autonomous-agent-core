@@ -729,3 +729,286 @@ def test_attach_commitment_without_link_emits_help_request(tmp_path) -> None:
     assert len(help_requests) >= 1
     gap_kinds = {h.gap_kind for h in help_requests}
     assert OutcomePortfolioHelpGap.MISSING_TASK_LINK in gap_kinds
+
+
+def test_admin_respond_operator_decision_closes_help_request(tmp_path) -> None:
+    from agent_os_contracts import (
+        OutcomePortfolioHelpRespondCommand,
+        SrlHelpResponseKind,
+    )
+
+    database, owner, admin, task, store = _portfolio_setup(tmp_path)
+    store.create_portfolio(
+        OutcomePortfolioCreateCommand(),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    SQLiteMandateResponsibilityStore(database, clock=lambda: NOW).create_link(
+        MandateTaskLinkCommand(task_id=task.task_id, reason="owned work"),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    commitment = Commitment(
+        commitment_id="commitment:respond",
+        task_id=task.task_id,
+        goal_id="goal:portfolio",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        accepted_by="principal:owner",
+        accepted_at=NOW,
+        deliverables=("x",),
+        acceptance_criteria=("y",),
+        budget=_budget(),
+        risk_tier=0,
+        exit_conditions=("done",),
+        expires_at=NOW + timedelta(hours=2),
+    )
+    expected = ExpectedOutcome(
+        expected_outcome_id="expected:respond",
+        task_id=task.task_id,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluator_type="pytest",
+        evaluator_version="1",
+        evidence_requirements=("test-report",),
+        failure_semantics=("tests fail",),
+        threshold=1.0,
+        observation_window_seconds=3600,
+        frozen_at=NOW,
+    )
+    owner.tasks.commit_task(task.task_id, commitment, _workflow(), expected)
+    task = owner.tasks.get_task(task.task_id)
+    attached = store.attach_commitment(
+        PersistentCommitmentAttachCommand(
+            task_id=task.task_id,
+            commitment_digest=content_digest(task.commitment),
+            expected_outcome_digest=content_digest(task.expected_outcome),
+        ),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    with pytest.raises(MandateOutcomePortfolioDenied, match="ObservedOutcome"):
+        store.settle(
+            SettlementCommand(
+                commitment_record_id=attached.commitment_record_id,
+                expected_outcome_digest=content_digest(task.expected_outcome),
+                observed_outcome_digest="a" * 64,
+                observed_status=OutcomeStatus.VERIFIED,
+            ),
+            "mandate:build-agent-os",
+            admin.principal,
+        )
+    open_help = store.list_help_requests("mandate:build-agent-os", admin.principal)
+    assert len(open_help) == 1
+    responded = store.respond_help_request(
+        OutcomePortfolioHelpRespondCommand(
+            response_kind=SrlHelpResponseKind.OPERATOR_DECISION,
+            decision="MORE_INFO",
+            notes="need observed outcome digest",
+        ),
+        "mandate:build-agent-os",
+        open_help[0].help_request_id,
+        admin.principal,
+    )
+    assert responded.response is not None
+    assert responded.response.response_kind is SrlHelpResponseKind.OPERATOR_DECISION
+    assert responded.response.decision == "MORE_INFO"
+    assert responded.authority_granted is False
+    assert store.list_help_requests("mandate:build-agent-os", admin.principal) == ()
+    resolved = store.list_help_requests(
+        "mandate:build-agent-os",
+        admin.principal,
+        include_resolved=True,
+    )
+    assert len(resolved) == 1
+    assert resolved[0].response is not None
+
+
+def test_respond_capability_grant_fails_closed(tmp_path) -> None:
+    from agent_os_contracts import (
+        OutcomePortfolioHelpRespondCommand,
+        SrlHelpResponseKind,
+    )
+    from agent_os_core import MandateOutcomePortfolioDenied as Denied
+
+    database, owner, admin, task, store = _portfolio_setup(tmp_path)
+    store.create_portfolio(
+        OutcomePortfolioCreateCommand(),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    SQLiteMandateResponsibilityStore(database, clock=lambda: NOW).create_link(
+        MandateTaskLinkCommand(task_id=task.task_id, reason="owned work"),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    commitment = Commitment(
+        commitment_id="commitment:grant-deny",
+        task_id=task.task_id,
+        goal_id="goal:portfolio",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        accepted_by="principal:owner",
+        accepted_at=NOW,
+        deliverables=("x",),
+        acceptance_criteria=("y",),
+        budget=_budget(),
+        risk_tier=0,
+        exit_conditions=("done",),
+        expires_at=NOW + timedelta(hours=2),
+    )
+    expected = ExpectedOutcome(
+        expected_outcome_id="expected:grant-deny",
+        task_id=task.task_id,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluator_type="pytest",
+        evaluator_version="1",
+        evidence_requirements=("test-report",),
+        failure_semantics=("tests fail",),
+        threshold=1.0,
+        observation_window_seconds=3600,
+        frozen_at=NOW,
+    )
+    owner.tasks.commit_task(task.task_id, commitment, _workflow(), expected)
+    task = owner.tasks.get_task(task.task_id)
+    attached = store.attach_commitment(
+        PersistentCommitmentAttachCommand(
+            task_id=task.task_id,
+            commitment_digest=content_digest(task.commitment),
+            expected_outcome_digest=content_digest(task.expected_outcome),
+        ),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    with pytest.raises(Denied, match="ObservedOutcome"):
+        store.settle(
+            SettlementCommand(
+                commitment_record_id=attached.commitment_record_id,
+                expected_outcome_digest=content_digest(task.expected_outcome),
+                observed_outcome_digest="b" * 64,
+                observed_status=OutcomeStatus.VERIFIED,
+            ),
+            "mandate:build-agent-os",
+            admin.principal,
+        )
+    help_id = store.list_help_requests(
+        "mandate:build-agent-os", admin.principal
+    )[0].help_request_id
+    with pytest.raises(Denied, match="cannot grant capability"):
+        store.respond_help_request(
+            OutcomePortfolioHelpRespondCommand(
+                response_kind=SrlHelpResponseKind.CAPABILITY_GRANT,
+            ),
+            "mandate:build-agent-os",
+            help_id,
+            admin.principal,
+        )
+    assert len(store.list_help_requests("mandate:build-agent-os", admin.principal)) == 1
+
+
+def test_successful_settle_auto_cancels_matching_open_help(tmp_path) -> None:
+    from agent_os_contracts import SrlHelpResponseKind
+
+    database, owner, admin, task, store = _portfolio_setup(tmp_path)
+    store.create_portfolio(
+        OutcomePortfolioCreateCommand(),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    SQLiteMandateResponsibilityStore(database, clock=lambda: NOW).create_link(
+        MandateTaskLinkCommand(task_id=task.task_id, reason="owned work"),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    commitment = Commitment(
+        commitment_id="commitment:auto-cancel",
+        task_id=task.task_id,
+        goal_id="goal:portfolio",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        accepted_by="principal:owner",
+        accepted_at=NOW,
+        deliverables=("x",),
+        acceptance_criteria=("y",),
+        budget=_budget(),
+        risk_tier=0,
+        exit_conditions=("done",),
+        expires_at=NOW + timedelta(hours=2),
+    )
+    expected = ExpectedOutcome(
+        expected_outcome_id="expected:auto-cancel",
+        task_id=task.task_id,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluator_type="pytest",
+        evaluator_version="1",
+        evidence_requirements=("test-report",),
+        failure_semantics=("tests fail",),
+        threshold=1.0,
+        observation_window_seconds=3600,
+        frozen_at=NOW,
+    )
+    owner.tasks.commit_task(task.task_id, commitment, _workflow(), expected)
+    running = owner.tasks.start_run(task.task_id)
+    assert running.run is not None
+    task = owner.tasks.get_task(task.task_id)
+    attached = store.attach_commitment(
+        PersistentCommitmentAttachCommand(
+            task_id=task.task_id,
+            commitment_digest=content_digest(task.commitment),
+            expected_outcome_digest=content_digest(task.expected_outcome),
+        ),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    with pytest.raises(MandateOutcomePortfolioDenied, match="ObservedOutcome"):
+        store.settle(
+            SettlementCommand(
+                commitment_record_id=attached.commitment_record_id,
+                expected_outcome_digest=content_digest(task.expected_outcome),
+                observed_outcome_digest="c" * 64,
+                observed_status=OutcomeStatus.VERIFIED,
+            ),
+            "mandate:build-agent-os",
+            admin.principal,
+        )
+    assert len(store.list_help_requests("mandate:build-agent-os", admin.principal)) == 1
+    observed = ObservedOutcome(
+        observed_outcome_id="observed:auto-cancel",
+        expected_outcome_id=expected.expected_outcome_id,
+        task_id=task.task_id,
+        run_id=running.run.run_id,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluator_type="pytest",
+        evaluator_version="1",
+        status=OutcomeStatus.NOT_MET,
+        score=0.0,
+        confidence=1.0,
+        evidence_refs=("test-report:1",),
+        observed_at=NOW,
+    )
+    owner.tasks.record_outcome(task.task_id, observed)
+    current = owner.tasks.current_outcome(task.task_id)
+    assert current is not None
+    settlement = store.settle(
+        SettlementCommand(
+            commitment_record_id=attached.commitment_record_id,
+            expected_outcome_digest=content_digest(task.expected_outcome),
+            observed_outcome_digest=content_digest(current),
+            observed_status=OutcomeStatus.NOT_MET,
+        ),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    assert settlement.resulting_state is PersistentCommitmentState.SETTLED_NOT_MET
+    assert store.list_help_requests("mandate:build-agent-os", admin.principal) == ()
+    resolved = store.list_help_requests(
+        "mandate:build-agent-os",
+        admin.principal,
+        include_resolved=True,
+    )
+    assert len(resolved) == 1
+    assert resolved[0].response is not None
+    assert resolved[0].response.response_kind is SrlHelpResponseKind.CANCELLATION

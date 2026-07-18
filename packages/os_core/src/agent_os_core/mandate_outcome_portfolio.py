@@ -12,6 +12,7 @@ from agent_os_contracts import (
     OutcomePortfolioCreateCommand,
     OutcomePortfolioHelpGap,
     OutcomePortfolioHelpRequest,
+    OutcomePortfolioHelpRespondCommand,
     OutcomePortfolioView,
     OutcomeStatus,
     PersistentCommitment,
@@ -22,6 +23,8 @@ from agent_os_contracts import (
     SettlementCommand,
     SettlementRecord,
     SrlHelpRequest,
+    SrlHelpResponse,
+    SrlHelpResponseKind,
     content_digest,
 )
 from agent_os_contracts.outcome_portfolio import (
@@ -362,6 +365,8 @@ class SQLiteMandateOutcomePortfolioStore:
         self,
         mandate_id: str,
         actor: PrincipalIdentity,
+        *,
+        include_resolved_help: bool = False,
     ) -> OutcomePortfolioView:
         connection = self._connect()
         try:
@@ -401,15 +406,13 @@ class SQLiteMandateOutcomePortfolioStore:
             )
             help_requests: tuple[OutcomePortfolioHelpRequest, ...] = ()
             if actor.role is PrincipalRole.TENANT_ADMIN:
-                help_requests = tuple(
-                    OutcomePortfolioHelpRequest.model_validate_json(
-                        str(item["payload"])
-                    )
-                    for item in connection.execute(
-                        f"SELECT * FROM {self._HELP_TABLE} WHERE portfolio_id = ? "
-                        "ORDER BY rowid",
-                        (portfolio.portfolio_id,),
-                    ).fetchall()
+                help_requests = self._load_help_requests(
+                    connection,
+                    mandate_id=mandate_id,
+                    tenant_id=actor.tenant_id,
+                    workspace_id=actor.workspace_id,
+                    portfolio_id=portfolio.portfolio_id,
+                    include_resolved=include_resolved_help,
                 )
             return OutcomePortfolioView(
                 portfolio=portfolio,
@@ -787,6 +790,18 @@ class SQLiteMandateOutcomePortfolioStore:
                     settlement.record_digest,
                 ),
             )
+            self._auto_cancel_open_help_for_task(
+                connection,
+                mandate_id=mandate_id,
+                portfolio_id=portfolio.portfolio_id,
+                task_id=commitment.task_id,
+                actor=actor,
+                now=now,
+                notes=(
+                    f"auto-cancelled after settlement {settlement.settlement_id} "
+                    f"-> {resulting.value}"
+                ),
+            )
             connection.commit()
             return settlement
         except Exception:
@@ -937,6 +952,8 @@ class SQLiteMandateOutcomePortfolioStore:
         self,
         mandate_id: str,
         actor: PrincipalIdentity,
+        *,
+        include_resolved: bool = False,
     ) -> tuple[OutcomePortfolioHelpRequest, ...]:
         connection = self._connect()
         try:
@@ -948,14 +965,176 @@ class SQLiteMandateOutcomePortfolioStore:
                 require_active=False,
                 now=self._clock(),
             )
-            rows = connection.execute(
-                f"SELECT * FROM {self._HELP_TABLE} WHERE mandate_id = ? "
-                "AND tenant_id = ? AND workspace_id = ? ORDER BY rowid",
-                (mandate_id, actor.tenant_id, actor.workspace_id),
-            ).fetchall()
-            return tuple(
-                OutcomePortfolioHelpRequest.model_validate_json(str(row["payload"]))
-                for row in rows
+            return self._load_help_requests(
+                connection,
+                mandate_id=mandate_id,
+                tenant_id=actor.tenant_id,
+                workspace_id=actor.workspace_id,
+                portfolio_id=None,
+                include_resolved=include_resolved,
             )
         finally:
             connection.close()
+
+    def respond_help_request(
+        self,
+        command: OutcomePortfolioHelpRespondCommand,
+        mandate_id: str,
+        help_request_id: str,
+        actor: PrincipalIdentity,
+    ) -> OutcomePortfolioHelpRequest:
+        if command.response_kind in (
+            SrlHelpResponseKind.CAPABILITY_GRANT,
+            SrlHelpResponseKind.REVOCATION_REQUEST,
+        ):
+            raise MandateOutcomePortfolioDenied(
+                "outcome portfolio help respond cannot grant capability or revoke"
+            )
+        if command.response_kind not in (
+            SrlHelpResponseKind.OPERATOR_DECISION,
+            SrlHelpResponseKind.CANCELLATION,
+        ):
+            raise MandateOutcomePortfolioDenied(
+                "unsupported help response kind for outcome portfolio"
+            )
+        now = self._clock()
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            self._read_authority(
+                connection,
+                mandate_id,
+                actor,
+                require_admin=True,
+                require_active=False,
+                now=now,
+            )
+            row = connection.execute(
+                f"SELECT * FROM {self._HELP_TABLE} WHERE help_request_id = ? "
+                "AND mandate_id = ? AND tenant_id = ? AND workspace_id = ?",
+                (
+                    help_request_id,
+                    mandate_id,
+                    actor.tenant_id,
+                    actor.workspace_id,
+                ),
+            ).fetchone()
+            if row is None:
+                raise MandateOutcomePortfolioNotFound(
+                    f"Help request not found: {help_request_id}"
+                )
+            current = OutcomePortfolioHelpRequest.model_validate_json(
+                str(row["payload"])
+            )
+            if not current.is_open:
+                raise MandateOutcomePortfolioConflict(
+                    "help request already has a response"
+                )
+            response = SrlHelpResponse(
+                help_request_id=help_request_id,
+                responded_at=now,
+                responder_principal_id=actor.principal_id,
+                response_kind=command.response_kind,
+                decision=command.decision,
+                notes=command.notes,
+            )
+            updated = self._write_help_response(connection, current, response)
+            connection.commit()
+            return updated
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _load_help_requests(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        mandate_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        portfolio_id: str | None,
+        include_resolved: bool,
+    ) -> tuple[OutcomePortfolioHelpRequest, ...]:
+        if portfolio_id is None:
+            rows = connection.execute(
+                f"SELECT * FROM {self._HELP_TABLE} WHERE mandate_id = ? "
+                "AND tenant_id = ? AND workspace_id = ? ORDER BY rowid",
+                (mandate_id, tenant_id, workspace_id),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                f"SELECT * FROM {self._HELP_TABLE} WHERE portfolio_id = ? "
+                "AND mandate_id = ? AND tenant_id = ? AND workspace_id = ? "
+                "ORDER BY rowid",
+                (portfolio_id, mandate_id, tenant_id, workspace_id),
+            ).fetchall()
+        records = tuple(
+            OutcomePortfolioHelpRequest.model_validate_json(str(row["payload"]))
+            for row in rows
+        )
+        if include_resolved:
+            return records
+        return tuple(record for record in records if record.is_open)
+
+    def _write_help_response(
+        self,
+        connection: sqlite3.Connection,
+        current: OutcomePortfolioHelpRequest,
+        response: SrlHelpResponse,
+    ) -> OutcomePortfolioHelpRequest:
+        updated = OutcomePortfolioHelpRequest.model_validate(
+            {
+                **current.model_dump(mode="json"),
+                "response": response.model_dump(mode="json"),
+            }
+        )
+        connection.execute(
+            f"UPDATE {self._HELP_TABLE} SET payload = ?, record_digest = ? "
+            "WHERE help_request_id = ?",
+            (
+                updated.model_dump_json(),
+                content_digest(updated),
+                updated.help_request_id,
+            ),
+        )
+        return updated
+
+    def _auto_cancel_open_help_for_task(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        mandate_id: str,
+        portfolio_id: str,
+        task_id: str,
+        actor: PrincipalIdentity,
+        now: datetime,
+        notes: str,
+    ) -> None:
+        rows = connection.execute(
+            f"SELECT * FROM {self._HELP_TABLE} WHERE portfolio_id = ? "
+            "AND mandate_id = ? AND task_id = ? AND tenant_id = ? "
+            "AND workspace_id = ?",
+            (
+                portfolio_id,
+                mandate_id,
+                task_id,
+                actor.tenant_id,
+                actor.workspace_id,
+            ),
+        ).fetchall()
+        for row in rows:
+            current = OutcomePortfolioHelpRequest.model_validate_json(
+                str(row["payload"])
+            )
+            if not current.is_open:
+                continue
+            response = SrlHelpResponse(
+                help_request_id=current.help_request_id,
+                responded_at=now,
+                responder_principal_id=actor.principal_id,
+                response_kind=SrlHelpResponseKind.CANCELLATION,
+                notes=notes,
+            )
+            self._write_help_response(connection, current, response)

@@ -789,15 +789,36 @@ class AgentOSApplication:
         return view.model_dump(mode="json")
 
     def list_outcome_portfolio_help_requests(
-        self, mandate_id: str
+        self,
+        mandate_id: str,
+        *,
+        include_resolved: bool = False,
     ) -> list[dict[str, Any]]:
         return [
             record.model_dump(mode="json")
             for record in self.mandate_outcome_portfolio_store.list_help_requests(
                 mandate_id,
                 self.principal,
+                include_resolved=include_resolved,
             )
         ]
+
+    def respond_outcome_portfolio_help_request(
+        self,
+        mandate_id: str,
+        help_request_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import OutcomePortfolioHelpRespondCommand
+
+        command = OutcomePortfolioHelpRespondCommand.model_validate(payload)
+        record = self.mandate_outcome_portfolio_store.respond_help_request(
+            command,
+            mandate_id,
+            help_request_id,
+            self.principal,
+        )
+        return record.model_dump(mode="json")
 
     def attach_persistent_commitment(
         self,

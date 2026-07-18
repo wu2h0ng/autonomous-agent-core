@@ -8,7 +8,7 @@ from pydantic import Field, field_validator
 from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from .evidence import Sha256Digest
 from .outcome import OutcomeStatus
-from .srl_help import HelpClass, SrlHelpRequest
+from .srl_help import HelpClass, SrlHelpRequest, SrlHelpResponse, SrlHelpResponseKind
 
 
 class PersistentCommitmentState(str, Enum):
@@ -169,6 +169,14 @@ def help_class_for_gap(gap_kind: OutcomePortfolioHelpGap) -> HelpClass:
     return _GAP_TO_HELP_CLASS[gap_kind]
 
 
+class OutcomePortfolioHelpRespondCommand(ContractModel):
+    """Admin respond body; server binds help_request_id, responder, and timestamp."""
+
+    response_kind: SrlHelpResponseKind
+    decision: Literal["APPROVE", "REJECT", "MORE_INFO"] | None = None
+    notes: NonEmptyStr | None = None
+
+
 class OutcomePortfolioHelpRequest(ContractModel):
     """Portfolio binding over the canonical SrlHelpRequest — not a second help taxonomy."""
 
@@ -176,6 +184,7 @@ class OutcomePortfolioHelpRequest(ContractModel):
     task_id: NonEmptyStr | None = None
     gap_kind: OutcomePortfolioHelpGap
     srl_help: SrlHelpRequest
+    response: SrlHelpResponse | None = None
     authority_granted: Literal[False] = False
     external_effects_authorized: Literal[False] = False
     task_activation_authorized: Literal[False] = False
@@ -199,6 +208,10 @@ class OutcomePortfolioHelpRequest(ContractModel):
     @property
     def mandate_id(self) -> str:
         return self.srl_help.mandate_id
+
+    @property
+    def is_open(self) -> bool:
+        return self.response is None
 
 
 def _outcome_portfolio_help_request_id(

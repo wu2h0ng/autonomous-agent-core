@@ -179,3 +179,73 @@ def test_non_admin_http_view_does_not_leak_help_requests(tmp_path) -> None:
     assert owner_portfolio["task_activation_authorized"] is False
     assert owner_portfolio["capability_grant_authorized"] is False
     assert owner_portfolio["external_effects_authorized"] is False
+
+
+def test_admin_responds_to_help_request_over_http(tmp_path) -> None:
+    import urllib.parse
+
+    _, owner, admin, task, store = _setup_with_help_request(tmp_path)
+    open_help = store.list_help_requests(MANDATE_ID, admin.principal)
+    assert len(open_help) == 1
+    help_id = open_help[0].help_request_id
+    path = (
+        f"/v1/mandates/{MANDATE_ID}/outcome-portfolio/help-requests/"
+        f"{urllib.parse.quote(help_id, safe='')}:respond"
+    )
+    with _server(owner, {ADMIN_TOKEN: admin, OWNER_TOKEN: owner}) as base:
+        owner_status, owner_err, _ = _request(
+            base,
+            path,
+            method="POST",
+            body={"response_kind": "CANCELLATION", "notes": "gap fixed"},
+            token=OWNER_TOKEN,
+        )
+        status, payload, _ = _request(
+            base,
+            path,
+            method="POST",
+            body={"response_kind": "CANCELLATION", "notes": "gap fixed"},
+            token=ADMIN_TOKEN,
+        )
+        listed_status, listed, _ = _request(base, _help_path(), token=ADMIN_TOKEN)
+        resolved_status, resolved, _ = _request(
+            base,
+            _help_path() + "?include_resolved=true",
+            token=ADMIN_TOKEN,
+        )
+
+    assert owner_status == 403
+    assert owner_err["error"] == "MandateOutcomePortfolioDenied"
+    assert status == 201
+    assert payload["response"]["response_kind"] == "CANCELLATION"
+    assert payload["authority_granted"] is False
+    assert payload["task_activation_authorized"] is False
+    assert payload["capability_grant_authorized"] is False
+    assert payload["external_effects_authorized"] is False
+    assert listed_status == 200
+    assert resolved_status == 200
+    assert listed["help_requests"] == []
+    assert len(resolved["help_requests"]) == 1
+    assert resolved["help_requests"][0]["task_id"] == task.task_id
+
+
+def test_http_respond_rejects_capability_grant(tmp_path) -> None:
+    import urllib.parse
+
+    _, owner, admin, _, store = _setup_with_help_request(tmp_path)
+    help_id = store.list_help_requests(MANDATE_ID, admin.principal)[0].help_request_id
+    path = (
+        f"/v1/mandates/{MANDATE_ID}/outcome-portfolio/help-requests/"
+        f"{urllib.parse.quote(help_id, safe='')}:respond"
+    )
+    with _server(owner, {ADMIN_TOKEN: admin}) as base:
+        status, payload, _ = _request(
+            base,
+            path,
+            method="POST",
+            body={"response_kind": "CAPABILITY_GRANT"},
+            token=ADMIN_TOKEN,
+        )
+
+    assert status == 403
+    assert payload["error"] == "MandateOutcomePortfolioDenied"

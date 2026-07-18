@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote_to_bytes, urlparse
+from urllib.parse import parse_qs, unquote_to_bytes, urlparse
 
 from pydantic import ValidationError
 
@@ -120,6 +120,43 @@ def _match_mandate_link_revocation(path: str) -> tuple[str, str] | None:
         link_id = _decode_path_segment(parts[5].removesuffix(":revoke"))
         if mandate_id is not None and link_id is not None:
             return mandate_id, link_id
+    return None
+
+
+def _match_outcome_portfolio_help_list(path: str) -> tuple[str, bool] | None:
+    parsed = urlparse(path)
+    if parsed.fragment or parsed.path.endswith("/"):
+        return None
+    parts = parsed.path.split("/")
+    if not (
+        len(parts) == 6
+        and parts[:3] == ["", "v1", "mandates"]
+        and parts[4:] == ["outcome-portfolio", "help-requests"]
+    ):
+        return None
+    mandate_id = _decode_path_segment(parts[3])
+    if mandate_id is None:
+        return None
+    values = parse_qs(parsed.query).get("include_resolved", ["false"])
+    include_resolved = values[0].lower() in {"1", "true", "yes"}
+    return mandate_id, include_resolved
+
+
+def _match_outcome_portfolio_help_respond(path: str) -> tuple[str, str] | None:
+    parsed = urlparse(path)
+    if parsed.query or parsed.fragment or parsed.path.endswith("/"):
+        return None
+    parts = parsed.path.split("/")
+    if (
+        len(parts) == 7
+        and parts[:3] == ["", "v1", "mandates"]
+        and parts[4:6] == ["outcome-portfolio", "help-requests"]
+        and parts[6].endswith(":respond")
+    ):
+        mandate_id = _decode_path_segment(parts[3])
+        help_request_id = _decode_path_segment(parts[6].removesuffix(":respond"))
+        if mandate_id is not None and help_request_id is not None:
+            return mandate_id, help_request_id
     return None
 
 
@@ -336,8 +373,9 @@ class Handler(BaseHTTPRequestHandler):
                     response_headers={"Cache-Control": "no-store"},
                 )
             return
-        mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio/help-requests")
-        if mandate_id is not None:
+        help_list = _match_outcome_portfolio_help_list(self.path)
+        if help_list is not None:
+            mandate_id, include_resolved = help_list
             admin = self._admin_application()
             if admin is None:
                 return
@@ -346,7 +384,8 @@ class Handler(BaseHTTPRequestHandler):
                     200,
                     {
                         "help_requests": admin.list_outcome_portfolio_help_requests(
-                            mandate_id
+                            mandate_id,
+                            include_resolved=include_resolved,
                         )
                     },
                     response_headers={"Cache-Control": "no-store"},
@@ -662,6 +701,19 @@ class Handler(BaseHTTPRequestHandler):
                 if admin is None:
                     return
                 record = admin.settle_persistent_commitment(mandate_id, body)
+                self._json(201, record)
+                return
+            help_respond = _match_outcome_portfolio_help_respond(self.path)
+            if help_respond is not None:
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                mandate_id, help_request_id = help_respond
+                record = admin.respond_outcome_portfolio_help_request(
+                    mandate_id,
+                    help_request_id,
+                    body,
+                )
                 self._json(201, record)
                 return
             mandate_id = _match_mandate_leaf(self.path, "task-links")
