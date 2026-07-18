@@ -15,6 +15,7 @@ from agent_os_contracts import (
     MandateResponsibilityViewStatus,
     MandateTaskLinkCommand,
     MandateTaskLinkRevocationCommand,
+    MandateWorkspaceRecord,
     ObservedOutcome,
     OutcomeStatus,
     NodeKind,
@@ -23,12 +24,14 @@ from agent_os_contracts import (
     ResponsibilityAttentionReason,
     ResponsibilityItemState,
     RunStatus,
+    RatifiedMandateRef,
     TaskEventDraft,
     TaskEventType,
     TaskStatus,
     WaitCondition,
     WorkflowGraph,
     canonical_json,
+    content_digest,
 )
 from agent_os_core import (
     MandateResponsibilityDenied,
@@ -438,6 +441,89 @@ def test_projection_fails_closed_outside_operational_mandate_time_window(
             admin.tasks,
             clock=lambda: NOW + timedelta(days=31),
         ).project("mandate:build-agent-os", admin.principal)
+
+
+def test_same_epoch_operational_ref_digest_drift_marks_link_unknown(tmp_path) -> None:
+    database, _, admin, task, store = _setup(tmp_path)
+    store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    connection = _connection(database)
+    try:
+        row = connection.execute(
+            "SELECT mandate_json FROM situated_mandates"
+        ).fetchone()
+        assert row is not None
+        operational = RatifiedMandateRef.model_validate_json(row[0])
+        drifted = operational.model_copy(update={"ratified_by": "principal:replacement"})
+        connection.execute(
+            "UPDATE situated_mandates SET mandate_json = ?",
+            (canonical_json(drifted),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    view = MandateResponsibilityProjector(
+        store, admin.tasks, clock=lambda: NOW
+    ).project("mandate:build-agent-os", admin.principal)
+    assert view.status is MandateResponsibilityViewStatus.PARTIAL_UNKNOWN
+    assert view.items[0].state is ResponsibilityItemState.UNKNOWN
+    assert view.items[0].attention_reasons == (
+        ResponsibilityAttentionReason.MANDATE_AUTHORITY_MISMATCH,
+    )
+
+
+def test_same_epoch_workspace_record_digest_drift_marks_link_unknown(tmp_path) -> None:
+    database, _, admin, task, store = _setup(tmp_path)
+    store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    connection = _connection(database)
+    try:
+        workspace_row = connection.execute(
+            "SELECT record_json FROM mandate_workspace_records"
+        ).fetchone()
+        operational_row = connection.execute(
+            "SELECT mandate_json FROM situated_mandates"
+        ).fetchone()
+        assert workspace_row is not None
+        assert operational_row is not None
+        workspace = MandateWorkspaceRecord.model_validate_json(workspace_row[0])
+        changed_mission = workspace.standing_mission.model_copy(
+            update={"active_commitment_ids": ("commitment:new",)}
+        )
+        drifted_workspace = workspace.model_copy(
+            update={"standing_mission": changed_mission}
+        )
+        workspace_digest = content_digest(drifted_workspace)
+        operational = RatifiedMandateRef.model_validate_json(operational_row[0])
+        drifted_operational = operational.model_copy(
+            update={"workspace_record_digest": workspace_digest}
+        )
+        connection.execute(
+            "UPDATE mandate_workspace_records SET record_digest = ?, record_json = ?",
+            (workspace_digest, canonical_json(drifted_workspace)),
+        )
+        connection.execute(
+            "UPDATE situated_mandates SET mandate_json = ?",
+            (canonical_json(drifted_operational),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    view = MandateResponsibilityProjector(
+        store, admin.tasks, clock=lambda: NOW
+    ).project("mandate:build-agent-os", admin.principal)
+    assert view.status is MandateResponsibilityViewStatus.PARTIAL_UNKNOWN
+    assert view.items[0].attention_reasons == (
+        ResponsibilityAttentionReason.MANDATE_AUTHORITY_MISMATCH,
+    )
 
 
 @pytest.mark.parametrize(

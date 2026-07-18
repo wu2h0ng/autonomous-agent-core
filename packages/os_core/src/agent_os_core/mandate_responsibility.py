@@ -513,6 +513,8 @@ class MandateResponsibilityProjector:
         link: MandateTaskLink,
         *,
         operational: RatifiedMandateRef,
+        workspace_record_digest: str,
+        operational_mandate_ref_digest: str,
         computed_at: datetime,
     ) -> ResponsibilityItem:
         if link.correction_epoch != operational.correction_epoch:
@@ -523,6 +525,20 @@ class MandateResponsibilityProjector:
                 state=ResponsibilityItemState.UNKNOWN,
                 attention_reasons=(
                     ResponsibilityAttentionReason.MANDATE_CORRECTION_DRIFT,
+                ),
+            )
+        if (
+            link.workspace_record_digest != workspace_record_digest
+            or link.operational_mandate_ref_digest
+            != operational_mandate_ref_digest
+        ):
+            return ResponsibilityItem(
+                link=link,
+                task_status=None,
+                run_status=None,
+                state=ResponsibilityItemState.UNKNOWN,
+                attention_reasons=(
+                    ResponsibilityAttentionReason.MANDATE_AUTHORITY_MISMATCH,
                 ),
             )
         connection = self._store._connect()
@@ -726,6 +742,8 @@ class MandateResponsibilityProjector:
             self._project_link(
                 link,
                 operational=operational,
+                workspace_record_digest=workspace_digest,
+                operational_mandate_ref_digest=operational_digest,
                 computed_at=computed_at,
             )
             for link in links
@@ -1202,6 +1220,14 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
                     raise MandateResponsibilityDenied(
                         "correction epoch drift prevents responsibility relink"
                     )
+                if (
+                    active[0].workspace_record_digest != workspace_digest
+                    or active[0].operational_mandate_ref_digest
+                    != operational_digest
+                ):
+                    raise MandateResponsibilityDenied(
+                        "authority digest drift prevents responsibility replay"
+                    )
                 if active[0].command_digest != command_digest:
                     raise MandateResponsibilityConflict(
                         "active association is bound to a different command"
@@ -1214,6 +1240,14 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
                 if latest.correction_epoch != operational.correction_epoch:
                     raise MandateResponsibilityDenied(
                         "correction epoch drift prevents responsibility relink"
+                    )
+                if (
+                    latest.workspace_record_digest != workspace_digest
+                    or latest.operational_mandate_ref_digest
+                    != operational_digest
+                ):
+                    raise MandateResponsibilityDenied(
+                        "authority digest drift prevents responsibility relink"
                     )
                 prior = revocations.get(latest.link_id)
                 if prior is None:
@@ -1328,7 +1362,12 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            workspace, _, operational, _ = self._read_authority(
+            (
+                workspace,
+                workspace_digest,
+                operational,
+                operational_digest,
+            ) = self._read_authority(
                 connection,
                 mandate_id,
                 actor,
@@ -1354,6 +1393,13 @@ class SQLiteMandateResponsibilityStore(_SQLiteMandateResponsibilitySchema):
             if link.correction_epoch != operational.correction_epoch:
                 raise MandateResponsibilityDenied(
                     "correction epoch drift prevents responsibility revocation"
+                )
+            if (
+                link.workspace_record_digest != workspace_digest
+                or link.operational_mandate_ref_digest != operational_digest
+            ):
+                raise MandateResponsibilityDenied(
+                    "authority digest drift prevents responsibility revocation"
                 )
             if command.expected_link_digest != link.record_digest:
                 raise MandateResponsibilityConflict("stale link digest")

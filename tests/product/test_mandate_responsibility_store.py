@@ -340,3 +340,49 @@ def test_active_only_list_validates_revocation_before_hiding_link(tmp_path) -> N
             owner.principal,
             include_revoked=False,
         )
+
+
+@pytest.mark.parametrize("operation", ["replay", "revoke"])
+def test_same_epoch_operational_ref_digest_drift_blocks_link_writes(
+    tmp_path, operation
+) -> None:
+    database, _, admin, task, store = _setup(tmp_path)
+    command = MandateTaskLinkCommand(task_id=task.task_id)
+    link = store.create_link(
+        command,
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    connection = _connection(database)
+    try:
+        row = connection.execute(
+            "SELECT mandate_json FROM situated_mandates"
+        ).fetchone()
+        assert row is not None
+        operational = RatifiedMandateRef.model_validate_json(row[0])
+        drifted = operational.model_copy(update={"ratified_by": "principal:replacement"})
+        connection.execute(
+            "UPDATE situated_mandates SET mandate_json = ?",
+            (canonical_json(drifted),),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(MandateResponsibilityDenied, match="authority digest"):
+        if operation == "replay":
+            store.create_link(
+                command,
+                "mandate:build-agent-os",
+                admin.principal,
+            )
+        else:
+            store.revoke_link(
+                MandateTaskLinkRevocationCommand(
+                    expected_link_digest=link.record_digest,
+                    reason="stale authority",
+                ),
+                "mandate:build-agent-os",
+                link.link_id,
+                admin.principal,
+            )
