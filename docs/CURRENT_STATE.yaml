@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-18T11:34:00+08:00"
+updated: "2026-07-18T13:51:50+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main"
-status: "Agent OS remote main is `946d428`; Product code through `4ba2612` adds independently approved bounded Active Perception above durable scoped `RATIFIED` Mandate intake and authenticated observation authority. It polls the already-authorized Data Agent source in feed-limited batches, emits proposal-only assessments and resumes exact completed batches across restart; lease/fence, canonical assessment and recovery-batch binding fail closed. Fresh evidence is 1498 Product tests passed/1 skipped, 268 high-risk targeted tests, Ruff clean and Pyright 0. It cannot activate Tasks, grant capabilities or cause external effects, and it is not released. R-NONORACLE-PERTURB-KILL-1 data qualification and selective-ZIP provenance remain approved on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718`, but the one-shot HMAC commitment was invalidated when a reviewer tool transcript exposed hidden identity keys. Exact branch head `88cb028` is `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN`; re-key, retry, freeze and run are prohibited. A successor requires a new preregistration and external non-LLM transcript-safe scorer service. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` is an independently approved design candidate at `76c92c5`, but remains `PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -25,11 +25,11 @@ identity:
 
 current_phase:
   product:
-    label: "durable RATIFIED Mandate input, authenticated observation authorization and bounded proposal-only active perception; continuing Mandate/SRL loop incomplete"
-    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_AT_4BA2612 / PROPOSAL_ONLY / NOT_RELEASED"
+    label: "durable RATIFIED Mandate input, authenticated observation authority, bounded proposal-only active perception, and a Mandate-scoped read-only responsibility view; continuing Mandate/SRL loop incomplete"
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_THROUGH_3C7F524 / READ_ONLY_PROJECTION / NOT_RELEASED"
   research:
-    label: "mixed bounded evidence; R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed but its one-shot HMAC commitment is PARK after a transcript custody violation; no freeze or result run"
-    status: "PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
+    label: "mixed bounded evidence; non-oracle HMAC custody is PARK and R-W1W2-ABA-1 is an approved route-kill design candidate only; no freeze or result run"
+    status: "NONORACLE_PARK / ABA_DESIGN_CANDIDATE / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
@@ -100,6 +100,35 @@ verified_capabilities:
       high_risk_targeted: "268 passed"
       quality: "Ruff clean; Pyright 0 errors/0 warnings; independent exact-head review APPROVE_ACTIVE_PERCEPTION_INTEGRATION"
     boundary: "No autonomous goal portfolio, TaskActivation, capability grant, external effect, release, sustained responsibility, reduced Founder cognitive load evidence or autonomy claim."
+  mandate_responsibility_view:
+    status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN / READ_ONLY / NOT_RELEASED"
+    requirement_class: "P/A"
+    user_result: "An operator can select a Mandate and inspect its explicit Task responsibilities, desired outcomes, current typed attention state, source gaps, next observation and stable digest without creating or mutating work."
+    real_entry_points:
+      - "POST /v1/mandates/{mandate_id}/task-links"
+      - "GET /v1/mandates/{mandate_id}/task-links"
+      - "POST /v1/mandates/{mandate_id}/task-links/{link_id}:revoke"
+      - "GET /v1/mandates/{mandate_id}/responsibility-view"
+      - "Mandate responsibility section in the existing Agent Surface"
+    verified_properties:
+      - "links are explicit, append-only, versioned and bound to current Mandate authority plus Task-created identity"
+      - "projection re-reads canonical Mandate, Task, commitment, expected/current outcome and schedule sources and fails closed on drift"
+      - "UNKNOWN, NEEDS_ATTENTION, DONE_VERIFIED and TRACKED use closed typed reasons and strict precedence"
+      - "partial/revoked/error states remain visible; a failed Mandate switch clears all prior Mandate truth"
+      - "Mandate IDs round-trip as strict single path segments; malformed, ambiguous, slash, control and double-encoded paths fail closed"
+      - "default in-memory composition shares one per-instance canonical SQLite URI without cwd files or cross-instance leakage"
+      - "the surface is read-only except Mandate selection and refresh; it contains no activate, execute, approve, edit, link or revoke control"
+      - "the separate value scorer requires external gold/order hashes and mechanically verifies order generation; it cannot freeze, run or authorize a claim"
+    dated_verification:
+      date: "2026-07-18"
+      reviewed_code_head: "3c7f524a4603f53f02f69f41e8af533d1014d3ce"
+      component_reviews: "APPROVE_RESPONSIBILITY_CORE / APPROVE_RESPONSIBILITY_API_UI / APPROVE_RESPONSIBILITY_VALUE_FALSIFIER"
+      integration_review: "APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT"
+      targeted: "143 responsibility/adjacent passed; 25 file-persistence passed; 170 frozen/integrity passed"
+      full_product_and_product_eval: "2504 passed, 1 skipped, 7 failed; full_suite_green=false; task-specific failures=0"
+      quality: "Ruff clean; Pyright 0 errors/0 warnings; diff-check clean; desktop, 390px and injected partial/failure browser paths verified"
+      durable_review: ".agent_runs/mandate-responsibility-view-20260718/messages.jsonl"
+    boundary: "This is an explicit-link read projection and measurement machine only. It does not own a continuing Outcome Portfolio, form goals, settle commitments, activate Tasks, grant capabilities, execute effects, prove reduced Founder cognitive load, establish sustained responsibility, freeze/run a value comparison, or support an autonomy claim."
   product_spine_0:
     status: "PM_ACCEPTED_BOUNDED_LOCAL_SLICE"
     evidence_level: "E3_LOCAL_CONTROLLED"
@@ -543,7 +572,7 @@ recently_completed:
 
 blockers:
   product:
-    - "Bounded active perception is integrated, but it still produces only proposal artifacts; no durable Outcome Portfolio/Persistent Commitment owner, outcome-truth settlement loop or measured Founder Cognitive Load reduction closes the Mandate-driven Situated Responsibility Loop."
+    - "Bounded active perception and the read-only responsibility projection are integrated, but neither owns a continuing Outcome Portfolio/Persistent Commitment lifecycle or settlement loop. The cognitive-load scorer is DESIGN_ONLY / NOT_FROZEN / NOT_RUN, so no measured Founder Cognitive Load reduction closes the Mandate-driven Situated Responsibility Loop."
     - "The Data Agent situated path is integrated locally on the canonical feature branch, but the general personal/software-engineering path, independent M0c scorer custody and real matched-baseline value evidence remain incomplete."
     - "ADM-P1 seals inert candidates, ADM-P2 records external evaluation receipts, ADM-P3 records Product-owned decisions and ADM-P4 freezes an exact Task/Run configuration reference; evaluator execution/performance, typed evidence-custody and independence proofs, a production policy able to PROMOTE, materializer acquisition, production-created priors, prior application/effectiveness and activation remain unimplemented."
     - "ADM-P4 provider/grant state is point-in-time and same-process guarded rather than a durable multi-process configuration ledger; restart/reconfiguration drift fails closed and no cross-process atomicity is claimed."
@@ -553,12 +582,13 @@ blockers:
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
     - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
+    - "R-W1W2-ABA-1 at `76c92c5` is an approved route-kill design candidate only. It still requires an implementation cast, new preregistration, exact external freeze inputs and disjoint units; no implementation, freeze, run, REDUCES_TO claim or mechanism result exists."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
     - "Core-evolution successor packets and independent promotion machinery are not implemented/authorized."
   repository:
-    - "Active Perception is on remote main at 4ba2612 but is not released. Local main checkouts may lag or contain unrelated dirty work and must not be used as state truth without fetching."
+    - "The responsibility-view code through reviewed head 3c7f524 is integrated on main but not released. Repository-wide Product+product_eval remains non-green at 2504 passed/1 skipped/7 failed; five failures reproduce on the no-feature baseline and two elapsed/order-sensitive tests pass targeted, but the debt must not be called green."
     - "Task 7 is integrated on main. Task 8 candidate 9b5d47a, the accepted B1 harness and RTM-1 resource-v4 remain separate-branch evidence and are not integrated."
     - "Actor transport c72375a remains an approved isolated Research candidate. W1/W2 direct adaptation and independent scorer/freezer custody remain unimplemented."
 
@@ -582,9 +612,9 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK with its negative evidence intact. Do not re-key or retry. Consider a successor only through a new preregistration and an external non-LLM transcript-safe scorer process/service; otherwise allocate research effort to another decisive bottleneck."
+    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK with its negative evidence intact and do not re-key or retry. Cast the smallest R-W1W2-ABA-1 implementation/prereg successor from approved design 76c92c5; preserve Stage-1 sample-bound PARK semantics and require external transcript-safe freeze/scoring before any run."
   - priority: 2
-    action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment slice above Active Perception, with explicit settlement against ObservedOutcome and a matched Founder Cognitive Load falsifier; keep it proposal-only until its authority contract is independently accepted."
+    action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment owner and explicit ObservedOutcome settlement loop above the read-only responsibility view. Separately freeze the matched Founder Cognitive Load comparison only after hidden snapshots, gold/order receipts, independent adjudicator identity and Founder timing exist."
   - priority: 3
     action: "Implement RStateExecutionBundleV1 as the sole Runtime admission/recovery subject across custody, freeze, envelope, sealed child and settlement; PARK remote CAS, HSM, UI, general DAG recovery and provider run."
   - priority: 4
@@ -597,7 +627,7 @@ test_commands:
   quality:
     - "uv run --extra product-test ruff check apps packages/os_core/src packages/contracts/src tests/product"
     - "uv run --extra product-test pyright apps packages/os_core/src packages/contracts/src tests/product"
-  caution: "ADM-P2/Product commands were rerun on 2026-07-15 as recorded in its evidence artifact. A separate Product-eval run ended with 765 passed and two pre-existing external-artifact failures; do not call the repository-wide suite green."
+  caution: "The 2026-07-18 responsibility integration run ended with 2504 passed, 1 skipped and 7 failed. Five failures reproduce without the feature; two elapsed/order-sensitive tests pass targeted. Task-specific failures are zero, but the repository-wide suite is not green and no Product/research claim may erase that debt."
 
 source_refs:
   product:
@@ -633,11 +663,11 @@ source_refs:
     - "../docs/research/ROUTE-adaptivity-gap-2026-07-10/07-stage0-submodularity-gonogo-PARK.md"
 
 freshness:
-  checked_at: "2026-07-17T19:02:00+08:00"
+  checked_at: "2026-07-18T13:51:50+08:00"
   branch: "main"
-  canonical_head: "b95ae7c"
-  prior_canonical_head: "a8c71b152b57ab78720ce8bd09f1ab2f7eed78e9"
-  merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
-  commit_state: "CANONICAL_INTEGRATION_WINDOW_3_APPROVED_PENDING_STATE_PUSH / FOCUSED_16 / PRODUCT_1392_PASSED_1_SKIPPED / RUFF_PYRIGHT_DIFF_CLEAN / APPROVE_INTEGRATION_WINDOW_3 / NOT_RELEASED"
-  merge_scope: "Remote main 0097336 contains the approved canonical Product train through P-SRL-RUNTIME-M1-plus, M0c bounded execution infrastructure, Evaluator Authority V0 and Trajectory/Credit V0, together with their exact historical documentation and tests. R-SRL-1 remains an unfrozen harness; actor transport, R-EVAL and R-STATE successors remain isolated Research candidates. No production activation, Data Agent migration, result run or release follows from the main integration."
-  evidence_separation: "Task6, M0c successor e6abe0d, M1-plus, Evaluator Authority V0 and Trajectory/Credit V0 are integrated Product/Product-eval infrastructure on remote main 0097336. M0c remains proposal-only with public evaluation closed; Trajectory/Credit remains offline and cannot mutate W1/W2. Actor transport c72375a remains isolated Research infrastructure with no semantic-grounding claim. None is a release, customer outcome, general cognition or Autonomy(S,E,O,V,T) result."
+  canonical_code_head: "3c7f524a4603f53f02f69f41e8af533d1014d3ce"
+  prior_remote_main: "8982cad9617794b6cc161ba1b4e449cc7f87f99b"
+  merge_base: "8982cad9617794b6cc161ba1b4e449cc7f87f99b"
+  commit_state: "APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT / TARGETED_143_25_170 / FULL_2504_PASSED_1_SKIPPED_7_FAILED / FULL_SUITE_NOT_GREEN / RUFF_PYRIGHT_DIFF_CLEAN / NOT_RELEASED"
+  merge_scope: "Main integration adds explicit MandateTaskLink persistence, a Mandate-scoped read-only responsibility projection/API/Agent Surface, and a design-only value falsifier. It adds no TaskActivation, capability grant, provider/tool dispatch, external effect, run result or release."
+  evidence_separation: "Responsibility-view Product implementation is distinct from the NOT_FROZEN/NOT_RUN cognitive-load comparison. R-W1W2-ABA-1 is a separate Research design candidate at 76c92c5, and non-oracle HMAC custody remains PARK at 88cb028. None is customer evidence, sustained responsibility, autonomy or general intelligence."
