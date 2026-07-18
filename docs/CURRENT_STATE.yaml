@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-18T11:17:00+08:00"
+updated: "2026-07-18T11:34:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "main"
-status: "Agent OS remote main is `6d36f1db65a1a2b441709152a2f1f61dd56fd827`; Product code through `4ba2612` adds independently approved bounded Active Perception above durable scoped `RATIFIED` Mandate intake and authenticated observation authority. It polls the already-authorized Data Agent source in feed-limited batches, emits proposal-only assessments and resumes exact completed batches across restart; lease/fence, canonical assessment and recovery-batch binding fail closed. Fresh evidence is 1498 Product tests passed/1 skipped, 268 high-risk targeted tests, Ruff clean and Pyright 0. It cannot activate Tasks, grant capabilities or cause external effects, and it is not released. R-NONORACLE-PERTURB-KILL-1 data qualification and the real selective-ZIP provenance manifest are independently approved only on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718` at `075e6df`: 28,412 cells, exactly 40 supported targets, 640 aggregates, MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN. The remaining pre-freeze blocker is the one-shot scorer-custodied HMAC GUIDE/NTC assignment; no HMAC, mechanism, freeze or run exists. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
+status: "Agent OS remote main is `946d428`; Product code through `4ba2612` adds independently approved bounded Active Perception above durable scoped `RATIFIED` Mandate intake and authenticated observation authority. It polls the already-authorized Data Agent source in feed-limited batches, emits proposal-only assessments and resumes exact completed batches across restart; lease/fence, canonical assessment and recovery-batch binding fail closed. Fresh evidence is 1498 Product tests passed/1 skipped, 268 high-risk targeted tests, Ruff clean and Pyright 0. It cannot activate Tasks, grant capabilities or cause external effects, and it is not released. R-NONORACLE-PERTURB-KILL-1 data qualification and selective-ZIP provenance remain approved on isolated branch `codex/r-nonoracle-intervention-shift-1-20260718`, but the one-shot HMAC commitment was invalidated when a reviewer tool transcript exposed hidden identity keys. Exact branch head `88cb028` is `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN`; re-key, retry, freeze and run are prohibited. A successor requires a new preregistration and external non-LLM transcript-safe scorer service. No Agent OS Alpha, sustained responsibility loop, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -28,8 +28,8 @@ current_phase:
     label: "durable RATIFIED Mandate input, authenticated observation authorization and bounded proposal-only active perception; continuing Mandate/SRL loop incomplete"
     status: "IMPLEMENTED_TESTED_INTEGRATED_MAIN_AT_4BA2612 / PROPOSAL_ONLY / NOT_RELEASED"
   research:
-    label: "mixed bounded evidence; R-NONORACLE-PERTURB-KILL-1 real-data qualification approved on an isolated branch with zero target margin and NTC split pending; no freeze or result run"
-    status: "DATA_QUALIFICATION_APPROVED / MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
+    label: "mixed bounded evidence; R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed but its one-shot HMAC commitment is PARK after a transcript custody violation; no freeze or result run"
+    status: "PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN / NO_GENERAL_AUTONOMY_CLAIM"
   migration:
     label: "T-P-OS-SPINE-1"
     status: "DESIGN_AUTHORIZED / EXECUTION_GATED / NOT_EXECUTED"
@@ -272,13 +272,14 @@ active_work:
       - "docs/superpowers/plans/2026-07-18-mandate-active-perception-review-closure.md"
   - id: "R-NONORACLE-PERTURB-KILL-1"
     track: "research"
-    status: "DATA_QUALIFICATION_AND_SELECTIVE_PROVENANCE_APPROVED_AT_075E6DF / TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING / NOT_FROZEN / NOT_RUN"
+    status: "PARK_HMAC_ASSIGNMENT_COMMITMENT_AT_88CB028 / CUSTODY_TRANSCRIPT_VIOLATION / QUALIFICATION_AND_PROVENANCE_RETAINED / MARGIN_0 / NOT_FROZEN / NOT_RUN"
     purpose: "Test whether a non-oracle procedure can recover intervention-relevant structure under real perturbation shift without outcome-guide leakage or post-hoc route rescue."
-    boundary: "Data qualification and the exact five-member selective-source provenance manifest are approved. The 40-target gate has zero margin; the one-shot scorer-custodied HMAC GUIDE/NTC assignment remains mandatory before freeze, and any NTC split side/block below 25 PARKs the route without retry. No mechanism, provider, training, result or product claim is authorized."
+    boundary: "Data qualification and the exact five-member selective-source provenance manifest remain approved. The technical HMAC assignment counts passed, but the split gate is invalid because hidden identity keys entered a reviewer tool transcript. One-shot/no-retry forbids re-key or rescue. A successor is a new route requiring new preregistration and an external non-LLM transcript-safe scorer service."
     source:
       - "docs/superpowers/specs/2026-07-18-nonoracle-intervention-shift-design.md"
       - "docs/research/R-NONORACLE-PERTURB-KILL-1-data-qualification-report.md"
-      - "codex/r-nonoracle-intervention-shift-1-20260718@075e6df0b831ef0fc39931c8eac9056e0f89c06e"
+      - "codex/r-nonoracle-intervention-shift-1-20260718@88cb028687e76a530d629954443958b9cfb52740"
+      - "docs/research/R-NONORACLE-PERTURB-KILL-1-negative-map.md"
   - id: "P-CORE-ADAPT-1"
     track: "product_and_translational"
     status: "ADM_P1_P2_P3_P4_INTEGRATED_TO_CANONICAL_CONVERGENCE_AT_8EB76E6 / PRODUCTION_POLICY_V1_ALL_DEFER / NO_ACTIVATION"
@@ -551,7 +552,7 @@ blockers:
     - "SPINE-1 migration is not executed."
   research:
     - "No `Autonomy(S,E,O,V,T)` evidence supports a general autonomy claim."
-    - "R-NONORACLE-PERTURB-KILL-1 qualifies exactly 40 targets with zero margin and has an independently approved selective-source provenance manifest, but the one-shot scorer-custodied HMAC GUIDE/NTC assignment is not yet made; no freeze, mechanism run or non-oracle discovery result exists."
+    - "R-NONORACLE-PERTURB-KILL-1 qualification/provenance passed with zero target margin, but its one-shot HMAC commitment is PARK after a custody transcript violation. Re-key/retry/freeze/run are prohibited; no non-oracle discovery result exists."
     - "LH-RECOVERY-1A has no D2, preregistered formal outcome run or result; v5's 432/432 oracle is semantic reference validation only and the missing Product execution contract prevents promotion to run authority."
     - "RTM-1 resource-v4 is accepted implementation on a separate branch but remains NOT_BENCHMARKED and NOT_RUN."
     - "No evidence trigger yet justifies latent-recurrent or learned-state training; the parent accelerated policy authorizes a frozen bounded training arm only after a strong autoregressive/explicit-state ceiling is demonstrated."
@@ -581,7 +582,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Perform the one-shot scorer-custodied HMAC GUIDE/NTC assignment against exact branch head 075e6df and its accepted source manifest. PARK without retry if either NTC split side/block is below 25; do not implement the mechanism or run while the freeze packet is incomplete."
+    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK with its negative evidence intact. Do not re-key or retry. Consider a successor only through a new preregistration and an external non-LLM transcript-safe scorer process/service; otherwise allocate research effort to another decisive bottleneck."
   - priority: 2
     action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment slice above Active Perception, with explicit settlement against ObservedOutcome and a matched Founder Cognitive Load falsifier; keep it proposal-only until its authority contract is independently accepted."
   - priority: 3
