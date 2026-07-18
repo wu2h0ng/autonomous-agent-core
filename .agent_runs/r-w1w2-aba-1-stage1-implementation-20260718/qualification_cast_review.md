@@ -22,3 +22,7 @@
 - Stale internal design labels remain superseded only by the exact design receipt and cannot upgrade preregistration, readiness, freeze or run state.
 
 Approved state: `QUALIFICATION_SCAFFOLD_CAST_APPROVED / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`.
+
+## Canonical source-path delta
+
+After the first approval, `codebase_index.md` showed that `src/aac/` is the canonical Research Track code root. The reserved five-file scope was corrected from a new parallel namespace to `src/aac/r_w1w2_aba`. Exact path-only re-review returned `APPROVE_QUALIFICATION_SCAFFOLD_PATH_DELTA` with `P0=0 / P1=0`. This opens only that corrected public scaffold path and does not change experiment authority.

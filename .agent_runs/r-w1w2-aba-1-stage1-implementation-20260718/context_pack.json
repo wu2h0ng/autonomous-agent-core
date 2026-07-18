@@ -20,6 +20,7 @@
   },
   "files_read": [
     "docs/CURRENT_STATE.yaml",
+    "codebase_index.md",
     ".agent_runs/r-w1w2-aba-1-design-20260718/brief.md",
     ".agent_runs/r-w1w2-aba-1-design-20260718/research.md",
     ".agent_runs/r-w1w2-aba-1-design-20260718/spec.md",
@@ -60,6 +61,7 @@
   "controlled_exposure": {
     "qualification_cast_audit": "REVISE; advisory because the first auditor read the task packet before a machine-bound RR-0031 record",
     "rr0031_delta": "APPROVE_QUALIFICATION_SCAFFOLD_CAST; exact correction re-review found P0=0 and P1=0; experiment implementation remains denied",
+    "package_path_delta": "APPROVE_QUALIFICATION_SCAFFOLD_PATH_DELTA with P0=0/P1=0; canonical Research Track root is src/aac/r_w1w2_aba; experiment authority unchanged",
     "legacy_heads": [
       "8c090f1604b83a6d10c3a1cbe6f557cfe1553e6e",
       "a4afe1401671c3ea0dae3efde6ecf0284d5f9269"
@@ -71,6 +73,7 @@
     "No private hidden material has been created or opened in this package.",
     "No result-bearing command is necessary to decide experiment implementation admission.",
     "A missing or unaccepted bundle denies experiment implementation and cannot be replaced by a narrative waiver.",
-    "A future qualification-only scaffold may only reject public artifacts; it cannot select units, execute arms, score private outcomes, freeze, run or produce evidence."
+    "A future qualification-only scaffold may only reject public artifacts; it cannot select units, execute arms, score private outcomes, freeze, run or produce evidence.",
+    "The qualification scaffold uses the canonical Research Track root src/aac/r_w1w2_aba and must not create a parallel top-level Python package."
   ]
 }

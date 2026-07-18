@@ -34,9 +34,9 @@
 - [x] Bind canonical base, design source commit and exact design SHA-256.
 - [x] Preserve the harsh Stage 1 route-kill comparison and claim ceiling.
 - [x] Mark every absent external commitment as `UNBOUND`, not as a fillable default.
-- [ ] Incorporate independent design-auditor and legacy-code-characterizer findings.
-- [ ] Run exact-byte, forbidden-claim and JSON validity checks.
-- [ ] Commit only after `qualification_cast_review.md` reports no unresolved P0/P1.
+- [x] Incorporate independent design-auditor and legacy-code-characterizer findings.
+- [x] Run exact-byte, forbidden-claim and JSON validity checks.
+- [x] Commit only after `qualification_cast_review.md` reports no unresolved P0/P1.
 
 **Admission result:** Until exact cast review passes, the scaffold is write-closed. Even after scaffold approval, B1-B5 absence keeps the experiment at `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`.
 
@@ -57,13 +57,17 @@
 ### Task 3: TDD public qualification scaffold, conditional on exact cast approval
 
 **Files after admission only:**
-- Create: `src/autonomous_agent_core/research/r_w1w2_aba/contracts.py`
-- Create: `src/autonomous_agent_core/research/r_w1w2_aba/canonical.py`
-- Create: `src/autonomous_agent_core/research/r_w1w2_aba/validators.py`
-- Create: `src/autonomous_agent_core/research/r_w1w2_aba/stage1_state.py`
-- Create: `src/autonomous_agent_core/research/r_w1w2_aba/public_custody.py`
+- Create: `src/aac/r_w1w2_aba/contracts.py`
+- Create: `src/aac/r_w1w2_aba/canonical.py`
+- Create: `src/aac/r_w1w2_aba/validators.py`
+- Create: `src/aac/r_w1w2_aba/stage1_state.py`
+- Create: `src/aac/r_w1w2_aba/public_custody.py`
 - Create: `tests/research/r_w1w2_aba/test_admission.py`
 - Create: `tests/research/r_w1w2_aba/test_stage1_public_verifier.py`
+
+`src/aac/` is the canonical Research Track code root. Do not introduce a parallel top-level Python namespace for this scaffold.
+
+This source-root correction postdates the first exact cast approval. TDD remains write-closed until the calibrated reviewer approves this path-only delta.
 
 **Interfaces and hard omissions:**
 - Consumes only public B1-B5 manifests, public commitments, global seal and closed post-seal score receipt.
@@ -78,7 +82,9 @@ TDD sequence for every interface:
 4. Run targeted tests, Ruff and Pyright.
 5. Commit and request an independent exact-diff review.
 
-**Mandatory first RED cases:** unknown bundle field, missing bundle acceptance, forbidden disposition, killer tie incorrectly advancing, pre-global-seal scoring, unknown closed-output field, Stage 1 reuse in Stage 2, role collision, private-path reference and green-tests-mint-authority.
+**Mandatory first RED cases:** unknown bundle field, missing bundle acceptance, forbidden disposition, killer match incorrectly advancing, pre-global-seal scoring, unknown closed-output field, Stage 1 receipt relabelled as Stage 2, role collision, private-path reference and green-tests-mint-authority.
+
+**Implemented TDD evidence:** RED was observed as two collection failures because `aac.r_w1w2_aba` did not exist. The minimal five-module implementation then passed 28 targeted tests and 121 combined Research tests, with Ruff and Pyright clean. Numeric scoring, strongest-killer computation, Stage 2 overlap, one-shot CAS and all execution/authority APIs remain `PARK` rather than being invented to satisfy tests.
 
 ### Task 4: Freeze and run remain separate future gates
 

@@ -14,17 +14,20 @@
 - Authorized now: exact-byte route cast, unresolved public preregistration template, legacy implementation characterization, public qualification-scaffold design and independent review.
 - Not authorized now: candidate/baseline/scorer code, hidden unit selection, hidden material handling, provider result calls, training, freeze, run permit, result run, merge to `main`, release or any autonomy/value claim.
 - The public code scopes below remain write-closed until the exact decision is `QUALIFICATION_SCAFFOLD_CAST_APPROVED`.
+- Any post-review change to a reserved source path re-closes that path until an exact path-delta review approves it.
 - That decision never changes the concurrent experiment state: `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`.
 
 ## Scope Include
 
 - `.agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/**`
-- reserved after cast approval only: `src/autonomous_agent_core/research/r_w1w2_aba/contracts.py`
-- reserved after cast approval only: `src/autonomous_agent_core/research/r_w1w2_aba/canonical.py`
-- reserved after cast approval only: `src/autonomous_agent_core/research/r_w1w2_aba/validators.py`
-- reserved after cast approval only: `src/autonomous_agent_core/research/r_w1w2_aba/stage1_state.py`
-- reserved after cast approval only: `src/autonomous_agent_core/research/r_w1w2_aba/public_custody.py`
+- reserved after cast approval only: `src/aac/r_w1w2_aba/contracts.py`
+- reserved after cast approval only: `src/aac/r_w1w2_aba/canonical.py`
+- reserved after cast approval only: `src/aac/r_w1w2_aba/validators.py`
+- reserved after cast approval only: `src/aac/r_w1w2_aba/stage1_state.py`
+- reserved after cast approval only: `src/aac/r_w1w2_aba/public_custody.py`
 - reserved after cast approval only: `tests/research/r_w1w2_aba/**`
+
+The `src/aac/` location is mandatory because `codebase_index.md` classifies it as the canonical Research Track package. This scaffold must not create a second top-level Python namespace or enter Product packages.
 
 ## Scope Exclude
 

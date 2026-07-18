@@ -5,7 +5,7 @@
 - Clean worktree base: Agent OS `origin/main@6c94bd8`.
 - Imported design commit: `61f4175`, from approved source `76c92c5`.
 - Pre-change research baseline: `tests/research/r_srl_1` = `93 passed`.
-- No candidate, baseline, scorer, freezer, curator, executor or experiment code has been added.
+- Only a public qualification protocol/verifier/state machine has been added; no candidate, baseline, scorer, freezer, curator, executor or experiment code exists in this package.
 - No private hidden material exists in this package.
 
 ## Completed checks
@@ -23,12 +23,19 @@
 | first cast audit | `REVISE` | advisory; predated compliant blind record |
 | RR-0031 blind phase | `PASS_TO_CONTROLLED_EXPOSURE` | no spec/implementation authority |
 | RR-0031 controlled-delta exact re-review | `APPROVE_QUALIFICATION_SCAFFOLD_CAST`; `P0=0 / P1=0` | public qualification scaffold only; experiment authority unchanged |
-| current-patch `git diff --check` | `PASS` | public cast artifacts only; no source/test code |
+| current-patch `git diff --check` | `PASS` | cast plus public qualification-scaffold implementation |
 | cast-artifact commit scope | `PASS` | 25 task-local public/control artifacts only; no source/test/hidden/result files |
+| canonical source-path delta review | `APPROVE_QUALIFICATION_SCAFFOLD_PATH_DELTA`; `P0=0 / P1=0` | exactly five files under canonical Research Track `src/aac/r_w1w2_aba` |
+| TDD RED | `PASS` | two expected collection errors: `ModuleNotFoundError: aac.r_w1w2_aba` before production files existed |
+| targeted public scaffold tests | `28 passed` | public B1-B5 contracts, canonical digest, post-seal receipt and Stage 1 precedence only |
+| combined Research regression | `121 passed` | prior `r_srl_1` 93 plus new 28 |
+| Ruff | `PASS` | five source and two test files |
+| Pyright | `0 errors / 0 warnings` | five source and two test files |
+| forbidden implementation-surface scan | `PASS` | no file/network/provider/runner/executor/authorize/issue/sign/freeze/run API; descriptive docstrings only |
 
 ## Pending checks
 
-None for qualification-cast admission. TDD implementation and its independent review are separate future checks.
+- independent exact-diff implementation review remains pending.
 
 ## Out of scope / explicitly unverified
 
@@ -41,4 +48,4 @@ None for qualification-cast admission. TDD implementation and its independent re
 
 ## Current verdict
 
-`QUALIFICATION_SCAFFOLD_CAST_APPROVED / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`
+`QUALIFICATION_SCAFFOLD_IMPLEMENTED_AND_TESTED_AWAITING_INDEPENDENT_REVIEW / EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`

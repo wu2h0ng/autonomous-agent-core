@@ -8,7 +8,7 @@
     {
       "agent_id": "aba_blind_calibrator",
       "role": "read-only-rr0031-reviewer",
-      "status": "active"
+      "status": "done"
     },
     {
       "agent_id": "aba_stage1_cast_audit",
@@ -26,11 +26,10 @@
       "status": "todo"
     }
   ],
-  "approval_request_id": "perm_b8b82ee861654579",
+  "approval_request_id": "perm_4217fb6d688360bf",
   "evidence_refs": [
     "qualification_cast_review.md",
-    "advisory_cast_review.md",
-    "cognitive_calibration_record.md"
+    "messages.jsonl"
   ],
   "permission_action": "team.plan.write",
   "tasks": [
@@ -108,7 +107,7 @@
         "cognitive_calibration_record.md",
         "qualification_cast_review.md"
       ],
-      "status": "in_progress",
+      "status": "done",
       "task_id": "ABA-RR0031-CONTROLLED-DELTA"
     },
     {
@@ -123,7 +122,7 @@
       "expected_artifacts": [
         "verification_report.md"
       ],
-      "status": "todo",
+      "status": "in_progress",
       "task_id": "ABA-QUALIFICATION-SCAFFOLD-TDD"
     },
     {
