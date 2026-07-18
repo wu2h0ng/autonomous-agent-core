@@ -116,6 +116,13 @@ from .mandate_workspace import (
     SQLiteMandateWorkspaceStore,
     SQLiteMandateObservationAuthorizationStore,
 )
+from .mandate_responsibility import (
+    MandateResponsibilityConflict,
+    MandateResponsibilityDenied,
+    MandateResponsibilityNotFound,
+    MandateResponsibilityPersistenceConflict,
+    SQLiteMandateResponsibilityStore,
+)
 from .capability import (
     CapabilityBroker,
     CapabilityDenied,
@@ -341,6 +348,11 @@ __all__ = [
     "MandateWorkspacePersistenceConflict",
     "SQLiteMandateWorkspaceStore",
     "SQLiteMandateObservationAuthorizationStore",
+    "MandateResponsibilityConflict",
+    "MandateResponsibilityDenied",
+    "MandateResponsibilityNotFound",
+    "MandateResponsibilityPersistenceConflict",
+    "SQLiteMandateResponsibilityStore",
     "PayloadAdmissionRegistryPort",
     "CapabilityDenied",
     "CapabilityBroker",
