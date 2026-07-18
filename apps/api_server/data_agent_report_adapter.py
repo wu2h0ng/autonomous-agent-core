@@ -2072,11 +2072,13 @@ class SQLiteDataAgentReportStateStore:
         lease_fence: int,
         completed_at: datetime,
         authority_snapshot_digest: str,
+        transaction_clock: Clock,
     ) -> DataAgentReportDispatch:
         completion_time = _utc(completed_at)
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                transaction_now = _utc(transaction_clock())
                 lease = connection.execute(
                     """
                     SELECT config_digest, lease_owner, lease_fence, lease_expires_at
@@ -2101,7 +2103,7 @@ class SQLiteDataAgentReportStateStore:
                     or type(lease_fence) is not int
                     or int(lease[2]) != lease_fence
                     or lease_expires_at is None
-                    or completion_time >= lease_expires_at
+                    or transaction_now >= lease_expires_at
                 ):
                     raise DataAgentReportAdapterError(
                         "active perception lease fence is stale"
@@ -2746,6 +2748,7 @@ class DataAgentReportAdapter:
             lease_fence=lease_fence,
             completed_at=completed_at,
             authority_snapshot_digest=authority_snapshot_digest,
+            transaction_clock=self._clock,
         )
 
     def _dispatch_for_bundle(

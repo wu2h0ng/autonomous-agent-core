@@ -56,7 +56,10 @@ class _CredentialBroker:
 
 
 def _feed_adapter(
-    database: Path, *, cursor: str = "cursor-1"
+    database: Path,
+    *,
+    cursor: str = "cursor-1",
+    transaction_now: datetime = NOW,
 ) -> DataAgentReportAdapter:
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
     adapter, _, _ = _adapter(
@@ -75,6 +78,7 @@ def _feed_adapter(
             )
         ),
         state_store=SQLiteDataAgentReportStateStore(database),
+        now=transaction_now,
     )
     return adapter
 
@@ -443,6 +447,42 @@ def test_stale_lease_holder_cannot_complete_after_takeover(tmp_path: Path) -> No
             worker_id=stale.worker_id,
             lease_fence=stale.fence,
             completed_at=completed_at,
+            authority_snapshot_digest=runtime.authority_digest,
+        )
+    assert adapter.pending_dispatches() == (dispatch,)
+
+
+def test_expired_lease_cannot_complete_with_backdated_receipt_time(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "runtime.sqlite3"
+    transaction_now = NOW + timedelta(seconds=31)
+    adapter = _feed_adapter(database, transaction_now=transaction_now)
+    service, runtime, _ = _service(tmp_path, adapter=adapter)
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-expired",
+        now=NOW,
+        force_pending=True,
+    )
+    assert isinstance(lease, ActivePerceptionLease)
+    assert lease.expires_at < transaction_now
+
+    with pytest.raises(DataAgentReportAdapterError, match="lease fence"):
+        adapter.complete_active_perception_dispatch(
+            dispatch,
+            outcome_record=runtime.propose_record(
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+                f"receipt:{dispatch.environment_event_id}",
+            ),
+            schedule_id=service.config.schedule_id,
+            config_digest=service.config.config_digest,
+            worker_id=lease.worker_id,
+            lease_fence=lease.fence,
+            completed_at=NOW + timedelta(seconds=1),
             authority_snapshot_digest=runtime.authority_digest,
         )
     assert adapter.pending_dispatches() == (dispatch,)
