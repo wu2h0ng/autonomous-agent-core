@@ -152,6 +152,62 @@ class SQLiteMandateOutcomePortfolioStore:
             self._map_denied(exc)
             raise
 
+    def _require_active_task_link(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        mandate_id: str,
+        task_id: str,
+        principal_id: str,
+        tenant_id: str,
+        workspace_id: str,
+        workspace_digest: str,
+        operational_digest: str,
+        correction_epoch: int,
+    ) -> None:
+        """Fail closed unless an active MandateTaskLink binds task to mandate."""
+        link_rows = connection.execute(
+            f"SELECT * FROM {self._authority._LINK_TABLE} "
+            "WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ? "
+            "AND mandate_id = ? AND task_id = ? ORDER BY rowid",
+            (principal_id, tenant_id, workspace_id, mandate_id, task_id),
+        ).fetchall()
+        links = tuple(self._authority._decode_link(row) for row in link_rows)
+        if not links:
+            raise MandateOutcomePortfolioDenied(
+                "active MandateTaskLink is required for portfolio settlement"
+            )
+        revocations = self._authority._validated_revocations_for_links(
+            connection,
+            links,
+            principal_id=principal_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            mandate_id=mandate_id,
+        )
+        revoked = {revocation.link_id for revocation in revocations}
+        active = tuple(link for link in links if link.link_id not in revoked)
+        if not active:
+            raise MandateOutcomePortfolioDenied(
+                "active MandateTaskLink is required for portfolio settlement"
+            )
+        if len(active) > 1:
+            raise MandateOutcomePortfolioPersistenceConflict(
+                "multiple active MandateTaskLinks exist for task under mandate"
+            )
+        link = active[0]
+        if link.correction_epoch != correction_epoch:
+            raise MandateOutcomePortfolioDenied(
+                "MandateTaskLink correction epoch drift prevents settlement"
+            )
+        if (
+            link.workspace_record_digest != workspace_digest
+            or link.operational_mandate_ref_digest != operational_digest
+        ):
+            raise MandateOutcomePortfolioDenied(
+                "MandateTaskLink authority digest drift prevents settlement"
+            )
+
     def create_portfolio(
         self,
         command: OutcomePortfolioCreateCommand,
@@ -329,6 +385,17 @@ class SQLiteMandateOutcomePortfolioStore:
             portfolio = self._require_portfolio(
                 connection, mandate_id, actor, workspace_digest, operational_digest
             )
+            self._require_active_task_link(
+                connection,
+                mandate_id=mandate_id,
+                task_id=command.task_id,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=actor.tenant_id,
+                workspace_id=actor.workspace_id,
+                workspace_digest=workspace_digest,
+                operational_digest=operational_digest,
+                correction_epoch=operational.correction_epoch,
+            )
             task = self._task_reader.get_task(command.task_id)
             commitment = task.commitment
             expected = task.expected_outcome
@@ -435,13 +502,15 @@ class SQLiteMandateOutcomePortfolioStore:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
-            _, workspace_digest, _, operational_digest = self._read_authority(
-                connection,
-                mandate_id,
-                actor,
-                require_admin=True,
-                require_active=True,
-                now=now,
+            workspace, workspace_digest, operational, operational_digest = (
+                self._read_authority(
+                    connection,
+                    mandate_id,
+                    actor,
+                    require_admin=True,
+                    require_active=True,
+                    now=now,
+                )
             )
             portfolio = self._require_portfolio(
                 connection, mandate_id, actor, workspace_digest, operational_digest
@@ -463,6 +532,17 @@ class SQLiteMandateOutcomePortfolioStore:
                 raise MandateOutcomePortfolioDenied(
                     "commitment is outside mandate portfolio"
                 )
+            self._require_active_task_link(
+                connection,
+                mandate_id=mandate_id,
+                task_id=commitment.task_id,
+                principal_id=workspace.mandate.principal_id,
+                tenant_id=actor.tenant_id,
+                workspace_id=actor.workspace_id,
+                workspace_digest=workspace_digest,
+                operational_digest=operational_digest,
+                correction_epoch=operational.correction_epoch,
+            )
             if commitment.state is not PersistentCommitmentState.OPEN:
                 raise MandateOutcomePortfolioConflict(
                     "commitment is not open for settlement"

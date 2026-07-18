@@ -12,6 +12,7 @@ from agent_os_contracts import (
     ExpectedOutcome,
     Goal,
     IdempotencyMode,
+    MandateTaskLinkCommand,
     NodeKind,
     NodeSpec,
     ObservedOutcome,
@@ -28,6 +29,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     MandateOutcomePortfolioDenied,
     SQLiteMandateOutcomePortfolioStore,
+    SQLiteMandateResponsibilityStore,
 )
 from tests.product.test_mandate_observation_authorization import NOW, _apps, _command
 from tests.product.test_mandate_responsibility_store import _admin
@@ -123,15 +125,71 @@ def test_only_same_scope_admin_can_create_portfolio(tmp_path) -> None:
         )
 
 
-def test_create_attach_and_settle_not_met(tmp_path) -> None:
+def test_attach_rejects_task_without_active_mandate_link(tmp_path) -> None:
     _, owner, admin, task, store = _portfolio_setup(tmp_path)
+    store.create_portfolio(
+        OutcomePortfolioCreateCommand(),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    commitment = Commitment(
+        commitment_id="commitment:unlinked",
+        task_id=task.task_id,
+        goal_id="goal:portfolio",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        accepted_by="principal:owner",
+        accepted_at=NOW,
+        deliverables=("x",),
+        acceptance_criteria=("y",),
+        budget=_budget(),
+        risk_tier=0,
+        exit_conditions=("done",),
+        expires_at=NOW + timedelta(hours=2),
+    )
+    expected = ExpectedOutcome(
+        expected_outcome_id="expected:unlinked",
+        task_id=task.task_id,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        evaluator_type="pytest",
+        evaluator_version="1",
+        evidence_requirements=("test-report",),
+        failure_semantics=("tests fail",),
+        threshold=1.0,
+        observation_window_seconds=3600,
+        frozen_at=NOW,
+    )
+    owner.tasks.commit_task(task.task_id, commitment, _workflow(), expected)
+    task = owner.tasks.get_task(task.task_id)
+    with pytest.raises(MandateOutcomePortfolioDenied, match="MandateTaskLink"):
+        store.attach_commitment(
+            PersistentCommitmentAttachCommand(
+                task_id=task.task_id,
+                commitment_digest=content_digest(task.commitment),
+                expected_outcome_digest=content_digest(task.expected_outcome),
+            ),
+            "mandate:build-agent-os",
+            admin.principal,
+        )
+
+
+def test_create_attach_and_settle_not_met(tmp_path) -> None:
+    database, owner, admin, task, store = _portfolio_setup(tmp_path)
     portfolio = store.create_portfolio(
         OutcomePortfolioCreateCommand(reason="track mandate outcomes"),
         "mandate:build-agent-os",
         admin.principal,
     )
     assert portfolio.task_activation_authorized is False
+    assert portfolio.capability_grant_authorized is False
+    assert portfolio.external_effects_authorized is False
     assert portfolio.desired_outcomes
+    SQLiteMandateResponsibilityStore(database, clock=lambda: NOW).create_link(
+        MandateTaskLinkCommand(task_id=task.task_id, reason="owned work"),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
 
     commitment = Commitment(
         commitment_id="commitment:portfolio",
@@ -211,9 +269,14 @@ def test_create_attach_and_settle_not_met(tmp_path) -> None:
 
 
 def test_invalid_outcome_cannot_settle_met(tmp_path) -> None:
-    _, owner, admin, task, store = _portfolio_setup(tmp_path)
+    database, owner, admin, task, store = _portfolio_setup(tmp_path)
     store.create_portfolio(
         OutcomePortfolioCreateCommand(),
+        "mandate:build-agent-os",
+        admin.principal,
+    )
+    SQLiteMandateResponsibilityStore(database, clock=lambda: NOW).create_link(
+        MandateTaskLinkCommand(task_id=task.task_id, reason="owned work"),
         "mandate:build-agent-os",
         admin.principal,
     )
