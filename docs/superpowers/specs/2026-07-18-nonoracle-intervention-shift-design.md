@@ -155,7 +155,7 @@ raw GEO metadata. The upstream Zenodo MD5 is transport context only. No hidden
 effect, paper DE, cluster, pathway or activation label may influence eligibility.
 
 The route is immediately `PARK` if the join is ambiguous; fewer than 40 targets
-have two guides and support on both sides of all required folds; any aggregate
+have two guides and support on both GUIDE sides plus diagnostic subgroups; any aggregate
 has fewer than 10 treated cells; any NTC aggregate has fewer than 25 cells; the
 public/hidden split requires a whole-data fitted transform; or source licensing
 or checksums are not reproducible.
@@ -192,8 +192,8 @@ Use one decisive holdout and two non-decisive stress diagnostics:
 | Fold | Public builder rows | Hidden scorer rows | Independence |
 |---|---|---|---|
 | `GUIDE` decisive | one scorer-HMAC-selected target sgRNA plus disjoint HMAC-selected NTC guides | the other target sgRNA plus disjoint NTC guides | intervention implementation |
-| `DONOR_DIAGNOSTIC` | one scorer-HMAC-selected donor | the other donor | subgroup stress only |
-| `WELL_DIAGNOSTIC` | two lane-balanced wells | the other two wells | technical subgroup stress only |
+| `DONOR_DIAGNOSTIC` | no additional builder input | scorer stratifies locked GUIDE predictions and hidden-guide outcomes by donor | scorer-only veto diagnostic |
+| `WELL_DIAGNOSTIC` | no additional builder input | scorer stratifies locked GUIDE predictions and hidden-guide outcomes by two pre-frozen lane-balanced well groups | scorer-only veto diagnostic |
 
 Guide selection must use a scorer-custodied HMAC over target-guide identity,
 never paper `_1/_2` ordering. A separate precommitted HMAC partitions NTC guides;
@@ -205,7 +205,19 @@ pairs, `2^8`), not an unrestricted `C(16,8)` label permutation. Otherwise the
 metadata gate returns `PARK_BLOCK_CONSTRUCTION`. The current unblocked mechanism
 is not compatible with this amendment until it consumes an explicit block
 contract. DONOR and WELL outputs are descriptive direction/degeneration checks,
-not independent confirmation or formal non-inferiority folds.
+not independent confirmation or formal non-inferiority folds. The builder sees
+only the GUIDE-public rows. DONOR/WELL diagnostics run inside the scorer after
+all GUIDE arm digests are locked; they never expose additional rows or create a
+second builder-visible fold.
+
+For each GUIDE side, all HMAC-assigned NTC-guide raw counts are summed within
+each `donor × well` block to create exactly one control pseudobulk. Each target
+guide pseudobulk is paired only with that same block's control. A precommitted
+secondary HMAC partitions the public-side NTC guides into A/B groups; the
+within-`donor × well` A-minus-B contrasts are the only public NTC
+pseudo-contrasts used for scaling. Empty A/B groups, a missing paired control or
+an ambiguous natural block is `PARK_BLOCK_CONSTRUCTION`. The design constant is
+`s_floor = 0.25`; it is not estimated after public or hidden inspection.
 
 ### Hidden outcome and proper score
 
@@ -231,9 +243,13 @@ sigma[T,fold] = 1.0
 This is a fixed-variance Gaussian location score on public-standardized units;
 Normal negative log likelihood is primary and Normal CRPS secondary. AP, F1 and
 sign agreement are diagnostics only. Pairing is on identical GUIDE `(X,T)`
-units. The decisive output is the finite-panel paired loss delta versus every
-mandatory arm, with shared NTC and source/target dependence retained in the
-reported block table. No cell-level bootstrap, post-hoc choice between bootstrap
+units. `T` is the support-conditioned set of eligible guide-target genes, not all
+expressed genes. Every arm must emit a finite `mu` for every legal `(X,T)`; a
+missing hypothesis maps to zero and no pair is dropped. For each arm, loss is
+averaged equally over all eligible `T` within each source `X`, then averaged
+equally across `X`. The decisive output is this finite-panel macro paired loss
+delta versus every mandatory competitive arm, with shared NTC and source/target
+dependence retained in the reported block table. No cell-level bootstrap, post-hoc choice between bootstrap
 and sign-flip, donor/well independence claim or formal p-value is permitted in
 the first route kill. A later inferential freeze requires a separately reviewed
 simultaneous source×target/shared-block procedure and a pre-data sensitivity
@@ -253,16 +269,29 @@ Every arm receives the same public rows, variable universe, budget and scale:
 6. the existing matched-k observational correlation and finite-screen sanity
    baselines.
 
-If raw pooled shift or the blocked edgeR baseline matches or
-beats the mechanism, the route is `PARK`; threshold, variable universe, folds
-and scorer may not be changed to rescue it. The freeze package, if ever
-authorized, must name every primary comparison, champion/tie rule and denominator
-floor before hidden opening. A 2% CRPS improvement may be used only as a founder
-route-ROI margin after a public-only sensitivity calculation; it is not a
-statistical-significance claim. Reversal on DONOR or WELL diagnostics is a
-scientific `PARK` signal, not a failed formal non-inferiority test. Finite-screen
-remains a plumbing sanity arm and cannot be the champion when missing outputs map
-to zero. These are design gates only; this amendment authorizes no result run.
+Mandatory competitive route killers are `ZERO_EFFECT`,
+`RAW_POOLED_ALL_PAIRS`, `BLOCK_MEDIAN_SHIFT`, blocked `edgeR` QL,
+`SOURCE_STRENGTH_X_TARGET_SUSCEPTIBILITY` and the matched-k observational
+correlation arm. `FINITE_SCREEN_ALL_LEGAL_PAIRS` is a serialization/plumbing
+sanity arm only.
+
+If any mandatory competitive arm matches or beats the mechanism on primary
+macro-averaged NLL, the route is `PARK`; ties are baseline wins. Threshold,
+eligible panel, folds and scorer may not be changed to rescue it. Primary NLL
+precedence is absolute. Only if the mechanism beats every competitive arm on
+NLL is CRPS evaluated as an additional AND gate: improvement over the best
+competitive arm must be at least 2% using denominator
+`max(abs(champion_crps), 1e-6)`. The 2% value is a founder route-ROI margin,
+requires a public-only sensitivity calculation before freeze and is not a
+statistical-significance claim.
+
+For veto diagnostics, the scorer macro-averages the same GUIDE hidden loss delta
+within each donor and within each of two pre-frozen lane-balanced well groups.
+A single subgroup reversal is reported only. Both donor macro-deltas less than
+or equal to zero, or both well-group macro-deltas less than or equal to zero,
+triggers scientific `PARK`. Finite-screen remains a plumbing sanity arm and
+cannot be a champion. These are design gates only; this amendment authorizes no
+result run.
 
 ### Custody topology
 
