@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote_to_bytes, urlparse
 
 from pydantic import ValidationError
 
@@ -48,36 +49,72 @@ INDEX = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
 
 
+def _has_percent_escape(value: str) -> bool:
+    hexadecimal = frozenset("0123456789abcdefABCDEF")
+    return any(
+        value[index] == "%"
+        and index + 2 < len(value)
+        and value[index + 1] in hexadecimal
+        and value[index + 2] in hexadecimal
+        for index in range(len(value))
+    )
+
+
+def _decode_path_segment(value: str) -> str | None:
+    if not value:
+        return None
+    hexadecimal = frozenset("0123456789abcdefABCDEF")
+    for index, character in enumerate(value):
+        if character == "%" and (
+            index + 2 >= len(value)
+            or value[index + 1] not in hexadecimal
+            or value[index + 2] not in hexadecimal
+        ):
+            return None
+    try:
+        decoded = unquote_to_bytes(value).decode("utf-8", errors="strict")
+    except UnicodeError:
+        return None
+    if (
+        not decoded
+        or "/" in decoded
+        or "\\" in decoded
+        or any(unicodedata.category(character) == "Cc" for character in decoded)
+        or _has_percent_escape(decoded)
+    ):
+        return None
+    return decoded
+
+
 def _match_mandate_leaf(path: str, leaf: str) -> str | None:
     parsed = urlparse(path)
-    if parsed.query or parsed.fragment or parsed.path.endswith("/") or "%" in parsed.path:
+    if parsed.query or parsed.fragment or parsed.path.endswith("/"):
         return None
     parts = parsed.path.split("/")
     if (
         len(parts) == 5
         and parts[:3] == ["", "v1", "mandates"]
-        and parts[3]
         and parts[4] == leaf
     ):
-        return parts[3]
+        return _decode_path_segment(parts[3])
     return None
 
 
 def _match_mandate_link_revocation(path: str) -> tuple[str, str] | None:
     parsed = urlparse(path)
-    if parsed.query or parsed.fragment or parsed.path.endswith("/") or "%" in parsed.path:
+    if parsed.query or parsed.fragment or parsed.path.endswith("/"):
         return None
     parts = parsed.path.split("/")
     if (
         len(parts) == 6
         and parts[:3] == ["", "v1", "mandates"]
-        and parts[3]
         and parts[4] == "task-links"
         and parts[5].endswith(":revoke")
     ):
-        link_id = parts[5].removesuffix(":revoke")
-        if link_id:
-            return parts[3], link_id
+        mandate_id = _decode_path_segment(parts[3])
+        link_id = _decode_path_segment(parts[5].removesuffix(":revoke"))
+        if mandate_id is not None and link_id is not None:
+            return mandate_id, link_id
     return None
 
 

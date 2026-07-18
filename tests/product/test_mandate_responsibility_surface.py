@@ -39,11 +39,13 @@ def test_surface_contains_complete_read_only_responsibility_inventory() -> None:
         'id="responsibility-refresh"',
         'id="responsibility-status"',
         'id="responsibility-banner"',
+        'id="responsibility-global-gaps"',
         'id="responsibility-desired-outcomes"',
         'id="responsibility-rows"',
         'id="responsibility-next-observation"',
         'id="responsibility-last-digest"',
         "Desired outcomes",
+        "Global gaps",
         "Linked responsibilities",
         "Next observation",
         "Last successful digest",
@@ -58,6 +60,7 @@ def test_surface_renders_rows_reasons_banners_and_all_load_states() -> None:
     for required in (
         "view.desired_outcomes",
         "view.items",
+        "view.global_gaps",
         "item.attention_reasons",
         "item.link.task_id",
         "item.commitment",
@@ -79,6 +82,7 @@ def test_surface_fetches_only_mandate_list_and_selected_read_projection() -> Non
     script = _responsibility_script(_index())
 
     assert "call('/v1/mandates')" in script
+    assert "encodeURIComponent(mandateId)" in script
     assert "'/responsibility-view'" in script
     assert "task-links" not in script
     assert "'POST'" not in script
@@ -100,6 +104,38 @@ def test_responsibility_panel_has_no_mutating_or_authority_controls() -> None:
         "edit",
     ):
         assert forbidden not in panel
+
+
+def test_selection_and_load_failure_clear_all_prior_mandate_truth() -> None:
+    script = _responsibility_script(_index())
+    clear = re.search(
+        r"function clearResponsibilityTruth\(\) \{([\s\S]*?)\n    \}",
+        script,
+    )
+    error = re.search(
+        r"function renderResponsibilityError\(error\) \{([\s\S]*?)\n    \}",
+        script,
+    )
+    refresh = re.search(
+        r"async function refreshResponsibility\(\) \{([\s\S]*?)\n    \}",
+        script,
+    )
+    assert clear is not None
+    assert error is not None
+    assert refresh is not None
+    for required in (
+        "responsibility-desired-outcomes",
+        "responsibility-global-gaps",
+        "responsibility-next-observation",
+        "responsibility-last-digest",
+        "responsibility-rows",
+        "responsibilityState.lastDigest = null",
+    ):
+        assert required in clear.group(1)
+    assert "clearResponsibilityTruth()" in error.group(1)
+    assert refresh.group(1).index("clearResponsibilityTruth()") < refresh.group(
+        1
+    ).index("await call(")
 
 
 def test_existing_task_workspace_surface_remains_reachable() -> None:

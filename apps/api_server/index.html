@@ -204,6 +204,8 @@
             <div>
               <h3>Desired outcomes</h3>
               <div id="responsibility-desired-outcomes"><div class="empty">Loading</div></div>
+              <h3>Global gaps</h3>
+              <div id="responsibility-global-gaps"><div class="empty">Loading</div></div>
               <dl class="responsibility-meta">
                 <div><dt>Next observation</dt><dd id="responsibility-next-observation">—</dd></div>
                 <div><dt>Last successful digest</dt><dd id="responsibility-last-digest">—</dd></div>
@@ -308,9 +310,13 @@
     }
 
     // Responsibility view start
-    function responsibilityMandateSegment(mandateId) {
-      if (!/^[A-Za-z0-9._:-]+$/.test(mandateId)) throw new Error('Unsupported Mandate identifier');
-      return mandateId;
+    function clearResponsibilityTruth() {
+      responsibilityState.lastDigest = null;
+      $('responsibility-desired-outcomes').innerHTML = '<div class="empty">No Mandate truth loaded</div>';
+      $('responsibility-global-gaps').innerHTML = '<div class="empty">No Mandate truth loaded</div>';
+      $('responsibility-next-observation').textContent = '—';
+      $('responsibility-last-digest').textContent = '—';
+      $('responsibility-rows').innerHTML = '<div class="empty">No responsibilities linked</div>';
     }
 
     function setResponsibilityLoading(message) {
@@ -320,10 +326,10 @@
     }
 
     function renderResponsibilityError(error) {
+      clearResponsibilityTruth();
       $('responsibility-status').textContent = 'Unable to load responsibility view';
       $('responsibility-banner').textContent = error.message || error.error || String(error);
       $('responsibility-banner').classList.add('visible');
-      $('responsibility-rows').innerHTML = '<div class="empty">Responsibility truth is unavailable.</div>';
       $('responsibility-refresh').disabled = !responsibilityState.selectedMandateId;
       $('responsibility-mandate-select').disabled = !responsibilityState.mandates.length;
     }
@@ -336,10 +342,9 @@
         const select = $('responsibility-mandate-select');
         if (!responsibilityState.mandates.length) {
           responsibilityState.selectedMandateId = null;
+          clearResponsibilityTruth();
           select.innerHTML = '<option value="">No Mandates available</option>';
           $('responsibility-status').textContent = 'No Mandates available';
-          $('responsibility-desired-outcomes').innerHTML = '<div class="empty">No Mandate selected</div>';
-          $('responsibility-rows').innerHTML = '<div class="empty">No responsibilities linked</div>';
           $('responsibility-refresh').disabled = true;
           return;
         }
@@ -364,10 +369,11 @@
     async function refreshResponsibility() {
       const mandateId = responsibilityState.selectedMandateId;
       if (!mandateId) return;
+      clearResponsibilityTruth();
       setResponsibilityLoading('Loading responsibility view');
       $('responsibility-banner').classList.remove('visible');
       try {
-        const view = await call('/v1/mandates/' + responsibilityMandateSegment(mandateId) + '/responsibility-view');
+        const view = await call('/v1/mandates/' + encodeURIComponent(mandateId) + '/responsibility-view');
         renderResponsibility(view);
       } catch (error) {
         renderResponsibilityError(error);
@@ -378,6 +384,7 @@
       responsibilityState.lastDigest = view.view_digest;
       $('responsibility-status').textContent = `${view.items.length} linked · ${view.status}`;
       $('responsibility-desired-outcomes').innerHTML = `<ul>${view.desired_outcomes.map(outcome => `<li>${escapeHtml(outcome)}</li>`).join('')}</ul>`;
+      $('responsibility-global-gaps').innerHTML = view.global_gaps.length ? `<div class="responsibility-reasons">${view.global_gaps.map(reason => `<span class="responsibility-reason">${escapeHtml(reason)}</span>`).join('')}</div>` : '<div class="empty">No global gaps</div>';
       $('responsibility-next-observation').textContent = view.active_perception?.next_observation_at || 'Not configured';
       $('responsibility-last-digest').textContent = responsibilityState.lastDigest;
       $('responsibility-rows').innerHTML = view.items.length ? view.items.map(item => {

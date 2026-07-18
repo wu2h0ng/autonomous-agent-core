@@ -4,6 +4,7 @@ import json
 import sqlite3
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 from http.client import HTTPMessage
@@ -11,13 +12,15 @@ from http.server import ThreadingHTTPServer
 from typing import Iterator
 
 from apps.api_server.app import AgentOSApplication
-from apps.api_server.server import Handler
+from apps.api_server.server import Handler, _decode_path_segment
 from agent_os_contracts import (
     MandateOperationalStatus,
     RatifiedMandateRef,
     canonical_json,
 )
 from tests.product.test_mandate_responsibility_store import NOW, _setup
+from tests.product.test_mandate_observation_authorization import _command
+from tests.product.test_mandate_workspace_api import _payload
 
 
 MANDATE_ID = "mandate:build-agent-os"
@@ -307,3 +310,85 @@ def test_revoked_mandate_returns_read_only_banner_state(tmp_path) -> None:
     assert status == 200
     assert view["mandate_status"] == "REVOKED"
     assert view["status"] == "REVOKED"
+
+
+def test_percent_encoded_space_and_at_mandate_id_round_trips_all_routes(
+    tmp_path,
+) -> None:
+    _, owner, admin, task, _ = _setup(tmp_path)
+    mandate_id = "mandate:Ops @ 2026"
+    payload = _payload(expires_at=NOW.replace(year=2027))
+    payload["mandate_id"] = mandate_id
+    owner.create_mandate_workspace_record(payload)
+    admin.authorize_mandate_observation_binding(
+        mandate_id,
+        _command(authorization_id="observation-auth:ops-at-2026"),
+    )
+    encoded = urllib.parse.quote(mandate_id, safe="")
+    path = f"/v1/mandates/{encoded}/task-links"
+
+    with _server(owner, {ADMIN_TOKEN: admin}) as base:
+        create_status, link, _ = _request(
+            base,
+            path,
+            method="POST",
+            body={"task_id": task.task_id},
+            token=ADMIN_TOKEN,
+        )
+        list_status, listed, _ = _request(base, path)
+        view_status, view, _ = _request(
+            base,
+            f"/v1/mandates/{encoded}/responsibility-view",
+        )
+        revoke_status, revoked, _ = _request(
+            base,
+            f"{path}/{urllib.parse.quote(str(link['link_id']), safe='')}:revoke",
+            method="POST",
+            body={
+                "expected_link_digest": link["record_digest"],
+                "reason": "done",
+            },
+            token=ADMIN_TOKEN,
+        )
+
+    assert (create_status, list_status, view_status, revoke_status) == (
+        201,
+        200,
+        200,
+        201,
+    )
+    assert listed == {"task_links": [link]}
+    assert view["mandate_id"] == mandate_id
+    assert revoked["link_id"] == link["link_id"]
+
+
+def test_mandate_routes_reject_unsafe_or_ambiguous_encoded_segments(
+    tmp_path,
+) -> None:
+    _, owner, admin, _, _ = _setup(tmp_path)
+    unsafe_segments = (
+        "",
+        "mandate%2Fescape",
+        "mandate%5Cescape",
+        "mandate\\escape",
+        "mandate%00escape",
+        "mandate%1Fescape",
+        "mandate%7Fescape",
+        "mandate%C2%80escape",
+        "mandate%2",
+        "mandate%GG",
+        "mandate%252Fescape",
+        "mandate%255Cescape",
+    )
+
+    with _server(owner, {ADMIN_TOKEN: admin}) as base:
+        statuses = [
+            _request(
+                base,
+                f"/v1/mandates/{segment}/responsibility-view",
+            )[0]
+            for segment in unsafe_segments
+        ]
+
+    assert all(_decode_path_segment(segment) is None for segment in unsafe_segments)
+    assert statuses == [404] * len(unsafe_segments)
