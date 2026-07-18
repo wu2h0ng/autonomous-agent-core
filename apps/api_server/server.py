@@ -38,7 +38,6 @@ from agent_os_core import (
     MandateResponsibilityConflict,
     MandateResponsibilityDenied,
     MandateResponsibilityNotFound,
-            MandateOutcomePortfolioNotFound,
     MandateResponsibilityPersistenceConflict,
     MandateOutcomePortfolioConflict,
     MandateOutcomePortfolioDenied,
@@ -328,6 +327,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(
                     200,
                     {"task_links": application.list_mandate_task_links(mandate_id)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            except Exception as exc:
+                self._json(
+                    _error_status(exc),
+                    {"error": type(exc).__name__, "message": str(exc)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            return
+        mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio/help-requests")
+        if mandate_id is not None:
+            admin = self._admin_application()
+            if admin is None:
+                return
+            try:
+                self._json(
+                    200,
+                    {
+                        "help_requests": admin.list_outcome_portfolio_help_requests(
+                            mandate_id
+                        )
+                    },
                     response_headers={"Cache-Control": "no-store"},
                 )
             except Exception as exc:

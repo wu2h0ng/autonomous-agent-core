@@ -788,6 +788,17 @@ class AgentOSApplication:
         )
         return view.model_dump(mode="json")
 
+    def list_outcome_portfolio_help_requests(
+        self, mandate_id: str
+    ) -> list[dict[str, Any]]:
+        return [
+            record.model_dump(mode="json")
+            for record in self.mandate_outcome_portfolio_store.list_help_requests(
+                mandate_id,
+                self.principal,
+            )
+        ]
+
     def attach_persistent_commitment(
         self,
         mandate_id: str,
