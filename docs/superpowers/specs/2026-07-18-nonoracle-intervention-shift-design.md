@@ -113,18 +113,23 @@ review, exact-manifest acceptance, founder freeze and separate run authority.
 
 The first real-data qualification source is `GSE190604`, the Schmidt–Steinhart
 primary human T-cell CRISPRa Perturb-seq dataset. It is preferred over larger
-newer corpora because it provides the crossed replication needed for a cheap
-route kill without creating a data-platform project: two donors, four physical
-GEM wells per condition, two sgRNAs per target, roughly 56,000 cells and about
-70 hit/control targets. The initial context is restimulated primary human
-T cells only.
+newer corpora because it provides useful crossed blocks for a cheap route kill
+without creating a data-platform project: two donors mixed 1:1 before loading,
+four physical GEM wells per condition, two selected sgRNAs per target, roughly
+56,000 cells and 70 screen hits plus control guides. Donor is a biological
+source block; GEM well is a technical replicate of the mixed culture, not an
+independent biological replicate. The initial context is restimulated primary
+human T cells only.
 
 Primary sources:
 
 - GEO: <https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE190604>
 - Science paper: <https://doi.org/10.1126/science.abj4008>
-- Zenodo analysis package, CC-BY-4.0:
+- Zenodo analysis package, whose record is CC-BY-4.0:
   <https://zenodo.org/records/5784651>
+
+The Zenodo license does not assign the same license to the GEO matrix. The
+curator must record the GEO usage basis separately before acquisition.
 
 Any positive result is limited to held-out intervention-shift transport inside
 the author-selected CRISPRa panel and stimulated T-cell context. It does not
@@ -142,9 +147,12 @@ cell barcode × donor × physical well × guide × guide target × condition
 ```
 
 The source manifest must bind the GEO matrix, barcodes, features and aggregated
-guide calls plus the Zenodo archive with locally computed SHA-256 digests. The
-upstream Zenodo MD5 is transport context only. No hidden effect, paper DE,
-cluster, pathway or activation label may influence eligibility.
+guide calls plus the Zenodo archive with locally computed SHA-256 digests. It
+must also bind the barcode-suffix-to-well/GSM map, guide-to-target library map,
+Souporcell calls, cross-well donor-label harmonization provenance and the
+stimulated-condition selector. Donor labels are derived analysis outputs, not
+raw GEO metadata. The upstream Zenodo MD5 is transport context only. No hidden
+effect, paper DE, cluster, pathway or activation label may influence eligibility.
 
 The route is immediately `PARK` if the join is ambiguous; fewer than 40 targets
 have two guides and support on both sides of all required folds; any aggregate
@@ -161,7 +169,8 @@ exactly one guide
 guide UMI >= 5
 mitochondrial fraction < 25%
 400 < detected features < 6000
-exclude donor doublets and unassigned cells
+exclude donor doublets and unassigned cells only if the bound author analysis
+object/script proves that exact rule
 ```
 
 Pseudobulk within `donor × well × guide`, then apply row-local `log1p(CPM)`.
@@ -178,44 +187,57 @@ A true perturbation-level holdout is not compatible with the current mechanism:
 rows for `X` and then claiming unseen-perturbation discovery is
 `PARK_DESIGN_MISMATCH`.
 
-Use three complementary folds instead:
+Use one decisive holdout and two non-decisive stress diagnostics:
 
 | Fold | Public builder rows | Hidden scorer rows | Independence |
 |---|---|---|---|
-| `GUIDE` primary | one scorer-HMAC-selected sgRNA, two donors × four wells | the other sgRNA | intervention implementation |
-| `DONOR` | one scorer-HMAC-selected donor, two guides × four wells | the other donor | biological donor |
-| `WELL` | two lane-balanced wells, two donors × two guides | the other two wells | physical GEM well |
+| `GUIDE` decisive | one scorer-HMAC-selected target sgRNA plus disjoint HMAC-selected NTC guides | the other target sgRNA plus disjoint NTC guides | intervention implementation |
+| `DONOR_DIAGNOSTIC` | one scorer-HMAC-selected donor | the other donor | subgroup stress only |
+| `WELL_DIAGNOSTIC` | two lane-balanced wells | the other two wells | technical subgroup stress only |
 
-Guide selection must use a scorer-custodied HMAC over the guide identity, never
-paper `_1/_2` ordering. If lane identity is unavailable, the third fold is named
-`WELL_HOLDOUT`, not sequencing-lane holdout. Each side must compile exactly
-eight treated and eight NTC control block rows, giving an exact permutation
-space of `C(16,8)=12,870`, below the existing 20,000-combination ceiling.
+Guide selection must use a scorer-custodied HMAC over target-guide identity,
+never paper `_1/_2` ordering. A separate precommitted HMAC partitions NTC guides;
+no NTC guide, cell or barcode may appear on both GUIDE sides. Aggregation preserves
+the natural `donor × well × guide` blocks; it must not manufacture eight rows to
+fit the current 20,000-combination ceiling. If paired treated/control blocks can
+be constructed, the null is a predeclared within-block sign swap (for eight
+pairs, `2^8`), not an unrestricted `C(16,8)` label permutation. Otherwise the
+metadata gate returns `PARK_BLOCK_CONSTRUCTION`. The current unblocked mechanism
+is not compatible with this amendment until it consumes an explicit block
+contract. DONOR and WELL outputs are descriptive direction/degeneration checks,
+not independent confirmation or formal non-inferiority folds.
 
 ### Hidden outcome and proper score
 
-For each legal `(fold, X, T)`, `X != T`, the independent scorer computes a
-standardized held-out shift:
+For each legal `(fold, X, T)`, `X != T`, the curator freezes a public-only scale
+`s[T,fold]` from public NTC block pseudo-contrasts. The independent scorer then
+computes the held-out shift in the same unit:
 
 ```text
+s[T,fold] = max(s_floor, 1.4826 * MAD(public NTC block pseudo-contrasts for T))
 Y[X,T,fold] =
-  (mean(hidden treated logCPM_T) - mean(hidden NTC logCPM_T))
-  / pooled hidden block SD
+  (mean(hidden treated logCPM_T) - mean(hidden NTC logCPM_T)) / s[T,fold]
 ```
 
-Every arm emits `mu[X,T]`; a missing hypothesis means `mu=0`. A target-specific
-prediction scale is frozen from public NTC pseudo-contrasts and shared by every
-arm:
+Every arm emits fold-specific `mu[X,T,fold]` in that same public-scaled unit; a
+missing hypothesis means `mu=0`. The public compiler freezes `s_floor`, zero or
+near-zero scale handling, missing/finite rules and the exact mapping from each
+arm's public estimate to `mu`. Hidden SD is never used to scale either side.
 
 ```text
-sigma[T] = max(0.25, 1.4826 * MAD(public NTC pseudo-contrasts for T))
+sigma[T,fold] = 1.0
 ```
 
-Primary score is Normal negative log likelihood. Normal CRPS is secondary.
-AP, F1 and sign agreement are diagnostics only. Pairing is on identical
-`(fold,X,T)` units; inference first averages targets within each source
-intervention and then uses source-cluster paired bootstrap/sign-flip with a
-manifest-derived seed. Cell-level bootstrap is prohibited.
+This is a fixed-variance Gaussian location score on public-standardized units;
+Normal negative log likelihood is primary and Normal CRPS secondary. AP, F1 and
+sign agreement are diagnostics only. Pairing is on identical GUIDE `(X,T)`
+units. The decisive output is the finite-panel paired loss delta versus every
+mandatory arm, with shared NTC and source/target dependence retained in the
+reported block table. No cell-level bootstrap, post-hoc choice between bootstrap
+and sign-flip, donor/well independence claim or formal p-value is permitted in
+the first route kill. A later inferential freeze requires a separately reviewed
+simultaneous source×target/shared-block procedure and a pre-data sensitivity
+analysis.
 
 ### Strong cheap baselines and route killers
 
@@ -224,19 +246,23 @@ Every arm receives the same public rows, variable universe, budget and scale:
 1. `ZERO_EFFECT`;
 2. `RAW_POOLED_ALL_PAIRS` without stability filtering;
 3. `BLOCK_MEDIAN_SHIFT`;
-4. mature donor/well-blocked `limma-voom` empirical Bayes or `edgeR` QL;
+4. mandatory donor/well-blocked `edgeR` quasi-likelihood on raw integer
+   pseudobulk counts and library sizes, with a frozen mapping to the shared
+   public scale;
 5. rank-one `SOURCE_STRENGTH_X_TARGET_SUSCEPTIBILITY`;
 6. the existing matched-k observational correlation and finite-screen sanity
    baselines.
 
-If raw pooled shift or the mature blocked empirical-Bayes baseline matches or
+If raw pooled shift or the blocked edgeR baseline matches or
 beats the mechanism, the route is `PARK`; threshold, variable universe, folds
 and scorer may not be changed to rescue it. The freeze package, if ever
-authorized, must also require the primary GUIDE fold to beat every strong
-baseline under Holm-corrected source-cluster inference, at least 2% CRPS
-improvement over the champion, and no greater than 2% material degradation on
-DONOR or WELL. These are design gates only; this amendment authorizes no result
-run.
+authorized, must name every primary comparison, champion/tie rule and denominator
+floor before hidden opening. A 2% CRPS improvement may be used only as a founder
+route-ROI margin after a public-only sensitivity calculation; it is not a
+statistical-significance claim. Reversal on DONOR or WELL diagnostics is a
+scientific `PARK` signal, not a failed formal non-inferiority test. Finite-screen
+remains a plumbing sanity arm and cannot be the champion when missing outputs map
+to zero. These are design gates only; this amendment authorizes no result run.
 
 ### Custody topology
 
@@ -251,3 +277,21 @@ adjudicator -> verifies source/split/arm/scorer digests and applies precedence
 code. Identity mismatch, hidden-byte exposure before arm lock, ID-only shortcut
 predictive value, non-bijective renaming, row-order dependence or caller-writable
 eligibility makes the package `INVALID`, not a weak negative result.
+
+### Instrument and disposition boundary
+
+CRISPRa guides are imperfect instruments: activation strength, noncompliance and
+off-target effects remain possible. Cross-guide agreement reduces but does not
+eliminate exclusion violations. The permitted characterization label is
+`guide-target-anchored held-out expression-shift transport`; an `X ->* T`
+ancestry claim would additionally require frozen source-induction fidelity,
+consistency and exclusion assumptions that this package does not establish.
+
+Metadata join/licensing/support failure, inability to construct the blocked
+GUIDE split, a strong-baseline win, failure to meet the predeclared practical
+margin or diagnostic reversal is `PARK`. Hidden overlap/exposure, identity or
+digest mismatch, whole-data fitting, post-run gate changes, undefined-statistic
+repair after opening, scorer import of mechanism code or role non-independence is
+`INVALID`. Low support or zero public scale found by the pre-run qualification
+gate makes the target ineligible and may trigger `PARK`; inventing a rule for it
+after freeze invalidates the whole run.
