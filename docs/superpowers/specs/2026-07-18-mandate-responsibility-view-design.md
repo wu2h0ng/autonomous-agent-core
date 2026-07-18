@@ -108,11 +108,13 @@ An append-only, versioned record binding:
   `capability_grant_authorized=false`, `external_effects_authorized=false`.
 
 Exact replay is idempotent. A same-ID/different-content replay is a conflict.
-At most one unreveoked link version for an association is active. Correction
-drift makes the old version `UNKNOWN`; after an explicit revocation, a Mandate
-admin may append a new link version that binds the revocation digest and the
-new correction epoch. The first slice never edits a link in place. A scoped
-admin can append a typed
+At most one unreveoked link version for an association is active. While the
+Mandate remains `ACTIVE` at the same correction epoch, an explicit revocation
+may be followed by a new link version that binds the revocation digest. A
+correction-epoch drift makes the old version `UNKNOWN`/audit-only; relinking it
+at a later epoch is parked because the current Product runtime has no reachable
+ACTIVE-epoch correction/resume authority. The first slice never edits a link in
+place. An authenticated same-scope `TENANT_ADMIN` can append a typed
 `MandateTaskLinkRevocation` that binds the prior link digest, current Mandate
 correction epoch, actor, reason and time. Revocation removes the link from the
 active projection but not from the audit list; it cannot mutate the Task.
@@ -140,7 +142,9 @@ Item state is one of, in this strict precedence order:
 - `UNKNOWN`: any authority, identity, event, evaluator-support or source
   validation is missing, malformed, stale, inconsistent or cannot be replayed;
 - `NEEDS_ATTENTION`: current outcome is `NOT_MET`, `UNRESOLVED` or `INVALID`;
-  Task is `FAILED`, `CANCELLED`, `PAUSED` or `WAITING`; Commitment expired
+  Task is `FAILED`, `CANCELLED` or `PAUSED`; a `WAITING` Task's Run is
+  `WAITING_APPROVAL`; its `WAITING_EVENT` deadline has arrived without a
+  recorded signal/timeout transition; Commitment expired
   without a still-current verified completion; or a terminal Task lacks a
   current trusted outcome;
 - `DONE_VERIFIED`: Task is `COMPLETED`, its current outcome is still trusted
@@ -149,6 +153,14 @@ Item state is one of, in this strict precedence order:
 - `TRACKED`: Task is `DRAFT`, `COMMITTED`, `RUNNING` or `VERIFYING`, all sources
   are current and no known attention condition exists; this
   is explicitly not a progress or success claim.
+
+A `WAITING` Task with Run `WAITING_EVENT`, a valid `WaitCondition` and
+`computed_at < deadline` is also `TRACKED`: waiting for an external event before
+its frozen deadline is not operator work. `WAITING` with a missing/malformed
+condition or any other Run status is `UNKNOWN`. Current time participates in
+classification and is returned as `computed_at`, but digest stability is
+evaluated within the same time-classification interval; the deadline itself is
+the stable source boundary.
 
 No other Task/status combination may default to `TRACKED`; an unhandled
 combination is `UNKNOWN`.
@@ -163,7 +175,7 @@ sources cannot prove progress merely from absence of a known failure.
 - `POST /v1/mandates/{mandate_id}/task-links/{link_id}:revoke`
 - `GET /v1/mandates/{mandate_id}/responsibility-view`
 
-The POST paths require the existing authenticated Mandate-admin principal and
+The POST paths require the existing authenticated same-scope `TENANT_ADMIN` and
 authorize classification of a same-tenant/workspace Task under that Mandate;
 they do not assert a nonexistent Task principal owner and do not grant Task
 authority. `Goal.created_by` remains provenance only. Both GET paths are scoped
@@ -182,7 +194,8 @@ section in the existing Task Workspace / Agent Surface
    sources fail closed.
 3. Read the Task-created event and rehydrate the Task in the same tenant and
    workspace.
-4. Reject a non-admin request principal; cross-tenant/workspace Task; missing,
+4. Reject a request principal whose role is not `TENANT_ADMIN`;
+   cross-tenant/workspace Task; missing,
    malformed, paused, revoked, expired or correction-drifted Mandate; and any
    mismatched workspace/operational authority join. Product Task has no
    principal ownership field, so no unsupported cross-principal Task claim is
@@ -195,8 +208,11 @@ section in the existing Task Workspace / Agent Surface
 Linking does not acquire a Task lease, append a Task event, call TaskService
 mutation paths or touch active-perception counters.
 
-Revocation follows the same scope and correction checks, requires the exact
-current link digest, and appends an immutable revocation row in the same store.
+Revocation requires same-scope `TENANT_ADMIN`, an `ACTIVE` operational Mandate
+at the link's exact correction epoch and the exact current link digest, and
+appends an immutable revocation row in the same store. A correction-drifted,
+paused or revoked link cannot be revoked/relinked in this slice; it remains
+visible as `UNKNOWN`/audit-only.
 An exact replay is idempotent; a different reason/digest under the same
 revocation identity conflicts. It never deletes the original link row.
 
@@ -234,7 +250,7 @@ The projection never silently omits a linked Task.
 | Mandate not found or request scope mismatch | typed not-found/denied response |
 | Mandate revoked | no new link; existing historical links remain readable with a revoked Mandate banner |
 | Mandate source missing or workspace/operational join mismatch | typed fail-closed global error; no responsibility rows claimed |
-| Mandate correction epoch or workspace-record digest drift | affected link version is `UNKNOWN`; explicit revoke then versioned relink is required; no automatic rebinding |
+| Mandate correction epoch or workspace-record digest drift | affected link version is `UNKNOWN`/audit-only; relink is PARK until a separately authorized reachable ACTIVE-epoch correction path exists |
 | Task missing, malformed or Task-created identity changed | active item remains present as `UNKNOWN` |
 | Task evidence expired/deleted or evaluator no longer supported | view applies explicit deterministic fail-closed validation; never `DONE_VERIFIED` |
 | schedule source drift | typed global gap, never silent omission |
@@ -248,7 +264,7 @@ valid items, but the response must expose the gap and include it in the digest.
 
 ## 10. Authority and security invariants
 
-- Request principal and Mandate-admin scope are exact. Task eligibility is
+- Request `TENANT_ADMIN` role and Mandate owner/scope binding are exact. Task eligibility is
   bound by tenant, workspace and Task-created event identity;
   `Goal.created_by` is provenance and is not incorrectly treated as a principal
   authorization or Task ownership proof.
@@ -270,7 +286,7 @@ valid items, but the response must expose the gap and include it in the digest.
 
 RED tests precede implementation and must cover:
 
-- non-admin principal plus cross-tenant and cross-workspace link attempts;
+- non-`TENANT_ADMIN` principal plus cross-tenant and cross-workspace link attempts;
 - missing, revoked and correction-drifted Mandates;
 - forged or replaced Task-created identity;
 - exact replay and same-ID/different-content conflict;
@@ -281,6 +297,8 @@ RED tests precede implementation and must cover:
   epoch drift and schedule drift;
 - all TaskStatus/OutcomeStatus/evaluator-support combinations and strict state
   precedence, including terminal-without-outcome and expiry boundaries;
+- `WAITING_APPROVAL`, pre-deadline `WAITING_EVENT`, expired `WAITING_EVENT` and
+  malformed/missing WaitCondition classification;
 - stable view digest when stale `VERIFIED` is deterministically demoted across
   repeated reads and restart;
 - restart-equivalent link and view digests;
@@ -306,8 +324,14 @@ Run a separately preregistered matched human comparison inside
 - start timing when the operator receives the responsibility question and stop
   only after they submit a final prioritized action list; exclude system load
   time but include navigation, querying and interpretation time;
-- score false attention as non-gold items marked `NEEDS_ATTENTION` divided by
-  all non-gold linked items; report count and denominator;
+- freeze one `operator_attention_set`: every item presented as requiring
+  operator inspection, exactly all `NEEDS_ATTENTION` plus all `UNKNOWN` rows;
+  both recall and false-attention scoring use this same set;
+- score false attention as non-gold items in `operator_attention_set` divided
+  by all non-gold linked items; report count and denominator. An `UNKNOWN` row
+  counts as correct mandatory-event recall only when the frozen gold event is
+  the matching source-gap reason; it cannot receive credit for a non-gap
+  mandatory event merely by expressing uncertainty;
 - missing or abandoned paired observations invalidate that pair; no imputation
   and no post-hoc replacement; and
 - blind gold adjudication to arm where practical, with a named independent
