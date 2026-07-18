@@ -39,6 +39,11 @@
 | corrected Ruff | `PASS` | five source and two test files |
 | corrected Pyright | `0 errors / 0 warnings` | exact command: `uv run --extra product-test pyright src/aac/r_w1w2_aba tests/research/r_w1w2_aba` |
 | corrected forbidden implementation-surface scan | `PASS` | no file/network/provider/runner/executor/authorize/issue/sign/freeze/run API; test assertions only |
+| correction re-review at `07476e5` | `REVISE`; `P0=0 / P1=1 / P2=0` | full parser invariants remained bypassable through direct dataclass construction |
+| second correction TDD RED | `2 failed` | malformed direct bundle qualification and malformed direct seal/receipt validation both reproduced |
+| second corrected targeted public scaffold tests | `39 passed` | both public trust boundaries reparse closed canonical contracts |
+| second corrected combined Research regression | `132 passed` | prior `r_srl_1` 93 plus corrected scaffold 39 |
+| second corrected Ruff/Pyright/diff-check | `PASS / 0 errors, 0 warnings / PASS` | exact uv commands and task scope only |
 
 ## Pending checks
 

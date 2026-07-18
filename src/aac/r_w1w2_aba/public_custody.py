@@ -214,6 +214,26 @@ def validate_post_seal_receipt(
     seal: GlobalArmOutputSealV1,
     receipt: ClosedStage1ReceiptV1,
 ) -> ValidatedStage1EvidenceV1:
+    try:
+        canonical_seal = parse_global_seal(seal.to_mapping())
+    except PublicReceiptError:
+        raise
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise PublicReceiptError("INVALID_GLOBAL_SEAL_CONTRACT", "$") from exc
+    if canonical_seal != seal:
+        raise PublicReceiptError("NONCANONICAL_GLOBAL_SEAL", "$")
+
+    try:
+        canonical_receipt = parse_closed_stage1_receipt(receipt.to_mapping())
+    except PublicReceiptError:
+        raise
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise PublicReceiptError("INVALID_STAGE1_RECEIPT_CONTRACT", "$") from exc
+    if canonical_receipt != receipt:
+        raise PublicReceiptError("NONCANONICAL_STAGE1_RECEIPT", "$")
+
+    seal = canonical_seal
+    receipt = canonical_receipt
     if seal.seal_state is not SealState.SEALED:
         raise PublicReceiptError("GLOBAL_SEAL_REQUIRED", "$.seal_state")
     if qualification.package_id != seal.package_id or seal.package_id != receipt.package_id:

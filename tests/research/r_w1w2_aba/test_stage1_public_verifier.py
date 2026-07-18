@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 
 import pytest
 
@@ -327,6 +327,36 @@ def test_receipt_subject_must_match_externally_pinned_scorer_subject() -> None:
     with pytest.raises(PublicReceiptError) as error:
         validate_post_seal_receipt(qualification, seal, receipt)
     assert error.value.code == "EXACT_SUBJECT_MISMATCH"
+
+
+def test_verifier_rejects_malformed_direct_seal_and_receipt_dataclasses() -> None:
+    qualification = _qualification()
+    parsed_seal = parse_global_seal(_seal_payload())
+    malformed_outputs = list(parsed_seal.outputs)
+    malformed_outputs[0] = replace(malformed_outputs[0], output_digest="BAD_OUTPUT")
+    malformed_seal = replace(
+        parsed_seal,
+        schema_version="999",
+        stage_id="STAGE2",
+        outputs=tuple(malformed_outputs),
+        missing_output_count=999,
+    )
+    parsed_receipt = parse_closed_stage1_receipt(_receipt_payload(parsed_seal))
+    malformed_blocks = list(parsed_receipt.blocks)
+    malformed_blocks[0] = replace(
+        malformed_blocks[0], relations=malformed_blocks[0].relations[:1]
+    )
+    malformed_receipt = replace(
+        parsed_receipt,
+        schema_version="999",
+        stage_id="STAGE2",
+        global_seal_digest=sha256_hex(malformed_seal.to_mapping()),
+        blocks=tuple(malformed_blocks),
+    )
+
+    with pytest.raises(PublicReceiptError) as error:
+        validate_post_seal_receipt(qualification, malformed_seal, malformed_receipt)
+    assert error.value.code == "SCHEMA_VERSION_MISMATCH"
 
 
 def test_any_killer_match_or_win_parks_and_retains_all_observations() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
@@ -231,6 +231,44 @@ def test_qualification_revalidates_required_children_for_direct_dataclass_input(
 
     assert result.qualification is None
     assert "REQUIRED_CHILD_SET_MISMATCH:B1" in {
+        issue.code for issue in result.issues
+    }
+
+
+def test_qualification_rejects_malformed_direct_bundle_dataclasses() -> None:
+    manifests, acceptances = _valid_public_bundles()
+    manifests = [
+        replace(
+            manifest,
+            schema_version="999",
+            package_id="bad/package",
+            owner_subject_digest="BAD_OWNER",
+            reviewer_subject_digest="BAD_REVIEWER",
+        )
+        for manifest in manifests
+    ]
+    acceptances = [
+        replace(
+            receipt,
+            schema_version="999",
+            package_id="bad/package",
+            manifest_digest=sha256_hex(manifest.to_mapping()),
+            accepted_by_subject_digest="BAD_REVIEWER",
+            review_digest="BAD_REVIEW",
+        )
+        for manifest, receipt in zip(manifests, acceptances, strict=True)
+    ]
+
+    result = qualify_public_bundles(
+        manifests,
+        acceptances,
+        expected_external_acceptance_root_digest=_external_acceptance_root(
+            manifests, acceptances
+        ),
+    )
+
+    assert result.qualification is None
+    assert "INVALID_MANIFEST_CONTRACT:B1" in {
         issue.code for issue in result.issues
     }
 
