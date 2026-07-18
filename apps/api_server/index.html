@@ -62,6 +62,31 @@
     .inline > div { min-width: 0; flex: 1; }
     .provider-grid { display: grid; grid-template-columns: 1.4fr .8fr .8fr; gap: 8px; align-items: end; }
     .provider-grid .key { grid-column: 1 / 3; }
+    .responsibility { padding: 20px 24px 22px; border-bottom: 1px solid var(--line); }
+    .responsibility-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 14px; }
+    .responsibility-title h2 { margin: 0; font-size: 16px; }
+    .responsibility-title p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .responsibility-tools { display: flex; align-items: end; gap: 8px; }
+    .responsibility-tools > div { min-width: 260px; }
+    .responsibility select { width: 100%; min-height: 34px; border: 1px solid #cbd1d6; border-radius: 5px; background: #fff; color: var(--ink); padding: 6px 9px; }
+    .responsibility-state { min-height: 20px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
+    .responsibility-banner { display: none; margin-bottom: 12px; border-left: 3px solid var(--warn); background: #fff7ed; padding: 9px 11px; color: #7a2e0e; }
+    .responsibility-banner.visible { display: block; }
+    .responsibility-grid { display: grid; grid-template-columns: minmax(220px, .72fr) minmax(0, 1.8fr); gap: 22px; }
+    .responsibility h3 { margin: 0 0 9px; font-size: 12px; }
+    .responsibility ul { margin: 0; padding-left: 18px; }
+    .responsibility-meta { margin: 16px 0 0; display: grid; gap: 9px; }
+    .responsibility-meta div { min-width: 0; }
+    .responsibility-meta dt { color: var(--muted); font-size: 11px; }
+    .responsibility-meta dd { margin: 2px 0 0; overflow-wrap: anywhere; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .responsibility-rows { display: grid; border-top: 1px solid var(--line); }
+    .responsibility-row { min-width: 0; padding: 11px 0; border-bottom: 1px solid var(--line); }
+    .responsibility-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+    .responsibility-row-head strong { overflow-wrap: anywhere; }
+    .responsibility-row-state { color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .responsibility-row-copy { margin-top: 5px; color: #444a50; font-size: 12px; }
+    .responsibility-reasons { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 5px; }
+    .responsibility-reason { border: 1px solid #e4b58a; border-radius: 4px; background: #fff7ed; padding: 2px 5px; color: #7a2e0e; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
     .compose { padding: 28px 24px 22px; border-bottom: 1px solid var(--line); }
     .compose h1 { margin: 0 0 18px; font-size: 22px; line-height: 1.25; }
     .fields { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 14px; }
@@ -115,11 +140,14 @@
       aside { display: none; }
       .topbar { padding: 0 14px; }
       .top-status .signal:first-child { display: none; }
-      .setup-grid, .fields, .provider-grid, .diff, .summary-grid { grid-template-columns: 1fr; }
+      .setup-grid, .fields, .provider-grid, .diff, .summary-grid, .responsibility-grid { grid-template-columns: 1fr; }
       .goal-field { grid-row: auto; }
       .provider-grid .key { grid-column: auto; }
       .diff-pane + .diff-pane, .metric + .metric { border-left: 0; border-top: 1px solid var(--line); }
-      .compose, .review, .detail { padding-left: 14px; padding-right: 14px; }
+      .compose, .review, .detail, .responsibility { padding-left: 14px; padding-right: 14px; }
+      .responsibility-head { align-items: stretch; flex-direction: column; }
+      .responsibility-tools { align-items: end; }
+      .responsibility-tools > div { min-width: 0; flex: 1; }
       .setup summary, .workflow-band, .tabs { padding-left: 14px; padding-right: 14px; }
       #error { margin-left: 14px; margin-right: 14px; }
     }
@@ -159,6 +187,34 @@
             </div>
           </div>
         </details>
+        <section class="responsibility" id="responsibility-panel" data-testid="mandate-responsibility-panel" aria-labelledby="responsibility-heading">
+          <div class="responsibility-head">
+            <div class="responsibility-title">
+              <h2 id="responsibility-heading">Mandate responsibility</h2>
+              <p>Read-only projection of canonical Mandate, Task and outcome truth.</p>
+            </div>
+            <div class="responsibility-tools">
+              <div><label for="responsibility-mandate-select">Mandate</label><select id="responsibility-mandate-select" onchange="selectResponsibilityMandate()" disabled><option>Loading Mandates</option></select></div>
+              <button type="button" id="responsibility-refresh" onclick="refreshResponsibility()" disabled>Refresh</button>
+            </div>
+          </div>
+          <div class="responsibility-state" id="responsibility-status" role="status" aria-live="polite">Loading responsibility view</div>
+          <div class="responsibility-banner" id="responsibility-banner" role="alert"></div>
+          <div class="responsibility-grid">
+            <div>
+              <h3>Desired outcomes</h3>
+              <div id="responsibility-desired-outcomes"><div class="empty">Loading</div></div>
+              <dl class="responsibility-meta">
+                <div><dt>Next observation</dt><dd id="responsibility-next-observation">—</dd></div>
+                <div><dt>Last successful digest</dt><dd id="responsibility-last-digest">—</dd></div>
+              </dl>
+            </div>
+            <div>
+              <h3>Linked responsibilities</h3>
+              <div class="responsibility-rows" id="responsibility-rows"><div class="empty">Loading</div></div>
+            </div>
+          </div>
+        </section>
         <section class="compose">
           <h1 id="compose-title">Run a repository task</h1>
           <div class="fields">
@@ -200,6 +256,7 @@
     const stageOrder = ['read', 'provider', 'approve', 'apply', 'tests', 'evaluate', 'done'];
     let current = null;
     let setupState = {workspace: null, provider: null};
+    let responsibilityState = {mandates: [], selectedMandateId: null, lastDigest: null};
 
     async function call(path, method = 'GET', body) {
       const response = await fetch(path, {
@@ -237,6 +294,7 @@
         signal('workspace-signal', workspace.attached, workspace.attached ? workspace.root : 'No workspace');
         signal('provider-signal', provider.configured, provider.configured ? provider.model_id : 'No provider');
         await refreshTasks();
+        await refreshMandates();
       } catch (error) { showError(error); }
     }
 
@@ -248,6 +306,105 @@
           <span class="task-meta"><span>${escapeHtml(task.run_status || task.status)}</span><span>${task.sequence} events</span></span>
         </button>`).join('') : '<div class="empty">No tasks</div>';
     }
+
+    // Responsibility view start
+    function responsibilityMandateSegment(mandateId) {
+      if (!/^[A-Za-z0-9._:-]+$/.test(mandateId)) throw new Error('Unsupported Mandate identifier');
+      return mandateId;
+    }
+
+    function setResponsibilityLoading(message) {
+      $('responsibility-status').textContent = message;
+      $('responsibility-refresh').disabled = true;
+      $('responsibility-mandate-select').disabled = true;
+    }
+
+    function renderResponsibilityError(error) {
+      $('responsibility-status').textContent = 'Unable to load responsibility view';
+      $('responsibility-banner').textContent = error.message || error.error || String(error);
+      $('responsibility-banner').classList.add('visible');
+      $('responsibility-rows').innerHTML = '<div class="empty">Responsibility truth is unavailable.</div>';
+      $('responsibility-refresh').disabled = !responsibilityState.selectedMandateId;
+      $('responsibility-mandate-select').disabled = !responsibilityState.mandates.length;
+    }
+
+    async function refreshMandates() {
+      setResponsibilityLoading('Loading Mandates');
+      try {
+        const data = await call('/v1/mandates');
+        responsibilityState.mandates = Array.isArray(data.mandates) ? data.mandates : [];
+        const select = $('responsibility-mandate-select');
+        if (!responsibilityState.mandates.length) {
+          responsibilityState.selectedMandateId = null;
+          select.innerHTML = '<option value="">No Mandates available</option>';
+          $('responsibility-status').textContent = 'No Mandates available';
+          $('responsibility-desired-outcomes').innerHTML = '<div class="empty">No Mandate selected</div>';
+          $('responsibility-rows').innerHTML = '<div class="empty">No responsibilities linked</div>';
+          $('responsibility-refresh').disabled = true;
+          return;
+        }
+        const mandateIds = new Set(responsibilityState.mandates.map(record => record.mandate.mandate_id));
+        if (!mandateIds.has(responsibilityState.selectedMandateId)) {
+          responsibilityState.selectedMandateId = responsibilityState.mandates[0].mandate.mandate_id;
+        }
+        select.innerHTML = responsibilityState.mandates.map(record => `<option value="${escapeHtml(record.mandate.mandate_id)}">${escapeHtml(record.mandate.mission_statement)}</option>`).join('');
+        select.value = responsibilityState.selectedMandateId;
+        select.disabled = false;
+        await refreshResponsibility();
+      } catch (error) {
+        renderResponsibilityError(error);
+      }
+    }
+
+    async function selectResponsibilityMandate() {
+      responsibilityState.selectedMandateId = $('responsibility-mandate-select').value;
+      await refreshResponsibility();
+    }
+
+    async function refreshResponsibility() {
+      const mandateId = responsibilityState.selectedMandateId;
+      if (!mandateId) return;
+      setResponsibilityLoading('Loading responsibility view');
+      $('responsibility-banner').classList.remove('visible');
+      try {
+        const view = await call('/v1/mandates/' + responsibilityMandateSegment(mandateId) + '/responsibility-view');
+        renderResponsibility(view);
+      } catch (error) {
+        renderResponsibilityError(error);
+      }
+    }
+
+    function renderResponsibility(view) {
+      responsibilityState.lastDigest = view.view_digest;
+      $('responsibility-status').textContent = `${view.items.length} linked · ${view.status}`;
+      $('responsibility-desired-outcomes').innerHTML = `<ul>${view.desired_outcomes.map(outcome => `<li>${escapeHtml(outcome)}</li>`).join('')}</ul>`;
+      $('responsibility-next-observation').textContent = view.active_perception?.next_observation_at || 'Not configured';
+      $('responsibility-last-digest').textContent = responsibilityState.lastDigest;
+      $('responsibility-rows').innerHTML = view.items.length ? view.items.map(item => {
+        const commitment = item.commitment;
+        const expected = item.expected_outcome;
+        const outcome = item.current_outcome;
+        const reasons = item.attention_reasons.map(reason => `<span class="responsibility-reason">${escapeHtml(reason)}</span>`).join('');
+        return `<article class="responsibility-row">
+          <div class="responsibility-row-head"><strong>${escapeHtml(item.goal?.statement || item.link.task_id)}</strong><span class="responsibility-row-state">${escapeHtml(item.state)}</span></div>
+          <div class="responsibility-row-copy">Task ${escapeHtml(item.link.task_id)} · Commitment ${escapeHtml(commitment?.commitment_id || 'unavailable')} · Expected ${escapeHtml(expected?.expected_outcome_id || 'unavailable')} · Outcome ${escapeHtml(outcome?.status || 'pending')}</div>
+          ${reasons ? `<div class="responsibility-reasons" aria-label="Attention reasons">${reasons}</div>` : ''}
+        </article>`;
+      }).join('') : '<div class="empty">No responsibilities linked</div>';
+      const banner = $('responsibility-banner');
+      if (view.status === 'REVOKED') {
+        banner.textContent = 'This Mandate is revoked. The view is historical and read-only.';
+        banner.classList.add('visible');
+      } else if (view.status === 'PARTIAL_UNKNOWN') {
+        banner.textContent = 'Some responsibility truth is unknown. Inspect the typed reasons before acting.';
+        banner.classList.add('visible');
+      } else {
+        banner.classList.remove('visible');
+      }
+      $('responsibility-refresh').disabled = false;
+      $('responsibility-mandate-select').disabled = false;
+    }
+    // Responsibility view end
 
     function workflow() {
       const node = (node_id, kind, capability, idempotency = 'none') => ({node_id, kind, capability, input_contract:'json:object:1', output_contract:'json:object:1', timeout_seconds:120, max_attempts:1, risk_tier:1, idempotency});
