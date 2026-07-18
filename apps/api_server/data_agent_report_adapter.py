@@ -397,7 +397,21 @@ class SQLiteDataAgentReportStateStore:
     _OBJECT_KINDS = frozenset({"artifact", "evidence", "event", "projection"})
 
     def __init__(self, database: str | Path) -> None:
-        self._database = str(database)
+        database_value = str(database)
+        normalized = database_value.strip().lower()
+        self._canonical_database_path = (
+            None
+            if not normalized
+            or normalized == ":memory:"
+            or normalized.startswith("file:")
+            or "mode=memory" in normalized
+            else Path(database_value).expanduser().resolve()
+        )
+        self._database = (
+            database_value
+            if self._canonical_database_path is None
+            else str(self._canonical_database_path)
+        )
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -411,6 +425,10 @@ class SQLiteDataAgentReportStateStore:
             raise DataAgentReportAdapterError(
                 "durable external report state schema is unavailable"
             ) from None
+
+    @property
+    def canonical_database_path(self) -> Path | None:
+        return self._canonical_database_path
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database, timeout=10)
@@ -1644,6 +1662,52 @@ class SQLiteDataAgentReportStateStore:
                 "durable outcome record does not match dispatch"
             )
 
+    @classmethod
+    def _prepare_dispatch_completion(
+        cls,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord,
+        completed_at: datetime,
+        consumer_id: str,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        cls._validate_dispatch(dispatch)
+        if dispatch.status != "PENDING":
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch is not pending"
+            )
+        cls._validate_outcome_record(dispatch, outcome_record)
+        resolved_kind = outcome_record.outcome_kind.value
+        record_id = outcome_record.assessment_record_id
+        record_digest = content_digest(outcome_record)
+        completion_time = _utc(completed_at)
+        completion_payload = {
+            "dispatch_id": dispatch.dispatch_id,
+            "dispatch_digest": dispatch.dispatch_digest,
+            "outcome_kind": resolved_kind,
+            "outcome_record_id": record_id,
+            "outcome_digest": record_digest,
+            "completed_at": completion_time,
+            "consumer_id": consumer_id,
+            "authority_snapshot_digest": authority_snapshot_digest,
+        }
+        completed = DataAgentReportDispatch(
+            **{
+                **dispatch.__dict__,
+                "status": "COMPLETED",
+                "outcome_kind": resolved_kind,
+                "outcome_record_id": record_id,
+                "outcome_digest": record_digest,
+                "completed_at": completion_time,
+                "consumer_id": consumer_id,
+                "authority_snapshot_digest": authority_snapshot_digest,
+                "completion_digest": content_digest(completion_payload),
+            }
+        )
+        cls._validate_dispatch(completed)
+        return completed
+
     @staticmethod
     def _page_commit_payload(
         *,
@@ -1902,6 +1966,60 @@ class SQLiteDataAgentReportStateStore:
             )
         return dispatches
 
+    def _complete_dispatch_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+        completed: DataAgentReportDispatch,
+    ) -> DataAgentReportDispatch:
+        row = connection.execute(
+            self._dispatch_select() + " WHERE dispatch_id = ?",
+            (dispatch.dispatch_id,),
+        ).fetchone()
+        if row is None:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch is unavailable"
+            )
+        current = self._dispatch_from_row(row)
+        self._validate_dispatch_observation(connection, current)
+        if current.status == "COMPLETED":
+            if current == completed:
+                return current
+            raise DataAgentReportConflict(
+                "durable external report dispatch completion conflict"
+            )
+        if current != dispatch:
+            raise DataAgentReportConflict(
+                "durable external report dispatch changed concurrently"
+            )
+        changed = connection.execute(
+            """
+            UPDATE data_agent_report_dispatch_outbox
+            SET status = 'COMPLETED', outcome_kind = ?,
+                outcome_record_id = ?, outcome_digest = ?,
+                completed_at = ?, consumer_id = ?,
+                authority_snapshot_digest = ?, completion_digest = ?
+            WHERE dispatch_id = ? AND status = 'PENDING'
+            """,
+            (
+                completed.outcome_kind,
+                completed.outcome_record_id,
+                completed.outcome_digest,
+                completed.completed_at.isoformat()
+                if completed.completed_at is not None
+                else None,
+                completed.consumer_id,
+                completed.authority_snapshot_digest,
+                completed.completion_digest,
+                dispatch.dispatch_id,
+            ),
+        ).rowcount
+        if changed != 1:
+            raise DataAgentReportConflict(
+                "durable external report dispatch changed concurrently"
+            )
+        return completed
+
     def complete_dispatch(
         self,
         dispatch: DataAgentReportDispatch,
@@ -1913,11 +2031,6 @@ class SQLiteDataAgentReportStateStore:
         outcome_kind: str | None = None,
         outcome_digest: str | None = None,
     ) -> DataAgentReportDispatch:
-        self._validate_dispatch(dispatch)
-        if dispatch.status != "PENDING":
-            raise DataAgentReportAdapterError(
-                "durable external report dispatch is not pending"
-            )
         if outcome_record is None:
             raise DataAgentReportAdapterError(
                 "durable outcome record is required for dispatch completion"
@@ -1926,83 +2039,90 @@ class SQLiteDataAgentReportStateStore:
             raise DataAgentReportAdapterError(
                 "durable outcome record cannot be replaced by self-reported outcome"
             )
-        self._validate_outcome_record(dispatch, outcome_record)
-        resolved_kind = outcome_record.outcome_kind.value
-        record_id = outcome_record.assessment_record_id
-        record_digest = content_digest(outcome_record)
-        completion_payload = {
-            "dispatch_id": dispatch.dispatch_id,
-            "dispatch_digest": dispatch.dispatch_digest,
-            "outcome_kind": resolved_kind,
-            "outcome_record_id": record_id,
-            "outcome_digest": record_digest,
-            "completed_at": _utc(completed_at),
-            "consumer_id": consumer_id,
-            "authority_snapshot_digest": authority_snapshot_digest,
-        }
-        completed = DataAgentReportDispatch(
-            **{
-                **dispatch.__dict__,
-                "status": "COMPLETED",
-                "outcome_kind": resolved_kind,
-                "outcome_record_id": record_id,
-                "outcome_digest": record_digest,
-                "completed_at": _utc(completed_at),
-                "consumer_id": consumer_id,
-                "authority_snapshot_digest": authority_snapshot_digest,
-                "completion_digest": content_digest(completion_payload),
-            }
+        completed = self._prepare_dispatch_completion(
+            dispatch,
+            outcome_record=outcome_record,
+            completed_at=completed_at,
+            consumer_id=consumer_id,
+            authority_snapshot_digest=authority_snapshot_digest,
         )
-        self._validate_dispatch(completed)
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                row = connection.execute(
-                    self._dispatch_select() + " WHERE dispatch_id = ?",
-                    (dispatch.dispatch_id,),
-                ).fetchone()
-                if row is None:
-                    raise DataAgentReportAdapterError(
-                        "durable external report dispatch is unavailable"
-                    )
-                current = self._dispatch_from_row(row)
-                self._validate_dispatch_observation(connection, current)
-                if current.status == "COMPLETED":
-                    if current == completed:
-                        return current
-                    raise DataAgentReportConflict(
-                        "durable external report dispatch completion conflict"
-                    )
-                if current != dispatch:
-                    raise DataAgentReportConflict(
-                        "durable external report dispatch changed concurrently"
-                    )
-                connection.execute(
-                    """
-                    UPDATE data_agent_report_dispatch_outbox
-                    SET status = 'COMPLETED', outcome_kind = ?,
-                        outcome_record_id = ?, outcome_digest = ?,
-                        completed_at = ?, consumer_id = ?,
-                        authority_snapshot_digest = ?, completion_digest = ?
-                    WHERE dispatch_id = ? AND status = 'PENDING'
-                    """,
-                    (
-                        resolved_kind,
-                        record_id,
-                        record_digest,
-                        _utc(completed_at).isoformat(),
-                        consumer_id,
-                        authority_snapshot_digest,
-                        completed.completion_digest,
-                        dispatch.dispatch_id,
-                    ),
+                return self._complete_dispatch_in_transaction(
+                    connection,
+                    dispatch,
+                    completed,
                 )
-                return completed
         except DataAgentReportAdapterError:
             raise
         except sqlite3.Error:
             raise DataAgentReportAdapterError(
                 "durable external report dispatch state is unavailable"
+            ) from None
+
+    def complete_active_perception_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord,
+        schedule_id: str,
+        config_digest: str,
+        worker_id: str,
+        lease_fence: int,
+        completed_at: datetime,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        completion_time = _utc(completed_at)
+        try:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                lease = connection.execute(
+                    """
+                    SELECT config_digest, lease_owner, lease_fence, lease_expires_at
+                    FROM mandate_active_perception_schedule
+                    WHERE schedule_id = ?
+                    """,
+                    (schedule_id,),
+                ).fetchone()
+                try:
+                    lease_expires_at = (
+                        None
+                        if lease is None or lease[3] is None
+                        else _utc(datetime.fromisoformat(str(lease[3])))
+                    )
+                except (TypeError, ValueError):
+                    lease_expires_at = None
+                if (
+                    lease is None
+                    or str(lease[0]) != config_digest
+                    or str(lease[1]) != worker_id
+                    or type(lease[2]) is not int
+                    or type(lease_fence) is not int
+                    or int(lease[2]) != lease_fence
+                    or lease_expires_at is None
+                    or completion_time >= lease_expires_at
+                ):
+                    raise DataAgentReportAdapterError(
+                        "active perception lease fence is stale"
+                    )
+                completed = self._prepare_dispatch_completion(
+                    dispatch,
+                    outcome_record=outcome_record,
+                    completed_at=completion_time,
+                    consumer_id=worker_id,
+                    authority_snapshot_digest=authority_snapshot_digest,
+                )
+                return self._complete_dispatch_in_transaction(
+                    connection,
+                    dispatch,
+                    completed,
+                )
+        except DataAgentReportAdapterError:
+            raise
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable active perception dispatch state is unavailable"
             ) from None
 
     def get_dispatch(
@@ -2529,6 +2649,12 @@ class DataAgentReportAdapter:
         return self._state_store.durable
 
     @property
+    def active_perception_database_path(self) -> Path | None:
+        if not isinstance(self._state_store, SQLiteDataAgentReportStateStore):
+            return None
+        return self._state_store.canonical_database_path
+
+    @property
     def feed_cursor(self) -> str | None:
         return self._state_store.get_feed_cursor(
             self._state_namespace,
@@ -2591,6 +2717,34 @@ class DataAgentReportAdapter:
             outcome_digest=outcome_digest,
             completed_at=completed_at,
             consumer_id=consumer_id,
+            authority_snapshot_digest=authority_snapshot_digest,
+        )
+
+    def complete_active_perception_dispatch(
+        self,
+        dispatch: DataAgentReportDispatch,
+        *,
+        outcome_record: SituatedAssessmentRecord,
+        schedule_id: str,
+        config_digest: str,
+        worker_id: str,
+        lease_fence: int,
+        completed_at: datetime,
+        authority_snapshot_digest: str,
+    ) -> DataAgentReportDispatch:
+        self._assert_dispatch_scope(dispatch)
+        if not isinstance(self._state_store, SQLiteDataAgentReportStateStore):
+            raise TypeError(
+                "active perception requires SQLite file-backed report state"
+            )
+        return self._state_store.complete_active_perception_dispatch(
+            dispatch,
+            outcome_record=outcome_record,
+            schedule_id=schedule_id,
+            config_digest=config_digest,
+            worker_id=worker_id,
+            lease_fence=lease_fence,
+            completed_at=completed_at,
             authority_snapshot_digest=authority_snapshot_digest,
         )
 

@@ -149,7 +149,21 @@ class SQLiteMandateActivePerceptionStore:
     """One narrow durable schedule, budget and lease-fence store."""
 
     def __init__(self, database: str | Path) -> None:
-        self._database = str(database)
+        database_value = str(database)
+        normalized = database_value.strip().lower()
+        self._canonical_database_path = (
+            None
+            if not normalized
+            or normalized == ":memory:"
+            or normalized.startswith("file:")
+            or "mode=memory" in normalized
+            else Path(database_value).expanduser().resolve()
+        )
+        self._database = (
+            database_value
+            if self._canonical_database_path is None
+            else str(self._canonical_database_path)
+        )
         try:
             with self._connect() as connection:
                 connection.execute(
@@ -182,6 +196,10 @@ class SQLiteMandateActivePerceptionStore:
             raise RuntimeError(
                 "active perception schedule store is unavailable"
             ) from None
+
+    @property
+    def canonical_database_path(self) -> Path | None:
+        return self._canonical_database_path
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database, timeout=10)
@@ -433,8 +451,15 @@ class MandateActivePerceptionService:
         runtime: ActivePerceptionRuntime,
         clock: Clock,
     ) -> None:
-        if not adapter.has_durable_state:
-            raise TypeError("active perception requires durable report state")
+        report_database = adapter.active_perception_database_path
+        if report_database is None or store.canonical_database_path is None:
+            raise TypeError(
+                "active perception requires SQLite file-backed report state"
+            )
+        if report_database != store.canonical_database_path:
+            raise TypeError(
+                "active perception report and schedule database must be identical"
+            )
         if adapter.principal_scope != (
             config.principal_id,
             config.tenant_id,
@@ -539,11 +564,14 @@ class MandateActivePerceptionService:
                     admission.receipt_id,
                 )
                 self._assert_same_authority(authority)
-                self._adapter.complete_dispatch(
+                self._adapter.complete_active_perception_dispatch(
                     dispatch,
                     outcome_record=outcome_record,
+                    schedule_id=self.config.schedule_id,
+                    config_digest=self.config.config_digest,
+                    worker_id=lease.worker_id,
+                    lease_fence=lease.fence,
                     completed_at=_utc(self._clock()),
-                    consumer_id=worker_id,
                     authority_snapshot_digest=authority,
                 )
                 proposal_count += 1

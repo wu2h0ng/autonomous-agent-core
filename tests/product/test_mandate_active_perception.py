@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from agent_os_contracts import (
+    CredentialRef,
     RelevanceAssessment,
     RelevanceAssessorRef,
     RelevanceDisposition,
@@ -30,6 +31,7 @@ from apps.api_server.data_agent_report_adapter import (
 )
 from apps.api_server.mandate_active_perception import (
     ActivePerceptionDisposition,
+    ActivePerceptionLease,
     MandateActivePerceptionConfig,
     MandateActivePerceptionService,
     SQLiteMandateActivePerceptionStore,
@@ -45,6 +47,12 @@ from tests.product.test_data_agent_external_report_adapter import (
     _Transport,
 )
 from tests.product.test_data_agent_report_dispatch_outbox import _outcome_record
+
+
+class _CredentialBroker:
+    def resolve(self, credential: CredentialRef) -> str:
+        del credential
+        return "secret-value-that-must-not-leak"
 
 
 def _feed_adapter(
@@ -340,9 +348,10 @@ def _service(
     wake_budget: int = 2,
     query_budget: int = 2,
 ) -> tuple[MandateActivePerceptionService, _Runtime, DataAgentReportAdapter]:
-    reports = adapter or _feed_adapter(tmp_path / "reports.sqlite3")
+    runtime_database = tmp_path / "runtime.sqlite3"
+    reports = adapter or _feed_adapter(runtime_database)
     situated = runtime or _Runtime()
-    store = SQLiteMandateActivePerceptionStore(tmp_path / "perception.sqlite3")
+    store = SQLiteMandateActivePerceptionStore(runtime_database)
     config = MandateActivePerceptionConfig(
         schedule_id="schedule:mandate-1",
         principal_id="user:local",
@@ -366,6 +375,77 @@ def _service(
     )
     service.ensure_schedule(first_wake_at=NOW)
     return service, situated, reports
+
+
+def test_service_rejects_separate_report_and_schedule_databases(
+    tmp_path: Path,
+) -> None:
+    adapter = _feed_adapter(tmp_path / "reports.sqlite3")
+    store = SQLiteMandateActivePerceptionStore(tmp_path / "perception.sqlite3")
+    config = MandateActivePerceptionConfig(
+        schedule_id="schedule:mandate-1",
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-reports",
+        interval_seconds=60,
+        budget_window_seconds=3600,
+        wake_budget_per_window=2,
+        query_budget_per_window=2,
+        feed_limit=1,
+        lease_seconds=30,
+    )
+
+    with pytest.raises(TypeError, match="database"):
+        MandateActivePerceptionService(
+            config=config,
+            store=store,
+            adapter=adapter,
+            runtime=_Runtime(),
+            clock=lambda: NOW,
+        )
+
+
+def test_stale_lease_holder_cannot_complete_after_takeover(tmp_path: Path) -> None:
+    service, runtime, adapter = _service(tmp_path)
+    service.ensure_schedule(first_wake_at=NOW)
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+    stale = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-stale",
+        now=NOW,
+        force_pending=True,
+    )
+    assert isinstance(stale, ActivePerceptionLease)
+    completed_at = NOW + timedelta(seconds=service.config.lease_seconds + 1)
+    current = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-current",
+        now=completed_at,
+        force_pending=True,
+    )
+    assert isinstance(current, ActivePerceptionLease)
+
+    with pytest.raises(
+        (DataAgentReportAdapterError, RuntimeError), match="lease fence"
+    ):
+        adapter.complete_active_perception_dispatch(
+            dispatch,
+            outcome_record=runtime.propose_record(
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+                f"receipt:{dispatch.environment_event_id}",
+            ),
+            schedule_id=service.config.schedule_id,
+            config_digest=service.config.config_digest,
+            worker_id=stale.worker_id,
+            lease_fence=stale.fence,
+            completed_at=completed_at,
+            authority_snapshot_digest=runtime.authority_digest,
+        )
+    assert adapter.pending_dispatches() == (dispatch,)
 
 
 def test_due_run_polls_admits_proposes_and_records_no_effect_receipt(
@@ -438,7 +518,7 @@ def test_wake_and_query_budgets_fail_closed_until_next_window(tmp_path: Path) ->
 def test_restart_drains_pending_before_network_and_does_not_reassess_completed(
     tmp_path: Path,
 ) -> None:
-    report_database = tmp_path / "reports.sqlite3"
+    report_database = tmp_path / "runtime.sqlite3"
     first_adapter = _feed_adapter(report_database)
     first_adapter.poll_once(limit=1)
     runtime = _Runtime()
@@ -464,7 +544,7 @@ def test_restart_drains_pending_before_network_and_does_not_reassess_completed(
 
 def test_schedule_row_tamper_fails_closed(tmp_path: Path) -> None:
     service, _, _ = _service(tmp_path)
-    with sqlite3.connect(tmp_path / "perception.sqlite3") as connection:
+    with sqlite3.connect(tmp_path / "runtime.sqlite3") as connection:
         connection.execute(
             "UPDATE mandate_active_perception_schedule SET tenant_id = ?",
             ("tenant:attacker",),
@@ -500,7 +580,7 @@ def test_stale_worker_fence_cannot_finish_after_takeover(tmp_path: Path) -> None
 def test_query_budget_is_debited_before_transport_and_not_refunded(
     tmp_path: Path,
 ) -> None:
-    schedule_database = tmp_path / "perception.sqlite3"
+    schedule_database = tmp_path / "runtime.sqlite3"
 
     def fail_after_debit(_: object) -> DataAgentReportHttpResponse:
         with sqlite3.connect(schedule_database) as connection:
@@ -522,13 +602,9 @@ def test_query_budget_is_debited_before_transport_and_not_refunded(
     )
     adapter = DataAgentReportAdapter(
         config,
-        credential_broker=type(
-            "Broker",
-            (),
-            {"resolve": lambda self, ref: "secret-value-that-must-not-leak"},
-        )(),
+        credential_broker=_CredentialBroker(),
         transport=_Transport(fail_after_debit),
-        state_store=SQLiteDataAgentReportStateStore(tmp_path / "reports.sqlite3"),
+        state_store=SQLiteDataAgentReportStateStore(schedule_database),
         clock=lambda: NOW,
     )
     service, _, _ = _service(tmp_path, adapter=adapter)
@@ -566,13 +642,9 @@ def test_authority_change_after_fetch_fails_before_admit(tmp_path: Path) -> None
                 )
             )
         ),
-        credential_broker=type(
-            "Broker",
-            (),
-            {"resolve": lambda self, ref: "secret-value-that-must-not-leak"},
-        )(),
+        credential_broker=_CredentialBroker(),
         transport=_Transport(change_authority),
-        state_store=SQLiteDataAgentReportStateStore(tmp_path / "reports.sqlite3"),
+        state_store=SQLiteDataAgentReportStateStore(tmp_path / "runtime.sqlite3"),
         clock=lambda: NOW,
     )
     service, _, _ = _service(tmp_path, adapter=adapter, runtime=runtime)
@@ -614,7 +686,7 @@ def test_authority_change_after_propose_fails_before_dispatch_completion(
 def test_pending_outbox_drains_when_next_wake_is_future_without_network(
     tmp_path: Path,
 ) -> None:
-    report_database = tmp_path / "reports.sqlite3"
+    report_database = tmp_path / "runtime.sqlite3"
     adapter = _feed_adapter(report_database)
     adapter.poll_once(limit=1)
     restarted, _, transport = _adapter(
@@ -640,7 +712,7 @@ def test_pending_outbox_drains_when_next_wake_is_future_without_network(
     assert receipt.proposal_count == 1
     assert transport.requests == []
     assert runtime.propose_calls == 1
-    with sqlite3.connect(tmp_path / "perception.sqlite3") as connection:
+    with sqlite3.connect(tmp_path / "runtime.sqlite3") as connection:
         assert connection.execute(
             "SELECT query_used FROM mandate_active_perception_schedule"
         ).fetchone() == (0,)
@@ -668,11 +740,7 @@ def test_cross_tenant_same_ids_cannot_complete_foreign_dispatch(tmp_path: Path) 
             target_tenant_id="tenant:other",
             target_workspace_id="workspace:other",
         ),
-        credential_broker=type(
-            "Broker",
-            (),
-            {"resolve": lambda self, ref: "secret-value-that-must-not-leak"},
-        )(),
+        credential_broker=_CredentialBroker(),
         transport=_Transport(_response()),
         state_store=SQLiteDataAgentReportStateStore(database),
         clock=lambda: NOW,
