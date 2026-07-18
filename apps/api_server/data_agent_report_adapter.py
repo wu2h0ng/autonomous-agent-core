@@ -32,6 +32,7 @@ from agent_os_core import (
     CanonicalCredentialAuthorizationReader,
     CredentialAuthorizationReader,
     EnvCredentialBroker,
+    ScopedSituatedAssessmentReader,
     SituationalBinding,
 )
 from apps.api_server.data_agent_report_policy import (
@@ -47,7 +48,7 @@ from apps.api_server.data_agent_report_policy import (
 
 
 Clock = Callable[[], datetime]
-OutcomeRecordResolver = Callable[[str], SituatedAssessmentRecord | None]
+_OUTCOME_AUTHORITY_COMPOSITION_SEAL = object()
 _TRACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -2574,6 +2575,7 @@ class DataAgentReportAdapter:
         )
         self._transport = transport or StdlibDataAgentReportTransport()
         self._state_store = state_store or _InMemoryDataAgentReportStateStore()
+        self._outcome_authority: ScopedSituatedAssessmentReader | None = None
         self._clock = clock
         self._binding: SituationalBinding = (
             config.principal_id,
@@ -2622,6 +2624,27 @@ class DataAgentReportAdapter:
         self,
     ) -> CredentialAuthorizationReader:
         return self._credential_authorizations
+
+    def _bind_outcome_authority_for_composition(
+        self,
+        authority: ScopedSituatedAssessmentReader,
+        *,
+        composition_seal: object,
+    ) -> None:
+        if composition_seal is not _OUTCOME_AUTHORITY_COMPOSITION_SEAL:
+            raise TypeError("outcome authority requires situated composition")
+        if (
+            authority.scope.principal_id,
+            authority.scope.tenant_id,
+            authority.scope.workspace_id,
+        ) != self.principal_scope:
+            raise TypeError("outcome authority scope does not match adapter")
+        if (
+            self._outcome_authority is not None
+            and self._outcome_authority is not authority
+        ):
+            raise TypeError("outcome authority is already bound")
+        self._outcome_authority = authority
 
     def _assert_current_credential_unreflected(
         self, body: bytes, *, assessed_at: datetime
@@ -2679,12 +2702,7 @@ class DataAgentReportAdapter:
             self._assert_dispatch_scope(dispatch)
         return dispatches
 
-    def completed_dispatch(
-        self,
-        dispatch_id: str,
-        *,
-        outcome_resolver: OutcomeRecordResolver | None = None,
-    ) -> DataAgentReportDispatch | None:
+    def completed_dispatch(self, dispatch_id: str) -> DataAgentReportDispatch | None:
         dispatch = self._state_store.get_dispatch(
             self._state_namespace,
             dispatch_id,
@@ -2692,12 +2710,19 @@ class DataAgentReportAdapter:
         if dispatch is None or dispatch.status != "COMPLETED":
             return None
         self._assert_dispatch_scope(dispatch)
-        if outcome_resolver is None or dispatch.outcome_digest is None:
+        authority = self._outcome_authority
+        if (
+            authority is None
+            or dispatch.outcome_record_id is None
+            or dispatch.outcome_digest is None
+        ):
             raise DataAgentReportAdapterError(
-                "durable outcome record resolver is required"
+                "durable outcome record authority is required"
             )
         try:
-            outcome_record = outcome_resolver(dispatch.outcome_digest)
+            outcome_record = authority.record_by_assessment_record_id(
+                dispatch.outcome_record_id
+            )
         except Exception:
             raise DataAgentReportAdapterError(
                 "durable outcome record is unavailable or invalid"

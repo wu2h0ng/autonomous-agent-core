@@ -145,6 +145,10 @@ class ActivePerceptionRuntime(Protocol):
         self, event_id: str, projection_id: str, receipt_id: str
     ) -> SituatedAssessmentRecord: ...
 
+    def resolve_assessment_record(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None: ...
+
 
 class SQLiteMandateActivePerceptionStore:
     """One narrow durable schedule, budget and lease-fence store."""

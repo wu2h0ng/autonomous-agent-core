@@ -315,7 +315,7 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
 def test_active_perception_completed_replay_does_not_call_provider_again(
     tmp_path: Path,
 ) -> None:
-    report_database = tmp_path / "reports.sqlite3"
+    runtime_database = tmp_path / "runtime.sqlite3"
     credential = _data_credential(
         scopes=(
             "reports:read",
@@ -331,11 +331,11 @@ def test_active_perception_completed_replay_does_not_call_provider_again(
             final_url="http://127.0.0.1:8765/external/report-events?limit=1",
         ),
         config=_config(credential=credential),
-        state_store=SQLiteDataAgentReportStateStore(report_database),
+        state_store=SQLiteDataAgentReportStateStore(runtime_database),
     )
     policy = _provider_policy()
     provider = _provider(policy)
-    control = SQLiteSituatedAssessmentStore(tmp_path / "situated.sqlite3")
+    control = SQLiteSituatedAssessmentStore(runtime_database)
     app = _application(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
@@ -361,7 +361,7 @@ def test_active_perception_completed_replay_does_not_call_provider_again(
         feed_limit=1,
         lease_seconds=30,
     )
-    store = SQLiteMandateActivePerceptionStore(tmp_path / "perception.sqlite3")
+    store = SQLiteMandateActivePerceptionStore(runtime_database)
     service = MandateActivePerceptionService(
         config=config,
         store=store,
@@ -380,7 +380,7 @@ def test_active_perception_completed_replay_does_not_call_provider_again(
     assert replay.disposition is ActivePerceptionDisposition.NOT_DUE
     assert len(provider.decision_requests) == 1
     assert adapter.pending_dispatches() == ()
-    with sqlite3.connect(report_database) as connection:
+    with sqlite3.connect(runtime_database) as connection:
         outcome_record_id, outcome_digest = connection.execute(
             """
             SELECT outcome_record_id, outcome_digest

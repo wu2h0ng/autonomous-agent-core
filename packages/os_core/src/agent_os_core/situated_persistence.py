@@ -105,6 +105,10 @@ class SituatedAssessmentStore(Protocol):
         self, input_binding_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None: ...
+
     def record_by_result_digest(
         self, result_digest: str
     ) -> SituatedAssessmentRecord | None: ...
@@ -132,6 +136,10 @@ class ScopedSituatedAssessmentReader(Protocol):
 
     def record_by_input_binding(
         self, input_binding_digest: str
+    ) -> SituatedAssessmentRecord | None: ...
+
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
     ) -> SituatedAssessmentRecord | None: ...
 
     def record_by_result_digest(
@@ -209,6 +217,47 @@ class _ScopedSituatedAssessmentFacade:
                 "durable assessment store lacks scoped result lookup capability"
             )
         return scoped_lookup(result_digest, scope=self.scope)
+
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None:
+        scoped_lookup = getattr(
+            self._store, "_record_by_assessment_record_id_scoped", None
+        )
+        if scoped_lookup is None:
+            raise SituationalPersistenceConflict(
+                "durable assessment store lacks scoped record-id lookup capability"
+            )
+        record = scoped_lookup(assessment_record_id, scope=self.scope)
+        if record is None:
+            return None
+        if (
+            record.assessment_record_id != assessment_record_id
+            or record.tenant_id != self.scope.tenant_id
+            or record.workspace_id != self.scope.workspace_id
+            or record.assessment.tenant_id != self.scope.tenant_id
+            or record.assessment.workspace_id != self.scope.workspace_id
+        ):
+            raise SituationalPersistenceConflict(
+                "durable assessment record conflicts with scoped lookup"
+            )
+        mandate, binding = self._store.resolve_active(
+            record.assessment.mandate_id,
+            record.assessment.environment_binding_id,
+            principal_id=self.scope.principal_id,
+            tenant_id=self.scope.tenant_id,
+            workspace_id=self.scope.workspace_id,
+            evaluated_at=record.assessment.assessed_at,
+        )
+        if (
+            mandate.owner_principal_id != self.scope.principal_id
+            or binding.environment_binding_id
+            != record.assessment.environment_binding_id
+        ):
+            raise SituationalPersistenceConflict(
+                "durable assessment scope conflicts with ratified mandate"
+            )
+        return record
 
 
 def scoped_situated_assessment_reader(
@@ -799,6 +848,22 @@ class SQLiteSituatedAssessmentStore:
             )
         return matches[0] if matches else None
 
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT * FROM situated_assessment_records
+                WHERE assessment_record_id = ?
+                """,
+                (assessment_record_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._decode_and_validate_record(row) if row is not None else None
+
     def record_by_result_digest(
         self, result_digest: str
     ) -> SituatedAssessmentRecord | None:
@@ -913,6 +978,31 @@ class SQLiteSituatedAssessmentStore:
                 "scoped result digest maps to multiple durable assessment records"
             )
         return matches[0] if matches else None
+
+    def _record_by_assessment_record_id_scoped(
+        self,
+        assessment_record_id: str,
+        *,
+        scope: LedgerAccessScope,
+    ) -> SituatedAssessmentRecord | None:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT * FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND assessment_record_id = ?
+                """,
+                (
+                    scope.principal_id,
+                    scope.tenant_id,
+                    scope.workspace_id,
+                    assessment_record_id,
+                ),
+            ).fetchone()
+        finally:
+            connection.close()
+        return self._decode_and_validate_record(row) if row is not None else None
 
     def scoped_reader(
         self, scope: LedgerAccessScope

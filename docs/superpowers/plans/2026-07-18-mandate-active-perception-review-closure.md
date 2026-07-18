@@ -105,28 +105,50 @@ git commit -m "fix(product): fence active perception completion"
 
 ### Task 2: Completed Dispatch Depends on Live Assessment Provenance
 
+**Reviewer amendment (2026-07-18):** The first implementation exposed an
+optional caller-supplied resolver. That preserved a bypass: a caller could cache
+the exact record, delete the authoritative row, then inject the cached value.
+Task 2 is therefore revised to remove the resolver argument entirely and bind one
+scope-bound assessment authority only through the situated composition seal.
+
 **Files:**
 - Modify: `apps/api_server/data_agent_report_adapter.py`
 - Modify: `apps/api_server/data_agent_situated_bootstrap.py`
+- Modify: `apps/api_server/mandate_active_perception.py`
+- Modify: `packages/os_core/src/agent_os_core/situated_persistence.py`
+- Modify: `packages/os_core/src/agent_os_core/situated.py`
 - Test: `tests/product/test_mandate_active_perception.py`
+- Test: `tests/product/test_data_agent_situated_bootstrap.py`
+- Test: `tests/product/test_data_agent_report_dispatch_outbox.py`
+- Test: `tests/product/test_data_agent_provider_relevance_e2e.py`
 
 **Interfaces:**
 - Consumes: `ScopedSituatedAssessmentReader` already held by `DataAgentSituatedRuntime`.
-- Produces: runtime method `resolve_assessment_record(assessment_record_id: str) -> SituatedAssessmentRecord | None` and optional resolver argument on `completed_dispatch`.
+- Produces: runtime method `resolve_assessment_record(assessment_record_id: str) -> SituatedAssessmentRecord | None`; bootstrap-sealed binding of that exact scoped authority into the adapter; `completed_dispatch(dispatch_id)` with no caller resolver argument.
 
-- [ ] **Step 1: Add the deleted-assessment RED test**
+- [ ] **Step 1: Add cached-injection and trusted-restart RED tests**
 
-Complete one dispatch, delete its exact row from `situated_assessment_records` using the same SQLite database, restart the adapter/runtime, and assert `completed_dispatch(dispatch_id)` fails closed with `outcome record` rather than returning trusted completion.
+Complete one dispatch, cache its exact assessment, delete the authoritative row,
+and prove caller injection is rejected. Separately compose and restart the real
+runtime/adapter over the same SQLite database and prove completed replay succeeds
+only through the bootstrap-bound scoped authority.
 
 - [ ] **Step 2: Run the RED test**
 
-Run: `.venv/bin/python -m pytest tests/product/test_mandate_active_perception.py -k completed_dispatch_rejects_deleted_assessment -q`
+Run: `.venv/bin/python -m pytest tests/product/test_mandate_active_perception.py -k 'cached_record_injected or composed_scoped_authority' -q`
 
-Expected: FAIL because completed dispatch validation currently checks only the copied digest/id.
+Expected: FAIL because the public resolver accepts cached state and the runtime lookup is digest-based rather than exact record-ID based.
 
 - [ ] **Step 3: Bind every completed read to the authoritative record**
 
-Expose a narrow runtime resolver over the already-scoped situated reader. Change the active-perception completion/replay path so a completed row is accepted only if the resolver returns the exact record and both `assessment_record_id` and `content_digest(record)` equal the outbox values. Missing, tampered, foreign-scope, or resolver failure must raise a typed fail-closed error.
+Add exact `assessment_record_id` lookup to the scoped situated reader. During
+`DataAgentSituatedBootstrap.compose`, bind that exact reader into the adapter via
+an internal one-time composition seal and require exact principal/tenant/workspace
+scope. `completed_dispatch` must resolve only through this stored capability and
+then independently verify record ID, canonical digest, event, projection, mandate,
+environment binding and scope. Missing, tampered, foreign-scope, uncomposed, or
+authority failure must raise a typed fail-closed error. No public callable or
+optional resolver parameter remains.
 
 - [ ] **Step 4: Run targeted tests**
 
@@ -134,11 +156,15 @@ Run: `.venv/bin/python -m pytest tests/product/test_mandate_active_perception.py
 
 Expected: all tests pass.
 
+Then run the related adapter/provider expansion and the full Product suite. The
+provider active-perception fixture must use the same canonical SQLite database
+for report outbox, situated assessment authority and schedule fencing.
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/api_server/data_agent_report_adapter.py apps/api_server/data_agent_situated_bootstrap.py tests/product/test_mandate_active_perception.py
-git commit -m "fix(product): require live assessment provenance"
+git add apps/api_server/data_agent_report_adapter.py apps/api_server/data_agent_situated_bootstrap.py apps/api_server/mandate_active_perception.py packages/os_core/src/agent_os_core/situated_persistence.py packages/os_core/src/agent_os_core/situated.py tests/product/test_mandate_active_perception.py tests/product/test_data_agent_situated_bootstrap.py tests/product/test_data_agent_report_dispatch_outbox.py tests/product/test_data_agent_provider_relevance_e2e.py docs/superpowers/plans/2026-07-18-mandate-active-perception-review-closure.md
+git commit -m "fix(product): seal live assessment provenance"
 ```
 
 ### Task 3: Exact Adapter/Runtime/Config Binding and Type Closure

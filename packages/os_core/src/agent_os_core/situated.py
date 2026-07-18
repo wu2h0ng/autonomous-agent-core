@@ -252,6 +252,19 @@ class InMemorySituationalControlPlane:
                 None,
             )
 
+    def record_by_assessment_record_id(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None:
+        with self._lock:
+            return next(
+                (
+                    record
+                    for record in self._records.values()
+                    if record.assessment_record_id == assessment_record_id
+                ),
+                None,
+            )
+
     def record_by_result_digest(
         self, result_digest: str
     ) -> SituatedAssessmentRecord | None:
@@ -277,6 +290,24 @@ class InMemorySituationalControlPlane:
                     record
                     for record in self._records.values()
                     if content_digest(record) == result_digest
+                    and record.tenant_id == scope.tenant_id
+                    and record.workspace_id == scope.workspace_id
+                ),
+                None,
+            )
+
+    def _record_by_assessment_record_id_scoped(
+        self,
+        assessment_record_id: str,
+        *,
+        scope: LedgerAccessScope,
+    ) -> SituatedAssessmentRecord | None:
+        with self._lock:
+            return next(
+                (
+                    record
+                    for record in self._records.values()
+                    if record.assessment_record_id == assessment_record_id
                     and record.tenant_id == scope.tenant_id
                     and record.workspace_id == scope.workspace_id
                 ),

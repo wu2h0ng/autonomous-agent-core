@@ -238,15 +238,6 @@ def test_pending_survives_restart_and_completion_receipt_is_durable(
     replay_adapter = _feed_adapter(database)
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
         replay_adapter.completed_dispatch(pending.dispatch_id)
-    assert (
-        replay_adapter.completed_dispatch(
-            pending.dispatch_id,
-            outcome_resolver=lambda digest: (
-                outcome_record if content_digest(outcome_record) == digest else None
-            ),
-        )
-        == completed
-    )
 
 
 def test_completion_rejects_self_reported_outcome_without_durable_record(

@@ -266,16 +266,6 @@ def test_pending_dispatch_survives_restart_and_completed_replay_is_not_pending(
     assert second_restart.pending_dispatches() == ()
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
         second_restart.completed_dispatch(pending.dispatch_id)
-    outcome_record = _outcome_record(second_restart, pending)
-    assert (
-        second_restart.completed_dispatch(
-            pending.dispatch_id,
-            outcome_resolver=lambda digest: (
-                outcome_record if content_digest(outcome_record) == digest else None
-            ),
-        )
-        is not None
-    )
 
 
 @pytest.mark.parametrize(
@@ -464,6 +454,12 @@ class _Runtime:
             outcome_kind=SituatedAssessmentOutcomeKind.NO_PROPOSAL,
             recorded_at=NOW,
         )
+
+    def resolve_assessment_record(
+        self, assessment_record_id: str
+    ) -> SituatedAssessmentRecord | None:
+        del assessment_record_id
+        return None
 
 
 def _service(
@@ -735,9 +731,45 @@ def test_adapter_clock_cannot_control_lease_fence(
     assert completed.status == "COMPLETED"
 
 
-def test_completed_dispatch_rejects_deleted_assessment(tmp_path: Path) -> None:
-    service, runtime, adapter, database = _real_situated_active_perception(tmp_path)
+def test_completed_dispatch_rejects_cached_record_injected_after_authority_delete(
+    tmp_path: Path,
+) -> None:
+    service, _, adapter, database = _real_situated_active_perception(tmp_path)
     receipt = service.run_due_once(worker_id="worker-live-outcome")
+    assert receipt.proposal_count == 1
+    with sqlite3.connect(database) as connection:
+        dispatch_id, outcome_record_id, outcome_digest = connection.execute(
+            """
+            SELECT dispatch_id, outcome_record_id, outcome_digest
+            FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
+        ).fetchone()
+        cached_record = SQLiteSituatedAssessmentStore(
+            database
+        ).record_by_result_digest(str(outcome_digest))
+        assert cached_record is not None
+        connection.execute(
+            """
+            DELETE FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        )
+
+    untrusted_completed_dispatch: Any = adapter.completed_dispatch
+    with pytest.raises(TypeError, match="outcome_resolver"):
+        untrusted_completed_dispatch(
+            str(dispatch_id),
+            outcome_resolver=lambda _: cached_record,
+        )
+
+
+def test_completed_dispatch_uses_composed_scoped_authority_after_restart(
+    tmp_path: Path,
+) -> None:
+    service, runtime, adapter, database = _real_situated_active_perception(tmp_path)
+    receipt = service.run_due_once(worker_id="worker-trusted-replay")
     assert receipt.proposal_count == 1
     with sqlite3.connect(database) as connection:
         dispatch_id, outcome_record_id = connection.execute(
@@ -747,21 +779,30 @@ def test_completed_dispatch_rejects_deleted_assessment(tmp_path: Path) -> None:
             WHERE status = 'COMPLETED'
             """
         ).fetchone()
-        exact_record = connection.execute(
+
+    assert runtime.resolve_assessment_record(str(outcome_record_id)) is not None
+    assert adapter.completed_dispatch(str(dispatch_id)) is not None
+    _, restarted_runtime, restarted_adapter, _ = _real_situated_active_perception(
+        tmp_path
+    )
+    assert (
+        restarted_runtime.resolve_assessment_record(str(outcome_record_id)) is not None
+    )
+    assert restarted_adapter.completed_dispatch(str(dispatch_id)) is not None
+
+
+def test_completed_dispatch_rejects_deleted_assessment(tmp_path: Path) -> None:
+    service, _, _, database = _real_situated_active_perception(tmp_path)
+    receipt = service.run_due_once(worker_id="worker-deleted-outcome")
+    assert receipt.proposal_count == 1
+    with sqlite3.connect(database) as connection:
+        dispatch_id, outcome_record_id = connection.execute(
             """
-            SELECT assessment_record_id FROM situated_assessment_records
-            WHERE assessment_record_id = ?
-            """,
-            (outcome_record_id,),
+            SELECT dispatch_id, outcome_record_id
+            FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
         ).fetchone()
-        assert exact_record == (outcome_record_id,)
-        assert (
-            adapter.completed_dispatch(
-                str(dispatch_id),
-                outcome_resolver=runtime.resolve_assessment_record,
-            )
-            is not None
-        )
         connection.execute(
             """
             DELETE FROM situated_assessment_records
@@ -770,16 +811,10 @@ def test_completed_dispatch_rejects_deleted_assessment(tmp_path: Path) -> None:
             (outcome_record_id,),
         )
 
-    _, restarted_runtime, restarted_adapter, _ = _real_situated_active_perception(
-        tmp_path
-    )
+    _, _, restarted_adapter, _ = _real_situated_active_perception(tmp_path)
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
-        restarted_adapter.completed_dispatch(
-            str(dispatch_id),
-            outcome_resolver=restarted_runtime.resolve_assessment_record,
-        )
+        restarted_adapter.completed_dispatch(str(dispatch_id))
 
-    assert adapter.pending_dispatches() == ()
 
 
 def test_completed_dispatch_rejects_tampered_assessment(tmp_path: Path) -> None:
@@ -803,14 +838,9 @@ def test_completed_dispatch_rejects_tampered_assessment(tmp_path: Path) -> None:
         ).rowcount
         assert changed == 1
 
-    _, restarted_runtime, restarted_adapter, _ = _real_situated_active_perception(
-        tmp_path
-    )
+    _, _, restarted_adapter, _ = _real_situated_active_perception(tmp_path)
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
-        restarted_adapter.completed_dispatch(
-            str(dispatch_id),
-            outcome_resolver=restarted_runtime.resolve_assessment_record,
-        )
+        restarted_adapter.completed_dispatch(str(dispatch_id))
 
 
 def test_due_run_polls_admits_proposes_and_records_no_effect_receipt(

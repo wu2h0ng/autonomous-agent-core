@@ -21,7 +21,6 @@ from agent_os_contracts import (
     RelevanceUrgency,
     TaskDraftProposal,
     canonical_json,
-    content_digest,
 )
 from agent_os_core import (
     CanonicalCredentialAuthorizationReader,
@@ -251,7 +250,7 @@ def _compose(
 def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     tmp_path: Path,
 ) -> None:
-    runtime, credentials, assessor, _ = _compose(tmp_path)
+    runtime, credentials, assessor, control = _compose(tmp_path)
 
     bundle = runtime.observe_report("trace-1")
     receipt = runtime.admit_event(bundle.event.environment_event_id)
@@ -268,8 +267,19 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
 
     assert type(runtime) is DataAgentSituatedRuntime
     assert isinstance(proposal, TaskDraftProposal)
-    assert runtime.resolve_assessment_record(content_digest(record)) == record
+    assert runtime.resolve_assessment_record(record.assessment_record_id) == record
     assert runtime.resolve_assessment_record("0" * 64) is None
+    foreign_reader = control.scoped_reader(
+        LedgerAccessScope(
+            principal_id="principal:foreign",
+            tenant_id="tenant:foreign",
+            workspace_id="workspace:foreign",
+        )
+    )
+    assert (
+        foreign_reader.record_by_assessment_record_id(record.assessment_record_id)
+        is None
+    )
     assert receipt.environment_event_id == bundle.event.environment_event_id
     assert credentials.calls == 4
     assert assessor.calls == 1

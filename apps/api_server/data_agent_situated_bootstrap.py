@@ -47,6 +47,7 @@ from agent_os_core.srl_event_store import _create_event_admission_store
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     TrustedObservationBundle,
+    _OUTCOME_AUTHORITY_COMPOSITION_SEAL,
 )
 from apps.api_server.data_agent_report_admission import (
     DataAgentReportAdmissionError,
@@ -395,9 +396,9 @@ class DataAgentSituatedRuntime:
         return self._steward.observe_event_record(event_id, projection_id, receipt_id)
 
     def resolve_assessment_record(
-        self, result_digest: str
+        self, assessment_record_id: str
     ) -> SituatedAssessmentRecord | None:
-        return self._authority.record_by_result_digest(result_digest)
+        return self._authority.record_by_assessment_record_id(assessment_record_id)
 
     def propose_authenticated_protocol_envelope(
         self,
@@ -603,7 +604,7 @@ class DataAgentSituatedBootstrap:
                 clock=clock,
             )
         )
-        return DataAgentSituatedRuntime._from_composition(
+        runtime = DataAgentSituatedRuntime._from_composition(
             adapter=adapter,
             admission=admission,
             steward=steward,
@@ -620,6 +621,11 @@ class DataAgentSituatedBootstrap:
             ),
             composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )
+        adapter._bind_outcome_authority_for_composition(
+            authority,
+            composition_seal=_OUTCOME_AUTHORITY_COMPOSITION_SEAL,
+        )
+        return runtime
 
 
 __all__ = [
