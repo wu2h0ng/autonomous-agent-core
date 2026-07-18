@@ -89,6 +89,27 @@ def _non_responsibility_snapshot(database) -> dict[str, tuple[tuple[object, ...]
         connection.close()
 
 
+def test_direct_memory_store_is_non_disk_and_keeps_its_schema(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    store = SQLiteMandateResponsibilityStore(":memory:", clock=lambda: NOW)
+
+    assert not (tmp_path / ":memory:").exists()
+    connection = store._connect()
+    try:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    finally:
+        connection.close()
+    assert "mandate_responsibility_links" in tables
+
+
 def test_only_same_scope_tenant_admin_can_link(tmp_path) -> None:
     _, owner, _, task, store = _setup(tmp_path)
     command = MandateTaskLinkCommand(task_id=task.task_id, reason="owned work")

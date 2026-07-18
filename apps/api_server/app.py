@@ -234,8 +234,19 @@ class AgentOSApplication:
         self._evaluation_grant_override = evaluation_grant
         self._promotion_grant_override = promotion_grant
         self._configuration_lock = RLock()
-        self.store = SQLiteTaskEventStore(database)
-        self.mandate_workspace = SQLiteMandateWorkspaceStore(database)
+        canonical_database: str | Path = database
+        canonical_database_uri = False
+        if str(database) == ":memory:":
+            canonical_database = f"file:agent-os-{uuid4().hex}?mode=memory&cache=shared"
+            canonical_database_uri = True
+        self.store = SQLiteTaskEventStore(
+            canonical_database,
+            uri=canonical_database_uri,
+        )
+        self.mandate_workspace = SQLiteMandateWorkspaceStore(
+            canonical_database,
+            uri=canonical_database_uri,
+        )
         self.observation_binding_descriptors = observation_binding_descriptors
         self.mandate_observation_authorizations = (
             SQLiteMandateObservationAuthorizationStore(
@@ -248,8 +259,9 @@ class AgentOSApplication:
         )
         self.tasks = TaskService(self.store, clock=self._clock)
         self.mandate_responsibility_store = SQLiteMandateResponsibilityStore(
-            database,
+            canonical_database,
             clock=self._clock,
+            uri=canonical_database_uri,
         )
         self.mandate_responsibility = MandateResponsibilityProjector(
             self.mandate_responsibility_store,

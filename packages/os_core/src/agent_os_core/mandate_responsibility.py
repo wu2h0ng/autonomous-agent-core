@@ -5,6 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
+from uuid import uuid4
 
 from agent_os_contracts import (
     Goal,
@@ -71,16 +72,33 @@ class _SQLiteMandateResponsibilitySchema:
         database: str | Path,
         *,
         clock: Callable[[], datetime] | None = None,
+        uri: bool = False,
     ) -> None:
-        self._database = str(Path(database).expanduser().resolve())
+        database_value = str(database)
+        direct_memory = database_value == ":memory:"
+        self._database = (
+            f"file:mandate-responsibility-{uuid4().hex}?mode=memory&cache=shared"
+            if direct_memory
+            else database_value
+            if uri
+            else str(Path(database).expanduser().resolve())
+        )
+        self._uri = uri or direct_memory
         self._clock = clock or (lambda: datetime.now(timezone.utc))
-        self._initialize()
+        self._memory_keeper = self._connect() if direct_memory else None
+        try:
+            self._initialize()
+        except Exception:
+            if self._memory_keeper is not None:
+                self._memory_keeper.close()
+            raise
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
             self._database,
             timeout=10,
             isolation_level=None,
+            uri=self._uri,
         )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA busy_timeout = 10000")

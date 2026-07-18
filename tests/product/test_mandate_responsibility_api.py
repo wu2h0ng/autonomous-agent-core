@@ -14,12 +14,22 @@ from typing import Iterator
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.server import Handler, _decode_path_segment
 from agent_os_contracts import (
+    Goal,
+    MandateObservationAuthorizationCommand,
     MandateOperationalStatus,
+    MandateTaskLinkCommand,
+    MandateWorkspaceRecord,
+    PrincipalRole,
     RatifiedMandateRef,
     canonical_json,
 )
+from agent_os_core import SQLiteMandateObservationAuthorizationStore
 from tests.product.test_mandate_responsibility_store import NOW, _setup
-from tests.product.test_mandate_observation_authorization import _command
+from tests.product.test_mandate_observation_authorization import (
+    _command,
+    _descriptor,
+    _principal,
+)
 from tests.product.test_mandate_workspace_api import _payload
 
 
@@ -83,6 +93,101 @@ def _link_path() -> str:
 
 def _view_path() -> str:
     return f"/v1/mandates/{MANDATE_ID}/responsibility-view"
+
+
+def _install_operational_authority(
+    app: AgentOSApplication,
+    record: MandateWorkspaceRecord,
+) -> None:
+    admin = _principal("principal:security", role=PrincipalRole.TENANT_ADMIN)
+    operational, _ = SQLiteMandateObservationAuthorizationStore._project(
+        record,
+        MandateObservationAuthorizationCommand.model_validate(_command()),
+        _descriptor(),
+        admin,
+        NOW,
+    )
+    connection = app.store._db
+    connection.execute(
+        """
+        CREATE TABLE situated_mandates (
+            principal_id TEXT NOT NULL,
+            tenant_id TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            mandate_id TEXT NOT NULL,
+            mandate_version INTEGER NOT NULL,
+            mandate_digest TEXT NOT NULL,
+            status TEXT NOT NULL,
+            correction_epoch INTEGER NOT NULL,
+            mandate_json TEXT NOT NULL,
+            PRIMARY KEY (principal_id, tenant_id, workspace_id, mandate_id)
+        )
+        """
+    )
+    connection.execute(
+        "INSERT INTO situated_mandates VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            operational.owner_principal_id,
+            operational.tenant_id,
+            operational.workspace_id,
+            operational.mandate_id,
+            operational.version,
+            operational.mandate_digest,
+            operational.status.value,
+            operational.correction_epoch,
+            canonical_json(operational),
+        ),
+    )
+    connection.commit()
+
+
+def test_default_memory_app_joins_canonical_stores_without_disk_or_cross_app_leak(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    first = AgentOSApplication(
+        database=":memory:", workspace=tmp_path, clock=lambda: NOW
+    )
+    assert not (tmp_path / ":memory:").exists()
+
+    record = MandateWorkspaceRecord.model_validate(
+        first.create_mandate_workspace_record(
+            _payload(expires_at=NOW.replace(year=2027))
+        )
+    )
+    _install_operational_authority(first, record)
+    task = first.create_task(
+        Goal(
+            goal_id="goal:memory-responsibility",
+            tenant_id=first.principal.tenant_id,
+            workspace_id=first.principal.workspace_id,
+            created_by=first.principal.principal_id,
+            created_at=NOW,
+            statement="Prove canonical in-memory responsibility joins",
+        ).model_dump(mode="json")
+    )
+    link = first.mandate_responsibility_store.create_link(
+        MandateTaskLinkCommand(task_id=task.task_id),
+        MANDATE_ID,
+        _principal("principal:security", role=PrincipalRole.TENANT_ADMIN),
+    )
+
+    view = first.mandate_responsibility_view(MANDATE_ID)
+    assert view["items"][0]["link"]["link_id"] == link.link_id
+    assert view["items"][0]["link"]["task_id"] == task.task_id
+
+    second = AgentOSApplication(
+        database=":memory:", workspace=tmp_path, clock=lambda: NOW
+    )
+    assert second.list_tasks() == []
+    assert second.list_mandate_workspace_records() == []
+    second_link_count = second.store._db.execute(
+        "SELECT COUNT(*) FROM mandate_responsibility_links"
+    ).fetchone()
+    assert second_link_count is not None
+    assert second_link_count[0] == 0
+    assert not (tmp_path / ":memory:").exists()
 
 
 def test_admin_link_and_revoke_use_domain_replay_not_http_cache(tmp_path) -> None:

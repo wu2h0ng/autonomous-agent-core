@@ -52,8 +52,14 @@ class MandateObservationAuthorizationPersistenceConflict(RuntimeError):
 class SQLiteMandateWorkspaceStore:
     """Durable, scope-bound Mandate records without execution authority."""
 
-    def __init__(self, database: str | Path) -> None:
-        self._db = sqlite3.connect(str(database), check_same_thread=False)
+    def __init__(self, database: str | Path, *, uri: bool = False) -> None:
+        self._database = str(database)
+        self._uri = uri
+        self._db = sqlite3.connect(
+            self._database,
+            check_same_thread=False,
+            uri=self._uri,
+        )
         self._db.row_factory = sqlite3.Row
         self._lock = RLock()
         try:
