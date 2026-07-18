@@ -1695,6 +1695,140 @@ class SQLiteDataAgentReportStateStore:
             )
 
     @classmethod
+    def _canonical_outcome_record(
+        cls,
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+        requested: SituatedAssessmentRecord,
+    ) -> SituatedAssessmentRecord:
+        if type(requested) is not SituatedAssessmentRecord:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        try:
+            row = connection.execute(
+                """
+                SELECT assessment_id, assessment_record_id, source_binding_digest,
+                       input_binding_digest, principal_id, tenant_id, workspace_id,
+                       record_json
+                FROM situated_assessment_records
+                WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+                  AND assessment_record_id = ?
+                """,
+                (
+                    dispatch.principal_id,
+                    dispatch.tenant_id,
+                    dispatch.workspace_id,
+                    requested.assessment_record_id,
+                ),
+            ).fetchone()
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            ) from None
+        if row is None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        try:
+            record = SituatedAssessmentRecord.model_validate_json(str(row[7]))
+        except Exception:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            ) from None
+        if (
+            record != requested
+            or canonical_json(record) != str(row[7])
+            or str(row[0]) != record.assessment.assessment_id
+            or str(row[1]) != record.assessment_record_id
+            or str(row[2]) != record.source_binding_digest
+            or str(row[3]) != record.assessment.input_binding_digest
+            or str(row[4]) != dispatch.principal_id
+            or str(row[5]) != record.tenant_id
+            or str(row[6]) != record.workspace_id
+        ):
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        cls._validate_outcome_record(dispatch, record)
+        return record
+
+    @staticmethod
+    def _requires_active_perception_completion(
+        connection: sqlite3.Connection,
+        dispatch: DataAgentReportDispatch,
+    ) -> bool:
+        table = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'mandate_active_perception_schedule'
+            """
+        ).fetchone()
+        if table is None:
+            return False
+        row = connection.execute(
+            """
+            SELECT 1 FROM mandate_active_perception_schedule
+            WHERE principal_id = ? AND tenant_id = ? AND workspace_id = ?
+              AND mandate_id = ? AND environment_binding_id = ?
+            LIMIT 1
+            """,
+            (
+                dispatch.principal_id,
+                dispatch.tenant_id,
+                dispatch.workspace_id,
+                dispatch.mandate_id,
+                dispatch.environment_binding_id,
+            ),
+        ).fetchone()
+        return row is not None
+
+    @staticmethod
+    def _assert_recovery_batch_membership(
+        connection: sqlite3.Connection,
+        *,
+        schedule_id: str,
+        config_digest: str,
+        dispatch_id: str,
+        feed_limit: int,
+    ) -> None:
+        row = connection.execute(
+            """
+            SELECT config_digest, dispatch_ids_json, batch_digest
+            FROM mandate_active_perception_recovery_batch
+            WHERE schedule_id = ?
+            """,
+            (schedule_id,),
+        ).fetchone()
+        try:
+            parsed = None if row is None else json.loads(str(row[1]))
+            dispatch_ids = tuple(parsed) if isinstance(parsed, list) else ()
+        except (TypeError, ValueError, json.JSONDecodeError):
+            dispatch_ids = ()
+        payload = {
+            "schedule_id": schedule_id,
+            "config_digest": config_digest,
+            "dispatch_ids": dispatch_ids,
+        }
+        if (
+            row is None
+            or str(row[0]) != config_digest
+            or json.dumps(list(dispatch_ids), separators=(",", ":")) != str(row[1])
+            or not dispatch_ids
+            or len(dispatch_ids) > feed_limit
+            or any(
+                type(member_id) is not str or not member_id
+                for member_id in dispatch_ids
+            )
+            or len(set(dispatch_ids)) != len(dispatch_ids)
+            or str(row[2]) != content_digest(payload)
+            or dispatch_id not in dispatch_ids
+        ):
+            raise DataAgentReportAdapterError(
+                "active perception recovery batch is unavailable or invalid"
+            )
+
+    @classmethod
     def _prepare_dispatch_completion(
         cls,
         dispatch: DataAgentReportDispatch,
@@ -2106,16 +2240,20 @@ class SQLiteDataAgentReportStateStore:
             raise DataAgentReportAdapterError(
                 "durable outcome record cannot be replaced by self-reported outcome"
             )
-        completed = self._prepare_dispatch_completion(
-            dispatch,
-            outcome_record=outcome_record,
-            completed_at=completed_at,
-            consumer_id=consumer_id,
-            authority_snapshot_digest=authority_snapshot_digest,
-        )
         try:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
+                if self._requires_active_perception_completion(connection, dispatch):
+                    raise DataAgentReportAdapterError(
+                        "active perception dispatch requires lease-fenced completion"
+                    )
+                completed = self._prepare_dispatch_completion(
+                    dispatch,
+                    outcome_record=outcome_record,
+                    completed_at=completed_at,
+                    consumer_id=consumer_id,
+                    authority_snapshot_digest=authority_snapshot_digest,
+                )
                 return self._complete_dispatch_in_transaction(
                     connection,
                     dispatch,
@@ -2147,7 +2285,9 @@ class SQLiteDataAgentReportStateStore:
                 transaction_now = _utc(_system_utc_now())
                 lease = connection.execute(
                     """
-                    SELECT config_digest, lease_owner, lease_fence, lease_expires_at
+                    SELECT config_digest, lease_owner, lease_fence, lease_expires_at,
+                           principal_id, tenant_id, workspace_id, mandate_id,
+                           environment_binding_id, feed_limit
                     FROM mandate_active_perception_schedule
                     WHERE schedule_id = ?
                     """,
@@ -2170,13 +2310,32 @@ class SQLiteDataAgentReportStateStore:
                     or int(lease[2]) != lease_fence
                     or lease_expires_at is None
                     or transaction_now >= lease_expires_at
+                    or str(lease[4]) != dispatch.principal_id
+                    or str(lease[5]) != dispatch.tenant_id
+                    or str(lease[6]) != dispatch.workspace_id
+                    or str(lease[7]) != dispatch.mandate_id
+                    or str(lease[8]) != dispatch.environment_binding_id
+                    or type(lease[9]) is not int
+                    or int(lease[9]) < 1
                 ):
                     raise DataAgentReportAdapterError(
                         "active perception lease fence is stale"
                     )
+                self._assert_recovery_batch_membership(
+                    connection,
+                    schedule_id=schedule_id,
+                    config_digest=config_digest,
+                    dispatch_id=dispatch.dispatch_id,
+                    feed_limit=int(lease[9]),
+                )
+                canonical_record = self._canonical_outcome_record(
+                    connection,
+                    dispatch,
+                    outcome_record,
+                )
                 completed = self._prepare_dispatch_completion(
                     dispatch,
-                    outcome_record=outcome_record,
+                    outcome_record=canonical_record,
                     completed_at=completion_time,
                     consumer_id=worker_id,
                     authority_snapshot_digest=authority_snapshot_digest,

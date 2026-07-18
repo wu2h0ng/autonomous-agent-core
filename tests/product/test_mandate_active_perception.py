@@ -21,6 +21,7 @@ from agent_os_contracts import (
     RelevanceUrgency,
     SituatedAssessmentOutcomeKind,
     SituatedAssessmentRecord,
+    canonical_json,
     content_digest,
 )
 from agent_os_core import CanonicalCredentialAuthorizationReader
@@ -152,8 +153,7 @@ def _real_situated_active_perception(
             _response(
                 _feed_bytes(events, next_cursor=page_tail_cursor),
                 final_url=(
-                    "http://127.0.0.1:8765/external/report-events"
-                    f"?limit={event_count}"
+                    f"http://127.0.0.1:8765/external/report-events?limit={event_count}"
                 ),
             )
         ),
@@ -402,7 +402,7 @@ def test_in_memory_completion_replay_is_exactly_idempotent() -> None:
 
 
 class _Runtime:
-    def __init__(self) -> None:
+    def __init__(self, *, persist_outcome: bool = True) -> None:
         self.preflight_calls = 0
         self.admit_calls = 0
         self.propose_calls = 0
@@ -410,6 +410,7 @@ class _Runtime:
         self.authority_digest = "a" * 64
         self.change_after_admit = False
         self.change_after_propose = False
+        self.persist_outcome = persist_outcome
         self._active_perception_adapter: DataAgentReportAdapter | None = None
 
     def bind_active_perception_adapter(self, adapter: DataAgentReportAdapter) -> None:
@@ -440,10 +441,7 @@ class _Runtime:
     @property
     def active_perception_environment_binding_id(self) -> str:
         assert self._active_perception_adapter is not None
-        return (
-            self._active_perception_adapter.admission_policy_descriptor
-            .environment_binding_id
-        )
+        return self._active_perception_adapter.admission_policy_descriptor.environment_binding_id
 
     def assert_observation_authority(self) -> str:
         self.preflight_calls += 1
@@ -497,7 +495,7 @@ class _Runtime:
             evidence_ids=("evidence:test",),
             assessed_at=NOW,
         )
-        return SituatedAssessmentRecord(
+        record = SituatedAssessmentRecord(
             assessment_record_id=f"situated-assessment:{source_binding_digest}",
             source_binding_digest=source_binding_digest,
             tenant_id="tenant:local",
@@ -506,6 +504,32 @@ class _Runtime:
             outcome_kind=SituatedAssessmentOutcomeKind.NO_PROPOSAL,
             recorded_at=NOW,
         )
+        if self.persist_outcome:
+            database = self.active_perception_database_path
+            SQLiteSituatedAssessmentStore(database)
+            with sqlite3.connect(database) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO situated_assessment_records (
+                        assessment_id, assessment_record_id, source_binding_digest,
+                        input_binding_digest, principal_id, tenant_id, workspace_id,
+                        record_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (
+                        record.assessment.assessment_id,
+                        record.assessment_record_id,
+                        record.source_binding_digest,
+                        record.assessment.input_binding_digest,
+                        self.principal_scope[0],
+                        record.tenant_id,
+                        record.workspace_id,
+                        canonical_json(record),
+                    ),
+                )
+        return record
+
 
 def _service(
     tmp_path: Path,
@@ -668,6 +692,114 @@ def test_expired_lease_cannot_complete_with_backdated_receipt_time(
     assert adapter.pending_dispatches() == (dispatch,)
 
 
+def test_public_completion_cannot_bypass_active_perception_lease(
+    tmp_path: Path,
+) -> None:
+    _, runtime, adapter = _service(tmp_path)
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+
+    with pytest.raises(DataAgentReportAdapterError, match="active perception"):
+        adapter.complete_dispatch(
+            dispatch,
+            outcome_record=runtime.propose_record(
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+                f"receipt:{dispatch.environment_event_id}",
+            ),
+            completed_at=NOW,
+            consumer_id="worker-bypass",
+            authority_snapshot_digest=runtime.authority_digest,
+        )
+
+    assert adapter.pending_dispatches() == (dispatch,)
+
+
+def test_active_completion_requires_canonical_assessment_record(
+    tmp_path: Path,
+) -> None:
+    service, runtime, adapter = _service(
+        tmp_path,
+        runtime=_Runtime(persist_outcome=False),
+    )
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-fake-outcome",
+        now=NOW,
+        force_pending=True,
+    )
+    assert isinstance(lease, ActivePerceptionLease)
+    service.store._bind_recovery_batch(
+        service.config,
+        lease,
+        (dispatch.dispatch_id,),
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        adapter.complete_active_perception_dispatch(
+            dispatch,
+            outcome_record=runtime.propose_record(
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+                f"receipt:{dispatch.environment_event_id}",
+            ),
+            schedule_id=service.config.schedule_id,
+            config_digest=service.config.config_digest,
+            worker_id=lease.worker_id,
+            lease_fence=lease.fence,
+            completed_at=NOW,
+            authority_snapshot_digest=runtime.authority_digest,
+        )
+
+    assert adapter.pending_dispatches() == (dispatch,)
+
+
+def test_active_completion_rejects_dispatch_outside_bound_recovery_batch(
+    tmp_path: Path,
+) -> None:
+    service, runtime, adapter, _ = _real_situated_active_perception(
+        tmp_path,
+        feed_limit=1,
+        event_count=2,
+    )
+    adapter.poll_once(limit=2)
+    first, sibling = adapter.pending_dispatches()
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-bound-batch",
+        now=NOW,
+        force_pending=True,
+    )
+    assert isinstance(lease, ActivePerceptionLease)
+    service.store._bind_recovery_batch(
+        service.config,
+        lease,
+        (first.dispatch_id,),
+    )
+    admission = runtime.admit_event(sibling.environment_event_id)
+    outcome = runtime.propose_record(
+        sibling.environment_event_id,
+        sibling.projection_id,
+        admission.receipt_id,
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="recovery batch"):
+        adapter.complete_active_perception_dispatch(
+            sibling,
+            outcome_record=outcome,
+            schedule_id=service.config.schedule_id,
+            config_digest=service.config.config_digest,
+            worker_id=lease.worker_id,
+            lease_fence=lease.fence,
+            completed_at=NOW,
+            authority_snapshot_digest=runtime.assert_observation_authority(),
+        )
+
+    assert adapter.pending_dispatches() == (first, sibling)
+
+
 def test_forward_dated_due_clock_cannot_extend_lease_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -757,6 +889,11 @@ def test_adapter_clock_cannot_control_lease_fence(
         force_pending=True,
     )
     assert isinstance(lease, ActivePerceptionLease)
+    service.store._bind_recovery_batch(
+        service.config,
+        lease,
+        (dispatch.dispatch_id,),
+    )
     adapter._clock = adapter_clock
 
     completed = adapter.complete_active_perception_dispatch(
@@ -791,9 +928,9 @@ def test_completed_dispatch_rejects_cached_record_injected_after_authority_delet
             WHERE status = 'COMPLETED'
             """
         ).fetchone()
-        cached_record = SQLiteSituatedAssessmentStore(
-            database
-        ).record_by_result_digest(str(outcome_digest))
+        cached_record = SQLiteSituatedAssessmentStore(database).record_by_result_digest(
+            str(outcome_digest)
+        )
         assert cached_record is not None
         connection.execute(
             """
@@ -962,7 +1099,6 @@ def test_completed_dispatch_rejects_deleted_assessment(tmp_path: Path) -> None:
         restarted_adapter.completed_dispatch(str(dispatch_id))
 
 
-
 def test_completed_dispatch_rejects_tampered_assessment(tmp_path: Path) -> None:
     service, _, _, database = _real_situated_active_perception(tmp_path)
     receipt = service.run_due_once(worker_id="worker-tampered-outcome")
@@ -1070,9 +1206,7 @@ def test_due_run_limits_existing_pending_to_feed_limit_in_stable_order(
     )
     assert all(dispatch is not None for dispatch in completed)
     assert tuple(
-        dispatch.dispatch_id
-        for dispatch in completed
-        if dispatch is not None
+        dispatch.dispatch_id for dispatch in completed if dispatch is not None
     ) == tuple(dispatch.dispatch_id for dispatch in pending_before[:2])
 
 
@@ -1117,6 +1251,61 @@ def test_crashed_bounded_batch_cannot_evict_earliest_outcome_from_restart_replay
     )
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
         restarted_service.run_due_once(worker_id="worker-bounded-restart")
+
+
+def test_crash_batch_persists_exact_dispatch_members_until_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _, adapter, database = _real_situated_active_perception(
+        tmp_path,
+        feed_limit=2,
+        event_count=3,
+    )
+    adapter.poll_once(limit=3)
+    expected_ids = tuple(
+        dispatch.dispatch_id for dispatch in adapter.pending_dispatches()[:2]
+    )
+
+    def crash_before_schedule_finish(*_: object, **__: object) -> None:
+        raise RuntimeError("crash before exact batch finish")
+
+    monkeypatch.setattr(service.store, "finish", crash_before_schedule_finish)
+    with pytest.raises(RuntimeError, match="crash before exact batch finish"):
+        service.run_due_once(worker_id="worker-exact-batch-crash")
+
+    with sqlite3.connect(database) as connection:
+        row = connection.execute(
+            """
+            SELECT dispatch_ids_json, batch_digest
+            FROM mandate_active_perception_recovery_batch
+            WHERE schedule_id = ?
+            """,
+            (service.config.schedule_id,),
+        ).fetchone()
+    assert row is not None
+    assert tuple(json.loads(str(row[0]))) == expected_ids
+    assert str(row[1]) == content_digest(
+        {
+            "schedule_id": service.config.schedule_id,
+            "config_digest": service.config.config_digest,
+            "dispatch_ids": expected_ids,
+        }
+    )
+
+    restarted_service, _, _, _ = _real_situated_active_perception(
+        tmp_path,
+        feed_limit=2,
+        event_count=3,
+    )
+    receipt = restarted_service.run_due_once(worker_id="worker-exact-batch-restart")
+
+    assert receipt.disposition is ActivePerceptionDisposition.COMPLETED
+    assert receipt.proposal_count == 0
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM mandate_active_perception_recovery_batch"
+        ).fetchone() == (0,)
 
 
 @pytest.mark.parametrize(
@@ -1284,8 +1473,8 @@ def test_wake_and_query_budgets_fail_closed_until_next_window(tmp_path: Path) ->
 def test_restart_drains_pending_before_network_and_does_not_reassess_completed(
     tmp_path: Path,
 ) -> None:
-    service, _, first_adapter, report_database = (
-        _real_situated_active_perception(tmp_path)
+    service, _, first_adapter, report_database = _real_situated_active_perception(
+        tmp_path
     )
     first_adapter.poll_once(limit=1)
 
@@ -1296,9 +1485,7 @@ def test_restart_drains_pending_before_network_and_does_not_reassess_completed(
             "SELECT COUNT(*) FROM situated_assessment_records"
         ).fetchone()
 
-    restarted_service, _, _, _ = _real_situated_active_perception(
-        tmp_path
-    )
+    restarted_service, _, _, _ = _real_situated_active_perception(tmp_path)
     restarted_service.reschedule(next_wake_at=NOW + timedelta(hours=1))
     replay = restarted_service.run_due_once(worker_id="worker-2")
 
@@ -1352,6 +1539,37 @@ def test_stale_worker_fence_cannot_finish_after_takeover(
             first,
             next_wake_at=NOW + timedelta(minutes=5),
         )
+
+
+def test_expired_lease_cannot_finish_with_future_schedule_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _, _ = _service(tmp_path)
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-expired-finish",
+        now=NOW,
+        force_pending=True,
+    )
+    assert isinstance(lease, ActivePerceptionLease)
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: lease.expires_at,
+    )
+
+    with pytest.raises(RuntimeError, match="lease fence"):
+        service.store.finish(
+            service.config,
+            lease,
+            next_wake_at=NOW + timedelta(days=1),
+        )
+
+    with sqlite3.connect(tmp_path / "runtime.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT lease_owner, lease_fence FROM mandate_active_perception_schedule"
+        ).fetchone() == (lease.worker_id, lease.fence)
 
 
 def test_query_budget_is_debited_before_transport_and_not_refunded(
@@ -1457,7 +1675,9 @@ def test_authority_change_after_propose_fails_before_dispatch_completion(
 
     assert runtime.propose_calls == 1
     assert len(adapter.pending_dispatches()) == 1
-    assert adapter.completed_dispatch(adapter.pending_dispatches()[0].dispatch_id) is None
+    assert (
+        adapter.completed_dispatch(adapter.pending_dispatches()[0].dispatch_id) is None
+    )
 
 
 def test_pending_outbox_drains_when_next_wake_is_future_without_network(

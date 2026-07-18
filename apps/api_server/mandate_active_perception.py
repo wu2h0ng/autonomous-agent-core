@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -208,6 +209,16 @@ class SQLiteMandateActivePerceptionStore:
                     )
                     """
                 )
+                connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS mandate_active_perception_recovery_batch (
+                        schedule_id TEXT NOT NULL PRIMARY KEY,
+                        config_digest TEXT NOT NULL,
+                        dispatch_ids_json TEXT NOT NULL,
+                        batch_digest TEXT NOT NULL
+                    )
+                    """
+                )
         except sqlite3.Error:
             raise RuntimeError(
                 "active perception schedule store is unavailable"
@@ -373,9 +384,7 @@ class SQLiteMandateActivePerceptionStore:
             ):
                 return ActivePerceptionDisposition.BUDGET_EXHAUSTED
             fence += 1
-            expires = lease_authority_time + timedelta(
-                seconds=config.lease_seconds
-            )
+            expires = lease_authority_time + timedelta(seconds=config.lease_seconds)
             connection.execute(
                 """
                 UPDATE mandate_active_perception_schedule
@@ -403,6 +412,116 @@ class SQLiteMandateActivePerceptionStore:
             query_debited=debit_query,
         )
 
+    @staticmethod
+    def _batch_payload(
+        config: MandateActivePerceptionConfig,
+        dispatch_ids: tuple[str, ...],
+    ) -> dict[str, object]:
+        return {
+            "schedule_id": config.schedule_id,
+            "config_digest": config.config_digest,
+            "dispatch_ids": dispatch_ids,
+        }
+
+    @classmethod
+    def _validated_batch_ids(
+        cls,
+        row: tuple[object, ...] | None,
+        config: MandateActivePerceptionConfig,
+    ) -> tuple[str, ...] | None:
+        if row is None:
+            return None
+        try:
+            parsed = json.loads(str(row[2]))
+            dispatch_ids = tuple(parsed)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise RuntimeError("active perception recovery batch is invalid") from None
+        encoded = json.dumps(list(dispatch_ids), separators=(",", ":"))
+        if (
+            str(row[0]) != config.schedule_id
+            or str(row[1]) != config.config_digest
+            or encoded != str(row[2])
+            or not dispatch_ids
+            or len(dispatch_ids) > config.feed_limit
+            or any(
+                type(dispatch_id) is not str or not dispatch_id
+                for dispatch_id in dispatch_ids
+            )
+            or len(set(dispatch_ids)) != len(dispatch_ids)
+            or str(row[3]) != content_digest(cls._batch_payload(config, dispatch_ids))
+        ):
+            raise RuntimeError("active perception recovery batch is invalid")
+        return dispatch_ids
+
+    def _recovery_dispatch_ids(
+        self,
+        config: MandateActivePerceptionConfig,
+    ) -> tuple[str, ...] | None:
+        with self._connect() as connection:
+            self._read_validated(connection, config)
+            row = connection.execute(
+                """
+                SELECT schedule_id, config_digest, dispatch_ids_json, batch_digest
+                FROM mandate_active_perception_recovery_batch
+                WHERE schedule_id = ?
+                """,
+                (config.schedule_id,),
+            ).fetchone()
+        return self._validated_batch_ids(row, config)
+
+    def _bind_recovery_batch(
+        self,
+        config: MandateActivePerceptionConfig,
+        lease: ActivePerceptionLease,
+        dispatch_ids: tuple[str, ...],
+    ) -> None:
+        if (
+            not dispatch_ids
+            or len(dispatch_ids) > config.feed_limit
+            or any(
+                type(dispatch_id) is not str or not dispatch_id
+                for dispatch_id in dispatch_ids
+            )
+            or len(set(dispatch_ids)) != len(dispatch_ids)
+        ):
+            raise RuntimeError("active perception recovery batch is invalid")
+        encoded = json.dumps(list(dispatch_ids), separators=(",", ":"))
+        digest = content_digest(self._batch_payload(config, dispatch_ids))
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            transaction_now = _utc(_report_adapter_module._system_utc_now())
+            schedule = self._read_validated(connection, config)
+            lease_expires = (
+                None if schedule[19] is None else self._parse_time(schedule[19])
+            )
+            if (
+                schedule[17] != lease.worker_id
+                or schedule[18] != lease.fence
+                or lease_expires is None
+                or transaction_now >= lease_expires
+            ):
+                raise RuntimeError("active perception lease fence is stale")
+            existing = connection.execute(
+                """
+                SELECT schedule_id, config_digest, dispatch_ids_json, batch_digest
+                FROM mandate_active_perception_recovery_batch
+                WHERE schedule_id = ?
+                """,
+                (config.schedule_id,),
+            ).fetchone()
+            existing_ids = self._validated_batch_ids(existing, config)
+            if existing_ids is not None and existing_ids != dispatch_ids:
+                raise RuntimeError("active perception recovery batch is already bound")
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO mandate_active_perception_recovery_batch (
+                        schedule_id, config_digest, dispatch_ids_json, batch_digest
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (config.schedule_id, config.config_digest, encoded, digest),
+                )
+
     def finish(
         self,
         config: MandateActivePerceptionConfig,
@@ -413,7 +532,33 @@ class SQLiteMandateActivePerceptionStore:
         target = _utc(next_wake_at)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            self._read_validated(connection, config)
+            transaction_now = _utc(_report_adapter_module._system_utc_now())
+            schedule = self._read_validated(connection, config)
+            lease_expires = (
+                None if schedule[19] is None else self._parse_time(schedule[19])
+            )
+            if lease_expires is None or transaction_now >= lease_expires:
+                raise RuntimeError("active perception lease fence is stale")
+            batch = connection.execute(
+                """
+                SELECT schedule_id, config_digest, dispatch_ids_json, batch_digest
+                FROM mandate_active_perception_recovery_batch
+                WHERE schedule_id = ?
+                """,
+                (config.schedule_id,),
+            ).fetchone()
+            batch_ids = self._validated_batch_ids(batch, config)
+            if batch_ids is not None:
+                placeholders = ",".join("?" for _ in batch_ids)
+                completed = connection.execute(
+                    f"""
+                    SELECT dispatch_id FROM data_agent_report_dispatch_outbox
+                    WHERE status = 'COMPLETED' AND dispatch_id IN ({placeholders})
+                    """,
+                    batch_ids,
+                ).fetchall()
+                if {str(row[0]) for row in completed} != set(batch_ids):
+                    raise RuntimeError("active perception recovery batch is incomplete")
             changed = connection.execute(
                 """
                 UPDATE mandate_active_perception_schedule
@@ -431,6 +576,18 @@ class SQLiteMandateActivePerceptionStore:
             ).rowcount
             if changed != 1:
                 raise RuntimeError("active perception lease fence is stale")
+            if batch_ids is not None:
+                deleted = connection.execute(
+                    """
+                    DELETE FROM mandate_active_perception_recovery_batch
+                    WHERE schedule_id = ? AND config_digest = ? AND batch_digest = ?
+                    """,
+                    (config.schedule_id, config.config_digest, str(batch[3])),
+                ).rowcount
+                if deleted != 1:
+                    raise RuntimeError(
+                        "active perception recovery batch changed concurrently"
+                    )
 
     def fail(
         self,
@@ -495,7 +652,9 @@ class MandateActivePerceptionService:
             )
             adapter_binding_digest = adapter.active_perception_binding_digest
         except Exception:
-            raise TypeError("active perception runtime binding is unavailable") from None
+            raise TypeError(
+                "active perception runtime binding is unavailable"
+            ) from None
         if runtime_database != report_database:
             raise TypeError(
                 "active perception runtime and report databases must be identical"
@@ -578,16 +737,32 @@ class MandateActivePerceptionService:
 
     def run_due_once(self, *, worker_id: str) -> ActivePerceptionReceipt:
         now = _utc(self._clock())
-        self._adapter.validate_latest_completed_dispatches(
-            limit=self.config.feed_limit,
-        )
-        pending = self._adapter.pending_dispatches()[: self.config.feed_limit]
-        needs_query = not pending
+        recovery_ids = self.store._recovery_dispatch_ids(self.config)
+        all_pending = self._adapter.pending_dispatches()
+        pending_by_id = {dispatch.dispatch_id: dispatch for dispatch in all_pending}
+        if recovery_ids is None:
+            self._adapter.validate_latest_completed_dispatches(
+                limit=self.config.feed_limit,
+            )
+            pending = all_pending[: self.config.feed_limit]
+        else:
+            recovered: list[Any] = []
+            for dispatch_id in recovery_ids:
+                pending_dispatch = pending_by_id.get(dispatch_id)
+                if pending_dispatch is not None:
+                    recovered.append(pending_dispatch)
+                    continue
+                if self._adapter.completed_dispatch(dispatch_id) is None:
+                    raise RuntimeError(
+                        "active perception recovery dispatch is unavailable"
+                    )
+            pending = tuple(recovered)
+        needs_query = recovery_ids is None and not pending
         claim = self.store.acquire_due_lease(
             self.config,
             worker_id=worker_id,
             now=now,
-            force_pending=bool(pending),
+            force_pending=recovery_ids is not None or bool(pending),
             debit_query=needs_query,
         )
         if isinstance(claim, ActivePerceptionDisposition):
@@ -602,6 +777,12 @@ class MandateActivePerceptionService:
                 observed_count = len(poll.bundles)
                 self._assert_same_authority(authority)
                 pending = self._adapter.pending_dispatches()[: self.config.feed_limit]
+            if pending and recovery_ids is None:
+                self.store._bind_recovery_batch(
+                    self.config,
+                    lease,
+                    tuple(dispatch.dispatch_id for dispatch in pending),
+                )
             for dispatch in pending:
                 self._assert_same_authority(authority)
                 admission = self._runtime.admit_event(dispatch.environment_event_id)
