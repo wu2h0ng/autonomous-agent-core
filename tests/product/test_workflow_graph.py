@@ -51,6 +51,7 @@ def _graph(
     edges: Iterable[EdgeSpec] | None = None,
 ) -> WorkflowGraph:
     return WorkflowGraph(
+        schema_version="WorkflowGraph/dag_v1",
         workflow_id="workflow-1",
         version=1,
         tenant_id="tenant-1",
@@ -115,16 +116,6 @@ def test_graph_requires_terminal_node() -> None:
 def test_tool_node_requires_capability() -> None:
     with pytest.raises(ValidationError, match="capability"):
         NodeSpec(node_id="patch", kind=NodeKind.TOOL)
-
-
-def test_loop_node_requires_iteration_bound() -> None:
-    with pytest.raises(ValidationError, match="max_iterations"):
-        NodeSpec(node_id="retry", kind=NodeKind.LOOP)
-
-
-def test_parallel_map_requires_concurrency_bound() -> None:
-    with pytest.raises(ValidationError, match="max_concurrency"):
-        NodeSpec(node_id="fanout", kind=NodeKind.PARALLEL_MAP)
 
 
 def test_terminal_node_cannot_have_outgoing_edge() -> None:

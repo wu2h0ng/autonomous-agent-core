@@ -157,6 +157,7 @@ def test_http_api_and_workspace_use_application_path(tmp_path) -> None:
         assert secret not in json.dumps(configured)
         assert ProviderHandler.seen_authorization == f"Bearer {secret}"
         workflow = {
+            "schema_version": "WorkflowGraph/dag_v1",
             "workflow_id": "workflow:http",
             "version": 1,
             "tenant_id": "tenant:local",
@@ -526,3 +527,58 @@ def test_http_long_horizon_commands_share_application_path(tmp_path) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.fixture
+def api_client(tmp_path):
+    app = AgentOSApplication(database=tmp_path / "validate.sqlite3", workspace=tmp_path)
+    handler = type("ValidateAgentOSHandler", (Handler,), {"application": app})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        yield base
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.fixture
+def loop_workflow_payload(now: datetime) -> dict:
+    return {
+        "schema_version": "WorkflowGraph/dag_v1",
+        "workflow_id": "workflow:loop",
+        "version": 1,
+        "tenant_id": "tenant-1",
+        "workspace_id": "workspace-1",
+        "created_by": "user-1",
+        "created_at": now.isoformat(),
+        "policy_version": "policy-1",
+        "evaluator_refs": ["evaluator:pytest:1"],
+        "nodes": [
+            {
+                "node_id": "retry",
+                "kind": "loop",
+                "max_iterations": 3,
+                "stop_predicate": "done",
+            },
+            {"node_id": "done", "kind": "terminal"},
+        ],
+        "edges": [{"source": "retry", "target": "done"}],
+    }
+
+
+def test_validate_workflow_rejects_loop_graph(
+    api_client: str,
+    loop_workflow_payload: dict,
+) -> None:
+    status, body = _request_json_with_status(
+        api_client,
+        "/v1/workflows/validate",
+        "POST",
+        loop_workflow_payload,
+    )
+    assert status == 422
+    assert body.get("valid") is not True
+    assert "loop" in str(body).lower()

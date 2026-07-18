@@ -65,6 +65,7 @@ def _commitment(*, tenant_id: str = "tenant-1") -> Commitment:
 
 def _workflow() -> WorkflowGraph:
     return WorkflowGraph(
+        schema_version="WorkflowGraph/dag_v1",
         workflow_id="workflow-1",
         version=1,
         tenant_id="tenant-1",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections import deque
 from enum import Enum
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -10,7 +11,17 @@ from .common import ContractModel, NonEmptyStr, UtcDateTime, canonical_json, con
 from .resource import RiskTier
 
 
+class WorkflowGraphValidationError(ValueError):
+    """Raised when a WorkflowGraph violates the dag_v1 executable profile."""
+
+
 class NodeKind(str, Enum):
+    """Workflow node kinds.
+
+    ``loop``, ``parallel_map`` and ``subworkflow`` are reserved; not valid in
+    WorkflowGraph/dag_v1.
+    """
+
     PROVIDER = "provider"
     TOOL = "tool"
     TRANSFORM = "transform"
@@ -22,6 +33,20 @@ class NodeKind(str, Enum):
     PARALLEL_MAP = "parallel_map"
     SUBWORKFLOW = "subworkflow"
     TERMINAL = "terminal"
+
+
+DAG_V1_EXECUTABLE_NODE_KINDS: frozenset[NodeKind] = frozenset(
+    {
+        NodeKind.PROVIDER,
+        NodeKind.TOOL,
+        NodeKind.TRANSFORM,
+        NodeKind.DECISION,
+        NodeKind.APPROVAL,
+        NodeKind.EVALUATION,
+        NodeKind.WAIT_EVENT,
+        NodeKind.TERMINAL,
+    }
+)
 
 
 class IdempotencyMode(str, Enum):
@@ -53,22 +78,6 @@ class NodeSpec(ContractModel):
     def _validate_kind_requirements(self) -> NodeSpec:
         if self.kind in {NodeKind.PROVIDER, NodeKind.TOOL} and self.capability is None:
             raise ValueError(f"{self.kind.value} node requires capability")
-        if self.kind is NodeKind.LOOP and self.max_iterations is None:
-            raise ValueError("loop node requires max_iterations")
-        if self.kind is not NodeKind.LOOP and self.max_iterations is not None:
-            raise ValueError("max_iterations is valid only for loop nodes")
-        if self.kind is NodeKind.PARALLEL_MAP and self.max_concurrency is None:
-            raise ValueError("parallel_map node requires max_concurrency")
-        if self.kind is not NodeKind.PARALLEL_MAP and self.max_concurrency is not None:
-            raise ValueError("max_concurrency is valid only for parallel_map nodes")
-        if self.kind is NodeKind.SUBWORKFLOW and self.subworkflow_ref is None:
-            raise ValueError("subworkflow node requires subworkflow_ref")
-        if self.kind is not NodeKind.SUBWORKFLOW and self.subworkflow_ref is not None:
-            raise ValueError("subworkflow_ref is valid only for subworkflow nodes")
-        if self.kind is NodeKind.LOOP and self.stop_predicate is None:
-            raise ValueError("loop node requires stop_predicate")
-        if self.kind is not NodeKind.LOOP and self.stop_predicate is not None:
-            raise ValueError("stop_predicate is valid only for loop nodes")
         wait_fields = (self.wait_signal_name, self.wait_correlation_key)
         if self.kind is NodeKind.WAIT_EVENT and any(value is None for value in wait_fields):
             raise ValueError(
@@ -88,6 +97,8 @@ class EdgeSpec(ContractModel):
 
 
 class GraphPatch(ContractModel):
+    """GraphPatch is DESIGN_ONLY; no Product Runtime consumer in dag_v1."""
+
     patch_id: NonEmptyStr
     workflow_id: NonEmptyStr
     base_version: int = Field(ge=1)
@@ -109,6 +120,7 @@ class GraphPatch(ContractModel):
 
 
 class WorkflowGraph(ContractModel):
+    schema_version: Literal["WorkflowGraph/dag_v1"] = "WorkflowGraph/dag_v1"
     workflow_id: NonEmptyStr
     version: int = Field(ge=1)
     tenant_id: NonEmptyStr
@@ -131,6 +143,8 @@ class WorkflowGraph(ContractModel):
         node_ids = [node.node_id for node in self.nodes]
         if len(node_ids) != len(set(node_ids)):
             raise ValueError("workflow graph contains duplicate node ids")
+
+        self._validate_dag_v1_executable_profile()
 
         nodes_by_id = {node.node_id: node for node in self.nodes}
         if not any(node.kind is NodeKind.TERMINAL for node in self.nodes):
@@ -218,6 +232,40 @@ class WorkflowGraph(ContractModel):
         if can_terminate != set(node_ids):
             raise ValueError("workflow graph contains a node that cannot reach terminal")
         return self
+
+    def _validate_dag_v1_executable_profile(self) -> None:
+        for node in self.nodes:
+            if node.kind not in DAG_V1_EXECUTABLE_NODE_KINDS:
+                raise WorkflowGraphValidationError(
+                    "dag_v1 does not support node kind "
+                    f"'{node.kind.value}'; reserved for a future executable profile"
+                )
+        for edge in self.edges:
+            if edge.condition is not None:
+                raise WorkflowGraphValidationError(
+                    "dag_v1 does not support conditional edges"
+                )
+        for node in self.nodes:
+            if node.failure_edge is not None:
+                raise WorkflowGraphValidationError(
+                    "dag_v1 does not support failure_edge routing"
+                )
+            if node.stop_predicate is not None:
+                raise WorkflowGraphValidationError("dag_v1 does not support stop_predicate")
+            if node.max_iterations is not None:
+                raise WorkflowGraphValidationError("dag_v1 does not support max_iterations")
+            if node.max_concurrency is not None:
+                raise WorkflowGraphValidationError(
+                    "dag_v1 does not support max_concurrency"
+                )
+            if node.subworkflow_ref is not None:
+                raise WorkflowGraphValidationError("dag_v1 does not support subworkflow_ref")
+            if node.retry_class != "never":
+                raise WorkflowGraphValidationError("dag_v1 does not support retry_class")
+            if node.max_attempts != 1:
+                raise WorkflowGraphValidationError(
+                    "dag_v1 does not support max_attempts > 1"
+                )
 
     def canonical_digest(self) -> str:
         payload = self.model_dump(mode="json", exclude_none=True)

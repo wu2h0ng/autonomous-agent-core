@@ -61,6 +61,7 @@ def _workflow() -> WorkflowGraph:
         )
     )
     return WorkflowGraph(
+        schema_version="WorkflowGraph/dag_v1",
         workflow_id="workflow:developer-golden-path",
         version=1,
         tenant_id="tenant:local",

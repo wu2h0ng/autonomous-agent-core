@@ -11,6 +11,8 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from agent_os_contracts import (
     ActionContract,
     ApprovalDecision,
@@ -988,7 +990,13 @@ class AgentOSApplication:
         return self.tasks.commit_task(task_id, commitment, workflow, expected)
 
     def validate_workflow(self, payload: dict[str, Any]) -> dict[str, Any]:
-        workflow = WorkflowGraph.model_validate(payload)
+        try:
+            workflow = WorkflowGraph.model_validate(payload)
+        except ValidationError as exc:
+            return {
+                "valid": False,
+                "errors": json.loads(exc.json()),
+            }
         return {
             "valid": True,
             "workflow": workflow.model_dump(mode="json"),

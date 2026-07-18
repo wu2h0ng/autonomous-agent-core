@@ -663,7 +663,11 @@ class Handler(BaseHTTPRequestHandler):
                     return
             body = self._body()
             if parsed.path == "/v1/workflows/validate":
-                self._json(200, self.application.validate_workflow(body))
+                result = self.application.validate_workflow(body)
+                if result.get("valid") is False:
+                    self._json(422, result)
+                    return
+                self._json(200, result)
                 return
             if parsed.path == "/v1/workspace":
                 self._json(200, self.application.attach_workspace(body))
