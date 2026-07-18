@@ -1,0 +1,104 @@
+{
+  "algorithm": {
+    "artifact_sha256": "d56ef0226050d194fa050f3f4e703d87ab1a2a18f2d81b032731bd713a3373a7",
+    "balanced_partition": "ascending-HMAC-order; first floor(n/2), second remainder",
+    "digest": "HMAC-SHA256",
+    "id": "domain-separated-hmac-sha256-balanced-order/v1",
+    "ntc_side_domain": "R-NONORACLE-PERTURB-KILL-1\u0000GUIDE-NTC-SIDE\u0000v1",
+    "public_ntc_ab_domain": "R-NONORACLE-PERTURB-KILL-1\u0000PUBLIC-NTC-AB\u0000v1",
+    "target_guide_domain": "R-NONORACLE-PERTURB-KILL-1\u0000GUIDE-TARGET\u0000v1"
+  },
+  "binding": {
+    "agent_os_head": "075e6df0b831ef0fc39931c8eac9056e0f89c06e",
+    "qualification_source_sha256": {
+      "barcodes": "2465729feb9dd448fff059530b5fd732412c7f2c3eeddaa9dbe9a6406586fdf6",
+      "donor_calls": "c9f32500417ded2d0c430c293d4f61760545a0808fdbd13a0a0336401d84cfdc",
+      "features": "9905919eb3c62529f38122490f8f6472fc6ef36a43f2126ad39e3065355a34e9",
+      "guidecalls": "ffd5a3050a69d013ddc09a43fae63642a7659cdb778f78c865e0829207e17b7c",
+      "rna_metrics": "701827190ea31d9e3aecb7722e3022b02fe1ebd880e94c483b6d6425f4e58104",
+      "souporcell": {
+        "5": "c54a86c434968043370b3fb994a622337c4ec205d2c5ede40e0e69a5d8469f2f",
+        "6": "2918767ce026ac8eb18987ea0639adc38f93b219fd09c0ac362a09f0921d97f7",
+        "7": "1e25fb9789e9c149ab9c466a3d264c72f98f65f9d43249133181a06b01cbca49",
+        "8": "07e4ca55237f6e482b1ade8e463b8900b895c6f47e1814d17154eec82b536653"
+      }
+    },
+    "selective_zip_manifest_sha256": "e943b3a3c2457c63914538edd83f2b7eceb2f59b8bc5f7f2630d4be59f439e0a"
+  },
+  "claim_boundary": [
+    "ASSIGNMENT_COMMITMENT_ONLY",
+    "NOT_FROZEN",
+    "NOT_RUN"
+  ],
+  "counts": {
+    "distinct_ntc_guide_count": 8,
+    "eligible_target_family_count": 40,
+    "ntc_cells_by_side_and_block": {
+      "hidden": {
+        "well5-donorA": 106,
+        "well5-donorB": 115,
+        "well6-donorA": 97,
+        "well6-donorB": 122,
+        "well7-donorA": 98,
+        "well7-donorB": 122,
+        "well8-donorA": 106,
+        "well8-donorB": 122
+      },
+      "public": {
+        "well5-donorA": 150,
+        "well5-donorB": 114,
+        "well6-donorA": 127,
+        "well6-donorB": 112,
+        "well7-donorA": 125,
+        "well7-donorB": 116,
+        "well8-donorA": 115,
+        "well8-donorB": 123
+      }
+    },
+    "ntc_guide_count_by_side": {
+      "hidden": 4,
+      "public": 4
+    },
+    "public_ntc_group_guide_count": {
+      "A": 2,
+      "B": 2
+    },
+    "public_ntc_ab_cells_by_group_and_block": {
+      "A": {
+        "well5-donorA": 57,
+        "well5-donorB": 55,
+        "well6-donorA": 63,
+        "well6-donorB": 47,
+        "well7-donorA": 54,
+        "well7-donorB": 46,
+        "well8-donorA": 46,
+        "well8-donorB": 57
+      },
+      "B": {
+        "well5-donorA": 93,
+        "well5-donorB": 59,
+        "well6-donorA": 64,
+        "well6-donorB": 65,
+        "well7-donorA": 71,
+        "well7-donorB": 70,
+        "well8-donorA": 69,
+        "well8-donorB": 66
+      }
+    }
+  },
+  "key_commitment_sha256": "f44195143ce3570fd6c7db5e4ba4ae4322477a032dcf6558b7c70340bd7931b8",
+  "opaque_assignment_commitments": {
+    "ntc_side_assignment_sha256": "5266148dbb10be9fa2f0c03583742121fdd68d769d93b60608505c83225ea0a5",
+    "private_assignment_without_key_sha256": "2eee40f25b6f9fa139643731a4d804eacd3b9789dff4f04b4b1b86f38a65cac4",
+    "public_ntc_ab_assignment_sha256": "750763f84969a5779251ef1d5a82adcd86d460a3054054567583955a2388a0f9",
+    "target_guide_assignment_sha256": "10930d6d7e54991e324d90be74f6cccd052ec5645376a02c436302b6d665a5d7"
+  },
+  "schema": "r-nonoracle-perturb-kill-1/scorer-assignment-commitment/v1",
+  "status": "HMAC_ASSIGNMENT_COMMITTED",
+  "verdicts": {
+    "ntc_min_25_each_side_each_block": true,
+    "one_shot_no_retry": true,
+    "public_ntc_ab_all_blocks_covered": true,
+    "public_ntc_ab_nonempty": true
+  }
+}
