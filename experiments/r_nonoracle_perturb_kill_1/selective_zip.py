@@ -212,11 +212,16 @@ def _validate_archive(
 def _extract_member(binding: ArchiveBinding, member: MemberBinding, central: _CentralEntry, response: RangeResponse) -> tuple[bytes, dict[str, Any]]:
     if member.name != central.name:
         raise ProvenanceError("member name mismatch")
+    dos_attributes = central.external_attributes & 0xFF
+    dos_regular_attributes = 0x01 | 0x02 | 0x04 | 0x20
+    dos_type_is_regular = dos_attributes & ~dos_regular_attributes == 0
     if central.creator_system == 3:
         unix_mode = (central.external_attributes >> 16) & 0xFFFF
-        is_regular = stat.S_IFMT(unix_mode) == stat.S_IFREG
+        is_regular = (
+            stat.S_IFMT(unix_mode) == stat.S_IFREG and dos_type_is_regular
+        )
     elif central.creator_system == 0:
-        is_regular = central.external_attributes & 0x10 == 0
+        is_regular = dos_type_is_regular
     else:
         is_regular = False
     if not is_regular:

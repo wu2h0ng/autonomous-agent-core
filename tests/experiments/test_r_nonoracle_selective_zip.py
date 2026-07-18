@@ -210,7 +210,12 @@ def test_raw_deflate_fixture_is_actually_valid() -> None:
     ("create_system", "external_attr"),
     [
         (3, (stat.S_IFLNK | 0o777) << 16),
+        (3, (stat.S_IFIFO | 0o600) << 16),
+        (3, 0),
         (0, 0x10),
+        (0, 0x08),
+        (0, 0x40),
+        (7, 0x20),
     ],
 )
 def test_allowlist_rejects_non_regular_central_directory_entries(

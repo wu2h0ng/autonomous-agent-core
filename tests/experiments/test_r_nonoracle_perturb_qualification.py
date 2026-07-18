@@ -11,6 +11,7 @@ import pytest
 from experiments.r_nonoracle_perturb_kill_1.qualification import (
     QualificationError,
     QualificationInputs,
+    main,
     qualify_support,
 )
 
@@ -99,6 +100,24 @@ def _build_fixture(tmp_path: Path) -> QualificationInputs:
     )
 
 
+def _cli_arguments(inputs: QualificationInputs) -> list[str]:
+    arguments = [
+        "--barcodes",
+        str(inputs.barcodes),
+        "--features",
+        str(inputs.features),
+        "--guidecalls",
+        str(inputs.guidecalls),
+        "--rna-metrics",
+        str(inputs.rna_metrics),
+        "--donor-calls",
+        str(inputs.donor_calls),
+    ]
+    for well, path in inputs.souporcell_by_well.items():
+        arguments.extend(["--souporcell", f"{well}={path}"])
+    return arguments
+
+
 def test_support_qualification_is_singlet_only_and_emits_no_target_ids(tmp_path: Path) -> None:
     inputs = _build_fixture(tmp_path)
 
@@ -125,6 +144,17 @@ def test_qualification_api_has_no_guide_map_or_category_input() -> None:
     assert fields == {"barcodes", "features", "guidecalls", "rna_metrics", "donor_calls", "souporcell_by_well"}
     assert "guide_map" not in fields | parameters
     assert "category" not in fields | parameters
+
+
+def test_cli_rejects_duplicate_souporcell_well_instead_of_overwriting(
+    tmp_path: Path,
+) -> None:
+    inputs = _build_fixture(tmp_path)
+    arguments = _cli_arguments(inputs)
+    arguments.extend(["--souporcell", f"5={inputs.souporcell_by_well[5]}"])
+
+    with pytest.raises(QualificationError, match="duplicate Souporcell well"):
+        main(arguments)
 
 
 def test_duplicate_or_non_bijective_donor_rule_fails_closed(tmp_path: Path) -> None:
@@ -202,6 +232,32 @@ def test_zero_guide_is_represented_by_absent_row_not_synthetic_zero_call(
 
     with pytest.raises(QualificationError, match="zero-guide"):
         qualify_support(inputs)
+
+
+def test_ntc_split_is_impossible_with_fewer_than_two_distinct_guide_features(
+    tmp_path: Path,
+) -> None:
+    inputs = _build_fixture(tmp_path)
+    with gzip.open(inputs.features, "rt", encoding="utf-8", newline="") as handle:
+        feature_rows = list(csv.reader(handle, delimiter="\t"))
+    feature_rows = [
+        row
+        for row in feature_rows
+        if not row[0].startswith("NO-TARGET-") or row[0] == "NO-TARGET-1"
+    ]
+    _write_gzip_tsv(inputs.features, feature_rows)
+    with gzip.open(inputs.guidecalls, "rt", encoding="utf-8", newline="") as handle:
+        guide_rows = list(csv.reader(handle, delimiter="\t"))
+    for row in guide_rows[1:]:
+        if row[2].startswith("NO-TARGET-"):
+            row[2] = "NO-TARGET-1"
+    _write_gzip_tsv(inputs.guidecalls, guide_rows)
+
+    report = qualify_support(inputs)
+
+    assert report["ntc_total_min_per_block"] == 50
+    assert report["status"] == "PARK_NTC_SPLIT_IMPOSSIBLE"
+    assert report["ntc_split_pending"] is False
 
 
 def test_souporcell_source_barcode_must_use_raw_suffix_one(tmp_path: Path) -> None:

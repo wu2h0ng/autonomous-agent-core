@@ -272,6 +272,7 @@ def qualify_support(inputs: QualificationInputs) -> dict[str, Any]:
     stages: Counter[str] = Counter(raw_barcodes=len(barcodes))
     support: Counter[tuple[str, str, int, str]] = Counter()
     ntc_by_block: Counter[tuple[int, str]] = Counter()
+    qualified_ntc_guides: set[str] = set()
     for barcode, metric in zip(barcodes, metrics, strict=True):
         call = calls.get(barcode)
         if call is None or call[1] != 1:
@@ -305,6 +306,7 @@ def qualify_support(inputs: QualificationInputs) -> dict[str, Any]:
         guide = guides[guide_name]
         if guide.is_ntc:
             ntc_by_block[(well, donor)] += 1
+            qualified_ntc_guides.add(guide_name)
         else:
             support[(guide.target, guide_name, well, donor)] += 1
 
@@ -336,7 +338,10 @@ def qualify_support(inputs: QualificationInputs) -> dict[str, Any]:
     target_margin = len(eligible_targets) - TARGET_GATE
     if target_margin < 0:
         status = "PARK_TARGET_SUPPORT / NTC_SPLIT_NOT_REACHED"
-    elif min(ntc_counts, default=0) < 2 * NTC_MIN_PER_SPLIT_SIDE_BLOCK:
+    elif (
+        len(qualified_ntc_guides) < 2
+        or min(ntc_counts, default=0) < 2 * NTC_MIN_PER_SPLIT_SIDE_BLOCK
+    ):
         status = "PARK_NTC_SPLIT_IMPOSSIBLE"
     else:
         status = "TARGET_SUPPORT_MET / MARGIN_0 / NTC_SPLIT_PENDING" if target_margin == 0 else "TARGET_SUPPORT_MET / NTC_SPLIT_PENDING"
@@ -365,7 +370,7 @@ def qualify_support(inputs: QualificationInputs) -> dict[str, Any]:
         "ntc_total_min_per_block": min(ntc_counts, default=0),
         "ntc_total_max_per_block": max(ntc_counts, default=0),
         "ntc_min_per_split_side_block": NTC_MIN_PER_SPLIT_SIDE_BLOCK,
-        "ntc_split_pending": True,
+        "ntc_split_pending": status.endswith("NTC_SPLIT_PENDING"),
         "donor_labels": "OPAQUE_A_B",
         "source_sha256": source_sha256,
     }
@@ -390,6 +395,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--souporcell", action="append", required=True, type=_parse_souporcell)
     arguments = parser.parse_args(argv)
     souporcell_by_well = dict(arguments.souporcell)
+    if len(souporcell_by_well) != len(arguments.souporcell):
+        raise QualificationError("duplicate Souporcell well input")
     report = qualify_support(
         QualificationInputs(
             barcodes=arguments.barcodes,
