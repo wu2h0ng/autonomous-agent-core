@@ -55,6 +55,7 @@ from tests.product.test_data_agent_external_report_adapter import (
     _credential,
     _feed_bytes,
     _feed_event,
+    _report_bytes,
     _response,
     _Transport,
 )
@@ -116,6 +117,8 @@ def _real_situated_active_perception(
     *,
     wake_budget: int = 2,
     query_budget: int = 2,
+    feed_limit: int = 1,
+    event_count: int = 1,
 ) -> tuple[
     MandateActivePerceptionService,
     DataAgentSituatedRuntime,
@@ -124,6 +127,14 @@ def _real_situated_active_perception(
 ]:
     database = tmp_path / "runtime.sqlite3"
     cursor = "cursor-real-situated"
+    events = [
+        _feed_event(
+            f"{cursor}-{index}",
+            _report_bytes(trace_id=f"trace-active-perception-{index}"),
+        )
+        for index in range(event_count)
+    ]
+    page_tail_cursor = f"{cursor}-{event_count - 1}"
     credential = _credential(
         scopes=(
             "reports:read",
@@ -139,9 +150,10 @@ def _real_situated_active_perception(
         credential_authorizations=credentials,
         transport=_Transport(
             _response(
-                _feed_bytes([_feed_event(cursor)], next_cursor=cursor),
+                _feed_bytes(events, next_cursor=page_tail_cursor),
                 final_url=(
-                    "http://127.0.0.1:8765/external/report-events?limit=1"
+                    "http://127.0.0.1:8765/external/report-events"
+                    f"?limit={event_count}"
                 ),
             )
         ),
@@ -188,7 +200,7 @@ def _real_situated_active_perception(
         budget_window_seconds=3600,
         wake_budget_per_window=wake_budget,
         query_budget_per_window=query_budget,
-        feed_limit=1,
+        feed_limit=feed_limit,
         lease_seconds=30,
     )
     service = MandateActivePerceptionService(
@@ -1033,6 +1045,78 @@ def test_service_restart_validates_completion_after_crash_before_schedule_finish
     restarted_service, _, _, _ = _real_situated_active_perception(tmp_path)
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
         restarted_service.run_due_once(worker_id="worker-crash-restart")
+
+
+def test_due_run_limits_existing_pending_to_feed_limit_in_stable_order(
+    tmp_path: Path,
+) -> None:
+    service, _, adapter, _ = _real_situated_active_perception(
+        tmp_path,
+        feed_limit=2,
+        event_count=3,
+    )
+    adapter.poll_once(limit=3)
+    pending_before = adapter.pending_dispatches()
+    assert len(pending_before) == 3
+
+    receipt = service.run_due_once(worker_id="worker-bounded-drain")
+
+    assert receipt.proposal_count == 2
+    assert receipt.pending_remaining == 1
+    assert adapter.pending_dispatches() == pending_before[2:]
+    completed = tuple(
+        adapter.completed_dispatch(dispatch.dispatch_id)
+        for dispatch in pending_before[:2]
+    )
+    assert all(dispatch is not None for dispatch in completed)
+    assert tuple(
+        dispatch.dispatch_id
+        for dispatch in completed
+        if dispatch is not None
+    ) == tuple(dispatch.dispatch_id for dispatch in pending_before[:2])
+
+
+def test_crashed_bounded_batch_cannot_evict_earliest_outcome_from_restart_replay(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _, adapter, database = _real_situated_active_perception(
+        tmp_path,
+        feed_limit=2,
+        event_count=3,
+    )
+    adapter.poll_once(limit=3)
+    earliest_batch_dispatch_id = adapter.pending_dispatches()[0].dispatch_id
+
+    def crash_before_schedule_finish(*_: object, **__: object) -> None:
+        raise RuntimeError("crash before bounded batch finish")
+
+    monkeypatch.setattr(service.store, "finish", crash_before_schedule_finish)
+    with pytest.raises(RuntimeError, match="crash before bounded batch finish"):
+        service.run_due_once(worker_id="worker-bounded-crash")
+    with sqlite3.connect(database) as connection:
+        outcome_record_id = connection.execute(
+            """
+            SELECT outcome_record_id FROM data_agent_report_dispatch_outbox
+            WHERE dispatch_id = ?
+            """,
+            (earliest_batch_dispatch_id,),
+        ).fetchone()[0]
+        connection.execute(
+            """
+            DELETE FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        )
+
+    restarted_service, _, _, _ = _real_situated_active_perception(
+        tmp_path,
+        feed_limit=2,
+        event_count=3,
+    )
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        restarted_service.run_due_once(worker_id="worker-bounded-restart")
 
 
 @pytest.mark.parametrize(

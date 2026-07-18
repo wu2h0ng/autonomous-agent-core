@@ -122,6 +122,9 @@ authority and schedule canonical database identity to match. Service restart
 validates only the adapter namespace's latest bounded `feed_limit` completions
 via the real completed-dispatch path; it does not scan historical outbox state
 or rely on a schedule time window that can miss completion-before-finish crashes.
+Each run drains at most the first stable-ordered `feed_limit` pending dispatches,
+so one crash batch cannot exceed the bounded restart replay set; later pending
+work remains explicit in `pending_remaining`.
 
 **Files:**
 - Modify: `apps/api_server/data_agent_report_adapter.py`

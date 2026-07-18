@@ -581,7 +581,7 @@ class MandateActivePerceptionService:
         self._adapter.validate_latest_completed_dispatches(
             limit=self.config.feed_limit,
         )
-        pending = self._adapter.pending_dispatches()
+        pending = self._adapter.pending_dispatches()[: self.config.feed_limit]
         needs_query = not pending
         claim = self.store.acquire_due_lease(
             self.config,
@@ -601,7 +601,7 @@ class MandateActivePerceptionService:
                 poll = self._adapter.poll_once(limit=self.config.feed_limit)
                 observed_count = len(poll.bundles)
                 self._assert_same_authority(authority)
-                pending = self._adapter.pending_dispatches()
+                pending = self._adapter.pending_dispatches()[: self.config.feed_limit]
             for dispatch in pending:
                 self._assert_same_authority(authority)
                 admission = self._runtime.admit_event(dispatch.environment_event_id)
