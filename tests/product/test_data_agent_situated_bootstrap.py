@@ -21,6 +21,7 @@ from agent_os_contracts import (
     RelevanceUrgency,
     TaskDraftProposal,
     canonical_json,
+    content_digest,
 )
 from agent_os_core import (
     CanonicalCredentialAuthorizationReader,
@@ -259,9 +260,16 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
         bundle.projection.projection_id,
         receipt.receipt_id,
     )
+    record = runtime.propose_record(
+        bundle.event.environment_event_id,
+        bundle.projection.projection_id,
+        receipt.receipt_id,
+    )
 
     assert type(runtime) is DataAgentSituatedRuntime
     assert isinstance(proposal, TaskDraftProposal)
+    assert runtime.resolve_assessment_record(content_digest(record)) == record
+    assert runtime.resolve_assessment_record("0" * 64) is None
     assert receipt.environment_event_id == bundle.event.environment_event_id
     assert credentials.calls == 4
     assert assessor.calls == 1
@@ -276,8 +284,9 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
         "assert_observation_authority",
         "observe_report",
         "principal_scope",
-            "propose",
-            "propose_record",
+        "propose",
+        "propose_record",
+        "resolve_assessment_record",
         "propose_authenticated_protocol_envelope",
     }
 

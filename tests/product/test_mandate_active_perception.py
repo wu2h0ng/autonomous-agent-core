@@ -13,6 +13,7 @@ import pytest
 from apps.api_server import data_agent_report_adapter as report_adapter_module
 from agent_os_contracts import (
     CredentialRef,
+    MandateRelevanceContextRef,
     RelevanceAssessment,
     RelevanceAssessorRef,
     RelevanceDisposition,
@@ -21,6 +22,8 @@ from agent_os_contracts import (
     SituatedAssessmentRecord,
     content_digest,
 )
+from agent_os_core import CanonicalCredentialAuthorizationReader
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server import __main__ as api_main
 from apps.api_server.app import AgentOSApplication
 from apps.api_server.data_agent_report_adapter import (
@@ -29,6 +32,13 @@ from apps.api_server.data_agent_report_adapter import (
     DataAgentReportHttpResponse,
     SQLiteDataAgentReportStateStore,
     _InMemoryDataAgentReportStateStore,
+)
+from apps.api_server.data_agent_report_admission import (
+    SQLiteDataAgentReportAdmissionMaterialStore,
+)
+from apps.api_server.data_agent_situated_bootstrap import (
+    DataAgentSituatedBootstrap,
+    DataAgentSituatedRuntime,
 )
 from apps.api_server.mandate_active_perception import (
     ActivePerceptionDisposition,
@@ -48,6 +58,11 @@ from tests.product.test_data_agent_external_report_adapter import (
     _Transport,
 )
 from tests.product.test_data_agent_report_dispatch_outbox import _outcome_record
+from tests.product.test_data_agent_situated_bootstrap import _Assessor
+from tests.product.mandate_observation_support import (
+    authorize_workspace_observation,
+    create_workspace_record,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -91,6 +106,94 @@ def _feed_adapter(
         now=adapter_now,
     )
     return adapter
+
+
+def _real_situated_active_perception(
+    tmp_path: Path,
+) -> tuple[
+    MandateActivePerceptionService,
+    DataAgentSituatedRuntime,
+    DataAgentReportAdapter,
+    Path,
+]:
+    database = tmp_path / "runtime.sqlite3"
+    cursor = "cursor-real-situated"
+    credential = _credential(
+        scopes=(
+            "reports:read",
+            "report-events:read",
+            "data-agent-origin:http://127.0.0.1:8765",
+            "data-agent-tenant:data-tenant-1",
+        )
+    )
+    credentials = CanonicalCredentialAuthorizationReader((credential,))
+    adapter = DataAgentReportAdapter(
+        _config(credential=credential),
+        credential_broker=_CredentialBroker(),
+        credential_authorizations=credentials,
+        transport=_Transport(
+            _response(
+                _feed_bytes([_feed_event(cursor)], next_cursor=cursor),
+                final_url=(
+                    "http://127.0.0.1:8765/external/report-events?limit=1"
+                ),
+            )
+        ),
+        state_store=SQLiteDataAgentReportStateStore(database),
+        clock=lambda: NOW,
+    )
+    assessor = _Assessor()
+    create_workspace_record(database, tmp_path, adapter=adapter, now=NOW)
+    authorize_workspace_observation(
+        database,
+        tmp_path,
+        adapter=adapter,
+        assessor=assessor.ref,
+        context=MandateRelevanceContextRef(
+            relevance_context_id="context:active-perception-live-outcome",
+            version=1,
+            content_digest="f" * 64,
+        ),
+        now=NOW,
+    )
+    control = SQLiteSituatedAssessmentStore(database)
+    runtime = DataAgentSituatedBootstrap.compose(
+        adapter=adapter,
+        material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+            database,
+            principal_id="user:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+        ),
+        credentials=credentials,
+        control=control,
+        assessor=assessor,
+        admission_database=database,
+        clock=lambda: NOW,
+    )
+    config = MandateActivePerceptionConfig(
+        schedule_id="schedule:real-situated",
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        mandate_id="mandate:build-agent-os",
+        environment_binding_id="binding:data-agent-reports",
+        interval_seconds=60,
+        budget_window_seconds=3600,
+        wake_budget_per_window=2,
+        query_budget_per_window=2,
+        feed_limit=1,
+        lease_seconds=30,
+    )
+    service = MandateActivePerceptionService(
+        config=config,
+        store=SQLiteMandateActivePerceptionStore(database),
+        adapter=adapter,
+        runtime=runtime,
+        clock=lambda: NOW,
+    )
+    service.ensure_schedule(first_wake_at=NOW)
+    return service, runtime, adapter, database
 
 
 def test_poll_commits_pending_dispatch_and_cursor_atomically(tmp_path: Path) -> None:
@@ -161,7 +264,18 @@ def test_pending_dispatch_survives_restart_and_completed_replay_is_not_pending(
 
     second_restart = _feed_adapter(database)
     assert second_restart.pending_dispatches() == ()
-    assert second_restart.completed_dispatch(pending.dispatch_id) is not None
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        second_restart.completed_dispatch(pending.dispatch_id)
+    outcome_record = _outcome_record(second_restart, pending)
+    assert (
+        second_restart.completed_dispatch(
+            pending.dispatch_id,
+            outcome_resolver=lambda digest: (
+                outcome_record if content_digest(outcome_record) == digest else None
+            ),
+        )
+        is not None
+    )
 
 
 @pytest.mark.parametrize(
@@ -619,6 +733,84 @@ def test_adapter_clock_cannot_control_lease_fence(
     )
 
     assert completed.status == "COMPLETED"
+
+
+def test_completed_dispatch_rejects_deleted_assessment(tmp_path: Path) -> None:
+    service, runtime, adapter, database = _real_situated_active_perception(tmp_path)
+    receipt = service.run_due_once(worker_id="worker-live-outcome")
+    assert receipt.proposal_count == 1
+    with sqlite3.connect(database) as connection:
+        dispatch_id, outcome_record_id = connection.execute(
+            """
+            SELECT dispatch_id, outcome_record_id
+            FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
+        ).fetchone()
+        exact_record = connection.execute(
+            """
+            SELECT assessment_record_id FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        ).fetchone()
+        assert exact_record == (outcome_record_id,)
+        assert (
+            adapter.completed_dispatch(
+                str(dispatch_id),
+                outcome_resolver=runtime.resolve_assessment_record,
+            )
+            is not None
+        )
+        connection.execute(
+            """
+            DELETE FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        )
+
+    _, restarted_runtime, restarted_adapter, _ = _real_situated_active_perception(
+        tmp_path
+    )
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        restarted_adapter.completed_dispatch(
+            str(dispatch_id),
+            outcome_resolver=restarted_runtime.resolve_assessment_record,
+        )
+
+    assert adapter.pending_dispatches() == ()
+
+
+def test_completed_dispatch_rejects_tampered_assessment(tmp_path: Path) -> None:
+    service, _, _, database = _real_situated_active_perception(tmp_path)
+    receipt = service.run_due_once(worker_id="worker-tampered-outcome")
+    assert receipt.proposal_count == 1
+    with sqlite3.connect(database) as connection:
+        dispatch_id, outcome_record_id = connection.execute(
+            """
+            SELECT dispatch_id, outcome_record_id
+            FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
+        ).fetchone()
+        changed = connection.execute(
+            """
+            UPDATE situated_assessment_records SET record_json = ?
+            WHERE assessment_record_id = ?
+            """,
+            ('{"tampered":true}', outcome_record_id),
+        ).rowcount
+        assert changed == 1
+
+    _, restarted_runtime, restarted_adapter, _ = _real_situated_active_perception(
+        tmp_path
+    )
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        restarted_adapter.completed_dispatch(
+            str(dispatch_id),
+            outcome_resolver=restarted_runtime.resolve_assessment_record,
+        )
 
 
 def test_due_run_polls_admits_proposes_and_records_no_effect_receipt(

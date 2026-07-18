@@ -47,6 +47,7 @@ from apps.api_server.data_agent_report_policy import (
 
 
 Clock = Callable[[], datetime]
+OutcomeRecordResolver = Callable[[str], SituatedAssessmentRecord | None]
 _TRACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -2678,7 +2679,12 @@ class DataAgentReportAdapter:
             self._assert_dispatch_scope(dispatch)
         return dispatches
 
-    def completed_dispatch(self, dispatch_id: str) -> DataAgentReportDispatch | None:
+    def completed_dispatch(
+        self,
+        dispatch_id: str,
+        *,
+        outcome_resolver: OutcomeRecordResolver | None = None,
+    ) -> DataAgentReportDispatch | None:
         dispatch = self._state_store.get_dispatch(
             self._state_namespace,
             dispatch_id,
@@ -2686,6 +2692,27 @@ class DataAgentReportAdapter:
         if dispatch is None or dispatch.status != "COMPLETED":
             return None
         self._assert_dispatch_scope(dispatch)
+        if outcome_resolver is None or dispatch.outcome_digest is None:
+            raise DataAgentReportAdapterError(
+                "durable outcome record resolver is required"
+            )
+        try:
+            outcome_record = outcome_resolver(dispatch.outcome_digest)
+        except Exception:
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            ) from None
+        if (
+            type(outcome_record) is not SituatedAssessmentRecord
+            or outcome_record.assessment_record_id != dispatch.outcome_record_id
+            or content_digest(outcome_record) != dispatch.outcome_digest
+        ):
+            raise DataAgentReportAdapterError(
+                "durable outcome record is unavailable or invalid"
+            )
+        SQLiteDataAgentReportStateStore._validate_outcome_record(
+            dispatch, outcome_record
+        )
         return dispatch
 
     def _assert_dispatch_scope(self, dispatch: DataAgentReportDispatch) -> None:

@@ -26,6 +26,7 @@ from apps.api_server.data_agent_report_adapter import (
 from tests.product.test_data_agent_external_report_adapter import (
     NOW,
     _adapter,
+    _Broker,
     _config,
     _credential,
     _feed_bytes,
@@ -223,9 +224,10 @@ def test_pending_survives_restart_and_completion_receipt_is_durable(
     restarted = _feed_adapter(database)
     assert restarted.pending_dispatches() == (pending,)
 
+    outcome_record = _outcome_record(restarted, pending)
     completed = restarted.complete_dispatch(
         pending,
-        outcome_record=_outcome_record(restarted, pending),
+        outcome_record=outcome_record,
         completed_at=NOW,
         consumer_id="worker-1",
         authority_snapshot_digest="a" * 64,
@@ -233,7 +235,18 @@ def test_pending_survives_restart_and_completion_receipt_is_durable(
 
     assert restarted.pending_dispatches() == ()
     assert completed.completion_digest is not None
-    assert _feed_adapter(database).completed_dispatch(pending.dispatch_id) == completed
+    replay_adapter = _feed_adapter(database)
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        replay_adapter.completed_dispatch(pending.dispatch_id)
+    assert (
+        replay_adapter.completed_dispatch(
+            pending.dispatch_id,
+            outcome_resolver=lambda digest: (
+                outcome_record if content_digest(outcome_record) == digest else None
+            ),
+        )
+        == completed
+    )
 
 
 def test_completion_rejects_self_reported_outcome_without_durable_record(
@@ -415,11 +428,7 @@ def test_cross_tenant_same_ids_cannot_complete_foreign_dispatch(
             target_tenant_id="tenant:other",
             target_workspace_id="workspace:other",
         ),
-        credential_broker=type(
-            "Broker",
-            (),
-            {"resolve": lambda self, ref: "secret-value-that-must-not-leak"},
-        )(),
+        credential_broker=_Broker(),
         transport=_Transport(_response()),
         state_store=SQLiteDataAgentReportStateStore(database),
         clock=lambda: NOW,

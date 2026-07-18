@@ -292,6 +292,7 @@ class DataAgentSituatedRuntime:
     __slots__ = (
         "_admission",
         "_adapter",
+        "_authority",
         "_composition_seal",
         "_principal_scope",
         "_envelope_adapter",
@@ -341,6 +342,7 @@ class DataAgentSituatedRuntime:
         if (
             admission._trust is not adapter
             or steward._trust is not adapter
+            or admission._authority is not steward._authority
             or admission._reader is not steward._admission_reader
             or admission._writer is not steward._trace_writer
         ):
@@ -350,6 +352,7 @@ class DataAgentSituatedRuntime:
         self = object.__new__(cls)
         self._adapter = adapter
         self._admission = admission
+        self._authority = admission._authority
         self._steward = steward
         self._envelope_adapter = envelope_adapter
         self._protocol_ingress_store = protocol_ingress_store
@@ -390,6 +393,11 @@ class DataAgentSituatedRuntime:
         receipt_id: str,
     ) -> SituatedAssessmentRecord:
         return self._steward.observe_event_record(event_id, projection_id, receipt_id)
+
+    def resolve_assessment_record(
+        self, result_digest: str
+    ) -> SituatedAssessmentRecord | None:
+        return self._authority.record_by_result_digest(result_digest)
 
     def propose_authenticated_protocol_envelope(
         self,
