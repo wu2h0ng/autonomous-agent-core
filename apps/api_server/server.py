@@ -34,6 +34,10 @@ from agent_os_core import (
     MandateObservationAuthorizationConflict,
     MandateObservationAuthorizationDenied,
     MandateObservationAuthorizationPersistenceConflict,
+    MandateResponsibilityConflict,
+    MandateResponsibilityDenied,
+    MandateResponsibilityNotFound,
+    MandateResponsibilityPersistenceConflict,
     TaskNotFoundError,
 )
 
@@ -42,6 +46,39 @@ from .app import AgentOSApplication
 
 INDEX = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 PREVIEW_ZH = Path(__file__).with_name("preview-zh.html").read_bytes()
+
+
+def _match_mandate_leaf(path: str, leaf: str) -> str | None:
+    parsed = urlparse(path)
+    if parsed.query or parsed.fragment or parsed.path.endswith("/") or "%" in parsed.path:
+        return None
+    parts = parsed.path.split("/")
+    if (
+        len(parts) == 5
+        and parts[:3] == ["", "v1", "mandates"]
+        and parts[3]
+        and parts[4] == leaf
+    ):
+        return parts[3]
+    return None
+
+
+def _match_mandate_link_revocation(path: str) -> tuple[str, str] | None:
+    parsed = urlparse(path)
+    if parsed.query or parsed.fragment or parsed.path.endswith("/") or "%" in parsed.path:
+        return None
+    parts = parsed.path.split("/")
+    if (
+        len(parts) == 6
+        and parts[:3] == ["", "v1", "mandates"]
+        and parts[3]
+        and parts[4] == "task-links"
+        and parts[5].endswith(":revoke")
+    ):
+        link_id = parts[5].removesuffix(":revoke")
+        if link_id:
+            return parts[3], link_id
+    return None
 
 
 def _match_situated_proposal(path: str) -> str | None:
@@ -75,6 +112,10 @@ def _uses_generic_http_idempotency(path: str) -> bool:
         return False
     if parsed_path.endswith("/environment-bindings:authorize"):
         return False
+    if _match_mandate_leaf(path, "task-links") is not None:
+        return False
+    if _match_mandate_link_revocation(path) is not None:
+        return False
     return not parsed_path.endswith(
         (
             "/domain-candidates:seal",
@@ -100,6 +141,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             TaskConfigurationDenied,
             TaskConfigurationScopeMismatch,
             MandateObservationAuthorizationDenied,
+            MandateResponsibilityDenied,
         ),
     ):
         return 403
@@ -115,6 +157,8 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             MandateWorkspacePersistenceConflict,
             MandateObservationAuthorizationConflict,
             MandateObservationAuthorizationPersistenceConflict,
+            MandateResponsibilityConflict,
+            MandateResponsibilityPersistenceConflict,
         ),
     ):
         return 409
@@ -126,6 +170,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             CandidatePromotionNotFound,
             TaskConfigurationNotFound,
             MandateWorkspaceNotFound,
+            MandateResponsibilityNotFound,
         ),
     ):
         return 404
@@ -150,7 +195,28 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return application
 
-    def _json(self, status: int, payload: object) -> None:
+    def _read_application(self) -> AgentOSApplication | None:
+        authorization = self.headers.get("Authorization", "")
+        if not authorization:
+            return self.application
+        if not authorization.startswith("Bearer "):
+            self._json(401, {"error": "authentication_failed"})
+            return None
+        application = self.admin_applications.get(
+            authorization.removeprefix("Bearer ")
+        )
+        if application is None:
+            self._json(401, {"error": "authentication_failed"})
+            return None
+        return application
+
+    def _json(
+        self,
+        status: int,
+        payload: object,
+        *,
+        response_headers: dict[str, str] | None = None,
+    ) -> None:
         if (
             self.command == "POST"
             and isinstance(payload, dict)
@@ -164,6 +230,8 @@ class Handler(BaseHTTPRequestHandler):
         data = json.dumps(payload, ensure_ascii=False, default=str).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        for name, value in (response_headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -202,6 +270,42 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"mandates": self.application.list_mandate_workspace_records()})
             return
         mandate_prefix = "/v1/mandates/"
+        mandate_id = _match_mandate_leaf(self.path, "task-links")
+        if mandate_id is not None:
+            application = self._read_application()
+            if application is None:
+                return
+            try:
+                self._json(
+                    200,
+                    {"task_links": application.list_mandate_task_links(mandate_id)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            except Exception as exc:
+                self._json(
+                    _error_status(exc),
+                    {"error": type(exc).__name__, "message": str(exc)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            return
+        mandate_id = _match_mandate_leaf(self.path, "responsibility-view")
+        if mandate_id is not None:
+            application = self._read_application()
+            if application is None:
+                return
+            try:
+                self._json(
+                    200,
+                    application.mandate_responsibility_view(mandate_id),
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            except Exception as exc:
+                self._json(
+                    _error_status(exc),
+                    {"error": type(exc).__name__, "message": str(exc)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            return
         if parsed.path.startswith(mandate_prefix) and not parsed.query:
             parts = parsed.path.strip("/").split("/")
             if (
@@ -447,6 +551,27 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/v1/mandates":
                 record = self.application.create_mandate_workspace_record(body)
                 self._json(201, record)
+                return
+            mandate_id = _match_mandate_leaf(self.path, "task-links")
+            if mandate_id is not None:
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                link = admin.create_mandate_task_link(mandate_id, body)
+                self._json(201, link)
+                return
+            revocation_target = _match_mandate_link_revocation(self.path)
+            if revocation_target is not None:
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                mandate_id, link_id = revocation_target
+                revocation = admin.revoke_mandate_task_link(
+                    mandate_id,
+                    link_id,
+                    body,
+                )
+                self._json(201, revocation)
                 return
             parts = parsed.path.strip("/").split("/")
             if (

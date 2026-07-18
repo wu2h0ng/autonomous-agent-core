@@ -35,6 +35,8 @@ from agent_os_contracts import (
     Goal,
     HelpRequest,
     MandateObservationAuthorizationCommand,
+    MandateTaskLinkCommand,
+    MandateTaskLinkRevocationCommand,
     ObservationBindingDescriptor,
     OutcomeStatus,
     PrincipalIdentity,
@@ -76,6 +78,8 @@ from agent_os_core import (
     SQLiteTaskEventStore,
     SQLiteMandateWorkspaceStore,
     SQLiteMandateObservationAuthorizationStore,
+    MandateResponsibilityProjector,
+    SQLiteMandateResponsibilityStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
     SituationalTrustResolver,
@@ -243,6 +247,15 @@ class AgentOSApplication:
             else None
         )
         self.tasks = TaskService(self.store, clock=self._clock)
+        self.mandate_responsibility_store = SQLiteMandateResponsibilityStore(
+            database,
+            clock=self._clock,
+        )
+        self.mandate_responsibility = MandateResponsibilityProjector(
+            self.mandate_responsibility_store,
+            self.tasks,
+            clock=self._clock,
+        )
         if (
             situational_trust is not None
             and data_agent_reports is not None
@@ -692,6 +705,47 @@ class AgentOSApplication:
             record.model_dump(mode="json")
             for record in self.mandate_workspace.list(self.principal)
         ]
+
+    def create_mandate_task_link(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        command = MandateTaskLinkCommand.model_validate(payload)
+        link = self.mandate_responsibility_store.create_link(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return link.model_dump(mode="json")
+
+    def list_mandate_task_links(self, mandate_id: str) -> list[dict[str, Any]]:
+        return [
+            link.model_dump(mode="json")
+            for link in self.mandate_responsibility_store.list_links(
+                mandate_id,
+                self.principal,
+            )
+        ]
+
+    def revoke_mandate_task_link(
+        self,
+        mandate_id: str,
+        link_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        command = MandateTaskLinkRevocationCommand.model_validate(payload)
+        revocation = self.mandate_responsibility_store.revoke_link(
+            command,
+            mandate_id,
+            link_id,
+            self.principal,
+        )
+        return revocation.model_dump(mode="json")
+
+    def mandate_responsibility_view(self, mandate_id: str) -> dict[str, Any]:
+        view = self.mandate_responsibility.project(mandate_id, self.principal)
+        return view.model_dump(mode="json")
 
     def authorize_mandate_observation_binding(
         self,
