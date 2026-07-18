@@ -16,6 +16,7 @@ from agent_os_contracts import (
     content_digest,
 )
 
+from . import data_agent_report_adapter as _report_adapter_module
 from .data_agent_report_adapter import (
     DataAgentReportAdapter,
 )
@@ -329,6 +330,7 @@ class SQLiteMandateActivePerceptionStore:
         current_time = _utc(now)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            lease_authority_time = _utc(_report_adapter_module._system_utc_now())
             row = self._read_validated(connection, config)
             next_wake = self._parse_time(row[13])
             window_started = self._parse_time(row[14])
@@ -340,7 +342,7 @@ class SQLiteMandateActivePerceptionStore:
             if (
                 owner is not None
                 and lease_expires is not None
-                and lease_expires > current_time
+                and lease_expires > lease_authority_time
             ):
                 return ActivePerceptionDisposition.LEASE_HELD
             if not force_pending and current_time < next_wake:
@@ -356,7 +358,9 @@ class SQLiteMandateActivePerceptionStore:
             ):
                 return ActivePerceptionDisposition.BUDGET_EXHAUSTED
             fence += 1
-            expires = current_time + timedelta(seconds=config.lease_seconds)
+            expires = lease_authority_time + timedelta(
+                seconds=config.lease_seconds
+            )
             connection.execute(
                 """
                 UPDATE mandate_active_perception_schedule
@@ -379,7 +383,7 @@ class SQLiteMandateActivePerceptionStore:
             config_digest=config.config_digest,
             worker_id=worker_id,
             fence=fence,
-            acquired_at=current_time,
+            acquired_at=lease_authority_time,
             expires_at=expires,
             query_debited=debit_query,
         )

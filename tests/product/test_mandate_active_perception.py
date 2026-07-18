@@ -421,7 +421,10 @@ def test_service_rejects_separate_report_and_schedule_databases(
         )
 
 
-def test_stale_lease_holder_cannot_complete_after_takeover(tmp_path: Path) -> None:
+def test_stale_lease_holder_cannot_complete_after_takeover(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, runtime, adapter = _service(tmp_path)
     service.ensure_schedule(first_wake_at=NOW)
     adapter.poll_once(limit=1)
@@ -434,6 +437,11 @@ def test_stale_lease_holder_cannot_complete_after_takeover(tmp_path: Path) -> No
     )
     assert isinstance(stale, ActivePerceptionLease)
     completed_at = NOW + timedelta(seconds=service.config.lease_seconds + 1)
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: completed_at,
+    )
     current = service.store.acquire_due_lease(
         service.config,
         worker_id="worker-current",
@@ -468,11 +476,6 @@ def test_expired_lease_cannot_complete_with_backdated_receipt_time(
 ) -> None:
     database = tmp_path / "runtime.sqlite3"
     transaction_now = NOW + timedelta(seconds=31)
-    monkeypatch.setattr(
-        report_adapter_module,
-        "_system_utc_now",
-        lambda: transaction_now,
-    )
     adapter = _feed_adapter(database, adapter_now=NOW)
     service, runtime, _ = _service(tmp_path, adapter=adapter)
     adapter.poll_once(limit=1)
@@ -485,6 +488,11 @@ def test_expired_lease_cannot_complete_with_backdated_receipt_time(
     )
     assert isinstance(lease, ActivePerceptionLease)
     assert lease.expires_at < transaction_now
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: transaction_now,
+    )
 
     with pytest.raises(DataAgentReportAdapterError, match="lease fence"):
         adapter.complete_active_perception_dispatch(
@@ -502,6 +510,70 @@ def test_expired_lease_cannot_complete_with_backdated_receipt_time(
             authority_snapshot_digest=runtime.authority_digest,
         )
     assert adapter.pending_dispatches() == (dispatch,)
+
+
+def test_forward_dated_due_clock_cannot_extend_lease_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, runtime, adapter = _service(tmp_path)
+    adapter.poll_once(limit=1)
+    dispatch = adapter.pending_dispatches()[0]
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-forward-dated",
+        now=NOW + timedelta(days=1),
+        force_pending=True,
+    )
+    assert isinstance(lease, ActivePerceptionLease)
+    authority_completion_time = NOW + timedelta(seconds=31)
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: authority_completion_time,
+    )
+
+    with pytest.raises(DataAgentReportAdapterError, match="lease fence"):
+        adapter.complete_active_perception_dispatch(
+            dispatch,
+            outcome_record=runtime.propose_record(
+                dispatch.environment_event_id,
+                dispatch.projection_id,
+                f"receipt:{dispatch.environment_event_id}",
+            ),
+            schedule_id=service.config.schedule_id,
+            config_digest=service.config.config_digest,
+            worker_id=lease.worker_id,
+            lease_fence=lease.fence,
+            completed_at=NOW,
+            authority_snapshot_digest=runtime.authority_digest,
+        )
+    assert adapter.pending_dispatches() == (dispatch,)
+
+
+@pytest.mark.parametrize(
+    "due_now",
+    (
+        NOW - timedelta(days=1),
+        NOW + timedelta(days=1),
+    ),
+)
+def test_due_clock_does_not_control_lease_timestamps(
+    tmp_path: Path,
+    due_now: datetime,
+) -> None:
+    service, _, _ = _service(tmp_path)
+
+    lease = service.store.acquire_due_lease(
+        service.config,
+        worker_id="worker-due-clock",
+        now=due_now,
+        force_pending=True,
+    )
+
+    assert isinstance(lease, ActivePerceptionLease)
+    assert lease.acquired_at == NOW
+    assert lease.expires_at == NOW + timedelta(seconds=service.config.lease_seconds)
 
 
 def _throwing_adapter_clock() -> datetime:
@@ -655,7 +727,10 @@ def test_schedule_row_tamper_fails_closed(tmp_path: Path) -> None:
         service.run_due_once(worker_id="worker-1")
 
 
-def test_stale_worker_fence_cannot_finish_after_takeover(tmp_path: Path) -> None:
+def test_stale_worker_fence_cannot_finish_after_takeover(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     service, _, _ = _service(tmp_path)
     first = service.store.acquire_due_lease(
         service.config,
@@ -663,10 +738,16 @@ def test_stale_worker_fence_cannot_finish_after_takeover(tmp_path: Path) -> None
         now=NOW,
     )
     assert not isinstance(first, ActivePerceptionDisposition)
+    takeover_time = NOW + timedelta(seconds=31)
+    monkeypatch.setattr(
+        report_adapter_module,
+        "_system_utc_now",
+        lambda: takeover_time,
+    )
     second = service.store.acquire_due_lease(
         service.config,
         worker_id="worker-2",
-        now=NOW + timedelta(seconds=31),
+        now=takeover_time,
     )
     assert not isinstance(second, ActivePerceptionDisposition)
 
