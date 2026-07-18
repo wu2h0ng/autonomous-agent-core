@@ -4,13 +4,14 @@ live_pins:
   origin_main: "f041985"
   merged_this_turn:
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
+    - "P-OUTCOME-PORTFOLIO-HELP-1 (SrlHelpRequest-bound gap Help)"
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
-updated: "2026-07-19T00:55:00+08:00"
+updated: "2026-07-19T02:05:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "main (origin/main @ f041985)"
+branch: "main (origin/main @ ffd9fdc)"
 status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
