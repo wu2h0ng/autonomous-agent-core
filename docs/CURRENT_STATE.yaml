@@ -334,6 +334,7 @@ active_work:
       - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/preregistration_candidate.md"
       - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/implementation_final_review.md"
       - ".agent_runs/r-w1w2-aba-1-stage1-implementation-20260718/b1b5_external_closure_audit.md"
+      - ".agent_runs/r-w1w2-aba-1-b4-boundary-proof-20260718/spec.md"
       - "src/aac/r_w1w2_aba"
       - "tests/research/r_w1w2_aba"
   - id: "P-CORE-ADAPT-1"
