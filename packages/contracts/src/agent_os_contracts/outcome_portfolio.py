@@ -8,6 +8,7 @@ from pydantic import Field, field_validator
 from .common import ContractModel, NonEmptyStr, UtcDateTime, content_digest
 from .evidence import Sha256Digest
 from .outcome import OutcomeStatus
+from .srl_help import HelpClass, SrlHelpRequest
 
 
 class PersistentCommitmentState(str, Enum):
@@ -142,6 +143,8 @@ class SettlementRecord(ContractModel):
 
 
 class OutcomePortfolioHelpGap(str, Enum):
+    """Portfolio-local gap classifier; maps into canonical SrlHelpRequest.help_class."""
+
     MISSING_OBSERVED_OUTCOME = "MISSING_OBSERVED_OUTCOME"
     MISSING_TASK_LINK = "MISSING_TASK_LINK"
     REVOKED_TASK_LINK = "REVOKED_TASK_LINK"
@@ -151,17 +154,28 @@ class OutcomePortfolioHelpGap(str, Enum):
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
 
 
+_GAP_TO_HELP_CLASS: dict[OutcomePortfolioHelpGap, HelpClass] = {
+    OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME: HelpClass.INFORMATION,
+    OutcomePortfolioHelpGap.MISSING_COMMITMENT_OR_EXPECTED: HelpClass.INFORMATION,
+    OutcomePortfolioHelpGap.MISSING_TASK_LINK: HelpClass.PERMISSION,
+    OutcomePortfolioHelpGap.REVOKED_TASK_LINK: HelpClass.PERMISSION,
+    OutcomePortfolioHelpGap.DIGEST_DRIFT: HelpClass.AUTHORITY_CONFLICT,
+    OutcomePortfolioHelpGap.CORRECTION_EPOCH_DRIFT: HelpClass.AUTHORITY_CONFLICT,
+    OutcomePortfolioHelpGap.SCOPE_MISMATCH: HelpClass.AUTHORITY_CONFLICT,
+}
+
+
+def help_class_for_gap(gap_kind: OutcomePortfolioHelpGap) -> HelpClass:
+    return _GAP_TO_HELP_CLASS[gap_kind]
+
+
 class OutcomePortfolioHelpRequest(ContractModel):
-    help_request_id: NonEmptyStr
-    mandate_id: NonEmptyStr
+    """Portfolio binding over the canonical SrlHelpRequest — not a second help taxonomy."""
+
     portfolio_id: NonEmptyStr
     task_id: NonEmptyStr | None = None
-    tenant_id: NonEmptyStr
-    workspace_id: NonEmptyStr
     gap_kind: OutcomePortfolioHelpGap
-    details: NonEmptyStr
-    created_by: NonEmptyStr
-    created_at: UtcDateTime
+    srl_help: SrlHelpRequest
     authority_granted: Literal[False] = False
     external_effects_authorized: Literal[False] = False
     task_activation_authorized: Literal[False] = False
@@ -177,6 +191,14 @@ class OutcomePortfolioHelpRequest(ContractModel):
     @classmethod
     def _false_flags(cls, value: Any) -> Literal[False]:
         return _require_exact_false(value)
+
+    @property
+    def help_request_id(self) -> str:
+        return self.srl_help.help_request_id
+
+    @property
+    def mandate_id(self) -> str:
+        return self.srl_help.mandate_id
 
 
 def _outcome_portfolio_help_request_id(

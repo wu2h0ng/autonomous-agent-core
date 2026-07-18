@@ -55,3 +55,10 @@ Neighboring regression: all 50 tests pass (portfolio, responsibility, observatio
 
 - One pre-existing pyright error in `_require_active_task_link` (`active[0]` index) unchanged by this PR
 - Test file pyright errors (content_digest on Optional model fields) are pre-existing patterns unchanged by this PR
+
+## Taxonomy binding (post pre-review)
+
+`OutcomePortfolioHelpRequest` is a portfolio binding envelope over canonical
+`SrlHelpRequest` (`srl_help` field). `OutcomePortfolioHelpGap` maps into
+`HelpClass` via `help_class_for_gap`; it is not a second help taxonomy.
+

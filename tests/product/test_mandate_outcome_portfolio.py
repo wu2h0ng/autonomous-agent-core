@@ -19,6 +19,7 @@ from agent_os_contracts import (
     ObservedOutcome,
     OutcomePortfolio,
     OutcomePortfolioCreateCommand,
+    HelpClass,
     OutcomePortfolioHelpGap,
     OutcomePortfolioHelpRequest,
     OutcomeStatus,
@@ -357,16 +358,27 @@ def test_invalid_outcome_cannot_settle_met(tmp_path) -> None:
 
 
 def test_help_request_rejects_activation_flags() -> None:
-    base: dict[str, object] = {
+    srl = {
         "help_request_id": "help-request:test",
         "mandate_id": "mandate:build-agent-os",
-        "portfolio_id": "outcome-portfolio:test",
         "tenant_id": "tenant:local",
         "workspace_id": "workspace:local",
+        "standing_mission_id": "standing-mission:mandate:build-agent-os",
+        "help_class": HelpClass.INFORMATION.value,
+        "unknowns": ("missing outcome",),
+        "acquisition_attempts": ("checked ObservedOutcome",),
+        "unsafe_boundary": "cannot invent missing truth",
+        "minimum_answer": "provide ObservedOutcome",
+        "continuable_work": ("inspect portfolio view",),
+        "expires_at": (NOW + timedelta(hours=24)).isoformat(),
+        "cancellation_policy": "superseded_by_resolved_gap",
+        "escalation_policy": "mandate_admin",
+        "requested_at": NOW.isoformat(),
+    }
+    base: dict[str, object] = {
+        "portfolio_id": "outcome-portfolio:test",
         "gap_kind": OutcomePortfolioHelpGap.MISSING_OBSERVED_OUTCOME.value,
-        "details": "missing outcome",
-        "created_by": "principal:security",
-        "created_at": NOW.isoformat(),
+        "srl_help": srl,
     }
     for field in (
         "authority_granted",
@@ -378,6 +390,7 @@ def test_help_request_rejects_activation_flags() -> None:
         with pytest.raises(ValidationError):
             OutcomePortfolioHelpRequest.model_validate(payload)
     valid = OutcomePortfolioHelpRequest.model_validate(base)
+    assert valid.srl_help.help_class is HelpClass.INFORMATION
     assert valid.authority_granted is False
     assert valid.external_effects_authorized is False
     assert valid.task_activation_authorized is False

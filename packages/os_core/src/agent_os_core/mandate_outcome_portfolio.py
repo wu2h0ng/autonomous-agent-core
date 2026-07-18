@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -20,9 +20,13 @@ from agent_os_contracts import (
     PrincipalIdentity,
     SettlementCommand,
     SettlementRecord,
+    SrlHelpRequest,
     content_digest,
 )
-from agent_os_contracts.outcome_portfolio import _outcome_portfolio_help_request_id
+from agent_os_contracts.outcome_portfolio import (
+    _outcome_portfolio_help_request_id,
+    help_class_for_gap,
+)
 
 from .mandate_responsibility import (
     MandateResponsibilityDenied,
@@ -852,17 +856,38 @@ class SQLiteMandateOutcomePortfolioStore:
             mandate_id, portfolio_id, task_id, gap_kind, details,
             actor.principal_id, now,
         )
-        help_req = OutcomePortfolioHelpRequest(
+        srl_help = SrlHelpRequest(
             help_request_id=help_id,
             mandate_id=mandate_id,
-            portfolio_id=portfolio_id,
-            task_id=task_id,
             tenant_id=actor.tenant_id,
             workspace_id=actor.workspace_id,
+            standing_mission_id=f"standing-mission:{mandate_id}",
+            commitment_id=None,
+            goal_id=None,
+            help_class=help_class_for_gap(gap_kind),
+            known_facts=(),
+            unknowns=(details,),
+            acquisition_attempts=(
+                "checked MandateTaskLink / Task ExpectedOutcome / ObservedOutcome digests",
+            ),
+            unsafe_boundary=(
+                "outcome portfolio settlement cannot invent missing truth or authority"
+            ),
+            bounded_options=(),
+            minimum_answer=details,
+            continuable_work=(
+                "inspect portfolio view and resolve the named gap before retrying settlement",
+            ),
+            expires_at=now + timedelta(hours=24),
+            cancellation_policy="superseded_by_resolved_gap_or_mandate_revocation",
+            escalation_policy="founder_or_mandate_admin",
+            requested_at=now,
+        )
+        help_req = OutcomePortfolioHelpRequest(
+            portfolio_id=portfolio_id,
+            task_id=task_id,
             gap_kind=gap_kind,
-            details=details,
-            created_by=actor.principal_id,
-            created_at=now,
+            srl_help=srl_help,
         )
         conn: sqlite3.Connection
         if connection is not None:
