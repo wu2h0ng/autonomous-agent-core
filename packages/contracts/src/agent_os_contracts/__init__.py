@@ -108,6 +108,18 @@ from .protocol_ingress import (
     WorkloadRef,
 )
 from .resource import ResourceBudget, RiskTier
+from .responsibility import (
+    MandateResponsibilityView,
+    MandateResponsibilityViewStatus,
+    MandateTaskLink,
+    MandateTaskLinkCommand,
+    MandateTaskLinkRevocation,
+    MandateTaskLinkRevocationCommand,
+    ResponsibilityActivePerceptionSummary,
+    ResponsibilityAttentionReason,
+    ResponsibilityItem,
+    ResponsibilityItemState,
+)
 from .security_boundary import CredentialAuthorizationSnapshot, LedgerAccessScope
 from .situated import (
     EnvironmentBindingAuthorization,
@@ -352,6 +364,12 @@ __all__ = [
     "MandateOperationalStatus",
     "MandateRatificationReceipt",
     "MandateWorkspaceRecord",
+    "MandateResponsibilityView",
+    "MandateResponsibilityViewStatus",
+    "MandateTaskLink",
+    "MandateTaskLinkCommand",
+    "MandateTaskLinkRevocation",
+    "MandateTaskLinkRevocationCommand",
     "ObservationBindingDescriptor",
     "MandateStatus",
     "EvaluationPrinciple",
@@ -419,6 +437,10 @@ __all__ = [
     "SituatedTraceReason",
     "SituatedTraceStatus",
     "RiskTier",
+    "ResponsibilityActivePerceptionSummary",
+    "ResponsibilityAttentionReason",
+    "ResponsibilityItem",
+    "ResponsibilityItemState",
     "RubricRef",
     "Sha256Digest",
     "SideEffectGuarantee",
