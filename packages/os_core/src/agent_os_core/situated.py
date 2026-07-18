@@ -252,19 +252,6 @@ class InMemorySituationalControlPlane:
                 None,
             )
 
-    def record_by_assessment_record_id(
-        self, assessment_record_id: str
-    ) -> SituatedAssessmentRecord | None:
-        with self._lock:
-            return next(
-                (
-                    record
-                    for record in self._records.values()
-                    if record.assessment_record_id == assessment_record_id
-                ),
-                None,
-            )
-
     def record_by_result_digest(
         self, result_digest: str
     ) -> SituatedAssessmentRecord | None:

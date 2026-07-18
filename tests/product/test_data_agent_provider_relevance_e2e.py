@@ -219,7 +219,7 @@ def test_ingest_provider_proposal_offline_replay_and_revoke_survive_restarts(
     tmp_path: Path,
 ) -> None:
     report_database = tmp_path / "reports.sqlite3"
-    situated_database = tmp_path / "situated.sqlite3"
+    situated_database = report_database
     task_database = tmp_path / "agent-os.sqlite3"
     policy = _provider_policy()
     first_adapter, first_broker, first_transport = _adapter(
@@ -415,7 +415,7 @@ def test_unassessed_durable_bundle_is_assessed_once_after_offline_restart(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         adapter=restarted_adapter,
-        control=SQLiteSituatedAssessmentStore(tmp_path / "situated.sqlite3"),
+        control=SQLiteSituatedAssessmentStore(report_database),
         provider=provider,
         policy=policy,
     )
@@ -459,7 +459,7 @@ def test_foreign_namespace_never_rehydrates_or_calls_provider(
         task_database=tmp_path / "agent-os.sqlite3",
         workspace=tmp_path,
         adapter=local_adapter,
-        control=SQLiteSituatedAssessmentStore(tmp_path / "situated.sqlite3"),
+        control=SQLiteSituatedAssessmentStore(report_database),
         provider=provider,
         policy=policy,
     )
@@ -516,9 +516,7 @@ def test_corrupt_durable_report_fails_closed_before_provider_without_partial_reg
     )
     policy = _provider_policy()
     provider = _provider(policy)
-    control = SQLiteSituatedAssessmentStore(
-        tmp_path / f"situated-{corruption}.sqlite3"
-    )
+    control = SQLiteSituatedAssessmentStore(report_database)
     app = _application(
         task_database=tmp_path / f"agent-os-{corruption}.sqlite3",
         workspace=tmp_path,
@@ -536,7 +534,7 @@ def test_corrupt_durable_report_fails_closed_before_provider_without_partial_reg
     assert transport.requests == []
     assert provider.decision_requests == []
     assert app.store.list_task_ids() == ()
-    with sqlite3.connect(tmp_path / f"situated-{corruption}.sqlite3") as connection:
+    with sqlite3.connect(report_database) as connection:
         count = connection.execute(
             "SELECT COUNT(*) FROM situated_assessment_records"
         ).fetchone()
@@ -548,7 +546,7 @@ def test_two_revisions_bind_separate_assessments_and_replay_exactly(
     tmp_path: Path,
 ) -> None:
     report_database = tmp_path / "reports.sqlite3"
-    situated_database = tmp_path / "situated.sqlite3"
+    situated_database = report_database
     task_database = tmp_path / "agent-os.sqlite3"
     first_feed = _feed_event("opaque-cursor-1")
     second_feed = _feed_event(
@@ -702,7 +700,7 @@ def test_same_id_provider_binding_drift_fails_during_application_construction(
             workspace=tmp_path,
             adapter=adapter,
             control=SQLiteSituatedAssessmentStore(
-                tmp_path / f"situated-{drift}.sqlite3"
+                tmp_path / f"reports-{drift}.sqlite3"
             ),
             provider=provider,
             policy=policy,

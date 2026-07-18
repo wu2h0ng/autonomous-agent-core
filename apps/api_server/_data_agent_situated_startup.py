@@ -921,7 +921,7 @@ def _build_data_agent_situated_application(
                 source_reader, clock=clock
             ),
             credential_authorizations=source_reader,
-            state_store=SQLiteDataAgentReportStateStore(database),
+            state_store=SQLiteDataAgentReportStateStore(authority_database),
             clock=clock,
         )
 
@@ -988,7 +988,7 @@ def _build_data_agent_situated_application(
             )
             active_perception_service = MandateActivePerceptionService(
                 config=active_config,
-                store=SQLiteMandateActivePerceptionStore(database),
+                store=SQLiteMandateActivePerceptionStore(authority_database),
                 adapter=adapter,
                 runtime=runtime,
                 clock=clock,

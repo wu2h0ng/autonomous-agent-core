@@ -33,6 +33,7 @@ from agent_os_core.srl_event_store import (
     ScopedEventAdmissionReader,
     _create_event_admission_store,
 )
+import agent_os_core.situated_persistence as situated_persistence
 from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from agent_os_core.srl_event_admission import EnvironmentEventAdmissionService
 from agent_os_core.mandate_steward import MandateSteward
@@ -505,11 +506,14 @@ def test_situated_store_exposes_only_scope_bound_assessment_facade(tmp_path: Pat
 
     assert reader.scope == _scope()
     assert reader.record_by_input_binding("f" * 64) is None
+    assert not hasattr(store, "record_by_assessment_record_id")
+    assert (
+        "record_by_assessment_record_id"
+        not in situated_persistence.SituatedAssessmentStore.__dict__
+    )
     assert not hasattr(reader, "pause")
     assert not hasattr(reader, "revoke")
     assert not hasattr(reader, "_emit_guarded")
-
-
 def test_legacy_unscoped_assessment_schema_fails_closed(tmp_path: Path) -> None:
     database = tmp_path / "legacy-situated.sqlite3"
     connection = sqlite3.connect(database)

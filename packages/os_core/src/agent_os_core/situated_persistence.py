@@ -105,10 +105,6 @@ class SituatedAssessmentStore(Protocol):
         self, input_binding_digest: str
     ) -> SituatedAssessmentRecord | None: ...
 
-    def record_by_assessment_record_id(
-        self, assessment_record_id: str
-    ) -> SituatedAssessmentRecord | None: ...
-
     def record_by_result_digest(
         self, result_digest: str
     ) -> SituatedAssessmentRecord | None: ...
@@ -277,14 +273,26 @@ class SQLiteSituatedAssessmentStore:
         *,
         mandates: Iterable[RatifiedMandateRef] = (),
     ) -> None:
-        self._database = str(database)
-        if self._database == ":memory:":
+        database_value = str(database)
+        normalized = database_value.strip().lower()
+        if (
+            not normalized
+            or normalized == ":memory:"
+            or normalized.startswith("file:")
+            or "mode=memory" in normalized
+        ):
             raise ValueError(
                 "SQLite situated authority requires a file-backed database"
             )
+        self._canonical_database_path = Path(database_value).expanduser().resolve()
+        self._database = str(self._canonical_database_path)
         self._initialize()
         for mandate in mandates:
             self._bootstrap_mandate(mandate)
+
+    @property
+    def canonical_database_path(self) -> Path:
+        return self._canonical_database_path
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
@@ -847,22 +855,6 @@ class SQLiteSituatedAssessmentStore:
                 "input binding maps to multiple durable assessment records"
             )
         return matches[0] if matches else None
-
-    def record_by_assessment_record_id(
-        self, assessment_record_id: str
-    ) -> SituatedAssessmentRecord | None:
-        connection = self._connect()
-        try:
-            row = connection.execute(
-                """
-                SELECT * FROM situated_assessment_records
-                WHERE assessment_record_id = ?
-                """,
-                (assessment_record_id,),
-            ).fetchone()
-        finally:
-            connection.close()
-        return self._decode_and_validate_record(row) if row is not None else None
 
     def record_by_result_digest(
         self, result_digest: str

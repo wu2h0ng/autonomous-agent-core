@@ -199,8 +199,11 @@ def _authorized_control(
     tmp_path: Path,
     adapter: DataAgentReportAdapter,
     assessor: _Assessor,
+    *,
+    database: Path | None = None,
 ) -> SQLiteSituatedAssessmentStore:
-    authority_database = tmp_path / "authority.sqlite3"
+    authority_database = database or adapter.active_perception_database_path
+    assert authority_database is not None
     create_workspace_record(authority_database, tmp_path, adapter=adapter, now=NOW)
     authorize_workspace_observation(
         authority_database,
@@ -267,8 +270,7 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
 
     assert type(runtime) is DataAgentSituatedRuntime
     assert isinstance(proposal, TaskDraftProposal)
-    assert runtime.resolve_assessment_record(record.assessment_record_id) == record
-    assert runtime.resolve_assessment_record("0" * 64) is None
+    assert not hasattr(runtime, "resolve_assessment_record")
     foreign_reader = control.scoped_reader(
         LedgerAccessScope(
             principal_id="principal:foreign",
@@ -291,14 +293,47 @@ def test_compose_returns_narrow_runtime_and_real_receipt_required_proposal(
     )
     assert set(name for name in dir(runtime) if not name.startswith("_")) == {
         "admit_event",
+        "active_perception_binding_digest",
+        "active_perception_database_path",
+        "active_perception_environment_binding_id",
+        "active_perception_mandate_id",
         "assert_observation_authority",
         "observe_report",
         "principal_scope",
         "propose",
         "propose_record",
-        "resolve_assessment_record",
         "propose_authenticated_protocol_envelope",
     }
+
+
+def test_compose_rejects_separate_report_and_situated_databases(
+    tmp_path: Path,
+) -> None:
+    credentials = _LiveCredentialReader()
+    adapter = _adapter_with_credentials(tmp_path, credentials)
+    assessor = _Assessor()
+    control = _authorized_control(
+        tmp_path,
+        adapter,
+        assessor,
+        database=tmp_path / "foreign-authority.sqlite3",
+    )
+
+    with pytest.raises(TypeError, match="database"):
+        DataAgentSituatedBootstrap.compose(
+            adapter=adapter,
+            material_store=SQLiteDataAgentReportAdmissionMaterialStore(
+                tmp_path / "material.sqlite3",
+                principal_id="principal:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+            ),
+            credentials=credentials,
+            control=control,
+            assessor=assessor,
+            admission_database=tmp_path / "receipts.sqlite3",
+            clock=lambda: NOW,
+        )
 
 
 def test_active_perception_authority_snapshot_fails_after_live_pause(
@@ -407,6 +442,8 @@ def test_composition_rejects_distinct_adapter_and_admission_credential_readers(
     tmp_path: Path,
 ) -> None:
     adapter, _ = _adapter(tmp_path)
+    report_database = adapter.active_perception_database_path
+    assert report_database is not None
 
     with pytest.raises(TypeError, match="credential.*reader"):
         DataAgentSituatedBootstrap.compose(
@@ -419,7 +456,7 @@ def test_composition_rejects_distinct_adapter_and_admission_credential_readers(
             ),
             credentials=_LiveCredentialReader(),
             control=SQLiteSituatedAssessmentStore(
-                tmp_path / "authority.sqlite3", mandates=(_mandate(),)
+                report_database, mandates=(_mandate(),)
             ),
             assessor=_Assessor(),
             admission_database=tmp_path / "receipts.sqlite3",
@@ -441,6 +478,8 @@ def test_product_composition_rejects_unverified_and_prefix_forged_mandates(
 ) -> None:
     credentials = _LiveCredentialReader()
     adapter = _adapter_with_credentials(tmp_path, credentials)
+    report_database = adapter.active_perception_database_path
+    assert report_database is not None
     with pytest.raises(SituationalTrustDenied, match="observation authorization"):
         DataAgentSituatedBootstrap.compose(
             adapter=adapter,
@@ -452,7 +491,7 @@ def test_product_composition_rejects_unverified_and_prefix_forged_mandates(
             ),
             credentials=credentials,
             control=SQLiteSituatedAssessmentStore(
-                tmp_path / "unverified.sqlite3", mandates=(mandate,)
+                report_database, mandates=(mandate,)
             ),
             assessor=_Assessor(),
             admission_database=tmp_path / "receipts.sqlite3",

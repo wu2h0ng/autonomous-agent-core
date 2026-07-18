@@ -47,7 +47,7 @@ from agent_os_core.srl_event_store import _create_event_admission_store
 from apps.api_server.data_agent_report_adapter import (
     DataAgentReportAdapter,
     TrustedObservationBundle,
-    _OUTCOME_AUTHORITY_COMPOSITION_SEAL,
+    _active_perception_binding_digest,
 )
 from apps.api_server.data_agent_report_admission import (
     DataAgentReportAdmissionError,
@@ -292,8 +292,11 @@ class DataAgentSituatedRuntime:
 
     __slots__ = (
         "_admission",
+        "_active_perception_binding_digest",
+        "_active_perception_database_path",
+        "_active_perception_environment_binding_id",
+        "_active_perception_mandate_id",
         "_adapter",
-        "_authority",
         "_composition_seal",
         "_principal_scope",
         "_envelope_adapter",
@@ -353,13 +356,31 @@ class DataAgentSituatedRuntime:
         self = object.__new__(cls)
         self._adapter = adapter
         self._admission = admission
-        self._authority = admission._authority
         self._steward = steward
         self._envelope_adapter = envelope_adapter
         self._protocol_ingress_store = protocol_ingress_store
         self._workload_identity_adapter = workload_identity_adapter
         self._observation_authority_guard = observation_authority_guard
         self._principal_scope = principal_scope
+        database = observation_authority_guard.control.canonical_database_path
+        descriptor = observation_authority_guard.descriptor
+        if adapter.active_perception_database_path != database:
+            raise TypeError("runtime report and situated databases must be identical")
+        self._active_perception_database_path = database
+        self._active_perception_mandate_id = descriptor.mandate_id
+        self._active_perception_environment_binding_id = (
+            descriptor.environment_binding_id
+        )
+        self._active_perception_binding_digest = _active_perception_binding_digest(
+            principal_id=principal_scope[0],
+            tenant_id=principal_scope[1],
+            workspace_id=principal_scope[2],
+            mandate_id=descriptor.mandate_id,
+            environment_binding_id=descriptor.environment_binding_id,
+            state_namespace=adapter._state_namespace,
+            admission_policy_digest=descriptor.policy_digest,
+            canonical_database_path=database,
+        )
         self._composition_seal = composition_seal
         return self
 
@@ -372,6 +393,22 @@ class DataAgentSituatedRuntime:
     @property
     def principal_scope(self) -> tuple[str, str, str]:
         return self._principal_scope
+
+    @property
+    def active_perception_binding_digest(self) -> str:
+        return self._active_perception_binding_digest
+
+    @property
+    def active_perception_database_path(self) -> Path:
+        return self._active_perception_database_path
+
+    @property
+    def active_perception_mandate_id(self) -> str:
+        return self._active_perception_mandate_id
+
+    @property
+    def active_perception_environment_binding_id(self) -> str:
+        return self._active_perception_environment_binding_id
 
     def admit_event(self, event_id: str) -> EnvironmentEventAdmissionReceipt:
         return self._admission.admit_event(event_id)
@@ -394,11 +431,6 @@ class DataAgentSituatedRuntime:
         receipt_id: str,
     ) -> SituatedAssessmentRecord:
         return self._steward.observe_event_record(event_id, projection_id, receipt_id)
-
-    def resolve_assessment_record(
-        self, assessment_record_id: str
-    ) -> SituatedAssessmentRecord | None:
-        return self._authority.record_by_assessment_record_id(assessment_record_id)
 
     def propose_authenticated_protocol_envelope(
         self,
@@ -508,6 +540,14 @@ class DataAgentSituatedBootstrap:
             )
         if type(control) is not SQLiteSituatedAssessmentStore:
             raise TypeError("composition requires the durable situated authority store")
+        report_database = adapter.active_perception_database_path
+        if (
+            report_database is None
+            or control.canonical_database_path != report_database
+        ):
+            raise TypeError(
+                "composition report and situated databases must be identical"
+            )
         if adapter._credential_authorization_reader_for_composition is not credentials:
             raise TypeError("composition requires one credential authorization reader")
         principal_id, tenant_id, workspace_id = adapter.principal_scope
@@ -604,7 +644,7 @@ class DataAgentSituatedBootstrap:
                 clock=clock,
             )
         )
-        runtime = DataAgentSituatedRuntime._from_composition(
+        return DataAgentSituatedRuntime._from_composition(
             adapter=adapter,
             admission=admission,
             steward=steward,
@@ -621,11 +661,6 @@ class DataAgentSituatedBootstrap:
             ),
             composition_seal=_RUNTIME_COMPOSITION_SEAL,
         )
-        adapter._bind_outcome_authority_for_composition(
-            authority,
-            composition_seal=_OUTCOME_AUTHORITY_COMPOSITION_SEAL,
-        )
-        return runtime
 
 
 __all__ = [

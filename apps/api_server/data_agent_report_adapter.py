@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Queue
 from types import MappingProxyType
 from threading import RLock, Thread
-from typing import Callable, Mapping, Protocol, TypedDict
+from typing import Callable, Mapping, Protocol, TypedDict, cast
 from urllib.parse import SplitResult, quote, urlsplit, urlunsplit
 
 from agent_os_contracts import (
@@ -23,6 +23,7 @@ from agent_os_contracts import (
     CredentialStatus,
     EnvironmentEvent,
     EvidenceRef,
+    LedgerAccessScope,
     OperationalProjectionRef,
     SituatedAssessmentRecord,
     canonical_json,
@@ -32,9 +33,9 @@ from agent_os_core import (
     CanonicalCredentialAuthorizationReader,
     CredentialAuthorizationReader,
     EnvCredentialBroker,
-    ScopedSituatedAssessmentReader,
     SituationalBinding,
 )
+from agent_os_core.situated_persistence import SQLiteSituatedAssessmentStore
 from apps.api_server.data_agent_report_policy import (
     ADAPTER_VERSION as _ADAPTER_VERSION,
     CREDENTIAL_PROVIDER as _CREDENTIAL_PROVIDER,
@@ -48,8 +49,33 @@ from apps.api_server.data_agent_report_policy import (
 
 
 Clock = Callable[[], datetime]
-_OUTCOME_AUTHORITY_COMPOSITION_SEAL = object()
 _TRACE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+
+def _active_perception_binding_digest(
+    *,
+    principal_id: str,
+    tenant_id: str,
+    workspace_id: str,
+    mandate_id: str,
+    environment_binding_id: str,
+    state_namespace: str,
+    admission_policy_digest: str,
+    canonical_database_path: Path,
+) -> str:
+    return content_digest(
+        {
+            "contract": "agent-os/active-perception-binding/v1",
+            "principal_id": principal_id,
+            "tenant_id": tenant_id,
+            "workspace_id": workspace_id,
+            "mandate_id": mandate_id,
+            "environment_binding_id": environment_binding_id,
+            "state_namespace": state_namespace,
+            "admission_policy_digest": admission_policy_digest,
+            "canonical_database_path": str(canonical_database_path),
+        }
+    )
 
 
 def _system_utc_now() -> datetime:
@@ -1972,6 +1998,41 @@ class SQLiteDataAgentReportStateStore:
             )
         return dispatches
 
+    def latest_completed_dispatch_ids(
+        self,
+        namespace_digest: str,
+        source_id: str,
+        source_tenant_id: str,
+        *,
+        limit: int,
+    ) -> tuple[str, ...]:
+        if type(limit) is not int or limit < 1:
+            raise DataAgentReportAdapterError(
+                "completed dispatch validation limit is invalid"
+            )
+        try:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT dispatch_id FROM data_agent_report_dispatch_outbox
+                    WHERE namespace_digest = ? AND source_id = ?
+                      AND source_tenant_id = ? AND status = 'COMPLETED'
+                    ORDER BY completed_at DESC, dispatch_id DESC
+                    LIMIT ?
+                    """,
+                    (
+                        namespace_digest,
+                        source_id,
+                        source_tenant_id,
+                        limit,
+                    ),
+                ).fetchall()
+        except sqlite3.Error:
+            raise DataAgentReportAdapterError(
+                "durable external report dispatch state is unavailable"
+            ) from None
+        return tuple(str(row[0]) for row in rows)
+
     def _complete_dispatch_in_transaction(
         self,
         connection: sqlite3.Connection,
@@ -2575,7 +2636,6 @@ class DataAgentReportAdapter:
         )
         self._transport = transport or StdlibDataAgentReportTransport()
         self._state_store = state_store or _InMemoryDataAgentReportStateStore()
-        self._outcome_authority: ScopedSituatedAssessmentReader | None = None
         self._clock = clock
         self._binding: SituationalBinding = (
             config.principal_id,
@@ -2625,27 +2685,6 @@ class DataAgentReportAdapter:
     ) -> CredentialAuthorizationReader:
         return self._credential_authorizations
 
-    def _bind_outcome_authority_for_composition(
-        self,
-        authority: ScopedSituatedAssessmentReader,
-        *,
-        composition_seal: object,
-    ) -> None:
-        if composition_seal is not _OUTCOME_AUTHORITY_COMPOSITION_SEAL:
-            raise TypeError("outcome authority requires situated composition")
-        if (
-            authority.scope.principal_id,
-            authority.scope.tenant_id,
-            authority.scope.workspace_id,
-        ) != self.principal_scope:
-            raise TypeError("outcome authority scope does not match adapter")
-        if (
-            self._outcome_authority is not None
-            and self._outcome_authority is not authority
-        ):
-            raise TypeError("outcome authority is already bound")
-        self._outcome_authority = authority
-
     def _assert_current_credential_unreflected(
         self, body: bytes, *, assessed_at: datetime
     ) -> None:
@@ -2679,9 +2718,28 @@ class DataAgentReportAdapter:
 
     @property
     def active_perception_database_path(self) -> Path | None:
-        if not isinstance(self._state_store, SQLiteDataAgentReportStateStore):
+        if type(self._state_store) is not SQLiteDataAgentReportStateStore:
             return None
         return self._state_store.canonical_database_path
+
+    @property
+    def active_perception_binding_digest(self) -> str:
+        database = self.active_perception_database_path
+        if database is None:
+            raise DataAgentReportAdapterError(
+                "active perception requires canonical SQLite report state"
+            )
+        descriptor = self.admission_policy_descriptor
+        return _active_perception_binding_digest(
+            principal_id=self._config.principal_id,
+            tenant_id=self._config.target_tenant_id,
+            workspace_id=self._config.target_workspace_id,
+            mandate_id=self._config.mandate_id,
+            environment_binding_id=self._config.environment_binding_id,
+            state_namespace=self._state_namespace,
+            admission_policy_digest=descriptor.policy_digest,
+            canonical_database_path=database,
+        )
 
     @property
     def feed_cursor(self) -> str | None:
@@ -2710,9 +2768,9 @@ class DataAgentReportAdapter:
         if dispatch is None or dispatch.status != "COMPLETED":
             return None
         self._assert_dispatch_scope(dispatch)
-        authority = self._outcome_authority
+        database = self.active_perception_database_path
         if (
-            authority is None
+            database is None
             or dispatch.outcome_record_id is None
             or dispatch.outcome_digest is None
         ):
@@ -2720,6 +2778,13 @@ class DataAgentReportAdapter:
                 "durable outcome record authority is required"
             )
         try:
+            authority = SQLiteSituatedAssessmentStore(database).scoped_reader(
+                LedgerAccessScope(
+                    principal_id=self._config.principal_id,
+                    tenant_id=self._config.target_tenant_id,
+                    workspace_id=self._config.target_workspace_id,
+                )
+            )
             outcome_record = authority.record_by_assessment_record_id(
                 dispatch.outcome_record_id
             )
@@ -2739,6 +2804,28 @@ class DataAgentReportAdapter:
             dispatch, outcome_record
         )
         return dispatch
+
+    def validate_latest_completed_dispatches(
+        self,
+        *,
+        limit: int,
+    ) -> tuple[DataAgentReportDispatch, ...]:
+        if type(self._state_store) is not SQLiteDataAgentReportStateStore:
+            raise DataAgentReportAdapterError(
+                "completed dispatch validation requires canonical SQLite state"
+            )
+        state_store = cast(SQLiteDataAgentReportStateStore, self._state_store)
+        dispatch_ids = state_store.latest_completed_dispatch_ids(
+            self._state_namespace,
+            self._config.source_id,
+            self._config.source_tenant_id,
+            limit=limit,
+        )
+        return tuple(
+            validated
+            for dispatch_id in dispatch_ids
+            if (validated := self.completed_dispatch(dispatch_id)) is not None
+        )
 
     def _assert_dispatch_scope(self, dispatch: DataAgentReportDispatch) -> None:
         if (

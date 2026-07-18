@@ -589,7 +589,7 @@ def test_real_data_agent_observation_replays_without_second_provider_assessment(
 ) -> None:
     authority_database = tmp_path / "authority.sqlite3"
     task_database = tmp_path / "task.sqlite3"
-    report_database = tmp_path / "reports.sqlite3"
+    report_database = authority_database
     owner = AgentOSApplication(
         database=authority_database,
         workspace=tmp_path,
@@ -667,7 +667,7 @@ def test_real_data_agent_observation_replays_without_second_provider_assessment(
             credential=source_credential,
             scope_ref="mission:drifted-source-policy",
         ),
-        state_store=SQLiteDataAgentReportStateStore(tmp_path / "drift-reports.sqlite3"),
+        state_store=SQLiteDataAgentReportStateStore(authority_database),
         now=NOW,
     )
     drift_assessor = ProviderRelevanceAssessor(

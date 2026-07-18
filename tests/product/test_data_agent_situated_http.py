@@ -120,7 +120,7 @@ def _situated_app(
     control_sink: list[SQLiteSituatedAssessmentStore] | None = None,
 ) -> AgentOSApplication:
     report_database = tmp_path / "reports.sqlite3"
-    situated_database = tmp_path / "situated.sqlite3"
+    situated_database = report_database
     task_database = tmp_path / "agent-os.sqlite3"
 
     policy = _provider_policy()

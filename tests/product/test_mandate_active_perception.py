@@ -13,6 +13,7 @@ import pytest
 from apps.api_server import data_agent_report_adapter as report_adapter_module
 from agent_os_contracts import (
     CredentialRef,
+    LedgerAccessScope,
     MandateRelevanceContextRef,
     RelevanceAssessment,
     RelevanceAssessorRef,
@@ -85,6 +86,7 @@ def _feed_adapter(
     *,
     cursor: str = "cursor-1",
     adapter_now: datetime = NOW,
+    config_updates: dict[str, object] | None = None,
 ) -> DataAgentReportAdapter:
     feed = _feed_bytes([_feed_event(cursor)], next_cursor=cursor)
     adapter, _, _ = _adapter(
@@ -100,7 +102,8 @@ def _feed_adapter(
                     "data-agent-origin:http://127.0.0.1:8765",
                     "data-agent-tenant:data-tenant-1",
                 )
-            )
+            ),
+            **(config_updates or {}),
         ),
         state_store=SQLiteDataAgentReportStateStore(database),
         now=adapter_now,
@@ -110,6 +113,9 @@ def _feed_adapter(
 
 def _real_situated_active_perception(
     tmp_path: Path,
+    *,
+    wake_budget: int = 2,
+    query_budget: int = 2,
 ) -> tuple[
     MandateActivePerceptionService,
     DataAgentSituatedRuntime,
@@ -180,8 +186,8 @@ def _real_situated_active_perception(
         environment_binding_id="binding:data-agent-reports",
         interval_seconds=60,
         budget_window_seconds=3600,
-        wake_budget_per_window=2,
-        query_budget_per_window=2,
+        wake_budget_per_window=wake_budget,
+        query_budget_per_window=query_budget,
         feed_limit=1,
         lease_seconds=30,
     )
@@ -392,6 +398,40 @@ class _Runtime:
         self.authority_digest = "a" * 64
         self.change_after_admit = False
         self.change_after_propose = False
+        self._active_perception_adapter: DataAgentReportAdapter | None = None
+
+    def bind_active_perception_adapter(self, adapter: DataAgentReportAdapter) -> None:
+        self._active_perception_adapter = adapter
+
+    @property
+    def principal_scope(self) -> tuple[str, str, str]:
+        assert self._active_perception_adapter is not None
+        return self._active_perception_adapter.principal_scope
+
+    @property
+    def active_perception_binding_digest(self) -> str:
+        assert self._active_perception_adapter is not None
+        return self._active_perception_adapter.active_perception_binding_digest
+
+    @property
+    def active_perception_database_path(self) -> Path:
+        assert self._active_perception_adapter is not None
+        database = self._active_perception_adapter.active_perception_database_path
+        assert database is not None
+        return database
+
+    @property
+    def active_perception_mandate_id(self) -> str:
+        assert self._active_perception_adapter is not None
+        return self._active_perception_adapter.admission_policy_descriptor.mandate_id
+
+    @property
+    def active_perception_environment_binding_id(self) -> str:
+        assert self._active_perception_adapter is not None
+        return (
+            self._active_perception_adapter.admission_policy_descriptor
+            .environment_binding_id
+        )
 
     def assert_observation_authority(self) -> str:
         self.preflight_calls += 1
@@ -455,13 +495,6 @@ class _Runtime:
             recorded_at=NOW,
         )
 
-    def resolve_assessment_record(
-        self, assessment_record_id: str
-    ) -> SituatedAssessmentRecord | None:
-        del assessment_record_id
-        return None
-
-
 def _service(
     tmp_path: Path,
     *,
@@ -475,6 +508,7 @@ def _service(
     runtime_database = tmp_path / "runtime.sqlite3"
     reports = adapter or _feed_adapter(runtime_database)
     situated = runtime or _Runtime()
+    situated.bind_active_perception_adapter(reports)
     store = SQLiteMandateActivePerceptionStore(runtime_database)
     config = MandateActivePerceptionConfig(
         schedule_id="schedule:mandate-1",
@@ -765,10 +799,116 @@ def test_completed_dispatch_rejects_cached_record_injected_after_authority_delet
         )
 
 
+def test_completed_dispatch_rejects_copied_database_authority_injection(
+    tmp_path: Path,
+) -> None:
+    service, _, _, database = _real_situated_active_perception(tmp_path)
+    receipt = service.run_due_once(worker_id="worker-copy-source")
+    assert receipt.proposal_count == 1
+    copied_database = tmp_path / "copied-authority.sqlite3"
+    with (
+        sqlite3.connect(database) as source,
+        sqlite3.connect(copied_database) as copied,
+    ):
+        source.backup(copied)
+    with sqlite3.connect(database) as connection:
+        dispatch_id, outcome_record_id = connection.execute(
+            """
+            SELECT dispatch_id, outcome_record_id
+            FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
+        ).fetchone()
+        connection.execute(
+            """
+            DELETE FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        )
+
+    restarted_adapter = _feed_adapter(database)
+    injector = getattr(
+        restarted_adapter, "_bind_outcome_authority_for_composition", None
+    )
+    seal = getattr(report_adapter_module, "_OUTCOME_AUTHORITY_COMPOSITION_SEAL", None)
+    if injector is not None and seal is not None:
+        injector(
+            SQLiteSituatedAssessmentStore(copied_database).scoped_reader(
+                LedgerAccessScope(
+                    principal_id="user:local",
+                    tenant_id="tenant:local",
+                    workspace_id="workspace:local",
+                )
+            ),
+            composition_seal=seal,
+        )
+
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        restarted_adapter.completed_dispatch(str(dispatch_id))
+
+
+def test_outcome_authority_has_no_module_seal_or_adapter_setter(
+    tmp_path: Path,
+) -> None:
+    adapter = _feed_adapter(tmp_path / "runtime.sqlite3")
+
+    assert not hasattr(report_adapter_module, "_OUTCOME_AUTHORITY_COMPOSITION_SEAL")
+    assert not hasattr(adapter, "_bind_outcome_authority_for_composition")
+
+
+def test_active_perception_rejects_sqlite_state_store_subclass(
+    tmp_path: Path,
+) -> None:
+    class _ForgedSQLiteStateStore(SQLiteDataAgentReportStateStore):
+        pass
+
+    database = tmp_path / "runtime.sqlite3"
+    adapter = DataAgentReportAdapter(
+        _config(
+            credential=_credential(
+                scopes=(
+                    "reports:read",
+                    "report-events:read",
+                    "data-agent-origin:http://127.0.0.1:8765",
+                    "data-agent-tenant:data-tenant-1",
+                )
+            )
+        ),
+        credential_broker=_CredentialBroker(),
+        transport=_Transport(_response()),
+        state_store=_ForgedSQLiteStateStore(database),
+        clock=lambda: NOW,
+    )
+
+    assert adapter.active_perception_database_path is None
+    with pytest.raises(TypeError, match="SQLite"):
+        MandateActivePerceptionService(
+            config=MandateActivePerceptionConfig(
+                schedule_id="schedule:forged-store",
+                principal_id="user:local",
+                tenant_id="tenant:local",
+                workspace_id="workspace:local",
+                mandate_id="mandate:build-agent-os",
+                environment_binding_id="binding:data-agent-reports",
+                interval_seconds=60,
+                budget_window_seconds=3600,
+                wake_budget_per_window=2,
+                query_budget_per_window=2,
+                feed_limit=1,
+                lease_seconds=30,
+            ),
+            store=SQLiteMandateActivePerceptionStore(database),
+            adapter=adapter,
+            runtime=_Runtime(),
+            clock=lambda: NOW,
+        )
+
+
 def test_completed_dispatch_uses_composed_scoped_authority_after_restart(
     tmp_path: Path,
 ) -> None:
-    service, runtime, adapter, database = _real_situated_active_perception(tmp_path)
+    service, _, adapter, database = _real_situated_active_perception(tmp_path)
     receipt = service.run_due_once(worker_id="worker-trusted-replay")
     assert receipt.proposal_count == 1
     with sqlite3.connect(database) as connection:
@@ -780,14 +920,8 @@ def test_completed_dispatch_uses_composed_scoped_authority_after_restart(
             """
         ).fetchone()
 
-    assert runtime.resolve_assessment_record(str(outcome_record_id)) is not None
     assert adapter.completed_dispatch(str(dispatch_id)) is not None
-    _, restarted_runtime, restarted_adapter, _ = _real_situated_active_perception(
-        tmp_path
-    )
-    assert (
-        restarted_runtime.resolve_assessment_record(str(outcome_record_id)) is not None
-    )
+    _, _, restarted_adapter, _ = _real_situated_active_perception(tmp_path)
     assert restarted_adapter.completed_dispatch(str(dispatch_id)) is not None
 
 
@@ -841,6 +975,152 @@ def test_completed_dispatch_rejects_tampered_assessment(tmp_path: Path) -> None:
     _, _, restarted_adapter, _ = _real_situated_active_perception(tmp_path)
     with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
         restarted_adapter.completed_dispatch(str(dispatch_id))
+
+
+def test_service_restart_validates_completed_outcome_before_not_due(
+    tmp_path: Path,
+) -> None:
+    service, _, _, database = _real_situated_active_perception(tmp_path)
+    receipt = service.run_due_once(worker_id="worker-service-replay")
+    assert receipt.proposal_count == 1
+    with sqlite3.connect(database) as connection:
+        outcome_record_id = connection.execute(
+            """
+            SELECT outcome_record_id FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
+        ).fetchone()[0]
+        connection.execute(
+            """
+            DELETE FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        )
+
+    restarted_service, _, _, _ = _real_situated_active_perception(tmp_path)
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        restarted_service.run_due_once(worker_id="worker-service-restart")
+
+
+def test_service_restart_validates_completion_after_crash_before_schedule_finish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _, _, database = _real_situated_active_perception(tmp_path)
+
+    def crash_before_schedule_finish(*_: object, **__: object) -> None:
+        raise RuntimeError("crash before schedule finish")
+
+    monkeypatch.setattr(service.store, "finish", crash_before_schedule_finish)
+    with pytest.raises(RuntimeError, match="crash before schedule finish"):
+        service.run_due_once(worker_id="worker-crash-before-finish")
+    with sqlite3.connect(database) as connection:
+        outcome_record_id = connection.execute(
+            """
+            SELECT outcome_record_id FROM data_agent_report_dispatch_outbox
+            WHERE status = 'COMPLETED'
+            """
+        ).fetchone()[0]
+        connection.execute(
+            """
+            DELETE FROM situated_assessment_records
+            WHERE assessment_record_id = ?
+            """,
+            (outcome_record_id,),
+        )
+
+    restarted_service, _, _, _ = _real_situated_active_perception(tmp_path)
+    with pytest.raises(DataAgentReportAdapterError, match="outcome record"):
+        restarted_service.run_due_once(worker_id="worker-crash-restart")
+
+
+@pytest.mark.parametrize(
+    ("mismatch", "config_updates"),
+    (
+        ("mandate", {"mandate_id": "mandate:foreign"}),
+        ("environment", {"environment_binding_id": "binding:foreign"}),
+        ("policy", {"freshness_seconds": 301}),
+        ("database", {}),
+    ),
+)
+def test_service_rejects_exact_runtime_adapter_binding_mismatch(
+    tmp_path: Path,
+    mismatch: str,
+    config_updates: dict[str, object],
+) -> None:
+    _, runtime, _, runtime_database = _real_situated_active_perception(tmp_path)
+    service_database = (
+        tmp_path / "foreign-runtime.sqlite3"
+        if mismatch == "database"
+        else runtime_database
+    )
+    adapter = _feed_adapter(service_database, config_updates=config_updates)
+    descriptor = adapter.admission_policy_descriptor
+    config = MandateActivePerceptionConfig(
+        schedule_id=f"schedule:mismatch:{mismatch}",
+        principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        mandate_id=descriptor.mandate_id,
+        environment_binding_id=descriptor.environment_binding_id,
+        interval_seconds=60,
+        budget_window_seconds=3600,
+        wake_budget_per_window=2,
+        query_budget_per_window=2,
+        feed_limit=1,
+        lease_seconds=30,
+    )
+
+    with pytest.raises(TypeError, match="binding|database"):
+        MandateActivePerceptionService(
+            config=config,
+            store=SQLiteMandateActivePerceptionStore(service_database),
+            adapter=adapter,
+            runtime=runtime,
+            clock=lambda: NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("mandate_id", "mandate:foreign"),
+        ("environment_binding_id", "binding:foreign"),
+    ),
+)
+def test_service_rejects_config_binding_mismatch(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    _, runtime, adapter, database = _real_situated_active_perception(tmp_path)
+    config = replace(
+        MandateActivePerceptionConfig(
+            schedule_id="schedule:config-mismatch",
+            principal_id="user:local",
+            tenant_id="tenant:local",
+            workspace_id="workspace:local",
+            mandate_id="mandate:build-agent-os",
+            environment_binding_id="binding:data-agent-reports",
+            interval_seconds=60,
+            budget_window_seconds=3600,
+            wake_budget_per_window=2,
+            query_budget_per_window=2,
+            feed_limit=1,
+            lease_seconds=30,
+        ),
+        **{field: value},
+    )
+
+    with pytest.raises(TypeError, match="binding|config"):
+        MandateActivePerceptionService(
+            config=config,
+            store=SQLiteMandateActivePerceptionStore(database),
+            adapter=adapter,
+            runtime=runtime,
+            clock=lambda: NOW,
+        )
 
 
 def test_due_run_polls_admits_proposes_and_records_no_effect_receipt(
@@ -899,7 +1179,11 @@ def test_revocation_is_checked_before_network(tmp_path: Path) -> None:
 
 
 def test_wake_and_query_budgets_fail_closed_until_next_window(tmp_path: Path) -> None:
-    service, runtime, _ = _service(tmp_path, wake_budget=1, query_budget=1)
+    service, _, _, _ = _real_situated_active_perception(
+        tmp_path,
+        wake_budget=1,
+        query_budget=1,
+    )
     first = service.run_due_once(worker_id="worker-1")
     assert first.disposition is ActivePerceptionDisposition.COMPLETED
     service.reschedule(next_wake_at=NOW)
@@ -907,34 +1191,39 @@ def test_wake_and_query_budgets_fail_closed_until_next_window(tmp_path: Path) ->
     second = service.run_due_once(worker_id="worker-2")
 
     assert second.disposition is ActivePerceptionDisposition.BUDGET_EXHAUSTED
-    assert runtime.preflight_calls == 5
+    with sqlite3.connect(tmp_path / "runtime.sqlite3") as connection:
+        assert connection.execute(
+            "SELECT wake_used, query_used FROM mandate_active_perception_schedule"
+        ).fetchone() == (1, 1)
 
 
 def test_restart_drains_pending_before_network_and_does_not_reassess_completed(
     tmp_path: Path,
 ) -> None:
-    report_database = tmp_path / "runtime.sqlite3"
-    first_adapter = _feed_adapter(report_database)
+    service, _, first_adapter, report_database = (
+        _real_situated_active_perception(tmp_path)
+    )
     first_adapter.poll_once(limit=1)
-    runtime = _Runtime()
-    service, _, _ = _service(tmp_path, adapter=first_adapter, runtime=runtime)
 
     drained = service.run_due_once(worker_id="worker-1")
     assert drained.proposal_count == 1
-    assert runtime.propose_calls == 1
+    with sqlite3.connect(report_database) as connection:
+        before = connection.execute(
+            "SELECT COUNT(*) FROM situated_assessment_records"
+        ).fetchone()
 
-    restarted_adapter = _feed_adapter(report_database)
-    restarted_service, _, _ = _service(
-        tmp_path,
-        now=NOW + timedelta(minutes=1),
-        adapter=restarted_adapter,
-        runtime=runtime,
+    restarted_service, _, _, _ = _real_situated_active_perception(
+        tmp_path
     )
     restarted_service.reschedule(next_wake_at=NOW + timedelta(hours=1))
     replay = restarted_service.run_due_once(worker_id="worker-2")
 
     assert replay.disposition is ActivePerceptionDisposition.NOT_DUE
-    assert runtime.propose_calls == 1
+    with sqlite3.connect(report_database) as connection:
+        after = connection.execute(
+            "SELECT COUNT(*) FROM situated_assessment_records"
+        ).fetchone()
+    assert after == before == (1,)
 
 
 def test_schedule_row_tamper_fails_closed(tmp_path: Path) -> None:

@@ -133,6 +133,21 @@ class ActivePerceptionReceipt:
 
 
 class ActivePerceptionRuntime(Protocol):
+    @property
+    def principal_scope(self) -> tuple[str, str, str]: ...
+
+    @property
+    def active_perception_binding_digest(self) -> str: ...
+
+    @property
+    def active_perception_database_path(self) -> Path: ...
+
+    @property
+    def active_perception_mandate_id(self) -> str: ...
+
+    @property
+    def active_perception_environment_binding_id(self) -> str: ...
+
     def assert_observation_authority(self) -> str: ...
 
     def admit_event(self, event_id: str) -> EnvironmentEventAdmissionReceipt: ...
@@ -144,10 +159,6 @@ class ActivePerceptionRuntime(Protocol):
     def propose_record(
         self, event_id: str, projection_id: str, receipt_id: str
     ) -> SituatedAssessmentRecord: ...
-
-    def resolve_assessment_record(
-        self, assessment_record_id: str
-    ) -> SituatedAssessmentRecord | None: ...
 
 
 class SQLiteMandateActivePerceptionStore:
@@ -468,12 +479,38 @@ class MandateActivePerceptionService:
             raise TypeError(
                 "active perception report and schedule database must be identical"
             )
-        if adapter.principal_scope != (
+        expected_scope = (
             config.principal_id,
             config.tenant_id,
             config.workspace_id,
-        ):
+        )
+        descriptor = adapter.admission_policy_descriptor
+        try:
+            runtime_database = runtime.active_perception_database_path
+            runtime_scope = runtime.principal_scope
+            runtime_binding_digest = runtime.active_perception_binding_digest
+            runtime_mandate_id = runtime.active_perception_mandate_id
+            runtime_environment_binding_id = (
+                runtime.active_perception_environment_binding_id
+            )
+            adapter_binding_digest = adapter.active_perception_binding_digest
+        except Exception:
+            raise TypeError("active perception runtime binding is unavailable") from None
+        if runtime_database != report_database:
+            raise TypeError(
+                "active perception runtime and report databases must be identical"
+            )
+        if adapter.principal_scope != expected_scope or runtime_scope != expected_scope:
             raise TypeError("active perception scope does not match report adapter")
+        if (
+            descriptor.mandate_id != config.mandate_id
+            or descriptor.environment_binding_id != config.environment_binding_id
+            or runtime_mandate_id != config.mandate_id
+            or runtime_environment_binding_id != config.environment_binding_id
+        ):
+            raise TypeError("active perception config binding is inconsistent")
+        if adapter_binding_digest != runtime_binding_digest:
+            raise TypeError("active perception adapter/runtime binding is inconsistent")
         self.config = config
         self.store = store
         self._adapter = adapter
@@ -541,6 +578,9 @@ class MandateActivePerceptionService:
 
     def run_due_once(self, *, worker_id: str) -> ActivePerceptionReceipt:
         now = _utc(self._clock())
+        self._adapter.validate_latest_completed_dispatches(
+            limit=self.config.feed_limit,
+        )
         pending = self._adapter.pending_dispatches()
         needs_query = not pending
         claim = self.store.acquire_due_lease(
