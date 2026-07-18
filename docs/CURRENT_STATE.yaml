@@ -1,17 +1,18 @@
 schema_version: 2
 
 live_pins:
-  origin_main: "f041985"
+  origin_main: "e908c26"
   merged_this_turn:
     - "Outcome Portfolio settlement (MandateTaskLink-gated attach/settle)"
     - "P-OUTCOME-PORTFOLIO-HELP-1 (SrlHelpRequest-bound gap Help)"
+    - "P-OUTCOME-PORTFOLIO-HELP-HTTP-1 (admin GET help-requests; view no-leak)"
     - "prior: ABA B4 PARK disposition"
   claim_ceiling: "no Alpha / Autonomy(S,E,O,V,T) / release"
-updated: "2026-07-19T02:05:00+08:00"
+updated: "2026-07-19T02:56:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
-branch: "main (origin/main @ ffd9fdc)"
+branch: "main (origin/main @ e908c26)"
 status: "Agent OS main includes bounded Active Perception and the independently approved Product implementation through exact reviewed code head `3c7f524`: an explicit MandateTaskLink plus Mandate-scoped read-only responsibility projection/API/Agent Surface and a design-only Founder cognitive-load falsifier. The view joins canonical Mandate authority, Task, commitment, expected/current outcome and schedule truth, exposes typed partial/revoked/failure semantics, and adds no TaskActivation, capability grant, provider/tool dispatch or external effect. Default and direct in-memory composition now share canonical state without creating a cwd `:memory:` file. Task-specific verification is 143 responsibility/adjacent tests, 25 file-persistence tests, 170 frozen/integrity tests, Ruff clean, Pyright 0 and independent `APPROVE_MANDATE_RESPONSIBILITY_VIEW_INTEGRATION_WITH_BASELINE_DEBT`. Repository-wide Product+product_eval is not green: 2504 passed, 1 skipped, 7 failed; five reproduce without this feature and two are elapsed/order-sensitive tests that pass targeted, so task-specific failures are zero but the debt remains explicit. The value falsifier is `DESIGN_ONLY / NOT_FROZEN / NOT_RUN`; no reduced cognitive-load claim exists. R-NONORACLE-PERTURB-KILL-1 remains `PARK_HMAC_ASSIGNMENT_COMMITMENT / CUSTODY_TRANSCRIPT_VIOLATION / NOT_FROZEN / NOT_RUN` at `88cb028`. `R-W1W2-ABA-1` now has an independently approved public qualification scaffold at exact code head `24280fc`; B1-B5 external closure audit says continue only with a time-boxed B4 independent custody boundary proof. Local Docker, same-UID services, local HMAC/SQLite and ordinary CI are not independent scorer/freezer custody. The experiment remains `EXPERIMENT_IMPLEMENTATION_DENIED / PREREG_REVISE / NOT_IMPLEMENTATION_READY / NOT_FROZEN / NOT_RUN`. No release, sustained responsibility, research result, general intelligence, or Autonomy(S,E,O,V,T) is established."
 
 authority:
@@ -648,13 +649,13 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK with its negative evidence intact and do not re-key or retry. For R-W1W2-ABA-1, run only a one-day B4 Boundary Proof first: prove an independent non-LLM scorer/freezer principal with private ingress outside agent-readable credentials/logs/daemon control. If this cannot be proven, PARK_ROUTE; do not implement B3 arms, B5 executor or any local custody substitute."
+    action: "Keep R-NONORACLE-PERTURB-KILL-1 PARK. Keep R-W1W2-ABA-1 PARK_ROUTE until Founder provisions an external non-LLM transcript-safe scorer principal and an independent non-LLM reviewer accepts B4; do not implement B3/B5 or local custody substitutes."
   - priority: 2
-    action: "Implement the smallest Product Outcome Portfolio/Persistent Commitment owner and explicit ObservedOutcome settlement loop above the read-only responsibility view. Separately freeze the matched Founder Cognitive Load comparison only after hidden snapshots, gold/order receipts, independent adjudicator identity and Founder timing exist."
+    action: "P-OUTCOME-PORTFOLIO-HELP-RESPOND-1: wire admin typed SrlHelpResponse (OPERATOR_DECISION/CANCELLATION) plus settle-time auto-cancel of matching open gap HelpRequests; CAPABILITY_GRANT via this path must fail closed. No TaskActivation/capability/effects. Independent review then merge; no release."
   - priority: 3
-    action: "Implement RStateExecutionBundleV1 as the sole Runtime admission/recovery subject across custody, freeze, envelope, sealed child and settlement; PARK remote CAS, HSM, UI, general DAG recovery and provider run."
+    action: "Workflow RState evaluate≠admit is merged; PARK CAS/HSM/UI/provider run. Do not reopen unbound research freeze paths."
   - priority: 4
-    action: "Keep SPINE-1, release and production activation gated; do not add new architecture breadth until one of the execution/evidence gaps above closes."
+    action: "Keep SPINE-1, release and production activation gated; do not expand ADM/UCM/AWL/CLS breadth."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
