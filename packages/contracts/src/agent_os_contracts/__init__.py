@@ -108,6 +108,16 @@ from .protocol_ingress import (
     WorkloadRef,
 )
 from .resource import ResourceBudget, RiskTier
+from .outcome_portfolio import (
+    OutcomePortfolio,
+    OutcomePortfolioCreateCommand,
+    OutcomePortfolioView,
+    PersistentCommitment,
+    PersistentCommitmentAttachCommand,
+    PersistentCommitmentState,
+    SettlementCommand,
+    SettlementRecord,
+)
 from .responsibility import (
     MandateResponsibilityView,
     MandateResponsibilityViewStatus,
@@ -370,6 +380,14 @@ __all__ = [
     "MandateTaskLinkCommand",
     "MandateTaskLinkRevocation",
     "MandateTaskLinkRevocationCommand",
+    "OutcomePortfolio",
+    "OutcomePortfolioCreateCommand",
+    "OutcomePortfolioView",
+    "PersistentCommitment",
+    "PersistentCommitmentAttachCommand",
+    "PersistentCommitmentState",
+    "SettlementCommand",
+    "SettlementRecord",
     "ObservationBindingDescriptor",
     "MandateStatus",
     "EvaluationPrinciple",

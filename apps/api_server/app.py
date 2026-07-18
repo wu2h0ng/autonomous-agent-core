@@ -79,6 +79,7 @@ from agent_os_core import (
     SQLiteMandateWorkspaceStore,
     SQLiteMandateObservationAuthorizationStore,
     MandateResponsibilityProjector,
+    SQLiteMandateOutcomePortfolioStore,
     SQLiteMandateResponsibilityStore,
     SituationalScopeMismatch,
     SituationalTrustDenied,
@@ -267,6 +268,12 @@ class AgentOSApplication:
             self.mandate_responsibility_store,
             self.tasks,
             clock=self._clock,
+        )
+        self.mandate_outcome_portfolio_store = SQLiteMandateOutcomePortfolioStore(
+            canonical_database,
+            clock=self._clock,
+            uri=canonical_database_uri,
+            task_reader=self.tasks,
         )
         if (
             situational_trust is not None
@@ -758,6 +765,58 @@ class AgentOSApplication:
     def mandate_responsibility_view(self, mandate_id: str) -> dict[str, Any]:
         view = self.mandate_responsibility.project(mandate_id, self.principal)
         return view.model_dump(mode="json")
+
+    def create_outcome_portfolio(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import OutcomePortfolioCreateCommand
+
+        command = OutcomePortfolioCreateCommand.model_validate(payload or {})
+        portfolio = self.mandate_outcome_portfolio_store.create_portfolio(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return portfolio.model_dump(mode="json")
+
+    def get_outcome_portfolio(self, mandate_id: str) -> dict[str, Any]:
+        view = self.mandate_outcome_portfolio_store.get_view(
+            mandate_id,
+            self.principal,
+        )
+        return view.model_dump(mode="json")
+
+    def attach_persistent_commitment(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import PersistentCommitmentAttachCommand
+
+        command = PersistentCommitmentAttachCommand.model_validate(payload)
+        record = self.mandate_outcome_portfolio_store.attach_commitment(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return record.model_dump(mode="json")
+
+    def settle_persistent_commitment(
+        self,
+        mandate_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from agent_os_contracts import SettlementCommand
+
+        command = SettlementCommand.model_validate(payload)
+        record = self.mandate_outcome_portfolio_store.settle(
+            command,
+            mandate_id,
+            self.principal,
+        )
+        return record.model_dump(mode="json")
 
     def authorize_mandate_observation_binding(
         self,
