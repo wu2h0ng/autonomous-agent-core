@@ -5,10 +5,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
-from uuid import uuid4
 
 from agent_os_contracts import (
-    MandateWorkspaceRecord,
     ObservedOutcome,
     OutcomePortfolio,
     OutcomePortfolioCreateCommand,
