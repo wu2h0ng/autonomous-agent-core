@@ -38,7 +38,12 @@ from agent_os_core import (
     MandateResponsibilityConflict,
     MandateResponsibilityDenied,
     MandateResponsibilityNotFound,
+            MandateOutcomePortfolioNotFound,
     MandateResponsibilityPersistenceConflict,
+    MandateOutcomePortfolioConflict,
+    MandateOutcomePortfolioDenied,
+    MandateOutcomePortfolioNotFound,
+    MandateOutcomePortfolioPersistenceConflict,
     TaskNotFoundError,
 )
 
@@ -91,10 +96,11 @@ def _match_mandate_leaf(path: str, leaf: str) -> str | None:
     if parsed.query or parsed.fragment or parsed.path.endswith("/"):
         return None
     parts = parsed.path.split("/")
+    leaf_parts = leaf.split("/")
     if (
-        len(parts) == 5
+        len(parts) == 4 + len(leaf_parts)
         and parts[:3] == ["", "v1", "mandates"]
-        and parts[4] == leaf
+        and parts[4:] == leaf_parts
     ):
         return _decode_path_segment(parts[3])
     return None
@@ -179,6 +185,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             TaskConfigurationScopeMismatch,
             MandateObservationAuthorizationDenied,
             MandateResponsibilityDenied,
+            MandateOutcomePortfolioDenied,
         ),
     ):
         return 403
@@ -196,6 +203,10 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             MandateObservationAuthorizationPersistenceConflict,
             MandateResponsibilityConflict,
             MandateResponsibilityPersistenceConflict,
+    MandateOutcomePortfolioConflict,
+    MandateOutcomePortfolioDenied,
+    MandateOutcomePortfolioNotFound,
+    MandateOutcomePortfolioPersistenceConflict,
         ),
     ):
         return 409
@@ -208,6 +219,7 @@ def _error_status(exc: Exception, *, default: int = 400) -> int:
             TaskConfigurationNotFound,
             MandateWorkspaceNotFound,
             MandateResponsibilityNotFound,
+            MandateOutcomePortfolioNotFound,
         ),
     ):
         return 404
@@ -316,6 +328,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(
                     200,
                     {"task_links": application.list_mandate_task_links(mandate_id)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            except Exception as exc:
+                self._json(
+                    _error_status(exc),
+                    {"error": type(exc).__name__, "message": str(exc)},
+                    response_headers={"Cache-Control": "no-store"},
+                )
+            return
+        mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio")
+        if mandate_id is not None:
+            application = self._read_application()
+            if application is None:
+                return
+            try:
+                self._json(
+                    200,
+                    application.get_outcome_portfolio(mandate_id),
                     response_headers={"Cache-Control": "no-store"},
                 )
             except Exception as exc:
@@ -587,6 +617,30 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/v1/mandates":
                 record = self.application.create_mandate_workspace_record(body)
+                self._json(201, record)
+                return
+            mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio")
+            if mandate_id is not None:
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                portfolio = admin.create_outcome_portfolio(mandate_id, body)
+                self._json(201, portfolio)
+                return
+            mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio/commitments")
+            if mandate_id is not None:
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                record = admin.attach_persistent_commitment(mandate_id, body)
+                self._json(201, record)
+                return
+            mandate_id = _match_mandate_leaf(self.path, "outcome-portfolio/settlements")
+            if mandate_id is not None:
+                admin = self._admin_application()
+                if admin is None:
+                    return
+                record = admin.settle_persistent_commitment(mandate_id, body)
                 self._json(201, record)
                 return
             mandate_id = _match_mandate_leaf(self.path, "task-links")
