@@ -1103,3 +1103,64 @@ class TrustedLoopRouterIntegrationTest(TrustedLoopGovernanceTest):
         self.assertEqual(result.action_result["status"], "executed")
         self.assertEqual(len(store.records()), 1)
         self.assertEqual(result.action_proposal.execution_mode, "policy_pre_approved")
+
+    def test_consume_failure_after_execution_does_not_abort_run(self) -> None:
+        """Post-execution policy consume failures must not crash the loop (F1 bookkeeping)."""
+        from unittest.mock import patch
+
+        from agent_os_contracts import (
+            AutoExecutionPolicy,
+            AutoExecutionRule,
+            RuntimeFeatureFlags,
+        )
+        from agent_os_core import ApprovalRouter
+        from agent_os_core.policy_engine import (
+            GuardrailInput,
+            PolicyApprovalConsumed,
+            PolicyEngine,
+        )
+
+        store = ActionRecordStore()
+        flags = RuntimeFeatureFlags(r4_r5_auto_execution=True)
+        rule = AutoExecutionRule(
+            rule_id="rule-1",
+            action_type="execute",
+            risk_levels=("R3",),
+            mode="policy_pre_approved",
+            guard_conditions={
+                "dry_run_success": True,
+                "evidence_complete": True,
+                "confidence_min": 0.9,
+            },
+            compensating_action="restore_action_record",
+        )
+        policy = AutoExecutionPolicy(version="v1", tenant_id="default", owner="o", rules=(rule,))
+        pe = PolicyEngine(flags)
+        pe.register_policy(policy)
+        router = ApprovalRouter(flags, policy_engine=pe)
+        runtime = self._build_runtime(
+            rows=[{"order_date": "2026-05-31", "gmv": 128800.0}],
+            connector_registry=_build_action_record_connector_registry(store),
+        )
+        runtime.approval_router = router
+        runtime.policy_guardrails_provider = lambda proposal, operation: GuardrailInput(
+            dry_run_success=True, evidence_complete=True, confidence=0.95
+        )
+
+        original_consume = pe.consume_approval
+
+        def consume_raises(*args, **kwargs):
+            raise PolicyApprovalConsumed("par-1", reason="paused_at_consume")
+
+        with patch.object(pe, "consume_approval", side_effect=consume_raises):
+            result = runtime.run(
+                "记录行动：基于最近7天GMV创建一个跟进行动",
+                {"start_date": "2026-05-25", "end_date": "2026-06-01", "limit": 100},
+            )
+
+        self.assertEqual(result.action_result["status"], "executed")
+        self.assertEqual(len(store.records()), 1)
+        trace_steps = [event.step for event in result.trace_events]
+        self.assertIn("policy_approval_consume_failed", trace_steps)
+        # restore sanity: consume still works when not patched
+        pe.consume_approval = original_consume

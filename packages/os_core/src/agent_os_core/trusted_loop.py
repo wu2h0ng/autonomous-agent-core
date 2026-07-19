@@ -284,7 +284,13 @@ class TrustedLoopRuntime:
 
         return GuardrailInput(dry_run_success=True, evidence_complete=True, confidence=1.0)
 
-    def _consume_policy_approval(self, policy_approval_id: str, *, tenant_id: str) -> None:
+    def _consume_policy_approval(
+        self,
+        policy_approval_id: str,
+        *,
+        tenant_id: str,
+        trace: TraceRecorder | None = None,
+    ) -> None:
         """Consume a policy approval record via the router's policy engine.
 
         Best-effort: if no policy engine is wired or consumption fails (e.g. the
@@ -300,8 +306,15 @@ class TrustedLoopRuntime:
             return
         try:
             engine.consume_approval(policy_approval_id, tenant_id=tenant_id)
-        except Exception:  # noqa: BLE001 - bookkeeping failure must not abort governed exec
-            self.trace_writer = self.trace_writer  # no-op anchor; failure is trace-visible
+        except Exception as exc:  # noqa: BLE001 - bookkeeping failure must not abort governed exec
+            if trace is not None:
+                trace.record(
+                    "policy_approval_consume_failed",
+                    {
+                        "policy_approval_id": policy_approval_id,
+                        "error_type": type(exc).__name__,
+                    },
+                )
 
     def run(
         self,
@@ -1133,7 +1146,11 @@ class TrustedLoopRuntime:
             if policy_pre_approved and policy_approval_id is not None:
                 # Consume the policy approval after successful governed execution
                 # (F1: consume re-checks pause shell + record validity at exec time).
-                self._consume_policy_approval(policy_approval_id, tenant_id=tenant_id)
+                self._consume_policy_approval(
+                    policy_approval_id,
+                    tenant_id=tenant_id,
+                    trace=trace,
+                )
 
         # ====== Back half: sediment a reusable KnowledgeAsset candidate ======
         # Every run produces a DRAFT knowledge-asset candidate bound to this
