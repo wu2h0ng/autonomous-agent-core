@@ -949,9 +949,7 @@ class SqlPolicyApprovalRecordStore(_SqlStoreBase, PolicyApprovalRecordStorePort)
 
         return self.save(replace(record, status="consumed"))
 
-    def is_active(
-        self, record_id: str, *, tenant_id: str = "default", policy_version: str
-    ) -> bool:
+    def is_active(self, record_id: str, *, tenant_id: str = "default", policy_version: str) -> bool:
         record = self.get(record_id, tenant_id=tenant_id)
         if record is None:
             return False

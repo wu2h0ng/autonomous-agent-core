@@ -116,12 +116,8 @@ class SqlPolicyApprovalRecordStoreTest(unittest.TestCase):
         self.store.consume("par-1", tenant_id="tenant-b")
         self.assertEqual(self.store.get("par-1", tenant_id="tenant-a").status, "active")
         self.assertEqual(self.store.get("par-1", tenant_id="tenant-b").status, "consumed")
-        self.assertTrue(
-            self.store.is_active("par-1", tenant_id="tenant-a", policy_version="v1")
-        )
-        self.assertFalse(
-            self.store.is_active("par-1", tenant_id="tenant-b", policy_version="v1")
-        )
+        self.assertTrue(self.store.is_active("par-1", tenant_id="tenant-a", policy_version="v1"))
+        self.assertFalse(self.store.is_active("par-1", tenant_id="tenant-b", policy_version="v1"))
 
     def test_survives_restart(self) -> None:
         from agent_os_persistence import SqlPolicyApprovalRecordStore

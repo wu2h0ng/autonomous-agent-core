@@ -188,9 +188,7 @@ class PolicyApprovalRecordStore(PolicyApprovalRecordStorePort):
         self._records[key] = updated
         return updated
 
-    def is_active(
-        self, record_id: str, *, tenant_id: str = "default", policy_version: str
-    ) -> bool:
+    def is_active(self, record_id: str, *, tenant_id: str = "default", policy_version: str) -> bool:
         record = self._records.get(self._tenant_key(record_id, tenant_id=tenant_id))
         if record is None:
             return False
@@ -424,9 +422,7 @@ class PolicyEngine:
     def is_approval_valid(self, record_id: str, *, tenant_id: str) -> bool:
         policy = self._policies.get(tenant_id)
         version = policy.version if policy is not None else ""
-        return self._store.is_active(
-            record_id, tenant_id=tenant_id, policy_version=version
-        )
+        return self._store.is_active(record_id, tenant_id=tenant_id, policy_version=version)
 
     def revoke_approval(self, record_id: str, *, tenant_id: str) -> PolicyApprovalRecord:
         return self._store.revoke(record_id, self._now(), tenant_id=tenant_id)
@@ -444,9 +440,7 @@ class PolicyEngine:
             raise KeyError(f"policy approval record not found: {record_id}")
         policy = self._policies.get(tenant_id)
         version = policy.version if policy is not None else ""
-        if not self._store.is_active(
-            record_id, tenant_id=tenant_id, policy_version=version
-        ):
+        if not self._store.is_active(record_id, tenant_id=tenant_id, policy_version=version):
             raise PolicyApprovalConsumed(record_id, reason="record_not_active")
         consumed = self._store.consume(record_id, tenant_id=tenant_id)
         self._trace_step(
