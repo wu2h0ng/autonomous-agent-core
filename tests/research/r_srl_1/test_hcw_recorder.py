@@ -6,6 +6,7 @@ from tests.research.r_srl_1.hcw_recorder import (
     HcwAnnotation,
     HcwCategory,
     HcwRecorder,
+    compare_srl_to_baselines,
     run_rater_prompt,
 )
 
@@ -27,6 +28,25 @@ def _make_annotation(
         start_seconds=start,
         end_seconds=end,
         rater_id=rater_id,
+    )
+
+
+def _make_arm_annotation(
+    arm_id: str,
+    category: HcwCategory,
+    start: float,
+    end: float,
+    segment_id: str,
+) -> HcwAnnotation:
+    return HcwAnnotation(
+        segment_id=segment_id,
+        arm_id=arm_id,
+        unit_id="u00",
+        event_id="event-01",
+        category=category,
+        start_seconds=start,
+        end_seconds=end,
+        rater_id="rater-a",
     )
 
 
@@ -71,6 +91,22 @@ def test_total_hcw_minutes_for_empty_unit_is_zero() -> None:
     assert recorder.total_hcw_minutes("arm3", "u00") == 0.0
 
 
+def test_operator_intervention_count_excludes_auth_and_wait_by_default() -> None:
+    recorder = HcwRecorder()
+    recorder.add_annotation(_make_annotation(HcwCategory.DISCOVER, 0.0, 10.0))
+    recorder.add_annotation(_make_annotation(HcwCategory.PRIORITIZE, 10.0, 20.0))
+    recorder.add_annotation(_make_annotation(HcwCategory.AUTH, 20.0, 30.0))
+    recorder.add_annotation(_make_annotation(HcwCategory.WAIT, 30.0, 40.0))
+
+    assert recorder.operator_intervention_count("arm3", "u00") == 2
+    assert (
+        recorder.operator_intervention_count(
+            "arm3", "u00", exclude_auth_wait=False
+        )
+        == 4
+    )
+
+
 def test_category_breakdown_sums_seconds_per_category() -> None:
     recorder = HcwRecorder()
     recorder.add_annotation(_make_annotation(HcwCategory.DISCOVER, 0.0, 10.0))
@@ -83,6 +119,75 @@ def test_category_breakdown_sums_seconds_per_category() -> None:
     assert breakdown[HcwCategory.LOCATE] == pytest.approx(15.0)
     assert breakdown[HcwCategory.WAIT] == pytest.approx(20.0)
     assert breakdown[HcwCategory.RESTATE] == pytest.approx(0.0)
+
+
+def test_compare_srl_to_baselines_verifies_irreducible_hcw_gain() -> None:
+    recorder = HcwRecorder()
+    for index in range(6):
+        recorder.add_annotation(
+            _make_arm_annotation(
+                "arm1",
+                HcwCategory.DISCOVER,
+                index * 60.0,
+                (index + 1) * 60.0,
+                f"b1-{index}",
+            )
+        )
+    for index in range(5):
+        recorder.add_annotation(
+            _make_arm_annotation(
+                "arm2",
+                HcwCategory.PRIORITIZE,
+                index * 60.0,
+                (index + 1) * 60.0,
+                f"b2-{index}",
+            )
+        )
+    for index in range(3):
+        recorder.add_annotation(
+            _make_arm_annotation(
+                "arm3",
+                HcwCategory.LOCATE,
+                index * 60.0,
+                (index + 1) * 60.0,
+                f"srl-{index}",
+            )
+        )
+
+    comparison = compare_srl_to_baselines(
+        recorder,
+        unit_id="u00",
+        srl_arm_id="arm3",
+        baseline_arm_ids=("arm1", "arm2"),
+        verified_outcomes={"arm1": 3, "arm2": 4, "arm3": 4},
+    )
+
+    assert comparison.verdict == "VERIFIED_HCW_REDUCTION"
+    assert comparison.best_baseline_arm_id == "arm2"
+    assert comparison.srl.operator_interventions == 3
+    assert comparison.best_baseline is not None
+    assert comparison.best_baseline.operator_interventions == 5
+    assert comparison.hcw_minutes_ratio == pytest.approx(0.6)
+    assert comparison.outcomes_per_hcw_minute_ratio == pytest.approx(5 / 3)
+    assert comparison.gaps == ()
+
+
+def test_compare_srl_to_baselines_fails_closed_without_baseline() -> None:
+    recorder = HcwRecorder()
+    recorder.add_annotation(
+        _make_arm_annotation("arm3", HcwCategory.LOCATE, 0.0, 60.0, "srl-1")
+    )
+
+    comparison = compare_srl_to_baselines(
+        recorder,
+        unit_id="u00",
+        srl_arm_id="arm3",
+        baseline_arm_ids=("arm1", "arm2"),
+        verified_outcomes={"arm3": 1},
+    )
+
+    assert comparison.verdict == "INVALID"
+    assert comparison.gaps == ("no baseline arm has HCW annotations",)
 
 
 def test_add_annotation_rejects_negative_duration() -> None:

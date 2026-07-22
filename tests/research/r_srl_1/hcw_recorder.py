@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Iterable
 
 
@@ -40,6 +41,44 @@ class HcwAnnotation:
     def duration_seconds(self) -> float:
         """Return ``end_seconds - start_seconds``."""
         return self.end_seconds - self.start_seconds
+
+
+@dataclass(frozen=True)
+class HcwArmSummary:
+    """Comparable HCW summary for one R-SRL-1 arm/unit."""
+
+    arm_id: str
+    unit_id: str
+    hcw_minutes: float
+    operator_interventions: int
+    verified_outcomes: int
+
+    @property
+    def outcomes_per_hcw_minute(self) -> float:
+        """Return verified outcomes divided by HCW minutes.
+
+        A zero-HCW arm with verified outcomes is treated as infinite efficiency;
+        a zero-HCW arm without outcomes has zero efficiency.  The comparison
+        function still requires real annotations so missing HCW data does not
+        become a free win.
+        """
+        if self.hcw_minutes == 0.0:
+            return float("inf") if self.verified_outcomes > 0 else 0.0
+        return self.verified_outcomes / self.hcw_minutes
+
+
+@dataclass(frozen=True)
+class HcwIrreducibilityComparison:
+    """SRL-vs-best-baseline comparison for the HCW primary metric."""
+
+    verdict: str
+    srl: HcwArmSummary
+    best_baseline: HcwArmSummary | None
+    best_baseline_arm_id: str | None
+    hcw_minutes_ratio: float | None
+    operator_intervention_ratio: float | None
+    outcomes_per_hcw_minute_ratio: float | None
+    gaps: tuple[str, ...]
 
 
 class HcwRecorder:
@@ -81,6 +120,23 @@ class HcwRecorder:
             total_seconds += annotation.duration_seconds()
         return total_seconds / 60.0
 
+    def operator_intervention_count(
+        self, arm_id: str, unit_id: str, exclude_auth_wait: bool = True
+    ) -> int:
+        """Count operator HCW segments for the arm/unit.
+
+        This redirects R-SRL-1 away from a pure task-success metric toward the
+        actual operator interventions needed to keep the Mandate on track.
+        AUTH and WAIT are excluded by default to match the preregistered HCW
+        numerator treatment.
+        """
+        excluded = {HcwCategory.AUTH, HcwCategory.WAIT} if exclude_auth_wait else set()
+        return sum(
+            1
+            for annotation in self._annotations.get((arm_id, unit_id), [])
+            if annotation.category not in excluded
+        )
+
     def category_breakdown(self, arm_id: str, unit_id: str) -> dict[HcwCategory, float]:
         """Return total seconds per HCW category for the arm/unit."""
         breakdown: dict[HcwCategory, float] = {
@@ -89,6 +145,134 @@ class HcwRecorder:
         for annotation in self._annotations.get((arm_id, unit_id), []):
             breakdown[annotation.category] += annotation.duration_seconds()
         return breakdown
+
+    def arm_summary(
+        self,
+        arm_id: str,
+        unit_id: str,
+        verified_outcomes: int = 0,
+    ) -> HcwArmSummary:
+        """Return the comparable HCW summary for one arm/unit."""
+        if verified_outcomes < 0:
+            raise ValueError("verified_outcomes must be >= 0")
+        return HcwArmSummary(
+            arm_id=arm_id,
+            unit_id=unit_id,
+            hcw_minutes=self.total_hcw_minutes(arm_id, unit_id),
+            operator_interventions=self.operator_intervention_count(arm_id, unit_id),
+            verified_outcomes=verified_outcomes,
+        )
+
+
+def compare_srl_to_baselines(
+    recorder: HcwRecorder,
+    *,
+    unit_id: str,
+    srl_arm_id: str,
+    baseline_arm_ids: tuple[str, ...],
+    verified_outcomes: Mapping[str, int],
+    max_hcw_minutes_ratio: float = 0.70,
+    max_operator_intervention_ratio: float = 0.70,
+    min_outcomes_per_hcw_minute_ratio: float = 1.30,
+) -> HcwIrreducibilityComparison:
+    """Compare SRL HCW against the strongest available baseline.
+
+    The "best baseline" is the baseline with the highest verified outcomes per
+    HCW minute.  This makes the comparison an irreducibility check against the
+    strongest model+tools style arm rather than against a convenient weaker
+    baseline.  Missing SRL/baseline annotations fail closed as ``INVALID``.
+    """
+    srl_annotations = recorder.list_annotations(srl_arm_id, unit_id)
+    srl = recorder.arm_summary(
+        srl_arm_id, unit_id, verified_outcomes=int(verified_outcomes.get(srl_arm_id, 0))
+    )
+    if not srl_annotations:
+        return HcwIrreducibilityComparison(
+            verdict="INVALID",
+            srl=srl,
+            best_baseline=None,
+            best_baseline_arm_id=None,
+            hcw_minutes_ratio=None,
+            operator_intervention_ratio=None,
+            outcomes_per_hcw_minute_ratio=None,
+            gaps=("no SRL arm has HCW annotations",),
+        )
+
+    baseline_summaries = [
+        recorder.arm_summary(
+            arm_id, unit_id, verified_outcomes=int(verified_outcomes.get(arm_id, 0))
+        )
+        for arm_id in baseline_arm_ids
+        if recorder.list_annotations(arm_id, unit_id)
+    ]
+    if not baseline_summaries:
+        return HcwIrreducibilityComparison(
+            verdict="INVALID",
+            srl=srl,
+            best_baseline=None,
+            best_baseline_arm_id=None,
+            hcw_minutes_ratio=None,
+            operator_intervention_ratio=None,
+            outcomes_per_hcw_minute_ratio=None,
+            gaps=("no baseline arm has HCW annotations",),
+        )
+
+    best_baseline = max(
+        baseline_summaries,
+        key=lambda summary: (
+            summary.outcomes_per_hcw_minute,
+            summary.verified_outcomes,
+            -summary.hcw_minutes,
+        ),
+    )
+    hcw_minutes_ratio = _safe_ratio(srl.hcw_minutes, best_baseline.hcw_minutes)
+    operator_intervention_ratio = _safe_ratio(
+        float(srl.operator_interventions), float(best_baseline.operator_interventions)
+    )
+    outcomes_per_hcw_minute_ratio = _safe_ratio(
+        srl.outcomes_per_hcw_minute,
+        best_baseline.outcomes_per_hcw_minute,
+    )
+
+    gaps: list[str] = []
+    if hcw_minutes_ratio is None or hcw_minutes_ratio > max_hcw_minutes_ratio:
+        gaps.append(
+            "SRL HCW minutes do not beat the best baseline by the required margin"
+        )
+    if (
+        operator_intervention_ratio is None
+        or operator_intervention_ratio > max_operator_intervention_ratio
+    ):
+        gaps.append(
+            "SRL operator intervention count does not beat the best baseline by the required margin"
+        )
+    if (
+        outcomes_per_hcw_minute_ratio is None
+        or outcomes_per_hcw_minute_ratio < min_outcomes_per_hcw_minute_ratio
+    ):
+        gaps.append(
+            "SRL verified outcomes per HCW minute do not beat the best baseline by the required margin"
+        )
+    if srl.verified_outcomes < best_baseline.verified_outcomes:
+        gaps.append("SRL verified outcomes are lower than the best baseline")
+
+    return HcwIrreducibilityComparison(
+        verdict="VERIFIED_HCW_REDUCTION" if not gaps else "NOT_MET",
+        srl=srl,
+        best_baseline=best_baseline,
+        best_baseline_arm_id=best_baseline.arm_id,
+        hcw_minutes_ratio=hcw_minutes_ratio,
+        operator_intervention_ratio=operator_intervention_ratio,
+        outcomes_per_hcw_minute_ratio=outcomes_per_hcw_minute_ratio,
+        gaps=tuple(gaps),
+    )
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float | None:
+    """Return numerator/denominator, failing closed on undefined comparisons."""
+    if denominator == 0.0:
+        return 0.0 if numerator == 0.0 else None
+    return numerator / denominator
 
 
 def run_rater_prompt(
