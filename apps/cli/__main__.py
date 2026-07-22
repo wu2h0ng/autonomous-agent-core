@@ -3,9 +3,12 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict
 from datetime import datetime
+import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
+import subprocess
 
 from agent_os_contracts import ProviderToolProposal
 from apps.api_server.app import AgentOSApplication
@@ -70,6 +73,11 @@ def main() -> None:
     selfdev_readiness.add_argument("--baseline-record", type=Path)
     selfdev_baseline_record = sub.add_parser("selfdev-baseline-record")
     selfdev_baseline_record.add_argument("baseline_json", type=Path)
+    selfdev_baseline_capture = sub.add_parser("selfdev-baseline-capture")
+    selfdev_baseline_capture.add_argument("spec_json", type=Path)
+    selfdev_baseline_capture.add_argument("--operator-intervention-count", type=int, required=True)
+    selfdev_baseline_capture.add_argument("--hcw-minutes", type=float, required=True)
+    selfdev_baseline_capture.add_argument("--evidence-ref", action="append", default=[])
     args = parser.parse_args()
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
@@ -113,6 +121,15 @@ def main() -> None:
     if args.command == "selfdev-baseline-record":
         record = _selfdev_baseline_record_from_file(args.baseline_json)
         print(json.dumps(asdict(record), indent=2, default=str))
+        return
+    if args.command == "selfdev-baseline-capture":
+        output = _capture_selfdev_baseline(
+            _selfdev_spec_from_file(args.spec_json),
+            operator_intervention_count=args.operator_intervention_count,
+            hcw_minutes=args.hcw_minutes,
+            extra_evidence_refs=tuple(args.evidence_ref),
+        )
+        print(json.dumps(output, indent=2, default=str))
         return
 
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
@@ -299,6 +316,56 @@ def _selfdev_baseline_record_from_file(path: Path):
         outcome_status=str(payload.get("outcome_status", "")),
         evidence_refs=tuple(str(ref) for ref in evidence_refs),
     )
+
+
+def _capture_selfdev_baseline(
+    spec: SelfDevelopmentTaskSpec,
+    *,
+    operator_intervention_count: int,
+    hcw_minutes: float,
+    extra_evidence_refs: tuple[str, ...],
+) -> dict[str, object]:
+    receipt = validate_self_development_task(spec)
+    verifier_command = receipt.verifier_commands[0]
+    completed = subprocess.run(
+        shlex.split(verifier_command),
+        cwd=receipt.isolated_workspace,
+        check=False,
+        capture_output=True,
+        timeout=300,
+    )
+    stdout_digest = hashlib.sha256(completed.stdout).hexdigest()
+    stderr_digest = hashlib.sha256(completed.stderr).hexdigest()
+    verifier_payload = {
+        "command": verifier_command,
+        "exit_code": completed.returncode,
+        "stdout_sha256": stdout_digest,
+        "stderr_sha256": stderr_digest,
+        "target_path": receipt.target_path,
+        "receipt_digest": receipt.receipt_digest,
+    }
+    verifier_digest = hashlib.sha256(
+        json.dumps(
+            verifier_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    record = build_self_development_baseline_record(
+        baseline_assignment_id=receipt.baseline_assignment_id,
+        repository_id=receipt.repository_id,
+        target_path=receipt.target_path,
+        operator_intervention_count=operator_intervention_count,
+        hcw_minutes=hcw_minutes,
+        outcome_status="VERIFIED" if completed.returncode == 0 else "NOT_MET",
+        evidence_refs=tuple(sorted((*extra_evidence_refs, f"verifier:{verifier_digest}"))),
+    )
+    return {
+        "admission_receipt": asdict(receipt),
+        "baseline_record": asdict(record),
+        "verifier": {**verifier_payload, "evidence_ref": f"verifier:{verifier_digest}"},
+    }
 
 
 if __name__ == "__main__":

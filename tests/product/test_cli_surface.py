@@ -447,6 +447,101 @@ def test_cli_selfdev_baseline_record_outputs_content_bound_telemetry(
     assert len(output["record_digest"]) == 64
 
 
+def test_cli_selfdev_baseline_capture_runs_verifier_and_emits_digest_only_evidence(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    workspace = tmp_path / "workspace"
+    target = workspace / "packages/os_core/src/agent_os_core/recovery.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def marker():\n    return 'baseline'\n", encoding="utf-8")
+    tests = workspace / "tests"
+    tests.mkdir()
+    (tests / "test_marker.py").write_text(
+        "from pathlib import Path\n\n"
+        "def test_marker():\n"
+        "    text = Path('packages/os_core/src/agent_os_core/recovery.py')"
+        ".read_text(encoding='utf-8')\n"
+        "    assert \"baseline\" in text\n"
+        "    print('baseline-secret-output')\n",
+        encoding="utf-8",
+    )
+    spec_path = _write_selfdev_spec(workspace, branch="codex/selfdev-baseline-capture")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-baseline-capture",
+            str(spec_path),
+            "--operator-intervention-count",
+            "3",
+            "--hcw-minutes",
+            "4.5",
+            "--evidence-ref",
+            "session:founder-baseline",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    baseline_record = output["baseline_record"]
+    verifier = output["verifier"]
+    assert baseline_record["baseline_assignment_id"] == (
+        "baseline:codex/selfdev-baseline-capture"
+    )
+    assert baseline_record["operator_intervention_count"] == 3
+    assert baseline_record["hcw_minutes"] == 4.5
+    assert baseline_record["outcome_status"] == "VERIFIED"
+    assert verifier["exit_code"] == 0
+    assert verifier["evidence_ref"] in baseline_record["evidence_refs"]
+    assert "session:founder-baseline" in baseline_record["evidence_refs"]
+    assert "baseline-secret-output" not in json.dumps(output)
+
+
+def test_cli_selfdev_baseline_capture_records_not_met_for_failed_verifier(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    workspace = tmp_path / "workspace"
+    target = workspace / "packages/os_core/src/agent_os_core/recovery.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("def marker():\n    return 'baseline'\n", encoding="utf-8")
+    tests = workspace / "tests"
+    tests.mkdir()
+    (tests / "test_marker.py").write_text(
+        "def test_marker():\n"
+        "    assert False\n",
+        encoding="utf-8",
+    )
+    spec_path = _write_selfdev_spec(
+        workspace,
+        branch="codex/selfdev-baseline-capture-fail",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-baseline-capture",
+            str(spec_path),
+            "--operator-intervention-count",
+            "1",
+            "--hcw-minutes",
+            "2",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["verifier"]["exit_code"] == 1
+    assert output["baseline_record"]["outcome_status"] == "NOT_MET"
+
+
 def test_cli_selfdev_readiness_fails_closed_without_baseline_record(
     tmp_path: Path,
     monkeypatch,
