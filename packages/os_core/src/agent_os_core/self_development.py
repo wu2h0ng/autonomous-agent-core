@@ -65,6 +65,20 @@ class SelfDevelopmentTaskSpec:
 
 
 @dataclass(frozen=True)
+class SelfDevelopmentBaselineRecord:
+    """Matched founder/model+tools baseline telemetry for SELFDEV comparison."""
+
+    baseline_assignment_id: str
+    repository_id: str
+    target_path: str
+    operator_intervention_count: int
+    hcw_minutes: float
+    outcome_status: str
+    evidence_refs: tuple[str, ...]
+    record_digest: str
+
+
+@dataclass(frozen=True)
 class SelfDevelopmentReceipt:
     """Content-bound admission receipt for SELFDEV-S1 execution."""
 
@@ -260,6 +274,7 @@ def evaluate_self_development_readiness(
     provider_configured: bool,
     provider_model: str | None,
     credential_available: bool,
+    baseline_record: SelfDevelopmentBaselineRecord | None = None,
 ) -> SelfDevelopmentReadinessReport:
     """Check whether a real provider SELFDEV result run may start.
 
@@ -286,6 +301,11 @@ def evaluate_self_development_readiness(
     if not receipt.baseline_assignment_id.strip():
         blockers.append("BASELINE_ASSIGNMENT_MISSING")
         actions.append("Bind a matched founder/model+tools baseline assignment.")
+    elif baseline_record is None:
+        blockers.append("BASELINE_RECORD_MISSING")
+        actions.append("Record matched founder/model+tools baseline telemetry.")
+    else:
+        _validate_baseline_record(receipt, baseline_record, blockers, actions)
     if receipt.operator_intervention_count < 0 or receipt.hcw_minutes < 0:
         blockers.append("HCW_TELEMETRY_INVALID")
         actions.append("Provide non-negative operator intervention and HCW fields.")
@@ -295,6 +315,90 @@ def evaluate_self_development_readiness(
         blockers=tuple(blockers),
         next_required_actions=tuple(actions),
     )
+
+
+def build_self_development_baseline_record(
+    *,
+    baseline_assignment_id: str,
+    repository_id: str,
+    target_path: str,
+    operator_intervention_count: int,
+    hcw_minutes: float,
+    outcome_status: str,
+    evidence_refs: tuple[str, ...],
+) -> SelfDevelopmentBaselineRecord:
+    _require_nonempty("baseline_assignment_id", baseline_assignment_id)
+    if repository_id not in _AGENT_OS_REPOSITORIES:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "baseline repository_id must identify the Agent OS repository",
+        )
+    normalized_target = _validate_target_path(target_path)
+    if operator_intervention_count < 0:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "baseline operator_intervention_count must be non-negative",
+        )
+    if hcw_minutes < 0:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "baseline hcw_minutes must be non-negative",
+        )
+    status = outcome_status.strip().upper()
+    if status not in {"VERIFIED", "NOT_MET", "UNRESOLVED", "INVALID"}:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "baseline outcome_status is not supported",
+        )
+    if not evidence_refs:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "baseline evidence_refs are required",
+        )
+    payload = {
+        "baseline_assignment_id": baseline_assignment_id,
+        "repository_id": repository_id,
+        "target_path": normalized_target,
+        "operator_intervention_count": operator_intervention_count,
+        "hcw_minutes": hcw_minutes,
+        "outcome_status": status,
+        "evidence_refs": tuple(sorted(evidence_refs)),
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return SelfDevelopmentBaselineRecord(record_digest=digest, **payload)
+
+
+def _validate_baseline_record(
+    receipt: SelfDevelopmentReceipt,
+    baseline: SelfDevelopmentBaselineRecord,
+    blockers: list[str],
+    actions: list[str],
+) -> None:
+    if baseline.baseline_assignment_id != receipt.baseline_assignment_id:
+        blockers.append("BASELINE_ASSIGNMENT_MISMATCH")
+        actions.append("Use a baseline record bound to the SELFDEV assignment.")
+    if baseline.repository_id != receipt.repository_id:
+        blockers.append("BASELINE_REPOSITORY_MISMATCH")
+        actions.append("Use the same repository for SELFDEV and baseline arms.")
+    if baseline.target_path != receipt.target_path:
+        blockers.append("BASELINE_TARGET_MISMATCH")
+        actions.append("Use the same target path for SELFDEV and baseline arms.")
+    if baseline.operator_intervention_count < 0 or baseline.hcw_minutes < 0:
+        blockers.append("BASELINE_HCW_INVALID")
+        actions.append("Record non-negative baseline intervention and HCW telemetry.")
+    if baseline.outcome_status not in {"VERIFIED", "NOT_MET", "UNRESOLVED", "INVALID"}:
+        blockers.append("BASELINE_OUTCOME_INVALID")
+        actions.append("Record a supported baseline outcome status.")
+    if not baseline.evidence_refs:
+        blockers.append("BASELINE_EVIDENCE_MISSING")
+        actions.append("Attach durable baseline evidence references.")
 
 
 def _selfdev_workflow(created_at: datetime) -> WorkflowGraph:

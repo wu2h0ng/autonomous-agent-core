@@ -12,6 +12,7 @@ from apps.api_server.app import AgentOSApplication
 from agent_os_core import (
     DeterministicProvider,
     SelfDevelopmentTaskSpec,
+    build_self_development_baseline_record,
     evaluate_self_development_readiness,
     prepare_self_development_task_package,
     validate_self_development_task,
@@ -66,6 +67,9 @@ def main() -> None:
     selfdev_run_local.add_argument("--approve", action="store_true")
     selfdev_readiness = sub.add_parser("selfdev-readiness")
     selfdev_readiness.add_argument("spec_json", type=Path)
+    selfdev_readiness.add_argument("--baseline-record", type=Path)
+    selfdev_baseline_record = sub.add_parser("selfdev-baseline-record")
+    selfdev_baseline_record.add_argument("baseline_json", type=Path)
     args = parser.parse_args()
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
@@ -91,6 +95,11 @@ def main() -> None:
             provider_configured=bool(os.environ.get("AGENT_OS_PROVIDER_BASE_URL")),
             provider_model=os.environ.get("AGENT_OS_PROVIDER_MODEL"),
             credential_available=bool(os.environ.get(credential_env)),
+            baseline_record=(
+                _selfdev_baseline_record_from_file(args.baseline_record)
+                if args.baseline_record
+                else None
+            ),
         )
         output = asdict(report)
         output["provider"] = {
@@ -100,6 +109,10 @@ def main() -> None:
             "credential_available": bool(os.environ.get(credential_env)),
         }
         print(json.dumps(output, indent=2, default=str))
+        return
+    if args.command == "selfdev-baseline-record":
+        record = _selfdev_baseline_record_from_file(args.baseline_json)
+        print(json.dumps(asdict(record), indent=2, default=str))
         return
 
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
@@ -265,6 +278,26 @@ def _selfdev_spec_from_file(path: Path) -> SelfDevelopmentTaskSpec:
         operator_intervention_count=int(payload.get("operator_intervention_count", -1)),
         hcw_minutes=float(payload.get("hcw_minutes", -1)),
         baseline_assignment_id=str(payload.get("baseline_assignment_id", "")),
+    )
+
+
+def _selfdev_baseline_record_from_file(path: Path):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("SELFDEV baseline record JSON must be an object")
+    evidence_refs = payload.get("evidence_refs", ())
+    if not isinstance(evidence_refs, list | tuple):
+        raise ValueError("SELFDEV baseline evidence_refs must be an array")
+    return build_self_development_baseline_record(
+        baseline_assignment_id=str(payload.get("baseline_assignment_id", "")),
+        repository_id=str(payload.get("repository_id", "")),
+        target_path=str(payload.get("target_path", "")),
+        operator_intervention_count=int(
+            payload.get("operator_intervention_count", -1)
+        ),
+        hcw_minutes=float(payload.get("hcw_minutes", -1)),
+        outcome_status=str(payload.get("outcome_status", "")),
+        evidence_refs=tuple(str(ref) for ref in evidence_refs),
     )
 
 

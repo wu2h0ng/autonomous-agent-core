@@ -417,10 +417,61 @@ def test_cli_selfdev_readiness_fails_closed_without_real_provider(
         "REAL_PROVIDER_NOT_CONFIGURED",
         "PROVIDER_CREDENTIAL_UNAVAILABLE",
         "PROVIDER_MODEL_UNSPECIFIED",
+        "BASELINE_RECORD_MISSING",
     ]
 
 
-def test_cli_selfdev_readiness_passes_with_provider_and_baseline_fields(
+def test_cli_selfdev_baseline_record_outputs_content_bound_telemetry(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-baseline-record",
+        evidence_refs=["run:2", "run:1"],
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-os", "selfdev-baseline-record", str(baseline_path)],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["baseline_assignment_id"] == "baseline:codex/selfdev-baseline-record"
+    assert output["target_path"] == "packages/os_core/src/agent_os_core/recovery.py"
+    assert output["outcome_status"] == "VERIFIED"
+    assert output["evidence_refs"] == ["run:1", "run:2"]
+    assert len(output["record_digest"]) == 64
+
+
+def test_cli_selfdev_readiness_fails_closed_without_baseline_record(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-ready-no-baseline")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-os", "selfdev-readiness", str(spec_path)],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["ready"] is False
+    assert output["blockers"] == ["BASELINE_RECORD_MISSING"]
+    assert "redacted-test-key" not in json.dumps(output)
+
+
+def test_cli_selfdev_readiness_passes_with_provider_and_matched_baseline_record(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -430,11 +481,18 @@ def test_cli_selfdev_readiness_passes_with_provider_and_baseline_fields(
     monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
     monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
     spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-ready")
+    baseline_path = _write_selfdev_baseline_record(tmp_path, branch="codex/selfdev-ready")
 
     monkeypatch.setattr(
         sys,
         "argv",
-        ["agent-os", "selfdev-readiness", str(spec_path)],
+        [
+            "agent-os",
+            "selfdev-readiness",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+        ],
     )
     cli.main()
 
@@ -447,6 +505,41 @@ def test_cli_selfdev_readiness_passes_with_provider_and_baseline_fields(
         "credential_env": "AGENT_OS_TEST_PROVIDER_KEY",
         "credential_available": True,
     }
+    assert "redacted-test-key" not in json.dumps(output)
+
+
+def test_cli_selfdev_readiness_rejects_mismatched_baseline_target(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-mismatch")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-mismatch",
+        target_path="packages/os_core/src/agent_os_core/provider.py",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-readiness",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["ready"] is False
+    assert output["blockers"] == ["BASELINE_TARGET_MISMATCH"]
     assert "redacted-test-key" not in json.dumps(output)
 
 
@@ -472,3 +565,28 @@ def _write_selfdev_spec(tmp_path: Path, *, branch: str) -> Path:
         encoding="utf-8",
     )
     return spec_path
+
+
+def _write_selfdev_baseline_record(
+    tmp_path: Path,
+    *,
+    branch: str,
+    target_path: str = "packages/os_core/src/agent_os_core/recovery.py",
+    evidence_refs: list[str] | None = None,
+) -> Path:
+    baseline_path = tmp_path / f"{branch.replace('/', '-')}-baseline.json"
+    baseline_path.write_text(
+        json.dumps(
+            {
+                "baseline_assignment_id": f"baseline:{branch}",
+                "repository_id": "autonomous-agent-core",
+                "target_path": target_path,
+                "operator_intervention_count": 2,
+                "hcw_minutes": 3.5,
+                "outcome_status": "VERIFIED",
+                "evidence_refs": evidence_refs or ["run:baseline"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return baseline_path
