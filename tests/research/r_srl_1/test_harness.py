@@ -103,6 +103,7 @@ def test_load_frozen_unit_u00(u00_unit: FrozenUnit) -> None:
     assert u00_unit.unit_id == "r-srl-1-u00"
     assert u00_unit.repository_lineage == "canonical-python-lib-00"
     assert u00_unit.arm_budget_seconds == 1800
+    assert u00_unit.build_commands == (("python", "-m", "compileall", "."),)
     assert set(u00_unit.manifest.keys()) == {
         "snapshot.yaml",
         "mission.yaml",
@@ -139,6 +140,7 @@ def test_verify_manifest_fails_on_tampered_file(
         repository_lineage=u00_unit.repository_lineage,
         arm_budget_seconds=u00_unit.arm_budget_seconds,
         manifest=u00_unit.manifest,
+        build_commands=u00_unit.build_commands,
         snapshot_path=tampered_dir / "snapshot.yaml",
         mission_path=tampered_dir / "mission.yaml",
         events_path=tampered_dir / "events.yaml",
@@ -229,6 +231,14 @@ def test_event_gateway_run_tests_produces_test_reports(
     )
 
 
+@pytest.mark.parametrize("selector", ["--co", "../expected_outcomes.yaml"])
+def test_event_gateway_run_tests_rejects_selector_escape(
+    gateway: RsrlEventGateway, selector: str
+) -> None:
+    with pytest.raises(PermissionError):
+        gateway.run_tests("arm1", "r-srl-1-u00", selector)
+
+
 def test_event_gateway_run_build_records_result(gateway: RsrlEventGateway) -> None:
     result = gateway.run_build("arm1", "r-srl-1-u00")
     assert isinstance(result.exit_code, int)
@@ -238,6 +248,20 @@ def test_event_gateway_run_build_records_result(gateway: RsrlEventGateway) -> No
     assert len(artifact["build_results"]) == 1
     assert artifact["build_results"][0]["exit_code"] == 0
     assert artifact["build_results"][0]["artifact_ref"]
+
+
+def test_event_gateway_run_build_rejects_non_allowlisted_command(
+    gateway: RsrlEventGateway,
+) -> None:
+    with pytest.raises(PermissionError):
+        gateway.run_build(
+            "arm1",
+            "r-srl-1-u00",
+            ["cat", "../expected_outcomes.yaml"],
+        )
+    summary = gateway.get_budget_summary("arm1", "r-srl-1-u00")
+    assert summary["used"]["tool_invocations"] == 0
+    assert summary["used"]["input_tokens"] == 0
 
 
 def test_build_scorer_artifact_produces_event_keyed_scoring_inputs(

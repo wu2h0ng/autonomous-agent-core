@@ -128,6 +128,7 @@ class FrozenUnit:
     repository_lineage: str
     arm_budget_seconds: int
     manifest: dict[str, str]
+    build_commands: tuple[tuple[str, ...], ...]
     snapshot_path: Path
     mission_path: Path
     events_path: Path
@@ -251,6 +252,24 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _load_build_commands(raw: dict[str, Any], unit_file: Path) -> tuple[tuple[str, ...], ...]:
+    commands = raw.get("build_commands", [["python", "-m", "compileall", "."]])
+    if not isinstance(commands, list) or not commands:
+        raise ValueError(f"unit.yaml build_commands must be a non-empty list: {unit_file}")
+    parsed: list[tuple[str, ...]] = []
+    for command in commands:
+        if not isinstance(command, list) or not command:
+            raise ValueError(
+                f"unit.yaml build_commands entries must be non-empty lists: {unit_file}"
+            )
+        if not all(isinstance(part, str) and part for part in command):
+            raise ValueError(
+                f"unit.yaml build_commands entries must contain non-empty strings: {unit_file}"
+            )
+        parsed.append(tuple(command))
+    return tuple(parsed)
+
+
 def load_frozen_unit(unit_dir: Path) -> FrozenUnit:
     unit_file = unit_dir / "unit.yaml"
     if not unit_file.is_file():
@@ -283,6 +302,7 @@ def load_frozen_unit(unit_dir: Path) -> FrozenUnit:
         repository_lineage=raw["repository_lineage"],
         arm_budget_seconds=int(raw["arm_budget_seconds"]),
         manifest={str(k): str(v) for k, v in manifest.items()},
+        build_commands=_load_build_commands(raw, unit_file),
         snapshot_path=snapshot_path,
         mission_path=mission_path,
         events_path=events_path,
@@ -338,6 +358,32 @@ def _is_dangerous_path(path: str) -> bool:
     if any(p.startswith("_log") or p.startswith(".") for p in parts):
         return True
     return False
+
+
+def _validate_pytest_selector(selector: str) -> None:
+    """Reject selector values that can alter pytest behavior or escape the repo."""
+    if not selector:
+        raise ValueError("pytest selector must not be empty")
+    if selector.startswith("-"):
+        raise PermissionError(f"pytest selector option is not allowed: {selector}")
+    path_part = selector.split("::", 1)[0]
+    if _is_dangerous_path(path_part):
+        raise PermissionError(f"pytest selector path is not allowed: {selector}")
+
+
+def _normalize_build_command(command: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    if not command:
+        raise ValueError("build command must not be empty")
+    normalized = list(command)
+    if Path(normalized[0]).name.startswith("python"):
+        normalized[0] = "python"
+    return tuple(normalized)
+
+
+def _runtime_build_command(command: tuple[str, ...]) -> list[str]:
+    if command and command[0] == "python":
+        return [sys.executable, *command[1:]]
+    return list(command)
 
 
 class BudgetLedger:
@@ -733,6 +779,7 @@ class RsrlEventGateway:
         """
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
+        _validate_pytest_selector(selector)
         repo_dir = self._repo_dir(unit_id)
         if not repo_dir.is_dir():
             raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
@@ -793,15 +840,22 @@ class RsrlEventGateway:
         if not repo_dir.is_dir():
             raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
 
-        self._ledger.check_wall_time(arm_id, unit_id)
-        self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
-        self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
-
         cmd = (
             list(build_command)
             if build_command
-            else [sys.executable, "-m", "compileall", "."]
+            else _runtime_build_command(self._units[unit_id].build_commands[0])
         )
+        normalized_cmd = _normalize_build_command(cmd)
+        allowed = set(self._units[unit_id].build_commands)
+        if normalized_cmd not in allowed:
+            raise PermissionError(
+                f"build command is not in the frozen allowlist for {unit_id}: {normalized_cmd!r}"
+            )
+        cmd = _runtime_build_command(normalized_cmd)
+
+        self._ledger.check_wall_time(arm_id, unit_id)
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
+        self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
         completed = subprocess.run(
             cmd,
             cwd=repo_dir,
