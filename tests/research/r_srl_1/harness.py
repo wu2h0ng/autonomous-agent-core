@@ -344,7 +344,47 @@ def load_events(events_path: Path) -> tuple[SrlEnvironmentEvent, ...]:
     raw: list[Any] = yaml.safe_load(events_path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError(f"events.yaml must contain a list: {events_path}")
-    return tuple(SrlEnvironmentEvent.model_validate(item) for item in raw)
+    events = tuple(SrlEnvironmentEvent.model_validate(item) for item in raw)
+    _validate_public_event_classes(events, events_path)
+    return events
+
+
+_FORBIDDEN_PUBLIC_EVENT_CLASS_TOKENS: frozenset[str] = frozenset(
+    {
+        "BELIEF",
+        "COMMITMENT",
+        "CONFLICT",
+        "DECOY",
+        "HELP",
+        "INTERFACE",
+        "MANDATORY",
+        "MUST",
+        "RESTART",
+        "SCORE",
+        "SCORER",
+        "TEST",
+        "UNCERTAINTY",
+        "VERIFIED",
+    }
+)
+
+
+def _validate_public_event_classes(
+    events: tuple[SrlEnvironmentEvent, ...], events_path: Path
+) -> None:
+    """Ensure public event classes do not leak hidden scorer semantics."""
+    for event in events:
+        event_class = event.event_class.upper()
+        leaked = sorted(
+            token
+            for token in _FORBIDDEN_PUBLIC_EVENT_CLASS_TOKENS
+            if token in event_class
+        )
+        if leaked:
+            raise ValueError(
+                f"events.yaml event_class leaks hidden scorer semantics for "
+                f"{event.event_id} in {events_path}: {event.event_class!r}"
+            )
 
 
 def _is_dangerous_path(path: str) -> bool:

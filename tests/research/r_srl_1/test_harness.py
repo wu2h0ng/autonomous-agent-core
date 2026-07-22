@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from agent_os_contracts import (
     BoundedOption,
@@ -157,6 +159,28 @@ def test_event_gateway_init_verifies_manifest(u00_dir: Path, tmp_path: Path) -> 
     (copied_unit / "events.yaml").write_text("- corrupted: true\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="manifest mismatch"):
+        RsrlEventGateway(units_root)
+
+
+def test_event_gateway_rejects_hidden_scorer_semantics_in_event_class(
+    u00_dir: Path, tmp_path: Path
+) -> None:
+    units_root = tmp_path / "units"
+    copied_unit = units_root / "u00"
+    shutil.copytree(u00_dir, copied_unit)
+
+    events_path = copied_unit / "events.yaml"
+    events = yaml.safe_load(events_path.read_text(encoding="utf-8"))
+    events[0]["event_class"] = "DECOY"
+    events_path.write_text(yaml.safe_dump(events, sort_keys=False), encoding="utf-8")
+
+    digest = hashlib.sha256(events_path.read_bytes()).hexdigest()
+    unit_path = copied_unit / "unit.yaml"
+    unit_doc = yaml.safe_load(unit_path.read_text(encoding="utf-8"))
+    unit_doc["manifest"]["events.yaml"] = f"sha256:{digest}"
+    unit_path.write_text(yaml.safe_dump(unit_doc, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="event_class leaks hidden scorer semantics"):
         RsrlEventGateway(units_root)
 
 
