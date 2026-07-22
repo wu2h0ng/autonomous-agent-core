@@ -183,8 +183,15 @@ def compare_srl_to_baselines(
     baseline.  Missing SRL/baseline annotations fail closed as ``INVALID``.
     """
     srl_annotations = recorder.list_annotations(srl_arm_id, unit_id)
+    srl_verified_outcomes = _verified_outcome_count(
+        verified_outcomes, srl_arm_id, required=False
+    )
     srl = recorder.arm_summary(
-        srl_arm_id, unit_id, verified_outcomes=int(verified_outcomes.get(srl_arm_id, 0))
+        srl_arm_id,
+        unit_id,
+        verified_outcomes=0
+        if srl_verified_outcomes is None
+        else srl_verified_outcomes,
     )
     if not srl_annotations:
         return HcwIrreducibilityComparison(
@@ -198,13 +205,29 @@ def compare_srl_to_baselines(
             gaps=("no SRL arm has HCW annotations",),
         )
 
-    baseline_summaries = [
-        recorder.arm_summary(
-            arm_id, unit_id, verified_outcomes=int(verified_outcomes.get(arm_id, 0))
+    outcome_count_gaps: list[str] = []
+    zero_denominator_gaps: list[str] = []
+    if srl_verified_outcomes is None:
+        outcome_count_gaps.append(f"missing verified outcome count for {srl_arm_id}")
+    if srl.hcw_minutes == 0.0:
+        zero_denominator_gaps.append("SRL arm has zero comparable HCW minutes")
+
+    baseline_summaries: list[HcwArmSummary] = []
+    for arm_id in baseline_arm_ids:
+        if not recorder.list_annotations(arm_id, unit_id):
+            continue
+        baseline_verified_outcomes = _verified_outcome_count(
+            verified_outcomes, arm_id, required=False
         )
-        for arm_id in baseline_arm_ids
-        if recorder.list_annotations(arm_id, unit_id)
-    ]
+        baseline_summaries.append(
+            recorder.arm_summary(
+                arm_id,
+                unit_id,
+                verified_outcomes=0
+                if baseline_verified_outcomes is None
+                else baseline_verified_outcomes,
+            )
+        )
     if not baseline_summaries:
         return HcwIrreducibilityComparison(
             verdict="INVALID",
@@ -215,6 +238,29 @@ def compare_srl_to_baselines(
             operator_intervention_ratio=None,
             outcomes_per_hcw_minute_ratio=None,
             gaps=("no baseline arm has HCW annotations",),
+        )
+
+    for summary in baseline_summaries:
+        if _verified_outcome_count(verified_outcomes, summary.arm_id, required=False) is None:
+            outcome_count_gaps.append(
+                f"missing verified outcome count for {summary.arm_id}"
+            )
+        if summary.hcw_minutes == 0.0:
+            zero_denominator_gaps.append(
+                f"baseline arm {summary.arm_id} has zero comparable HCW minutes"
+            )
+
+    invalid_gaps = tuple(outcome_count_gaps + zero_denominator_gaps)
+    if invalid_gaps:
+        return HcwIrreducibilityComparison(
+            verdict="INVALID",
+            srl=srl,
+            best_baseline=None,
+            best_baseline_arm_id=None,
+            hcw_minutes_ratio=None,
+            operator_intervention_ratio=None,
+            outcomes_per_hcw_minute_ratio=None,
+            gaps=invalid_gaps,
         )
 
     best_baseline = max(
@@ -273,6 +319,29 @@ def _safe_ratio(numerator: float, denominator: float) -> float | None:
     if denominator == 0.0:
         return 0.0 if numerator == 0.0 else None
     return numerator / denominator
+
+
+def _verified_outcome_count(
+    verified_outcomes: Mapping[str, int], arm_id: str, *, required: bool = True
+) -> int | None:
+    """Return a validated verified-outcome count for an arm.
+
+    HCW comparisons use outcome counts to choose the strongest baseline. Missing
+    or malformed counts therefore cannot be silently coerced to zero: that would
+    make an unscored baseline look weak and allow a false irreducibility win.
+    """
+    if arm_id not in verified_outcomes:
+        if required:
+            raise ValueError(f"missing verified outcome count for {arm_id}")
+        return None
+    count = verified_outcomes[arm_id]
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        if required:
+            raise ValueError(
+                f"verified outcome count for {arm_id} must be a non-negative int"
+            )
+        return None
+    return count
 
 
 def run_rater_prompt(
