@@ -558,7 +558,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "P/R — AGENT-OS-SELFDEV-1: the non-synthetic blocker is fixed (603ff53/e020a7f) and the first fair non-synthetic comparison is recorded (verdict SELFDEV_HCW_LOWER on one narrow contract-visible target, plus one archived malformed-proposal attempt and one earlier NOT_MET). Next package: adjudicate these receipts and decide whether to expand to a small declared multi-target set with upfront contracts and repeated samples, since a single VERIFIED sample cannot support an HCW reduction claim; durable cross-process resume rehydration remains a separate ADR-level decision."
+    action: "P/R — AGENT-OS-SELFDEV-1: the non-synthetic blocker is fixed (603ff53/e020a7f) and the first fair non-synthetic comparison is recorded (verdict SELFDEV_HCW_LOWER on one narrow contract-visible target, plus one archived malformed-proposal attempt and one earlier NOT_MET). The multi-target round is drafted as DESIGN_ONLY prereg docs/product/AGENT-OS-SELFDEV-1-prereg-multi-target-2026-07-23.md (4 targets, 3-attempt budget, frozen statements/fixtures, kill criteria); fixtures F2/F4 red-validated, F3 red-proven by fair attempt-1. Next: founder assigns an independent reviewer (reviewed_by != builder_id, RR-0031 anchoring); no result-bearing run until the §9 freeze commit with exact-content manifest. Durable cross-process resume rehydration remains a separate ADR-level decision."
   - priority: 2
     action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity or irreducibility against same-Mandate baselines. Preserve NOT_FROZEN/NO_RESULT_RUN until run-artifact HCW data capture, rater/pilot reliability and remaining methodology-review blockers close or are explicitly PARKed."
   - priority: 3
