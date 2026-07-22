@@ -7,7 +7,11 @@ from pathlib import Path
 
 from agent_os_contracts import WorkflowGraph
 from apps.cli import __main__ as cli
-from agent_os_core import INVALID_SELFDEV_TARGET, SelfDevelopmentValidationError
+from agent_os_core import (
+    INVALID_SELFDEV_TARGET,
+    RUN_DENIED,
+    SelfDevelopmentValidationError,
+)
 
 
 @dataclass
@@ -332,6 +336,92 @@ def test_cli_selfdev_create_can_delegate_to_existing_run_gate(
         "target_path": "packages/os_core/src/agent_os_core/recovery.py",
         "test_command": "python -m pytest",
     }
+
+
+def test_cli_selfdev_run_provider_fails_closed_before_task_create_without_readiness(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    for key in (
+        "AGENT_OS_PROVIDER_BASE_URL",
+        "AGENT_OS_PROVIDER_MODEL",
+        "AGENT_OS_PROVIDER_API_KEY_ENV",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    fake = FakeApplication()
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-provider-denied")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-provider-denied",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-provider",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+        ],
+    )
+    try:
+        cli.main()
+    except SelfDevelopmentValidationError as exc:
+        assert exc.code == RUN_DENIED
+        assert "REAL_PROVIDER_NOT_CONFIGURED" in exc.detail
+    else:
+        raise AssertionError("provider SELFDEV should fail closed before task create")
+    assert fake.calls == []
+
+
+def test_cli_selfdev_run_provider_requires_readiness_then_delegates_to_run_gate(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    fake = FakeApplication()
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-provider-ready")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-provider-ready",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-provider",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+            "--created-at",
+            "2026-07-22T00:00:00+00:00",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["mode"] == "REAL_PROVIDER_READY_UNTIL_APPROVAL"
+    assert output["readiness"]["ready"] is True
+    assert output["task"]["task_id"] == "task:selfdev-created"
+    assert [name for name, _ in fake.calls] == ["create", "commit", "run"]
+    run_call = fake.calls[2][1]
+    assert isinstance(run_call, tuple)
+    assert run_call[1] == {
+        "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+        "test_command": "python -m pytest",
+    }
+    assert "redacted-test-key" not in json.dumps(output)
 
 
 def test_cli_selfdev_run_local_executes_existing_spine_with_explicit_patch(

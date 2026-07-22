@@ -14,7 +14,9 @@ from agent_os_contracts import ProviderToolProposal
 from apps.api_server.app import AgentOSApplication
 from agent_os_core import (
     DeterministicProvider,
+    RUN_DENIED,
     SelfDevelopmentTaskSpec,
+    SelfDevelopmentValidationError,
     build_self_development_baseline_record,
     evaluate_self_development_readiness,
     prepare_self_development_task_package,
@@ -75,9 +77,17 @@ def main() -> None:
     selfdev_baseline_record.add_argument("baseline_json", type=Path)
     selfdev_baseline_capture = sub.add_parser("selfdev-baseline-capture")
     selfdev_baseline_capture.add_argument("spec_json", type=Path)
-    selfdev_baseline_capture.add_argument("--operator-intervention-count", type=int, required=True)
+    selfdev_baseline_capture.add_argument(
+        "--operator-intervention-count",
+        type=int,
+        required=True,
+    )
     selfdev_baseline_capture.add_argument("--hcw-minutes", type=float, required=True)
     selfdev_baseline_capture.add_argument("--evidence-ref", action="append", default=[])
+    selfdev_run_provider = sub.add_parser("selfdev-run-provider")
+    selfdev_run_provider.add_argument("spec_json", type=Path)
+    selfdev_run_provider.add_argument("--baseline-record", type=Path, required=True)
+    selfdev_run_provider.add_argument("--created-at")
     args = parser.parse_args()
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
@@ -97,12 +107,8 @@ def main() -> None:
         print(json.dumps(asdict(package), indent=2, default=str))
         return
     if args.command == "selfdev-readiness":
-        credential_env = os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY")
-        report = evaluate_self_development_readiness(
+        report, provider = _evaluate_selfdev_readiness_from_env(
             _selfdev_spec_from_file(args.spec_json),
-            provider_configured=bool(os.environ.get("AGENT_OS_PROVIDER_BASE_URL")),
-            provider_model=os.environ.get("AGENT_OS_PROVIDER_MODEL"),
-            credential_available=bool(os.environ.get(credential_env)),
             baseline_record=(
                 _selfdev_baseline_record_from_file(args.baseline_record)
                 if args.baseline_record
@@ -110,12 +116,7 @@ def main() -> None:
             ),
         )
         output = asdict(report)
-        output["provider"] = {
-            "base_url_configured": bool(os.environ.get("AGENT_OS_PROVIDER_BASE_URL")),
-            "model_configured": bool(os.environ.get("AGENT_OS_PROVIDER_MODEL")),
-            "credential_env": credential_env,
-            "credential_available": bool(os.environ.get(credential_env)),
-        }
+        output["provider"] = provider
         print(json.dumps(output, indent=2, default=str))
         return
     if args.command == "selfdev-baseline-record":
@@ -168,6 +169,63 @@ def main() -> None:
             proposed = app.run_task(committed.task_id, package.run_inputs)
             output["task"] = app.task_json(proposed.task_id)
         print(json.dumps(output, indent=2, default=str))
+    elif args.command == "selfdev-run-provider":
+        spec = _selfdev_spec_from_file(args.spec_json)
+        baseline_record = _selfdev_baseline_record_from_file(args.baseline_record)
+        readiness, provider = _evaluate_selfdev_readiness_from_env(
+            spec,
+            baseline_record=baseline_record,
+        )
+        if not readiness.ready:
+            raise SelfDevelopmentValidationError(
+                RUN_DENIED,
+                "selfdev-run-provider readiness failed: "
+                + ",".join(readiness.blockers),
+            )
+        receipt = validate_self_development_task(spec)
+        created_at = (
+            datetime.fromisoformat(args.created_at.replace("Z", "+00:00"))
+            if args.created_at
+            else datetime.now().astimezone()
+        )
+        created = app.create_task(
+            {
+                "goal_id": f"goal:selfdev:{receipt.receipt_digest[:12]}",
+                "tenant_id": "tenant:local",
+                "workspace_id": "workspace:local",
+                "created_by": "user:local",
+                "created_at": created_at.isoformat(),
+                "statement": (
+                    "Real provider Agent OS self-development run for "
+                    f"{receipt.target_path}"
+                ),
+            }
+        )
+        package = prepare_self_development_task_package(
+            spec,
+            task_id=created.task_id,
+            created_at=created_at,
+            statement=(
+                "Real provider Agent OS self-development run for "
+                f"{receipt.target_path}"
+            ),
+        )
+        committed = app.commit_task(created.task_id, package.task_commit_payload)
+        proposed = app.run_task(committed.task_id, package.run_inputs)
+        print(
+            json.dumps(
+                {
+                    "mode": "REAL_PROVIDER_READY_UNTIL_APPROVAL",
+                    "provider": provider,
+                    "readiness": asdict(readiness),
+                    "baseline_record": asdict(baseline_record),
+                    "task": app.task_json(proposed.task_id),
+                    "package": asdict(package),
+                },
+                indent=2,
+                default=str,
+            )
+        )
     elif args.command == "selfdev-run-local":
         spec = _selfdev_spec_from_file(args.spec_json)
         receipt = validate_self_development_task(spec)
@@ -315,6 +373,30 @@ def _selfdev_baseline_record_from_file(path: Path):
         hcw_minutes=float(payload.get("hcw_minutes", -1)),
         outcome_status=str(payload.get("outcome_status", "")),
         evidence_refs=tuple(str(ref) for ref in evidence_refs),
+    )
+
+
+def _evaluate_selfdev_readiness_from_env(
+    spec: SelfDevelopmentTaskSpec,
+    *,
+    baseline_record,
+):
+    credential_env = os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY")
+    provider = {
+        "base_url_configured": bool(os.environ.get("AGENT_OS_PROVIDER_BASE_URL")),
+        "model_configured": bool(os.environ.get("AGENT_OS_PROVIDER_MODEL")),
+        "credential_env": credential_env,
+        "credential_available": bool(os.environ.get(credential_env)),
+    }
+    return (
+        evaluate_self_development_readiness(
+            spec,
+            provider_configured=provider["base_url_configured"],
+            provider_model=os.environ.get("AGENT_OS_PROVIDER_MODEL"),
+            credential_available=provider["credential_available"],
+            baseline_record=baseline_record,
+        ),
+        provider,
     )
 
 
