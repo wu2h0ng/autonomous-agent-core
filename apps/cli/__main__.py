@@ -18,6 +18,7 @@ from agent_os_core import (
     SelfDevelopmentTaskSpec,
     SelfDevelopmentValidationError,
     build_self_development_baseline_record,
+    build_self_development_comparison_receipt,
     evaluate_self_development_readiness,
     prepare_self_development_task_package,
     validate_self_development_task,
@@ -88,6 +89,11 @@ def main() -> None:
     selfdev_run_provider.add_argument("spec_json", type=Path)
     selfdev_run_provider.add_argument("--baseline-record", type=Path, required=True)
     selfdev_run_provider.add_argument("--created-at")
+    selfdev_compare = sub.add_parser("selfdev-compare")
+    selfdev_compare.add_argument("spec_json", type=Path)
+    selfdev_compare.add_argument("baseline_record_json", type=Path)
+    selfdev_compare.add_argument("--selfdev-outcome-status", required=True)
+    selfdev_compare.add_argument("--selfdev-evidence-ref", action="append", default=[])
     args = parser.parse_args()
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
@@ -131,6 +137,17 @@ def main() -> None:
             extra_evidence_refs=tuple(args.evidence_ref),
         )
         print(json.dumps(output, indent=2, default=str))
+        return
+    if args.command == "selfdev-compare":
+        comparison = build_self_development_comparison_receipt(
+            _selfdev_spec_from_file(args.spec_json),
+            baseline_record=_selfdev_baseline_record_from_file(
+                args.baseline_record_json,
+            ),
+            selfdev_outcome_status=args.selfdev_outcome_status,
+            selfdev_evidence_refs=tuple(args.selfdev_evidence_ref),
+        )
+        print(json.dumps(asdict(comparison), indent=2, default=str))
         return
 
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))

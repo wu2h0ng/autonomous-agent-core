@@ -714,6 +714,76 @@ def test_cli_selfdev_readiness_fails_closed_without_baseline_record(
     assert "redacted-test-key" not in json.dumps(output)
 
 
+def test_cli_selfdev_compare_outputs_hcw_verdict_receipt(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-compare")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-compare",
+        operator_intervention_count=3,
+        hcw_minutes=5.5,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-compare",
+            str(spec_path),
+            str(baseline_path),
+            "--selfdev-outcome-status",
+            "VERIFIED",
+            "--selfdev-evidence-ref",
+            "selfdev:run",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["verdict"] == "SELFDEV_HCW_LOWER"
+    assert output["baseline_hcw_minutes"] == 5.5
+    assert output["selfdev_hcw_minutes"] == 0.25
+    assert output["hcw_delta_minutes"] == -5.25
+    assert output["operator_intervention_delta"] == -2
+    assert output["selfdev_evidence_refs"] == ["selfdev:run"]
+    assert len(output["receipt_digest"]) == 64
+
+
+def test_cli_selfdev_compare_does_not_claim_win_when_outcome_not_verified(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-compare-not-met")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-compare-not-met",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-compare",
+            str(spec_path),
+            str(baseline_path),
+            "--selfdev-outcome-status",
+            "NOT_MET",
+            "--selfdev-evidence-ref",
+            "selfdev:run",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["verdict"] == "INCOMPARABLE_OUTCOME_NOT_VERIFIED"
+
+
 def test_cli_selfdev_readiness_passes_with_provider_and_matched_baseline_record(
     tmp_path: Path,
     monkeypatch,
@@ -815,6 +885,8 @@ def _write_selfdev_baseline_record(
     *,
     branch: str,
     target_path: str = "packages/os_core/src/agent_os_core/recovery.py",
+    operator_intervention_count: int = 2,
+    hcw_minutes: float = 3.5,
     evidence_refs: list[str] | None = None,
 ) -> Path:
     baseline_path = tmp_path / f"{branch.replace('/', '-')}-baseline.json"
@@ -824,8 +896,8 @@ def _write_selfdev_baseline_record(
                 "baseline_assignment_id": f"baseline:{branch}",
                 "repository_id": "autonomous-agent-core",
                 "target_path": target_path,
-                "operator_intervention_count": 2,
-                "hcw_minutes": 3.5,
+                "operator_intervention_count": operator_intervention_count,
+                "hcw_minutes": hcw_minutes,
                 "outcome_status": "VERIFIED",
                 "evidence_refs": evidence_refs or ["run:baseline"],
             }

@@ -116,6 +116,24 @@ class SelfDevelopmentReadinessReport:
     next_required_actions: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class SelfDevelopmentComparisonReceipt:
+    """Digest-bound SELFDEV-vs-baseline HCW comparison for the same target."""
+
+    admission_receipt: SelfDevelopmentReceipt
+    baseline_record: SelfDevelopmentBaselineRecord
+    selfdev_outcome_status: str
+    selfdev_evidence_refs: tuple[str, ...]
+    baseline_hcw_minutes: float
+    selfdev_hcw_minutes: float
+    hcw_delta_minutes: float
+    baseline_operator_intervention_count: int
+    selfdev_operator_intervention_count: int
+    operator_intervention_delta: int
+    verdict: str
+    receipt_digest: str
+
+
 def validate_self_development_task(
     spec: SelfDevelopmentTaskSpec,
 ) -> SelfDevelopmentReceipt:
@@ -373,6 +391,85 @@ def build_self_development_baseline_record(
         ).encode("utf-8")
     ).hexdigest()
     return SelfDevelopmentBaselineRecord(record_digest=digest, **payload)
+
+
+def build_self_development_comparison_receipt(
+    spec: SelfDevelopmentTaskSpec,
+    *,
+    baseline_record: SelfDevelopmentBaselineRecord,
+    selfdev_outcome_status: str,
+    selfdev_evidence_refs: tuple[str, ...],
+) -> SelfDevelopmentComparisonReceipt:
+    receipt = validate_self_development_task(spec)
+    blockers: list[str] = []
+    actions: list[str] = []
+    _validate_baseline_record(receipt, baseline_record, blockers, actions)
+    if blockers:
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "baseline is not comparable: " + ",".join(blockers),
+        )
+    status = selfdev_outcome_status.strip().upper()
+    if status not in {"VERIFIED", "NOT_MET", "UNRESOLVED", "INVALID"}:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "selfdev_outcome_status is not supported",
+        )
+    if not selfdev_evidence_refs:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "selfdev_evidence_refs are required",
+        )
+    hcw_delta = round(spec.hcw_minutes - baseline_record.hcw_minutes, 6)
+    intervention_delta = (
+        spec.operator_intervention_count
+        - baseline_record.operator_intervention_count
+    )
+    if baseline_record.outcome_status != "VERIFIED" or status != "VERIFIED":
+        verdict = "INCOMPARABLE_OUTCOME_NOT_VERIFIED"
+    elif hcw_delta < 0 and intervention_delta <= 0:
+        verdict = "SELFDEV_HCW_LOWER"
+    else:
+        verdict = "SELFDEV_HCW_NOT_LOWER"
+    payload = {
+        "admission_receipt_digest": receipt.receipt_digest,
+        "baseline_record_digest": baseline_record.record_digest,
+        "selfdev_outcome_status": status,
+        "selfdev_evidence_refs": tuple(sorted(selfdev_evidence_refs)),
+        "baseline_hcw_minutes": baseline_record.hcw_minutes,
+        "selfdev_hcw_minutes": spec.hcw_minutes,
+        "hcw_delta_minutes": hcw_delta,
+        "baseline_operator_intervention_count": (
+            baseline_record.operator_intervention_count
+        ),
+        "selfdev_operator_intervention_count": spec.operator_intervention_count,
+        "operator_intervention_delta": intervention_delta,
+        "verdict": verdict,
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return SelfDevelopmentComparisonReceipt(
+        admission_receipt=receipt,
+        baseline_record=baseline_record,
+        selfdev_outcome_status=status,
+        selfdev_evidence_refs=tuple(sorted(selfdev_evidence_refs)),
+        baseline_hcw_minutes=baseline_record.hcw_minutes,
+        selfdev_hcw_minutes=spec.hcw_minutes,
+        hcw_delta_minutes=hcw_delta,
+        baseline_operator_intervention_count=(
+            baseline_record.operator_intervention_count
+        ),
+        selfdev_operator_intervention_count=spec.operator_intervention_count,
+        operator_intervention_delta=intervention_delta,
+        verdict=verdict,
+        receipt_digest=digest,
+    )
 
 
 def _validate_baseline_record(

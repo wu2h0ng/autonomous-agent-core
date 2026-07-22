@@ -23,6 +23,8 @@ from agent_os_core import (
     SelfDevelopmentTaskSpec,
     SelfDevelopmentValidationError,
     WorkerInterrupted,
+    build_self_development_baseline_record,
+    build_self_development_comparison_receipt,
     validate_self_development_task,
 )
 from apps.api_server.app import AgentOSApplication
@@ -280,3 +282,76 @@ def test_selfdev_s1_rejects_generic_fixture_target() -> None:
             )
         )
     assert exc_info.value.code == INVALID_SELFDEV_TARGET
+
+
+def test_selfdev_comparison_receipt_binds_matched_baseline_and_hcw_verdict() -> None:
+    spec = SelfDevelopmentTaskSpec(
+        mandate_id="META-SHADOW-MANDATE-0",
+        repository_id="autonomous-agent-core",
+        repository_head="0123456789abcdef",
+        isolated_workspace="/tmp/agent-os-selfdev",
+        isolated_branch="codex/selfdev-compare",
+        target_path=AGENT_OS_TARGET,
+        verifier_commands=("python -m pytest",),
+        expected_outcome_id="expected:selfdev-compare",
+        rollback_strategy="compensate_task",
+        operator_intervention_count=1,
+        hcw_minutes=2.0,
+        baseline_assignment_id="baseline:selfdev-compare",
+    )
+    baseline = build_self_development_baseline_record(
+        baseline_assignment_id="baseline:selfdev-compare",
+        repository_id="autonomous-agent-core",
+        target_path=AGENT_OS_TARGET,
+        operator_intervention_count=2,
+        hcw_minutes=5.0,
+        outcome_status="VERIFIED",
+        evidence_refs=("baseline:run",),
+    )
+
+    receipt = build_self_development_comparison_receipt(
+        spec,
+        baseline_record=baseline,
+        selfdev_outcome_status="VERIFIED",
+        selfdev_evidence_refs=("selfdev:run",),
+    )
+
+    assert receipt.verdict == "SELFDEV_HCW_LOWER"
+    assert receipt.hcw_delta_minutes == -3.0
+    assert receipt.operator_intervention_delta == -1
+    assert receipt.baseline_record.record_digest == baseline.record_digest
+    assert len(receipt.receipt_digest) == 64
+
+
+def test_selfdev_comparison_receipt_refuses_mismatched_baseline() -> None:
+    spec = SelfDevelopmentTaskSpec(
+        mandate_id="META-SHADOW-MANDATE-0",
+        repository_id="autonomous-agent-core",
+        repository_head="0123456789abcdef",
+        isolated_workspace="/tmp/agent-os-selfdev",
+        isolated_branch="codex/selfdev-compare",
+        target_path=AGENT_OS_TARGET,
+        verifier_commands=("python -m pytest",),
+        expected_outcome_id="expected:selfdev-compare",
+        rollback_strategy="compensate_task",
+        operator_intervention_count=1,
+        hcw_minutes=2.0,
+        baseline_assignment_id="baseline:selfdev-compare",
+    )
+    baseline = build_self_development_baseline_record(
+        baseline_assignment_id="baseline:selfdev-other",
+        repository_id="autonomous-agent-core",
+        target_path=AGENT_OS_TARGET,
+        operator_intervention_count=2,
+        hcw_minutes=5.0,
+        outcome_status="VERIFIED",
+        evidence_refs=("baseline:run",),
+    )
+
+    with pytest.raises(SelfDevelopmentValidationError):
+        build_self_development_comparison_receipt(
+            spec,
+            baseline_record=baseline,
+            selfdev_outcome_status="VERIFIED",
+            selfdev_evidence_refs=("selfdev:run",),
+        )
