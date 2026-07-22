@@ -1,0 +1,16 @@
+{
+  "mandate_id": "META-SHADOW-MANDATE-0",
+  "repository_id": "autonomous-agent-core",
+  "repository_head": "4c40ff6",
+  "verifier_commands": [
+    "python -m pytest"
+  ],
+  "rollback_strategy": "compensate_task",
+  "operator_intervention_count": 0,
+  "hcw_minutes": 0.0,
+  "isolated_branch": "codex/selfdev-mt-20260723-t3",
+  "target_path": "apps/cli/__main__.py",
+  "expected_outcome_id": "expected:selfdev-mt-20260723-t3",
+  "baseline_assignment_id": "baseline:selfdev-mt-20260723-t3",
+  "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-mt-20260723/t3/provider"
+}

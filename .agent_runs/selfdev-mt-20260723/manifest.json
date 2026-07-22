@@ -1,0 +1,22 @@
+{
+  "schema": "selfdev-mt-prereg-manifest.v1",
+  "prereg": "docs/product/AGENT-OS-SELFDEV-1-prereg-multi-target-2026-07-23.md",
+  "freeze_head_t1": "59112db",
+  "freeze_head_t2_t4": "4c40ff6",
+  "reviewer": "kimi subagent (blind-anchored, no builder history): TECHNICAL_APPROVE rounds 2-3",
+  "files": {
+    "docs/product/AGENT-OS-SELFDEV-1-prereg-multi-target-2026-07-23.md": "baf94e1d9fe84c459da6f91a12a0376d8a774563a0b4623f07f53ca60af693b2",
+    ".agent_runs/selfdev-mt-20260723/t1/spec.json": "db6e88f51f89c34cf8f57b28e23e7d3f672d986b5ba405f80d14097241045da6",
+    ".agent_runs/selfdev-mt-20260723/t1/fixture.patch": "735c0c700db910b48542d5440127b521321285e95adce81c1c3bc2e139b8ac3f",
+    ".agent_runs/selfdev-mt-20260723/t1/pytest.ini": "e5faaba535b1a388bf0c39830f5fd490f939adc767ed849d300e37547e05eef9",
+    ".agent_runs/selfdev-mt-20260723/t2/spec.json": "3f3e713833b075ccde928ceb75b357113c1a9ea04179686bb9be2124c95e5187",
+    ".agent_runs/selfdev-mt-20260723/t2/apply-fixture.py": "d26d36c390668228d19b4afbca7cff0fea7808aba7abeddef04d8011369764bc",
+    ".agent_runs/selfdev-mt-20260723/t2/pytest.ini": "e5faaba535b1a388bf0c39830f5fd490f939adc767ed849d300e37547e05eef9",
+    ".agent_runs/selfdev-mt-20260723/t3/spec.json": "430b7064170d8776971f327ec01f7a66ab5f19a75bcb08e0c5df3135c7e2ee0d",
+    ".agent_runs/selfdev-mt-20260723/t3/apply-fixture.py": "00a784c71b11dd88e6b68ff19173ba3b556a1dc39148b45634243dfd7fd9f9c2",
+    ".agent_runs/selfdev-mt-20260723/t3/pytest.ini": "d388db549a2b7d030e29db33260154799fc9ac479a52b2647aa0cbd64690e1c2",
+    ".agent_runs/selfdev-mt-20260723/t4/spec.json": "798ee495d7dc67af7ccc1a8bffc644252bd0680ef7de00ae57dd45f9f63c0b3d",
+    ".agent_runs/selfdev-mt-20260723/t4/apply-fixture.py": "129dd94c55fb26a4c510f6fb50da0855e084c20a8cf8ed09c072caa12b1a7e2b",
+    ".agent_runs/selfdev-mt-20260723/t4/pytest.ini": "895e96f5754f87788bd457073a8d0180256c1815cff4a1b8232a519c2f4a5143"
+  }
+}
