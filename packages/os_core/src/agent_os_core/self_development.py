@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
+
+from agent_os_contracts import EdgeSpec, IdempotencyMode, NodeKind, NodeSpec, WorkflowGraph
 
 
 INVALID_SELFDEV_TARGET = "INVALID_SELFDEV_TARGET"
@@ -80,6 +83,15 @@ class SelfDevelopmentReceipt:
     receipt_digest: str
 
 
+@dataclass(frozen=True)
+class SelfDevelopmentTaskPackage:
+    """Prepared Task/Run package for the existing Agent OS execution spine."""
+
+    admission_receipt: SelfDevelopmentReceipt
+    task_commit_payload: dict[str, object]
+    run_inputs: dict[str, object]
+
+
 def validate_self_development_task(
     spec: SelfDevelopmentTaskSpec,
 ) -> SelfDevelopmentReceipt:
@@ -137,6 +149,153 @@ def validate_self_development_task(
         ).encode("utf-8")
     ).hexdigest()
     return SelfDevelopmentReceipt(receipt_digest=digest, **payload)
+
+
+def prepare_self_development_task_package(
+    spec: SelfDevelopmentTaskSpec,
+    *,
+    task_id: str,
+    created_at: datetime | None = None,
+    statement: str | None = None,
+    duration_seconds: int = 300,
+    max_cost_usd: str = "1",
+    max_provider_tokens: int = 1000,
+    max_tool_calls: int = 10,
+) -> SelfDevelopmentTaskPackage:
+    """Compile a validated SELFDEV spec into the existing Task/Run contracts.
+
+    This does not create, approve or run a task. It prepares the payload that the
+    existing ``task-commit`` and ``task-run`` surfaces already consume.
+    """
+
+    _require_nonempty("task_id", task_id)
+    if duration_seconds <= 0:
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "duration_seconds must be positive",
+        )
+    if max_provider_tokens <= 0 or max_tool_calls <= 0:
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "provider token and tool-call budgets must be positive",
+        )
+    receipt = validate_self_development_task(spec)
+    now = created_at or datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=duration_seconds)
+    goal_id = f"goal:selfdev:{receipt.receipt_digest[:12]}"
+    package_statement = statement or (
+        "Agent OS self-development repository task for "
+        f"{receipt.target_path}"
+    )
+    task_commit_payload: dict[str, object] = {
+        "commitment": {
+            "commitment_id": f"commitment:selfdev:{receipt.receipt_digest[:12]}",
+            "task_id": task_id,
+            "goal_id": goal_id,
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "accepted_by": "user:local",
+            "accepted_at": now.isoformat(),
+            "deliverables": [
+                "Agent OS repository patch",
+                f"SELFDEV admission receipt {receipt.receipt_digest}",
+            ],
+            "acceptance_criteria": [
+                "admission receipt validates SELFDEV target",
+                "exact-digest approval is recorded before patch effect",
+                "allowlisted verifier evidence is content-bound",
+                "compensation restores pre-change bytes",
+            ],
+            "authority_scopes": ["workspace:read", "workspace:write"],
+            "budget": {
+                "max_cost_usd": max_cost_usd,
+                "max_duration_seconds": duration_seconds,
+                "max_provider_tokens": max_provider_tokens,
+                "max_tool_calls": max_tool_calls,
+            },
+            "risk_tier": 1,
+            "exit_conditions": ["verified", "compensated on failure"],
+            "expires_at": expires_at.isoformat(),
+        },
+        "workflow": _selfdev_workflow(now).model_dump(mode="json"),
+        "expected_outcome": {
+            "expected_outcome_id": receipt.expected_outcome_id,
+            "task_id": task_id,
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "evaluator_type": "pytest",
+            "evaluator_version": "1",
+            "evidence_requirements": ["test-report"],
+            "failure_semantics": ["non-zero exit"],
+            "threshold": 1,
+            "observation_window_seconds": duration_seconds,
+            "frozen_at": now.isoformat(),
+        },
+        "selfdev_admission_receipt": _receipt_dict(receipt),
+        "statement": package_statement,
+    }
+    return SelfDevelopmentTaskPackage(
+        admission_receipt=receipt,
+        task_commit_payload=task_commit_payload,
+        run_inputs={
+            "target_path": receipt.target_path,
+            "test_command": receipt.verifier_commands[0],
+        },
+    )
+
+
+def _selfdev_workflow(created_at: datetime) -> WorkflowGraph:
+    nodes = (
+        NodeSpec(
+            node_id="read",
+            kind=NodeKind.TOOL,
+            capability="workspace.read",
+            idempotency=IdempotencyMode.IDEMPOTENT,
+        ),
+        NodeSpec(
+            node_id="provider",
+            kind=NodeKind.PROVIDER,
+            capability="provider.chat",
+        ),
+        NodeSpec(node_id="approve", kind=NodeKind.APPROVAL),
+        NodeSpec(
+            node_id="apply",
+            kind=NodeKind.TOOL,
+            capability="workspace.apply_patch",
+            idempotency=IdempotencyMode.COMPENSATABLE,
+        ),
+        NodeSpec(
+            node_id="tests",
+            kind=NodeKind.TOOL,
+            capability="workspace.run_tests",
+            idempotency=IdempotencyMode.COMPENSATABLE,
+        ),
+        NodeSpec(node_id="evaluate", kind=NodeKind.EVALUATION),
+        NodeSpec(node_id="done", kind=NodeKind.TERMINAL),
+    )
+    edges = tuple(
+        EdgeSpec(source=source, target=target)
+        for source, target in (
+            ("read", "provider"),
+            ("provider", "approve"),
+            ("approve", "apply"),
+            ("apply", "tests"),
+            ("tests", "evaluate"),
+            ("evaluate", "done"),
+        )
+    )
+    return WorkflowGraph(
+        workflow_id="workflow:selfdev-s2",
+        version=1,
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        created_by="user:local",
+        created_at=created_at,
+        policy_version="policy-1",
+        evaluator_refs=("evaluator:pytest:1",),
+        nodes=nodes,
+        edges=edges,
+    )
 
 
 def _validate_target_path(value: str) -> str:
@@ -199,3 +358,21 @@ def _require_nonempty(field: str, value: str) -> None:
             INVALID_SELFDEV_TARGET,
             f"{field} is required",
         )
+
+
+def _receipt_dict(receipt: SelfDevelopmentReceipt) -> dict[str, object]:
+    return {
+        "mandate_id": receipt.mandate_id,
+        "repository_id": receipt.repository_id,
+        "repository_head": receipt.repository_head,
+        "isolated_workspace": receipt.isolated_workspace,
+        "isolated_branch": receipt.isolated_branch,
+        "target_path": receipt.target_path,
+        "verifier_commands": list(receipt.verifier_commands),
+        "expected_outcome_id": receipt.expected_outcome_id,
+        "rollback_strategy": receipt.rollback_strategy,
+        "operator_intervention_count": receipt.operator_intervention_count,
+        "hcw_minutes": receipt.hcw_minutes,
+        "baseline_assignment_id": receipt.baseline_assignment_id,
+        "receipt_digest": receipt.receipt_digest,
+    }

@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent_os_contracts import WorkflowGraph
 from apps.cli import __main__ as cli
 from agent_os_core import INVALID_SELFDEV_TARGET, SelfDevelopmentValidationError
 
@@ -179,3 +180,67 @@ def test_cli_selfdev_validate_rejects_generic_target(
         assert exc.code == INVALID_SELFDEV_TARGET
     else:
         raise AssertionError("generic target should fail closed")
+
+
+def test_cli_selfdev_prepare_outputs_commit_payload_and_run_inputs(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: FakeApplication())
+    spec_path = tmp_path / "selfdev.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "mandate_id": "META-SHADOW-MANDATE-0",
+                "repository_id": "autonomous-agent-core",
+                "repository_head": "0123456789abcdef",
+                "isolated_workspace": str(tmp_path),
+                "isolated_branch": "codex/selfdev-s2-cli",
+                "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+                "verifier_commands": ["python -m pytest"],
+                "expected_outcome_id": "expected:selfdev-s2-cli",
+                "rollback_strategy": "compensate_task",
+                "operator_intervention_count": 1,
+                "hcw_minutes": 0.25,
+                "baseline_assignment_id": "baseline:selfdev-s2-cli",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-prepare",
+            str(spec_path),
+            "--task-id",
+            "task:selfdev-s2-cli",
+            "--created-at",
+            "2026-07-22T00:00:00+00:00",
+        ],
+    )
+    cli.main()
+
+    package = json.loads(capsys.readouterr().out)
+    receipt = package["admission_receipt"]
+    commit_payload = package["task_commit_payload"]
+    run_inputs = package["run_inputs"]
+    assert receipt["target_path"] == "packages/os_core/src/agent_os_core/recovery.py"
+    assert commit_payload["commitment"]["task_id"] == "task:selfdev-s2-cli"
+    assert commit_payload["expected_outcome"]["task_id"] == "task:selfdev-s2-cli"
+    assert (
+        commit_payload["expected_outcome"]["expected_outcome_id"]
+        == "expected:selfdev-s2-cli"
+    )
+    assert (
+        commit_payload["selfdev_admission_receipt"]["receipt_digest"]
+        == receipt["receipt_digest"]
+    )
+    WorkflowGraph.model_validate(commit_payload["workflow"])
+    assert run_inputs == {
+        "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+        "test_command": "python -m pytest",
+    }
