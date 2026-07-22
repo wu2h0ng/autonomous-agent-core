@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-22T19:15:00+08:00"
+updated: "2026-07-22T19:25:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715 (canonical convergence worktree)"
-status: "The canonical convergence branch contains R-SRL-1 HCW scorer redirect integration at 279c0ba, blinded-HCW-protocol remediation at b3dae8f, scorer-ready run-artifact production at caaaab8, test/build gateway escape closure at 03ccfe1, public event-class leakage closure at 030753d, per-arm temporary workdir isolation at da0fa3d, matched four-arm budget enforcement at 73b7b03, and gate/pilot fixture metadata validation at 7adfb57. The latest R-SRL harness evidence is 115 targeted tests passed, targeted Ruff clean, targeted Pyright 0 errors. AGENT-OS-SELFDEV-1 is the near-term Product/Translational slice for Agent OS developing Agent OS inside a rollback-safe repository environment; SELFDEV-S1 contract/test package is implemented at c592e29, CLI admission receipt entry is implemented at 8b6ed80, SELFDEV-S2 task-package preparation is implemented at e76adc0, and targeted verification is 9 product tests passed, targeted Ruff clean and targeted Pyright 0 errors. No product activation, no release and no Autonomy(S,E,O,V,T) evidence."
+status: "The canonical convergence branch contains R-SRL-1 HCW scorer redirect integration at 279c0ba, blinded-HCW-protocol remediation at b3dae8f, scorer-ready run-artifact production at caaaab8, test/build gateway escape closure at 03ccfe1, public event-class leakage closure at 030753d, per-arm temporary workdir isolation at da0fa3d, matched four-arm budget enforcement at 73b7b03, and gate/pilot fixture metadata validation at 7adfb57. The latest R-SRL harness evidence is 115 targeted tests passed, targeted Ruff clean, targeted Pyright 0 errors. AGENT-OS-SELFDEV-1 is the near-term Product/Translational slice for Agent OS developing Agent OS inside a rollback-safe repository environment; SELFDEV-S1 contract/test package is implemented at c592e29, CLI admission receipt entry is implemented at 8b6ed80, SELFDEV-S2 task-package preparation is implemented at e76adc0, SELFDEV-S3 create/commit CLI entry is implemented at 3effd59, and targeted verification is 11 product tests passed, targeted Ruff clean and targeted Pyright 0 errors. No product activation, no release and no Autonomy(S,E,O,V,T) evidence."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -229,14 +229,15 @@ active_work:
       - "docs/research/situated-operational-model-architecture-2026-07-16.md"
   - id: "AGENT-OS-SELFDEV-1"
     track: "product_and_translational"
-    status: "SELFDEV_S1_CONTRACT_TEST_IMPLEMENTED_AT_C592E29 / CLI_ADMISSION_ENTRY_IMPLEMENTED_AT_8B6ED80 / SELFDEV_S2_TASK_PACKAGE_PREPARE_IMPLEMENTED_AT_E76ADC0 / TARGETED_VERIFIED / RESULT_RUN_NOT_EXECUTED / NOT_RELEASED / NO_COMPARATIVE_SELFDEV_CLAIM"
+    status: "SELFDEV_S1_CONTRACT_TEST_IMPLEMENTED_AT_C592E29 / CLI_ADMISSION_ENTRY_IMPLEMENTED_AT_8B6ED80 / SELFDEV_S2_TASK_PACKAGE_PREPARE_IMPLEMENTED_AT_E76ADC0 / SELFDEV_S3_TASK_CREATE_COMMIT_ENTRY_IMPLEMENTED_AT_3EFFD59 / TARGETED_VERIFIED / RESULT_RUN_NOT_EXECUTED / NOT_RELEASED / NO_COMPARATIVE_SELFDEV_CLAIM"
     purpose: "Make Agent OS develop Agent OS inside a rollback-safe, exactly verifiable repository environment, using typed patch proposals, exact approval, isolated branch/worktree execution, allowlisted verification, outcome receipts, rollback and HCW/operator-intervention measurement."
-    boundary: "SELFDEV currently admits and tests the first product contract, exposes a CLI admission receipt entry, and prepares Task/Run payloads for the existing execution spine only: real Agent OS repository target validation, one typed provider patch, no pre-approval file effect, allowlisted pytest evidence, outcome fail-closed semantics after evidence removal and compensation restoring pre-change bytes. It authorizes no release, no main merge, no self-approval, no C7/gate mutation, no runtime self-modification and no autonomy claim. No real SELFDEV result run or comparative hidden-cognitive-work evidence against founder/model+tools baseline has executed."
+    boundary: "SELFDEV currently admits and tests the first product contract, exposes CLI admission and create/commit entries, and prepares Task/Run payloads for the existing execution spine only: real Agent OS repository target validation, one typed provider patch, no pre-approval file effect, allowlisted pytest evidence, outcome fail-closed semantics after evidence removal and compensation restoring pre-change bytes. selfdev-create can optionally delegate to the existing run gate, but it does not bypass provider configuration or approval. It authorizes no release, no main merge, no self-approval, no C7/gate mutation, no runtime self-modification and no autonomy claim. No real SELFDEV result run or comparative hidden-cognitive-work evidence against founder/model+tools baseline has executed."
     verified:
       implementation_head: "c592e29"
       cli_entry_head: "8b6ed80"
       task_package_prepare_head: "e76adc0"
-      targeted_tests: "PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/sdk/src:. python3 -m pytest tests/product/test_agent_os_self_development.py tests/product/test_spine0_golden_path.py tests/product/test_cli_surface.py -q -> 9 passed"
+      create_commit_entry_head: "3effd59"
+      targeted_tests: "PYTHONPATH=packages/contracts/src:packages/os_core/src:packages/sdk/src:. python3 -m pytest tests/product/test_agent_os_self_development.py tests/product/test_spine0_golden_path.py tests/product/test_cli_surface.py -q -> 11 passed"
       static_checks:
         - "python3 -m ruff check apps/cli/__main__.py tests/product/test_cli_surface.py packages/os_core/src/agent_os_core/self_development.py packages/os_core/src/agent_os_core/__init__.py tests/product/test_agent_os_self_development.py -> All checks passed"
         - "pyright apps/cli/__main__.py tests/product/test_cli_surface.py packages/os_core/src/agent_os_core/self_development.py tests/product/test_agent_os_self_development.py -> 0 errors"
