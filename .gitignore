@@ -11,6 +11,7 @@ dist/
 # macOS
 .DS_Store
 .env
+.env.local
 .cache/
 
 # Large external / reproducible raw datasets (re-downloadable from GEO; do not track)
