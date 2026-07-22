@@ -69,7 +69,12 @@ class HcwArmSummary:
 
 @dataclass(frozen=True)
 class HcwIrreducibilityComparison:
-    """SRL-vs-best-baseline comparison for the HCW primary metric."""
+    """SRL-vs-baselines comparison for the HCW primary metric.
+
+    ``VERIFIED_HCW_REDUCTION`` is only a scorer-level comparison verdict. It is
+    not a full R-SRL-1 experiment verdict and does not imply a product or
+    autonomy claim.
+    """
 
     verdict: str
     srl: HcwArmSummary
@@ -177,10 +182,11 @@ def compare_srl_to_baselines(
 ) -> HcwIrreducibilityComparison:
     """Compare SRL HCW against the strongest available baseline.
 
-    The "best baseline" is the baseline with the highest verified outcomes per
-    HCW minute.  This makes the comparison an irreducibility check against the
-    strongest model+tools style arm rather than against a convenient weaker
-    baseline.  Missing SRL/baseline annotations fail closed as ``INVALID``.
+    The reported "best baseline" is the baseline with the highest verified
+    outcomes per HCW minute. The verdict still requires SRL to beat every
+    baseline by the frozen margins, matching the preregistered "each baseline"
+    condition rather than a convenient weaker or single-best baseline.
+    Missing SRL/baseline annotations fail closed as ``INVALID``.
     """
     srl_annotations = recorder.list_annotations(srl_arm_id, unit_id)
     srl_verified_outcomes = _verified_outcome_count(
@@ -271,6 +277,41 @@ def compare_srl_to_baselines(
             -summary.hcw_minutes,
         ),
     )
+    gaps: list[str] = []
+    for baseline in baseline_summaries:
+        hcw_ratio = _safe_ratio(srl.hcw_minutes, baseline.hcw_minutes)
+        operator_ratio = _safe_ratio(
+            float(srl.operator_interventions),
+            float(baseline.operator_interventions),
+        )
+        efficiency_ratio = _safe_ratio(
+            srl.outcomes_per_hcw_minute,
+            baseline.outcomes_per_hcw_minute,
+        )
+
+        if hcw_ratio is None or hcw_ratio > max_hcw_minutes_ratio:
+            gaps.append(
+                f"SRL HCW minutes do not beat baseline {baseline.arm_id} by the required margin"
+            )
+        if (
+            operator_ratio is None
+            or operator_ratio > max_operator_intervention_ratio
+        ):
+            gaps.append(
+                f"SRL operator intervention count does not beat baseline {baseline.arm_id} by the required margin"
+            )
+        if (
+            efficiency_ratio is None
+            or efficiency_ratio < min_outcomes_per_hcw_minute_ratio
+        ):
+            gaps.append(
+                f"SRL verified outcomes per HCW minute do not beat baseline {baseline.arm_id} by the required margin"
+            )
+        if srl.verified_outcomes < baseline.verified_outcomes:
+            gaps.append(
+                f"SRL verified outcomes are lower than baseline {baseline.arm_id}"
+            )
+
     hcw_minutes_ratio = _safe_ratio(srl.hcw_minutes, best_baseline.hcw_minutes)
     operator_intervention_ratio = _safe_ratio(
         float(srl.operator_interventions), float(best_baseline.operator_interventions)
@@ -279,28 +320,6 @@ def compare_srl_to_baselines(
         srl.outcomes_per_hcw_minute,
         best_baseline.outcomes_per_hcw_minute,
     )
-
-    gaps: list[str] = []
-    if hcw_minutes_ratio is None or hcw_minutes_ratio > max_hcw_minutes_ratio:
-        gaps.append(
-            "SRL HCW minutes do not beat the best baseline by the required margin"
-        )
-    if (
-        operator_intervention_ratio is None
-        or operator_intervention_ratio > max_operator_intervention_ratio
-    ):
-        gaps.append(
-            "SRL operator intervention count does not beat the best baseline by the required margin"
-        )
-    if (
-        outcomes_per_hcw_minute_ratio is None
-        or outcomes_per_hcw_minute_ratio < min_outcomes_per_hcw_minute_ratio
-    ):
-        gaps.append(
-            "SRL verified outcomes per HCW minute do not beat the best baseline by the required margin"
-        )
-    if srl.verified_outcomes < best_baseline.verified_outcomes:
-        gaps.append("SRL verified outcomes are lower than the best baseline")
 
     return HcwIrreducibilityComparison(
         verdict="VERIFIED_HCW_REDUCTION" if not gaps else "NOT_MET",

@@ -225,11 +225,40 @@ def test_compare_srl_to_baselines_rejects_task_success_only_tie() -> None:
     assert comparison.hcw_minutes_ratio == pytest.approx(1.0)
     assert comparison.operator_intervention_ratio == pytest.approx(1.0)
     assert (
-        "SRL HCW minutes do not beat the best baseline by the required margin"
+        "SRL HCW minutes do not beat baseline arm1 by the required margin"
         in comparison.gaps
     )
     assert (
-        "SRL operator intervention count does not beat the best baseline by the required margin"
+        "SRL operator intervention count does not beat baseline arm1 by the required margin"
+        in comparison.gaps
+    )
+
+
+def test_compare_srl_to_baselines_must_beat_each_baseline() -> None:
+    recorder = HcwRecorder()
+    recorder.add_annotation(
+        _make_arm_annotation("arm1", HcwCategory.DISCOVER, 0.0, 300.0, "b1")
+    )
+    recorder.add_annotation(
+        _make_arm_annotation("arm2", HcwCategory.PRIORITIZE, 0.0, 180.0, "b2")
+    )
+    recorder.add_annotation(
+        _make_arm_annotation("arm3", HcwCategory.LOCATE, 0.0, 150.0, "srl")
+    )
+
+    comparison = compare_srl_to_baselines(
+        recorder,
+        unit_id="u00",
+        srl_arm_id="arm3",
+        baseline_arm_ids=("arm1", "arm2"),
+        verified_outcomes={"arm1": 5, "arm2": 3, "arm3": 5},
+    )
+
+    assert comparison.verdict == "NOT_MET"
+    assert comparison.best_baseline_arm_id == "arm1"
+    assert comparison.hcw_minutes_ratio == pytest.approx(0.5)
+    assert (
+        "SRL HCW minutes do not beat baseline arm2 by the required margin"
         in comparison.gaps
     )
 
@@ -253,6 +282,48 @@ def test_compare_srl_to_baselines_fails_closed_without_verified_outcome_counts()
 
     assert comparison.verdict == "INVALID"
     assert comparison.gaps == ("missing verified outcome count for arm1",)
+
+
+def test_compare_srl_to_baselines_fails_closed_without_srl_outcome_count() -> None:
+    recorder = HcwRecorder()
+    recorder.add_annotation(
+        _make_arm_annotation("arm1", HcwCategory.LOCATE, 0.0, 60.0, "b1-1")
+    )
+    recorder.add_annotation(
+        _make_arm_annotation("arm3", HcwCategory.LOCATE, 0.0, 60.0, "srl-1")
+    )
+
+    comparison = compare_srl_to_baselines(
+        recorder,
+        unit_id="u00",
+        srl_arm_id="arm3",
+        baseline_arm_ids=("arm1",),
+        verified_outcomes={"arm1": 1},
+    )
+
+    assert comparison.verdict == "INVALID"
+    assert comparison.gaps == ("missing verified outcome count for arm3",)
+
+
+def test_compare_srl_to_baselines_rejects_lower_verified_outcomes() -> None:
+    recorder = HcwRecorder()
+    recorder.add_annotation(
+        _make_arm_annotation("arm1", HcwCategory.DISCOVER, 0.0, 120.0, "baseline")
+    )
+    recorder.add_annotation(
+        _make_arm_annotation("arm3", HcwCategory.LOCATE, 0.0, 60.0, "srl")
+    )
+
+    comparison = compare_srl_to_baselines(
+        recorder,
+        unit_id="u00",
+        srl_arm_id="arm3",
+        baseline_arm_ids=("arm1",),
+        verified_outcomes={"arm1": 5, "arm3": 4},
+    )
+
+    assert comparison.verdict == "NOT_MET"
+    assert "SRL verified outcomes are lower than baseline arm1" in comparison.gaps
 
 
 def test_compare_srl_to_baselines_fails_closed_on_zero_hcw_denominator() -> None:
