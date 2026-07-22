@@ -1,10 +1,10 @@
 schema_version: 2
-updated: "2026-07-22T18:16:00+08:00"
+updated: "2026-07-22T18:45:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
 branch: "codex/canonical-convergence-20260715 (canonical convergence worktree)"
-status: "The canonical convergence branch contains R-SRL-1 HCW scorer redirect integration at 279c0ba, blinded-HCW-protocol remediation at b3dae8f, scorer-ready run-artifact production at caaaab8, test/build gateway escape closure at 03ccfe1, public event-class leakage closure at 030753d, per-arm temporary workdir isolation at da0fa3d, matched four-arm budget enforcement at 73b7b03, and gate/pilot fixture metadata validation at 7adfb57. The latest R-SRL harness evidence is 115 targeted tests passed, targeted Ruff clean, targeted Pyright 0 errors. The 2026-07-19 independent methodology review verdict is tracked as evidence; 7adfb57 closes R14 by requiring explicit counts_toward_gate and rejecting expected_outcomes test_path selectors that do not exist in frozen repo bytes. This is harness/readiness work only: NOT_FROZEN, NOT_RUN, not product activation, not release and not Autonomy(S,E,O,V,T) evidence."
+status: "The canonical convergence branch contains R-SRL-1 HCW scorer redirect integration at 279c0ba, blinded-HCW-protocol remediation at b3dae8f, scorer-ready run-artifact production at caaaab8, test/build gateway escape closure at 03ccfe1, public event-class leakage closure at 030753d, per-arm temporary workdir isolation at da0fa3d, matched four-arm budget enforcement at 73b7b03, and gate/pilot fixture metadata validation at 7adfb57. The latest R-SRL harness evidence is 115 targeted tests passed, targeted Ruff clean, targeted Pyright 0 errors. AGENT-OS-SELFDEV-1 is now cast as the near-term Product/Translational slice for Agent OS developing Agent OS inside a rollback-safe repository environment; SELFDEV-S1 is CAST only and NOT_IMPLEMENTED/NOT_RUN. No product activation, no release and no Autonomy(S,E,O,V,T) evidence."
 
 authority:
   objective: "../docs/GOAL-BLUEPRINT.md"
@@ -227,6 +227,15 @@ active_work:
       - "docs/architecture/A-SRL-1-threat-model-and-authority-invariants.md"
       - "docs/research/situated-responsibility-loop-architecture-2026-07-16.md"
       - "docs/research/situated-operational-model-architecture-2026-07-16.md"
+  - id: "AGENT-OS-SELFDEV-1"
+    track: "product_and_translational"
+    status: "CAST / NOT_IMPLEMENTED / NOT_RUN / NOT_RELEASED"
+    purpose: "Make Agent OS develop Agent OS inside a rollback-safe, exactly verifiable repository environment, using typed patch proposals, exact approval, isolated branch/worktree execution, allowlisted verification, outcome receipts, rollback and HCW/operator-intervention measurement."
+    boundary: "SELFDEV-S1 is a cast only. It authorizes no release, no main merge, no self-approval, no C7/gate mutation, no runtime self-modification and no autonomy claim. The first implementation must be a real Agent OS repository task, not a toy fixture or generic coding-agent benchmark."
+    source:
+      - "docs/product/AGENT-OS-SELFDEV-1-slice-cast-2026-07-22.md"
+      - "docs/product/PM-PRODUCT-ACCEPTANCE-SPINE-0-2026-07-10.md"
+      - "../docs/GOAL-BLUEPRINT.md"
   - id: "R-SRL-1-EVAL-HARNESS"
     track: "research"
     status: "DESIGN_CANDIDATE / HARNESS_SKELETON_IMPLEMENTED / HIDDEN_SCORER_AND_OUTCOME_EVALUATOR_IMPLEMENTED / FULL_9_EVENT_TYPE_HIDDEN_SCORER_IMPLEMENTED / TEST_BUILD_GATEWAY_AND_BUDGET_LEDGER_IMPLEMENTED / MATCHED_ARM_BUDGETS_ENFORCED_AT_73B7B03 / PILOT_GATE_AND_EXPECTED_TEST_PATH_VALIDATION_AT_7ADFB57 / TEST_BUILD_GATEWAY_ESCAPE_CLOSED_AT_03CCFE1 / PUBLIC_EVENT_CLASS_LEAKAGE_CLOSED_AT_030753D / PER_ARM_WORKDIR_ISOLATION_CLOSED_AT_DA0FA3D / BASELINE_ARM_ENVELOPE_IMPLEMENTED / REAL_REPOSITORY_FIXTURE_IMPLEMENTED / HELP_BURDEN_LEDGER_IMPLEMENTED / HCW_RECORDER_IMPLEMENTED / HCW_SCORER_REDIRECT_INTEGRATED_AT_279C0BA / BLINDED_HCW_PROTOCOL_FIX_AT_B3DAE8F / ARM4_PROTOCOL_IMPLEMENTED / SCORER_ARTIFACT_PRODUCER_IMPLEMENTED_AT_CAAAAB8 / GATEWAY_MANIFEST_VERIFICATION_ENFORCED_AT_CAAAAB8 / OPERATOR_PROTOCOLS_IMPLEMENTED / RESTART_STATE_COMPARATOR_IMPLEMENTED / REAL_TIME_BUDGET_ENFORCEMENT_IMPLEMENTED / METHODOLOGY_REVIEW_RECORDED / NOT_FROZEN / NOT_RUN / NEEDS_REMAINING_METHODOLOGY_BLOCKER_REVIEW"
@@ -499,13 +508,13 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "Bind the approved isolated R-EVAL successor to real external provider canaries, oracle custody, distinct C7 authority, external freezer and exact one-shot run authorization; do not freeze or run while any binding remains absent."
+    action: "P/R — AGENT-OS-SELFDEV-1: implement SELFDEV-S1 contract/test package. First test must execute a rollback-safe Agent OS repository task with typed patch proposal, exact-digest approval, isolated branch/worktree or repo copy, allowlisted verification, outcome evidence invalidation, compensation rollback and HCW/operator-intervention telemetry fields. Reject toy/generic non-Agent OS targets."
   - priority: 2
-    action: "Implement and independently review the W1/W2 external run-authorization and trusted-score consumption substrate; preserve NOT_FROZEN/NO_RESULT_RUN until external custody and exact preregistration are real."
+    action: "R/P — R-SRL-1: remaining methodology blocker burn-down only if it directly affects HCW/result validity; next likely gates are R4/R5/R6/R7/R9. Preserve NOT_FROZEN/NO_RESULT_RUN until remaining blockers and independent review close."
   - priority: 3
-    action: "Treat c72375a only as hardened actor transport plus closed public projection. Design a separate falsifiable semantic-learning package using predeclared valid paired observations and proper-scoring/likelihood updates; keep real-world non-oracle discovery unresolved and do not repeat the settled Sachs/GSE42528 routes."
+    action: "Keep P-CORE-ADAPT-1 inert and do not expand state/schema without a live SELFDEV or W1/W2 consumer plus a passed gate."
   - priority: 4
-    action: "Keep SPINE-1, release and production activation gated; do not add new architecture breadth until one of the execution/evidence gaps above closes."
+    action: "Keep SPINE-1, release and production activation gated."
 
 test_commands:
   product: "PYTHONPATH=packages/contracts/src:packages/os_core/src:. uv run --extra product-test pytest tests/product -q"
