@@ -604,9 +604,9 @@ source_refs:
 freshness:
   checked_at: "2026-07-22T23:58:00+08:00"
   branch: "codex/canonical-convergence-20260715"
-  canonical_head: "ea61f82"
+  canonical_head: "e9251e5aec307d030cad90f605ea48e69fe1c3a5"
   prior_canonical_head: "a8c71b152b57ab78720ce8bd09f1ab2f7eed78e9"
   merge_base: "32aaab07ca4e9bdba2d2783d3ef1612315ac24ba"
   commit_state: "SELFDEV_S1_TO_S12_PLUS_LOCAL_PROVIDER_ENV_GUARD / LOCAL_PROVIDER_READINESS_CHECK_PASSED / REAL_PROVIDER_SYNTHETIC_SMOKE_VERIFIED / TARGETED_SELFDEV_29_PRODUCT_PASSED / TARGETED_RSRL_115_PASSED / TARGETED_RUFF_PYRIGHT_CLEAN / NOT_RELEASED"
-  merge_scope: "Remote main contains the approved canonical Product train through the prior integration windows, but SELFDEV-S1 through S12 and local provider env ignore guard live on codex/canonical-convergence-20260715 through ea61f82 plus this state/evidence update. No production activation, Data Agent migration, merge to main or release follows from this state."
+  merge_scope: "Remote main contains the approved canonical Product train through the prior integration windows, but SELFDEV-S1 through S12, local provider env ignore guard and the real-provider synthetic smoke evidence live on codex/canonical-convergence-20260715 through e9251e5. No production activation, Data Agent migration, merge to main or release follows from this state."
   evidence_separation: "SELFDEV-S1 through S12 are Product/Translational infrastructure and one isolated synthetic real-provider smoke receipt, not a real founder task portfolio result, not durable product-value evidence and not a comparative HCW superiority claim. S11 closes the measurement-truth bypass by requiring comparison against a post-run record, not spec estimates; S12 closes the exact configuration snapshot scope gap found during real execution. R-SRL-1 is harness and methodology infrastructure, not a result-bearing run. Neither establishes customer outcome, general cognition or Autonomy(S,E,O,V,T)."
