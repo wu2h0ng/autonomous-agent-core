@@ -5,8 +5,10 @@
 > freeze commit). `builder_id != reviewed_by` is mandatory.
 > Date: 2026-07-23
 > Builder: kimi-cli session (wd_ai-agent-projects, 2026-07-22/23)
-> Reviewer: TBD — founder-assigned, must differ from builder (RR cognitive-calibration
-> blind anchoring applies before the reviewer reads run history).
+> Reviewer: kimi subagent (fresh context, blind-anchored per RR-0031, no builder run
+> history). Round 1: CHANGES_REQUESTED (F-1 attempt-consumption/rejection-sampling
+> hole; F-2 imprecise freeze-head reference). Round 2 (post §5/§6/§8 amendments):
+> TECHNICAL_APPROVE. Round 3 (post §8 T1 carve-out amendment): TECHNICAL_APPROVE.
 
 ## 1. Purpose and claim boundary
 
@@ -74,9 +76,16 @@ test file (T1/T2: `tests/product/test_agent_os_self_development.py`; T3:
 ## 5. Sampling, attempt budget, and HCW accounting
 
 - Attempt budget: at most 3 provider attempts per target, each on a fresh task
-  and fresh sqlite. Attempts are consumed by ANY of: malformed proposal envelope
-  (fail-closed at execution.py:1141), provider infra failure (UNAVAILABLE /
-  disconnect), verifier non-zero exit, or VERIFIED.
+  and fresh sqlite. An attempt is consumed the moment a sealed task invokes the
+  provider node (any `run_task` call that reaches the provider node), regardless
+  of terminal state. Terminal classes: VERIFIED; verifier non-zero exit
+  (NOT_MET); malformed proposal envelope (fail-closed at execution.py:1141);
+  provider infra failure (UNAVAILABLE/disconnect); and ANY other termination —
+  including operator interrupt, local crash, or abandonment at WAITING_APPROVAL —
+  which is classified as a consumed `INVALID` attempt and must be logged in the
+  run summary. Previewing a provider proposal and discarding it (omitting
+  `--approve`, or abandoning a WAITING_APPROVAL run) is therefore NOT free: it
+  consumes an attempt and counts as one operator intervention.
 - Target selfdev outcome: VERIFIED if any attempt within budget completes with
   observed outcome VERIFIED; the run-record binds that attempt's evidence and
   MUST list every consumed attempt in the run summary. If the budget is exhausted
@@ -85,8 +94,12 @@ test file (T1/T2: `tests/product/test_agent_os_self_development.py`; T3:
 - Selfdev HCW minutes: total operator (human) minutes across ALL attempts of the
   target (launching, reading failures, deciding to retry). Provider/machine
   latency is wall clock, not HCW. Operator interventions: 1 per attempt that
-  reaches approval (`--approve` pre-authorization), plus 1 per manual retry
-  decision. Baseline HCW: existing convention (§3).
+  reaches approval (`--approve` pre-authorization), plus 1 per abandon/preview
+  decision (any consumed attempt that reached WAITING_APPROVAL without
+  completing the approval continuation), plus 1 per manual retry decision.
+  Baseline HCW: existing convention (§3). HCW minutes on both arms are
+  operator-declared; receipts bind content digests, not time truth — the claim
+  in §1 is therefore scoped to less RECORDED human work.
 - No fourth attempt, ever. No target substitution. No fixture edits after freeze.
 
 ## 6. Verdict and adjudication rules
@@ -96,11 +109,15 @@ test file (T1/T2: `tests/product/test_agent_os_self_development.py`; T3:
   VERIFIED, hcw_delta < 0, intervention_delta <= 0).
 - Round verdict SUPPORTS the narrow claim only if: all 4 targets reach VERIFIED
   within budget AND all 4 receipts return SELFDEV_HCW_LOWER. Anything else is
-  recorded as MIXED or NEGATIVE with the full attempt log.
+  recorded as MIXED or NEGATIVE with the full attempt log. Labels: NEGATIVE iff
+  a kill criterion fired or no receipt returns SELFDEV_HCW_LOWER; MIXED
+  otherwise.
 - Kill criteria (stop the round early, record negative map):
   1. Two targets exhaust their attempt budget without VERIFIED.
-  2. Any arm tampers with a frozen fixture, verifier, spec, or baseline (run
-     integrity failure; the round is INVALID, not failed).
+  2. Any arm tampers with a frozen fixture, verifier, spec, baseline, or the
+     frozen provider-arm argv (the exact command envelope in §3, including
+     `--approve`). Deviation from the frozen argv is a run-integrity failure;
+     the round is INVALID, not failed.
 - Post-hoc winners are forbidden: any target added later is a new prereg.
 
 ## 7. Frozen provider-visible statements (verbatim)
@@ -134,9 +151,15 @@ test file (T1/T2: `tests/product/test_agent_os_self_development.py`; T3:
 
 - Worktree: `autonomous-agent-core/.worktrees/canonical-convergence-20260715`,
   branch `codex/canonical-convergence-20260715`.
-- Freeze head: the commit that lands this prereg; every target spec pins
-  `repository_head` to that commit's short id and branches its isolated worktree
-  from it.
+- Freeze head: `4c40ff6` (the commit landing this prereg). T2–T4 specs pin
+  `repository_head: 4c40ff6` and branch their isolated worktrees from it. T1 is
+  the carve-out: its guardrail is already implemented at `ce9cb54` (an ancestor
+  of `4c40ff6`), so branching T1 from the freeze head would make its frozen
+  fixture green pre-patch; T1 therefore keeps its original spec pinning
+  `repository_head: 59112db` (matching its frozen baseline record
+  `34614e2d…`) and branches from `59112db`. The freeze commit (§9.3) lands
+  after review acceptance and adds only: per-target spec JSONs, fixture patch
+  files, pytest.ini files, and the exact-content manifest.
 - Provider profile: `openai-compatible`, model `kimi-k2-0711-preview`,
   `model_revision_digest: null` (LIMITATION: the provider revision is not pinned
   by the current profile contract; model-id drift mid-round invalidates the
