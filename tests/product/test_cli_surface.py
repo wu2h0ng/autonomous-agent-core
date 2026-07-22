@@ -19,6 +19,18 @@ class FakeApplication:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
 
+    def create_task(self, payload: dict[str, object]) -> FakeTask:
+        self.calls.append(("create", payload))
+        return FakeTask("task:selfdev-created")
+
+    def commit_task(self, task_id: str, payload: dict[str, object]) -> FakeTask:
+        self.calls.append(("commit", (task_id, payload)))
+        return FakeTask(task_id)
+
+    def run_task(self, task_id: str, inputs: dict[str, object]) -> FakeTask:
+        self.calls.append(("run", (task_id, inputs)))
+        return FakeTask(task_id)
+
     def signal_task(self, task_id: str, payload: dict[str, object]) -> FakeTask:
         self.calls.append(("signal", (task_id, payload)))
         return FakeTask(task_id)
@@ -244,3 +256,103 @@ def test_cli_selfdev_prepare_outputs_commit_payload_and_run_inputs(
         "target_path": "packages/os_core/src/agent_os_core/recovery.py",
         "test_command": "python -m pytest",
     }
+
+
+def test_cli_selfdev_create_commits_prepared_package_without_running(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    fake = FakeApplication()
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-s3-cli")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "--database",
+            str(tmp_path / "agent.sqlite3"),
+            "--workspace",
+            str(tmp_path),
+            "selfdev-create",
+            str(spec_path),
+            "--created-at",
+            "2026-07-22T00:00:00+00:00",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert [name for name, _ in fake.calls] == ["create", "commit"]
+    assert output["task"]["task_id"] == "task:selfdev-created"
+    commit_call = fake.calls[1][1]
+    assert isinstance(commit_call, tuple)
+    commit_task_id, commit_payload = commit_call
+    assert isinstance(commit_payload, dict)
+    assert commit_task_id == "task:selfdev-created"
+    assert commit_payload["commitment"]["task_id"] == "task:selfdev-created"
+    assert output["package"]["run_inputs"] == {
+        "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+        "test_command": "python -m pytest",
+    }
+
+
+def test_cli_selfdev_create_can_delegate_to_existing_run_gate(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    fake = FakeApplication()
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-s3-run-cli")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-create",
+            str(spec_path),
+            "--created-at",
+            "2026-07-22T00:00:00+00:00",
+            "--run-until-approval",
+        ],
+    )
+    cli.main()
+
+    json.loads(capsys.readouterr().out)
+    assert [name for name, _ in fake.calls] == ["create", "commit", "run"]
+    run_call = fake.calls[2][1]
+    assert isinstance(run_call, tuple)
+    run_task_id, run_inputs = run_call
+    assert run_task_id == "task:selfdev-created"
+    assert run_inputs == {
+        "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+        "test_command": "python -m pytest",
+    }
+
+
+def _write_selfdev_spec(tmp_path: Path, *, branch: str) -> Path:
+    spec_path = tmp_path / f"{branch.replace('/', '-')}.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "mandate_id": "META-SHADOW-MANDATE-0",
+                "repository_id": "autonomous-agent-core",
+                "repository_head": "0123456789abcdef",
+                "isolated_workspace": str(tmp_path),
+                "isolated_branch": branch,
+                "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+                "verifier_commands": ["python -m pytest"],
+                "expected_outcome_id": f"expected:{branch}",
+                "rollback_strategy": "compensate_task",
+                "operator_intervention_count": 1,
+                "hcw_minutes": 0.25,
+                "baseline_assignment_id": f"baseline:{branch}",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return spec_path
