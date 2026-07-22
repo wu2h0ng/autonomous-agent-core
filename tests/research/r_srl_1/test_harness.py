@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -261,6 +262,48 @@ def test_event_gateway_run_tests_rejects_selector_escape(
 ) -> None:
     with pytest.raises(PermissionError):
         gateway.run_tests("arm1", "r-srl-1-u00", selector)
+
+
+def test_event_gateway_run_tests_uses_destroyed_clean_arm_workdirs(
+    gateway: RsrlEventGateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed_cwds: list[Path] = []
+
+    def fake_run(
+        cmd: list[str],
+        cwd: Path,
+        capture_output: bool,
+        text: bool,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del cmd, capture_output, text, timeout
+        repo_cwd = Path(cwd)
+        observed_cwds.append(repo_cwd)
+        assert not (repo_cwd / ".pytest_cache").exists()
+        assert not (repo_cwd / "tests" / "__pycache__").exists()
+        (repo_cwd / ".pytest_cache").mkdir()
+        (repo_cwd / "tests" / "__pycache__").mkdir()
+        return subprocess.CompletedProcess(
+            args=["pytest"],
+            returncode=0,
+            stdout="passed",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    arm1 = gateway.run_tests(
+        "arm1", "r-srl-1-u00", "tests/test_lib.py::test_passes"
+    )
+    arm2 = gateway.run_tests(
+        "arm2", "r-srl-1-u00", "tests/test_lib.py::test_passes"
+    )
+
+    assert arm1.exit_code == 0
+    assert arm2.exit_code == 0
+    assert len(observed_cwds) == 2
+    assert observed_cwds[0] != observed_cwds[1]
+    assert all(not cwd.exists() for cwd in observed_cwds)
 
 
 def test_event_gateway_run_build_records_result(gateway: RsrlEventGateway) -> None:

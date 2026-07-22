@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -398,6 +399,14 @@ def _is_dangerous_path(path: str) -> bool:
     if any(p.startswith("_log") or p.startswith(".") for p in parts):
         return True
     return False
+
+
+def _is_runtime_residue_path(path: Path) -> bool:
+    """Return True for test/build cache files excluded from arm workdirs."""
+    parts = path.parts
+    if any(part in {".pytest_cache", "__pycache__"} for part in parts):
+        return True
+    return path.suffix in {".pyc", ".pyo"}
 
 
 def _validate_pytest_selector(selector: str) -> None:
@@ -797,6 +806,24 @@ class RsrlEventGateway:
             raise ValueError(f"unknown unit_id: {unit_id}")
         return unit.snapshot_path.parent / "repo"
 
+    def _materialize_repo_workdir(self, unit_id: str, destination: Path) -> Path:
+        """Materialize a clean per-run repository workdir from verified bytes."""
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        repo_files = self._repo_files.get(unit_id)
+        if repo_files is None:
+            raise FileNotFoundError(f"repository snapshot not found for {unit_id}")
+        repo_dir = destination / "repo"
+        repo_dir.mkdir(parents=True, exist_ok=False)
+        for rel_path, content in sorted(repo_files.items()):
+            rel = Path(rel_path)
+            if _is_runtime_residue_path(rel):
+                continue
+            target = repo_dir / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        return repo_dir
+
     def read_repository(self, arm_id: str, unit_id: str, path: str) -> bytes:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
@@ -820,23 +847,21 @@ class RsrlEventGateway:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
         _validate_pytest_selector(selector)
-        repo_dir = self._repo_dir(unit_id)
-        if not repo_dir.is_dir():
-            raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
-
         self._ledger.check_wall_time(arm_id, unit_id)
         # Charge before executing so a depleted budget aborts before work.
         self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
         self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
 
         cmd = [sys.executable, "-m", "pytest", "-q", selector]
-        completed = subprocess.run(
-            cmd,
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-            timeout=self._ledger.remaining_wall_seconds(arm_id, unit_id),
-        )
+        with tempfile.TemporaryDirectory(prefix=f"r-srl-{unit_id}-{arm_id}-") as tmp:
+            repo_dir = self._materialize_repo_workdir(unit_id, Path(tmp))
+            completed = subprocess.run(
+                cmd,
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+                timeout=self._ledger.remaining_wall_seconds(arm_id, unit_id),
+            )
 
         artifact_ref = f"report:{selector}"
         passed = completed.returncode == 0
@@ -876,10 +901,6 @@ class RsrlEventGateway:
         """
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
-        repo_dir = self._repo_dir(unit_id)
-        if not repo_dir.is_dir():
-            raise FileNotFoundError(f"repository snapshot not found: {repo_dir}")
-
         cmd = (
             list(build_command)
             if build_command
@@ -896,13 +917,15 @@ class RsrlEventGateway:
         self._ledger.check_wall_time(arm_id, unit_id)
         self._ledger.charge(arm_id, unit_id, BudgetEntry.tool_invocation())
         self._ledger.charge(arm_id, unit_id, BudgetEntry.input_tokens(50))
-        completed = subprocess.run(
-            cmd,
-            cwd=repo_dir,
-            capture_output=True,
-            text=True,
-            timeout=self._ledger.remaining_wall_seconds(arm_id, unit_id),
-        )
+        with tempfile.TemporaryDirectory(prefix=f"r-srl-{unit_id}-{arm_id}-") as tmp:
+            repo_dir = self._materialize_repo_workdir(unit_id, Path(tmp))
+            completed = subprocess.run(
+                cmd,
+                cwd=repo_dir,
+                capture_output=True,
+                text=True,
+                timeout=self._ledger.remaining_wall_seconds(arm_id, unit_id),
+            )
         artifact_ref = f"build:{cmd[0]}"
         self._build_results.setdefault((arm_id, unit_id), []).append(
             {
