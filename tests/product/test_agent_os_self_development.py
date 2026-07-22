@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import json
 from pathlib import Path
 import subprocess
@@ -8,14 +9,18 @@ import subprocess
 import pytest
 
 from agent_os_contracts import (
+    CredentialRef,
+    CredentialStatus,
     EdgeSpec,
     IdempotencyMode,
     NodeKind,
     NodeSpec,
+    ProviderInvocationBinding,
     ProviderToolProposal,
     RunStatus,
     TaskStatus,
     WorkflowGraph,
+    content_digest,
 )
 from agent_os_core import (
     DeterministicProvider,
@@ -23,10 +28,12 @@ from agent_os_core import (
     RUN_DENIED,
     SelfDevelopmentTaskSpec,
     SelfDevelopmentValidationError,
+    TaskConfigurationNotBound,
     WorkerInterrupted,
     build_self_development_baseline_record,
     build_self_development_comparison_receipt,
     build_self_development_run_record,
+    prepare_self_development_task_package,
     validate_self_development_task,
 )
 from apps.api_server.app import AgentOSApplication
@@ -263,6 +270,144 @@ def test_selfdev_s1_agent_os_repo_patch_requires_approval_evidence_and_rollback(
     requests = app.provider.requests
     assert len(requests) == 1
     assert requests[0].allowed_capability_ids == ("workspace.apply_patch",)
+
+
+def test_selfdev_sealed_provider_run_approves_and_resumes_in_one_process(
+    tmp_path,
+) -> None:
+    source_root = Path(__file__).resolve().parents[2]
+    workspace = tmp_path / "agent-os-copy"
+    target = workspace / AGENT_OS_TARGET
+    target.parent.mkdir(parents=True)
+    original = (source_root / AGENT_OS_TARGET).read_text(encoding="utf-8")
+    target.write_text(original, encoding="utf-8")
+    (workspace / "tests").mkdir()
+    (workspace / "tests" / "test_selfdev_marker.py").write_text(
+        "from pathlib import Path\n\n"
+        "def test_selfdev_marker_present():\n"
+        "    text = Path('packages/os_core/src/agent_os_core/recovery.py')"
+        ".read_text(encoding='utf-8')\n"
+        "    assert '# SELFDEV-S1 verified marker' in text\n",
+        encoding="utf-8",
+    )
+    repository_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=source_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    spec = SelfDevelopmentTaskSpec(
+        mandate_id="META-SHADOW-MANDATE-0",
+        repository_id="autonomous-agent-core",
+        repository_head=repository_head,
+        isolated_workspace=str(workspace),
+        isolated_branch="codex/selfdev-seal-approve-test",
+        target_path=AGENT_OS_TARGET,
+        verifier_commands=("python -m pytest",),
+        expected_outcome_id="expected:selfdev-seal-approve",
+        rollback_strategy="compensate_task",
+        operator_intervention_count=1,
+        hcw_minutes=0.5,
+        baseline_assignment_id="baseline:selfdev-seal-approve",
+    )
+
+    app = AgentOSApplication(database=tmp_path / "agent-os.sqlite3", workspace=workspace)
+    profile = app.provider_profile
+    credential = CredentialRef(
+        credential_ref_id=profile.credential_ref_id,
+        owner_principal_id="user:local",
+        tenant_id="tenant:local",
+        workspace_id="workspace:local",
+        provider_id=profile.provider_id,
+        resolver_key="TEST_PROVIDER_SECRET",
+        scopes=("chat",),
+        status=CredentialStatus.ACTIVE,
+        created_at=NOW,
+        expires_at=NOW + timedelta(days=1),
+    )
+    binding = ProviderInvocationBinding(
+        provider_profile=profile,
+        provider_id=profile.provider_id,
+        endpoint_class=profile.endpoint_class,
+        credential_ref_id=profile.credential_ref_id,
+        credential_ref_digest=content_digest(credential),
+        max_context_tokens=profile.max_context_tokens,
+        adapter_kind="deterministic-test",
+        transport="in-process",
+        base_url="https://provider.invalid",
+        endpoint_path="/chat/completions",
+        model_id=profile.model_id,
+        request_timeout_seconds=profile.request_timeout_seconds,
+        temperature=Decimal("0"),
+    )
+    app.provider = DeterministicProvider(
+        text="",
+        tool_proposals=(
+            ProviderToolProposal(
+                proposal_id="proposal:selfdev-seal-approve",
+                capability_id="workspace.apply_patch",
+                arguments_json=json.dumps(
+                    {
+                        "path": AGENT_OS_TARGET,
+                        "content": f"{original}\n# SELFDEV-S1 verified marker\n",
+                    }
+                ),
+            ),
+        ),
+        invocation_binding=binding,
+    )
+    app.provider_configured = True
+    receipt = validate_self_development_task(spec)
+    created = app.create_task(
+        {
+            "goal_id": f"goal:selfdev:{receipt.receipt_digest[:12]}",
+            "tenant_id": "tenant:local",
+            "workspace_id": "workspace:local",
+            "created_by": "user:local",
+            "created_at": NOW,
+            "statement": "Sealed SELFDEV provider run with in-process approval",
+        }
+    )
+    package = prepare_self_development_task_package(
+        spec,
+        task_id=created.task_id,
+        created_at=NOW,
+        duration_seconds=3600,
+    )
+    app.commit_task(created.task_id, package.task_commit_payload)
+    snapshot = app.seal_task_configuration(created.task_id, {})
+
+    with pytest.raises(TaskConfigurationNotBound):
+        app.run_task(created.task_id, package.run_inputs)
+
+    waiting = app.run_task(
+        created.task_id,
+        package.run_inputs,
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert waiting.run is not None
+    assert waiting.run.status is RunStatus.WAITING_APPROVAL
+    assert target.read_text(encoding="utf-8") == original
+
+    app.record_approval(
+        created.task_id,
+        {
+            "disposition": "APPROVE",
+            "reason": "Exact-digest provider proposal approved in-process",
+        },
+    )
+    result = app.run_task(
+        created.task_id,
+        package.run_inputs,
+        configuration_snapshot_id=snapshot.snapshot_id,
+    )
+    assert result.status is TaskStatus.COMPLETED
+    assert result.observed_outcome is not None
+    assert result.observed_outcome.status.value == "VERIFIED"
+    assert "# SELFDEV-S1 verified marker" in target.read_text(encoding="utf-8")
+    assert result.run is not None
+    assert result.run.configuration_snapshot_id == snapshot.snapshot_id
 
 
 def test_selfdev_s1_rejects_generic_fixture_target() -> None:

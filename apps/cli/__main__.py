@@ -10,7 +10,7 @@ from pathlib import Path
 import shlex
 import subprocess
 
-from agent_os_contracts import ProviderToolProposal
+from agent_os_contracts import ProviderToolProposal, RunStatus
 from apps.api_server.app import AgentOSApplication
 from agent_os_core import (
     DeterministicProvider,
@@ -90,6 +90,8 @@ def main() -> None:
     selfdev_run_provider.add_argument("spec_json", type=Path)
     selfdev_run_provider.add_argument("--baseline-record", type=Path, required=True)
     selfdev_run_provider.add_argument("--created-at")
+    selfdev_run_provider.add_argument("--approve", action="store_true")
+    selfdev_run_provider.add_argument("--duration-seconds", type=int, default=300)
     selfdev_run_record = sub.add_parser("selfdev-run-record")
     selfdev_run_record.add_argument("spec_json", type=Path)
     selfdev_run_record.add_argument(
@@ -250,18 +252,53 @@ def main() -> None:
                 "Real provider Agent OS self-development run for "
                 f"{receipt.target_path}"
             ),
+            duration_seconds=args.duration_seconds,
         )
         committed = app.commit_task(created.task_id, package.task_commit_payload)
-        proposed = app.run_task(committed.task_id, package.run_inputs)
+        snapshot = app.seal_task_configuration(committed.task_id, {})
+        proposed = app.run_task(
+            committed.task_id,
+            package.run_inputs,
+            configuration_snapshot_id=snapshot.snapshot_id,
+        )
+        waiting_approval = (
+            proposed.run is not None
+            and proposed.run.status is RunStatus.WAITING_APPROVAL
+        )
+        mode = (
+            "REAL_PROVIDER_READY_UNTIL_APPROVAL"
+            if waiting_approval
+            else "REAL_PROVIDER_RUN_FINISHED"
+        )
+        task = proposed
+        if waiting_approval and args.approve:
+            app.record_approval(
+                committed.task_id,
+                {
+                    "disposition": "APPROVE",
+                    "reason": (
+                        "Approved exact-digest SELFDEV provider patch proposal "
+                        "via CLI --approve"
+                    ),
+                },
+            )
+            task = app.run_task(
+                committed.task_id,
+                package.run_inputs,
+                configuration_snapshot_id=snapshot.snapshot_id,
+            )
+            mode = "REAL_PROVIDER_RUN_COMPLETED"
         print(
             json.dumps(
                 {
-                    "mode": "REAL_PROVIDER_READY_UNTIL_APPROVAL",
+                    "mode": mode,
                     "provider": provider,
                     "runtime_provider": runtime_provider,
                     "readiness": asdict(readiness),
                     "baseline_record": asdict(baseline_record),
-                    "task": app.task_json(proposed.task_id),
+                    "configuration_snapshot_id": snapshot.snapshot_id,
+                    "approval_required": waiting_approval and not args.approve,
+                    "task": app.task_json(task.task_id),
                     "package": asdict(package),
                 },
                 indent=2,

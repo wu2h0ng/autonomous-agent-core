@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from agent_os_contracts import WorkflowGraph
+from agent_os_contracts import RunStatus, WorkflowGraph
 from apps.cli import __main__ as cli
 from agent_os_core import (
     INVALID_SELFDEV_TARGET,
@@ -18,12 +18,14 @@ from agent_os_core import (
 @dataclass
 class FakeTask:
     task_id: str
+    run: object = None
 
 
 class FakeApplication:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
         self.provider_configured = True
+        self.run_statuses: list[object] = []
         self.provider_profile = SimpleNamespace(
             profile_id="provider-profile:fake",
             provider_id="openai-compatible",
@@ -40,9 +42,30 @@ class FakeApplication:
         self.calls.append(("commit", (task_id, payload)))
         return FakeTask(task_id)
 
-    def run_task(self, task_id: str, inputs: dict[str, object]) -> FakeTask:
-        self.calls.append(("run", (task_id, inputs)))
-        return FakeTask(task_id)
+    def seal_task_configuration(
+        self,
+        task_id: str,
+        payload: dict[str, object],
+    ) -> SimpleNamespace:
+        self.calls.append(("seal", (task_id, payload)))
+        return SimpleNamespace(snapshot_id="task-configuration:fake")
+
+    def record_approval(self, task_id: str, payload: dict[str, object]) -> None:
+        self.calls.append(("approve", (task_id, payload)))
+
+    def run_task(
+        self,
+        task_id: str,
+        inputs: dict[str, object],
+        configuration_snapshot_id: str | None = None,
+    ) -> FakeTask:
+        self.calls.append(("run", (task_id, inputs, configuration_snapshot_id)))
+        run = (
+            SimpleNamespace(status=self.run_statuses.pop(0))
+            if self.run_statuses
+            else None
+        )
+        return FakeTask(task_id, run=run)
 
     def signal_task(self, task_id: str, payload: dict[str, object]) -> FakeTask:
         self.calls.append(("signal", (task_id, payload)))
@@ -342,8 +365,9 @@ def test_cli_selfdev_create_can_delegate_to_existing_run_gate(
     assert [name for name, _ in fake.calls] == ["create", "commit", "run"]
     run_call = fake.calls[2][1]
     assert isinstance(run_call, tuple)
-    run_task_id, run_inputs = run_call
+    run_task_id, run_inputs, snapshot_id = run_call
     assert run_task_id == "task:selfdev-created"
+    assert snapshot_id is None
     assert run_inputs == {
         "target_path": "packages/os_core/src/agent_os_core/recovery.py",
         "test_command": "python -m pytest",
@@ -441,6 +465,7 @@ def test_cli_selfdev_run_provider_requires_readiness_then_delegates_to_run_gate(
     monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
     monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
     fake = FakeApplication()
+    fake.run_statuses = [RunStatus.WAITING_APPROVAL]
     monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
     spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-provider-ready")
     baseline_path = _write_selfdev_baseline_record(
@@ -466,6 +491,7 @@ def test_cli_selfdev_run_provider_requires_readiness_then_delegates_to_run_gate(
     output = json.loads(capsys.readouterr().out)
     assert output["mode"] == "REAL_PROVIDER_READY_UNTIL_APPROVAL"
     assert output["readiness"]["ready"] is True
+    assert output["configuration_snapshot_id"] == "task-configuration:fake"
     assert output["runtime_provider"] == {
         "configured": True,
         "profile_id": "provider-profile:fake",
@@ -475,14 +501,146 @@ def test_cli_selfdev_run_provider_requires_readiness_then_delegates_to_run_gate(
         "endpoint_class": "openai-compatible",
     }
     assert output["task"]["task_id"] == "task:selfdev-created"
-    assert [name for name, _ in fake.calls] == ["create", "commit", "run"]
-    run_call = fake.calls[2][1]
+    assert [name for name, _ in fake.calls] == ["create", "commit", "seal", "run"]
+    run_call = fake.calls[3][1]
     assert isinstance(run_call, tuple)
     assert run_call[1] == {
         "target_path": "packages/os_core/src/agent_os_core/recovery.py",
         "test_command": "python -m pytest",
     }
+    assert run_call[2] == "task-configuration:fake"
     assert "redacted-test-key" not in json.dumps(output)
+
+
+def test_cli_selfdev_run_provider_approve_continues_in_process(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    fake = FakeApplication()
+    fake.run_statuses = [RunStatus.WAITING_APPROVAL, RunStatus.SUCCEEDED]
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-provider-approve")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-provider-approve",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-provider",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+            "--approve",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["mode"] == "REAL_PROVIDER_RUN_COMPLETED"
+    assert output["configuration_snapshot_id"] == "task-configuration:fake"
+    assert [name for name, _ in fake.calls] == [
+        "create",
+        "commit",
+        "seal",
+        "run",
+        "approve",
+        "run",
+    ]
+    approve_call = fake.calls[4][1]
+    assert isinstance(approve_call, tuple)
+    assert approve_call[0] == "task:selfdev-created"
+    assert approve_call[1]["disposition"] == "APPROVE"
+    first_run = fake.calls[3][1]
+    resumed_run = fake.calls[5][1]
+    assert isinstance(first_run, tuple)
+    assert isinstance(resumed_run, tuple)
+    assert first_run[2] == "task-configuration:fake"
+    assert resumed_run[2] == "task-configuration:fake"
+
+
+def test_cli_selfdev_run_provider_duration_seconds_extends_commitment(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    fake = FakeApplication()
+    fake.run_statuses = [RunStatus.WAITING_APPROVAL]
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-provider-duration")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-provider-duration",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-provider",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+            "--created-at",
+            "2026-07-22T00:00:00+00:00",
+            "--duration-seconds",
+            "3600",
+        ],
+    )
+    cli.main()
+
+    json.loads(capsys.readouterr().out)
+    commit_call = fake.calls[1][1]
+    assert isinstance(commit_call, tuple)
+    commitment = commit_call[1]["commitment"]
+    assert commitment["expires_at"] == "2026-07-22T01:00:00+00:00"
+    assert commitment["budget"]["max_duration_seconds"] == 3600
+
+
+def test_cli_provider_timeout_seconds_env_extends_runtime_profile(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_TIMEOUT_SECONDS", "180")
+    app = cli.AgentOSApplication(database=tmp_path / "app.sqlite3", workspace=tmp_path)
+    assert app.provider_profile.request_timeout_seconds == 180
+
+
+def test_cli_provider_timeout_seconds_defaults_to_sixty(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AGENT_OS_PROVIDER_TIMEOUT_SECONDS", raising=False)
+    app = cli.AgentOSApplication(database=tmp_path / "app.sqlite3", workspace=tmp_path)
+    assert app.provider_profile.request_timeout_seconds == 60
+
+
+def test_cli_provider_timeout_seconds_rejects_invalid_values(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_TIMEOUT_SECONDS", "not-an-integer")
+    try:
+        cli.AgentOSApplication(database=tmp_path / "app.sqlite3", workspace=tmp_path)
+    except ValueError as exc:
+        assert "AGENT_OS_PROVIDER_TIMEOUT_SECONDS" in str(exc)
+    else:
+        raise AssertionError("invalid provider timeout should fail fast")
 
 
 def test_cli_selfdev_run_local_executes_existing_spine_with_explicit_patch(

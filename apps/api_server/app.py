@@ -266,6 +266,15 @@ class AgentOSApplication:
         live_model_revision_digest = os.environ.get(
             "AGENT_OS_PROVIDER_MODEL_REVISION_DIGEST"
         )
+        live_timeout_raw = os.environ.get("AGENT_OS_PROVIDER_TIMEOUT_SECONDS", "60")
+        try:
+            live_timeout = int(live_timeout_raw)
+        except ValueError as exc:
+            raise ValueError(
+                "AGENT_OS_PROVIDER_TIMEOUT_SECONDS must be an integer"
+            ) from exc
+        if live_timeout <= 0:
+            raise ValueError("AGENT_OS_PROVIDER_TIMEOUT_SECONDS must be positive")
         credential_key = os.environ.get(
             "AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY"
         )
@@ -291,7 +300,7 @@ class AgentOSApplication:
             credential_ref_id=credential_ref.credential_ref_id,
             capabilities=("chat",),
             max_context_tokens=16_000,
-            request_timeout_seconds=60,
+            request_timeout_seconds=live_timeout,
             created_at=built_in_profile_created_at,
         )
         self.provider = (
@@ -300,7 +309,7 @@ class AgentOSApplication:
                 model=live_model,
                 credential=credential_ref,
                 credentials=EnvCredentialBroker(),
-                timeout_seconds=60,
+                timeout_seconds=live_timeout,
                 provider_profile=self.provider_profile,
             )
             if live_base_url
