@@ -1,5 +1,5 @@
 schema_version: 2
-updated: "2026-07-23T04:31:00+08:00"
+updated: "2026-07-23T06:12:00+08:00"
 scope: "Agent OS monorepo: Product Track and Research Track"
 project: "autonomous-agent-core / Agent OS"
 layer: "agent_os_product_and_research"
@@ -263,6 +263,7 @@ active_work:
       shared_evidence_ref_rejection_head: "ce9cb54"
       provider_approval_continuation_head: "603ff53"
       provider_statement_entry_head: "e020a7f"
+      multi_target_prereg_freeze_head: "22ec4d3"
       provider_readiness_check: "sourced ignored .env.local with KIMI_API_KEY present; selfdev-readiness using synthetic matched baseline returned ready=true, blockers=[], credential_env=KIMI_API_KEY; no secret printed or committed"
       real_provider_synthetic_smoke: "matched baseline capture -> selfdev-run-provider -> selfdev-run-record -> selfdev-compare executed in .agent_runs/selfdev-real-provider-20260722; task_id=task-6a738f6e-9501-4ef4-b9c2-fc14a3181ade; configuration_snapshot_id=task-configuration:c6bc0189-5ca2-4a85-a3cb-42154289745f; final_task_status=COMPLETED; observed_outcome_status=VERIFIED; verdict=SELFDEV_HCW_LOWER; baseline_hcw_minutes=1.0; selfdev_hcw_minutes=0.38; hcw_delta_minutes=-0.62; operator_intervention_delta=0; receipt_digest=f4e6e4105d30a05a3a65e8eb747787c3261d6589904e584e17ad48d0c05f4416"
       non_synthetic_selfdev_attempt: "Target packages/os_core/src/agent_os_core/self_development.py rejects shared baseline/selfdev evidence_refs through EVIDENCE_REF_OVERLAP; matched baseline capture VERIFIED with digest 34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235. Rerun in .agent_runs/selfdev-real-target-evidence-overlap-20260722-rerun drove the full chain through the new CLI in-process approval continuation (head 603ff53): seal task-configuration:da94750f-c009-4a82-982e-030026d08937 -> WAITING_APPROVAL -> same-process exact-digest APPROVE -> resume with identical snapshot id -> apply -> pytest -> evaluate. The provider patch contained no EVIDENCE_REF_OVERLAP rejection, the red/green test DID NOT RAISE, observed outcome NOT_MET, run FAILED and compensate_task restored pre-change bytes automatically. selfdev-run-record digest a3e1b04447ceb4937eb0b6811f66ed40719de2ece6c000eab24a6ae9a4d709fc; selfdev-compare receipt bbe56c7a9f0d8a3a2bab4d0eacc2840704164636709845a56fd0924050e5ea34 verdict INCOMPARABLE_OUTCOME_NOT_VERIFIED. Methodology note: the provider arm saw only the target file and goal statement while the acceptance test pinning the exact RUN_DENIED/EVIDENCE_REF_OVERLAP contract was visible to the baseline arm. No HCW/product-value claim."
@@ -558,7 +559,7 @@ claim_boundaries:
 
 next_actions:
   - priority: 1
-    action: "P/R — AGENT-OS-SELFDEV-1: the non-synthetic blocker is fixed (603ff53/e020a7f) and the first fair non-synthetic comparison is recorded (verdict SELFDEV_HCW_LOWER on one narrow contract-visible target, plus one archived malformed-proposal attempt and one earlier NOT_MET). The multi-target round is drafted as DESIGN_ONLY prereg docs/product/AGENT-OS-SELFDEV-1-prereg-multi-target-2026-07-23.md (4 targets, 3-attempt budget, frozen statements/fixtures, kill criteria); fixtures F2/F4 red-validated, F3 red-proven by fair attempt-1. Next: founder assigns an independent reviewer (reviewed_by != builder_id, RR-0031 anchoring); no result-bearing run until the §9 freeze commit with exact-content manifest. Durable cross-process resume rehydration remains a separate ADR-level decision."
+    action: "P/R — AGENT-OS-SELFDEV-1: the multi-target round is FROZEN at 22ec4d3 (prereg docs/product/AGENT-OS-SELFDEV-1-prereg-multi-target-2026-07-23.md, independent reviewer TECHNICAL_APPROVE after 3 rounds, exact-content manifest at .agent_runs/selfdev-mt-20260723/manifest.json, all 4 fixtures red-checked in their isolated workspaces). Next: founder performs T2/T3/T4 baseline arms (timed manual fixes against the red fixtures, then selfdev-baseline-capture); only then provider arms within the 3-attempt budget, receipts and adjudication per prereg §6. Durable cross-process resume rehydration remains a separate ADR-level decision."
   - priority: 2
     action: "R/P — R-SRL-1: burn down only blockers that affect HCW/result validity or irreducibility against same-Mandate baselines. Preserve NOT_FROZEN/NO_RESULT_RUN until run-artifact HCW data capture, rater/pilot reliability and remaining methodology-review blockers close or are explicitly PARKed."
   - priority: 3
