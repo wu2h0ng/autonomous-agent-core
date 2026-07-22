@@ -334,6 +334,56 @@ def test_cli_selfdev_create_can_delegate_to_existing_run_gate(
     }
 
 
+def test_cli_selfdev_run_local_executes_existing_spine_with_explicit_patch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    workspace = tmp_path / "workspace"
+    target = workspace / "packages/os_core/src/agent_os_core/recovery.py"
+    target.parent.mkdir(parents=True)
+    original = "def marker():\n    return 'before'\n"
+    patched = "def marker():\n    return 'after'\n"
+    target.write_text(original, encoding="utf-8")
+    tests = workspace / "tests"
+    tests.mkdir()
+    (tests / "test_marker.py").write_text(
+        "from pathlib import Path\n\n"
+        "def test_marker():\n"
+        "    text = Path('packages/os_core/src/agent_os_core/recovery.py')"
+        ".read_text(encoding='utf-8')\n"
+        "    assert \"return 'after'\" in text\n",
+        encoding="utf-8",
+    )
+    patch_path = tmp_path / "patch.txt"
+    patch_path.write_text(patched, encoding="utf-8")
+    spec_path = _write_selfdev_spec(workspace, branch="codex/selfdev-local-run")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "--database",
+            str(tmp_path / "agent.sqlite3"),
+            "--workspace",
+            str(workspace),
+            "selfdev-run-local",
+            str(spec_path),
+            "--patch-content-file",
+            str(patch_path),
+            "--approve",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["mode"] == "LOCAL_CONTROLLED_DETERMINISTIC_PROVIDER"
+    assert output["task"]["status"] == "COMPLETED"
+    assert output["task"]["observed_outcome"]["status"] == "VERIFIED"
+    assert target.read_text(encoding="utf-8") == patched
+
+
 def _write_selfdev_spec(tmp_path: Path, *, branch: str) -> Path:
     spec_path = tmp_path / f"{branch.replace('/', '-')}.json"
     spec_path.write_text(
