@@ -1,0 +1,53 @@
+{
+  "admission_receipt": {
+    "mandate_id": "META-SHADOW-MANDATE-0",
+    "repository_id": "autonomous-agent-core",
+    "repository_head": "ea61f820f8559591f98244facaab62774f2ff71d",
+    "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-real-provider-20260722/workspace",
+    "isolated_branch": "codex/selfdev-real-provider-20260722",
+    "target_path": "tests/product/test_selfdev_real_provider_target.py",
+    "verifier_commands": [
+      "python -m pytest"
+    ],
+    "expected_outcome_id": "expected:selfdev-real-provider-20260722",
+    "rollback_strategy": "compensate_task",
+    "operator_intervention_count": 0,
+    "hcw_minutes": 0.0,
+    "baseline_assignment_id": "baseline:selfdev-real-provider-20260722",
+    "receipt_digest": "ced0b1c5c12474607618d2a3126d9027055ffaa899288173ac0986be419cbd42"
+  },
+  "baseline_record": {
+    "baseline_assignment_id": "baseline:selfdev-real-provider-20260722",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "tests/product/test_selfdev_real_provider_target.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 1.0,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-real-provider-20260722:founder-model-tools-fixed-target",
+      "verifier:f5465a49c1936f683c65f66584bc57a14cde8d9c53f6bd3d997c38aa3be6b852"
+    ],
+    "record_digest": "906406c9ea303798899af7efe180dec2afafe0a07bcd2416359ce69f625b9999"
+  },
+  "selfdev_run_record": {
+    "admission_receipt_digest": "ced0b1c5c12474607618d2a3126d9027055ffaa899288173ac0986be419cbd42",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "tests/product/test_selfdev_real_provider_target.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 0.38,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-real-provider-20260722:provider-result:3b42fbb5b887d7c4dcf64698958a9b1ee0bd17b518cb25a84bb4ba51c3a3d3d0",
+      "agent-run:selfdev-real-provider-20260722:provider-waiting:52b87d91f35938ee340696104183a7289d227443331a089478fa4d66cc3b7351"
+    ],
+    "record_digest": "6a6844d4d98a6f925282d395f47f9270e41204de8e4f28f1c5a1ce74060588a3"
+  },
+  "baseline_hcw_minutes": 1.0,
+  "selfdev_hcw_minutes": 0.38,
+  "hcw_delta_minutes": -0.62,
+  "baseline_operator_intervention_count": 1,
+  "selfdev_operator_intervention_count": 1,
+  "operator_intervention_delta": 0,
+  "verdict": "SELFDEV_HCW_LOWER",
+  "receipt_digest": "f4e6e4105d30a05a3a65e8eb747787c3261d6589904e584e17ad48d0c05f4416"
+}

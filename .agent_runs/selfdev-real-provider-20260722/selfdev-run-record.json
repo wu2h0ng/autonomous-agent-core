@@ -1,0 +1,13 @@
+{
+  "admission_receipt_digest": "ced0b1c5c12474607618d2a3126d9027055ffaa899288173ac0986be419cbd42",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "tests/product/test_selfdev_real_provider_target.py",
+  "operator_intervention_count": 1,
+  "hcw_minutes": 0.38,
+  "outcome_status": "VERIFIED",
+  "evidence_refs": [
+    "agent-run:selfdev-real-provider-20260722:provider-result:3b42fbb5b887d7c4dcf64698958a9b1ee0bd17b518cb25a84bb4ba51c3a3d3d0",
+    "agent-run:selfdev-real-provider-20260722:provider-waiting:52b87d91f35938ee340696104183a7289d227443331a089478fa4d66cc3b7351"
+  ],
+  "record_digest": "6a6844d4d98a6f925282d395f47f9270e41204de8e4f28f1c5a1ce74060588a3"
+}

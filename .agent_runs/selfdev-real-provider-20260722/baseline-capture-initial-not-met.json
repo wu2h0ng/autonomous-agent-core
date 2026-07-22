@@ -1,0 +1,41 @@
+{
+  "admission_receipt": {
+    "mandate_id": "META-SHADOW-MANDATE-0",
+    "repository_id": "autonomous-agent-core",
+    "repository_head": "ea61f820f8559591f98244facaab62774f2ff71d",
+    "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-real-provider-20260722/workspace",
+    "isolated_branch": "codex/selfdev-real-provider-20260722",
+    "target_path": "tests/product/test_selfdev_real_provider_target.py",
+    "verifier_commands": [
+      "python -m pytest"
+    ],
+    "expected_outcome_id": "expected:selfdev-real-provider-20260722",
+    "rollback_strategy": "compensate_task",
+    "operator_intervention_count": 0,
+    "hcw_minutes": 0.0,
+    "baseline_assignment_id": "baseline:selfdev-real-provider-20260722",
+    "receipt_digest": "ced0b1c5c12474607618d2a3126d9027055ffaa899288173ac0986be419cbd42"
+  },
+  "baseline_record": {
+    "baseline_assignment_id": "baseline:selfdev-real-provider-20260722",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "tests/product/test_selfdev_real_provider_target.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 1.0,
+    "outcome_status": "NOT_MET",
+    "evidence_refs": [
+      "agent-run:selfdev-real-provider-20260722:baseline-failing-start",
+      "verifier:85b6197f919eef621b6ddae95f7c4979df316352b28f288f9812e0c3e7a35080"
+    ],
+    "record_digest": "8b150f50014e8f504fa28b380c3f6c4ca6c940c33578c3ff15683a7b6f74fdb7"
+  },
+  "verifier": {
+    "command": "python -m pytest",
+    "exit_code": 1,
+    "stdout_sha256": "190f380aa22a233341b1c029025aa1a95a54abad3d99a51b27f874714c7b82a8",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "target_path": "tests/product/test_selfdev_real_provider_target.py",
+    "receipt_digest": "ced0b1c5c12474607618d2a3126d9027055ffaa899288173ac0986be419cbd42",
+    "evidence_ref": "verifier:85b6197f919eef621b6ddae95f7c4979df316352b28f288f9812e0c3e7a35080"
+  }
+}
