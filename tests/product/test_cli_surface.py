@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from apps.cli import __main__ as cli
+from agent_os_core import INVALID_SELFDEV_TARGET, SelfDevelopmentValidationError
 
 
 @dataclass
@@ -99,3 +100,82 @@ def test_cli_routes_long_horizon_commands_to_application(
         "task:cli",
         {"workflow": {"version": 2}, "reason": "replace wait"},
     )
+
+
+def test_cli_selfdev_validate_outputs_admission_receipt(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: FakeApplication())
+    spec_path = tmp_path / "selfdev.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "mandate_id": "META-SHADOW-MANDATE-0",
+                "repository_id": "autonomous-agent-core",
+                "repository_head": "0123456789abcdef",
+                "isolated_workspace": str(tmp_path),
+                "isolated_branch": "codex/selfdev-s1-cli",
+                "target_path": "packages/os_core/src/agent_os_core/recovery.py",
+                "verifier_commands": ["python -m pytest"],
+                "expected_outcome_id": "expected:selfdev-s1-cli",
+                "rollback_strategy": "compensate_task",
+                "operator_intervention_count": 1,
+                "hcw_minutes": 0.25,
+                "baseline_assignment_id": "baseline:selfdev-s1-cli",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-os", "selfdev-validate", str(spec_path)],
+    )
+    cli.main()
+
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["target_path"] == "packages/os_core/src/agent_os_core/recovery.py"
+    assert receipt["verifier_commands"] == ["python -m pytest"]
+    assert len(receipt["receipt_digest"]) == 64
+
+
+def test_cli_selfdev_validate_rejects_generic_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: FakeApplication())
+    spec_path = tmp_path / "selfdev-invalid.json"
+    spec_path.write_text(
+        json.dumps(
+            {
+                "mandate_id": "META-SHADOW-MANDATE-0",
+                "repository_id": "autonomous-agent-core",
+                "repository_head": "0123456789abcdef",
+                "isolated_workspace": str(tmp_path),
+                "isolated_branch": "codex/selfdev-s1-cli",
+                "target_path": "fixture.txt",
+                "verifier_commands": ["python -m pytest"],
+                "expected_outcome_id": "expected:selfdev-s1-cli",
+                "rollback_strategy": "compensate_task",
+                "operator_intervention_count": 1,
+                "hcw_minutes": 0.25,
+                "baseline_assignment_id": "baseline:selfdev-s1-cli",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-os", "selfdev-validate", str(spec_path)],
+    )
+    try:
+        cli.main()
+    except SelfDevelopmentValidationError as exc:
+        assert exc.code == INVALID_SELFDEV_TARGET
+    else:
+        raise AssertionError("generic target should fail closed")

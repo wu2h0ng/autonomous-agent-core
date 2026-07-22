@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 from pathlib import Path
 
 from apps.api_server.app import AgentOSApplication
+from agent_os_core import SelfDevelopmentTaskSpec, validate_self_development_task
 
 
 def main() -> None:
@@ -38,7 +40,37 @@ def main() -> None:
     compensate.add_argument("task_id")
     recovery = sub.add_parser("task-recovery")
     recovery.add_argument("task_id")
+    selfdev_validate = sub.add_parser("selfdev-validate")
+    selfdev_validate.add_argument("spec_json", type=Path)
     args = parser.parse_args()
+    if args.command == "selfdev-validate":
+        payload = json.loads(args.spec_json.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("SELFDEV spec JSON must be an object")
+        verifiers = payload.get("verifier_commands", ())
+        if not isinstance(verifiers, list | tuple):
+            raise ValueError("SELFDEV verifier_commands must be an array")
+        receipt = validate_self_development_task(
+            SelfDevelopmentTaskSpec(
+                mandate_id=str(payload.get("mandate_id", "")),
+                repository_id=str(payload.get("repository_id", "")),
+                repository_head=str(payload.get("repository_head", "")),
+                isolated_workspace=str(payload.get("isolated_workspace", "")),
+                isolated_branch=str(payload.get("isolated_branch", "")),
+                target_path=str(payload.get("target_path", "")),
+                verifier_commands=tuple(str(command) for command in verifiers),
+                expected_outcome_id=str(payload.get("expected_outcome_id", "")),
+                rollback_strategy=str(payload.get("rollback_strategy", "")),
+                operator_intervention_count=int(
+                    payload.get("operator_intervention_count", -1)
+                ),
+                hcw_minutes=float(payload.get("hcw_minutes", -1)),
+                baseline_assignment_id=str(payload.get("baseline_assignment_id", "")),
+            )
+        )
+        print(json.dumps(asdict(receipt), indent=2, default=str))
+        return
+
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))
     if args.command == "task-create":
         task = app.create_task({
