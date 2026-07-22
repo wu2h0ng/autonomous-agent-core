@@ -85,6 +85,14 @@ from .protocol_ingress import (
     WorkloadIdentityAdapter,
 )
 from .recovery import build_recovery_snapshot
+from .self_development import (
+    INVALID_SELFDEV_TARGET,
+    RUN_DENIED,
+    SelfDevelopmentReceipt,
+    SelfDevelopmentTaskSpec,
+    SelfDevelopmentValidationError,
+    validate_self_development_task,
+)
 from .srl_event_authority import (
     CanonicalCredentialAuthorizationReader,
     CanonicalCredentialLeaseRegistry,
@@ -230,6 +238,7 @@ __all__ = [
     "TrustedEvaluatorRegistrationRegistry",
     "VerifiedEvaluatorInputs",
     "EventStreamError",
+    "INVALID_SELFDEV_TARGET",
     "InMemoryTaskEventStore",
     "SQLiteTaskEventStore",
     "SQLiteCandidateStore",
@@ -239,6 +248,7 @@ __all__ = [
     "PostgresTaskEventStore",
     "InvalidTransitionError",
     "ReplanRejectedError",
+    "RUN_DENIED",
     "IdFactory",
     "ScopeMismatchError",
     "SituationalProposalError",
@@ -301,8 +311,12 @@ __all__ = [
     "ProviderPort",
     "EventEnvelopeAdapter",
     "SQLiteProtocolIngressStore",
+    "SelfDevelopmentReceipt",
+    "SelfDevelopmentTaskSpec",
+    "SelfDevelopmentValidationError",
     "WorkloadIdentityAdapter",
     "build_recovery_snapshot",
+    "validate_self_development_task",
     "CanonicalCredentialLeaseRegistry",
     "CanonicalCredentialAuthorizationReader",
     "CredentialLeaseRegistryPort",
