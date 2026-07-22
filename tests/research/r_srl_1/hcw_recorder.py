@@ -368,14 +368,18 @@ def run_rater_prompt(
     unit_id: str,
     event_id: str | None,
     transcript_lines: Iterable[str],
+    blinded_arm_label: str | None = None,
 ) -> HcwAnnotation:
     """Print a structured rater prompt to stdout and return a sample annotation.
 
-    This is a prototype CLI helper; it does not perform real input handling.
+    This is a prototype CLI helper; it does not perform real input handling.  It
+    intentionally does not print the real ``arm_id`` because preregistration §5
+    requires HCW raters to annotate transcripts without arm labels.
     """
     transcript = "\n".join(transcript_lines)
+    arm_label = blinded_arm_label if blinded_arm_label is not None else "BLINDED"
     print("--- R-SRL-1 HCW rater prompt ---")
-    print(f"arm_id: {arm_id}")
+    print(f"arm_label: {arm_label}")
     print(f"unit_id: {unit_id}")
     print(f"event_id: {event_id}")
     print("Instructions:")

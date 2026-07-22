@@ -361,11 +361,15 @@ def test_run_rater_prompt_prints_and_returns_sample(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     transcript = ["operator: tests failed", "model: I will inspect the diff"]
-    sample = run_rater_prompt("arm3", "u00", "event-01", transcript)
+    sample = run_rater_prompt(
+        "arm3", "u00", "event-01", transcript, blinded_arm_label="segment-A"
+    )
 
     captured = capsys.readouterr()
     assert "R-SRL-1 HCW rater prompt" in captured.out
-    assert "arm_id: arm3" in captured.out
+    assert "arm_label: segment-A" in captured.out
+    assert "arm_id:" not in captured.out
+    assert "arm3" not in captured.out
     assert "unit_id: u00" in captured.out
     assert "event_id: event-01" in captured.out
     assert "tests failed" in captured.out

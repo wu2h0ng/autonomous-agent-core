@@ -25,6 +25,7 @@ def test_yaml_loads_and_contains_required_sections() -> None:
         "arm1_baseline_scheduled_setup",
         "arm2_user_driven_driving",
         "arm3_srl_help_response",
+        "arm4_persistent_state_ablation",
     ]
     for section in arm_sections:
         assert isinstance(protocols[section], dict)
@@ -69,7 +70,7 @@ def test_validation_rejects_prohibited_coaching_case_insensitive() -> None:
         validate_protocols(modified)
 
 
-@pytest.mark.parametrize("arm_id", ["arm1", "arm2", "arm3"])
+@pytest.mark.parametrize("arm_id", ["arm1", "arm2", "arm3", "arm4"])
 def test_get_protocol_returns_correct_text(arm_id: str) -> None:
     protocol = get_protocol(arm_id)
     assert isinstance(protocol, dict)
@@ -79,7 +80,9 @@ def test_get_protocol_returns_correct_text(arm_id: str) -> None:
 
 
 def test_get_protocol_rejects_unknown_arm() -> None:
-    with pytest.raises(ValueError, match="Unknown arm_id: 'unknown'.*arm1.*arm2.*arm3"):
+    with pytest.raises(
+        ValueError, match="Unknown arm_id: 'unknown'.*arm1.*arm2.*arm3.*arm4"
+    ):
         get_protocol("unknown")
 
 

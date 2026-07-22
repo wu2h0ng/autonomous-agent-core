@@ -145,6 +145,45 @@ arm3_srl_help_response:
     - "Reveal hidden scorer identity, expected direction, or arm labels."
     - "Answer questions that were not actually asked in the HelpRequest."
 
+arm4_persistent_state_ablation:
+  title: "Arm 4 — persistent-state-only ablation"
+  role: persistent_state_ablation
+  preamble: |
+    You are operating the persistent-state-only ablation arm. This arm may use
+    the same durable public event and scratch-state capacity as the SRL arm, but
+    it must not use Mandate, Commitment, Relevance, HelpRequest or other
+    SRL-internal structures. Your role is to keep the state ledger available
+    while following the fixed heuristic script below.
+  driving_script:
+    - step: "load_state"
+      prompt: |
+        Load the frozen public state, previous scratch state and latest event.
+        Copy raw facts into the scratch state without adding SRL vocabulary,
+        priority scores, commitments or proposed goals.
+    - step: "fixed_heuristic"
+      prompt: |
+        Apply the fixed heuristic in order: unresolved test/build failure,
+        explicit user request, newest repository change, then no-op. Select the
+        first matching item and record the selected public-state fact.
+    - step: "execute_or_record_noop"
+      prompt: |
+        Execute the selected action if it is inside the shared capability
+        envelope. If no item matches, record no-op with the public-state reason.
+        Do not ask for external help except for irreducible permission.
+    - step: "state_update"
+      prompt: |
+        Append raw action output and observed facts to the scratch state. Do not
+        create commitments, relevance assessments, standing goals or SRL
+        HelpRequests.
+  operator_may:
+    - "Maintain durable scratch state with the same size limit as other arms."
+    - "Apply the fixed heuristic to public-state facts."
+    - "Record an irreducible permission need when a shared capability requires it."
+  operator_may_not:
+    - "Use Mandate, Commitment, Relevance, HelpRequest or proposed-goal structures."
+    - "Choose actions outside the fixed heuristic order."
+    - "Discuss expected outcomes, scorer identity, or arm labels in the transcript."
+
 prohibited_coaching:
   - "you should use the SRL structure"
   - "the expected answer is"

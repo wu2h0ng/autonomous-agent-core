@@ -12,6 +12,7 @@ REQUIRED_PROTOCOL_KEYS: frozenset[str] = frozenset(
         "arm1_baseline_scheduled_setup",
         "arm2_user_driven_driving",
         "arm3_srl_help_response",
+        "arm4_persistent_state_ablation",
         "prohibited_coaching",
     }
 )
@@ -20,6 +21,7 @@ ARM_ID_TO_KEY: dict[str, str] = {
     "arm1": "arm1_baseline_scheduled_setup",
     "arm2": "arm2_user_driven_driving",
     "arm3": "arm3_srl_help_response",
+    "arm4": "arm4_persistent_state_ablation",
 }
 
 
@@ -110,7 +112,7 @@ def get_protocol(arm_id: str) -> dict[str, Any]:
     """Return the operator script for a given experimental arm.
 
     Args:
-        arm_id: One of ``arm1``, ``arm2``, or ``arm3``.
+        arm_id: One of ``arm1``, ``arm2``, ``arm3`` or ``arm4``.
 
     Returns:
         The script dictionary for the requested arm.
