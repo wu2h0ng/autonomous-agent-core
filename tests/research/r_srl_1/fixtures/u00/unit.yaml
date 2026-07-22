@@ -3,6 +3,7 @@ repository_lineage: canonical-python-lib-00
 sequence_version: 1
 frozen_at: "2026-07-16T12:00:00+08:00"
 arm_budget_seconds: 1800
+counts_toward_gate: false
 snapshot_file: snapshot.yaml
 mission_file: mission.yaml
 events_file: events.yaml
@@ -13,4 +14,4 @@ manifest:
   snapshot.yaml: sha256:0eff0eb2665ca2bc92f8b0103a1eace24b2e44fb8eef0c7cba6cd88f3857de10
   mission.yaml: sha256:871bdf49d280fba52269ed69945519767e964e91c475a09c4436e2440eeaeadc
   events.yaml: sha256:6f66f9c4713d28269602c8e951892ac7d5a1c315d9256bce91b2e42f5cb19c40
-  expected_outcomes.yaml: sha256:9980195281338b0f941b5c12e5b1548cd480934d3c3643cc4ff4811b3ecabc41
+  expected_outcomes.yaml: sha256:36b256860e263f74441d78a6c6fb720e7f41532652d370628da5ee0d51523e83

@@ -106,6 +106,7 @@ def test_load_frozen_unit_u00(u00_unit: FrozenUnit) -> None:
     assert u00_unit.unit_id == "r-srl-1-u00"
     assert u00_unit.repository_lineage == "canonical-python-lib-00"
     assert u00_unit.arm_budget_seconds == 1800
+    assert u00_unit.counts_toward_gate is False
     assert u00_unit.build_commands == (("python", "-m", "compileall", "."),)
     assert set(u00_unit.manifest.keys()) == {
         "snapshot.yaml",
@@ -142,6 +143,7 @@ def test_verify_manifest_fails_on_tampered_file(
         unit_id=u00_unit.unit_id,
         repository_lineage=u00_unit.repository_lineage,
         arm_budget_seconds=u00_unit.arm_budget_seconds,
+        counts_toward_gate=u00_unit.counts_toward_gate,
         manifest=u00_unit.manifest,
         build_commands=u00_unit.build_commands,
         snapshot_path=tampered_dir / "snapshot.yaml",
@@ -163,6 +165,20 @@ def test_event_gateway_init_verifies_manifest(u00_dir: Path, tmp_path: Path) -> 
         RsrlEventGateway(units_root)
 
 
+def test_load_frozen_unit_requires_counts_toward_gate(
+    u00_dir: Path, tmp_path: Path
+) -> None:
+    copied_unit = tmp_path / "u00"
+    shutil.copytree(u00_dir, copied_unit)
+    unit_path = copied_unit / "unit.yaml"
+    unit_doc = yaml.safe_load(unit_path.read_text(encoding="utf-8"))
+    del unit_doc["counts_toward_gate"]
+    unit_path.write_text(yaml.safe_dump(unit_doc, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="counts_toward_gate"):
+        load_frozen_unit(copied_unit)
+
+
 def test_event_gateway_rejects_hidden_scorer_semantics_in_event_class(
     u00_dir: Path, tmp_path: Path
 ) -> None:
@@ -182,6 +198,30 @@ def test_event_gateway_rejects_hidden_scorer_semantics_in_event_class(
     unit_path.write_text(yaml.safe_dump(unit_doc, sort_keys=False), encoding="utf-8")
 
     with pytest.raises(ValueError, match="event_class leaks hidden scorer semantics"):
+        RsrlEventGateway(units_root)
+
+
+def test_event_gateway_rejects_missing_expected_test_path(
+    u00_dir: Path, tmp_path: Path
+) -> None:
+    units_root = tmp_path / "units"
+    copied_unit = units_root / "u00"
+    shutil.copytree(u00_dir, copied_unit)
+
+    expected_path = copied_unit / "expected_outcomes.yaml"
+    expected = yaml.safe_load(expected_path.read_text(encoding="utf-8"))
+    expected["event-01"]["test_path"] = "tests/test_core.py::test_missing_selector"
+    expected_path.write_text(
+        yaml.safe_dump(expected, sort_keys=False), encoding="utf-8"
+    )
+
+    digest = hashlib.sha256(expected_path.read_bytes()).hexdigest()
+    unit_path = copied_unit / "unit.yaml"
+    unit_doc = yaml.safe_load(unit_path.read_text(encoding="utf-8"))
+    unit_doc["manifest"]["expected_outcomes.yaml"] = f"sha256:{digest}"
+    unit_path.write_text(yaml.safe_dump(unit_doc, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing test selector"):
         RsrlEventGateway(units_root)
 
 

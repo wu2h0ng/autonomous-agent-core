@@ -155,6 +155,7 @@ class FrozenUnit:
     unit_id: str
     repository_lineage: str
     arm_budget_seconds: int
+    counts_toward_gate: bool
     manifest: dict[str, str]
     build_commands: tuple[tuple[str, ...], ...]
     snapshot_path: Path
@@ -310,6 +311,12 @@ def load_frozen_unit(unit_dir: Path) -> FrozenUnit:
     manifest = raw.get("manifest", {})
     if not isinstance(manifest, dict):
         raise ValueError(f"unit.yaml manifest must be a mapping: {unit_file}")
+    if "counts_toward_gate" not in raw or not isinstance(
+        raw["counts_toward_gate"], bool
+    ):
+        raise ValueError(
+            f"unit.yaml counts_toward_gate must be an explicit boolean: {unit_file}"
+        )
 
     snapshot_name = raw.get("snapshot_file", "snapshot.yaml")
     mission_name = raw.get("mission_file", "mission.yaml")
@@ -329,6 +336,7 @@ def load_frozen_unit(unit_dir: Path) -> FrozenUnit:
         unit_id=raw["unit_id"],
         repository_lineage=raw["repository_lineage"],
         arm_budget_seconds=int(raw["arm_budget_seconds"]),
+        counts_toward_gate=raw["counts_toward_gate"],
         manifest={str(k): str(v) for k, v in manifest.items()},
         build_commands=_load_build_commands(raw, unit_file),
         snapshot_path=snapshot_path,
@@ -366,6 +374,62 @@ def verify_manifest(unit: FrozenUnit) -> bool:
                 f"manifest mismatch for {filename}: expected {expected_digest}, got {actual_digest}"
             )
     return True
+
+
+def _load_expected_outcome_map(expected_outcomes_path: Path) -> dict[str, Any]:
+    raw = yaml.safe_load(expected_outcomes_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"expected_outcomes.yaml must contain a mapping: {expected_outcomes_path}"
+        )
+    return raw
+
+
+def validate_expected_outcomes_repo_consistency(
+    unit: FrozenUnit, repo_files: dict[str, bytes]
+) -> None:
+    """Validate expected test selectors against frozen repository bytes."""
+    expected_outcomes = _load_expected_outcome_map(unit.expected_outcomes_path)
+    for event_id, expected in expected_outcomes.items():
+        if not isinstance(expected, dict):
+            raise ValueError(
+                f"expected outcome for {event_id} must be a mapping: "
+                f"{unit.expected_outcomes_path}"
+            )
+        test_path = expected.get("test_path")
+        if test_path is None:
+            continue
+        if not isinstance(test_path, str) or not test_path:
+            raise ValueError(
+                f"expected outcome {event_id} test_path must be a non-empty string"
+            )
+        file_part = test_path.split("::", 1)[0]
+        if _is_dangerous_path(file_part):
+            raise PermissionError(
+                f"expected outcome {event_id} test_path is not allowed: {test_path}"
+            )
+        if "::" not in test_path:
+            raise ValueError(
+                f"expected outcome {event_id} test_path must include a selector: "
+                f"{test_path}"
+            )
+        selector = test_path.split("::", 1)[1]
+        if file_part not in repo_files:
+            raise FileNotFoundError(
+                f"expected outcome {event_id} references missing repo test file: "
+                f"{file_part}"
+            )
+        selector_name = selector.rsplit(".", 1)[-1]
+        if not selector_name:
+            raise ValueError(
+                f"expected outcome {event_id} test_path selector is empty: {test_path}"
+            )
+        content = repo_files[file_part].decode("utf-8", errors="ignore")
+        if f"def {selector_name}" not in content:
+            raise ValueError(
+                f"expected outcome {event_id} references missing test selector "
+                f"{selector_name!r} in {file_part}"
+            )
 
 
 def load_events(events_path: Path) -> tuple[SrlEnvironmentEvent, ...]:
@@ -788,9 +852,11 @@ class RsrlEventGateway:
                 continue
             unit = load_frozen_unit(unit_dir)
             verify_manifest(unit)
+            repo_files = self._load_repo_files(unit_dir)
+            validate_expected_outcomes_repo_consistency(unit, repo_files)
             self._units[unit.unit_id] = unit
             self._events[unit.unit_id] = load_events(unit.events_path)
-            self._repo_files[unit.unit_id] = self._load_repo_files(unit_dir)
+            self._repo_files[unit.unit_id] = repo_files
 
     def _load_repo_files(self, unit_dir: Path) -> dict[str, bytes]:
         repo_dir = unit_dir / "repo"

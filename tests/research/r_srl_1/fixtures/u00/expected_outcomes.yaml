@@ -3,7 +3,7 @@
 event-01:
   type: TEST_FIXED
   criteria: failing_test_passes
-  test_path: tests/test_lib.py::test_new_feature
+  test_path: tests/test_core.py::test_new_feature_not_yet_implemented
 
 event-02:
   type: INTERFACE_ADAPTED

@@ -60,8 +60,8 @@ def test_hidden_evaluator_test_fixed_verified(
 ) -> None:
     artifact = _artifact(
         test_reports={
-            "tests/test_lib.py::test_new_feature": {
-                "test_path": "tests/test_lib.py::test_new_feature",
+            "tests/test_core.py::test_new_feature_not_yet_implemented": {
+                "test_path": "tests/test_core.py::test_new_feature_not_yet_implemented",
                 "passed": True,
                 "artifact_ref": "report:event-01",
             },
@@ -82,8 +82,8 @@ def test_hidden_evaluator_test_fixed_not_met(
 ) -> None:
     artifact = _artifact(
         test_reports={
-            "tests/test_lib.py::test_new_feature": {
-                "test_path": "tests/test_lib.py::test_new_feature",
+            "tests/test_core.py::test_new_feature_not_yet_implemented": {
+                "test_path": "tests/test_core.py::test_new_feature_not_yet_implemented",
                 "passed": False,
                 "artifact_ref": "report:event-01",
             },
@@ -134,7 +134,7 @@ def test_outcome_evaluator_rejects_verified_without_evidence(
 ) -> None:
     expected = {
         "type": "TEST_FIXED",
-        "test_path": "tests/test_lib.py::test_new_feature",
+        "test_path": "tests/test_core.py::test_new_feature_not_yet_implemented",
     }
     draft = EventOutcome(
         event_id="event-01",
@@ -145,8 +145,8 @@ def test_outcome_evaluator_rejects_verified_without_evidence(
     )
     artifact = _artifact(
         test_reports={
-            "tests/test_lib.py::test_new_feature": {
-                "test_path": "tests/test_lib.py::test_new_feature",
+            "tests/test_core.py::test_new_feature_not_yet_implemented": {
+                "test_path": "tests/test_core.py::test_new_feature_not_yet_implemented",
                 "passed": True,
                 "artifact_ref": "report:event-01",
             },
@@ -761,8 +761,8 @@ def test_hidden_evaluator_full_u00_all_verified(
 ) -> None:
     artifact = _artifact(
         test_reports={
-            "tests/test_lib.py::test_new_feature": {
-                "test_path": "tests/test_lib.py::test_new_feature",
+            "tests/test_core.py::test_new_feature_not_yet_implemented": {
+                "test_path": "tests/test_core.py::test_new_feature_not_yet_implemented",
                 "passed": True,
                 "artifact_ref": "report:event-01",
             },
