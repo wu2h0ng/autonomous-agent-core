@@ -267,7 +267,11 @@ def prepare_self_development_task_package(
                 "allowlisted verifier evidence is content-bound",
                 "compensation restores pre-change bytes",
             ],
-            "authority_scopes": ["workspace:read", "workspace:write"],
+            "authority_scopes": [
+                "workspace:read",
+                "workspace:write",
+                "task.configuration.snapshot",
+            ],
             "budget": {
                 "max_cost_usd": max_cost_usd,
                 "max_duration_seconds": duration_seconds,

@@ -255,6 +255,9 @@ def test_cli_selfdev_prepare_outputs_commit_payload_and_run_inputs(
     run_inputs = package["run_inputs"]
     assert receipt["target_path"] == "packages/os_core/src/agent_os_core/recovery.py"
     assert commit_payload["commitment"]["task_id"] == "task:selfdev-s2-cli"
+    assert "task.configuration.snapshot" in (
+        commit_payload["commitment"]["authority_scopes"]
+    )
     assert commit_payload["expected_outcome"]["task_id"] == "task:selfdev-s2-cli"
     assert (
         commit_payload["expected_outcome"]["expected_outcome_id"]
