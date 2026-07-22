@@ -182,6 +182,7 @@ def main() -> None:
                 "selfdev-run-provider readiness failed: "
                 + ",".join(readiness.blockers),
             )
+        runtime_provider = _selfdev_provider_runtime_binding(app, provider)
         receipt = validate_self_development_task(spec)
         created_at = (
             datetime.fromisoformat(args.created_at.replace("Z", "+00:00"))
@@ -217,6 +218,7 @@ def main() -> None:
                 {
                     "mode": "REAL_PROVIDER_READY_UNTIL_APPROVAL",
                     "provider": provider,
+                    "runtime_provider": runtime_provider,
                     "readiness": asdict(readiness),
                     "baseline_record": asdict(baseline_record),
                     "task": app.task_json(proposed.task_id),
@@ -398,6 +400,43 @@ def _evaluate_selfdev_readiness_from_env(
         ),
         provider,
     )
+
+
+def _selfdev_provider_runtime_binding(
+    app: AgentOSApplication,
+    provider: dict[str, object],
+) -> dict[str, object]:
+    if not getattr(app, "provider_configured", False):
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "selfdev-run-provider runtime provider is not configured",
+        )
+    profile = getattr(app, "provider_profile", None)
+    model_id = getattr(profile, "model_id", None)
+    endpoint_class = getattr(profile, "endpoint_class", None)
+    configured_model = os.environ.get("AGENT_OS_PROVIDER_MODEL")
+    if configured_model and model_id != configured_model:
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "selfdev-run-provider runtime provider model does not match readiness",
+        )
+    if provider["base_url_configured"] and endpoint_class != "openai-compatible":
+        raise SelfDevelopmentValidationError(
+            RUN_DENIED,
+            "selfdev-run-provider runtime provider endpoint is not live-compatible",
+        )
+    return {
+        "configured": True,
+        "profile_id": getattr(profile, "profile_id", "UNKNOWN"),
+        "provider_id": getattr(profile, "provider_id", "UNKNOWN"),
+        "model_id": model_id or "UNKNOWN",
+        "model_revision_digest": getattr(
+            profile,
+            "model_revision_digest",
+            None,
+        ),
+        "endpoint_class": endpoint_class or "UNKNOWN",
+    }
 
 
 def _capture_selfdev_baseline(

@@ -4,6 +4,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from agent_os_contracts import WorkflowGraph
 from apps.cli import __main__ as cli
@@ -22,6 +23,14 @@ class FakeTask:
 class FakeApplication:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
+        self.provider_configured = True
+        self.provider_profile = SimpleNamespace(
+            profile_id="provider-profile:fake",
+            provider_id="openai-compatible",
+            model_id="frontier-model",
+            model_revision_digest=None,
+            endpoint_class="openai-compatible",
+        )
 
     def create_task(self, payload: dict[str, object]) -> FakeTask:
         self.calls.append(("create", payload))
@@ -378,6 +387,47 @@ def test_cli_selfdev_run_provider_fails_closed_before_task_create_without_readin
     assert fake.calls == []
 
 
+def test_cli_selfdev_run_provider_fails_closed_when_runtime_provider_not_bound(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    fake = FakeApplication()
+    fake.provider_configured = False
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(
+        tmp_path,
+        branch="codex/selfdev-provider-runtime-denied",
+    )
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-provider-runtime-denied",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-provider",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+        ],
+    )
+    try:
+        cli.main()
+    except SelfDevelopmentValidationError as exc:
+        assert exc.code == RUN_DENIED
+        assert "runtime provider is not configured" in exc.detail
+    else:
+        raise AssertionError("provider SELFDEV should require runtime binding")
+    assert fake.calls == []
+
+
 def test_cli_selfdev_run_provider_requires_readiness_then_delegates_to_run_gate(
     tmp_path: Path,
     monkeypatch,
@@ -413,6 +463,14 @@ def test_cli_selfdev_run_provider_requires_readiness_then_delegates_to_run_gate(
     output = json.loads(capsys.readouterr().out)
     assert output["mode"] == "REAL_PROVIDER_READY_UNTIL_APPROVAL"
     assert output["readiness"]["ready"] is True
+    assert output["runtime_provider"] == {
+        "configured": True,
+        "profile_id": "provider-profile:fake",
+        "provider_id": "openai-compatible",
+        "model_id": "frontier-model",
+        "model_revision_digest": None,
+        "endpoint_class": "openai-compatible",
+    }
     assert output["task"]["task_id"] == "task:selfdev-created"
     assert [name for name, _ in fake.calls] == ["create", "commit", "run"]
     run_call = fake.calls[2][1]
