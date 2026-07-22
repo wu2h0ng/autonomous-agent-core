@@ -1,0 +1,52 @@
+{
+  "admission_receipt": {
+    "mandate_id": "META-SHADOW-MANDATE-0",
+    "repository_id": "autonomous-agent-core",
+    "repository_head": "59112db",
+    "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-real-target-evidence-overlap-20260722/provider",
+    "isolated_branch": "codex/selfdev-evidence-overlap-20260722",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "verifier_commands": [
+      "python -m pytest"
+    ],
+    "expected_outcome_id": "expected:selfdev-evidence-overlap-20260722",
+    "rollback_strategy": "compensate_task",
+    "operator_intervention_count": 0,
+    "hcw_minutes": 0.0,
+    "baseline_assignment_id": "baseline:selfdev-evidence-overlap-20260722",
+    "receipt_digest": "69b38debbe3370db37da0d31e6e215d2d0070b3a5ff89e7b87b6427bf5592003"
+  },
+  "baseline_record": {
+    "baseline_assignment_id": "baseline:selfdev-evidence-overlap-20260722",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 1.5,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-real-target-evidence-overlap-20260722:founder-model-tools-source-fix",
+      "verifier:9015b4547a9bbc13117d640f7e49789e54640fc0dfd6560a05e96948773bc7b9"
+    ],
+    "record_digest": "34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235"
+  },
+  "selfdev_run_record": {
+    "admission_receipt_digest": "69b38debbe3370db37da0d31e6e215d2d0070b3a5ff89e7b87b6427bf5592003",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 0.1,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-real-target-evidence-overlap-20260722-fair:provider-verified:b9d31ec1c04a72bfe244ace9951fef11d8156ecc441365b1906227663b0a5d40"
+    ],
+    "record_digest": "83bd10453b07d86154ff3ea34aaf4662e72b356f20b208d3ea46e314ece77f9a"
+  },
+  "baseline_hcw_minutes": 1.5,
+  "selfdev_hcw_minutes": 0.1,
+  "hcw_delta_minutes": -1.4,
+  "baseline_operator_intervention_count": 1,
+  "selfdev_operator_intervention_count": 1,
+  "operator_intervention_delta": 0,
+  "verdict": "SELFDEV_HCW_LOWER",
+  "receipt_digest": "d5af61e2a358c7a40879ebd0f3ccfe2546f5299d4e16c883585f77c96cccd143"
+}

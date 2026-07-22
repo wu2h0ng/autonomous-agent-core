@@ -1,0 +1,49 @@
+{
+  "run_id": "selfdev-real-target-evidence-overlap-20260722-fair",
+  "supersedes": [
+    "selfdev-real-target-evidence-overlap-20260722 (BLOCKED_BEFORE_RESULT)",
+    "selfdev-real-target-evidence-overlap-20260722-rerun (COMPLETED_WITH_NOT_MET)"
+  ],
+  "fairness_change_declared_upfront": "Provider-visible goal statement now carries the exact acceptance contract (RUN_DENIED + EVIDENCE_REF_OVERLAP + fail-closed semantics + non-overlap still emits), removing the information asymmetry vs the baseline arm that read the test file. Spec, verifier, baseline record 34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235 all frozen and unchanged; the receipt binding excludes the statement by design.",
+  "target_kind": "non_synthetic_agent_os_source_plus_test_fixture",
+  "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+  "driver": "agent-os selfdev-run-provider --approve --duration-seconds 3600 --statement <contract> (heads 603ff53, e020a7f)",
+  "attempts": [
+    {
+      "attempt": 1,
+      "result": "BLOCKED_AT_PROVIDER_NODE",
+      "reason": "provider tool proposal arguments violated the exact {path, content} whitelist; executor failed closed at execution.py:1141 before approval; no result emitted",
+      "evidence": "agent-os-attempt-1.sqlite3, provider-run-attempt-1-stderr.log"
+    },
+    {
+      "attempt": 2,
+      "result": "COMPLETED_VERIFIED",
+      "task_id": "task-f5ffaa00-3ce3-4af6-9ab9-81c063950d07",
+      "chain": "create -> commit -> seal(task-configuration:b9e1a947-b1cb-44a5-a37a-7e5ffdbb1f21) -> run -> WAITING_APPROVAL -> same-process exact-digest APPROVE -> resume -> apply -> pytest 6/6 passed -> evaluate -> COMPLETED",
+      "observed_outcome_status": "VERIFIED",
+      "outcome_evidence_valid": true,
+      "evidence": "agent-os-attempt-2.sqlite3, provider-run-attempt-2-output.json (raw, retained locally), provider-run-attempt-2-redacted.json"
+    }
+  ],
+  "provider_compliance_note": "1 of 2 identically-configured attempts produced a malformed tool proposal envelope; proposal-format strictness is intentional and unchanged.",
+  "selfdev_run_record_digest": "83bd10453b07d86154ff3ea34aaf4662e72b356f20b208d3ea46e314ece77f9a",
+  "comparison_receipt_digest": "d5af61e2a358c7a40879ebd0f3ccfe2546f5299d4e16c883585f77c96cccd143",
+  "comparison": {
+    "verdict": "SELFDEV_HCW_LOWER",
+    "baseline_hcw_minutes": 1.5,
+    "selfdev_hcw_minutes": 0.1,
+    "hcw_delta_minutes": -1.4,
+    "operator_intervention_delta": 0
+  },
+  "claim_boundary": "First non-synthetic single-target comparison receipt. It measures mechanical execution given a pre-digested exact acceptance contract, not task understanding or decomposition. One narrow target, one VERIFIED sample; not a portfolio, not product superiority, not release, not Autonomy(S,E,O,V,T) evidence.",
+  "artifacts": [
+    "run-summary.json",
+    "selfdev-run-record.json",
+    "selfdev-comparison.json",
+    "provider-run-attempt-2-redacted.json (committed)",
+    "agent-os-attempt-1.sqlite3",
+    "agent-os-attempt-2.sqlite3",
+    "provider-run-attempt-1-stderr.log",
+    "provider-run-attempt-2-output.json (raw, sha256:b9d31ec1c04a72bfe244ace9951fef11d8156ecc441365b1906227663b0a5d40, retained locally uncommitted per redaction convention)"
+  ]
+}
