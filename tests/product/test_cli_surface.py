@@ -384,6 +384,72 @@ def test_cli_selfdev_run_local_executes_existing_spine_with_explicit_patch(
     assert target.read_text(encoding="utf-8") == patched
 
 
+def test_cli_selfdev_readiness_fails_closed_without_real_provider(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    for key in (
+        "AGENT_OS_PROVIDER_BASE_URL",
+        "AGENT_OS_PROVIDER_MODEL",
+        "AGENT_OS_PROVIDER_API_KEY_ENV",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-readiness")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-os", "selfdev-readiness", str(spec_path)],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["ready"] is False
+    assert output["provider"] == {
+        "base_url_configured": False,
+        "model_configured": False,
+        "credential_env": "OPENAI_API_KEY",
+        "credential_available": False,
+    }
+    assert output["blockers"] == [
+        "REAL_PROVIDER_NOT_CONFIGURED",
+        "PROVIDER_CREDENTIAL_UNAVAILABLE",
+        "PROVIDER_MODEL_UNSPECIFIED",
+    ]
+
+
+def test_cli_selfdev_readiness_passes_with_provider_and_baseline_fields(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-ready")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["agent-os", "selfdev-readiness", str(spec_path)],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["ready"] is True
+    assert output["blockers"] == []
+    assert output["provider"] == {
+        "base_url_configured": True,
+        "model_configured": True,
+        "credential_env": "AGENT_OS_TEST_PROVIDER_KEY",
+        "credential_available": True,
+    }
+    assert "redacted-test-key" not in json.dumps(output)
+
+
 def _write_selfdev_spec(tmp_path: Path, *, branch: str) -> Path:
     spec_path = tmp_path / f"{branch.replace('/', '-')}.json"
     spec_path.write_text(

@@ -4,6 +4,7 @@ import argparse
 from dataclasses import asdict
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 
 from agent_os_contracts import ProviderToolProposal
@@ -11,6 +12,7 @@ from apps.api_server.app import AgentOSApplication
 from agent_os_core import (
     DeterministicProvider,
     SelfDevelopmentTaskSpec,
+    evaluate_self_development_readiness,
     prepare_self_development_task_package,
     validate_self_development_task,
 )
@@ -62,6 +64,8 @@ def main() -> None:
     selfdev_run_local.add_argument("--patch-content-file", type=Path, required=True)
     selfdev_run_local.add_argument("--created-at")
     selfdev_run_local.add_argument("--approve", action="store_true")
+    selfdev_readiness = sub.add_parser("selfdev-readiness")
+    selfdev_readiness.add_argument("spec_json", type=Path)
     args = parser.parse_args()
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
@@ -79,6 +83,23 @@ def main() -> None:
             created_at=created_at,
         )
         print(json.dumps(asdict(package), indent=2, default=str))
+        return
+    if args.command == "selfdev-readiness":
+        credential_env = os.environ.get("AGENT_OS_PROVIDER_API_KEY_ENV", "OPENAI_API_KEY")
+        report = evaluate_self_development_readiness(
+            _selfdev_spec_from_file(args.spec_json),
+            provider_configured=bool(os.environ.get("AGENT_OS_PROVIDER_BASE_URL")),
+            provider_model=os.environ.get("AGENT_OS_PROVIDER_MODEL"),
+            credential_available=bool(os.environ.get(credential_env)),
+        )
+        output = asdict(report)
+        output["provider"] = {
+            "base_url_configured": bool(os.environ.get("AGENT_OS_PROVIDER_BASE_URL")),
+            "model_configured": bool(os.environ.get("AGENT_OS_PROVIDER_MODEL")),
+            "credential_env": credential_env,
+            "credential_available": bool(os.environ.get(credential_env)),
+        }
+        print(json.dumps(output, indent=2, default=str))
         return
 
     app = AgentOSApplication(database=args.database, workspace=Path(args.workspace))

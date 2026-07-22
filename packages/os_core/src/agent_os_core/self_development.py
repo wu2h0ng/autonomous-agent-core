@@ -92,6 +92,16 @@ class SelfDevelopmentTaskPackage:
     run_inputs: dict[str, object]
 
 
+@dataclass(frozen=True)
+class SelfDevelopmentReadinessReport:
+    """Fail-closed readiness for a real provider SELFDEV result run."""
+
+    admission_receipt: SelfDevelopmentReceipt
+    ready: bool
+    blockers: tuple[str, ...]
+    next_required_actions: tuple[str, ...]
+
+
 def validate_self_development_task(
     spec: SelfDevelopmentTaskSpec,
 ) -> SelfDevelopmentReceipt:
@@ -241,6 +251,49 @@ def prepare_self_development_task_package(
             "target_path": receipt.target_path,
             "test_command": receipt.verifier_commands[0],
         },
+    )
+
+
+def evaluate_self_development_readiness(
+    spec: SelfDevelopmentTaskSpec,
+    *,
+    provider_configured: bool,
+    provider_model: str | None,
+    credential_available: bool,
+) -> SelfDevelopmentReadinessReport:
+    """Check whether a real provider SELFDEV result run may start.
+
+    Readiness is intentionally stricter than contract validation: local
+    deterministic runs are useful execution-physics evidence, but they are not
+    a real provider run and cannot support HCW or autonomy-adjacent claims.
+    """
+
+    receipt = validate_self_development_task(spec)
+    blockers: list[str] = []
+    actions: list[str] = []
+    if not provider_configured:
+        blockers.append("REAL_PROVIDER_NOT_CONFIGURED")
+        actions.append("Set AGENT_OS_PROVIDER_BASE_URL and provider model metadata.")
+    if not credential_available:
+        blockers.append("PROVIDER_CREDENTIAL_UNAVAILABLE")
+        actions.append(
+            "Set the environment variable named by AGENT_OS_PROVIDER_API_KEY_ENV "
+            "or OPENAI_API_KEY."
+        )
+    if not provider_model or not provider_model.strip():
+        blockers.append("PROVIDER_MODEL_UNSPECIFIED")
+        actions.append("Set AGENT_OS_PROVIDER_MODEL before a real provider run.")
+    if not receipt.baseline_assignment_id.strip():
+        blockers.append("BASELINE_ASSIGNMENT_MISSING")
+        actions.append("Bind a matched founder/model+tools baseline assignment.")
+    if receipt.operator_intervention_count < 0 or receipt.hcw_minutes < 0:
+        blockers.append("HCW_TELEMETRY_INVALID")
+        actions.append("Provide non-negative operator intervention and HCW fields.")
+    return SelfDevelopmentReadinessReport(
+        admission_receipt=receipt,
+        ready=not blockers,
+        blockers=tuple(blockers),
+        next_required_actions=tuple(actions),
     )
 
 

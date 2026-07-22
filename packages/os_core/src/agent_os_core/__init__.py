@@ -88,10 +88,12 @@ from .recovery import build_recovery_snapshot
 from .self_development import (
     INVALID_SELFDEV_TARGET,
     RUN_DENIED,
+    SelfDevelopmentReadinessReport,
     SelfDevelopmentTaskPackage,
     SelfDevelopmentReceipt,
     SelfDevelopmentTaskSpec,
     SelfDevelopmentValidationError,
+    evaluate_self_development_readiness,
     prepare_self_development_task_package,
     validate_self_development_task,
 )
@@ -251,6 +253,7 @@ __all__ = [
     "InvalidTransitionError",
     "ReplanRejectedError",
     "RUN_DENIED",
+    "SelfDevelopmentReadinessReport",
     "SelfDevelopmentTaskPackage",
     "IdFactory",
     "ScopeMismatchError",
@@ -319,6 +322,7 @@ __all__ = [
     "SelfDevelopmentValidationError",
     "WorkloadIdentityAdapter",
     "build_recovery_snapshot",
+    "evaluate_self_development_readiness",
     "prepare_self_development_task_package",
     "validate_self_development_task",
     "CanonicalCredentialLeaseRegistry",
