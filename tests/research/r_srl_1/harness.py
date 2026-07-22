@@ -94,6 +94,33 @@ def _default_arm_envelopes() -> dict[str, ArmEnvelope]:
     }
 
 
+CANONICAL_ARM_IDS: frozenset[str] = frozenset(_default_arm_envelopes())
+
+
+def _validate_matched_arm_budgets(budgets: dict[str, ArmBudget]) -> None:
+    """Require four-arm scoring configurations to use identical budgets."""
+    if len(budgets) <= 1:
+        return
+    configured = set(budgets)
+    if configured != CANONICAL_ARM_IDS:
+        missing = sorted(CANONICAL_ARM_IDS - configured)
+        extra = sorted(configured - CANONICAL_ARM_IDS)
+        raise ValueError(
+            "R-SRL scoring budgets must configure exactly arm1-arm4; "
+            f"missing={missing}, extra={extra}"
+        )
+    first_arm = "arm1"
+    expected = budgets[first_arm]
+    mismatched = sorted(
+        arm_id for arm_id, budget in budgets.items() if budget != expected
+    )
+    if mismatched:
+        raise ValueError(
+            "R-SRL scoring budgets must be identical across arm1-arm4; "
+            f"mismatched={mismatched}"
+        )
+
+
 def _model_dump_tree(obj: Any) -> Any:
     """Recursively convert pydantic models into plain dict/list primitives."""
     if hasattr(obj, "model_dump"):
@@ -746,7 +773,9 @@ class RsrlEventGateway:
         self._test_reports: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._build_results: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._restart_comparisons: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
-        self._ledger = BudgetLedger(arm_budgets or {})
+        matched_budgets = arm_budgets or {}
+        _validate_matched_arm_budgets(matched_budgets)
+        self._ledger = BudgetLedger(matched_budgets)
         self._arm_envelopes = dict(arm_envelopes or _default_arm_envelopes())
         self._help_ledger: HelpBurdenLedger | None = (
             HelpBurdenLedger(help_budget) if help_budget is not None else None

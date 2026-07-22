@@ -430,6 +430,60 @@ def test_budget_ledger_raises_on_exceeded_calls(gateway: RsrlEventGateway) -> No
         tight_gateway.charge("arm1", "r-srl-1-u00", BudgetEntry.llm_call())
 
 
+def test_event_gateway_rejects_unequal_four_arm_budgets(
+    gateway: RsrlEventGateway,
+) -> None:
+    matched = ArmBudget(
+        max_llm_calls=100,
+        max_input_tokens=1_000_000,
+        max_output_tokens=500_000,
+        max_retries=50,
+        max_tool_invocations=1_000,
+        max_wall_seconds=3600.0,
+    )
+    unequal = ArmBudget(
+        max_llm_calls=101,
+        max_input_tokens=1_000_000,
+        max_output_tokens=500_000,
+        max_retries=50,
+        max_tool_invocations=1_000,
+        max_wall_seconds=3600.0,
+    )
+
+    with pytest.raises(ValueError, match="identical across arm1-arm4"):
+        RsrlEventGateway(
+            gateway.units_root,
+            arm_budgets={
+                "arm1": matched,
+                "arm2": matched,
+                "arm3": unequal,
+                "arm4": matched,
+            },
+        )
+
+
+def test_event_gateway_rejects_partial_multi_arm_budget_config(
+    gateway: RsrlEventGateway,
+) -> None:
+    budget = ArmBudget(
+        max_llm_calls=100,
+        max_input_tokens=1_000_000,
+        max_output_tokens=500_000,
+        max_retries=50,
+        max_tool_invocations=1_000,
+        max_wall_seconds=3600.0,
+    )
+
+    with pytest.raises(ValueError, match="exactly arm1-arm4"):
+        RsrlEventGateway(
+            gateway.units_root,
+            arm_budgets={
+                "arm1": budget,
+                "arm2": budget,
+            },
+        )
+
+
 def test_budget_ledger_tracks_wall_time(gateway: RsrlEventGateway) -> None:
     gateway.charge("arm1", "r-srl-1-u00", BudgetEntry.wall_seconds(1.5))
     gateway.charge("arm1", "r-srl-1-u00", BudgetEntry.wall_seconds(0.5))
