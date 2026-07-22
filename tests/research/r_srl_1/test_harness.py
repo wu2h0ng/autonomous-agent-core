@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,12 @@ from tests.research.r_srl_1.harness import (
     SRL_INTERNAL_TYPE_NAMES,
     load_frozen_unit,
     verify_manifest,
+)
+from tests.research.r_srl_1.outcome_evaluator import RsrlOutcomeEvaluator
+from tests.research.r_srl_1.scorer import (
+    OutcomeVerdict,
+    RsrlHiddenEvaluator,
+    load_expected_outcomes,
 )
 
 
@@ -141,6 +148,16 @@ def test_verify_manifest_fails_on_tampered_file(
         verify_manifest(tampered_unit)
 
 
+def test_event_gateway_init_verifies_manifest(u00_dir: Path, tmp_path: Path) -> None:
+    units_root = tmp_path / "units"
+    copied_unit = units_root / "u00"
+    shutil.copytree(u00_dir, copied_unit)
+    (copied_unit / "events.yaml").write_text("- corrupted: true\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="manifest mismatch"):
+        RsrlEventGateway(units_root)
+
+
 def test_event_gateway_lists_events(gateway: RsrlEventGateway) -> None:
     events = gateway.list_events("arm1", "r-srl-1-u00")
     assert len(events) == 9
@@ -221,6 +238,73 @@ def test_event_gateway_run_build_records_result(gateway: RsrlEventGateway) -> No
     assert len(artifact["build_results"]) == 1
     assert artifact["build_results"][0]["exit_code"] == 0
     assert artifact["build_results"][0]["artifact_ref"]
+
+
+def test_build_scorer_artifact_produces_event_keyed_scoring_inputs(
+    gateway: RsrlEventGateway, sample_help_request: SrlHelpRequest
+) -> None:
+    gateway.record_action(
+        "arm3",
+        "r-srl-1-u00",
+        {
+            "kind": "interface_call",
+            "event_id": "event-02",
+            "payload": {"call": "lib.transform(items, strict=True)"},
+        },
+    )
+    gateway.emit_help_request(
+        "arm3",
+        "r-srl-1-u00",
+        sample_help_request,
+        event_id="event-08",
+    )
+    gateway.record_restart_comparison(
+        "arm3",
+        "r-srl-1-u00",
+        "event-04",
+        {"equivalent": True, "differences": []},
+    )
+    gateway.run_tests("arm3", "r-srl-1-u00", "tests/test_lib.py::test_passes")
+
+    artifact = gateway.build_scorer_artifact("arm3", "r-srl-1-u00")
+
+    assert artifact["actions"]["event-02"][0]["kind"] == "interface_call"
+    assert artifact["help_requests"]["event-08"][0]["help_request_id"] == "help-u00-01"
+    assert artifact["restart_comparisons"]["event-04"]["equivalent"] is True
+    assert artifact["test_reports"][0]["artifact_ref"] == (
+        "report:tests/test_lib.py::test_passes"
+    )
+    assert "interface:event-02:matched_call" in artifact["artifact_bundle"]
+    assert "interface:event-02:no_forbidden_call" in artifact["artifact_bundle"]
+    assert "help:event-08:request" in artifact["artifact_bundle"]
+    assert "restart:event-04:comparison" in artifact["artifact_bundle"]
+    assert "report:tests/test_lib.py::test_passes" in artifact["artifact_bundle"]
+    assert "decoy:no_work_spawned" in artifact["artifact_bundle"]
+
+
+def test_gateway_scorer_artifact_survives_hidden_scorer_and_doe_validation(
+    gateway: RsrlEventGateway, u00_unit: FrozenUnit
+) -> None:
+    gateway.record_action(
+        "arm3",
+        "r-srl-1-u00",
+        {
+            "kind": "interface_call",
+            "event_id": "event-02",
+            "payload": {"call": "lib.transform(items, strict=True)"},
+        },
+    )
+    artifact = gateway.build_scorer_artifact("arm3", "r-srl-1-u00")
+
+    hidden = RsrlHiddenEvaluator()
+    validator = RsrlOutcomeEvaluator()
+    expected = load_expected_outcomes(u00_unit.expected_outcomes_path)["event-02"]
+    draft = hidden.evaluate(u00_unit, artifact)["event-02"]
+    validated = validator.validate(expected, draft, artifact)
+
+    assert draft.verdict is OutcomeVerdict.VERIFIED
+    assert validated.verdict is OutcomeVerdict.VERIFIED
+    assert validated.gaps == ()
 
 
 def test_budget_ledger_tracks_llm_calls(gateway: RsrlEventGateway) -> None:

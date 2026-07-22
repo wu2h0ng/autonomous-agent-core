@@ -647,8 +647,10 @@ class RsrlEventGateway:
         self._repo_files: dict[str, dict[str, bytes]] = {}
         self._actions: dict[tuple[str, str], list[dict]] = {}
         self._help_requests: dict[tuple[str, str], list[SrlHelpRequest]] = {}
+        self._help_request_event_ids: dict[tuple[str, str], dict[str, str]] = {}
         self._test_reports: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._build_results: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self._restart_comparisons: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         self._ledger = BudgetLedger(arm_budgets or {})
         self._arm_envelopes = dict(arm_envelopes or _default_arm_envelopes())
         self._help_ledger: HelpBurdenLedger | None = (
@@ -661,6 +663,7 @@ class RsrlEventGateway:
             if not unit_dir.is_dir():
                 continue
             unit = load_frozen_unit(unit_dir)
+            verify_manifest(unit)
             self._units[unit.unit_id] = unit
             self._events[unit.unit_id] = load_events(unit.events_path)
             self._repo_files[unit.unit_id] = self._load_repo_files(unit_dir)
@@ -827,6 +830,7 @@ class RsrlEventGateway:
         unit_id: str,
         request: SrlHelpRequest,
         operator_minutes_estimate: int = 1,
+        event_id: str | None = None,
     ) -> None:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
@@ -835,6 +839,11 @@ class RsrlEventGateway:
         # SRL-internal type name embedded inside the payload is rejected.
         self._enforce_arm_envelope(arm_id, request)
         self._help_requests.setdefault((arm_id, unit_id), []).append(request)
+        if event_id is not None:
+            self._require_known_event_id(unit_id, event_id)
+            self._help_request_event_ids.setdefault((arm_id, unit_id), {})[
+                request.help_request_id
+            ] = event_id
         if self._help_ledger is not None:
             self._help_ledger.record(
                 arm_id, unit_id, request, operator_minutes_estimate
@@ -897,6 +906,27 @@ class RsrlEventGateway:
         self._ledger.check_wall_time(arm_id, unit_id)
         self._enforce_arm_envelope(arm_id, action)
         self._actions.setdefault((arm_id, unit_id), []).append(action)
+
+    def record_restart_comparison(
+        self,
+        arm_id: str,
+        unit_id: str,
+        event_id: str,
+        comparison: dict[str, Any],
+    ) -> None:
+        """Record a restart comparator result under a concrete event id."""
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        self._require_known_event_id(unit_id, event_id)
+        if not isinstance(comparison.get("equivalent"), bool):
+            raise ValueError("restart comparison requires boolean equivalent")
+        differences = comparison.get("differences", [])
+        if not isinstance(differences, list):
+            raise ValueError("restart comparison differences must be a list")
+        self._ledger.check_wall_time(arm_id, unit_id)
+        self._restart_comparisons.setdefault((arm_id, unit_id), {})[event_id] = dict(
+            comparison
+        )
 
     def charge(self, arm_id: str, unit_id: str, entry: BudgetEntry) -> None:
         """Apply a budget charge to the arm/unit ledger."""
@@ -1009,9 +1039,102 @@ class RsrlEventGateway:
 
         return {"equivalent": not differences, "differences": differences}
 
+    def _require_known_event_id(self, unit_id: str, event_id: str) -> None:
+        known = {event.event_id for event in self._events.get(unit_id, ())}
+        if event_id not in known:
+            raise ValueError(f"unknown event_id for unit {unit_id}: {event_id}")
+
+    def build_scorer_artifact(self, arm_id: str, unit_id: str) -> dict[str, Any]:
+        """Build the durable artifact shape consumed by the hidden scorer.
+
+        This is the explicit gateway-to-scorer adapter.  It converts runtime
+        logs into the event-keyed fields expected by ``RsrlHiddenEvaluator`` and
+        materializes evidence refs in ``artifact_bundle`` so the deterministic
+        outcome validator can fail closed on missing artifacts.
+        """
+        if unit_id not in self._units:
+            raise ValueError(f"unknown unit_id: {unit_id}")
+        key = (arm_id, unit_id)
+        actions_by_event: dict[str, list[dict[str, Any]]] = {}
+        file_modifications: dict[str, list[str]] = {}
+        artifact_bundle: dict[str, Any] = {}
+
+        for action in self._actions.get(key, []):
+            event_id = action.get("event_id")
+            if not isinstance(event_id, str):
+                continue
+            self._require_known_event_id(unit_id, event_id)
+            actions_by_event.setdefault(event_id, []).append(action)
+            if isinstance(action.get("path"), str):
+                file_modifications.setdefault(event_id, []).append(str(action["path"]))
+
+            kind = action.get("kind")
+            raw_payload = action.get("payload")
+            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            if kind == "interface_call":
+                artifact_bundle[f"interface:{event_id}:matched_call"] = action
+                artifact_bundle[f"interface:{event_id}:no_forbidden_call"] = True
+            elif kind == "constraint_resolution":
+                artifact_bundle[f"conflict:{event_id}:constraint_matched"] = action
+                artifact_bundle[f"conflict:{event_id}:no_forbidden_kind"] = True
+            elif kind in {"uncertainty_note", "risk_assessment"} and payload.get(
+                "statement"
+            ):
+                artifact_bundle[f"uncertainty:{event_id}:accepted_statement"] = action
+            elif kind == "belief_correction":
+                artifact_bundle[f"belief:{event_id}:correction"] = action
+            elif kind == "commitment_complete":
+                artifact_bundle[f"commitment:{event_id}:on_time"] = action
+
+        help_by_event: dict[str, list[dict[str, Any]]] = {}
+        help_event_ids = self._help_request_event_ids.get(key, {})
+        for request in self._help_requests.get(key, []):
+            event_id = help_event_ids.get(request.help_request_id)
+            if event_id is None:
+                continue
+            self._require_known_event_id(unit_id, event_id)
+            request_payload = _model_dump_tree(request)
+            help_by_event.setdefault(event_id, []).append(request_payload)
+            artifact_bundle[f"help:{event_id}:request"] = request_payload
+
+        restart_comparisons = dict(self._restart_comparisons.get(key, {}))
+        for event_id, comparison in restart_comparisons.items():
+            self._require_known_event_id(unit_id, event_id)
+            artifact_bundle[f"restart:{event_id}:comparison"] = comparison
+
+        test_reports = list(self._test_reports.get(key, []))
+        for report in test_reports:
+            artifact_ref = report.get("artifact_ref")
+            if isinstance(artifact_ref, str) and artifact_ref:
+                artifact_bundle[artifact_ref] = report
+
+        event_ids = {event.event_id for event in self._events.get(unit_id, ())}
+        touched_events = (
+            set(actions_by_event)
+            | set(help_by_event)
+            | set(file_modifications)
+            | set(restart_comparisons)
+        )
+        for event_id in sorted(event_ids - touched_events):
+            artifact_bundle[f"decoy:{event_id}:no_work_spawned"] = True
+        artifact_bundle["decoy:no_work_spawned"] = True
+
+        return {
+            "unit_id": unit_id,
+            "arm_id": arm_id,
+            "actions": actions_by_event,
+            "help_requests": help_by_event,
+            "file_modifications": file_modifications,
+            "restart_comparisons": restart_comparisons,
+            "test_reports": test_reports,
+            "build_results": list(self._build_results.get(key, [])),
+            "artifact_bundle": artifact_bundle,
+        }
+
     def finalize_unit(self, arm_id: str, unit_id: str) -> dict:
         if unit_id not in self._units:
             raise ValueError(f"unknown unit_id: {unit_id}")
+        scorer_artifact = self.build_scorer_artifact(arm_id, unit_id)
         return {
             "unit_id": unit_id,
             "arm_id": arm_id,
@@ -1021,4 +1144,5 @@ class RsrlEventGateway:
             "repository_files": sorted(self._repo_files.get(unit_id, {}).keys()),
             "test_reports": list(self._test_reports.get((arm_id, unit_id), [])),
             "build_results": list(self._build_results.get((arm_id, unit_id), [])),
+            "scorer_artifact": scorer_artifact,
         }
