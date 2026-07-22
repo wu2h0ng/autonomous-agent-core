@@ -726,6 +726,12 @@ def test_cli_selfdev_compare_outputs_hcw_verdict_receipt(
         operator_intervention_count=3,
         hcw_minutes=5.5,
     )
+    run_record_path = _write_selfdev_run_record(
+        tmp_path,
+        branch="codex/selfdev-compare",
+        operator_intervention_count=1,
+        hcw_minutes=2.0,
+    )
 
     monkeypatch.setattr(
         sys,
@@ -735,10 +741,7 @@ def test_cli_selfdev_compare_outputs_hcw_verdict_receipt(
             "selfdev-compare",
             str(spec_path),
             str(baseline_path),
-            "--selfdev-outcome-status",
-            "VERIFIED",
-            "--selfdev-evidence-ref",
-            "selfdev:run",
+            str(run_record_path),
         ],
     )
     cli.main()
@@ -746,11 +749,50 @@ def test_cli_selfdev_compare_outputs_hcw_verdict_receipt(
     output = json.loads(capsys.readouterr().out)
     assert output["verdict"] == "SELFDEV_HCW_LOWER"
     assert output["baseline_hcw_minutes"] == 5.5
-    assert output["selfdev_hcw_minutes"] == 0.25
-    assert output["hcw_delta_minutes"] == -5.25
+    assert output["selfdev_hcw_minutes"] == 2.0
+    assert output["hcw_delta_minutes"] == -3.5
     assert output["operator_intervention_delta"] == -2
-    assert output["selfdev_evidence_refs"] == ["selfdev:run"]
+    assert output["selfdev_run_record"]["evidence_refs"] == ["run:selfdev"]
     assert len(output["receipt_digest"]) == 64
+
+
+def test_cli_selfdev_compare_uses_run_record_instead_of_spec_hcw(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-compare-actual")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-compare-actual",
+        operator_intervention_count=2,
+        hcw_minutes=3.5,
+    )
+    run_record_path = _write_selfdev_run_record(
+        tmp_path,
+        branch="codex/selfdev-compare-actual",
+        operator_intervention_count=3,
+        hcw_minutes=7.0,
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-compare",
+            str(spec_path),
+            str(baseline_path),
+            str(run_record_path),
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["verdict"] == "SELFDEV_HCW_NOT_LOWER"
+    assert output["selfdev_hcw_minutes"] == 7.0
+    assert output["hcw_delta_minutes"] == 3.5
+    assert output["operator_intervention_delta"] == 1
 
 
 def test_cli_selfdev_compare_does_not_claim_win_when_outcome_not_verified(
@@ -763,6 +805,11 @@ def test_cli_selfdev_compare_does_not_claim_win_when_outcome_not_verified(
         tmp_path,
         branch="codex/selfdev-compare-not-met",
     )
+    run_record_path = _write_selfdev_run_record(
+        tmp_path,
+        branch="codex/selfdev-compare-not-met",
+        outcome_status="NOT_MET",
+    )
 
     monkeypatch.setattr(
         sys,
@@ -772,16 +819,50 @@ def test_cli_selfdev_compare_does_not_claim_win_when_outcome_not_verified(
             "selfdev-compare",
             str(spec_path),
             str(baseline_path),
-            "--selfdev-outcome-status",
-            "NOT_MET",
-            "--selfdev-evidence-ref",
-            "selfdev:run",
+            str(run_record_path),
         ],
     )
     cli.main()
 
     output = json.loads(capsys.readouterr().out)
     assert output["verdict"] == "INCOMPARABLE_OUTCOME_NOT_VERIFIED"
+
+
+def test_cli_selfdev_run_record_outputs_post_run_telemetry(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-run-record")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-record",
+            str(spec_path),
+            "--operator-intervention-count",
+            "4",
+            "--hcw-minutes",
+            "8.25",
+            "--outcome-status",
+            "VERIFIED",
+            "--evidence-ref",
+            "run:selfdev",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["repository_id"] == "autonomous-agent-core"
+    assert output["target_path"] == "packages/os_core/src/agent_os_core/recovery.py"
+    assert output["operator_intervention_count"] == 4
+    assert output["hcw_minutes"] == 8.25
+    assert output["outcome_status"] == "VERIFIED"
+    assert output["evidence_refs"] == ["run:selfdev"]
+    assert len(output["admission_receipt_digest"]) == 64
+    assert len(output["record_digest"]) == 64
 
 
 def test_cli_selfdev_readiness_passes_with_provider_and_matched_baseline_record(
@@ -905,3 +986,31 @@ def _write_selfdev_baseline_record(
         encoding="utf-8",
     )
     return baseline_path
+
+
+def _write_selfdev_run_record(
+    tmp_path: Path,
+    *,
+    branch: str,
+    operator_intervention_count: int = 1,
+    hcw_minutes: float = 2.0,
+    outcome_status: str = "VERIFIED",
+    evidence_refs: list[str] | None = None,
+) -> Path:
+    record_path = tmp_path / f"{branch.replace('/', '-')}-run.json"
+    record_path.write_text(
+        json.dumps(
+            {
+                "admission_receipt_digest": "ignored-by-cli-rebuilder",
+                "repository_id": "ignored-by-cli-rebuilder",
+                "target_path": "ignored-by-cli-rebuilder",
+                "operator_intervention_count": operator_intervention_count,
+                "hcw_minutes": hcw_minutes,
+                "outcome_status": outcome_status,
+                "evidence_refs": evidence_refs or ["run:selfdev"],
+                "record_digest": "ignored-by-cli-rebuilder",
+            }
+        ),
+        encoding="utf-8",
+    )
+    return record_path

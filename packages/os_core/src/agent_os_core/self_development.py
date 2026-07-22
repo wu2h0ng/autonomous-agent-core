@@ -35,6 +35,7 @@ _ROLLBACK_STRATEGIES = frozenset(
     {"compensate_task", "restore_preimage", "git_worktree_reset"}
 )
 _DENIED_BRANCH_NAMES = frozenset({"main", "master", "release"})
+_SUPPORTED_OUTCOME_STATUSES = frozenset({"VERIFIED", "NOT_MET", "UNRESOLVED", "INVALID"})
 
 
 class SelfDevelopmentValidationError(ValueError):
@@ -69,6 +70,25 @@ class SelfDevelopmentBaselineRecord:
     """Matched founder/model+tools baseline telemetry for SELFDEV comparison."""
 
     baseline_assignment_id: str
+    repository_id: str
+    target_path: str
+    operator_intervention_count: int
+    hcw_minutes: float
+    outcome_status: str
+    evidence_refs: tuple[str, ...]
+    record_digest: str
+
+
+@dataclass(frozen=True)
+class SelfDevelopmentRunRecord:
+    """Post-run SELFDEV telemetry bound to the admission receipt.
+
+    This is deliberately separate from ``SelfDevelopmentTaskSpec`` because the
+    spec may carry estimates or placeholders. Comparative HCW claims must use
+    measured post-run telemetry.
+    """
+
+    admission_receipt_digest: str
     repository_id: str
     target_path: str
     operator_intervention_count: int
@@ -122,8 +142,7 @@ class SelfDevelopmentComparisonReceipt:
 
     admission_receipt: SelfDevelopmentReceipt
     baseline_record: SelfDevelopmentBaselineRecord
-    selfdev_outcome_status: str
-    selfdev_evidence_refs: tuple[str, ...]
+    selfdev_run_record: SelfDevelopmentRunRecord
     baseline_hcw_minutes: float
     selfdev_hcw_minutes: float
     hcw_delta_minutes: float
@@ -362,17 +381,11 @@ def build_self_development_baseline_record(
             INVALID_SELFDEV_TARGET,
             "baseline hcw_minutes must be non-negative",
         )
-    status = outcome_status.strip().upper()
-    if status not in {"VERIFIED", "NOT_MET", "UNRESOLVED", "INVALID"}:
-        raise SelfDevelopmentValidationError(
-            INVALID_SELFDEV_TARGET,
-            "baseline outcome_status is not supported",
-        )
-    if not evidence_refs:
-        raise SelfDevelopmentValidationError(
-            INVALID_SELFDEV_TARGET,
-            "baseline evidence_refs are required",
-        )
+    status = _validate_outcome_status("baseline outcome_status", outcome_status)
+    normalized_evidence_refs = _validate_evidence_refs(
+        "baseline evidence_refs",
+        evidence_refs,
+    )
     payload = {
         "baseline_assignment_id": baseline_assignment_id,
         "repository_id": repository_id,
@@ -380,7 +393,7 @@ def build_self_development_baseline_record(
         "operator_intervention_count": operator_intervention_count,
         "hcw_minutes": hcw_minutes,
         "outcome_status": status,
-        "evidence_refs": tuple(sorted(evidence_refs)),
+        "evidence_refs": normalized_evidence_refs,
     }
     digest = hashlib.sha256(
         json.dumps(
@@ -393,39 +406,78 @@ def build_self_development_baseline_record(
     return SelfDevelopmentBaselineRecord(record_digest=digest, **payload)
 
 
+def build_self_development_run_record(
+    spec: SelfDevelopmentTaskSpec,
+    *,
+    operator_intervention_count: int,
+    hcw_minutes: float,
+    outcome_status: str,
+    evidence_refs: tuple[str, ...],
+) -> SelfDevelopmentRunRecord:
+    receipt = validate_self_development_task(spec)
+    if operator_intervention_count < 0:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "selfdev operator_intervention_count must be non-negative",
+        )
+    if hcw_minutes < 0:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            "selfdev hcw_minutes must be non-negative",
+        )
+    status = _validate_outcome_status("selfdev outcome_status", outcome_status)
+    normalized_evidence_refs = _validate_evidence_refs(
+        "selfdev evidence_refs",
+        evidence_refs,
+    )
+    payload = {
+        "admission_receipt_digest": receipt.receipt_digest,
+        "repository_id": receipt.repository_id,
+        "target_path": receipt.target_path,
+        "operator_intervention_count": operator_intervention_count,
+        "hcw_minutes": hcw_minutes,
+        "outcome_status": status,
+        "evidence_refs": normalized_evidence_refs,
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return SelfDevelopmentRunRecord(record_digest=digest, **payload)
+
+
 def build_self_development_comparison_receipt(
     spec: SelfDevelopmentTaskSpec,
     *,
     baseline_record: SelfDevelopmentBaselineRecord,
-    selfdev_outcome_status: str,
-    selfdev_evidence_refs: tuple[str, ...],
+    selfdev_run_record: SelfDevelopmentRunRecord,
 ) -> SelfDevelopmentComparisonReceipt:
     receipt = validate_self_development_task(spec)
     blockers: list[str] = []
     actions: list[str] = []
     _validate_baseline_record(receipt, baseline_record, blockers, actions)
+    _validate_run_record(receipt, selfdev_run_record, blockers, actions)
     if blockers:
         raise SelfDevelopmentValidationError(
             RUN_DENIED,
-            "baseline is not comparable: " + ",".join(blockers),
+            "SELFDEV comparison is not comparable: " + ",".join(blockers),
         )
-    status = selfdev_outcome_status.strip().upper()
-    if status not in {"VERIFIED", "NOT_MET", "UNRESOLVED", "INVALID"}:
-        raise SelfDevelopmentValidationError(
-            INVALID_SELFDEV_TARGET,
-            "selfdev_outcome_status is not supported",
-        )
-    if not selfdev_evidence_refs:
-        raise SelfDevelopmentValidationError(
-            INVALID_SELFDEV_TARGET,
-            "selfdev_evidence_refs are required",
-        )
-    hcw_delta = round(spec.hcw_minutes - baseline_record.hcw_minutes, 6)
+    hcw_delta = round(
+        selfdev_run_record.hcw_minutes - baseline_record.hcw_minutes,
+        6,
+    )
     intervention_delta = (
-        spec.operator_intervention_count
+        selfdev_run_record.operator_intervention_count
         - baseline_record.operator_intervention_count
     )
-    if baseline_record.outcome_status != "VERIFIED" or status != "VERIFIED":
+    if (
+        baseline_record.outcome_status != "VERIFIED"
+        or selfdev_run_record.outcome_status != "VERIFIED"
+    ):
         verdict = "INCOMPARABLE_OUTCOME_NOT_VERIFIED"
     elif hcw_delta < 0 and intervention_delta <= 0:
         verdict = "SELFDEV_HCW_LOWER"
@@ -434,15 +486,16 @@ def build_self_development_comparison_receipt(
     payload = {
         "admission_receipt_digest": receipt.receipt_digest,
         "baseline_record_digest": baseline_record.record_digest,
-        "selfdev_outcome_status": status,
-        "selfdev_evidence_refs": tuple(sorted(selfdev_evidence_refs)),
+        "selfdev_run_record_digest": selfdev_run_record.record_digest,
         "baseline_hcw_minutes": baseline_record.hcw_minutes,
-        "selfdev_hcw_minutes": spec.hcw_minutes,
+        "selfdev_hcw_minutes": selfdev_run_record.hcw_minutes,
         "hcw_delta_minutes": hcw_delta,
         "baseline_operator_intervention_count": (
             baseline_record.operator_intervention_count
         ),
-        "selfdev_operator_intervention_count": spec.operator_intervention_count,
+        "selfdev_operator_intervention_count": (
+            selfdev_run_record.operator_intervention_count
+        ),
         "operator_intervention_delta": intervention_delta,
         "verdict": verdict,
     }
@@ -457,15 +510,16 @@ def build_self_development_comparison_receipt(
     return SelfDevelopmentComparisonReceipt(
         admission_receipt=receipt,
         baseline_record=baseline_record,
-        selfdev_outcome_status=status,
-        selfdev_evidence_refs=tuple(sorted(selfdev_evidence_refs)),
+        selfdev_run_record=selfdev_run_record,
         baseline_hcw_minutes=baseline_record.hcw_minutes,
-        selfdev_hcw_minutes=spec.hcw_minutes,
+        selfdev_hcw_minutes=selfdev_run_record.hcw_minutes,
         hcw_delta_minutes=hcw_delta,
         baseline_operator_intervention_count=(
             baseline_record.operator_intervention_count
         ),
-        selfdev_operator_intervention_count=spec.operator_intervention_count,
+        selfdev_operator_intervention_count=(
+            selfdev_run_record.operator_intervention_count
+        ),
         operator_intervention_delta=intervention_delta,
         verdict=verdict,
         receipt_digest=digest,
@@ -496,6 +550,55 @@ def _validate_baseline_record(
     if not baseline.evidence_refs:
         blockers.append("BASELINE_EVIDENCE_MISSING")
         actions.append("Attach durable baseline evidence references.")
+
+
+def _validate_run_record(
+    receipt: SelfDevelopmentReceipt,
+    run_record: SelfDevelopmentRunRecord,
+    blockers: list[str],
+    actions: list[str],
+) -> None:
+    if run_record.admission_receipt_digest != receipt.receipt_digest:
+        blockers.append("SELFDEV_RUN_RECEIPT_MISMATCH")
+        actions.append("Use a SELFDEV run record bound to the admission receipt.")
+    if run_record.repository_id != receipt.repository_id:
+        blockers.append("SELFDEV_RUN_REPOSITORY_MISMATCH")
+        actions.append("Use the same repository for SELFDEV spec and run record.")
+    if run_record.target_path != receipt.target_path:
+        blockers.append("SELFDEV_RUN_TARGET_MISMATCH")
+        actions.append("Use the same target path for SELFDEV spec and run record.")
+    if run_record.operator_intervention_count < 0 or run_record.hcw_minutes < 0:
+        blockers.append("SELFDEV_RUN_HCW_INVALID")
+        actions.append("Record non-negative SELFDEV run telemetry.")
+    if run_record.outcome_status not in _SUPPORTED_OUTCOME_STATUSES:
+        blockers.append("SELFDEV_RUN_OUTCOME_INVALID")
+        actions.append("Record a supported SELFDEV run outcome status.")
+    if not run_record.evidence_refs:
+        blockers.append("SELFDEV_RUN_EVIDENCE_MISSING")
+        actions.append("Attach durable SELFDEV run evidence references.")
+
+
+def _validate_outcome_status(field: str, outcome_status: str) -> str:
+    status = outcome_status.strip().upper()
+    if status not in _SUPPORTED_OUTCOME_STATUSES:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            f"{field} is not supported",
+        )
+    return status
+
+
+def _validate_evidence_refs(
+    field: str,
+    evidence_refs: tuple[str, ...],
+) -> tuple[str, ...]:
+    normalized = tuple(sorted(str(ref) for ref in evidence_refs if str(ref).strip()))
+    if not normalized:
+        raise SelfDevelopmentValidationError(
+            INVALID_SELFDEV_TARGET,
+            f"{field} are required",
+        )
+    return normalized
 
 
 def _selfdev_workflow(created_at: datetime) -> WorkflowGraph:

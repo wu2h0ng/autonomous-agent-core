@@ -19,6 +19,7 @@ from agent_os_core import (
     SelfDevelopmentValidationError,
     build_self_development_baseline_record,
     build_self_development_comparison_receipt,
+    build_self_development_run_record,
     evaluate_self_development_readiness,
     prepare_self_development_task_package,
     validate_self_development_task,
@@ -89,11 +90,20 @@ def main() -> None:
     selfdev_run_provider.add_argument("spec_json", type=Path)
     selfdev_run_provider.add_argument("--baseline-record", type=Path, required=True)
     selfdev_run_provider.add_argument("--created-at")
+    selfdev_run_record = sub.add_parser("selfdev-run-record")
+    selfdev_run_record.add_argument("spec_json", type=Path)
+    selfdev_run_record.add_argument(
+        "--operator-intervention-count",
+        type=int,
+        required=True,
+    )
+    selfdev_run_record.add_argument("--hcw-minutes", type=float, required=True)
+    selfdev_run_record.add_argument("--outcome-status", required=True)
+    selfdev_run_record.add_argument("--evidence-ref", action="append", default=[])
     selfdev_compare = sub.add_parser("selfdev-compare")
     selfdev_compare.add_argument("spec_json", type=Path)
     selfdev_compare.add_argument("baseline_record_json", type=Path)
-    selfdev_compare.add_argument("--selfdev-outcome-status", required=True)
-    selfdev_compare.add_argument("--selfdev-evidence-ref", action="append", default=[])
+    selfdev_compare.add_argument("selfdev_run_record_json", type=Path)
     args = parser.parse_args()
     if args.command == "selfdev-validate":
         receipt = validate_self_development_task(_selfdev_spec_from_file(args.spec_json))
@@ -138,14 +148,27 @@ def main() -> None:
         )
         print(json.dumps(output, indent=2, default=str))
         return
-    if args.command == "selfdev-compare":
-        comparison = build_self_development_comparison_receipt(
+    if args.command == "selfdev-run-record":
+        record = build_self_development_run_record(
             _selfdev_spec_from_file(args.spec_json),
+            operator_intervention_count=args.operator_intervention_count,
+            hcw_minutes=args.hcw_minutes,
+            outcome_status=args.outcome_status,
+            evidence_refs=tuple(args.evidence_ref),
+        )
+        print(json.dumps(asdict(record), indent=2, default=str))
+        return
+    if args.command == "selfdev-compare":
+        spec = _selfdev_spec_from_file(args.spec_json)
+        comparison = build_self_development_comparison_receipt(
+            spec,
             baseline_record=_selfdev_baseline_record_from_file(
                 args.baseline_record_json,
             ),
-            selfdev_outcome_status=args.selfdev_outcome_status,
-            selfdev_evidence_refs=tuple(args.selfdev_evidence_ref),
+            selfdev_run_record=_selfdev_run_record_from_file(
+                args.selfdev_run_record_json,
+                spec=spec,
+            ),
         )
         print(json.dumps(asdict(comparison), indent=2, default=str))
         return
@@ -386,6 +409,24 @@ def _selfdev_baseline_record_from_file(path: Path):
         baseline_assignment_id=str(payload.get("baseline_assignment_id", "")),
         repository_id=str(payload.get("repository_id", "")),
         target_path=str(payload.get("target_path", "")),
+        operator_intervention_count=int(
+            payload.get("operator_intervention_count", -1)
+        ),
+        hcw_minutes=float(payload.get("hcw_minutes", -1)),
+        outcome_status=str(payload.get("outcome_status", "")),
+        evidence_refs=tuple(str(ref) for ref in evidence_refs),
+    )
+
+
+def _selfdev_run_record_from_file(path: Path, *, spec: SelfDevelopmentTaskSpec):
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("SELFDEV run record JSON must be an object")
+    evidence_refs = payload.get("evidence_refs", ())
+    if not isinstance(evidence_refs, list | tuple):
+        raise ValueError("SELFDEV run evidence_refs must be an array")
+    return build_self_development_run_record(
+        spec,
         operator_intervention_count=int(
             payload.get("operator_intervention_count", -1)
         ),
