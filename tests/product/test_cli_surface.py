@@ -643,6 +643,55 @@ def test_cli_provider_timeout_seconds_rejects_invalid_values(
         raise AssertionError("invalid provider timeout should fail fast")
 
 
+def test_cli_selfdev_run_provider_statement_reaches_task_goal(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("AGENT_OS_PROVIDER_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_MODEL", "frontier-model")
+    monkeypatch.setenv("AGENT_OS_PROVIDER_API_KEY_ENV", "AGENT_OS_TEST_PROVIDER_KEY")
+    monkeypatch.setenv("AGENT_OS_TEST_PROVIDER_KEY", "redacted-test-key")
+    fake = FakeApplication()
+    fake.run_statuses = [RunStatus.WAITING_APPROVAL]
+    monkeypatch.setattr(cli, "AgentOSApplication", lambda **kwargs: fake)
+    spec_path = _write_selfdev_spec(tmp_path, branch="codex/selfdev-provider-stmt")
+    baseline_path = _write_selfdev_baseline_record(
+        tmp_path,
+        branch="codex/selfdev-provider-stmt",
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "agent-os",
+            "selfdev-run-provider",
+            str(spec_path),
+            "--baseline-record",
+            str(baseline_path),
+            "--statement",
+            "Fail closed with RUN_DENIED and EVIDENCE_REF_OVERLAP",
+        ],
+    )
+    cli.main()
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["mode"] == "REAL_PROVIDER_READY_UNTIL_APPROVAL"
+    create_payload = fake.calls[0][1]
+    assert isinstance(create_payload, dict)
+    assert (
+        create_payload["statement"]
+        == "Fail closed with RUN_DENIED and EVIDENCE_REF_OVERLAP"
+    )
+    commit_call = fake.calls[1][1]
+    assert isinstance(commit_call, tuple)
+    assert (
+        commit_call[1]["statement"]
+        == "Fail closed with RUN_DENIED and EVIDENCE_REF_OVERLAP"
+    )
+
+
 def test_cli_selfdev_run_local_executes_existing_spine_with_explicit_patch(
     tmp_path: Path,
     monkeypatch,

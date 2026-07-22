@@ -92,6 +92,7 @@ def main() -> None:
     selfdev_run_provider.add_argument("--created-at")
     selfdev_run_provider.add_argument("--approve", action="store_true")
     selfdev_run_provider.add_argument("--duration-seconds", type=int, default=300)
+    selfdev_run_provider.add_argument("--statement")
     selfdev_run_record = sub.add_parser("selfdev-run-record")
     selfdev_run_record.add_argument("spec_json", type=Path)
     selfdev_run_record.add_argument(
@@ -231,6 +232,10 @@ def main() -> None:
             if args.created_at
             else datetime.now().astimezone()
         )
+        statement = args.statement or (
+            "Real provider Agent OS self-development run for "
+            f"{receipt.target_path}"
+        )
         created = app.create_task(
             {
                 "goal_id": f"goal:selfdev:{receipt.receipt_digest[:12]}",
@@ -238,20 +243,14 @@ def main() -> None:
                 "workspace_id": "workspace:local",
                 "created_by": "user:local",
                 "created_at": created_at.isoformat(),
-                "statement": (
-                    "Real provider Agent OS self-development run for "
-                    f"{receipt.target_path}"
-                ),
+                "statement": statement,
             }
         )
         package = prepare_self_development_task_package(
             spec,
             task_id=created.task_id,
             created_at=created_at,
-            statement=(
-                "Real provider Agent OS self-development run for "
-                f"{receipt.target_path}"
-            ),
+            statement=statement,
             duration_seconds=args.duration_seconds,
         )
         committed = app.commit_task(created.task_id, package.task_commit_payload)
