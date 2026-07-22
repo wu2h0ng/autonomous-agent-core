@@ -1,0 +1,13 @@
+{
+  "admission_receipt_digest": "69b38debbe3370db37da0d31e6e215d2d0070b3a5ff89e7b87b6427bf5592003",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+  "operator_intervention_count": 1,
+  "hcw_minutes": 0.1,
+  "outcome_status": "NOT_MET",
+  "evidence_refs": [
+    "agent-run:selfdev-real-target-evidence-overlap-20260722-rerun:provider-not-met:989f9e75ff39f31437103665ceddb77bff9fa9f17a1d6811df786d3ae196bee2",
+    "artifact:07610e0d874d54db261fc280608b85f043d5dce0071e5c5666d5971277a96e02"
+  ],
+  "record_digest": "a3e1b04447ceb4937eb0b6811f66ed40719de2ece6c000eab24a6ae9a4d709fc"
+}

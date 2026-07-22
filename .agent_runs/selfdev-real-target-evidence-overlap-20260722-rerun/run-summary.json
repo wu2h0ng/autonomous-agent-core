@@ -1,0 +1,28 @@
+{
+  "run_id": "selfdev-real-target-evidence-overlap-20260722-rerun",
+  "supersedes": "selfdev-real-target-evidence-overlap-20260722 (BLOCKED_BEFORE_RESULT)",
+  "target_kind": "non_synthetic_agent_os_source_plus_test_fixture",
+  "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+  "driver": "agent-os selfdev-run-provider --approve --duration-seconds 3600 (first-class in-process approval continuation, head 603ff53)",
+  "chain": "create -> commit -> seal(task-configuration:da94750f-c009-4a82-982e-030026d08937) -> run -> WAITING_APPROVAL -> same-process record_approval -> resume with identical snapshot id -> apply -> tests -> evaluate -> terminal",
+  "task_id": "task-dd10b41d-db3d-41c8-9e3f-472b3b55346f",
+  "run_id_runtime": "run:ff7a7acf-6ded-461c-86b6-b4d4d042dc68",
+  "approval": "APPROVE recorded in-process against exact action digest (CLI --approve)",
+  "provider_status": "COMPLETED_WITH_NOT_MET",
+  "observed_outcome_status": "NOT_MET",
+  "not_met_reason": "Provider patch (27KB full-file replacement) kept the pre-feature build_self_development_comparison_receipt logic and contained no EVIDENCE_REF_OVERLAP rejection; red/green test test_selfdev_comparison_receipt_refuses_shared_evidence_refs DID NOT RAISE; pytest exit_code=1; evidence artifact:07610e0d874d54db261fc280608b85f043d5dce0071e5c5666d5971277a96e02",
+  "rollback": "compensate_task executed automatically; ACTION_COMPENSATED restored pre-change bytes",
+  "baseline_record_digest": "34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235",
+  "selfdev_run_record_digest": "a3e1b04447ceb4937eb0b6811f66ed40719de2ece6c000eab24a6ae9a4d709fc",
+  "comparison_receipt_digest": "bbe56c7a9f0d8a3a2bab4d0eacc2840704164636709845a56fd0924050e5ea34",
+  "comparison_verdict": "INCOMPARABLE_OUTCOME_NOT_VERIFIED",
+  "methodology_note": "Provider arm saw only the target file plus the goal statement; the acceptance test requiring the exact RUN_DENIED/EVIDENCE_REF_OVERLAP contract was visible to the baseline arm. NOT_MET stands as recorded; future non-synthetic targets should bind the acceptance contract into the provider-visible statement.",
+  "claim_boundary": "No comparative HCW/product-value claim. This run proves the real-provider approval/resume execution chain end-to-end (seal, exact-digest approval, resume, evaluate, compensate) and records an honest NOT_MET provider outcome without rescue.",
+  "artifacts": [
+    "provider-run-redacted.json (committed; full content elided with sha256 markers)",
+    "selfdev-run-record.json",
+    "selfdev-comparison.json",
+    "agent-os.sqlite3",
+    "provider-run-output.json (raw, sha256:989f9e75ff39f31437103665ceddb77bff9fa9f17a1d6811df786d3ae196bee2, retained locally uncommitted per redaction convention)"
+  ]
+}
