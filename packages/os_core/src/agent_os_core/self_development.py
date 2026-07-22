@@ -465,6 +465,12 @@ def build_self_development_comparison_receipt(
     actions: list[str] = []
     _validate_baseline_record(receipt, baseline_record, blockers, actions)
     _validate_run_record(receipt, selfdev_run_record, blockers, actions)
+    _validate_distinct_evidence_refs(
+        baseline_record,
+        selfdev_run_record,
+        blockers,
+        actions,
+    )
     if blockers:
         raise SelfDevelopmentValidationError(
             RUN_DENIED,
@@ -580,6 +586,20 @@ def _validate_run_record(
     if not run_record.evidence_refs:
         blockers.append("SELFDEV_RUN_EVIDENCE_MISSING")
         actions.append("Attach durable SELFDEV run evidence references.")
+
+
+def _validate_distinct_evidence_refs(
+    baseline: SelfDevelopmentBaselineRecord,
+    run_record: SelfDevelopmentRunRecord,
+    blockers: list[str],
+    actions: list[str],
+) -> None:
+    overlap = set(baseline.evidence_refs).intersection(run_record.evidence_refs)
+    if overlap:
+        blockers.append("EVIDENCE_REF_OVERLAP")
+        actions.append(
+            "Use arm-distinct evidence references for baseline and SELFDEV run records.",
+        )
 
 
 def _validate_outcome_status(field: str, outcome_status: str) -> str:

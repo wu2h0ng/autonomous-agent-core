@@ -1,0 +1,41 @@
+{
+  "admission_receipt": {
+    "mandate_id": "META-SHADOW-MANDATE-0",
+    "repository_id": "autonomous-agent-core",
+    "repository_head": "59112db",
+    "isolated_workspace": "/Users/mima1234/Documents/AI-Agent-Projects/autonomous-agent-core/.worktrees/canonical-convergence-20260715/.worktrees/selfdev-real-target-evidence-overlap-20260722/baseline",
+    "isolated_branch": "codex/selfdev-evidence-overlap-20260722",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "verifier_commands": [
+      "python -m pytest"
+    ],
+    "expected_outcome_id": "expected:selfdev-evidence-overlap-20260722",
+    "rollback_strategy": "compensate_task",
+    "operator_intervention_count": 0,
+    "hcw_minutes": 0.0,
+    "baseline_assignment_id": "baseline:selfdev-evidence-overlap-20260722",
+    "receipt_digest": "9e21dedb4faf01c3b31702e1748533cbe14f700ce67451488466bdeeefcb2bec"
+  },
+  "baseline_record": {
+    "baseline_assignment_id": "baseline:selfdev-evidence-overlap-20260722",
+    "repository_id": "autonomous-agent-core",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "operator_intervention_count": 1,
+    "hcw_minutes": 1.5,
+    "outcome_status": "VERIFIED",
+    "evidence_refs": [
+      "agent-run:selfdev-real-target-evidence-overlap-20260722:founder-model-tools-source-fix",
+      "verifier:9015b4547a9bbc13117d640f7e49789e54640fc0dfd6560a05e96948773bc7b9"
+    ],
+    "record_digest": "34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235"
+  },
+  "verifier": {
+    "command": "python -m pytest",
+    "exit_code": 0,
+    "stdout_sha256": "1cdcef17740e4ba7dd32ef3b6bc7914df91b9ebefbffd1cfff9715e84f4564c2",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+    "receipt_digest": "9e21dedb4faf01c3b31702e1748533cbe14f700ce67451488466bdeeefcb2bec",
+    "evidence_ref": "verifier:9015b4547a9bbc13117d640f7e49789e54640fc0dfd6560a05e96948773bc7b9"
+  }
+}

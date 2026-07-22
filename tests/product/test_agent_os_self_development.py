@@ -20,6 +20,7 @@ from agent_os_contracts import (
 from agent_os_core import (
     DeterministicProvider,
     INVALID_SELFDEV_TARGET,
+    RUN_DENIED,
     SelfDevelopmentTaskSpec,
     SelfDevelopmentValidationError,
     WorkerInterrupted,
@@ -414,3 +415,46 @@ def test_selfdev_comparison_receipt_refuses_mismatched_baseline() -> None:
             baseline_record=baseline,
             selfdev_run_record=run_record,
         )
+
+
+def test_selfdev_comparison_receipt_refuses_shared_evidence_refs() -> None:
+    spec = SelfDevelopmentTaskSpec(
+        mandate_id="META-SHADOW-MANDATE-0",
+        repository_id="autonomous-agent-core",
+        repository_head="0123456789abcdef",
+        isolated_workspace="/tmp/agent-os-selfdev",
+        isolated_branch="codex/selfdev-compare-evidence",
+        target_path=AGENT_OS_TARGET,
+        verifier_commands=("python -m pytest",),
+        expected_outcome_id="expected:selfdev-compare-evidence",
+        rollback_strategy="compensate_task",
+        operator_intervention_count=1,
+        hcw_minutes=2.0,
+        baseline_assignment_id="baseline:selfdev-compare-evidence",
+    )
+    baseline = build_self_development_baseline_record(
+        baseline_assignment_id="baseline:selfdev-compare-evidence",
+        repository_id="autonomous-agent-core",
+        target_path=AGENT_OS_TARGET,
+        operator_intervention_count=2,
+        hcw_minutes=5.0,
+        outcome_status="VERIFIED",
+        evidence_refs=("shared:evidence", "baseline:run"),
+    )
+    run_record = build_self_development_run_record(
+        spec,
+        operator_intervention_count=1,
+        hcw_minutes=2.0,
+        outcome_status="VERIFIED",
+        evidence_refs=("shared:evidence", "selfdev:run"),
+    )
+
+    with pytest.raises(SelfDevelopmentValidationError) as exc_info:
+        build_self_development_comparison_receipt(
+            spec,
+            baseline_record=baseline,
+            selfdev_run_record=run_record,
+        )
+
+    assert exc_info.value.code == RUN_DENIED
+    assert "EVIDENCE_REF_OVERLAP" in exc_info.value.detail

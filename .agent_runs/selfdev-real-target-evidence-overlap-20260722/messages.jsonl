@@ -1,0 +1,4 @@
+{"type": "run_start", "note": "Selected non-synthetic SELFDEV target: comparison evidence overlap fail-closed.", "ts": "2026-07-22T20:26:18+0800"}
+{"type": "baseline", "status": "VERIFIED", "record_digest": "34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235", "ts": "2026-07-22T20:26:18+0800"}
+{"type": "provider", "status": "BLOCKED_BEFORE_RESULT", "note": "provider reached WAITING_APPROVAL once with a patch proposal, but the orchestration script treated TaskStatus.WAITING as unexpected instead of checking RunStatus.WAITING_APPROVAL; later cross-process recovery hit exact Product configuration drift and commitment expiry; a fresh provider retry with 180s timeout failed with provider UNAVAILABLE / RemoteDisconnected.", "ts": "2026-07-22T20:26:18+0800"}
+{"type": "boundary", "note": "No comparative HCW/product-value claim. This records a real blocker map and a manually integrated guardrail change only.", "ts": "2026-07-22T20:26:18+0800"}

@@ -1,0 +1,18 @@
+{
+  "run_id": "selfdev-real-target-evidence-overlap-20260722",
+  "target_kind": "non_synthetic_agent_os_source_plus_test_fixture",
+  "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+  "implementation_status": "IMPLEMENTED_MANUAL_AND_TARGETED_VERIFIED",
+  "baseline_status": "VERIFIED",
+  "baseline_record_digest": "34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235",
+  "provider_status": "BLOCKED_BEFORE_RESULT",
+  "provider_partial_evidence": "provider reached WAITING_APPROVAL once with a patch proposal, but the orchestration script treated TaskStatus.WAITING as unexpected instead of checking RunStatus.WAITING_APPROVAL; later cross-process recovery hit exact Product configuration drift and commitment expiry; a fresh provider retry with 180s timeout failed with provider UNAVAILABLE / RemoteDisconnected.",
+  "comparison_status": "NOT_EMITTED",
+  "blocker": "SELFDEV non-synthetic provider result/compare requires same-process approval continuation or a durable exact-snapshot resume path that preserves provider profile, execution grants and commitment validity.",
+  "verification": [
+    "pytest tests/product/test_agent_os_self_development.py -q -> 6 passed",
+    "ruff targeted -> clean",
+    "pyright targeted -> 0 errors"
+  ],
+  "claim_boundary": "No comparative HCW/product-value claim. This records a real blocker map and a manually integrated guardrail change only."
+}

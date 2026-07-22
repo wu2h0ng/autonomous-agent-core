@@ -1,0 +1,13 @@
+{
+  "baseline_assignment_id": "baseline:selfdev-evidence-overlap-20260722",
+  "repository_id": "autonomous-agent-core",
+  "target_path": "packages/os_core/src/agent_os_core/self_development.py",
+  "operator_intervention_count": 1,
+  "hcw_minutes": 1.5,
+  "outcome_status": "VERIFIED",
+  "evidence_refs": [
+    "agent-run:selfdev-real-target-evidence-overlap-20260722:founder-model-tools-source-fix",
+    "verifier:9015b4547a9bbc13117d640f7e49789e54640fc0dfd6560a05e96948773bc7b9"
+  ],
+  "record_digest": "34614e2df74b5284ef87a054793e60271eb171185a9983dde4fd730787d2c235"
+}
