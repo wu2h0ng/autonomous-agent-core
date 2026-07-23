@@ -1,6 +1,8 @@
 # AGENT-OS-SELFDEV-2 — Public-Benchmark Baseline Round: Design Packet (for CTO gate)
 
-> Status: `DESIGN_ONLY` — requires founder/CTO gate before any implementation.
+> Status: `GATED` — founder/CTO gate passed 2026-07-23: D1 yes, D2 SWE-bench
+> Verified filtered subset, D3 yes (N=12 + reserve 6, 2 attempts per task per
+> arm), D4 yes (ADR scope authorized), D5 containerized per-task runner.
 > Date: 2026-07-23. Author: kimi-cli session.
 > Independent review: kimi subagent (blind-anchored per RR-0031, no builder run
 > history). Round 1: CHANGES_REQUESTED (F-1..F-11). Round 2: CHANGES_REQUESTED
